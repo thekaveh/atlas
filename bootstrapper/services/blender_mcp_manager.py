@@ -43,9 +43,17 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+
+from services import remove_state_directory, tracked_process_may_survive
+
+try:  # POSIX advisory locking; absent on native Windows
+    import fcntl
+except ImportError:  # pragma: no cover - Windows fallback
+    fcntl = None  # type: ignore[assignment]
 
 # Pinned upstream add-on (ahujasid/blender-mcp). Override via
 # BLENDER_MCP_ADDON_REF / BLENDER_MCP_ADDON_SHA256 when deliberately moving
@@ -119,6 +127,10 @@ except ImportError:  # pragma: no cover - defensive loose-module fallback
 class BlenderMcpError(RuntimeError):
     """Raised for managed blender-mcp lifecycle failures."""
 
+    def __init__(self, message: str, *, surviving_process: bool = False) -> None:
+        super().__init__(message)
+        self.surviving_process = surviving_process
+
 
 @dataclass
 class ProcessStatus:
@@ -155,6 +167,10 @@ class BlenderMcpManager:
         self.launcher_path = self.state_dir / "launcher.py"
         self.pid_file = self.state_dir / "blender-mcp.pid"
         self.log_file = self.state_dir / "blender-mcp.log"
+        self.launch_lock_file = (
+            self.state_dir.parent / f".{self.state_dir.name}.launch.lock"
+        )
+        self._untracked_pid: Optional[int] = None
 
     # ── resolution ───────────────────────────────────────────────────
     def blender_binary(self) -> Optional[str]:
@@ -233,6 +249,10 @@ class BlenderMcpManager:
         """Idempotently provision the pinned add-on + launcher into the state
         dir. Raises BlenderMcpError on a sha mismatch (never installs
         unverified code that will later execute arbitrary Python)."""
+        with self._launch_guard():
+            self._install_locked()
+
+    def _install_locked(self) -> None:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         if self.addon_file:
             source = Path(self.addon_file).expanduser()
@@ -263,11 +283,34 @@ class BlenderMcpManager:
 
     # ── lifecycle ────────────────────────────────────────────────────
     def start(self, *, wait_timeout: float = 45.0) -> ProcessStatus:
+        with self._launch_guard():
+            return self._start_locked(wait_timeout)
+
+    @contextmanager
+    def _launch_guard(self):
+        self.state_dir.parent.mkdir(parents=True, exist_ok=True)
+        if fcntl is None:
+            yield
+            return
+        with open(self.launch_lock_file, "w", encoding="utf-8") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+    def _start_locked(self, wait_timeout: float) -> ProcessStatus:
         if not self._bind_is_loopback() and not self.allow_remote:
             raise BlenderMcpError(
                 f"refusing non-loopback bind {self.bind} (execute_code runs "
                 f"arbitrary Python); set BLENDER_MCP_ALLOW_REMOTE=true to override"
             )
+        from services import refuse_untrusted_tracked_pid
+        refuse_untrusted_tracked_pid(
+            (self._read_pid() or self._untracked_pid, self.pid_file),
+            self._managed_process_alive, self._pid_is_stranger,
+            ("Blender MCP", BlenderMcpError),
+        )
         status = self.status()
         if status.running:
             return status
@@ -292,19 +335,37 @@ class BlenderMcpManager:
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
             )
+        self._untracked_pid = process.pid
         # Atomic + stamped with the start time, so the ownership guard
         # has an identity to compare and a torn read cannot silently
         # disable it.
         from services.managed_host import (
             ManagedHostManager as _MHM,
+            compensate_failed_launch as _compensate,
+            raise_launch_recording_failure as _raise_recording_failure,
+            require_process_start_time as _require_started,
             write_pid_file_with_identity as _write_pid,
         )
 
-        try:
-            _started = _MHM._process_start_time(process.pid)
-        except Exception:  # noqa: BLE001 - a probe failure is not a launch failure
-            _started = None
-        _write_pid(self.pid_file, process.pid, _started)
+        if process.poll() is None:
+            try:
+                _started = _require_started(process.pid, _MHM._process_start_time)
+                _write_pid(self.pid_file, process.pid, _started)
+            except BaseException as exc:
+                outcome = _compensate(
+                    process.pid,
+                    self.pid_file,
+                    lambda: _MHM._terminate_untracked(process),
+                )
+                if outcome.terminated:
+                    self._untracked_pid = None
+                _raise_recording_failure(
+                    exc,
+                    process.pid,
+                    outcome,
+                    ("managed Blender process identity", BlenderMcpError),
+                )
+            self._untracked_pid = None
         deadline = time.monotonic() + wait_timeout
         while time.monotonic() < deadline:
             if process.poll() is not None:
@@ -313,24 +374,45 @@ class BlenderMcpManager:
                 return ProcessStatus(running=True, pid=process.pid, port_open=True)
             time.sleep(0.5)
         tail = self._log_tail()
-        self.stop()
+        self._stop_locked()
         raise BlenderMcpError(
             f"headless Blender did not open {self.bind}:{self.port} within "
             f"{wait_timeout:.0f}s. Log tail:\n{tail}"
         )
 
     def stop(self) -> bool:
-        pid = self._read_pid()
-        if pid is None or not self._pid_alive(pid):
+        with self._launch_guard():
+            return self._stop_locked()
+
+    def _stop_locked(self) -> bool:
+        pid = self._read_pid() or self._untracked_pid
+        if pid is None:
+            _pid, evidence_may_survive = tracked_process_may_survive(self)
+            if evidence_may_survive:
+                return False
             self.pid_file.unlink(missing_ok=True)
+            self._untracked_pid = None
             return True
-        # PID-reuse guard, mirroring comfyui_mps_manager and vllm_metal_manager:
-        # a crashed bridge's pid can be recycled by the OS onto an unrelated
-        # process, and the pid file outlives the crash. Signalling blind would
-        # SIGTERM (then SIGKILL) a stranger. Drop the stale pid instead.
+        if not self._pid_alive(pid):
+            group_survives = self._managed_process_alive(pid)
+            stopped = (
+                pid is None
+                or not group_survives
+                or (
+                    self._untracked_pid == pid
+                    and self._sweep_orphaned_group(pid)
+                )
+            )
+            if stopped:
+                self.pid_file.unlink(missing_ok=True)
+                self._untracked_pid = None
+            return stopped
+        # PID-reuse guard: signal only when start-time identity positively
+        # proves ownership; unknown or mismatched evidence is preserved.
         if self._pid_is_stranger(pid):
-            self.pid_file.unlink(missing_ok=True)
-            return True
+            # Ownership is mismatched or unknowable. Preserve the pid file for
+            # manual inspection; never signal or silently orphan the process.
+            return False
         try:
             os.killpg(pid, signal.SIGTERM)
         except (ProcessLookupError, PermissionError, OSError):
@@ -339,8 +421,9 @@ class BlenderMcpManager:
             except OSError:
                 return False
         for _ in range(20):
-            if not self._pid_alive(pid):
+            if not self._managed_process_alive(pid):
                 self.pid_file.unlink(missing_ok=True)
+                self._untracked_pid = None
                 return True
             time.sleep(0.25)
         try:
@@ -348,19 +431,25 @@ class BlenderMcpManager:
         except OSError:
             pass
         for _ in range(20):  # SIGKILL is not instantaneous — grant a grace window
-            if not self._pid_alive(pid):
+            if not self._managed_process_alive(pid):
                 self.pid_file.unlink(missing_ok=True)
+                self._untracked_pid = None
                 return True
             time.sleep(0.25)
-        stopped = not self._pid_alive(pid)
+        stopped = not self._managed_process_alive(pid)
         if stopped:
             self.pid_file.unlink(missing_ok=True)
+            self._untracked_pid = None
         # a failed stop KEEPS the pid file so the process is not orphan-tracked
         return stopped
 
     def status(self) -> ProcessStatus:
         pid = self._read_pid()
-        running = pid is not None and self._pid_alive(pid)
+        running = (
+            pid is not None
+            and self._pid_alive(pid)
+            and not self._pid_is_stranger(pid)
+        )
         return ProcessStatus(
             running=running, pid=pid if running else None, port_open=self._port_in_use()
         )
@@ -398,14 +487,26 @@ class BlenderMcpManager:
                 c["detail"] for c in result.checks if c["status"] == _FAIL
             )
             raise BlenderMcpError(f"preflight failed: {failures}")
-        already = self.status().running
-        self.install()
-        status = self.start()
+        with self._launch_guard():
+            already = self.status().running
+            self._install_locked()
+            status = self._start_locked(45.0)
         return status, not already
 
     def remove(self) -> None:
-        self.stop()
-        shutil.rmtree(self.state_dir, ignore_errors=True)
+        with self._launch_guard():
+            self._stop_locked()
+            pid, may_survive = tracked_process_may_survive(self)
+            if may_survive:
+                detail = f"pid {pid}" if pid is not None else "retained PID evidence"
+                raise BlenderMcpError(
+                    "refusing to remove managed Blender MCP state while its tracked "
+                    f"{detail} may still be alive"
+                )
+            remove_state_directory(
+                self.state_dir,
+                ("managed Blender MCP state directory", BlenderMcpError),
+            )
 
     # ── helpers ──────────────────────────────────────────────────────
     def _probe_host(self) -> str:
@@ -434,7 +535,7 @@ class BlenderMcpManager:
         return pid if pid > 0 else None
 
     def _pid_is_stranger(self, pid: int) -> bool:
-        """True only when we can PROVE ``pid`` is NOT the process we launched.
+        """True unless ``pid`` can be positively proven to be our process.
 
         Uses `(pid, start time)` — the identity the generic managed-host
         framework settled on — via its shared implementation.
@@ -447,41 +548,12 @@ class BlenderMcpManager:
         direction too — a wrapper script, `exec`, `setproctitle` or a
         gunicorn/celery master rewrites it.
 
-        Falls back to False (proceed) when unknowable: an unknowable probe
-        must never block teardown.
+        Unknown ownership refuses teardown; a manual cleanup is safer than
+        signalling an unrelated recycled PID.
         """
-        from services.managed_host import (
-            ManagedHostManager as _MHM,
-            read_recorded_start_time,
-            pid_is_stranger,
-        )
+        from services.managed_host import ManagedHostManager as _MHM, pid_is_stranger
 
-        if read_recorded_start_time(self.pid_file):
-            # Stamped by this version: `(pid, start time)` is an identity and
-            # gives a definitive answer.
-            return pid_is_stranger(pid, self.pid_file, _MHM._process_start_time)
-        # UNSTAMPED (a pid file written before the stamp existed). The identity
-        # check degrades to "proceed", which would signal a recycled pid — so
-        # keep the old argv heuristic for that transitional window. It is weak
-        # in one direction only: generic markers make it UNDER-refuse, never
-        # over-refuse, so as a fallback it can only add protection.
-        return self._argv_is_stranger(pid)
-
-    def _argv_is_stranger(self, pid: int) -> bool:
-        """Legacy command-line heuristic. Only for pid files with no stamp."""
-        try:
-            out = subprocess.run(
-                ["ps", "-ww", "-p", str(pid), "-o", "command="],
-                capture_output=True, text=True, encoding="utf-8",
-                errors="replace", timeout=5, check=False,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return False
-        cmdline = (out.stdout or "").strip()
-        if out.returncode != 0 or not cmdline:
-            return False
-        markers = ("blender", "Blender", str(self.launcher_path), str(self.state_dir))
-        return not any(marker in cmdline for marker in markers)
+        return pid_is_stranger(pid, self.pid_file, _MHM._process_start_time)
 
     @staticmethod
     def _reap_child(pid: int) -> None:
@@ -507,11 +579,19 @@ class BlenderMcpManager:
         except ProcessLookupError:
             return False
         except PermissionError:
-            # #647 doctrine (mirrors comfyui_mps_manager): a process we cannot
-            # signal is not ours — treat a recycled/stale pid as not-running
-            # rather than adopting (or later SIGTERMing) a stranger.
-            return False
+            return True  # exists, but ownership is untrusted
         return True
+
+    def _managed_process_alive(self, pid: int) -> bool:
+        from services.managed_host import ManagedHostManager as _MHM
+
+        return self._pid_alive(pid) or _MHM._group_survives(pid)
+
+    @staticmethod
+    def _sweep_orphaned_group(pid: int) -> bool:
+        from services.managed_host import ManagedHostManager as _MHM
+
+        return _MHM._sweep_orphaned_group(pid)
 
     def _log_tail(self, lines: int = 12) -> str:
         try:

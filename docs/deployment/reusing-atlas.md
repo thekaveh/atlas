@@ -687,8 +687,9 @@ start.
 
 **Shared managed-host runtimes and teardown.** Some sources run a **native
 host-global process** rather than a container: Apple-Silicon/Metal ComfyUI
-(`COMFYUI_SOURCE=managed-localhost-mps`) and vLLM Metal
-(`VLLM_METAL_SOURCE=managed-localhost`). These listen on a fixed loopback port
+(`COMFYUI_SOURCE=managed-localhost-mps`), vLLM Metal
+(`VLLM_METAL_SOURCE=managed-localhost`), and headless Blender MCP
+(`BLENDER_MCP_SOURCE=managed-localhost`). These listen on fixed loopback ports
 and are shared by **every** Atlas consumer on the machine — they are not
 Compose-project resources, so `docker compose down` never touches them. Because
 multiple concurrent consumers (disjoint project names + base-port ranges) can
@@ -700,11 +701,11 @@ share one such runtime, a project-scoped stop leaves it running by default:
 
 If a managed host process is detected running, `stop.sh` prints an advisory
 naming the explicit opt-in. To deliberately tear the host-global runtimes down
-(ComfyUI-MPS **and** vLLM-Metal), pass `--stop-managed-hosts` — this affects
+(ComfyUI-MPS, vLLM-Metal, **and** Blender MCP), pass `--stop-managed-hosts` — this affects
 **all** consumers using them and is reported as such:
 
 ```bash
-./stop.sh --stop-managed-hosts        # also stop the host-global ComfyUI-MPS / vLLM-Metal processes
+./stop.sh --stop-managed-hosts        # also stop ComfyUI-MPS / vLLM-Metal / Blender MCP
 ```
 
 Standard and `--cold` stops follow the same rule. This makes unattended

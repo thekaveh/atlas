@@ -412,6 +412,10 @@ def test_start_launches_and_records_pid(tmp_path, monkeypatch):
         return SimpleNamespace(pid=4242)
 
     monkeypatch.setattr(mod.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(
+        "services.managed_host.ManagedHostManager._process_start_time",
+        staticmethod(lambda _pid: "Mon Jan  1 00:00:00 2024"),
+    )
     status, created = mgr.start_with_ownership()
     assert status.running and status.pid == 4242 and status.port == 8188
     assert created is True
@@ -504,7 +508,7 @@ def test_stop_refuses_to_kill_a_recycled_stranger_pid(tmp_path, monkeypatch):
     # only the liveness probe (sig 0) is allowed; a real signal is a bug
     monkeypatch.setattr(mod.os, "kill", lambda pid, sig: None if sig == 0 else boom(pid, sig))
     assert mgr.stop() is False
-    assert not mgr.pid_file.exists()  # stale pidfile cleared
+    assert mgr.pid_file.exists()  # preserve evidence for inspection/retry
 
 
 def test_stop_reaps_exited_leader_during_grace_period(tmp_path, monkeypatch):
@@ -562,6 +566,7 @@ def test_stop_waits_for_group_after_sigkill(tmp_path, monkeypatch):
             state["killed"] = True
 
     clock = {"value": 0.0}
+    monkeypatch.setattr(mgr, "_pid_alive", alive)
     monkeypatch.setattr(mgr, "_managed_process_alive", alive)
     monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: False)
     monkeypatch.setattr(mod.os, "killpg", killpg)
@@ -577,26 +582,47 @@ def test_stop_waits_for_group_after_sigkill(tmp_path, monkeypatch):
     assert state["post_kill_probes"] >= 3
 
 
-def test_stop_signals_process_group_when_leader_has_exited(tmp_path, monkeypatch):
+def test_stop_refuses_stale_leaderless_group_evidence(tmp_path, monkeypatch):
     mgr = _mgr(tmp_path)
     mgr.state_dir.mkdir(parents=True)
     mgr.pid_file.write_text("777")
+    monkeypatch.setattr(mgr, "_pid_alive", lambda pid: False)
+    monkeypatch.setattr(mgr, "_process_group_alive", lambda pgid: True)
+    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: True)
+    monkeypatch.setattr(
+        mgr,
+        "_sweep_orphaned_group",
+        lambda _pid: pytest.fail("stale PID evidence authorized a group signal"),
+        raising=False,
+    )
+
+
+    assert mgr.stop() is False
+    assert mgr.pid_file.exists()
+
+
+def test_stop_sweeps_current_launch_group_after_leader_exits(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    mgr._untracked_pid = 777
     alive = {"group": True}
     monkeypatch.setattr(mgr, "_pid_alive", lambda pid: False)
     monkeypatch.setattr(mgr, "_process_group_alive", lambda pgid: alive["group"])
-    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: False)
-    signals = []
+    monkeypatch.setattr(
+        mgr,
+        "_pid_is_stranger",
+        lambda _pid: pytest.fail("a dead leader has no probeable identity"),
+    )
+    swept = []
 
-    def fake_killpg(pgid, sig):
-        signals.append((pgid, sig))
-        if sig == mod.signal.SIGINT:
-            alive["group"] = False
+    def sweep(pgid):
+        swept.append(pgid)
+        alive["group"] = False
+        return True
 
-    monkeypatch.setattr(mod.os, "killpg", fake_killpg)
-    monkeypatch.setattr(mod.os, "waitpid", lambda pid, flags: (pid, 0))
-
+    monkeypatch.setattr(mgr, "_sweep_orphaned_group", sweep, raising=False)
     assert mgr.stop() is True
-    assert signals == [(777, mod.signal.SIGINT)]
+    assert swept == [777]
+    assert mgr._untracked_pid is None
 
 
 def test_stop_returns_false_without_process(tmp_path):
@@ -639,29 +665,32 @@ def test_status_recycled_pid_reports_not_running(tmp_path, monkeypatch):
     assert not st.running and st.pid is None
 
 
-def test_pid_alive_treats_permission_denied_as_not_ours(tmp_path, monkeypatch):
-    """#647 AC#3: a PID we cannot signal (PermissionError — a foreign, likely
-    root-owned, process recycled the number) is NOT our user-owned process."""
+def test_permission_denied_pid_is_live_but_never_adopted(tmp_path, monkeypatch):
+    """Permission denial proves existence, not ownership."""
     def denied(pid, sig):
         raise PermissionError
 
     monkeypatch.setattr(mod.os, "kill", denied)
-    assert ComfyUiMpsManager._pid_alive(4242) is False
+    assert ComfyUiMpsManager._pid_alive(4242) is True
 
     monkeypatch.setattr(mod.os, "killpg", denied)
-    assert ComfyUiMpsManager._process_group_alive(4242) is False
+    assert ComfyUiMpsManager._process_group_alive(4242) is True
 
     # …and status() therefore reports not running for such a PID.
     mgr = _mgr(tmp_path)
     mgr.state_dir.mkdir(parents=True)
     mgr.pid_file.write_text("4242")
+    before = mgr.pid_file.read_bytes()
     st = mgr.status()
     assert not st.running and st.pid is None
+    assert mgr.stop() is False
+    with pytest.raises(ComfyUiMpsError, match="ownership is mismatched or unknown"):
+        mgr.start_with_ownership()
+    assert mgr.pid_file.read_bytes() == before
 
 
-def test_start_clears_stale_stranger_pidfile_and_launches(tmp_path, monkeypatch):
-    """#647 AC#2: start() on a stale/stranger pidfile clears it and launches
-    instead of no-opping."""
+def test_start_refuses_stale_stranger_pidfile_without_launching(tmp_path, monkeypatch):
+    """A live untrusted PID is never replaced or silently orphaned."""
     mgr = _mgr(tmp_path)
     _install_stub(mgr)
     mgr.state_dir.mkdir(parents=True, exist_ok=True)
@@ -669,24 +698,16 @@ def test_start_clears_stale_stranger_pidfile_and_launches(tmp_path, monkeypatch)
     # The PID is alive but a stranger (recycled), so status() is not running.
     monkeypatch.setattr(ComfyUiMpsManager, "_managed_process_alive", lambda self, pid: True)
     monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda self, pid: True)
-    monkeypatch.setattr(ComfyUiMpsManager, "_port_in_use", lambda self: False)
-    launched: list[int] = []
+    before = mgr.pid_file.read_bytes()
+    monkeypatch.setattr(
+        mod.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: pytest.fail("must not launch a replacement"),
+    )
 
-    def fake_popen(*_args, **_kwargs):
-        # Ignore the `ps` identity probe that stamps the pid file.
-        if _args and _args[0] and _args[0][0] == "ps":
-            return SimpleNamespace(pid=0, returncode=0, stdout="", stderr="")
-        launched.append(7777)
-        return SimpleNamespace(pid=7777)
-
-    monkeypatch.setattr(mod.subprocess, "Popen", fake_popen)
-
-    status = mgr.start()
-    assert launched == [7777]  # it relaunched, did not no-op
-    assert status.pid == 7777
-    # The stale pointer was replaced by the freshly launched PID. The file is
-    # now `pid\nstart_utc=...` — the pid is the first line (see `_read_pid`).
-    assert mgr.pid_file.read_text(encoding="utf-8").splitlines()[0] == "7777"
+    with pytest.raises(ComfyUiMpsError, match="ownership is mismatched or unknown"):
+        mgr.start()
+    assert mgr.pid_file.read_bytes() == before
 
 
 # ─────────────────────────── health ───────────────────────────
@@ -788,6 +809,10 @@ def test_concurrent_starts_assign_ownership_to_one_launcher(tmp_path, monkeypatc
         return SimpleNamespace(pid=4242)
 
     monkeypatch.setattr(mod.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(
+        "services.managed_host.ManagedHostManager._process_start_time",
+        staticmethod(lambda _pid: "Mon Jan  1 00:00:00 2024"),
+    )
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(
@@ -824,6 +849,30 @@ def test_launch_metadata_failure_terminates_new_process(tmp_path, monkeypatch):
     assert not mgr.pid_file.exists()
 
 
+def test_missing_launch_identity_terminates_new_process(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    _install_stub(mgr)
+    monkeypatch.setattr(mgr, "_port_in_use", lambda: False)
+    monkeypatch.setattr(
+        mod.subprocess, "Popen", lambda *_args, **_kwargs: SimpleNamespace(pid=5151)
+    )
+    monkeypatch.setattr(
+        "services.managed_host.ManagedHostManager._process_start_time",
+        staticmethod(lambda _pid: None),
+    )
+    monkeypatch.setattr(mod.time, "sleep", lambda _seconds: None)
+    terminated: list[int] = []
+    monkeypatch.setattr(
+        mgr, "_terminate_pid", lambda pid: terminated.append(pid) or True
+    )
+
+    with pytest.raises(ComfyUiMpsError, match="child was terminated"):
+        mgr.start_with_ownership()
+
+    assert terminated == [5151]
+    assert not mgr.pid_file.exists()
+
+
 def test_failed_launch_compensation_retains_untracked_pid(tmp_path, monkeypatch):
     mgr = _mgr(tmp_path)
     _install_stub(mgr)
@@ -836,6 +885,10 @@ def test_failed_launch_compensation_retains_untracked_pid(tmp_path, monkeypatch)
         "_write_status",
         lambda **_kwargs: (_ for _ in ()).throw(OSError("metadata failed")),
     )
+    monkeypatch.setattr(
+        "services.managed_host.ManagedHostManager._process_start_time",
+        staticmethod(lambda _pid: "Mon Jan  1 00:00:00 2024"),
+    )
     monkeypatch.setattr(mgr, "_terminate_pid", lambda _pid: False)
 
     with pytest.raises(ComfyUiMpsError, match="could not be terminated") as raised:
@@ -843,6 +896,32 @@ def test_failed_launch_compensation_retains_untracked_pid(tmp_path, monkeypatch)
 
     assert raised.value.surviving_process is True
     assert mgr._untracked_pid == 5150
+    assert mgr.pid_file.read_text(encoding="utf-8").splitlines() == [
+        "5150", "start_utc=Mon Jan  1 00:00:00 2024",
+    ]
+
+
+def test_launch_identity_interrupt_compensates_and_propagates(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    _install_stub(mgr)
+    monkeypatch.setattr(mgr, "_port_in_use", lambda: False)
+    monkeypatch.setattr(
+        mod.subprocess, "Popen", lambda *_args, **_kwargs: SimpleNamespace(pid=5152)
+    )
+    monkeypatch.setattr(
+        "services.managed_host.require_process_start_time",
+        lambda *_args: (_ for _ in ()).throw(KeyboardInterrupt),
+    )
+    terminated: list[int] = []
+    monkeypatch.setattr(
+        mgr, "_terminate_pid", lambda pid: terminated.append(pid) or True
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        mgr.start_with_ownership()
+
+    assert terminated == [5152]
+    assert not mgr.pid_file.exists()
 
 
 def test_launch_lock_timeout_is_bounded(tmp_path, monkeypatch):
@@ -887,10 +966,9 @@ def test_remove_preserves_state_when_process_survives(tmp_path, monkeypatch):
     mgr = _mgr(tmp_path)
     mgr.state_dir.mkdir(parents=True)
     (mgr.state_dir / "junk").write_text("x")
+    mgr.pid_file.write_text("5150\n", encoding="utf-8")
     monkeypatch.setattr(ComfyUiMpsManager, "_stop_locked", lambda self: False)
-    monkeypatch.setattr(
-        mgr, "status", lambda: mod.ProcessStatus(True, 5150, mgr.port)
-    )
+    monkeypatch.setattr(mgr, "_pid_alive", lambda _pid: True)
 
     with pytest.raises(ComfyUiMpsError, match="refusing to remove"):
         mgr.remove()
@@ -1088,6 +1166,10 @@ def test_listen_flows_to_comfyui_launch_argv(tmp_path, monkeypatch):
         return SimpleNamespace(pid=4242)
 
     monkeypatch.setattr(mod.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(
+        "services.managed_host.ManagedHostManager._process_start_time",
+        staticmethod(lambda _pid: "Mon Jan  1 00:00:00 2024"),
+    )
     mgr.start()
 
     args = captured["args"]
@@ -1133,8 +1215,8 @@ def test_pid_ownership_uses_start_time_not_argv(tmp_path, monkeypatch):
     assert mgr._pid_is_stranger(4242) is False
 
 
-def test_a_legacy_unstamped_pid_file_degrades_to_proceed(tmp_path, monkeypatch):
-    """An unknowable probe must never block teardown — the pre-existing rule."""
+def test_a_legacy_unstamped_pid_file_refuses_unknown_ownership(tmp_path, monkeypatch):
+    """An unknowable probe must never authorize a signal."""
     mgr = _mgr(tmp_path)
     mgr.state_dir.mkdir(parents=True, exist_ok=True)
     mgr.pid_file.write_text("4242\n", encoding="utf-8")
@@ -1142,7 +1224,30 @@ def test_a_legacy_unstamped_pid_file_degrades_to_proceed(tmp_path, monkeypatch):
         "services.managed_host.ManagedHostManager._process_start_time",
         staticmethod(lambda pid: "Tue Feb  2 02:02:02 2027"),
     )
-    assert mgr._pid_is_stranger(4242) is False
+    assert mgr._pid_is_stranger(4242) is True
+
+
+def test_unstamped_comfyui_marker_still_refuses_ownership(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+    mgr.pid_file.write_text("4242\n", encoding="utf-8")
+    result = type("Result", (), {"returncode": 0, "stdout": "python main.py ComfyUI"})()
+    monkeypatch.setattr(mod.subprocess, "run", lambda *_args, **_kwargs: result)
+    assert mgr._pid_is_stranger(4242) is True
+
+
+def test_start_refuses_live_unknown_pid_and_preserves_tracking(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+    mgr.pid_file.write_text("4242\n", encoding="utf-8")
+    before = mgr.pid_file.read_bytes()
+    monkeypatch.setattr(mgr, "_managed_process_alive", lambda _pid: True)
+    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda _pid: True)
+
+    with pytest.raises(ComfyUiMpsError, match="ownership is mismatched or unknown"):
+        mgr.start_with_ownership()
+
+    assert mgr.pid_file.read_bytes() == before
 
 
 def test_the_pid_file_round_trips_through_its_own_reader(tmp_path):

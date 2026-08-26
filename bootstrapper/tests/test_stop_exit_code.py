@@ -15,7 +15,7 @@ import stop as stop_module
 @pytest.fixture(autouse=True)
 def _isolate_native_host_state(monkeypatch):
     """CLI tests must never inspect or signal the developer's real host PIDs."""
-    from services import comfyui_mps_manager, vllm_metal_manager
+    from services import blender_mcp_manager, comfyui_mps_manager, vllm_metal_manager
 
     class IdleManager:
         def status(self):
@@ -26,6 +26,7 @@ def _isolate_native_host_state(monkeypatch):
 
     monkeypatch.setattr(comfyui_mps_manager, "manager_from_env", lambda _env: IdleManager())
     monkeypatch.setattr(vllm_metal_manager, "manager_from_env", lambda _env: IdleManager())
+    monkeypatch.setattr(blender_mcp_manager, "manager_from_env", lambda _env: IdleManager())
 
 
 def _stopper_with_stop_result(monkeypatch, rc: int):
@@ -183,6 +184,54 @@ def test_main_exits_nonzero_when_requested_hosts_cleanup_fails(monkeypatch):
     result = click.testing.CliRunner().invoke(stop_module.main, ["--clean-hosts"])
 
     assert result.exit_code == 1
+    assert "stopped successfully" not in result.output
+    assert "completed with errors" in result.output
+
+
+def test_project_name_persistence_failure_does_not_abort_teardown(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        stop_module.AtlasStopper,
+        "persist_project_name",
+        lambda self, name: False,
+    )
+    monkeypatch.setattr(
+        stop_module.AtlasStopper,
+        "show_configuration_info",
+        lambda self, cold, clean, project_name_override=None: project_name_override,
+    )
+    monkeypatch.setattr(stop_module.AtlasStopper, "ensure_dependencies_available", lambda self: True)
+    monkeypatch.setattr(
+        stop_module.AtlasStopper,
+        "stop_services",
+        lambda self, cold, project_name: calls.append(project_name) or True,
+    )
+
+    result = click.testing.CliRunner().invoke(stop_module.main, ["--project", "demo"])
+
+    assert result.exit_code == 0
+    assert calls == ["demo"]
+    assert "could not persist PROJECT_NAME" in result.output
+
+
+def test_missing_sudo_is_reported_as_hosts_cleanup_failure(monkeypatch):
+    import importlib
+
+    system_utils = importlib.import_module("utils.system")
+    monkeypatch.setattr(system_utils, "is_elevated", lambda: False)
+    monkeypatch.setattr(
+        stop_module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(FileNotFoundError("sudo")),
+    )
+
+    assert stop_module._run_privileged_hosts_cleanup() is False
+
+
+def test_stop_managed_hosts_help_names_blender_mcp():
+    result = click.testing.CliRunner().invoke(stop_module.main, ["--help"])
+    assert result.exit_code == 0
+    assert "Blender MCP" in result.output
 
 
 def test_privileged_hosts_cleanup_uses_bytecode_free_python_child(monkeypatch):
@@ -242,6 +291,11 @@ def test_main_exits_nonzero_when_compose_version_preflight_fails(monkeypatch):
         "stop_managed_vllm_metal",
         lambda self: native_stops.append("vllm") or True,
     )
+    monkeypatch.setattr(
+        stop_module.AtlasStopper,
+        "stop_managed_blender_mcp",
+        lambda self: native_stops.append("blender") or True,
+    )
 
     # With --stop-managed-hosts (opt-in since #655), a Docker preflight failure
     # must still not strand the requested managed-host teardown — it runs after
@@ -249,7 +303,7 @@ def test_main_exits_nonzero_when_compose_version_preflight_fails(monkeypatch):
     result = click.testing.CliRunner().invoke(stop_module.main, ["--stop-managed-hosts"])
 
     assert result.exit_code == 1
-    assert native_stops == ["comfyui", "vllm"]
+    assert native_stops == ["comfyui", "vllm", "blender"]
 
 
 def test_main_exits_2_for_invalid_persisted_project_before_preflights(tmp_path, monkeypatch):

@@ -422,8 +422,8 @@ def prune_skip_hidden_selections(steps, selections: dict) -> dict:
     otherwise persist (an empty CSV wiping COMFYUI_USER_MODELS for a
     now-disabled service). Predicate exceptions mean "don't skip" (keep
     the commit), mirroring WizardScreen._step_should_skip. Synthetic
-    ``__secondary__:`` keys are never step titles, so they always
-    survive. Module-level so tests bind to the production logic.
+    Secondary values owned by a hidden step are removed with its primary
+    answer. Module-level so tests bind to the production logic.
     """
     pruned = dict(selections)
     for step in steps:
@@ -436,7 +436,75 @@ def prune_skip_hidden_selections(steps, selections: dict) -> dict:
             hidden = False
         if hidden:
             pruned.pop(step.title, None)
+            for key in _step_secondary_keys(step):
+                pruned.pop(key, None)
     return pruned
+
+
+def _step_secondary_keys(step) -> set[str]:
+    """Synthetic selection keys owned by inline inputs on ``step``."""
+    return {
+        f"__secondary__:{cfg.env_var}"
+        for option in (getattr(step, "options", None) or [])
+        if (cfg := getattr(option, "secondary_number", None)) is not None
+    }
+
+
+def _restored_free_text_input(prior: str) -> str | None:
+    """Map a committed free-text sentinel back to active input state."""
+    from wizard.model.cloud_rules import SECRET_CLEAR, SECRET_KEEP
+
+    if prior == SECRET_KEEP:
+        return None
+    if prior == SECRET_CLEAR:
+        return "clear"
+    return prior
+
+
+def replace_step_secondary_selections(
+    selections: dict, step, values: list[tuple[str, str]],
+) -> None:
+    """Replace, rather than accumulate, inline values owned by ``step``."""
+    for key in _step_secondary_keys(step):
+        selections.pop(key, None)
+    for env_var, value in values:
+        selections[f"__secondary__:{env_var}"] = value
+
+
+def _restored_primary_defaults(original, selections: dict):
+    """Return defaults plus active input state for a revisited step."""
+    default_values = list(original.default_values)
+    default_value = original.default_value
+    restored_input_value = None
+    prior = selections.get(original.title)
+    if original.kind == "multiselect" and isinstance(prior, str):
+        default_values = [value for value in prior.split(",") if value]
+    elif isinstance(prior, str):
+        if original.kind in {"secret", "text"}:
+            restored_input_value = _restored_free_text_input(prior)
+        else:
+            default_value = prior
+    return default_value, default_values, restored_input_value
+
+
+def _restored_secondary_options(options, selections: dict):
+    """Return immutable option copies with revisited inline-number defaults."""
+    from dataclasses import replace
+
+    return [
+        replace(
+            option,
+            secondary_number=replace(
+                option.secondary_number,
+                default_value=int(selections.get(
+                    f"__secondary__:{option.secondary_number.env_var}",
+                    option.secondary_number.default_value,
+                )),
+            ),
+        )
+        if option.secondary_number is not None else option
+        for option in options
+    ]
 
 
 # The session-log tee (``_tee_to_log``) mirrors every streamed compose line
@@ -1156,25 +1224,30 @@ class WizardScreen(Screen):
         # the user has already answered (e.g. they hit back then forward),
         # restore their checkbox state from self._selections rather than
         # reverting to the step's original default_values.
-        live_default_values = list(original.default_values)
-        if original.kind == "multiselect":
-            prior = self._selections.get(original.title)
-            if isinstance(prior, str):
-                live_default_values = [s for s in prior.split(",") if s]
         live_options = options if options is not None else original.options
+        from dataclasses import replace
+        (
+            live_default_value,
+            live_default_values,
+            restored_input_value,
+        ) = _restored_primary_defaults(
+            original, self._selections
+        )
+        live_options = _restored_secondary_options(live_options, self._selections)
         # ``dataclasses.replace`` carries every field on the dataclass
         # forward by default — new fields added to PromptStep show up
         # at display time automatically, no need to update this method
         # in lock-step. Only the fields that change at render time get
         # an explicit override.
-        from dataclasses import replace
         step = replace(
             original,
             step_index=self._step_index + 1,
             step_total=len(self._steps),
             subtitle=("⏳  " + original.subtitle.lstrip()) if is_loading else original.subtitle,
             options=live_options,
+            default_value=live_default_value,
             default_values=live_default_values,
+            restored_input_value=restored_input_value,
         )
         self._prompt.load_step(step)
         if step.service_name:
@@ -1341,8 +1414,9 @@ class WizardScreen(Screen):
         # under a synthetic ``__secondary__:<ENV_VAR>`` key so
         # _selections_to_args can route them to the env-write bag.
         # Empty list when the step has no eligible rows.
-        for env_var, value in self._prompt.secondary_values():
-            self._selections[f"__secondary__:{env_var}"] = value
+        replace_step_secondary_selections(
+            self._selections, step, self._prompt.secondary_values()
+        )
         # Track picker: when the user commits the track-picker step,
         # resolve the picked key to a display_name and update the
         # InfoPanel banner. Without this, the banner only appears in
@@ -1715,6 +1789,7 @@ class WizardScreen(Screen):
             self._advance_past_skipped(direction=-1)
             self._load_current_step()
         else:
+            self._close_launch_log_tee()
             self.app.exit()
 
     def action_quit_wizard(self) -> None:
@@ -2095,7 +2170,7 @@ class WizardScreen(Screen):
             stopper.banner = _NullBanner()
             project = self._resolve_project_name()
             ok = await asyncio.to_thread(stopper.stop_services, cold, project)
-            # Managed ComfyUI-MPS / vLLM-Metal runtimes are host-global
+            # Managed ComfyUI-MPS, vLLM-Metal, and Blender MCP runtimes are host-global
             # singletons shared by every Atlas consumer, so a
             # project-scoped stop deliberately leaves them running. Say
             # so — otherwise "stopped" reads as false while a GPU-holding

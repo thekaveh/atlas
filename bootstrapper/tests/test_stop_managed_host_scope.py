@@ -12,7 +12,7 @@ import click.testing
 import pytest
 
 import stop as stop_module
-from services import comfyui_mps_manager, vllm_metal_manager
+from services import blender_mcp_manager, comfyui_mps_manager, vllm_metal_manager
 
 
 @pytest.fixture(autouse=True)
@@ -67,9 +67,10 @@ def _patch_main_preamble(monkeypatch):
     )
 
 
-def _install(monkeypatch, comfy, vllm):
+def _install(monkeypatch, comfy, vllm, blender):
     monkeypatch.setattr(comfyui_mps_manager, "manager_from_env", lambda _env: comfy)
     monkeypatch.setattr(vllm_metal_manager, "manager_from_env", lambda _env: vllm)
+    monkeypatch.setattr(blender_mcp_manager, "manager_from_env", lambda _env: blender)
 
 
 # ── Default (opt-out) — never touch a host-global runtime ────────────────────
@@ -83,13 +84,15 @@ def test_default_stop_leaves_host_global_runtimes_running(monkeypatch, args):
     _patch_main_preamble(monkeypatch)
     comfy = _HostManager(running=True, pid=111)
     vllm = _HostManager(running=True, pid=222)
-    _install(monkeypatch, comfy, vllm)
+    blender = _HostManager(running=True, pid=333)
+    _install(monkeypatch, comfy, vllm, blender)
 
     result = click.testing.CliRunner().invoke(stop_module.main, args)
 
     assert result.exit_code == 0, result.output
     assert comfy.stop_calls == 0 and comfy.running and comfy.pid == 111
     assert vllm.stop_calls == 0 and vllm.running and vllm.pid == 222
+    assert blender.stop_calls == 0 and blender.running and blender.pid == 333
     # An advisory points at the explicit opt-in.
     assert "stop-managed-hosts" in result.output
 
@@ -100,12 +103,13 @@ def test_default_stop_is_silent_when_no_managed_runtime_running(monkeypatch):
     _patch_main_preamble(monkeypatch)
     comfy = _HostManager(running=False)
     vllm = _HostManager(running=False)
-    _install(monkeypatch, comfy, vllm)
+    blender = _HostManager(running=False)
+    _install(monkeypatch, comfy, vllm, blender)
 
     result = click.testing.CliRunner().invoke(stop_module.main, [])
 
     assert result.exit_code == 0, result.output
-    assert comfy.stop_calls == 0 and vllm.stop_calls == 0
+    assert comfy.stop_calls == 0 and vllm.stop_calls == 0 and blender.stop_calls == 0
     assert "left running" not in result.output
 
 
@@ -118,13 +122,15 @@ def test_explicit_flag_stops_both_managed_runtimes(monkeypatch, args):
     _patch_main_preamble(monkeypatch)
     comfy = _HostManager(running=True)
     vllm = _HostManager(running=True)
-    _install(monkeypatch, comfy, vllm)
+    blender = _HostManager(running=True)
+    _install(monkeypatch, comfy, vllm, blender)
 
     result = click.testing.CliRunner().invoke(stop_module.main, args)
 
     assert result.exit_code == 0, result.output
     assert comfy.stop_calls == 1 and not comfy.running
     assert vllm.stop_calls == 1 and not vllm.running
+    assert blender.stop_calls == 1 and not blender.running
     # AC#3: clearly reports the host-global impact.
     assert "HOST-GLOBAL" in result.output
 
@@ -141,9 +147,35 @@ def test_explicit_flag_reports_failure_when_a_managed_host_survives(monkeypatch)
 
     comfy = Stubborn(running=True)
     vllm = _HostManager(running=True)
-    _install(monkeypatch, comfy, vllm)
+    blender = _HostManager(running=True)
+    _install(monkeypatch, comfy, vllm, blender)
 
     result = click.testing.CliRunner().invoke(stop_module.main, ["--stop-managed-hosts"])
 
     assert result.exit_code == 1
     assert comfy.stop_calls == 1
+
+
+def test_explicit_flag_reports_unknown_ownership_as_failure(
+    monkeypatch, tmp_path,
+):
+    _patch_main_preamble(monkeypatch)
+
+    class UnknownOwnership(_HostManager):
+        def __init__(self):
+            super().__init__(running=False)
+            self.pid_file = tmp_path / "unknown.pid"
+            self.pid_file.write_text("4242\n", encoding="utf-8")
+
+        def stop(self) -> bool:
+            self.stop_calls += 1
+            return False
+
+    unknown = UnknownOwnership()
+    _install(monkeypatch, unknown, _HostManager(running=False), _HostManager(running=False))
+
+    result = click.testing.CliRunner().invoke(stop_module.main, ["--stop-managed-hosts"])
+
+    assert result.exit_code == 1
+    assert unknown.pid_file.exists()
+    assert "completed with errors" in result.output

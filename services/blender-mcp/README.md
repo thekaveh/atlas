@@ -45,7 +45,7 @@ Atlas models Blender MCP as a virtual media service:
 
 - Track membership: `gen-ai-creative` and `all`.
 - Service category: `media`.
-- Source values: `disabled` and dev-only `localhost`.
+- Source values: `disabled`, dev-only `localhost`, and Atlas-managed headless `managed-localhost`.
 - Wizard placement: the creative track prompt appears as “Blender MCP”.
 - Port strategy: `BLENDER_MCP_LOCALHOST_PORT` is a host-tool override and does not consume an Atlas topology slot.
 - Kong behavior: no alias, no route, no extra host entry, and no gateway proxy by default.

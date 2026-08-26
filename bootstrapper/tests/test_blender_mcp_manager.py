@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import hashlib
 import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -39,6 +42,195 @@ def _manager(tmp_path: Path, **kw) -> BlenderMcpManager:
     )
     defaults.update(kw)
     return BlenderMcpManager(**defaults)
+
+
+def _generic_manager(tmp_path: Path):
+    from services.managed_host import HostProcessSpec, ManagedHostManager
+
+    return ManagedHostManager(
+        HostProcessSpec(name="remove-test", command=("sleep", "300"), port=8399),
+        tmp_path,
+    )
+
+
+@pytest.mark.parametrize("manager_kind", ["generic", "blender"])
+def test_remove_wraps_state_directory_deletion_failure(
+    tmp_path, monkeypatch, manager_kind,
+):
+    from services import blender_mcp_manager as blender_module
+    from services import managed_host as managed_module
+    from services.managed_host import ManagedHostError
+
+    if manager_kind == "generic":
+        manager, module, error_type = (
+            _generic_manager(tmp_path / manager_kind), managed_module, ManagedHostError
+        )
+    else:
+        manager, module, error_type = (
+            BlenderMcpManager(tmp_path / manager_kind), blender_module, BlenderMcpError
+        )
+    manager.state_dir.mkdir(parents=True)
+    monkeypatch.setattr(manager, "_stop_locked", lambda: True)
+
+    def fail_unless_ignored(*_args, **kwargs):
+        if kwargs.get("ignore_errors"):
+            return
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(module.shutil, "rmtree", fail_unless_ignored)
+    with pytest.raises(error_type, match="could not remove.*denied"):
+        manager.remove()
+
+
+@pytest.mark.parametrize("manager_kind", ["generic", "blender"])
+def test_remove_is_idempotent_when_state_directory_is_absent(tmp_path, manager_kind):
+    manager = (
+        _generic_manager(tmp_path / manager_kind)
+        if manager_kind == "generic"
+        else BlenderMcpManager(tmp_path / manager_kind)
+    )
+
+    manager.remove()
+    manager.remove()
+
+    assert not manager.state_dir.exists()
+
+
+@pytest.mark.parametrize("manager_kind", ["generic", "blender"])
+def test_remove_rejects_descendant_not_found_when_state_root_remains(
+    tmp_path, monkeypatch, manager_kind,
+):
+    from services import blender_mcp_manager as blender_module
+    from services import managed_host as managed_module
+    from services.managed_host import ManagedHostError
+
+    if manager_kind == "generic":
+        manager, module, error_type = (
+            _generic_manager(tmp_path / manager_kind), managed_module, ManagedHostError
+        )
+    else:
+        manager, module, error_type = (
+            BlenderMcpManager(tmp_path / manager_kind), blender_module, BlenderMcpError
+        )
+    manager.state_dir.mkdir(parents=True)
+    monkeypatch.setattr(manager, "_stop_locked", lambda: True)
+    monkeypatch.setattr(
+        module.shutil,
+        "rmtree",
+        lambda _path: (_ for _ in ()).throw(FileNotFoundError("vanished child")),
+    )
+
+    with pytest.raises(error_type, match="could not remove.*vanished child"):
+        manager.remove()
+
+    assert manager.state_dir.is_dir()
+
+
+@pytest.mark.parametrize("entrypoint", ["start", "ensure_running"])
+def test_concurrent_starts_are_serialized_across_manager_instances(
+    tmp_path, monkeypatch, entrypoint,
+):
+    managers = [_manager(tmp_path), _manager(tmp_path)]
+    active = 0
+    max_active = 0
+    counter_lock = threading.Lock()
+
+    def fake_start_locked(self, _wait_timeout):
+        nonlocal active, max_active
+        with counter_lock:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.05)
+        with counter_lock:
+            active -= 1
+        return bm.ProcessStatus(True, 4242, True)
+
+    monkeypatch.setattr(
+        BlenderMcpManager, "_start_locked", fake_start_locked, raising=False
+    )
+    monkeypatch.setattr(
+        BlenderMcpManager, "preflight", lambda self: NS(ok=True, checks=[])
+    )
+    monkeypatch.setattr(BlenderMcpManager, "_install_locked", lambda self: None)
+    monkeypatch.setattr(
+        BlenderMcpManager, "status", lambda self: bm.ProcessStatus(False)
+    )
+
+    def invoke(manager):
+        if entrypoint == "ensure_running":
+            return manager.ensure_running()[0]
+        return manager.start()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(invoke, managers))
+
+    assert all(result.running for result in results)
+    assert max_active == 1
+
+
+@pytest.mark.parametrize("manager_kind", ["generic", "blender"])
+@pytest.mark.parametrize(
+    "operations",
+    [
+        ("start", "stop"),
+        ("start", "remove"),
+        ("start", "install"),
+        ("install", "remove"),
+        ("install", "install"),
+    ],
+)
+def test_lifecycle_mutations_share_one_lock(
+    tmp_path, monkeypatch, manager_kind, operations,
+):
+    from services.managed_host import HostProcessSpec, ManagedHostManager
+
+    if manager_kind == "generic":
+        spec = HostProcessSpec(name="locked-test", command=("sleep", "30"), port=8399)
+        managers = [ManagedHostManager(spec, tmp_path / "state") for _ in range(2)]
+        manager_type = ManagedHostManager
+        status = NS(running=True, pid=4242)
+    else:
+        managers = [_manager(tmp_path), _manager(tmp_path)]
+        manager_type = BlenderMcpManager
+        status = bm.ProcessStatus(True, 4242, True)
+
+    managers[0].state_dir.mkdir(parents=True, exist_ok=True)
+    marker = managers[0].state_dir / "installed.marker"
+    marker.write_text("keep", encoding="utf-8")
+    entered = threading.Event()
+    release = threading.Event()
+    held_operation, competing_operation = operations
+
+    def fake_start_locked(self, _wait_timeout):
+        if self is managers[0] and held_operation == "start":
+            entered.set()
+            assert release.wait(2)
+        return status
+
+    def fake_install_locked(self, *args, **kwargs):
+        if self is managers[0] and held_operation == "install":
+            entered.set()
+            assert release.wait(2)
+
+    monkeypatch.setattr(manager_type, "_start_locked", fake_start_locked)
+    monkeypatch.setattr(
+        manager_type, "_install_locked", fake_install_locked, raising=False
+    )
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        held_future = pool.submit(getattr(managers[0], held_operation))
+        assert entered.wait(1)
+        competing_future = pool.submit(
+            getattr(managers[1], competing_operation)
+        )
+        time.sleep(0.05)
+        assert not competing_future.done()
+        assert marker.exists()
+        release.set()
+        held_future.result()
+        competing_future.result()
+
+    if competing_operation == "remove":
+        assert not managers[0].state_dir.exists()
 
 
 class _FakeDownload:
@@ -172,7 +364,7 @@ def test_start_spawns_and_waits_for_port(tmp_path, monkeypatch):
 
     monkeypatch.setattr(
         "services.managed_host.ManagedHostManager._process_start_time",
-        staticmethod(lambda _pid: None),
+        staticmethod(lambda _pid: "Mon Jan  1 00:00:00 2024"),
     )
     monkeypatch.setattr(bm.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(m, "_port_in_use", lambda: True)
@@ -204,21 +396,109 @@ def test_start_failure_reports_log_tail(tmp_path, monkeypatch):
         m.start(wait_timeout=1.0)
 
 
+def test_missing_launch_identity_terminates_new_process(tmp_path, monkeypatch):
+    m = _manager(tmp_path)
+    m.state_dir.mkdir(parents=True)
+    m.addon_path.write_bytes(ADDON_BYTES)
+    m.launcher_path.write_text("launcher")
+    monkeypatch.setattr(m, "blender_binary", lambda: "/fake/blender")
+
+    class _LiveProc:
+        pid = 4245
+
+        def poll(self):
+            return None
+
+    process = _LiveProc()
+    monkeypatch.setattr(bm.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(
+        "services.managed_host.ManagedHostManager._process_start_time",
+        staticmethod(lambda _pid: None),
+    )
+    monkeypatch.setattr(bm.time, "sleep", lambda _seconds: None)
+    terminated: list[int] = []
+    monkeypatch.setattr(
+        "services.managed_host.ManagedHostManager._terminate_untracked",
+        staticmethod(lambda child: terminated.append(child.pid) or True),
+    )
+
+    with pytest.raises(BlenderMcpError, match="child was terminated"):
+        m.start()
+
+    assert terminated == [process.pid]
+    assert not m.pid_file.exists()
+
+
+def test_failed_identity_compensation_preserves_pid_evidence(tmp_path, monkeypatch):
+    m = _manager(tmp_path)
+    m.state_dir.mkdir(parents=True)
+    m.addon_path.write_bytes(ADDON_BYTES)
+    m.launcher_path.write_text("launcher")
+    monkeypatch.setattr(m, "blender_binary", lambda: "/fake/blender")
+    process = type("LiveProc", (), {"pid": 4246, "poll": lambda self: None})()
+    monkeypatch.setattr(bm.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(
+        "services.managed_host.ManagedHostManager._process_start_time",
+        staticmethod(lambda _pid: None),
+    )
+    monkeypatch.setattr(bm.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        "services.managed_host.ManagedHostManager._terminate_untracked",
+        staticmethod(lambda _child: False),
+    )
+
+    with pytest.raises(BlenderMcpError, match="terminate pid 4246 manually"):
+        m.start()
+
+    assert m.pid_file.read_text(encoding="utf-8").splitlines() == ["4246"]
+
+
+def test_launch_identity_interrupt_compensates_and_propagates(tmp_path, monkeypatch):
+    m = _manager(tmp_path)
+    m.state_dir.mkdir(parents=True)
+    m.addon_path.write_bytes(ADDON_BYTES)
+    m.launcher_path.write_text("launcher")
+    monkeypatch.setattr(m, "blender_binary", lambda: "/fake/blender")
+    process = type("LiveProc", (), {"pid": 4247, "poll": lambda self: None})()
+    monkeypatch.setattr(bm.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(
+        "services.managed_host.require_process_start_time",
+        lambda *_args: (_ for _ in ()).throw(KeyboardInterrupt),
+    )
+    terminated: list[int] = []
+    monkeypatch.setattr(
+        "services.managed_host.ManagedHostManager._terminate_untracked",
+        staticmethod(lambda child: terminated.append(child.pid) or True),
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        m.start()
+
+    assert terminated == [4247]
+    assert not m.pid_file.exists()
+
+
 def test_manager_from_env_malformed_port_falls_back(tmp_path):
     m = manager_from_env({"BLENDER_MCP_LOCALHOST_PORT": "not-a-port",
                           "BLENDER_MCP_STATE_DIR": str(tmp_path)})
     assert m.port == 9876  # degrade, never traceback the launch/CLI
 
 
-def test_pid_alive_permission_error_means_not_ours(monkeypatch):
-    """#647 doctrine: a process we cannot signal is a stranger, not ours —
-    a recycled pid must not fake `running` (skipping the real launch) or get
-    SIGTERMed by stop()."""
+def test_permission_denied_pid_is_live_but_never_adopted(tmp_path, monkeypatch):
+    """Permission denial proves existence, not ownership."""
     def perm(pid, sig):
         raise PermissionError
 
     monkeypatch.setattr(bm.os, "kill", perm)
-    assert BlenderMcpManager._pid_alive(12345) is False
+    assert BlenderMcpManager._pid_alive(12345) is True
+    manager = BlenderMcpManager(state_dir=tmp_path, port=59995)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("12345\n", encoding="utf-8")
+    before = manager.pid_file.read_bytes()
+    assert manager.stop() is False
+    with pytest.raises(BlenderMcpError, match="ownership is mismatched or unknown"):
+        manager.start()
+    assert manager.pid_file.read_bytes() == before
 
 
 def test_start_foreign_port_holder_is_not_success(tmp_path, monkeypatch):
@@ -384,14 +664,22 @@ def test_stop_reaps_its_own_child_instead_of_polling_a_zombie(tmp_path):
 
     manager = BlenderMcpManager(state_dir=tmp_path, port=59997)
     tmp_path.mkdir(parents=True, exist_ok=True)
-    # The argv carries the state dir so the PID-reuse guard recognises this
-    # child as OURS. Without that the guard short-circuits stop() and this
-    # test would pass without ever exercising the reap it exists to cover.
+    # Stamp the real child's start time so the guard can prove ownership;
+    # otherwise it must short-circuit and this would not exercise the reap.
     child = subprocess.Popen(  # noqa: S603 - fixed argv, test-local
         [sys.executable, "-c", f"import time; time.sleep(300)  # {tmp_path}"],
         start_new_session=True,
     )
-    manager.pid_file.write_text(str(child.pid), encoding="utf-8")
+    from services.managed_host import (
+        ManagedHostManager,
+        require_process_start_time,
+        write_pid_file_with_identity,
+    )
+    write_pid_file_with_identity(
+        manager.pid_file,
+        child.pid,
+        require_process_start_time(child.pid, ManagedHostManager._process_start_time),
+    )
     try:
         assert manager._pid_is_stranger(child.pid) is False, (
             "test setup: the child must read as ours, or the guard short-circuits"
@@ -433,28 +721,56 @@ def test_stop_refuses_to_signal_a_recycled_pid_owned_by_a_stranger(tmp_path):
     )
     manager.pid_file.write_text(str(stranger.pid), encoding="utf-8")
     try:
-        assert manager.stop() is True, "a stale pid should resolve, not fail"
+        assert manager.stop() is False, "unknown ownership must refuse signalling"
         assert stranger.poll() is None, "stop() killed an unrelated process"
-        assert manager.pid_file.exists() is False, "the stale pid should be dropped"
+        assert manager.pid_file.exists(), "ownership evidence was discarded"
     finally:
         stranger.kill()
         stranger.wait()
 
 
-def test_an_ambiguous_ps_probe_does_not_block_teardown(tmp_path, monkeypatch):
-    """Never block teardown on an unknowable probe: when `ps` is unavailable
-    or says nothing, proceed rather than refuse to stop our own process."""
+def test_an_ambiguous_ps_probe_refuses_teardown(tmp_path, monkeypatch):
+    """When `ps` is unavailable, ownership is unknown and signalling is refused."""
     manager = BlenderMcpManager(state_dir=tmp_path, port=59995)
 
     def _boom(*_args, **_kwargs):
         raise OSError("ps unavailable")
 
     monkeypatch.setattr("services.blender_mcp_manager.subprocess.run", _boom)
-    assert manager._pid_is_stranger(4242) is False
+    assert manager._pid_is_stranger(4242) is True
 
 
-def test_a_blender_command_line_is_recognised_as_ours(tmp_path, monkeypatch):
+def test_unstamped_blender_marker_still_refuses_ownership(tmp_path, monkeypatch):
+    manager = BlenderMcpManager(state_dir=tmp_path, port=59995)
+    manager.pid_file.write_text("4242\n", encoding="utf-8")
+    result = type("Result", (), {
+        "returncode": 0,
+        "stdout": "/Applications/Blender.app/Contents/MacOS/Blender --background",
+    })()
+    monkeypatch.setattr(
+        "services.blender_mcp_manager.subprocess.run",
+        lambda *_args, **_kwargs: result,
+    )
+    assert manager._pid_is_stranger(4242) is True
+
+
+def test_start_refuses_live_unknown_pid_and_preserves_tracking(tmp_path, monkeypatch):
+    manager = BlenderMcpManager(state_dir=tmp_path, port=59995)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("4242\n", encoding="utf-8")
+    before = manager.pid_file.read_bytes()
+    monkeypatch.setattr(manager, "_pid_alive", lambda _pid: True)
+    monkeypatch.setattr(manager, "_pid_is_stranger", lambda _pid: True)
+
+    with pytest.raises(BlenderMcpError, match="ownership is mismatched or unknown"):
+        manager.start()
+
+    assert manager.pid_file.read_bytes() == before
+
+
+def test_a_blender_command_line_without_identity_is_not_adopted(tmp_path, monkeypatch):
     manager = BlenderMcpManager(state_dir=tmp_path, port=59994)
+    manager.pid_file.write_text("4242\n", encoding="utf-8")
 
     class _Out:
         returncode = 0
@@ -463,7 +779,7 @@ def test_a_blender_command_line_is_recognised_as_ours(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "services.blender_mcp_manager.subprocess.run", lambda *a, **k: _Out()
     )
-    assert manager._pid_is_stranger(4242) is False
+    assert manager._pid_is_stranger(4242) is True
 
 
 def test_ownership_uses_start_time_not_the_command_line(tmp_path, monkeypatch):
@@ -499,22 +815,28 @@ def test_ownership_uses_start_time_not_the_command_line(tmp_path, monkeypatch):
     )
     assert manager._pid_is_stranger(4242) is False
 
-def test_a_long_command_line_still_resolves_as_ours(tmp_path):
-    """End-to-end version of the above: a real child whose marker sits far
-    past column 80 must still be recognised."""
+def test_a_real_child_identity_round_trips(tmp_path):
+    """A real child stamped with its start time is recognised as ours."""
     import subprocess
     import sys
 
     manager = BlenderMcpManager(state_dir=tmp_path, port=59992)
-    padding = "x" * 200
     child = subprocess.Popen(  # noqa: S603 - fixed argv, test-local
-        [sys.executable, "-c", f"import time; time.sleep(300)  # {padding} {tmp_path}"],
+        [sys.executable, "-c", "import time; time.sleep(300)"],
         start_new_session=True,
     )
     try:
-        assert manager._pid_is_stranger(child.pid) is False, (
-            "a marker beyond column 80 was truncated away by ps"
+        from services.managed_host import (
+            ManagedHostManager,
+            require_process_start_time,
+            write_pid_file_with_identity,
         )
+        write_pid_file_with_identity(
+            manager.pid_file,
+            child.pid,
+            require_process_start_time(child.pid, ManagedHostManager._process_start_time),
+        )
+        assert manager._pid_is_stranger(child.pid) is False
     finally:
         child.kill()
         child.wait()
