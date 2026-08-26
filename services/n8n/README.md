@@ -6,7 +6,7 @@ n8n is also the only "agents"-tier service besides Hermes; the two are complemen
 
 ## 1. Overview
 
-Image: `n8nio/n8n:2.28.2`. The web/API container handles HTTP + UI; the worker container handles execution. Both share state through Supabase Postgres (workflow definitions, executions history, credentials) and Redis (queue + execution coordination). The `n8n-init` container runs after the web/API container is reachable, installs required community nodes, then exits. The launcher checks that one-shot exit code and fails if it exited nonzero.
+Image: `n8nio/n8n:2.36.7`. The web/API container handles HTTP + UI; the worker container handles execution. Both share state through Supabase Postgres (workflow definitions, executions history, credentials) and Redis (queue + execution coordination). The `n8n-init` container runs after the web/API container is reachable, installs required community nodes, then exits. The launcher checks that one-shot exit code and fails if it exited nonzero.
 
 Track placement: n8n is available in `all`, `gen-ai-eng`, and `gen-ai-rag`. In the RAG track it provides workflow orchestration for document ingestion, search-to-extraction flows, vector-store operations, and human-reviewed automation around the RAG services.
 
@@ -32,7 +32,7 @@ N8N_EXECUTIONS_MODE=queue           # queue (default, requires worker + redis) |
 N8N_INIT_NODES=n8n-nodes-comfyui@0.0.9,@ksc1234/n8n-nodes-comfyui-image-to-image@1.0.2
 ```
 
-n8n 2.28.2 always uses the owner-account setup flow, and community nodes are
+n8n 2.36.7 always uses the owner-account setup flow, and community nodes are
 loaded from the pinned packages installed by `n8n-init` — no auth-mode or
 community-package env vars are needed for the pinned image.
 

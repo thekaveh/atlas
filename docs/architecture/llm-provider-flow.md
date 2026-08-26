@@ -4,6 +4,8 @@ Ollama, LiteLLM, cloud passthroughs, Open WebUI, backend, MCP/tool access, and t
 
 ## 1. Diagram
 
+![LLM Provider Flow architecture diagram](../diagrams/img/architecture-llm-provider-flow.png)
+
 [Open the full-size diagram](./llm-provider-flow.html).
 
 ## 2. Notes

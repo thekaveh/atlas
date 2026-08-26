@@ -310,11 +310,13 @@ async def _lifespan(app: FastAPI):
     # #804: pre-warm the shared asyncpg pool at startup, best-effort — if the DB
     # is not reachable yet, the pool is created lazily on first use rather than
     # failing app startup (keeps the TestClient/unit path working too).
-    from db_connection import get_pg_pool, close_pg_pools
+    from db_connection import PoolConfigurationError, close_pg_pools, get_pg_pool
     _db_url = os.getenv("DATABASE_URL")
     if _db_url:
         try:
             await get_pg_pool(_db_url)
+        except PoolConfigurationError:
+            raise
         except Exception:  # noqa: BLE001 — startup must not hard-fail on DB warmup
             logger.warning("PG pool pre-warm failed; will create lazily on first use")
     await research_service.start_maintenance()

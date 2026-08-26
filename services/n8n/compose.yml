@@ -195,7 +195,7 @@ services:
       - backend-network
 
   n8n-init:
-    image: ${N8N_INIT_IMAGE:-n8nio/n8n:2.28.2}
+    image: ${N8N_INIT_IMAGE:-n8nio/n8n:2.36.7}
     container_name: ${PROJECT_NAME}-n8n-init
     restart: "no"
     deploy:

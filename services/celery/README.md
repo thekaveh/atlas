@@ -76,6 +76,7 @@ Redis visibility timeout is intentionally longer than the hard task time limit. 
 
 | Service | Category |
 |---|---|
+| otel-collector | infra |
 | minio | data |
 | redis | data |
 | supabase | data |

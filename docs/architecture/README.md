@@ -15,5 +15,5 @@ Generated catalog of split Atlas architecture perspectives.
 | [LLM Provider Flow](llm-provider-flow.md) | Ollama, LiteLLM, cloud passthroughs, Open WebUI, backend, MCP/tool access, and trace hooks. |
 | [Data Engineering Lakehouse Flow](data-engineering-lakehouse-flow.md) | MinIO, Iceberg REST, Spark, JupyterHub, Zeppelin, Airflow, Trino, and Redpanda. |
 | [Observability Flow](observability-flow.md) | Prometheus, Grafana, Langfuse, OpenTelemetry Collector, Tempo, Loki, and service instrumentation boundaries. |
-| [Security, Auth, And Secrets Boundary](security-auth-secrets-boundary.md) | Supabase, Kong, service auth notes, API keys, local secrets, cloud keys, and intentionally unauthenticated local surfaces. |
+| [Security, Auth, And Secrets Boundary](security-auth-secrets-boundary.md) | Route-specific Kong controls, backend identity validation, application-enforced plugin keys, runtime secrets, and explicitly public or operator-trusted surfaces. |
 | [Service Admission Workflow](service-admission-workflow.md) | Manifest, compose fragment, topology row, env assembler, docs regeneration, diagrams, tests, and CI drift gates. |

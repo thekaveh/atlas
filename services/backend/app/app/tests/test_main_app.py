@@ -356,3 +356,17 @@ def test_lifespan_closes_remaining_resources_after_one_closer_fails(monkeypatch)
         with TestClient(main.app):
             pass
     assert closed == ["research", "postgres", "n8n", "operations"]
+
+
+def test_lifespan_rejects_invalid_postgres_pool_configuration(monkeypatch):
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    import db_connection
+    import main
+
+    monkeypatch.setattr(db_connection, "_POOL_MIN", 11)
+    monkeypatch.setattr(db_connection, "_POOL_MAX", 10)
+
+    with pytest.raises(db_connection.PoolConfigurationError):
+        with TestClient(main.app):
+            pass

@@ -54,6 +54,14 @@ def test_configure_otel_marks_app_when_dependencies_available(monkeypatch):
 
     fastapi_module.FastAPIInstrumentor = FakeInstrumentor
 
+    celery_module = types.ModuleType("opentelemetry.instrumentation.celery")
+
+    class FakeCeleryInstrumentor:
+        def instrument(self, *, tracer_provider):
+            calls["celery_provider"] = tracer_provider
+
+    celery_module.CeleryInstrumentor = FakeCeleryInstrumentor
+
     resources_module = types.ModuleType("opentelemetry.sdk.resources")
 
     class FakeResource:
@@ -89,6 +97,7 @@ def test_configure_otel_marks_app_when_dependencies_available(monkeypatch):
     sys.modules["opentelemetry"].trace = trace_module
     monkeypatch.setitem(sys.modules, "opentelemetry.exporter.otlp.proto.http.trace_exporter", exporter_module)
     monkeypatch.setitem(sys.modules, "opentelemetry.instrumentation.fastapi", fastapi_module)
+    monkeypatch.setitem(sys.modules, "opentelemetry.instrumentation.celery", celery_module)
     monkeypatch.setitem(sys.modules, "opentelemetry.sdk.resources", resources_module)
     monkeypatch.setitem(sys.modules, "opentelemetry.sdk.trace", sdk_trace_module)
     monkeypatch.setitem(sys.modules, "opentelemetry.sdk.trace.export", export_module)
@@ -105,3 +114,19 @@ def test_configure_otel_marks_app_when_dependencies_available(monkeypatch):
     assert calls["endpoint"] == "http://otel-collector:4318/v1/traces"
     assert calls["resource"]["service.name"] == "backend"
     assert calls["excluded_urls"] == "/health,/metrics"
+    assert calls["celery_provider"] is calls["provider"]
+
+
+def test_celery_worker_process_init_configures_tracing(monkeypatch):
+    import celery_app
+
+    calls = []
+    monkeypatch.setattr(
+        celery_app,
+        "configure_celery_otel",
+        lambda *, service_name: calls.append(service_name),
+    )
+
+    celery_app.worker_process_init.send(sender=celery_app.celery_app)
+
+    assert calls == ["backend-celery-worker"]

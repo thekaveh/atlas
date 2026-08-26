@@ -10,12 +10,22 @@ import asyncio
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
 
 from textual.app import App, ComposeResult  # noqa: E402
 
 from ui.textual.widgets.block_logo import BrandPanel  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _color_capable_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep compositor color assertions independent of the invoking shell."""
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLORTERM", "truecolor")
 
 
 def _panel(**kw) -> BrandPanel:

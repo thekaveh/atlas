@@ -1,17 +1,22 @@
 # 6.11. Security, Auth, And Secrets Boundary
 
-Supabase, Kong, service auth notes, API keys, local secrets, cloud keys, and intentionally unauthenticated local surfaces.
+Route-specific Kong controls, backend identity validation, application-enforced plugin keys, runtime secrets, and explicitly public or operator-trusted surfaces.
 
 ## 1. Diagram
+
+![Security, Auth, And Secrets Boundary architecture diagram](../diagrams/img/architecture-security-auth-secrets-boundary.png)
 
 [Open the full-size diagram](./security-auth-secrets-boundary.html).
 
 ## 2. Notes
 
-Not every surface sits behind Supabase auth: Backend's `/health`, `/ready`, `/metrics`, and API-doc routes are intentionally public (no bearer token) — don't publish them beyond the intended network boundary. Kong's own Admin API (8001) is loopback-only, reachable via `docker exec`, never published. JupyterHub is explicitly operator-trusted, with direct database and service access rather than a policy gate.
+Kong applies route-specific Basic, key-auth, pass-through, rate-limit, and CORS policies; it does not provide one uniform identity layer. Backend separately validates Supabase JWTs, scoped first-party tokens, and operator tokens, while plugin `open|key-auth|inherit` modes are enforced again at the application boundary. Backend `/health`, `/ready`, `/metrics`, and API-doc routes are intentionally public, and direct ports or operator-trusted UIs can bypass Kong, so those surfaces must remain inside their intended network boundary.
 
 ## 3. Source Files
 
 - `services/kong/service.yml`
 - `services/supabase/service.yml`
+- `services/backend/service.yml`
+- `services/backend/app/app/backend_identity.py`
+- `services/backend/app/app/main.py`
 - `bootstrapper/generate_supabase_keys.py`

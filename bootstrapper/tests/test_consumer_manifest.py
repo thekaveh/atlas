@@ -950,7 +950,7 @@ def test_env_overlay_parser_agrees_with_the_canonical_env_reader(tmp_path: Path)
         "A=x\x0bSUPABASE_SERVICE_KEY=y\n",
         "A=x\x0cB=y\n",
         "A=x\x85B=y\n",
-        "A=x B=y\n",
+        "A=x" + chr(0x2028) + "B=y\n",
     ]
     for text in samples:
         overlay = tmp_path / "overlay.env"

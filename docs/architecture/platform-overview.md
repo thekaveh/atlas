@@ -4,6 +4,8 @@ User entrypoints, Kong, apps, agents, LLM core, data stores, and cloud-provider 
 
 ## 1. Diagram
 
+![Atlas Platform Overview architecture diagram](../diagrams/img/architecture-platform-overview.png)
+
 [Open the full-size diagram](./platform-overview.html).
 
 ## 2. Notes

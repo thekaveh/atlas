@@ -22,6 +22,7 @@ opentelemetry-sdk>=1.30.0
 opentelemetry-exporter-otlp-proto-http>=1.30.0
 opentelemetry-instrumentation-fastapi>=0.51b0
 opentelemetry-instrumentation-httpx>=0.51b0
+opentelemetry-instrumentation-celery>=0.51b0
 
 # Database
 sqlmodel>=0.0.39

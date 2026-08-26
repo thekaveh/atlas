@@ -7,13 +7,14 @@ from collections.abc import Awaitable, Callable
 import httpx
 import redis.asyncio as redis
 
-from db_connection import connect_postgres
+from db_connection import connect_postgres, validate_pool_config
 
 
 async def _postgres_ready() -> None:
     database_url = (os.getenv("DATABASE_URL") or "").strip()
     if not database_url:
         raise RuntimeError("DATABASE_URL is unset")
+    validate_pool_config()
     # #804: intentionally a DEDICATED connection, not the shared pool — a
     # readiness probe needs its own tight 3s bound and must answer "is Postgres
     # reachable?" independently of pool saturation (all pool slots checked out

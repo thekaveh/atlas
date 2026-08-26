@@ -52,6 +52,7 @@ def test_celery_manifest_admission_contract() -> None:
         "tika",
         "lightrag",
         "minio",
+        "otel-collector",
     ]
     assert manifest["data_flow"]["calls"] == [
         "redis",
@@ -63,6 +64,7 @@ def test_celery_manifest_admission_contract() -> None:
         "tika",
         "lightrag",
         "minio",
+        "otel-collector",
     ]
 
     env_vars = {entry["name"]: entry for entry in manifest["env"]}

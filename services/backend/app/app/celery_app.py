@@ -4,6 +4,9 @@ import os
 from typing import Any
 
 from celery import Celery
+from celery.signals import worker_process_init
+
+from observability import configure_celery_otel
 
 
 def _redis_url() -> str:
@@ -79,6 +82,11 @@ celery_app.conf.update(
     },
     visibility_timeout=_visibility_timeout,
 )
+
+
+@worker_process_init.connect(weak=False)
+def _configure_worker_otel(*_args, **_kwargs) -> None:
+    configure_celery_otel(service_name="backend-celery-worker")
 
 
 def celery_is_enabled() -> bool:

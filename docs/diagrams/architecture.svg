@@ -80,25 +80,26 @@
   <line x1="375" y1="574" x2="405" y2="574" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
   <line x1="685" y1="574" x2="715" y2="574" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
 
-  <!-- Apps to Media (Open WebUI tools, Backend RAG) -->
-  <line x1="450" y1="360" x2="450" y2="668" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.5"/>
+  <!-- Selected current media calls: Open WebUI to STT; Backend to ComfyUI -->
+  <path d="M 200 360 L 75 380 L 75 650 L 200 650 L 200 668" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.5"/>
+  <path d="M 700 360 L 825 380 L 825 650 L 950 650 L 950 668" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.5"/>
 
-  <!-- Agents to Media (Hermes media skills + n8n actions + LightRAG ingest pipeline) -->
-  <line x1="450" y1="480" x2="450" y2="668" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.5"/>
+  <!-- Selected current agent media call: Hermes to TTS -->
+  <path d="M 200 480 L 325 500 L 325 640 L 450 640 L 450 668" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.5"/>
 
   <!-- Apps to Data (Backend writes to data tier; Zeppelin reads via JDBC/S3A) -->
-  <line x1="700" y1="360" x2="700" y2="788" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.45"/>
-  <line x1="1200" y1="360" x2="1200" y2="788" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.4"/>
+  <path d="M 700 360 L 825 380 L 825 510 L 700 510 L 700 620 L 825 620 L 825 770 L 700 770 L 700 788" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.45"/>
+  <path d="M 1200 360 L 1325 380 L 1325 770 L 1200 770 L 1200 788" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.4"/>
 
   <!-- Agents to Data (n8n / LightRAG / Airflow writes) -->
-  <line x1="950" y1="480" x2="950" y2="788" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.45"/>
+  <path d="M 950 480 L 1075 500 L 1075 510 L 1005 510 L 1005 620 L 1075 620 L 1075 770 L 950 770 L 950 788" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.45"/>
 
   <!-- Apps to Compute (Backend to Ray; Zeppelin to Spark Connect) -->
-  <line x1="700" y1="360" x2="700" y2="928" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.35"/>
-  <line x1="1200" y1="360" x2="1020" y2="928" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.35"/>
+  <path d="M 700 360 L 825 380 L 825 510 L 700 510 L 700 620 L 825 620 L 825 760 L 885 760 L 885 900 L 600 900 L 600 928" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.35"/>
+  <path d="M 1200 360 L 1325 380 L 1325 900 L 1020 900 L 1020 928" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.35"/>
 
   <!-- Agents to Compute (Airflow to Spark) -->
-  <line x1="1200" y1="480" x2="1020" y2="928" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.35"/>
+  <path d="M 1200 480 L 1325 500 L 1325 900 L 1020 900 L 1020 928" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.35"/>
 
   <!-- Prometheus scrape indicator: dashed slate line across the stack -->
   <line x1="60" y1="985" x2="1340" y2="985" stroke="#64748b" stroke-width="1" stroke-dasharray="2,3" opacity="0.4"/>
@@ -132,7 +133,7 @@
     <rect x="400" y="208" width="600" height="50" rx="6" fill="#0f172a"/>
     <rect x="400" y="208" width="600" height="50" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
     <text x="700" y="227" fill="#fecdd3" font-size="13" font-weight="700" text-anchor="middle">Kong API Gateway</text>
-    <text x="700" y="244" fill="#fda4af" font-size="9" text-anchor="middle">dynamic routes • *.localhost aliases • basic-auth + ACLs</text>
+    <text x="700" y="244" fill="#fda4af" font-size="9" text-anchor="middle">dynamic routes • *.localhost aliases • route-specific auth + traffic policies</text>
   </g>
 
   <!-- ─────────────────  APPS & UIs  ───────────────── -->

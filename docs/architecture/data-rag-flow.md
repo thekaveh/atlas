@@ -4,6 +4,8 @@ Ingestion, document processing, object storage, vector and graph stores, backend
 
 ## 1. Diagram
 
+![Data And RAG Flow architecture diagram](../diagrams/img/architecture-data-rag-flow.png)
+
 [Open the full-size diagram](./data-rag-flow.html).
 
 ## 2. Notes

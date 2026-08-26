@@ -167,12 +167,13 @@ def test_start_spawns_and_waits_for_port(tmp_path, monkeypatch):
             return None
 
     def fake_popen(argv, **kw):
-        # Ignore the `ps` identity probe that stamps the pid file.
-        if argv and argv[0] == "ps":
-            return SimpleNamespace(pid=0, returncode=0, stdout="", stderr="")
         spawned["argv"] = argv
         return _FakeProc()
 
+    monkeypatch.setattr(
+        "services.managed_host.ManagedHostManager._process_start_time",
+        staticmethod(lambda _pid: None),
+    )
     monkeypatch.setattr(bm.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(m, "_port_in_use", lambda: True)
     status = m.start()

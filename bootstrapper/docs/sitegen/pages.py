@@ -53,12 +53,20 @@ ARCHITECTURE_PERSPECTIVES: dict[str, tuple[str, str, list[str]]] = {
     "observability-flow": (
         "Observability Flow",
         "Prometheus, Grafana, Langfuse, OpenTelemetry Collector, Tempo, Loki, and service instrumentation boundaries.",
-        ["Services", "OTel Collector", "Prometheus", "Grafana", "Langfuse", "Tempo", "Loki"],
+        [
+            "Backend", "Celery Workers", "LiteLLM", "Atlas Services",
+            "OTel Collector", "Prometheus", "Grafana", "Langfuse", "Tempo", "Loki",
+        ],
     ),
     "security-auth-secrets-boundary": (
         "Security, Auth, And Secrets Boundary",
-        "Supabase, Kong, service auth notes, API keys, local secrets, cloud keys, and intentionally unauthenticated local surfaces.",
-        ["Clients", "Kong", "Supabase Auth", "Service APIs", "Local Secrets", "Cloud Keys", "Local-only UIs"],
+        "Route-specific Kong controls, backend identity validation, application-enforced plugin keys, runtime secrets, and explicitly public or operator-trusted surfaces.",
+        [
+            "Gateway Clients", "Direct Clients", "Kong", "Kong Route Policies",
+            "Routed Services", "Backend API", "Supabase Auth", "Backend Identity",
+            "Plugin Key Auth", "Protected APIs", "Public APIs", "Runtime Secrets",
+            "Trusted UIs",
+        ],
     ),
     "service-admission-workflow": (
         "Service Admission Workflow",
@@ -109,6 +117,9 @@ ARCHITECTURE_SOURCE_FILES: dict[str, list[str]] = {
         "services/spark/service.yml",
     ],
     "observability-flow": [
+        "services/backend/service.yml",
+        "services/celery/service.yml",
+        "services/litellm/service.yml",
         "services/prometheus/service.yml",
         "services/grafana/service.yml",
         "services/loki/service.yml",
@@ -118,6 +129,9 @@ ARCHITECTURE_SOURCE_FILES: dict[str, list[str]] = {
     "security-auth-secrets-boundary": [
         "services/kong/service.yml",
         "services/supabase/service.yml",
+        "services/backend/service.yml",
+        "services/backend/app/app/backend_identity.py",
+        "services/backend/app/app/main.py",
         "bootstrapper/generate_supabase_keys.py",
     ],
     "service-admission-workflow": [
@@ -201,21 +215,31 @@ ARCHITECTURE_EDGES: dict[str, list[tuple[str, str, str]]] = {
         ("Trino", "MinIO", "objects"),
     ],
     "observability-flow": [
-        ("Services", "OTel Collector", "OTLP"),
-        ("Services", "Prometheus", "metrics"),
-        ("Services", "Langfuse", "LLM traces"),
+        ("Backend", "OTel Collector", "OTLP"),
+        ("Celery Workers", "OTel Collector", "OTLP"),
+        ("LiteLLM", "OTel Collector", "OTLP"),
+        ("Atlas Services", "Prometheus", "metrics"),
+        ("LiteLLM", "Langfuse", "LLM traces"),
         ("OTel Collector", "Tempo", "traces"),
         ("Prometheus", "Grafana", "query"),
         ("Tempo", "Grafana", "query"),
         ("Loki", "Grafana", "query"),
     ],
     "security-auth-secrets-boundary": [
-        ("Clients", "Kong", "gateway"),
-        ("Kong", "Supabase Auth", "identity"),
-        ("Kong", "Service APIs", "routes"),
-        ("Local Secrets", "Service APIs", "inject"),
-        ("Cloud Keys", "Service APIs", "provider auth"),
-        ("Clients", "Local-only UIs", "loopback"),
+        ("Gateway Clients", "Kong", "gateway"),
+        ("Kong", "Kong Route Policies", "policy"),
+        ("Kong Route Policies", "Routed Services", "forward"),
+        ("Routed Services", "Backend API", "backend"),
+        ("Routed Services", "Public APIs", "public"),
+        ("Backend API", "Public APIs", "public"),
+        ("Backend API", "Backend Identity", "identity"),
+        ("Supabase Auth", "Backend Identity", "JWT"),
+        ("Backend Identity", "Protected APIs", "authorize"),
+        ("Backend API", "Plugin Key Auth", "plugin"),
+        ("Plugin Key Auth", "Protected APIs", "key"),
+        ("Direct Clients", "Backend API", "direct port"),
+        ("Direct Clients", "Trusted UIs", "operator access"),
+        ("Runtime Secrets", "Protected APIs", "inject"),
     ],
     "service-admission-workflow": [
         ("service.yml", "Topology", "declares"),
@@ -275,16 +299,20 @@ ARCHITECTURE_LAYOUTS: dict[str, dict[str, tuple[int, int]]] = {
         "Iceberg REST": (720, 150), "MinIO": (720, 360),
     },
     "observability-flow": {
-        "Services": (50, 240), "OTel Collector": (310, 70),
-        "Prometheus": (310, 240), "Langfuse": (310, 410),
-        "Tempo": (650, 70), "Loki": (650, 200),
-        "Grafana": (980, 240),
+        "Backend": (40, 20), "Celery Workers": (40, 130),
+        "LiteLLM": (40, 240), "Atlas Services": (40, 410),
+        "OTel Collector": (340, 120), "Langfuse": (340, 260),
+        "Prometheus": (340, 410), "Tempo": (680, 120),
+        "Loki": (680, 410), "Grafana": (1000, 260),
     },
     "security-auth-secrets-boundary": {
-        "Clients": (50, 240), "Kong": (300, 100),
-        "Local-only UIs": (300, 390), "Supabase Auth": (610, 30),
-        "Service APIs": (610, 240), "Local Secrets": (930, 100),
-        "Cloud Keys": (930, 370),
+        "Gateway Clients": (40, 80), "Kong": (230, 80),
+        "Kong Route Policies": (420, 80), "Routed Services": (610, 80),
+        "Public APIs": (990, 20), "Backend API": (800, 150),
+        "Plugin Key Auth": (990, 150), "Backend Identity": (990, 280),
+        "Protected APIs": (1180, 215), "Supabase Auth": (800, 280),
+        "Direct Clients": (40, 340), "Trusted UIs": (230, 470),
+        "Runtime Secrets": (1180, 470),
     },
     "service-admission-workflow": {
         "service.yml": (50, 100), "compose.yml": (50, 400),
@@ -295,17 +323,23 @@ ARCHITECTURE_LAYOUTS: dict[str, dict[str, tuple[int, int]]] = {
 }
 
 _NODE_KINDS = {
-    "Clients": "frontend", "Browser": "frontend", "Open WebUI": "frontend",
+    "Clients": "frontend", "Gateway Clients": "frontend",
+    "Direct Clients": "frontend", "Browser": "frontend", "Open WebUI": "frontend",
     "JupyterHub": "frontend", "Zeppelin": "frontend",
     "Apps": "backend", "Agents": "backend", "Backend": "backend",
-    "Services": "backend", "Service APIs": "backend", "adaptive apps": "backend",
+    "Services": "backend", "Atlas Services": "backend",
+    "Celery Workers": "backend", "Service APIs": "backend", "adaptive apps": "backend",
     "Doc Processing": "backend", "Ingestion": "backend",
     "Data Stores": "data", "MinIO": "data", "Weaviate": "data",
     "Neo4j": "data", "Iceberg REST": "data", "Supabase Auth": "data",
     "Cloud Providers": "cloud", "Cloud LLMs": "cloud", "Cloud Keys": "cloud",
     "cloud enabled": "cloud", "Kong": "security", "API Keys": "security",
-    "Local Secrets": "security", "disabled": "security", "none": "security",
-    "Local-only UIs": "security", "Redpanda": "bus",
+    "Local Secrets": "security", "Runtime Secrets": "security",
+    "Backend Identity": "security", "Plugin Key Auth": "security",
+    "Kong Route Policies": "security", "Routed Services": "backend",
+    "Backend API": "backend", "Protected APIs": "backend", "Public APIs": "backend",
+    "disabled": "security", "none": "security", "Trusted UIs": "security",
+    "Redpanda": "bus",
 }
 
 ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
@@ -371,17 +405,18 @@ ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
         "Langfuse traces via its own `success_callback`, not through the "
         "Collector, because Langfuse is the LLM-behavior layer while "
         "Prometheus/Grafana stay the infrastructure-metrics layer. Only "
-        "backend and LiteLLM OTLP traces currently reach Tempo via the "
+        "backend, Celery workers, and LiteLLM OTLP traces currently reach Tempo via the "
         "Collector; Loki log export isn't wired up yet."
     ),
     "security-auth-secrets-boundary": (
-        "Not every surface sits behind Supabase auth: Backend's `/health`, "
-        "`/ready`, `/metrics`, and API-doc routes are intentionally public "
-        "(no bearer token) — don't publish them beyond the intended network "
-        "boundary. Kong's own Admin API (8001) is loopback-only, reachable "
-        "via `docker exec`, never published. JupyterHub is explicitly "
-        "operator-trusted, with direct database and service access rather "
-        "than a policy gate."
+        "Kong applies route-specific Basic, key-auth, pass-through, rate-limit, "
+        "and CORS policies; it does not provide one uniform identity layer. "
+        "Backend separately validates Supabase JWTs, scoped first-party tokens, "
+        "and operator tokens, while plugin `open|key-auth|inherit` modes are "
+        "enforced again at the application boundary. Backend `/health`, "
+        "`/ready`, `/metrics`, and API-doc routes are intentionally public, and "
+        "direct ports or operator-trusted UIs can bypass Kong, so those surfaces "
+        "must remain inside their intended network boundary."
     ),
     "service-admission-workflow": (
         "`manifest_validator.py`'s fragment check is what actually blocks a "
@@ -901,6 +936,8 @@ def architecture_pages(model: DocsModel) -> dict[Path, str]:
 {description}
 
 ## 1. Diagram
+
+![{title} architecture diagram](../diagrams/img/architecture-{slug}.png)
 
 [Open the full-size diagram](./{slug}.html).
 

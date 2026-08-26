@@ -8,6 +8,8 @@
       <p class="atlas-kicker">A self-hosted, pre-integrated gen-AI, ML, and data platform — one Docker Compose stack</p>
       <p>Chat, RAG, agents, distributed compute, and a full data platform — source-configurable services wired together out of the box and selectable among the deployment modes each supports.</p>
       <p>Atlas is a self-hosted engineering platform that bundles 30+ services — LLM inference and a gateway, vector and graph databases, workflow and DAG automation, distributed compute, object storage, notebooks, and observability — behind a Kong gateway and an adaptive FastAPI backend.</p>
+      <p>Seven tracks preselect coherent service families, while SOURCE modes choose container, localhost, or disabled operation where supported. Kong, Supabase, Redis, LiteLLM, and the Backend API form the always-on core, so every selected workload starts from the same integrated foundation.</p>
+      <p>The launch wizard applies those choices through dev or prod profiles before showing the exact Compose plan.</p>
       <div class="atlas-home__actions">
         <a href="quick-start/">Quick Start</a>
         <a href="services/">Service Catalog</a>
@@ -94,7 +96,7 @@ Interactive wizard by default; CLI flags skip prompts for the values you set. Fu
 
 <div class="atlas-home__topology" markdown="1">
 
-![Atlas platform topology: entrypoints, Kong gateway, apps and agents, LLM core, data stores, and cloud-provider boundary](diagrams/architecture.html)
+![Atlas platform topology: entrypoints, Kong gateway, apps and agents, LLM core, data stores, and cloud-provider boundary](diagrams/img/atlas-platform.png)
 
 <p class="atlas-home__caption">Kong routes every *.localhost host; LiteLLM is the single path for local and cloud model traffic.</p>
 

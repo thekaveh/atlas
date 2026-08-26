@@ -195,12 +195,19 @@ def test_architecture_pages_explain_the_views_without_publication_instructions()
         assert "architecture-diagram design system" not in text, page
         assert "dark slate background" not in text, page
         assert "Open the full-size diagram" in text, page
+        assert re.search(
+            rf"!\[[^]]+\]\(\.\./diagrams/img/architecture-{re.escape(page.stem)}\.png\)",
+            text,
+        ), page
         assert "interactive diagram" not in text, page
         interactive = page.with_suffix(".html").read_text(encoding="utf-8")
         assert "How to read this view" in interactive, page
         assert "architecture-diagram design system" not in interactive, page
         assert "Update trigger" not in interactive, page
 
+
+
+def test_source_model_architecture_keeps_source_choices_independent() -> None:
     source_model = (DIAGRAMS_DIR / "source-configuration-model.html").read_text(
         encoding="utf-8"
     )
@@ -208,12 +215,56 @@ def test_architecture_pages_explain_the_views_without_publication_instructions()
     assert 'data-source="SOURCE Var" data-target="localhost"' in source_model
     assert 'data-source="container" data-target="localhost"' not in source_model
 
+
+
+def test_network_architecture_keeps_gateway_and_direct_ports_distinct() -> None:
     network = (DIAGRAMS_DIR / "network-routing-topology.html").read_text(
         encoding="utf-8"
     )
     assert 'data-source="Browser" data-target="*.localhost"' in network
     assert 'data-source="Browser" data-target="Direct Ports"' in network
     assert 'data-source="Kong" data-target="Direct Ports"' not in network
+
+
+def test_observability_architecture_names_each_trace_producer() -> None:
+    observability = (DIAGRAMS_DIR / "observability-flow.html").read_text(
+        encoding="utf-8"
+    )
+    expected = {
+        'data-source="Backend" data-target="OTel Collector"',
+        'data-source="Celery Workers" data-target="OTel Collector"',
+        'data-source="LiteLLM" data-target="OTel Collector"',
+        'data-source="LiteLLM" data-target="Langfuse"',
+        'data-source="Atlas Services" data-target="Prometheus"',
+    }
+    assert not {edge for edge in expected if edge not in observability}
+    assert 'data-source="Services" data-target="OTel Collector"' not in observability
+
+
+
+def test_security_architecture_models_route_and_application_auth_separately() -> None:
+    security = (DIAGRAMS_DIR / "security-auth-secrets-boundary.html").read_text(
+        encoding="utf-8"
+    )
+    expected = {
+        'data-source="Kong" data-target="Kong Route Policies"',
+        'data-source="Routed Services" data-target="Backend API"',
+        'data-source="Direct Clients" data-target="Backend API"',
+        'data-source="Backend API" data-target="Public APIs"',
+        'data-source="Supabase Auth" data-target="Backend Identity"',
+        'data-source="Backend Identity" data-target="Protected APIs"',
+        'data-source="Plugin Key Auth" data-target="Protected APIs"',
+    }
+    assert not {edge for edge in expected if edge not in security}
+    forbidden = {
+        'data-source="Kong" data-target="Backend Identity"',
+        'data-source="Kong" data-target="Supabase Auth"',
+    }
+    assert not {edge for edge in forbidden if edge in security}
+    security_page = (
+        DIAGRAMS_DIR / "security-auth-secrets-boundary.md"
+    ).read_text(encoding="utf-8")
+    assert "services/backend/app/app/backend_identity.py" in security_page
 
 
 def test_architecture_edge_labels_do_not_share_coordinates() -> None:
@@ -240,6 +291,42 @@ def test_architecture_edge_labels_do_not_share_coordinates() -> None:
         labels = label_pattern.findall(rendered)
         coordinates = [(x, y) for x, y, _label in labels]
         assert len(coordinates) == len(set(coordinates)), slug
+
+
+def test_top_level_architecture_long_routes_use_reviewed_gutters_and_endpoints() -> None:
+    svg = (ROOT / "docs" / "diagrams" / "architecture.svg").read_text(
+        encoding="utf-8"
+    )
+    html_master = (ROOT / "docs" / "diagrams" / "architecture.html").read_text(
+        encoding="utf-8"
+    )
+    for master in (svg, html_master):
+        for crossing in (
+            '<line x1="450" y1="360" x2="450" y2="668"',
+            '<line x1="700" y1="360" x2="700" y2="788"',
+            '<line x1="1200" y1="360" x2="1200" y2="788"',
+            '<line x1="700" y1="360" x2="700" y2="928"',
+            '<line x1="1200" y1="480" x2="1020" y2="928"',
+        ):
+            assert crossing not in master
+        assert "L 825 510" in master
+        assert "L 1325 770" in master
+        for current_media_route in (
+            "M 200 360 L 75 380 L 75 650 L 200 650 L 200 668",
+            "M 700 360 L 825 380 L 825 650 L 950 650 L 950 668",
+            "M 200 480 L 325 500 L 325 640 L 450 640 L 450 668",
+        ):
+            assert current_media_route in master
+        assert "M 450 360 L 575 380" not in master
+        assert "M 450 480 L 575 500" not in master
+
+
+def test_canonical_home_embeds_the_committed_platform_image() -> None:
+    home = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+    assert re.search(
+        r"!\[[^]]+\]\(diagrams/img/atlas-platform\.png\)", home
+    )
+    assert "](diagrams/architecture.html)" not in home
 
 
 def test_architecture_interpretation_renders_safe_inline_markup() -> None:

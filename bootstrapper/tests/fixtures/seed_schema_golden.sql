@@ -586,7 +586,10 @@ CREATE TABLE public.media_spend_ledger (
     artifact_refs jsonb DEFAULT '[]'::jsonb NOT NULL,
     reason text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT media_spend_ledger_estimated_cost_check CHECK (((estimated_cost_usd IS NULL) OR (estimated_cost_usd >= (0)::numeric))),
+    CONSTRAINT media_spend_ledger_final_cost_check CHECK (((final_cost_usd IS NULL) OR (final_cost_usd >= (0)::numeric))),
+    CONSTRAINT media_spend_ledger_status_check CHECK (((status)::text = ANY ((ARRAY['reserved'::character varying, 'submitted'::character varying, 'committed'::character varying, 'released'::character varying, 'denied'::character varying])::text[])))
 );
 
 ALTER TABLE public.media_spend_ledger OWNER TO supabase_admin;

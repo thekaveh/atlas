@@ -1,6 +1,8 @@
 import asyncio
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 
 def _run(coro):
     return asyncio.run(coro)
@@ -59,6 +61,7 @@ class _FakePool:
         self.in_use = 0
         self.peak = 0
         self._closed = False
+        self.terminated = False
 
     def acquire(self):
         pool = self
@@ -78,6 +81,13 @@ class _FakePool:
         return _Acq()
 
     async def close(self):
+        self._closed = True
+
+    def is_closing(self):
+        return self._closed
+
+    def terminate(self):
+        self.terminated = True
         self._closed = True
 
 
@@ -152,6 +162,21 @@ def test_get_pg_pool_honours_env_sizing(monkeypatch):
     _reset_pools()
 
 
+@pytest.mark.parametrize(
+    ("minimum", "maximum"),
+    [(-1, 10), (1, 0), (11, 10)],
+)
+def test_get_pg_pool_rejects_invalid_sizing(monkeypatch, minimum, maximum):
+    _reset_pools()
+    import db_connection
+
+    monkeypatch.setattr(db_connection, "_POOL_MIN", minimum)
+    monkeypatch.setattr(db_connection, "_POOL_MAX", maximum)
+    with pytest.raises(db_connection.PoolConfigurationError):
+        _run(db_connection.get_pg_pool("postgresql://u:p@db:5432/atlas"))
+    _reset_pools()
+
+
 def test_acquire_conn_yields_a_pooled_connection():
     _reset_pools()
     from db_connection import acquire_conn
@@ -178,6 +203,25 @@ def test_close_pg_pools_disposes_and_clears_cache():
         _run(db_connection.close_pg_pools())
 
     assert pool._closed is True
+    assert db_connection._pools == {}
+    _reset_pools()
+
+
+def test_close_pg_pools_terminates_a_pool_that_misses_the_deadline(monkeypatch):
+    _reset_pools()
+    import db_connection
+
+    class StuckPool(_FakePool):
+        async def close(self):
+            await asyncio.Event().wait()
+
+    pool = StuckPool(1)
+    db_connection._pools["postgresql://u:p@db:5432/atlas"] = pool
+    monkeypatch.setattr(db_connection, "_POOL_CLOSE_TIMEOUT_SECONDS", 0.01)
+
+    _run(db_connection.close_pg_pools())
+
+    assert pool.terminated is True
     assert db_connection._pools == {}
     _reset_pools()
 

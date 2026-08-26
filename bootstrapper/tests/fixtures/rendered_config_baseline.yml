@@ -700,6 +700,7 @@ services:
     deploy:
       replicas: 0
     environment:
+      ATLAS_OTEL_ENABLED: 'false'
       CELERY_BROKER_URL: ''
       CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS: '3600'
       CELERY_QUEUE: atlas
@@ -726,6 +727,9 @@ services:
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
       MINIO_ENDPOINT: ''
       N8N_BASE_URL: http://n8n:5678
+      OTEL_EXPORTER_OTLP_ENDPOINT: ''
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: backend-celery-worker
       PROJECT_NAME: atlas
       RAG_INGESTION_CORPUS_ROOT: /app/corpus
       RAG_INGESTION_EXECUTION_LEASE_SECONDS: '30'
@@ -2816,7 +2820,7 @@ services:
       interval: 15s
       retries: 10
       start_period: 1m30s
-    image: n8nio/n8n:2.28.2
+    image: n8nio/n8n:2.36.7
     logging:
       driver: json-file
       options:
@@ -2843,7 +2847,7 @@ services:
     - /scripts/init-n8n.sh
     environment:
       N8N_INIT_NODES: n8n-nodes-comfyui@0.0.9,@ksc1234/n8n-nodes-comfyui-image-to-image@1.0.2
-    image: n8nio/n8n:2.28.2
+    image: n8nio/n8n:2.36.7
     networks:
       backend-network: null
     restart: 'no'
@@ -2924,7 +2928,7 @@ services:
       TIKA_ENDPOINT: ''
       TTS_ENDPOINT: ''
       WEAVIATE_URL: http://weaviate:8080
-    image: n8nio/n8n:2.28.2
+    image: n8nio/n8n:2.36.7
     logging:
       driver: json-file
       options:
@@ -3138,7 +3142,7 @@ services:
       WEBUI_SECRET_KEY: secret
     extra_hosts:
     - host.docker.internal=
-    image: dyrnq/open-webui:v0.6.32
+    image: dyrnq/open-webui:v0.11.0
     logging:
       driver: json-file
       options:
