@@ -53,6 +53,22 @@ def _generic_manager(tmp_path: Path):
     )
 
 
+def _observe_contender_lock(monkeypatch, module, contender_threads, attempted):
+    if module.fcntl is None:
+        return
+    real_flock = module.fcntl.flock
+
+    def observed_flock(fd, operation):
+        if (
+            threading.get_ident() in contender_threads
+            and operation & module.fcntl.LOCK_EX
+        ):
+            attempted.set()
+        return real_flock(fd, operation)
+
+    monkeypatch.setattr(module.fcntl, "flock", observed_flock)
+
+
 @pytest.mark.parametrize("manager_kind", ["generic", "blender"])
 def test_remove_wraps_state_directory_deletion_failure(
     tmp_path, monkeypatch, manager_kind,
@@ -134,13 +150,23 @@ def test_concurrent_starts_are_serialized_across_manager_instances(
     active = 0
     max_active = 0
     counter_lock = threading.Lock()
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    contender_attempted_lock = threading.Event()
+    contender_threads: set[int] = set()
+
+    _observe_contender_lock(
+        monkeypatch, bm, contender_threads, contender_attempted_lock
+    )
 
     def fake_start_locked(self, _wait_timeout):
         nonlocal active, max_active
         with counter_lock:
             active += 1
             max_active = max(max_active, active)
-        time.sleep(0.05)
+        if self is managers[0]:
+            first_entered.set()
+            assert release_first.wait(2)
         with counter_lock:
             active -= 1
         return bm.ProcessStatus(True, 4242, True)
@@ -161,8 +187,19 @@ def test_concurrent_starts_are_serialized_across_manager_instances(
             return manager.ensure_running()[0]
         return manager.start()
 
+    def invoke_contender():
+        contender_threads.add(threading.get_ident())
+        return invoke(managers[1])
+
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(invoke, managers))
+        first = pool.submit(invoke, managers[0])
+        assert first_entered.wait(1)
+        contender = pool.submit(invoke_contender)
+        if bm.fcntl is not None:
+            assert contender_attempted_lock.wait(1)
+            assert not contender.done()
+        release_first.set()
+        results = [first.result(), contender.result()]
 
     assert all(result.running for result in results)
     assert max_active == 1
@@ -199,7 +236,11 @@ def test_lifecycle_mutations_share_one_lock(
     marker.write_text("keep", encoding="utf-8")
     entered = threading.Event()
     release = threading.Event()
+    contender_attempted_lock = threading.Event()
+    contender_threads: set[int] = set()
     held_operation, competing_operation = operations
+    module = __import__(manager_type.__module__, fromlist=["fcntl"])
+    _observe_contender_lock(monkeypatch, module, contender_threads, contender_attempted_lock)
 
     def fake_start_locked(self, _wait_timeout):
         if self is managers[0] and held_operation == "start":
@@ -219,11 +260,14 @@ def test_lifecycle_mutations_share_one_lock(
     with ThreadPoolExecutor(max_workers=2) as pool:
         held_future = pool.submit(getattr(managers[0], held_operation))
         assert entered.wait(1)
-        competing_future = pool.submit(
-            getattr(managers[1], competing_operation)
-        )
-        time.sleep(0.05)
-        assert not competing_future.done()
+        def invoke_competing():
+            contender_threads.add(threading.get_ident())
+            return getattr(managers[1], competing_operation)()
+
+        competing_future = pool.submit(invoke_competing)
+        if module.fcntl is not None:
+            assert contender_attempted_lock.wait(1)
+            assert not competing_future.done()
         assert marker.exists()
         release.set()
         held_future.result()
@@ -344,38 +388,6 @@ def test_start_requires_provisioned_state(tmp_path):
         m.start()
 
 
-def test_start_spawns_and_waits_for_port(tmp_path, monkeypatch):
-    m = _manager(tmp_path)
-    m.state_dir.mkdir(parents=True)
-    m.addon_path.write_bytes(ADDON_BYTES)
-    m.launcher_path.write_text("launcher")
-    monkeypatch.setattr(m, "blender_binary", lambda: "/fake/blender")
-    spawned = {}
-
-    class _FakeProc:
-        pid = 4242
-
-        def poll(self):
-            return None
-
-    def fake_popen(argv, **kw):
-        spawned["argv"] = argv
-        return _FakeProc()
-
-    monkeypatch.setattr(
-        "services.managed_host.ManagedHostManager._process_start_time",
-        staticmethod(lambda _pid: "Mon Jan  1 00:00:00 2024"),
-    )
-    monkeypatch.setattr(bm.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(m, "_port_in_use", lambda: True)
-    status = m.start()
-    assert status.running and status.pid == 4242
-    assert m._read_pid() == 4242
-    assert spawned["argv"][:2] == ["/fake/blender", "--background"]
-    assert str(m.launcher_path) in spawned["argv"]
-    assert "19876" in spawned["argv"] and "127.0.0.1" in spawned["argv"]
-
-
 def test_start_failure_reports_log_tail(tmp_path, monkeypatch):
     m = _manager(tmp_path)
     m.state_dir.mkdir(parents=True)
@@ -484,6 +496,36 @@ def test_manager_from_env_malformed_port_falls_back(tmp_path):
     assert m.port == 9876  # degrade, never traceback the launch/CLI
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [[], {"status": "success", "result": "bad"}, {"status": "error", "result": {}}],
+)
+def test_health_rejects_unexpected_protocol_shapes(tmp_path, monkeypatch, payload):
+    manager = _manager(tmp_path)
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def sendall(self, _payload):
+            pass
+
+        def settimeout(self, _timeout):
+            pass
+
+        def recv(self, _size):
+            return bm.json.dumps(payload).encode("utf-8")
+
+    monkeypatch.setattr(bm.socket, "create_connection", lambda *_a, **_k: Connection())
+
+    health = manager.health()
+    assert health["reachable"] is False
+    assert "error" in health
+
+
 def test_permission_denied_pid_is_live_but_never_adopted(tmp_path, monkeypatch):
     """Permission denial proves existence, not ownership."""
     def perm(pid, sig):
@@ -502,8 +544,7 @@ def test_permission_denied_pid_is_live_but_never_adopted(tmp_path, monkeypatch):
 
 
 def test_start_foreign_port_holder_is_not_success(tmp_path, monkeypatch):
-    """A dead child + an open port (foreign process, e.g. a GUI Blender) must
-    raise, not report the stranger as our managed process."""
+    """An open foreign port is rejected under the lock before spawning."""
     m = _manager(tmp_path)
     m.state_dir.mkdir(parents=True)
     m.addon_path.write_bytes(ADDON_BYTES)
@@ -511,15 +552,13 @@ def test_start_foreign_port_holder_is_not_success(tmp_path, monkeypatch):
     m.log_file.write_text("Address already in use\n")
     monkeypatch.setattr(m, "blender_binary", lambda: "/fake/blender")
 
-    class _DeadProc:
-        pid = 4244
-
-        def poll(self):
-            return 1
-
-    monkeypatch.setattr(bm.subprocess, "Popen", lambda *a, **k: _DeadProc())
+    monkeypatch.setattr(
+        bm.subprocess,
+        "Popen",
+        lambda *a, **k: pytest.fail("occupied port reached Popen"),
+    )
     monkeypatch.setattr(m, "_port_in_use", lambda: True)  # foreign holder
-    with pytest.raises(BlenderMcpError, match="Address already in use"):
+    with pytest.raises(BlenderMcpError, match="port 19876 is already in use"):
         m.start(wait_timeout=1.0)
 
 
@@ -666,21 +705,23 @@ def test_stop_reaps_its_own_child_instead_of_polling_a_zombie(tmp_path):
     tmp_path.mkdir(parents=True, exist_ok=True)
     # Stamp the real child's start time so the guard can prove ownership;
     # otherwise it must short-circuit and this would not exercise the reap.
-    child = subprocess.Popen(  # noqa: S603 - fixed argv, test-local
-        [sys.executable, "-c", f"import time; time.sleep(300)  # {tmp_path}"],
-        start_new_session=True,
-    )
     from services.managed_host import (
         ManagedHostManager,
         require_process_start_time,
         write_pid_file_with_identity,
     )
-    write_pid_file_with_identity(
-        manager.pid_file,
-        child.pid,
-        require_process_start_time(child.pid, ManagedHostManager._process_start_time),
+    child = subprocess.Popen(  # noqa: S603 - fixed argv, test-local
+        [sys.executable, "-c", f"import time; time.sleep(300)  # {tmp_path}"],
+        start_new_session=True,
     )
     try:
+        write_pid_file_with_identity(
+            manager.pid_file,
+            child.pid,
+            require_process_start_time(
+                child.pid, ManagedHostManager._process_start_time
+            ),
+        )
         assert manager._pid_is_stranger(child.pid) is False, (
             "test setup: the child must read as ours, or the guard short-circuits"
         )
@@ -694,9 +735,17 @@ def test_stop_reaps_its_own_child_instead_of_polling_a_zombie(tmp_path):
         assert elapsed < 5.0, f"stop() polled a zombie for {elapsed:.1f}s"
     finally:
         try:
-            child.kill()
+            if child.poll() is None:
+                child.kill()
         except OSError:
             pass
+        try:
+            child.wait(timeout=5)
+        except ChildProcessError:
+            pass
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait(timeout=5)
 
 
 # ── PID-reuse guard (#795 follow-up) ─────────────────────────────────

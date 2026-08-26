@@ -8,10 +8,13 @@ the live public API and does not need the restart.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace as NS
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
@@ -74,6 +77,10 @@ def test_reactivate_n8n_restarts_only_when_needed(tmp_path):
             self.calls.append(args)
             return 0
 
+        def compose_service_ps_json(self, service):
+            assert service == "n8n"
+            return ([{"Service": "n8n", "State": "running", "Health": "healthy"}], None)
+
     class _Banner:
         def show_status_message(self, *a, **k):
             pass
@@ -87,13 +94,152 @@ def test_reactivate_n8n_restarts_only_when_needed(tmp_path):
 
     # needs restart -> restarts n8n
     s = make({"N8N_SOURCE": "container"}, [active])
-    s._reactivate_n8n_if_needed()
+    assert s._reactivate_n8n_if_needed() is True
     assert ["restart", "n8n"] in s.docker_manager.calls
 
     # key present -> no restart
     s = make({"N8N_SOURCE": "container", "N8N_API_KEY": "k"}, [active])
-    s._reactivate_n8n_if_needed()
+    assert s._reactivate_n8n_if_needed() is True
     assert s.docker_manager.calls == []
+
+
+def test_reactivate_n8n_reports_restart_failure(tmp_path):
+    import start
+
+    active = NS(active="true", source_path=tmp_path / "x")
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter.config_parser = NS(
+        load_consumer_config=lambda: NS(n8n_workflows=(active,)),
+        parse_env_file=lambda: {"N8N_SOURCE": "container"},
+    )
+    starter.docker_manager = NS(execute_compose_command=lambda _args: 17)
+    messages: list[tuple[str, str]] = []
+    starter.banner = NS(
+        show_status_message=lambda message, level: messages.append((message, level))
+    )
+
+    assert starter._reactivate_n8n_if_needed() is False
+    assert any("failed" in message.lower() and level == "error" for message, level in messages)
+
+
+@pytest.mark.parametrize("failure_source", ["consumer", "env"])
+def test_reactivate_n8n_fails_closed_when_configuration_cannot_be_read(
+    failure_source,
+):
+    import start
+
+    def fail():
+        raise OSError(f"cannot read {failure_source}")
+
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter.config_parser = NS(
+        load_consumer_config=fail if failure_source == "consumer" else lambda: NS(),
+        parse_env_file=fail if failure_source == "env" else lambda: {},
+    )
+    messages = []
+    starter.banner = NS(
+        show_status_message=lambda message, level: messages.append((message, level))
+    )
+
+    assert starter._reactivate_n8n_if_needed() is False
+    assert any(f"cannot read {failure_source}" in message for message, _ in messages)
+    assert any(level == "error" for _, level in messages)
+
+
+@pytest.mark.parametrize(
+    ("poll_result", "expected"),
+    [
+        (([{"service": "n8n", "ok": True}], True, True, None), True),
+        (([{"service": "n8n", "ok": False, "reason": "unhealthy"}], False, True, None), False),
+        (([], False, False, "inspection failed"), False),
+        (([], False, False, None), False),
+    ],
+)
+def test_reactivate_n8n_waits_for_healthy_container(tmp_path, poll_result, expected):
+    import start
+
+    active = NS(active="true", source_path=tmp_path / "x")
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter.config_parser = NS(
+        load_consumer_config=lambda: NS(n8n_workflows=(active,)),
+        parse_env_file=lambda: {"N8N_SOURCE": "container"},
+    )
+    starter.docker_manager = NS(
+        execute_compose_command=lambda _args: 0,
+        compose_service_ps_json=lambda _service: ([], None),
+    )
+    starter._poll_until_converged = lambda **_kwargs: poll_result
+    messages = []
+    starter.banner = NS(
+        show_status_message=lambda message, level: messages.append((message, level))
+    )
+
+    assert starter._reactivate_n8n_if_needed() is expected
+    if not expected:
+        assert any(level == "error" for _, level in messages)
+
+
+@pytest.mark.parametrize(
+    ("row", "expected"),
+    [
+        ({"Service": "n8n", "State": "running", "Health": "healthy"}, True),
+        ({"Service": "n8n", "State": "running", "Health": ""}, False),
+        ({"Service": "n8n", "State": "running", "Health": "unhealthy"}, False),
+        ({
+            "Service": "n8n",
+            "State": "exited",
+            "ExitCode": 0,
+            "Status": "Exited (0) 1 second ago",
+        }, False),
+    ],
+)
+def test_n8n_restart_requires_running_and_healthy(row, expected):
+    import start
+
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter.docker_manager = NS(compose_service_ps_json=lambda _service: ([row], None))
+    starter.banner = NS(show_status_message=lambda *_args, **_kwargs: None)
+    real_poll = start.AtlasStarter._poll_until_converged.__get__(starter)
+    starter._poll_until_converged = lambda **kwargs: real_poll(
+        **{**kwargs, "grace_seconds": 0}
+    )
+
+    assert starter._n8n_restart_converged() is expected
+
+
+def test_linear_start_rolls_back_when_n8n_reactivation_fails(monkeypatch):
+    import start
+
+    starter = start.AtlasStarter()
+    monkeypatch.setattr(starter.docker_manager, "start_services", lambda **_kwargs: 0)
+    monkeypatch.setattr(starter, "verify_one_shot_init_containers", lambda: True)
+    monkeypatch.setattr(starter, "_reactivate_n8n_if_needed", lambda: False)
+    actions: list[str] = []
+    monkeypatch.setattr(
+        starter, "rollback_managed_host_processes", lambda: actions.append("rollback") or True
+    )
+    monkeypatch.setattr(
+        starter, "commit_managed_host_processes", lambda: actions.append("commit")
+    )
+
+    assert starter.start_docker_services() is False
+    assert actions == ["rollback"]
+
+
+def test_tui_marks_launch_failed_when_n8n_reactivation_fails():
+    from ui.textual.screens.wizard_screen import WizardScreen
+
+    events: list[str] = []
+    screen = NS(
+        _write_status=lambda *_args, **_kwargs: events.append("status"),
+        _mark_launch_failed=lambda: events.append("failed"),
+    )
+    starter = NS(_reactivate_n8n_if_needed=lambda: False)
+
+    assert asyncio.run(
+        WizardScreen._reactivate_n8n_after_up(screen, starter)
+    ) is False
+    assert events == ["status", "failed"]
 
 
 def test_seed_workflows_publishes_when_no_api_key():

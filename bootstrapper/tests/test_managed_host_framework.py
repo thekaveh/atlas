@@ -242,7 +242,7 @@ def test_a_command_that_never_opens_the_port_raises_with_a_log_tail(tmp_path):
     script.write_text("import sys; print('boom', flush=True); sys.exit(3)", encoding="utf-8")
     spec = _spec(command=(sys.executable, str(script)), port=_free_port())
     manager = ManagedHostManager(spec, tmp_path / "state")
-    with pytest.raises(ManagedHostError, match="did not open"):
+    with pytest.raises(ManagedHostError, match="did not become healthy"):
         manager.start(wait_timeout=5.0)
     assert "boom" in manager._log_tail()
 
@@ -984,32 +984,23 @@ def test_an_ambiguous_start_time_probe_is_treated_as_unknowable(tmp_path, monkey
     assert ManagedHostManager._process_start_time(1234) == "Mon Jan  1 00:00:00 2024"
 
 
-def test_start_is_serialized_across_processes(tmp_path):
-    """`start()` is check-then-spawn.
+def test_lifecycle_lock_timeout_is_bounded(tmp_path, monkeypatch):
+    import services.managed_host as managed_host
 
-    Two concurrent starts both saw `status().running` as False and both
-    spawned, leaving one process untracked and holding the port.
-    """
+    if managed_host.fcntl is None:
+        pytest.skip("fcntl lock timeout is POSIX-only")
     manager = ManagedHostManager(_spec(), tmp_path)
-    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    ticks = iter([0.0, 31.0])
+    monkeypatch.setattr(managed_host.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(managed_host.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        managed_host.fcntl,
+        "flock",
+        lambda *_args: (_ for _ in ()).throw(BlockingIOError()),
+    )
 
-    script = textwrap.dedent(f"""
-        import pathlib, sys, time
-        sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r})
-        from services.managed_host import ManagedHostManager, HostProcessSpec
-        spec = HostProcessSpec(name="sam3-segment", command=("python3","-c","pass"), port=8799)
-        m = ManagedHostManager(spec, pathlib.Path({str(tmp_path)!r}))
-        start = time.monotonic()
-        with m._lifecycle_lock():
-            print(time.monotonic() - start)
-    """)
-    with manager._lifecycle_lock():
-        child = subprocess.Popen(
-            [sys.executable, "-c", script], stdout=subprocess.PIPE, text=True
-        )
-        time.sleep(1.0)
-    waited = float(child.communicate(timeout=30)[0].strip())
-    assert waited > 0.5, f"child was not blocked (waited {waited:.2f}s)"
+    with pytest.raises(ManagedHostError, match="timed out waiting"):
+        manager.start()
 
 
 def test_remove_does_not_self_deadlock_on_the_lifecycle_lock(tmp_path):

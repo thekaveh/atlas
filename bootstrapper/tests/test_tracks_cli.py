@@ -60,6 +60,15 @@ def test_track_help_lists_trading_profile():
     assert "trading" in r.stdout
 
 
+def test_help_distinguishes_tracks_profiles_and_supported_linear_ui():
+    r = _run("--help")
+    assert r.returncode == 0
+    assert "Pre-select a wizard track" in r.stdout
+    assert "wizard profile (track)" not in r.stdout
+    assert "Disable the Textual wizard/launch UI" in r.stdout
+    assert "legacy linear flow" not in r.stdout
+
+
 def test_comfyui_source_accepts_managed_localhost_mps():
     """#590: --comfyui-source managed-localhost-mps must be accepted — the
     Choice list previously omitted this supported source, so the only way to

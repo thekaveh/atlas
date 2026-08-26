@@ -2326,6 +2326,18 @@ class WizardScreen(Screen):
         except Exception:  # noqa: BLE001
             pass
 
+    async def _reactivate_n8n_after_up(self, starter) -> bool:
+        """Fail the TUI launch if the required webhook restart fails."""
+        if await asyncio.to_thread(starter._reactivate_n8n_if_needed):
+            return True
+        self._write_status(
+            "❌ n8n webhook reactivation failed — managed hosts will be rolled back",
+            style="bold red",
+            source="pipeline",
+        )
+        self._mark_launch_failed()
+        return False
+
     async def _run_pipeline_and_stream(self) -> None:
         starter = self._starter
         cold = bool((self._stack_options or {}).get("cold", False))
@@ -2674,7 +2686,8 @@ class WizardScreen(Screen):
             # the DEFAULT path: a consumer-declared active n8n workflow with
             # no N8N_API_KEY left its production webhook 404 under
             # `./start.sh` while working under `./start.sh --no-tui`.
-            await asyncio.to_thread(starter._reactivate_n8n_if_needed)
+            if not await self._reactivate_n8n_after_up(starter):
+                return
             starter.commit_managed_host_processes()
             managed_hosts_pending = False
             self._write_status("✅ All services started",

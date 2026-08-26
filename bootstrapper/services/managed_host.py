@@ -55,8 +55,16 @@ from typing import Any, Mapping, Optional
 from utils.atomic_write import atomic_write_text
 from services import (
     LaunchCompensation,
+    add_lifecycle_preflight,
+    acquire_lifecycle_lock,
+    await_owned_process_readiness,
+    await_spawned_process_readiness,
     compensate_failed_launch,
+    lifecycle_support_error,
+    process_group_owns_tcp_listener,
+    refuse_occupied_port,
     refuse_untrusted_tracked_pid,
+    require_lifecycle_support,
     raise_launch_recording_failure,
     remove_state_directory,
     tracked_process_may_survive,
@@ -326,7 +334,9 @@ class ManagedHostManager:
         return self.spec.bind in _LOOPBACK
 
     def _probe_host(self) -> str:
-        return "127.0.0.1" if self.spec.bind in ("0.0.0.0", "::") else self.spec.bind
+        return {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(
+            self.spec.bind, self.spec.bind
+        )
 
     def endpoint(self) -> str:
         scheme = "http" if self.spec.health.kind == "http" else "tcp"
@@ -348,6 +358,10 @@ class ManagedHostManager:
     # ── preflight (read-only) ────────────────────────────────────────
     def preflight(self) -> PreflightResult:
         result = PreflightResult()
+        add_lifecycle_preflight(
+            result, lifecycle_support_error(fcntl, os, signal, "managed-host"),
+            (_OK, _FAIL),
+        )
         self._preflight_bind(result)
         self._preflight_venv(result)
         self._preflight_command(result)
@@ -500,12 +514,15 @@ class ManagedHostManager:
         acquisition while preventing start/stop/remove races.
         """
         self.state_dir.parent.mkdir(parents=True, exist_ok=True)
-        if fcntl is None:  # non-POSIX: no lock available, behave as before
-            yield
-            return
+        require_lifecycle_support(
+            lifecycle_support_error(fcntl, os, signal, "managed-host"),
+            ManagedHostError,
+        )
         handle = open(self.lifecycle_lock_file, "w", encoding="utf-8")
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            acquire_lifecycle_lock(
+                handle, fcntl, (repr(self.spec.name), ManagedHostError), time,
+            )
             yield
         finally:
             handle.close()  # closing releases the lock
@@ -518,7 +535,20 @@ class ManagedHostManager:
         )
         status = self.status()
         if status.running:
-            return status
+            return await_owned_process_readiness(
+                self,
+                status,
+                wait_timeout,
+                (repr(self.spec.name), self.spec.bind, self.spec.port, ManagedHostError, time),
+            )
+        refuse_occupied_port(
+            status, self._port_in_use,
+            (
+                f"port {self.spec.port} is already in use by an unmanaged process; "
+                f"stop it or change the declared port for {self.spec.name!r}",
+                ManagedHostError,
+            ),
+        )
         process = self._spawn()
         self._untracked_pid = process.pid
         try:
@@ -541,8 +571,9 @@ class ManagedHostManager:
                 outcome,
                 (f"{self.spec.name!r} pid file / process identity", ManagedHostError),
             )
+        status = self._await_port(process, wait_timeout)
         self._untracked_pid = None
-        return self._await_port(process, wait_timeout)
+        return status
 
     @staticmethod
     def _terminate_untracked(process: subprocess.Popen) -> bool:
@@ -605,18 +636,26 @@ class ManagedHostManager:
             raise ManagedHostError(f"could not launch {self.spec.name!r}: {exc}") from exc
 
     def _await_port(self, process: subprocess.Popen, wait_timeout: float) -> HostProcessStatus:
-        deadline = time.monotonic() + wait_timeout
-        while time.monotonic() < deadline:
-            if process.poll() is not None:
-                break  # child died — a port held by a FOREIGN process is not success
-            if self._port_in_use():
-                return HostProcessStatus(running=True, pid=process.pid, port_open=True)
-            time.sleep(0.5)
+        if await_spawned_process_readiness(
+            self,
+            process,
+            wait_timeout,
+            (time, repr(self.spec.name), ManagedHostError),
+        ):
+            return HostProcessStatus(running=True, pid=process.pid, port_open=True)
         tail = self._log_tail()
         self._stop_locked()
+        _pid, may_survive = tracked_process_may_survive(self)
         raise ManagedHostError(
-            f"{self.spec.name!r} did not open {self.spec.bind}:{self.spec.port} within "
-            f"{wait_timeout:.0f}s. Log tail:\n{tail}"
+            f"{self.spec.name!r} did not become healthy on "
+            f"{self.spec.bind}:{self.spec.port} within "
+            f"{wait_timeout:.0f}s. Log tail:\n{tail}",
+            surviving_process=may_survive,
+        )
+
+    def _spawned_endpoint_owned(self, pid: int) -> bool:
+        return process_group_owns_tcp_listener(
+            pid, self.spec.bind, self.spec.port
         )
 
     def stop(self) -> bool:
@@ -765,7 +804,8 @@ class ManagedHostManager:
         return {"reachable": self._port_in_use(timeout=limit)}
 
     def _health_http(self, timeout: float) -> dict:
-        url = f"http://{self._probe_host()}:{self.spec.port}{self.spec.health.path}"
+        host = self._probe_host()
+        url = f"http://{f'[{host}]' if ':' in host else host}:{self.spec.port}{self.spec.health.path}"
         try:
             with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310
                 body = response.read(65536).decode("utf-8", errors="replace")

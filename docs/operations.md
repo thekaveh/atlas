@@ -98,8 +98,8 @@ The launch phase streams Docker Compose output through the Textual UI. The same 
 
 ## 8. Managed Host Lifecycle
 
-Apple-Silicon ComfyUI MPS and vLLM Metal sources run as native host processes,
-outside Docker Compose. Atlas starts selected managed hosts only after
+ComfyUI MPS and vLLM Metal on Apple Silicon, plus headless Blender MCP, run as
+native host processes outside Docker Compose. Atlas starts selected managed hosts only after
 configuration, dependency, route, host, and localhost validation completes and
 the operator confirms launch. If image build, Compose startup, or a required
 init container fails, startup rolls back only the host processes created by

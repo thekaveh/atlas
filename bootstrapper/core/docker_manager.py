@@ -784,6 +784,10 @@ class DockerManager:
         """Inspect all compose services via ``docker compose ps --format json``."""
         return self._compose_ps_json(None)
 
+    def compose_service_ps_json(self, service: str) -> tuple[list[dict], str | None]:
+        """Inspect one compose service, including stopped and unhealthy states."""
+        return self._compose_ps_json(service)
+
     def _compose_ps_json(self, service: str | None) -> tuple[list[dict], str | None]:
         """Inspect compose services via ``docker compose ps --format json``."""
         try:

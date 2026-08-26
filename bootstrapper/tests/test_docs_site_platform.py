@@ -224,6 +224,81 @@ def test_network_architecture_keeps_gateway_and_direct_ports_distinct() -> None:
     assert 'data-source="Browser" data-target="*.localhost"' in network
     assert 'data-source="Browser" data-target="Direct Ports"' in network
     assert 'data-source="Kong" data-target="Direct Ports"' not in network
+    assert ">host NAT</text>" in network
+    assert ">publishes</text>" not in network
+
+
+def test_llm_architecture_includes_managed_vllm_metal() -> None:
+    from bootstrapper.docs.sitegen.pages import (
+        ARCHITECTURE_EDGES,
+        ARCHITECTURE_LAYOUTS,
+        ARCHITECTURE_PERSPECTIVES,
+        ARCHITECTURE_SOURCE_FILES,
+        _NODE_KINDS,
+    )
+
+    assert "vLLM Metal" in ARCHITECTURE_PERSPECTIVES["source-configuration-model"][2]
+    assert ("none", "vLLM Metal", "pairs with") in ARCHITECTURE_EDGES[
+        "source-configuration-model"
+    ]
+    assert "vLLM Metal" in ARCHITECTURE_PERSPECTIVES["llm-provider-flow"][2]
+    assert ("LiteLLM", "vLLM Metal", "managed local") in ARCHITECTURE_EDGES[
+        "llm-provider-flow"
+    ]
+    for slug in ("source-configuration-model", "llm-provider-flow"):
+        assert "services/vllm-metal/service.yml" in ARCHITECTURE_SOURCE_FILES[slug]
+    llm_layout = ARCHITECTURE_LAYOUTS["llm-provider-flow"]
+    telemetry_y = llm_layout["LiteLLM"][1] + 30
+    vllm_y = llm_layout["vLLM Metal"][1]
+    assert not vllm_y <= telemetry_y <= vllm_y + 60
+    assert _NODE_KINDS.get("vLLM Metal", "generic") == "generic"
+
+
+def test_track_architecture_models_explicit_disabled_overrides() -> None:
+    from bootstrapper.docs.sitegen.pages import (
+        ARCHITECTURE_EDGES,
+        ARCHITECTURE_PERSPECTIVES,
+    )
+
+    edges = ARCHITECTURE_EDGES["track-selection-matrix"]
+    assert ("Overrides", "Selected Source", "authoritative") in edges
+    assert ("Selected Source", "Enabled", "non-disabled") in edges
+    assert ("Selected Source", "Disabled", "explicit") in edges
+    assert ("Selected Source", "Force Disabled", "disabled") not in edges
+    assert ("Overrides", "Enabled", "authoritative") not in edges
+    assert "Disabled" in ARCHITECTURE_PERSPECTIVES["track-selection-matrix"][2]
+
+
+def test_localhost_port_docs_distinguish_transport_and_route_contracts() -> None:
+    text = (ROOT / "docs/deployment/ports-and-routes.md").read_text(encoding="utf-8")
+    for expected in (
+        "TIKA_LOCALHOST_PORT",
+        "COMFYUI_MPS_LOCALHOST_PORT",
+        "VLLM_METAL_LOCALHOST_PORT",
+        "BLENDER_MCP_LOCALHOST_PORT",
+        "TCP",
+        "No Kong route",
+    ):
+        assert expected in text
+    assert "Every localhost-source service" not in text
+    assert "Hermes API and dashboard" not in text
+    assert (
+        "| Direct HTTP localhost | Hermes API | `HERMES_LOCALHOST_PORT`"
+        in text
+    )
+    assert (
+        "| HTTP + Kong | Hermes dashboard | `HERMES_LOCALHOST_DASHBOARD_PORT`"
+        in text
+    )
+
+
+def test_managed_host_docs_and_historical_reference_name_current_surfaces() -> None:
+    operations = (ROOT / "docs/operations.md").read_text(encoding="utf-8")
+    opening = operations.split("## 8. Managed Host Lifecycle", 1)[1].split("\n\n", 2)[1]
+    assert "Blender" in opening
+    changelog = (ROOT / "docs/CHANGELOG.md").read_text(encoding="utf-8")
+    assert "docs/README.md §1.7" not in changelog
+    assert "docs/README.md §1.8" in changelog
 
 
 def test_observability_architecture_names_each_trace_producer() -> None:

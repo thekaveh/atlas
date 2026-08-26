@@ -43,12 +43,24 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from services import remove_state_directory, tracked_process_may_survive
+from services import (
+    acquire_lifecycle_lock,
+    add_lifecycle_preflight,
+    await_owned_process_readiness,
+    await_spawned_process_readiness,
+    lifecycle_support_error,
+    process_group_owns_tcp_listener,
+    refuse_occupied_port,
+    remove_state_directory,
+    require_lifecycle_support,
+    tracked_process_may_survive,
+)
 
 try:  # POSIX advisory locking; absent on native Windows
     import fcntl
@@ -63,6 +75,11 @@ DEFAULT_ADDON_SHA256 = "bba60831f5f89a74deda0294b131668a086cf46eb35a6a01abbd0d21
 ADDON_URL_TEMPLATE = "https://raw.githubusercontent.com/ahujasid/blender-mcp/{ref}/addon.py"
 
 _OK, _WARN, _FAIL, _SKIPPED = "ok", "warn", "fail", "skipped"
+
+
+def _lifecycle_support_error() -> str | None:
+    return lifecycle_support_error(fcntl, os, signal, "managed Blender MCP")
+
 
 # The proven headless launcher (see module docstring). Written verbatim into
 # the state dir; parametrized entirely via argv after ``--``.
@@ -100,9 +117,24 @@ server = mod.BlenderMCPServer(host=BIND, port=PORT)
 # never fire — the queue shim above IS the missing main-thread pump, so
 # replicate start() minus that guard (instance attrs only).
 server.running = True
-server.socket = socket_mod.socket(socket_mod.AF_INET, socket_mod.SOCK_STREAM)
-server.socket.setsockopt(socket_mod.SOL_SOCKET, socket_mod.SO_REUSEADDR, 1)
-server.socket.bind((server.host, server.port))
+last_bind_error = None
+for family, socktype, protocol, _canonname, address in socket_mod.getaddrinfo(
+    BIND, PORT, type=socket_mod.SOCK_STREAM
+):
+    candidate = None
+    try:
+        candidate = socket_mod.socket(family, socktype, protocol)
+        candidate.setsockopt(socket_mod.SOL_SOCKET, socket_mod.SO_REUSEADDR, 1)
+        candidate.bind(address)
+    except OSError as exc:
+        last_bind_error = exc
+        if candidate is not None:
+            candidate.close()
+        continue
+    server.socket = candidate
+    break
+else:
+    raise last_bind_error or OSError(f"no bindable address for {BIND}:{PORT}")
 server.socket.listen(1)
 server.server_thread = threading.Thread(target=server._server_loop, daemon=True)
 server.server_thread.start()
@@ -190,6 +222,7 @@ class BlenderMcpManager:
     # ── preflight (read-only) ────────────────────────────────────────
     def preflight(self) -> PreflightResult:
         result = PreflightResult()
+        add_lifecycle_preflight(result, _lifecycle_support_error(), (_OK, _FAIL))
         binary = self.blender_binary()
         if binary:
             result.add("blender", _OK, f"Blender binary: {binary}")
@@ -289,11 +322,11 @@ class BlenderMcpManager:
     @contextmanager
     def _launch_guard(self):
         self.state_dir.parent.mkdir(parents=True, exist_ok=True)
-        if fcntl is None:
-            yield
-            return
+        require_lifecycle_support(_lifecycle_support_error(), BlenderMcpError)
         with open(self.launch_lock_file, "w", encoding="utf-8") as lock:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            acquire_lifecycle_lock(
+                lock, fcntl, ("managed Blender MCP", BlenderMcpError), time,
+            )
             try:
                 yield
             finally:
@@ -313,7 +346,20 @@ class BlenderMcpManager:
         )
         status = self.status()
         if status.running:
-            return status
+            return await_owned_process_readiness(
+                self,
+                status,
+                wait_timeout,
+                ("Blender MCP", self.bind, self.port, BlenderMcpError, time),
+            )
+        refuse_occupied_port(
+            status, self._port_in_use,
+            (
+                f"port {self.port} is already in use by an unmanaged process; "
+                "stop it or change BLENDER_MCP_LOCALHOST_PORT",
+                BlenderMcpError,
+            ),
+        )
         binary = self.blender_binary()
         if binary is None:
             raise BlenderMcpError(
@@ -365,20 +411,33 @@ class BlenderMcpManager:
                     outcome,
                     ("managed Blender process identity", BlenderMcpError),
                 )
+        ready = self._await_spawned_readiness(process, wait_timeout)
+        if ready is not None:
             self._untracked_pid = None
-        deadline = time.monotonic() + wait_timeout
-        while time.monotonic() < deadline:
-            if process.poll() is not None:
-                break  # child died — a port held by a FOREIGN process is not success
-            if self._port_in_use():
-                return ProcessStatus(running=True, pid=process.pid, port_open=True)
-            time.sleep(0.5)
+            return ready
         tail = self._log_tail()
         self._stop_locked()
+        _pid, may_survive = tracked_process_may_survive(self)
         raise BlenderMcpError(
-            f"headless Blender did not open {self.bind}:{self.port} within "
-            f"{wait_timeout:.0f}s. Log tail:\n{tail}"
+            f"headless Blender did not become healthy on {self.bind}:{self.port} within "
+            f"{wait_timeout:.0f}s. Log tail:\n{tail}",
+            surviving_process=may_survive,
         )
+
+    def _await_spawned_readiness(
+        self, process: subprocess.Popen, wait_timeout: float
+    ) -> ProcessStatus | None:
+        if await_spawned_process_readiness(
+            self,
+            process,
+            wait_timeout,
+            (time, "headless Blender", BlenderMcpError),
+        ):
+            return ProcessStatus(running=True, pid=process.pid, port_open=True)
+        return None
+
+    def _spawned_endpoint_owned(self, pid: int) -> bool:
+        return process_group_owns_tcp_listener(pid, self.bind, self.port)
 
     def stop(self) -> bool:
         with self._launch_guard():
@@ -470,10 +529,24 @@ class BlenderMcpManager:
                         payload = json.loads(buffer.decode())
                     except ValueError:
                         continue
+                    if not isinstance(payload, Mapping):
+                        return {
+                            "reachable": False,
+                            "error": "response JSON was not an object",
+                        }
+                    result = payload.get("result")
+                    if payload.get("status") != "success" or not isinstance(
+                        result, Mapping
+                    ):
+                        return {
+                            "reachable": False,
+                            "status": payload.get("status"),
+                            "error": "Blender MCP returned an unsuccessful response",
+                        }
                     return {
                         "reachable": True,
                         "status": payload.get("status"),
-                        "objects": (payload.get("result") or {}).get("object_count"),
+                        "objects": result.get("object_count"),
                     }
         except OSError:
             pass
@@ -510,7 +583,9 @@ class BlenderMcpManager:
 
     # ── helpers ──────────────────────────────────────────────────────
     def _probe_host(self) -> str:
-        return "127.0.0.1" if self.bind in ("0.0.0.0", "::") else self.bind
+        return {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(
+            self.bind, self.bind
+        )
 
     def _port_in_use(self) -> bool:
         try:

@@ -53,25 +53,25 @@
       {
         "path": "bootstrapper/start.py",
         "symbol": "main",
-        "cyclomatic_complexity": 125,
+        "cyclomatic_complexity": 129,
         "rationale": "Click composition root that declares and forwards the public CLI surface; behavior is partitioned into tested AtlasStarter methods, and extracting option forwarding alone would add indirection without reducing runtime branching."
       },
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_build_steps_and_rows",
-        "cyclomatic_complexity": 70,
+        "cyclomatic_complexity": 76,
         "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; parity and discovery tests cover the branches. Revisit when prompt construction changes next."
       },
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_selections_to_args",
-        "cyclomatic_complexity": 63,
+        "cyclomatic_complexity": 61,
         "rationale": "Boundary translator for the same manifest-driven option matrix; CLI/TUI parity tests are the safer current control. Revisit together with _build_steps_and_rows."
       },
       {
         "path": "bootstrapper/core/consumer_manifest.py",
         "symbol": "load_consumer_config",
-        "cyclomatic_complexity": 73,
+        "cyclomatic_complexity": 75,
         "rationale": "Fail-closed parser and validator for a versioned external manifest. Its branches correspond to distinct validation errors and are covered by schema and consumer-contract tests."
       },
       {

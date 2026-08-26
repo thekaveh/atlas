@@ -87,6 +87,44 @@ def _complexity_ledger() -> dict:
     return baseline["complexity"]
 
 
+def _assert_complexity_signal(item: dict, source: str, path: Path) -> None:
+    matches = [
+        block
+        for block in cc_visit(source)
+        if block.letter != "C" and block.fullname == item["symbol"]
+    ]
+    assert len(matches) == 1, f"cannot uniquely resolve {item['symbol']} in {path}"
+    assert matches[0].complexity == item["cyclomatic_complexity"]
+
+
+def _assert_length_signal(item: dict, source: str, path: Path) -> None:
+    matches = [
+        node
+        for node in _function_nodes(source, path)
+        if node.name == item["symbol"]
+    ]
+    assert len(matches) == 1, f"cannot uniquely resolve {item['symbol']} in {path}"
+    assert matches[0].end_lineno is not None
+    assert (
+        matches[0].end_lineno - matches[0].lineno + 1
+        == item["function_effective_lines"]
+    )
+
+
+def _assert_accepted_signal_grounded(item: dict) -> None:
+    path = ROOT / item["path"]
+    assert item["rationale"].strip()
+    assert path.is_file()
+    source = path.read_text(encoding="utf-8")
+    if "cyclomatic_complexity" in item:
+        _assert_complexity_signal(item, source, path)
+    else:
+        assert "function_effective_lines" in item, (
+            f"accepted signal has no supported metric: {item}"
+        )
+        _assert_length_signal(item, source, path)
+
+
 def test_complexity_baseline_is_owned_and_reviewed() -> None:
     complexity = _complexity_ledger()
 
@@ -116,8 +154,7 @@ def test_complexity_dispositions_are_grounded() -> None:
     complexity = _complexity_ledger()
     assert len(complexity["accepted_signal_groups"]) >= 3
     for item in complexity["accepted_signals"]:
-        assert item["rationale"].strip()
-        assert (ROOT / item["path"]).is_file()
+        _assert_accepted_signal_grounded(item)
 
 
 def test_confirmed_dead_private_helpers_remain_removed() -> None:

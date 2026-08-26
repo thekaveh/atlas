@@ -99,6 +99,7 @@ def test_blender_failed_identity_and_evidence_write_retains_pid_in_memory(
     manager.launcher_path.write_text("launcher", encoding="utf-8")
     fake = type("FakeProcess", (), {"pid": 999_989, "poll": lambda self: None})()
     monkeypatch.setattr(manager, "status", lambda: ProcessStatus(False))
+    monkeypatch.setattr(manager, "_port_in_use", lambda: False)
     monkeypatch.setattr(manager, "blender_binary", lambda: "/bin/blender")
     monkeypatch.setattr(blender_mcp_manager.subprocess, "Popen", lambda *_a, **_k: fake)
     monkeypatch.setattr(
@@ -298,9 +299,13 @@ class _Status:
 
 
 class _Manager:
-    def __init__(self, *, running: bool = False, fail_start: Exception | None = None):
+    def __init__(
+        self, *, running: bool = False, fail_start: Exception | None = None,
+        confirm: bool = True,
+    ):
         self.running = running
         self.fail_start = fail_start
+        self.confirm = confirm
         self.stop_calls = 0
 
     def status(self) -> _Status:
@@ -315,6 +320,9 @@ class _Manager:
 
     def wait_healthy(self, **_kwargs) -> dict[str, object]:
         return {"reachable": True, "device": "mps"}
+
+    def confirm_started_process(self, pid: int) -> bool:
+        return self.confirm and self.running and pid == 42
 
     def stop(self) -> bool:
         self.stop_calls += 1
@@ -369,6 +377,31 @@ def test_second_managed_host_failure_rolls_back_only_newly_started_host(monkeypa
     assert starter.start_managed_host_processes() is False
     assert comfy.stop_calls == 1
     assert comfy.running is False
+
+
+@pytest.mark.parametrize("manager_kind", ["comfyui", "vllm"])
+def test_managed_engine_exit_after_health_rolls_back_current_launch(
+    monkeypatch, manager_kind,
+):
+    from services import comfyui_mps_manager, vllm_metal_manager
+
+    starter = start_module.AtlasStarter()
+    manager = _Manager(confirm=False)
+    env = {
+        "COMFYUI_SOURCE": (
+            "managed-localhost-mps" if manager_kind == "comfyui" else "disabled"
+        ),
+        "VLLM_METAL_SOURCE": (
+            "managed-localhost" if manager_kind == "vllm" else "disabled"
+        ),
+        "VLLM_METAL_MODEL": "example/model",
+    }
+    monkeypatch.setattr(starter.config_parser, "parse_env_file", lambda: env)
+    monkeypatch.setattr(comfyui_mps_manager, "manager_from_env", lambda _env: manager)
+    monkeypatch.setattr(vllm_metal_manager, "manager_from_env", lambda _env: manager)
+
+    assert starter.start_managed_host_processes() is False
+    assert manager.stop_calls == 1 and manager.running is False
 
 
 def test_unexpected_second_host_error_still_rolls_back_first(monkeypatch):
@@ -849,48 +882,38 @@ def test_uncancellable_cleanup_wait_survives_repeated_cancellation():
     assert asyncio.run(scenario()) == "settled"
 
 
-def test_both_pipelines_run_the_same_post_up_steps():
-    """The TUI runs its own `up -d` and never calls `start_docker_services`.
-
-    `_reactivate_n8n_if_needed` lives inside that method, so the step was
-    unreachable on the DEFAULT path: a consumer-declared active n8n workflow
-    with no `N8N_API_KEY` left its production webhook 404 under `./start.sh`
-    while working under `./start.sh --no-tui`. Ordering matters too — the
-    restart must land after the init containers have seeded and before
-    ownership is committed.
-    """
+def _method_source(path: Path, method_name: str) -> str:
     import ast
+
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    node = next(
+        item
+        for item in ast.walk(tree)
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and item.name == method_name
+    )
+    return ast.get_source_segment(source, node) or ""
+
+
+def test_linear_post_up_steps_are_ordered_before_commit():
     import inspect
-    from pathlib import Path
 
-    steps = (
-        "verify_one_shot_init_containers",
-        "_reactivate_n8n_if_needed",
-        "commit_managed_host_processes",
-    )
-
-    # Order by POSITION IN THE SOURCE, not by iterating `steps` — a
-    # comprehension over `steps` yields them in `steps` order no matter what
-    # the source says, so the original assertion could only ever detect a
-    # MISSING step. Verified against a deliberately reversed body: it passed.
     linear = inspect.getsource(start_module.AtlasStarter.start_docker_services)
-    assert all(s in linear for s in steps), [s for s in steps if s not in linear]
-    linear_order = sorted(steps, key=linear.index)
-    assert linear_order == list(steps), linear_order
+    assert linear.index("verify_one_shot_init_containers") < linear.index(
+        "_reactivate_n8n_if_needed"
+    ) < linear.index("commit_managed_host_processes")
 
-    tui_src = (
+
+def test_tui_post_up_steps_are_ordered_before_commit():
+    """The TUI owns its own compose path and must enforce the same gates."""
+
+    path = (
         Path(start_module.__file__).parent / "ui" / "textual" / "screens" / "wizard_screen.py"
-    ).read_text(encoding="utf-8")
-    tree = ast.parse(tui_src)
-    pipeline = next(
-        node for node in ast.walk(tree)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name == "_run_pipeline_and_stream"
     )
-    body = ast.get_source_segment(tui_src, pipeline) or ""
-    missing = [s for s in steps if s not in body]
-    assert not missing, f"the Textual pipeline is missing a post-up step: {missing}"
-    tui_order = sorted(steps, key=body.index)
-    assert tui_order == list(steps), (
-        f"the Textual pipeline misorders its post-up steps: {tui_order}"
-    )
+    pipeline = _method_source(path, "_run_pipeline_and_stream")
+    helper = _method_source(path, "_reactivate_n8n_after_up")
+    assert pipeline.index("verify_one_shot_init_containers") < pipeline.index(
+        "_reactivate_n8n_after_up"
+    ) < pipeline.index("commit_managed_host_processes")
+    assert "_reactivate_n8n_if_needed" in helper

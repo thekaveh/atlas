@@ -234,6 +234,52 @@ def test_stop_managed_hosts_help_names_blender_mcp():
     assert "Blender MCP" in result.output
 
 
+@pytest.mark.parametrize(
+    "evidence",
+    ["corrupt", "unreadable", "unstamped-live", "mismatched-live"],
+)
+def test_default_stop_advises_when_blender_evidence_may_still_be_live(
+    tmp_path, monkeypatch, evidence,
+):
+    from services import blender_mcp_manager
+
+    pid_file = tmp_path / "blender.pid"
+    pid_file.write_text("garbled\n" if evidence == "corrupt" else "4242\n")
+
+    class Manager:
+        _untracked_pid = None
+
+        def status(self):
+            return type("Status", (), {"running": False})()
+
+        def _read_pid(self):
+            if evidence == "unreadable":
+                raise PermissionError("denied")
+            return None if evidence == "corrupt" else 4242
+
+        def _managed_process_alive(self, _pid):
+            return True
+
+    manager = Manager()
+    manager.pid_file = pid_file
+    stopper = stop_module.AtlasStopper()
+    messages: list[tuple[str, str]] = []
+    monkeypatch.setattr(stopper.config_parser, "env_file_exists", lambda: False)
+    monkeypatch.setattr(
+        stopper.banner,
+        "show_status_message",
+        lambda message, level: messages.append((message, level)),
+    )
+    monkeypatch.setattr(blender_mcp_manager, "manager_from_env", lambda _env: manager)
+
+    stopper.report_managed_hosts_left_running()
+
+    assert any(
+        "ownership" in message.lower() and level == "warning"
+        for message, level in messages
+    )
+
+
 def test_privileged_hosts_cleanup_uses_bytecode_free_python_child(monkeypatch):
     import importlib
 

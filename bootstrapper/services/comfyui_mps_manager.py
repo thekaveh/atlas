@@ -468,13 +468,37 @@ class ComfyUiMpsManager:
                 outcome,
                 ("managed ComfyUI process identity", ComfyUiMpsError),
             )
-        self._untracked_pid = None
+        self._reject_exited_launch(proc)
         return (
             ProcessStatus(
                 running=True, pid=proc.pid, port=self.port,
                 installed_ref=self.ref, log_file=str(self.log_file),
             ),
             True,
+        )
+
+    def confirm_started_process(self, pid: int) -> bool:
+        """Verify the recorded launch leader before releasing rollback authority."""
+        owned = (
+            self._read_pid() == pid
+            and self._pid_alive(pid)
+            and not self._pid_is_stranger(pid)
+        )
+        if owned and self._untracked_pid == pid:
+            self._untracked_pid = None
+        return owned
+
+    def _reject_exited_launch(self, process: subprocess.Popen) -> None:
+        poll = getattr(process, "poll", None)
+        if not callable(poll) or poll() is None:
+            return
+        terminated = self._terminate_pid(process.pid)
+        if terminated:
+            self._untracked_pid = None
+        raise ComfyUiMpsError(
+            f"managed ComfyUI process {process.pid} exited during startup; "
+            f"inspect {self.log_file}",
+            surviving_process=not terminated,
         )
 
     @contextmanager

@@ -22,13 +22,19 @@ ARCHITECTURE_PERSPECTIVES: dict[str, tuple[str, str, list[str]]] = {
     ),
     "source-configuration-model": (
         "SOURCE Configuration Model",
-        "Container, localhost, disabled, none, cloud-provider enablement, and adaptive-service behavior.",
-        ["SOURCE Var", "container", "localhost", "disabled", "none", "cloud enabled", "adaptive apps"],
+        "Container, localhost, disabled, none, cloud-provider and managed-vLLM enablement, and adaptive-service behavior.",
+        [
+            "SOURCE Var", "container", "localhost", "disabled", "none",
+            "cloud enabled", "vLLM Metal", "adaptive apps",
+        ],
     ),
     "track-selection-matrix": (
         "Track Selection Matrix",
         "How Atlas tracks map to service families and force-disable out-of-track services.",
-        ["Tracks", "Wizard", "Service Families", "Enabled", "Force Disabled", "Overrides"],
+        [
+            "Tracks", "Wizard", "Service Families", "Enabled",
+            "Force Disabled", "Overrides", "Selected Source", "Disabled",
+        ],
     ),
     "network-routing-topology": (
         "Network And Routing Topology",
@@ -42,8 +48,11 @@ ARCHITECTURE_PERSPECTIVES: dict[str, tuple[str, str, list[str]]] = {
     ),
     "llm-provider-flow": (
         "LLM Provider Flow",
-        "Ollama, LiteLLM, cloud passthroughs, Open WebUI, backend, MCP/tool access, and trace hooks.",
-        ["Open WebUI", "Backend", "LiteLLM", "Ollama", "Cloud LLMs", "Tools", "Tracing"],
+        "Ollama, managed vLLM Metal, LiteLLM, cloud passthroughs, Open WebUI, backend, MCP/tool access, and trace hooks.",
+        [
+            "Open WebUI", "Backend", "LiteLLM", "Ollama", "vLLM Metal",
+            "Cloud LLMs", "Tools", "Tracing",
+        ],
     ),
     "data-engineering-lakehouse-flow": (
         "Data Engineering Lakehouse Flow",
@@ -88,6 +97,7 @@ ARCHITECTURE_SOURCE_FILES: dict[str, list[str]] = {
         "bootstrapper/services/manifests.py",
         "bootstrapper/tracks.yml",
         "bootstrapper/services/topology.py",
+        "services/vllm-metal/service.yml",
     ],
     "track-selection-matrix": [
         "bootstrapper/tracks.yml",
@@ -109,6 +119,7 @@ ARCHITECTURE_SOURCE_FILES: dict[str, list[str]] = {
         "services/litellm/service.yml",
         "services/litellm/models.yaml",
         "services/ollama/service.yml",
+        "services/vllm-metal/service.yml",
     ],
     "data-engineering-lakehouse-flow": [
         "services/minio/service.yml",
@@ -166,24 +177,28 @@ ARCHITECTURE_EDGES: dict[str, list[tuple[str, str, str]]] = {
         ("SOURCE Var", "disabled", "selects"),
         ("SOURCE Var", "none", "LLM only"),
         ("none", "cloud enabled", "pairs with"),
+        ("none", "vLLM Metal", "pairs with"),
         ("container", "adaptive apps", "configures"),
         ("localhost", "adaptive apps", "configures"),
         ("disabled", "adaptive apps", "removes"),
         ("cloud enabled", "adaptive apps", "configures"),
+        ("vLLM Metal", "adaptive apps", "configures"),
     ],
     "track-selection-matrix": [
         ("Tracks", "Wizard", "narrows"),
         ("Wizard", "Service Families", "prompts"),
         ("Service Families", "Enabled", "selected"),
         ("Service Families", "Force Disabled", "out of track"),
-        ("Overrides", "Enabled", "authoritative"),
+        ("Overrides", "Selected Source", "authoritative"),
+        ("Selected Source", "Enabled", "non-disabled"),
+        ("Selected Source", "Disabled", "explicit"),
     ],
     "network-routing-topology": [
         ("Browser", "*.localhost", "hostname"),
         ("*.localhost", "Kong", "gateway"),
         ("Browser", "Direct Ports", "direct"),
         ("Kong", "Backend Network", "routes"),
-        ("Direct Ports", "Backend Network", "publishes"),
+        ("Direct Ports", "Backend Network", "host NAT"),
         ("Backend Network", "localhost mode", "host gateway"),
     ],
     "data-rag-flow": [
@@ -201,6 +216,7 @@ ARCHITECTURE_EDGES: dict[str, list[tuple[str, str, str]]] = {
         ("Backend", "LiteLLM", "inference"),
         ("Tools", "LiteLLM", "inference"),
         ("LiteLLM", "Ollama", "local"),
+        ("LiteLLM", "vLLM Metal", "managed local"),
         ("LiteLLM", "Cloud LLMs", "passthrough"),
         ("LiteLLM", "Tracing", "telemetry"),
     ],
@@ -267,13 +283,15 @@ ARCHITECTURE_LAYOUTS: dict[str, dict[str, tuple[int, int]]] = {
     "source-configuration-model": {
         "SOURCE Var": (50, 240), "container": (300, 40),
         "localhost": (300, 170), "disabled": (300, 300),
-        "none": (300, 430), "cloud enabled": (590, 430),
+        "none": (300, 430), "cloud enabled": (590, 380),
+        "vLLM Metal": (590, 480),
         "adaptive apps": (900, 240),
     },
     "track-selection-matrix": {
         "Tracks": (50, 240), "Wizard": (270, 240),
-        "Service Families": (500, 240), "Enabled": (790, 110),
-        "Force Disabled": (790, 370), "Overrides": (500, 30),
+        "Service Families": (500, 240), "Enabled": (1040, 110),
+        "Force Disabled": (1040, 370), "Overrides": (500, 30),
+        "Selected Source": (790, 30), "Disabled": (1040, 30),
     },
     "network-routing-topology": {
         "Browser": (50, 240), "*.localhost": (280, 90),
@@ -289,7 +307,8 @@ ARCHITECTURE_LAYOUTS: dict[str, dict[str, tuple[int, int]]] = {
     "llm-provider-flow": {
         "Open WebUI": (50, 60), "Backend": (50, 240),
         "Tools": (50, 420), "LiteLLM": (390, 240),
-        "Ollama": (700, 100), "Cloud LLMs": (700, 380),
+        "Ollama": (700, 40), "vLLM Metal": (700, 300),
+        "Cloud LLMs": (700, 400),
         "Tracing": (1000, 240),
     },
     "data-engineering-lakehouse-flow": {
@@ -359,7 +378,8 @@ ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
         "SOURCE selects a deployment mode, not just an image variant — the same "
         "value gates Compose scale, env wiring, and Kong route generation "
         "together. `none` is unique to the LLM provider family; no other "
-        "service exposes it."
+        "service exposes it. For that LLM-only mode, LiteLLM can be backed by "
+        "enabled cloud providers, managed vLLM Metal, or both."
     ),
     "track-selection-matrix": (
         "An explicit CLI `--<svc>-source` override always wins over track "
@@ -385,7 +405,9 @@ ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
     ),
     "llm-provider-flow": (
         "Disabling a cloud provider in `.env` doesn't error — the model "
-        "resolver silently produces zero catalog entries for it. Ollama "
+        "resolver silently produces zero catalog entries for it. Managed "
+        "vLLM Metal is another local LiteLLM upstream, so "
+        "`LLM_PROVIDER_SOURCE=none` does not require a cloud provider. Ollama "
         "models get two aliases (`ollama/<name>` and the bare name); either "
         "works. Tracing observes requests out-of-band and isn't part of the "
         "inference call path, so a tracing-backend outage doesn't affect "

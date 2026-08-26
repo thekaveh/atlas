@@ -2621,6 +2621,13 @@ class AtlasStarter:
             self._managed_hosts_started_this_run.append(("ComfyUI (MPS)", manager))
 
         health = manager.wait_healthy(timeout=60.0)
+        if not manager.confirm_started_process(status.pid):
+            self.banner.show_status_message(
+                f"Managed ComfyUI (MPS) process {status.pid} exited before "
+                "startup verification completed.",
+                "error",
+            )
+            return False
         if health.get("reachable"):
             self.banner.show_status_message(
                 f"  • Managed ComfyUI (MPS) is up on port {status.port} "
@@ -2682,6 +2689,13 @@ class AtlasStarter:
             self._managed_hosts_started_this_run.append(("vLLM (Metal)", manager))
 
         health = manager.wait_healthy(timeout=120.0)
+        if not manager.confirm_started_process(status.pid):
+            self.banner.show_status_message(
+                f"Managed vLLM (Metal) process {status.pid} exited before "
+                "startup verification completed.",
+                "error",
+            )
+            return False
         if health.get("reachable"):
             self.banner.show_status_message(
                 f"  • Managed vLLM (Metal) is up on port {status.port} "
@@ -3093,12 +3107,14 @@ class AtlasStarter:
         if not self.verify_one_shot_init_containers():
             self.rollback_managed_host_processes()
             return False
-        self._reactivate_n8n_if_needed()
+        if not self._reactivate_n8n_if_needed():
+            self.rollback_managed_host_processes()
+            return False
         self.commit_managed_host_processes()
         self.banner.show_status_message("All services started successfully", "success")
         return True
 
-    def _reactivate_n8n_if_needed(self) -> None:
+    def _reactivate_n8n_if_needed(self) -> bool:
         """Restart n8n once after seeding so a consumer's production webhook
         registers when the workflow was activated **without** an ``N8N_API_KEY``.
 
@@ -3115,15 +3131,75 @@ class AtlasStarter:
         try:
             consumer = self.config_parser.load_consumer_config()
             env = self.config_parser.parse_env_file()
-        except Exception:
-            return
+        except Exception as exc:
+            self.banner.show_status_message(
+                f"Could not determine whether n8n webhook reactivation is "
+                f"required: {exc}",
+                "error",
+            )
+            return False
         if not _n8n_needs_reactivation_restart(env, consumer):
-            return
+            return True
         self.banner.show_status_message(
             "Restarting n8n to register consumer webhook(s) (no N8N_API_KEY)...",
             "info",
         )
-        self.docker_manager.execute_compose_command(["restart", "n8n"])
+        try:
+            result = self.docker_manager.execute_compose_command(["restart", "n8n"])
+        except Exception as exc:  # noqa: BLE001 — launch must convert to a verdict
+            self.banner.show_status_message(
+                f"Failed to restart n8n for webhook registration: {exc}", "error"
+            )
+            return False
+        if result != 0:
+            self.banner.show_status_message(
+                "Failed to restart n8n for consumer webhook registration; "
+                f"compose returned exit code {result}.",
+                "error",
+            )
+            return False
+        return self._n8n_restart_converged()
+
+    def _n8n_restart_converged(self) -> bool:
+        services, converged, _waited, error = self._poll_until_converged(
+            grace_seconds=120.0,
+            poll_interval_seconds=2.0,
+            poll_rows=self._strict_n8n_health_rows,
+        )
+        if error is not None:
+            detail = error
+        elif not services:
+            detail = "n8n is absent from compose status"
+        elif not converged:
+            detail = "; ".join(
+                f"{entry.get('service', 'n8n')}: {entry.get('reason', 'not healthy')}"
+                for entry in services
+                if not entry.get("ok")
+            ) or "n8n did not become healthy"
+        else:
+            return True
+        self.banner.show_status_message(
+            f"n8n restart did not converge to healthy: {detail}", "error"
+        )
+        return False
+
+    def _strict_n8n_health_rows(self) -> tuple[list[dict], str | None]:
+        rows, error = self.docker_manager.compose_service_ps_json("n8n")
+        return [self._strict_n8n_health_row(row) for row in rows], error
+
+    @staticmethod
+    def _strict_n8n_health_row(row: dict) -> dict:
+        state = str(row.get("State") or "").strip().lower()
+        health = str(row.get("Health") or "").strip().lower()
+        if state == "running" and health == "healthy":
+            return row
+        strict = dict(row)
+        if state == "running" and health in {"", "starting"}:
+            strict["Health"] = "starting"
+        elif state != "running":
+            strict["ExitCode"] = "1"
+            strict["Status"] = "n8n is not running"
+        return strict
 
     def _poll_until_converged(
         self,
@@ -5433,7 +5509,7 @@ class AtlasStartGroup(click.Group):
 @click.option('--setup-hosts', is_flag=True, help='Setup hosts file entries (requires admin/sudo)')
 @click.option('--skip-hosts', is_flag=True, help='Skip hosts file checks and setup')
 @click.option('--track', type=str, default=None,
-              help='Pre-select a wizard profile (track) — gen-ai-rag, '
+              help='Pre-select a wizard track — gen-ai-rag, '
                    'gen-ai-eng, gen-ai-creative, ml-eng, data-eng, trading, all. '
                    'Skips the wizard track-picker. In-track services are '
                    'prompted as usual; out-of-track services are disabled. '
@@ -5662,8 +5738,8 @@ class AtlasStartGroup(click.Group):
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override CLOUDFLARED_SOURCE — outbound Cloudflare Tunnel public edge.')
 @click.option('--no-tui', is_flag=True,
-              help='Disable the TUI (wizard + Textual log app). Falls back to the legacy '
-                   'linear flow with passthrough docker output. Useful for log capture, '
+              help='Disable the Textual wizard/launch UI; use the linear stdout flow '
+                   'with passthrough docker output. Useful for log capture, '
                    'debugging, and terminals that don\'t support the alternate screen buffer.')
 @click.option('--detach', '--no-follow', 'detach', is_flag=True, default=False,
               help='Run the start pipeline, wait for compose health gates, print a final '

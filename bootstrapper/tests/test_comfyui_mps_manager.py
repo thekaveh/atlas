@@ -901,6 +901,39 @@ def test_failed_launch_compensation_retains_untracked_pid(tmp_path, monkeypatch)
     ]
 
 
+def test_immediate_launch_exit_is_not_reported_running(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    _install_stub(mgr)
+    monkeypatch.setattr(mgr, "_port_in_use", lambda: False)
+    process = SimpleNamespace(pid=5154, poll=lambda: 7)
+    monkeypatch.setattr(mod.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(
+        "services.managed_host.ManagedHostManager._process_start_time",
+        staticmethod(lambda _pid: "Mon Jan  1 00:00:00 2024"),
+    )
+    terminated = []
+    monkeypatch.setattr(mgr, "_terminate_pid", lambda pid: terminated.append(pid) or True)
+
+    with pytest.raises(ComfyUiMpsError, match="exited during startup"):
+        mgr.start_with_ownership()
+
+    assert terminated == [5154]
+    assert mgr._untracked_pid is None
+
+
+def test_dead_launch_leader_keeps_group_sweep_authority(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    mgr._untracked_pid = 5155
+    mgr.pid_file.parent.mkdir(parents=True)
+    mgr.pid_file.write_text("5155\nstart_utc=stamp\n", encoding="utf-8")
+    monkeypatch.setattr(mgr, "_pid_alive", lambda _pid: False)
+    monkeypatch.setattr(mgr, "_process_group_alive", lambda _pid: True)
+    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda _pid: True)
+
+    assert mgr.confirm_started_process(5155) is False
+    assert mgr._untracked_pid == 5155
+
+
 def test_launch_identity_interrupt_compensates_and_propagates(tmp_path, monkeypatch):
     mgr = _mgr(tmp_path)
     _install_stub(mgr)

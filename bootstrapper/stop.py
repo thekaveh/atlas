@@ -22,6 +22,25 @@ from core.config_parser import ConfigParser
 from core.docker_manager import DockerManager
 
 
+def _report_managed_host_advisory(
+    banner, manager, running_message: str, unknown_message: str
+) -> None:
+    """Report owned liveness or fail-closed unverified tracking evidence."""
+    from services import tracked_process_may_survive
+
+    try:
+        running = bool(manager.status().running)
+    except Exception:  # noqa: BLE001 — advisory probes fail closed
+        running = False
+    if running:
+        banner.show_status_message(running_message, "info")
+        return
+    pid, may_survive = tracked_process_may_survive(manager)
+    if may_survive:
+        detail = f" (tracked pid {pid})" if pid is not None else ""
+        banner.show_status_message(f"{unknown_message}{detail}", "warning")
+
+
 def _run_privileged_hosts_cleanup() -> bool:
     """Elevate only the hosts-file mutation, never the repository workflow."""
     from utils.system import is_elevated
@@ -361,36 +380,46 @@ Examples:
         try:
             from services.blender_mcp_manager import manager_from_env as _blender_mfe
 
-            if _blender_mfe(env).status().running:
-                self.banner.show_status_message(
-                    "Managed Blender MCP bridge left running (host-global, shared "
-                    "across consumers; serves execute_code on loopback). Stop it "
-                    "explicitly with `./stop.sh --stop-managed-hosts` or "
-                    "`./start.sh blender-mcp stop`.",
-                    "info",
-                )
+            _report_managed_host_advisory(
+                self.banner,
+                _blender_mfe(env),
+                "Managed Blender MCP bridge left running (host-global, shared "
+                "across consumers; serves execute_code on loopback). Stop it "
+                "explicitly with `./stop.sh --stop-managed-hosts` or "
+                "`./start.sh blender-mcp stop`.",
+                "Managed Blender MCP tracking evidence remains, but process "
+                "ownership is unknown and the bridge may still be running. "
+                "Inspect it or use `./stop.sh --stop-managed-hosts`; Atlas will "
+                "not silently adopt or signal an unverified process.",
+            )
         except Exception:  # noqa: BLE001 — advisory only
             pass
         try:
             from services.comfyui_mps_manager import manager_from_env
 
-            if manager_from_env(env).status().running:
-                self.banner.show_status_message(
-                    "Managed ComfyUI (MPS) host left running (host-global, shared "
-                    "across consumers). Run ./stop.sh --stop-managed-hosts to stop it.",
-                    "info",
-                )
+            _report_managed_host_advisory(
+                self.banner,
+                manager_from_env(env),
+                "Managed ComfyUI (MPS) host left running (host-global, shared "
+                "across consumers). Run ./stop.sh --stop-managed-hosts to stop it.",
+                "Managed ComfyUI (MPS) tracking evidence remains, but process "
+                "ownership is unknown and the host may still be running. Inspect "
+                "it or use ./stop.sh --stop-managed-hosts.",
+            )
         except Exception:  # noqa: BLE001 — advisory must never break stop
             pass
         try:
             from services.vllm_metal_manager import manager_from_env
 
-            if manager_from_env(env).status().running:
-                self.banner.show_status_message(
-                    "Managed vLLM (Metal) host left running (host-global, shared "
-                    "across consumers). Run ./stop.sh --stop-managed-hosts to stop it.",
-                    "info",
-                )
+            _report_managed_host_advisory(
+                self.banner,
+                manager_from_env(env),
+                "Managed vLLM (Metal) host left running (host-global, shared "
+                "across consumers). Run ./stop.sh --stop-managed-hosts to stop it.",
+                "Managed vLLM (Metal) tracking evidence remains, but process "
+                "ownership is unknown and the host may still be running. Inspect "
+                "it or use ./stop.sh --stop-managed-hosts.",
+            )
         except Exception:  # noqa: BLE001 — advisory must never break stop
             pass
 

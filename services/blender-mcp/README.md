@@ -2,9 +2,9 @@
 
 ## 1. Overview
 
-Blender MCP is a disabled-by-default, host-installed profile for MCP-assisted 3D scene work. Two host sources exist: `localhost` (you run Blender's GUI, install the add-on, click Connect — Atlas only records the contract) and **`managed-localhost` (#759)** — Atlas provisions the pinned add-on and runs **headless** `blender --background` as a managed host process (preflight / install / start / status / stop, mirroring the ComfyUI MPS lifecycle). Neither runs as a container.
+Blender MCP is a disabled-by-default host integration for MCP-assisted 3D scene work. Two host sources exist: `localhost` (you run Blender's GUI, install the add-on, click Connect — Atlas only records the contract) and **`managed-localhost` (#759)** — Atlas provisions the pinned add-on and runs **headless** `blender --background` as a managed host process (preflight / install / start / status / stop, mirroring the ComfyUI MPS lifecycle). Neither runs as a container.
 
-This profile is intentionally conservative. Current Blender MCP workflows depend on a local Blender add-on, an MCP client/server process, and a socket opened by Blender. They can execute generated Python code inside Blender, so Atlas keeps the bridge disabled by default and does not publish it through Kong.
+This integration is intentionally conservative. Current Blender MCP workflows depend on a local Blender add-on, an MCP client/server process, and a socket opened by Blender. They can execute generated Python code inside Blender, so Atlas keeps the bridge disabled by default and does not publish it through Kong.
 
 ## 2. Access
 
@@ -16,7 +16,7 @@ This profile is intentionally conservative. Current Blender MCP workflows depend
 | Blender socket | `${BLENDER_MCP_HOST}:${BLENDER_MCP_LOCALHOST_PORT}` | Defaults to `localhost:9876`, matching common Blender MCP socket defaults. |
 | Kong | No Kong route | There is no `blender-mcp.localhost` route and no `blender.localhost` route by design. |
 
-Enable the wizard profile with:
+Select a Blender MCP host source with:
 
 ```bash
 ./start.sh --blender-mcp-source localhost           # user-run GUI add-on
@@ -78,7 +78,7 @@ _No downstream consumers._
 
 ### 5.5. Future — Candidate new services
 
-- A drivable, in-network **`container` source** (headed-but-virtual Blender via Xvfb/EGL) for the agentic composition stage — under evaluation, gated behind a validation spike and go/no-go thresholds. See [`docs/strategy/blender-mcp-container-source-evaluation.md`](../../docs/strategy/blender-mcp-container-source-evaluation.md) (#410). Until that spike passes, this service stays `localhost | disabled`.
+- A drivable, in-network **`container` source** (headed-but-virtual Blender via Xvfb/EGL) for the agentic composition stage — under evaluation, gated behind a validation spike and go/no-go thresholds. See [`docs/strategy/blender-mcp-container-source-evaluation.md`](../../docs/strategy/blender-mcp-container-source-evaluation.md) (#410). Until that spike passes, this service stays `localhost | managed-localhost | disabled`.
 - Asset validation queue that runs glTF-Transform checks on generated GLB files before publication.
 
 ### 5.6. Future — Unused features in this service
@@ -113,7 +113,7 @@ Use this as a postprocess step for exported Blender assets, ComfyUI-assisted 3D 
 
 ## 8. Troubleshooting
 
-- If the wizard profile is missing, confirm you selected the `gen-ai-creative` or `all` track, or pass `--blender-mcp-source localhost` explicitly.
+- If the Blender MCP prompt is missing, confirm you selected the `gen-ai-creative` or `all` track, or pass `--blender-mcp-source localhost` explicitly.
 - If `--profile prod` rejects the source, that is expected: Blender MCP localhost mode is development-only.
 - If a client cannot connect, confirm the Blender add-on is installed, enabled, and listening on `${BLENDER_MCP_HOST}:${BLENDER_MCP_LOCALHOST_PORT}`.
 - If `uvx` is not found by a GUI MCP client, configure the absolute path to `uvx` or the installed Blender MCP command in that client.
