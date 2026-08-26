@@ -24,6 +24,10 @@ _MAX_EXCEPTION_DAYS = 90
 _PURL_RE = re.compile(
     r"^pkg:[a-z0-9.+-]+/[A-Za-z0-9._~%+/-]+@[A-Za-z0-9._~%+:-]+(?:\?[^*\[\]\s]+)?$"
 )
+_COMPOSE_IMAGE_RE = re.compile(
+    r"^\$\{(?P<var>[A-Za-z_][A-Za-z0-9_]*)(?:(?::-|-)(?P<default>.+))?\}$"
+)
+_DEFAULT_SCAN_PLATFORMS = ("linux/amd64", "linux/arm64")
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,22 +61,71 @@ def load_image_inventory(services_dir: Path) -> tuple[str, ...]:
     return load_manifest_image_refs(services_dir)
 
 
-def load_image_scans(services_dir: Path) -> tuple[ImageScan, ...]:
-    """Return de-duplicated image scans with explicit single-arch metadata."""
+def _manifest_image_variables(services_dir: Path) -> dict[str, str]:
+    variables: dict[str, str] = {}
+    for manifest_path in sorted(services_dir.glob("*/service.yml")):
+        document = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+        for row in document.get("images", []):
+            variables[row["var"]] = row["default"]
+    return variables
 
-    platforms: dict[str, str] = {}
+
+def load_compose_image_refs(services_dir: Path) -> tuple[str, ...]:
+    """Independently resolve remote final images declared by Compose fragments."""
+
+    variables = _manifest_image_variables(services_dir)
+    refs: set[str] = set()
+    for compose_path in sorted(services_dir.glob("*/compose.yml")):
+        document = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
+        for name, service in (document.get("services") or {}).items():
+            if not isinstance(service, dict) or "build" in service:
+                continue
+            image = service.get("image")
+            if not isinstance(image, str) or not image.strip():
+                raise ValueError(f"{compose_path}: service {name} lacks a valid image")
+            match = _COMPOSE_IMAGE_RE.fullmatch(image.strip())
+            if match:
+                resolved = match.group("default") or variables.get(match.group("var"))
+                if resolved is None:
+                    raise ValueError(
+                        f"{compose_path}: service {name} image variable "
+                        f"{match.group('var')} has no manifest default"
+                    )
+                refs.add(resolved)
+            elif "${" not in image:
+                refs.add(image.strip())
+            else:
+                raise ValueError(
+                    f"{compose_path}: service {name} uses an unsupported image expression"
+                )
+    return tuple(sorted(refs))
+
+
+def load_image_scans(services_dir: Path) -> tuple[ImageScan, ...]:
+    """Return reconciled image scans for every supported image architecture."""
+
+    platforms: dict[str, set[str]] = {}
     for manifest_path in sorted(services_dir.glob("*/service.yml")):
         document = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
         for row in document.get("images", []):
             image = row["default"]
-            platform = row.get("platform", "linux/amd64")
-            previous = platforms.setdefault(image, platform)
-            if previous != platform:
-                raise ValueError(
-                    f"image {image!r} declares conflicting platforms: {previous}, {platform}"
-                )
+            declared = row.get("platform")
+            platforms.setdefault(image, set()).update(
+                (declared,) if declared else _DEFAULT_SCAN_PLATFORMS
+            )
     inventory = load_image_inventory(services_dir)
-    return tuple(ImageScan(image=image, platform=platforms[image]) for image in inventory)
+    compose_images = load_compose_image_refs(services_dir)
+    missing = sorted(set(compose_images) - set(inventory))
+    if missing:
+        raise ValueError(
+            "Compose remote images missing from manifest scan inventory: "
+            + ", ".join(missing)
+        )
+    return tuple(
+        ImageScan(image=image, platform=platform)
+        for image in inventory
+        for platform in sorted(platforms[image])
+    )
 
 
 def load_compose_builds(services_dir: Path) -> tuple[ComposeBuild, ...]:

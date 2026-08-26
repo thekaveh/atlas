@@ -14,6 +14,7 @@
       "bootstrapper/**/*.py",
       "services/backend/app/app/**/*.py"
     ],
+    "extended_python_scope": "Every other tracked *.py file; core scope remains governed by the original immutable ceilings.",
     "baseline_snapshot": {
       "radon_grade_c_or_worse": 359,
       "radon_grade_e_or_worse": 20,
@@ -23,6 +24,14 @@
       "modules_over_600_logical_lines": 16,
       "tracked_files": 1472,
       "v0.1.0_tracked_files": 667
+    },
+    "extended_python_baseline_snapshot": {
+      "radon_grade_c_or_worse": 46,
+      "radon_grade_e_or_worse": 1,
+      "functions_over_60_physical_lines": 25,
+      "functions_over_100_physical_lines": 8,
+      "functions_over_4_parameters": 37,
+      "modules_over_600_logical_lines": 0
     },
     "regression_policy": "Do not increase any baseline count or add a new Radon E/F symbol without a symbol-level rationale; refresh the snapshot only during a reviewed maintenance pass.",
     "review_by": "2026-11-01",
@@ -47,6 +56,134 @@
       {
         "scope": "Contract-assertion test functions (test_celery_service, test_label_studio_service, test_llm_graph_builder_service)",
         "rationale": "Three test functions sit in the Radon E band purely because each asserts a long manifest/compose contract in one linear body. Branching is assertion count, not logic; splitting them would scatter one contract across several tests without reducing anything real."
+      }
+    ],
+    "accepted_e_or_worse_symbols": [
+      {
+        "path": "bootstrapper/core/consumer_manifest.py",
+        "symbol": "load_consumer_config",
+        "cyclomatic_complexity": 75,
+        "rationale": "Fail-closed parser for the versioned consumer manifest; each branch emits a distinct validation failure and the contract suite exercises those outcomes."
+      },
+      {
+        "path": "bootstrapper/services/service_config.py",
+        "symbol": "ServiceConfig._generate_adaptive_services_config",
+        "cyclomatic_complexity": 34,
+        "rationale": "Manifest-driven adaptive-service matrix whose explicit branches preserve source-specific environment and dependency behavior covered by permutation tests."
+      },
+      {
+        "path": "bootstrapper/start.py",
+        "symbol": "AtlasStarter.apply_profile_overrides",
+        "cyclomatic_complexity": 56,
+        "rationale": "Central precedence boundary for CLI, track, and persisted source choices; profile and source-permutation tests cover the explicit override cases."
+      },
+      {
+        "path": "bootstrapper/start.py",
+        "symbol": "AtlasStarter.backfill_missing_env_vars",
+        "cyclomatic_complexity": 38,
+        "rationale": "Compatibility migration over the complete environment schema; branches correspond to independently tested legacy and missing-value cases."
+      },
+      {
+        "path": "bootstrapper/start.py",
+        "symbol": "AtlasStarter.build_pre_launch_summary_table",
+        "cyclomatic_complexity": 32,
+        "rationale": "Presentation adapter over all service and source states; summary parity tests protect the formatting branches while preserving one ordered table construction."
+      },
+      {
+        "path": "bootstrapper/start.py",
+        "symbol": "main",
+        "cyclomatic_complexity": 129,
+        "rationale": "Click composition root declaring and forwarding the public CLI surface; option and startup tests cover the branches, while extraction would only relocate forwarding logic."
+      },
+      {
+        "path": "bootstrapper/tests/test_celery_service.py",
+        "symbol": "test_celery_manifest_admission_contract",
+        "cyclomatic_complexity": 32,
+        "rationale": "Linear contract test whose Radon score comes from assertions over one cohesive Celery manifest and admission contract, not production control flow."
+      },
+      {
+        "path": "bootstrapper/tests/test_label_studio_service.py",
+        "symbol": "test_label_studio_compose_contract",
+        "cyclomatic_complexity": 31,
+        "rationale": "Linear contract test whose branches are assertions over one cohesive Label Studio compose contract; splitting it would obscure the atomic contract."
+      },
+      {
+        "path": "bootstrapper/tests/test_llm_graph_builder_service.py",
+        "symbol": "test_llm_graph_builder_manifest_admission_contract",
+        "cyclomatic_complexity": 33,
+        "rationale": "Linear contract test whose score reflects assertion count across one LLM Graph Builder manifest/admission contract rather than runtime branching."
+      },
+      {
+        "path": "bootstrapper/ui/textual/integration.py",
+        "symbol": "_build_steps_and_rows",
+        "cyclomatic_complexity": 76,
+        "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; discovery and parity tests exercise its service-specific branches."
+      },
+      {
+        "path": "bootstrapper/ui/textual/integration.py",
+        "symbol": "_selections_to_args",
+        "cyclomatic_complexity": 61,
+        "rationale": "Boundary translator for the wizard selection matrix; CLI/TUI parity tests verify the explicit source and secret-state branches."
+      },
+      {
+        "path": "bootstrapper/ui/textual/screens/wizard_screen.py",
+        "symbol": "WizardScreen._refresh_command_summary",
+        "cyclomatic_complexity": 36,
+        "rationale": "UI summary projection across the supported prompt value kinds; widget tests cover the guarded rendering states and output contract."
+      },
+      {
+        "path": "bootstrapper/ui/textual/screens/wizard_screen.py",
+        "symbol": "WizardScreen._run_pipeline_and_stream",
+        "cyclomatic_complexity": 50,
+        "rationale": "Async UI orchestration state machine for setup, launch, log streaming, cancellation, and terminal reporting; focused lifecycle tests protect each transition."
+      },
+      {
+        "path": "bootstrapper/ui/textual/widgets/prompt_panel.py",
+        "symbol": "PromptPanel._mount_visible_rows",
+        "cyclomatic_complexity": 34,
+        "rationale": "Textual widget reconciliation over heterogeneous prompt rows; explicit mount/update branches are covered by prompt-panel interaction tests."
+      },
+      {
+        "path": "bootstrapper/ui/textual/widgets/prompt_panel.py",
+        "symbol": "PromptPanel.load_step",
+        "cyclomatic_complexity": 43,
+        "rationale": "Prompt-type dispatcher that configures one panel for every supported wizard step; interaction tests cover each input-kind branch."
+      },
+      {
+        "path": "bootstrapper/utils/llm_catalog.py",
+        "symbol": "_validate_metadata_state",
+        "cyclomatic_complexity": 40,
+        "rationale": "Fail-closed metadata validator with distinct diagnostics for each malformed catalog state; catalog validation tests cover those branches."
+      },
+      {
+        "path": "services/backend/app/app/main.py",
+        "symbol": "_maybe_reconcile_ledger",
+        "cyclomatic_complexity": 56,
+        "rationale": "Idempotent media-ledger reconciliation state machine; concurrency and restart tests cover its deliberately explicit failure transitions."
+      },
+      {
+        "path": "services/backend/app/app/main.py",
+        "symbol": "reconcile_unknown_media_submission",
+        "cyclomatic_complexity": 56,
+        "rationale": "Crash-recovery state machine whose explicit ownership and terminal-state branches remain auditable and are covered by recovery tests."
+      },
+      {
+        "path": "services/backend/app/app/main.py",
+        "symbol": "submit_media_generation",
+        "cyclomatic_complexity": 59,
+        "rationale": "Media boundary combining validation, ownership, admission, persistence, and provider submission; lifecycle tests protect the state transitions."
+      },
+      {
+        "path": "services/backend/app/app/memory_service.py",
+        "symbol": "MemoryService.consolidate",
+        "cyclomatic_complexity": 33,
+        "rationale": "Memory consolidation lifecycle combines filtering, provider execution, persistence, and failure mapping; memory-service tests cover its outcome branches."
+      },
+      {
+        "path": "services/open-webui/extras/tools/comfyui_image_generation_tool.py",
+        "symbol": "Tools.generate_image",
+        "cyclomatic_complexity": 32,
+        "rationale": "Open WebUI integration workflow spans validation, ComfyUI submission, polling, and result mapping; tool tests cover the external-state branches."
       }
     ],
     "accepted_signals": [

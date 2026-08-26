@@ -67,6 +67,7 @@ class ResearchService:
         
         self.research_client = ResearchClient()
         self._active_tasks = {}  # Track background tasks
+        self._cancel_requested_tasks: set[asyncio.Task[Any]] = set()
         self.max_concurrent_research = _positive_env_int(
             "RESEARCH_MAX_CONCURRENT", 4
         )
@@ -350,8 +351,10 @@ class ResearchService:
 
     async def aclose(self) -> None:
         tasks = [task for task in self._active_tasks.values() if task is not None]
+        cancel_requested = getattr(self, "_cancel_requested_tasks", set())
         for task in tasks:
-            task.cancel()
+            if task not in cancel_requested:
+                task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         if self._maintenance_task is not None:
@@ -635,7 +638,13 @@ class ResearchService:
                 task = self._active_tasks[session_id]
                 if task is not None:
                     task.cancel()
-                del self._active_tasks[session_id]
+                    cancel_requested = getattr(
+                        self, "_cancel_requested_tasks", None
+                    )
+                    if cancel_requested is None:
+                        cancel_requested = self._cancel_requested_tasks = set()
+                    cancel_requested.add(task)
+                    task.add_done_callback(cancel_requested.discard)
 
             await conn.execute("""
                 INSERT INTO public.research_logs (session_id, step_number, step_type, message)

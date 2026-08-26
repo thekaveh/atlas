@@ -34,6 +34,7 @@ images:
   - var: DOCLING_GPU_IMAGE
     default: "pytorch/pytorch:2.13.0-cuda12.6-cudnn9-runtime@sha256:6acf597eeb8e376a96580dde4952f37cc017fef732bb40bfc73f28f25e3f64b4"
     container: docling-gpu
+    platform: "linux/amd64"
     notes: "Used as BASE_IMAGE in doc-processor/gpu/Dockerfile."
   - var: DOCLING_ADAPTER_IMAGE
     default: "python:3.12.13-slim"

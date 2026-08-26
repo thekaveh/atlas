@@ -44,7 +44,7 @@ ARCHITECTURE_PERSPECTIVES: dict[str, tuple[str, str, list[str]]] = {
     "data-rag-flow": (
         "Data And RAG Flow",
         "Ingestion, document processing, object storage, vector and graph stores, backend APIs, Open WebUI, and tool/MCP-adjacent flows.",
-        ["Ingestion", "Doc Processing", "MinIO", "Weaviate", "Neo4j", "Backend", "Open WebUI"],
+        ["Ingestion", "Doc Processing", "MinIO", "Weaviate", "LightRAG", "Neo4j", "Backend", "Open WebUI"],
     ),
     "llm-provider-flow": (
         "LLM Provider Flow",
@@ -205,7 +205,8 @@ ARCHITECTURE_EDGES: dict[str, list[tuple[str, str, str]]] = {
         ("Ingestion", "Doc Processing", "extract"),
         ("Ingestion", "MinIO", "objects"),
         ("Doc Processing", "Weaviate", "vectors"),
-        ("Doc Processing", "Neo4j", "graph"),
+        ("Doc Processing", "LightRAG", "documents"),
+        ("LightRAG", "Neo4j", "graph"),
         ("MinIO", "Backend", "artifacts"),
         ("Weaviate", "Backend", "retrieve"),
         ("Neo4j", "Backend", "relationships"),
@@ -300,9 +301,9 @@ ARCHITECTURE_LAYOUTS: dict[str, dict[str, tuple[int, int]]] = {
     },
     "data-rag-flow": {
         "Ingestion": (50, 240), "Doc Processing": (280, 100),
-        "MinIO": (280, 390), "Weaviate": (550, 40),
-        "Neo4j": (550, 190), "Backend": (810, 240),
-        "Open WebUI": (1060, 240),
+        "MinIO": (280, 390), "Weaviate": (550, 190),
+        "LightRAG": (550, 40), "Neo4j": (810, 40), "Backend": (810, 300),
+        "Open WebUI": (1060, 300),
     },
     "llm-provider-flow": {
         "Open WebUI": (50, 60), "Backend": (50, 240),
@@ -348,7 +349,7 @@ _NODE_KINDS = {
     "Apps": "backend", "Agents": "backend", "Backend": "backend",
     "Services": "backend", "Atlas Services": "backend",
     "Celery Workers": "backend", "Service APIs": "backend", "adaptive apps": "backend",
-    "Doc Processing": "backend", "Ingestion": "backend",
+    "Doc Processing": "backend", "Ingestion": "backend", "LightRAG": "backend",
     "Data Stores": "data", "MinIO": "data", "Weaviate": "data",
     "Neo4j": "data", "Iceberg REST": "data", "Supabase Auth": "data",
     "Cloud Providers": "cloud", "Cloud LLMs": "cloud", "Cloud Keys": "cloud",

@@ -6,6 +6,7 @@ import json
 import re
 import tempfile
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 from scripts.bounded_subprocess import (
@@ -29,6 +30,7 @@ class AuditSpec:
     reviewed_advisories: frozenset[str] = frozenset()
     reviewed_local_versions: frozenset[str] = frozenset()
     display_name: str | None = None
+    review_by: date | None = None
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,7 @@ AUDIT_SPECS = (
     AuditSpec(
         "services/backend/app/app/requirements-locked.txt",
         frozenset({"PYSEC-2026-2447", "PYSEC-2026-3046"}),
+        review_by=date(2026, 9, 15),
     ),
     AuditSpec("services/airflow/build/requirements-locked.txt"),
     AuditSpec(
@@ -56,6 +59,7 @@ AUDIT_SPECS = (
             {"PYSEC-2026-3552", "PYSEC-2026-2447", "PYSEC-2026-3046"}
         ),
         frozenset({"pyg-lib==0.8.0+pt213cpu"}),
+        review_by=date(2026, 9, 1),
     ),
     AuditSpec(
         "services/parakeet/provider/gpu/requirements-locked.txt",
@@ -92,6 +96,7 @@ AUDIT_SPECS = (
                 "CVE-2026-68508",
             }
         ),
+        review_by=date(2026, 9, 1),
     ),
     AuditSpec(
         "services/parakeet/provider/mlx/requirements-locked.txt",
@@ -103,6 +108,7 @@ AUDIT_SPECS = (
         # Atlas maintainers own re-review by 2026-09-15; remove these IDs as
         # soon as the fixed wheel resolves for aarch64-apple-darwin.
         frozenset({"PYSEC-2025-138", "PYSEC-2025-139"}),
+        review_by=date(2026, 9, 15),
     ),
     AuditSpec("bootstrapper/requirements-locked.txt"),
     AuditSpec("services/asset-baker/app/requirements-locked.txt"),
@@ -113,6 +119,7 @@ AUDIT_SPECS = (
     AuditSpec(
         "services/backend/app/app/requirements-test-locked.txt",
         frozenset({"PYSEC-2026-2447", "PYSEC-2026-3046"}),
+        review_by=date(2026, 9, 15),
     ),
     AuditSpec("services/mcp-servers/runtime/requirements-test-locked.txt"),
     AuditSpec("services/asset-worker/app/requirements-test-locked.txt"),
@@ -217,11 +224,26 @@ def _public_requirements(lock: Path) -> tuple[str, frozenset[str]]:
     return "".join(public), frozenset(local_versions)
 
 
-def audit_spec(spec: AuditSpec, *, root: Path = ROOT) -> list[str]:
+def audit_spec(
+    spec: AuditSpec, *, root: Path = ROOT, today: date | None = None
+) -> list[str]:
     lock = root / spec.lock
     display_name = spec.display_name or spec.lock
     public_requirements, local_versions = _public_requirements(lock)
     failures: list[str] = []
+    if spec.reviewed_advisories:
+        review_date = today or date.today()
+        if spec.review_by is None:
+            failures.append(f"{display_name}: advisory exceptions lack a review deadline")
+        elif spec.review_by <= review_date:
+            failures.append(
+                f"{display_name}: advisory exception review expired on "
+                f"{spec.review_by.isoformat()}"
+            )
+        elif (spec.review_by - review_date).days > 90:
+            failures.append(
+                f"{display_name}: advisory exception review horizon exceeds 90 days"
+            )
     unexpected_local = sorted(local_versions - spec.reviewed_local_versions)
     if unexpected_local:
         failures.append(

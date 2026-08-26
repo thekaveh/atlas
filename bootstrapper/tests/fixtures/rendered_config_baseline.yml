@@ -3080,6 +3080,7 @@ services:
     environment:
       OLLAMA_CUSTOM_MODELS: ''
       OLLAMA_HOST_URL: ''
+      OLLAMA_PULL_STALL_TIMEOUT_SECONDS: "120"
       OLLAMA_USER_MODELS: qwen3.8:latest,nomic-embed-text,qwen3-embedding:0.6b
     extra_hosts:
     - host.docker.internal=

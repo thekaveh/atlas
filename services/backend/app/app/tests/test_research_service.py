@@ -91,6 +91,62 @@ def test_research_admission_rejects_before_database_work():
     assert database_called is False
 
 
+def test_cancelled_research_retains_capacity_until_cleanup_and_close_waits():
+    class Conn:
+        async def fetchrow(self, *_args):
+            return {"id": "session-1"}
+
+        async def execute(self, *_args):
+            return None
+
+        async def close(self):
+            return None
+
+    service = object.__new__(ResearchService)
+    service.max_concurrent_research = 1
+    service._maintenance_task = None
+    background_started = asyncio.Event()
+    cleanup_started = asyncio.Event()
+    release_cleanup = asyncio.Event()
+
+    async def background():
+        try:
+            background_started.set()
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cleanup_started.set()
+            await release_cleanup.wait()
+            raise
+        finally:
+            service._active_tasks.pop("session-1", None)
+
+    async def get_conn():
+        return Conn()
+
+    service._get_db_connection = get_conn
+
+    async def scenario():
+        task = asyncio.create_task(background())
+        service._active_tasks = {"session-1": task}
+        await background_started.wait()
+        assert await service.cancel_research("session-1") is True
+        await cleanup_started.wait()
+        assert service._active_tasks == {"session-1": task}
+        assert task.done() is False
+
+        with pytest.raises(ResearchCapacityError):
+            await service.start_research("must remain full")
+
+        closing = asyncio.create_task(service.aclose())
+        await asyncio.sleep(0)
+        assert closing.done() is False
+        release_cleanup.set()
+        await closing
+        assert service._active_tasks == {}
+
+    asyncio.run(scenario())
+
+
 def test_failed_research_creation_releases_admission_slot():
     service = object.__new__(ResearchService)
     service.max_concurrent_research = 1

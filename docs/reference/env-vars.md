@@ -574,6 +574,7 @@
 | LLM_PROVIDER_SOURCE | ollama | ollama-container-cpu | - |
 | OLLAMA_USER_MODELS | ollama |  | Comma-separated Ollama model names to activate/pull. Pre-filled by env_assembler from the catalog's default-active Ollama set (see services/ollama/models.yaml); the wizard overwrites it with the user's selection. |
 | OLLAMA_CUSTOM_MODELS | ollama |  | Free-text extra Ollama models (consumer model_sidecars.ollama lands here). Pulled by the ollama-pull init container for container-* sources and by the bootstrapper onto the host daemon for ollama-localhost (#757). |
+| OLLAMA_PULL_STALL_TIMEOUT_SECONDS | ollama | 120 | Abort and retry an ollama-pull download only after transfer speed stays below 1 KiB/s for this many seconds; progressing large-model downloads have no artificial wall-clock cutoff. |
 | OLLAMA_AUTO_IMPORT_LOCAL_MODELS | ollama | True | When LLM_PROVIDER_SOURCE=ollama-localhost, litellm-init queries the upstream's /api/tags and auto-imports every model found, unioning with OLLAMA_USER_MODELS. Set false to keep strict wizard-only control. |
 | OLLAMA_DEPLOY_RESOURCES | ollama | ~ | Reserved for future GPU deploy block. Currently '~' (null). |
 | OLLAMA_SCALE | ollama |  | - |

@@ -522,7 +522,15 @@ def test_ray_runtime_and_clients_move_in_lockstep() -> None:
         "services/backend/app/app/requirements.txt",
         "services/jupyterhub/build/requirements.txt",
     ):
-        assert "ray[client]>=2.56.0,<2.57" in _text(relative), relative
+        assert "ray[client]==2.56.0" in _text(relative), relative
+
+    for relative in (
+        "services/backend/app/app/requirements-locked.txt",
+        "services/backend/app/app/requirements-test-locked.txt",
+        "services/jupyterhub/build/requirements-locked.txt",
+    ):
+        assert "ray==2.56.0" in _text(relative), relative
+        assert "ray==2.56.1" not in _text(relative), relative
 
     manifest = _text("services/ray/service.yml")
     compose = _text("services/ray/compose.yml")

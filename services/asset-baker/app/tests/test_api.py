@@ -402,13 +402,48 @@ def test_worker_busy_returns_429(monkeypatch, tmp_path):
         def release(self):
             pass
 
-    monkeypatch.setattr(api, "run_bake", lambda *a, **k: None)
+    monkeypatch.setattr(
+        api,
+        "_copy_upload_to_path",
+        lambda *_args: pytest.fail("busy upload must not be spooled"),
+    )
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
 
     app = api.create_app(api_token=_TOKEN)
     app.state.bake_semaphore = BusySemaphore()  # simulate a saturated worker
     client = TestClient(app, headers={"Authorization": f"Bearer {_TOKEN}"})
     response = client.post("/assets/bake", files={"file": ("m.glb", b"raw", "model/gltf-binary")})
+    assert response.status_code == 429
+
+
+def test_worker_busy_ref_does_not_fetch_storage(monkeypatch, tmp_path):
+    from asset_baker import api
+
+    class BusySemaphore:
+        def acquire(self, blocking=True):
+            return False
+
+        def release(self):
+            pytest.fail("a rejected request must not release an unowned slot")
+
+    monkeypatch.setattr(
+        api.ArtifactStorage,
+        "fetch",
+        lambda *_args: pytest.fail("busy reference must not fetch storage"),
+    )
+    monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
+    app = api.create_app(api_token=_TOKEN)
+    app.state.bake_semaphore = BusySemaphore()
+    client = TestClient(app, headers={"Authorization": f"Bearer {_TOKEN}"})
+
+    response = client.post(
+        "/assets/bake/ref",
+        json={
+            "input": {"bucket": "raw-assets", "key": "model.glb"},
+            "params": {},
+        },
+    )
+
     assert response.status_code == 429
 
 

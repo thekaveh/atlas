@@ -23,6 +23,22 @@ EXPECTED_BASELINE_SNAPSHOT = {
     "tracked_files": 1472,
     "v0.1.0_tracked_files": 667,
 }
+EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {
+    "radon_grade_c_or_worse": 46,
+    "radon_grade_e_or_worse": 1,
+    "functions_over_60_physical_lines": 25,
+    "functions_over_100_physical_lines": 8,
+    "functions_over_4_parameters": 37,
+    "modules_over_600_logical_lines": 0,
+}
+_COMPLEXITY_METRICS = (
+    "radon_grade_c_or_worse",
+    "functions_over_60_physical_lines",
+    "functions_over_100_physical_lines",
+    "radon_grade_e_or_worse",
+    "functions_over_4_parameters",
+    "modules_over_600_logical_lines",
+)
 
 
 def _baseline_python_files() -> list[Path]:
@@ -31,6 +47,28 @@ def _baseline_python_files() -> list[Path]:
         *ROOT.joinpath("services/backend/app/app").rglob("*.py"),
     ]
     return [path for path in files if not any(part.startswith(".") for part in path.parts)]
+
+
+def _extended_python_files() -> list[Path]:
+    """Cover every other tracked Python surface without raising core ceilings."""
+    tracked = subprocess.run(
+        ["git", "ls-files", "*.py"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    core = {path.resolve() for path in _baseline_python_files()}
+    return [
+        ROOT / relative
+        for relative in tracked
+        if (ROOT / relative).resolve() not in core
+        and not any(part.startswith(".") for part in Path(relative).parts)
+    ]
+
+
+def _all_maintained_python_files() -> list[Path]:
+    return [*_baseline_python_files(), *_extended_python_files()]
 
 
 def _function_nodes(
@@ -95,9 +133,46 @@ def _current_complexity_counts() -> tuple[int, int, int, int, int, int, int]:
     return (*totals, tracked_files)
 
 
+def _complexity_counts(paths: list[Path]) -> tuple[int, int, int, int, int, int]:
+    totals = [0, 0, 0, 0, 0, 0]
+    for path in paths:
+        counts = _file_complexity_counts(path.read_text(encoding="utf-8"), path)
+        totals = [current + count for current, count in zip(totals, counts)]
+    return tuple(totals)
+
+
 def _complexity_ledger() -> dict:
     baseline = json.loads((ROOT / ".maintenance.json").read_text(encoding="utf-8"))
     return baseline["complexity"]
+
+
+def _e_or_worse_symbols(paths: list[Path]) -> set[tuple[str, str, int]]:
+    symbols: set[tuple[str, str, int]] = set()
+    for path in paths:
+        for block in cc_visit(path.read_text(encoding="utf-8")):
+            if block.letter != "C" and cc_rank(block.complexity) in ("E", "F"):
+                symbols.add(
+                    (path.relative_to(ROOT).as_posix(), block.fullname, block.complexity)
+                )
+    return symbols
+
+
+def _reviewed_e_or_worse_symbols(complexity: dict) -> set[tuple[str, str, int]]:
+    reviewed: set[tuple[str, str, int]] = set()
+    for item in complexity["accepted_e_or_worse_symbols"]:
+        assert item["rationale"].strip()
+        path = ROOT / item["path"]
+        assert path.is_file()
+        _assert_complexity_signal(item, path.read_text(encoding="utf-8"), path)
+        identity = (item["path"], item["symbol"], item["cyclomatic_complexity"])
+        assert identity not in reviewed, f"duplicate E/F disposition: {identity}"
+        reviewed.add(identity)
+    return reviewed
+
+
+def _assert_e_or_worse_symbols_reviewed(complexity: dict) -> None:
+    current = _e_or_worse_symbols(_all_maintained_python_files())
+    assert current == _reviewed_e_or_worse_symbols(complexity)
 
 
 def _assert_complexity_signal(item: dict, source: str, path: Path) -> None:
@@ -145,6 +220,15 @@ def _assert_complexity_baseline_owned(
     assert date.fromisoformat(complexity["review_by"]) >= today
     assert "Do not increase" in complexity["regression_policy"]
     assert complexity["baseline_snapshot"] == EXPECTED_BASELINE_SNAPSHOT
+    assert (
+        complexity["extended_python_baseline_snapshot"]
+        == EXPECTED_EXTENDED_PYTHON_SNAPSHOT
+    )
+
+
+def _assert_counts_bounded(counts: tuple[int, ...], allowed: dict) -> None:
+    for count, metric in zip(counts, _COMPLEXITY_METRICS):
+        assert count <= allowed[metric], f"{metric}: {count} > {allowed[metric]}"
 
 
 def test_complexity_baseline_is_owned_and_reviewed() -> None:
@@ -156,6 +240,11 @@ def test_every_maintenance_ceiling_is_immutable_without_review() -> None:
     for key in EXPECTED_BASELINE_SNAPSHOT:
         mutated = deepcopy(original)
         mutated["baseline_snapshot"][key] += 1
+        with pytest.raises(AssertionError):
+            _assert_complexity_baseline_owned(mutated)
+    for key in EXPECTED_EXTENDED_PYTHON_SNAPSHOT:
+        mutated = deepcopy(original)
+        mutated["extended_python_baseline_snapshot"][key] += 1
         with pytest.raises(AssertionError):
             _assert_complexity_baseline_owned(mutated)
 
@@ -171,13 +260,22 @@ def test_complexity_baseline_is_recomputed_and_regression_bounded() -> None:
     complexity = _complexity_ledger()
     current = _current_complexity_counts()
     allowed = complexity["baseline_snapshot"]
-    assert current[0] <= allowed["radon_grade_c_or_worse"]
-    assert current[1] <= allowed["functions_over_60_physical_lines"]
-    assert current[2] <= allowed["functions_over_100_physical_lines"]
-    assert current[3] <= allowed["radon_grade_e_or_worse"]
-    assert current[4] <= allowed["functions_over_4_parameters"]
-    assert current[5] <= allowed["modules_over_600_logical_lines"]
+    _assert_counts_bounded(current[:6], allowed)
     assert current[6] <= allowed["tracked_files"]
+
+    extended = _complexity_counts(_extended_python_files())
+    extended_allowed = complexity["extended_python_baseline_snapshot"]
+    _assert_counts_bounded(extended, extended_allowed)
+
+
+def test_extended_python_scope_covers_non_core_repository_code() -> None:
+    relative = {path.relative_to(ROOT).as_posix() for path in _extended_python_files()}
+    assert "scripts/container_security.py" in relative
+    assert "services/asset-baker/app/asset_baker/api.py" in relative
+    assert "services/parakeet/provider/gpu/transcribe.py" in relative
+    assert not {path.resolve() for path in _baseline_python_files()} & {
+        path.resolve() for path in _extended_python_files()
+    }
 
 
 def test_complexity_dispositions_are_grounded() -> None:
@@ -185,6 +283,23 @@ def test_complexity_dispositions_are_grounded() -> None:
     assert len(complexity["accepted_signal_groups"]) >= 3
     for item in complexity["accepted_signals"]:
         _assert_accepted_signal_grounded(item)
+
+
+def test_every_e_or_worse_symbol_is_individually_reviewed() -> None:
+    _assert_e_or_worse_symbols_reviewed(_complexity_ledger())
+
+
+def test_equal_size_e_or_worse_identity_swap_is_rejected() -> None:
+    mutated = deepcopy(_complexity_ledger())
+    removed = mutated["accepted_e_or_worse_symbols"].pop()
+    mutated["accepted_e_or_worse_symbols"].append(
+        {
+            **removed,
+            "symbol": "unreviewed_replacement_with_same_aggregate_count",
+        }
+    )
+    with pytest.raises(AssertionError):
+        _assert_e_or_worse_symbols_reviewed(mutated)
 
 
 def test_confirmed_dead_private_helpers_remain_removed() -> None:

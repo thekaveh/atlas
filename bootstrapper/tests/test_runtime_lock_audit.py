@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,6 +20,7 @@ def test_audit_runtime_lock_accepts_exact_reviewed_advisories(
         str(lock),
         frozenset({"PYSEC-1"}),
         frozenset({"local-wheel==1.0+cpu"}),
+        review_by=date.today() + timedelta(days=30),
     )
     captured: dict[str, str] = {}
 
@@ -138,7 +140,9 @@ def test_audit_runtime_lock_rejects_new_and_stale_allowlist_entries(
     lock = tmp_path / "requirements-locked.txt"
     lock.write_text("package==1.0\n", encoding="utf-8")
     spec = audit_runtime_locks.AuditSpec(
-        str(lock), frozenset({"PYSEC-REVIEWED", "PYSEC-STALE"})
+        str(lock),
+        frozenset({"PYSEC-REVIEWED", "PYSEC-STALE"}),
+        review_by=date.today() + timedelta(days=30),
     )
     payload = {
         "dependencies": [
@@ -164,6 +168,50 @@ def test_audit_runtime_lock_rejects_new_and_stale_allowlist_entries(
 
     assert any("unreviewed advisories: PYSEC-NEW" in item for item in failures)
     assert any("stale allowlist entries: PYSEC-STALE" in item for item in failures)
+
+
+def test_advisory_exceptions_require_a_current_bounded_review_deadline(
+    tmp_path: Path, monkeypatch
+) -> None:
+    lock = tmp_path / "requirements-locked.txt"
+    lock.write_text("package==1.0\n", encoding="utf-8")
+    monkeypatch.setattr(
+        audit_runtime_locks,
+        "run_bounded",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=1,
+            stdout=json.dumps(
+                {
+                    "dependencies": [
+                        {
+                            "name": "package",
+                            "version": "1.0",
+                            "vulns": [{"id": "PYSEC-REVIEWED"}],
+                        }
+                    ]
+                }
+            ),
+            stderr="",
+        ),
+    )
+    review_date = date(2026, 8, 26)
+
+    cases = (
+        (None, "lack a review deadline"),
+        (review_date, "review expired"),
+        (review_date + timedelta(days=91), "horizon exceeds 90 days"),
+    )
+    for review_by, expected in cases:
+        failures = audit_runtime_locks.audit_spec(
+            audit_runtime_locks.AuditSpec(
+                str(lock),
+                frozenset({"PYSEC-REVIEWED"}),
+                review_by=review_by,
+            ),
+            root=Path("/"),
+            today=review_date,
+        )
+        assert any(expected in failure for failure in failures)
 
 
 def test_jupyterhub_runtime_lock_is_checked_for_both_linux_architectures() -> None:

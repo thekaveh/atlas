@@ -10,7 +10,9 @@ lightrag-init readiness guard).
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import subprocess
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PULL_SH = REPO_ROOT / "services" / "ollama" / "pull" / "scripts" / "pull.sh"
@@ -45,3 +47,59 @@ def test_pull_failure_is_non_fatal_after_retries():
     fail_branch = src.split('if [ "$pulled" -ne 1 ]; then', 1)[1].split("fi", 1)[0]
     assert "exit" not in fail_branch, "a failed pull must not exit the script"
     assert "Finished model pulling process" in src
+
+
+def test_stalled_pull_attempt_is_bounded_and_retried(tmp_path):
+    attempts = tmp_path / "attempts"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "apk").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    (fake_bin / "sleep").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    (fake_bin / "curl").write_text(
+        "#!/bin/sh\n"
+        "case \" $* \" in\n"
+        "  *\"/api/pull\"*)\n"
+        f"    printf 'attempt\\n' >> {str(attempts)!r}\n"
+        "    case \" $* \" in\n"
+        "      *\" --connect-timeout \"*\" --speed-time \"*\" --speed-limit \"*) exit 28 ;;\n"
+        "      *) /bin/sleep 10 ;;\n"
+        "    esac ;;\n"
+        "  *) exit 0 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    for executable in fake_bin.iterdir():
+        executable.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "OLLAMA_HOST_URL": "http://ollama:11434",
+        "OLLAMA_USER_MODELS": "example:latest",
+        "OLLAMA_CUSTOM_MODELS": "",
+        "OLLAMA_PULL_STALL_TIMEOUT_SECONDS": "1",
+    }
+
+    completed = subprocess.run(
+        ["sh", str(PULL_SH)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=3,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    assert attempts.read_text(encoding="utf-8").splitlines() == [
+        "attempt", "attempt", "attempt"
+    ]
+    assert "after 3 attempts" in completed.stderr
+
+
+def test_progressing_large_pull_has_no_artificial_wall_clock_cutoff():
+    src = PULL_SH.read_text(encoding="utf-8")
+
+    pull_command = src.split("curl_output=$(curl", 1)[1].split("2>&1)", 1)[0]
+    assert "--connect-timeout" in pull_command
+    assert "--speed-time" in pull_command
+    assert "--speed-limit" in pull_command
+    assert "--max-time" not in pull_command

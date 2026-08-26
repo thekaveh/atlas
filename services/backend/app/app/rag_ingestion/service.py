@@ -50,6 +50,16 @@ from .profiles import LoadedProfile, get_profile
 from .store import IngestionStore, default_store
 
 
+async def _cancel_pending_task(task: asyncio.Task[Any]) -> None:
+    """Cancel if needed and always consume the child's terminal result."""
+    if not task.done():
+        task.cancel()
+    # A child may raise while unwinding its cancellation handler. Cleanup must
+    # still preserve the parent's cancellation and join the lease watcher.
+    with suppress(asyncio.CancelledError, Exception):
+        await task
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -323,17 +333,18 @@ class RagIngestionService:
                 return_when=asyncio.FIRST_COMPLETED,
             )
             if lease_lost.is_set():
-                phase_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await phase_task
+                await _cancel_pending_task(phase_task)
                 raise IngestionExecutionLeaseLost(
                     f"Execution lease lost for RAG ingestion {record.id}"
                 )
             await phase_task
         finally:
-            lease_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await lease_task
+            try:
+                await _cancel_pending_task(phase_task)
+            finally:
+                lease_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await lease_task
 
     async def run(
         self,

@@ -9,6 +9,7 @@ tests call it via ``asyncio.run`` so no ``pytest-asyncio`` is required.
 from __future__ import annotations
 
 import asyncio
+import gc
 import json
 import threading
 from pathlib import Path
@@ -767,7 +768,7 @@ def test_run_cancels_active_phase_when_execution_lease_is_lost(
                 await asyncio.Event().wait()
             except asyncio.CancelledError:
                 self.phase_cancelled = True
-                raise
+                raise RuntimeError("phase cleanup failed")
 
     service = LeaseLosingService(
         store=store,
@@ -785,6 +786,130 @@ def test_run_cancels_active_phase_when_execution_lease_is_lost(
         )
 
     assert service.phase_cancelled is True
+
+
+def test_parent_cancellation_finishes_phase_before_releasing_execution_lease(
+    tmp_path, monkeypatch
+):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+    events: list[str] = []
+
+    class TrackingStore(InMemoryIngestionStore):
+        def release_execution(self, ingestion_id, owner):
+            events.append("lease_released")
+            return super().release_execution(ingestion_id, owner)
+
+    class BlockingService(RagIngestionService):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.phase_started = asyncio.Event()
+
+        async def _run_phase(self, *args, **kwargs):
+            self.phase_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                events.append("phase_cancelled")
+                raise
+
+    store = TrackingStore()
+    service = BlockingService(store=store, deps=Deps(), profiles_path=profile_path)
+    record, _ = service.submit("showcase-default")
+
+    async def scenario():
+        running = asyncio.create_task(service.run(record.id))
+        await service.phase_started.wait()
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running
+        survivors = [
+            task
+            for task in asyncio.all_tasks()
+            if task is not asyncio.current_task() and not task.done()
+        ]
+        assert survivors == []
+
+    asyncio.run(scenario())
+
+    assert events == ["phase_cancelled", "lease_released"]
+
+
+def test_phase_cleanup_failure_does_not_leak_lease_watcher(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+
+    class FailingCleanupService(RagIngestionService):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.phase_started = asyncio.Event()
+
+        async def _run_phase(self, *args, **kwargs):
+            self.phase_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError as exc:
+                raise RuntimeError("phase cleanup failed") from exc
+
+    service = FailingCleanupService(
+        store=InMemoryIngestionStore(), deps=Deps(), profiles_path=profile_path
+    )
+    record, _ = service.submit("showcase-default")
+
+    async def scenario():
+        running = asyncio.create_task(service.run(record.id))
+        await service.phase_started.wait()
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running
+        survivors = [
+            task
+            for task in asyncio.all_tasks()
+            if task is not asyncio.current_task() and not task.done()
+        ]
+        assert survivors == []
+
+    asyncio.run(scenario())
+
+
+def test_parent_cancel_racing_phase_failure_consumes_child_exception(
+    tmp_path, monkeypatch
+):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+
+    class RacingService(RagIngestionService):
+        parent: asyncio.Task | None = None
+
+        async def _run_phase(self, *args, **kwargs):
+            assert self.parent is not None
+            asyncio.get_running_loop().call_soon(self.parent.cancel)
+            raise RuntimeError("phase failed in completion/cancellation race")
+
+    service = RacingService(
+        store=InMemoryIngestionStore(), deps=Deps(), profiles_path=profile_path
+    )
+    record, _ = service.submit("showcase-default")
+    profile = service._resolve_profile(record.profile)
+
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        unhandled: list[dict] = []
+        previous_handler = loop.get_exception_handler()
+        loop.set_exception_handler(lambda _loop, context: unhandled.append(context))
+        try:
+            service.parent = asyncio.current_task()
+            with pytest.raises(asyncio.CancelledError):
+                await service._run_phase_with_lease(
+                    "discover", record, profile, {}, {}, asyncio.Event()
+                )
+            gc.collect()
+            await asyncio.sleep(0)
+            assert unhandled == []
+        finally:
+            loop.set_exception_handler(previous_handler)
+
+    asyncio.run(scenario())
 
 
 def test_vector_target_fail_when_weaviate_disabled(tmp_path, monkeypatch):

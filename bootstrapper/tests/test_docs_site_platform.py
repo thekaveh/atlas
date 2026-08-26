@@ -254,6 +254,19 @@ def test_llm_architecture_includes_managed_vllm_metal() -> None:
     assert _NODE_KINDS.get("vLLM Metal", "generic") == "generic"
 
 
+def test_data_rag_architecture_routes_graph_writes_through_lightrag() -> None:
+    from bootstrapper.docs.sitegen.pages import ARCHITECTURE_EDGES, ARCHITECTURE_LAYOUTS
+
+    edges = ARCHITECTURE_EDGES["data-rag-flow"]
+    assert ("Doc Processing", "LightRAG", "documents") in edges
+    assert ("LightRAG", "Neo4j", "graph") in edges
+    assert ("Doc Processing", "Neo4j", "graph") not in edges
+    layout = ARCHITECTURE_LAYOUTS["data-rag-flow"]
+    assert layout["LightRAG"][1] == layout["Neo4j"][1]
+    assert layout["Weaviate"][1] < layout["Backend"][1]
+    assert layout["LightRAG"][1] < layout["Weaviate"][1]
+
+
 def test_track_architecture_models_explicit_disabled_overrides() -> None:
     from bootstrapper.docs.sitegen.pages import (
         ARCHITECTURE_EDGES,

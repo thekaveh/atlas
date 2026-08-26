@@ -285,7 +285,7 @@ def test_real_tei_arm_image_preserves_declared_platform():
         for manifest in load_manifests(repo_root / "services")
         if manifest.name == "tei-reranker"
     )
-    arm_image = next(image for image in tei.images if image.platform)
+    arm_image = next(image for image in tei.images if image.platform == "linux/arm64")
     assert arm_image.platform == "linux/arm64"
 
 

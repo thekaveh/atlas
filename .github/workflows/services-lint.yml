@@ -293,7 +293,7 @@ jobs:
   build-validation:
     name: Build-validation (Dockerfile + requirements.txt installability)
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 150
     # Catches the Pass 12 / Pass 13 class of bug: unsatisfiable pip pins,
     # nonexistent packages, broken Dockerfile syntax. Compose-shape checks
     # never invoke `docker build`, so a broken requirements.txt sails
@@ -302,6 +302,9 @@ jobs:
     # are intentionally excluded for runner size/time.
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
@@ -331,9 +334,15 @@ jobs:
           do
             IFS='|' read -r context dockerfile extra_args <<< "$spec"
             dockerfile_path="$context/$dockerfile"
-            if [ -n "$extra_args" ]; then
-              docker buildx build --load $extra_args -f "$dockerfile_path" "$context/"
-            else
-              docker buildx build --load -f "$dockerfile_path" "$context/"
+            platforms="linux/amd64 linux/arm64"
+            if [ "$context|$dockerfile" = "services/asset-baker/app|Dockerfile" ]; then
+              platforms="linux/amd64"
             fi
+            for platform in $platforms; do
+              if [ -n "$extra_args" ]; then
+                docker buildx build --load --platform "$platform" $extra_args -f "$dockerfile_path" "$context/"
+              else
+                docker buildx build --load --platform "$platform" -f "$dockerfile_path" "$context/"
+              fi
+            done
           done

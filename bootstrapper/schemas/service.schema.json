@@ -136,7 +136,7 @@
           "platform": {
             "type": "string",
             "pattern": "^linux/(amd64|arm64)$",
-            "description": "Optional scanner/runtime platform when the image index is single-architecture."
+            "description": "Optional scanner/runtime platform when the image is single-architecture. Omit only for images supported and scanned on both linux/amd64 and linux/arm64."
           }
         }
       }

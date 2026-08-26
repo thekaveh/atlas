@@ -16,7 +16,7 @@ The stack orchestrates repository-defined containerized and virtual service fami
 **JupyterHub data science IDE**
 - Interactive Jupyter Lab environment
 - Pre-configured AI/ML libraries (Ollama, LangChain, LlamaIndex, Transformers)
-- Sample notebooks for all service integrations
+- Sixteen curated notebooks covering representative ML, data, RAG, and service workflows; this is not an exhaustive notebook for every integration
 - Persistent workspace with Docker volumes
 
 **Speech-to-Text layer (pluggable)**
@@ -49,9 +49,9 @@ The stack orchestrates repository-defined containerized and virtual service fami
 - The default Atlas-managed consumer path (Backend, Open WebUI, n8n, JupyterHub, Local Deep Researcher, OpenClaw Gateway, Weaviate) reads `LITELLM_BASE_URL` + `LITELLM_API_KEY`; documented native-provider overrides remain explicit exceptions. Documented backup option: Portkey AI Gateway.
 
 **LangMem persistent memory**
-- Automated fact extraction from conversations via Ollama LLM
+- Automated fact extraction from conversations through the LiteLLM gateway (using the configured upstream provider)
 - Semantic memory recall via Weaviate with pgvector fallback
-- Memory consolidation and deduplication (nightly via n8n)
+- Memory consolidation and deduplication, with an optional n8n workflow that operators may schedule; Atlas does not install a nightly schedule automatically
 - Open WebUI tool for manual memory management (remember, recall, forget)
 - Auto-extraction filter for conversations
 - Embedded in Backend service (no separate container)
@@ -135,9 +135,11 @@ _Delivered — see "Completed" section below for the LiteLLM gateway entry._
 - Audit logging capabilities
 - Security hardening guides
 
-**MCP gateway and curated server set**
+**MCP gateway and curated server set** — shipped
 
-The Model Context Protocol (Anthropic, late 2024) turns LLM-callable tools into a uniform protocol so every LLM consumer in the stack (Open WebUI, Backend, Hermes, n8n, OpenClaw, Local Deep Researcher) reaches the same tool surface through one interface. Architecturally the deployment is **three layers**:
+The shipped Atlas MCP runtime is one direct, stateless **FastMCP 3 composite** at `services/mcp-servers/`. It exposes the curated Postgres, Neo4j, and SearXNG tools over Streamable HTTP at `/mcp`; it does not deploy MetaMCP, Docker MCP Gateway, `mcpo`, or one sidecar per tool. Consumers that support MCP connect directly through service DNS or the protected Kong route.
+
+The following three-layer topology is retained as a possible future expansion, not the current deployment:
 
 ```
 Layer 3 — Consumers  : Open WebUI · Backend · Hermes · n8n · OpenClaw · LDR
@@ -150,9 +152,9 @@ Layer 1 — MCP servers : N small adapter containers wrapping individual
                         stack services (postgres-mcp, neo4j-mcp, …)
 ```
 
-Two architecturally distinct adoption paths are supported. Both are real OSS in 2026. Either can ship.
+Two architecturally distinct expansion paths were evaluated. Neither ships today; add one only when namespacing, policy, or a broad external connector catalog justifies the extra control plane.
 
-#### 2.3.1. Option A (recommended default): MetaMCP + curated server sidecars
+#### 2.3.1. Future option A: MetaMCP + curated server sidecars
 
 - **MetaMCP** (metatool-ai, MIT, v2.4.22 Dec 2025, 2.3k+ stars) — single aggregator container, **native OpenAPI surface** (no separate translator needed), namespace-based RBAC for per-consumer tool scopes (Open WebUI can see one set, Hermes another), Postgres-backed metadata co-located on the existing Supabase Postgres.
 - **MCP server sidecars** — small (50–100 MB) adapter containers connecting to existing stack services via their native protocols (Postgres wire, Bolt, REST/gRPC). Existing service images are **unchanged**.
@@ -170,7 +172,7 @@ Two architecturally distinct adoption paths are supported. Both are real OSS in 
 - `n8n-mcp` (community) → workflow triggering and inspection
 - Custom Backend MCP server (~150–200 LOC Python wrapping app-specific routes including LangMem)
 
-#### 2.3.2. Option B (documented alternative): Docker MCP Gateway + Catalog + mcpo
+#### 2.3.2. Future option B: Docker MCP Gateway + Catalog + mcpo
 
 - **Docker MCP Gateway** (`docker/mcp-gateway`, MIT, v0.42.1 May 2026) — single binary / container. Pulls MCP server images from the **Docker MCP Catalog** (hub.docker.com/mcp, 300+ vendor-signed images) **on demand**, spawning them as sibling containers via the mounted host docker socket.
 - **`mcpo`** (Open WebUI org, MIT) — small protocol translator. Required in front of the Gateway because the Gateway speaks MCP only (no native OpenAPI). Open WebUI consumers can hit MCP directly; FastAPI Backend / n8n / OpenClaw typically go through `mcpo`.
@@ -180,7 +182,7 @@ Two architecturally distinct adoption paths are supported. Both are real OSS in 
 **When Option B beats Option A:**
 - Deployment integrates many SaaS-vendor MCP servers out of the box (Stripe, GitHub, Notion, AWS, MongoDB Atlas, Grafana Cloud, etc.) — the 300+ catalog is the genuine differentiator.
 - Vendor-signed image provenance is a hard organisational requirement.
-- *For most self-hosted AI-stack deployments wrapping their own internal services, Option A wins on every other axis.*
+- For Atlas' current internal-service-first scope, the shipped direct FastMCP composite remains simpler than either option.
 
 #### 2.3.3. Coverage matrix — which stack services need MCP, and which don't
 
@@ -196,7 +198,7 @@ MCP is for **LLM-callable tools**, not arbitrary service-to-service integration.
 
 **Already reachable through other paths (MCP-wrapping would be redundant):**
 - **LiteLLM, Ollama** — they *are* the LLM endpoint; MCP-wrapping is circular
-- **ComfyUI, Speaches, Parakeet, Chatterbox, Docling** — OpenAI-compatible HTTP surfaces routed via LiteLLM; LLMs reach them directly
+- **ComfyUI, Speaches, Parakeet, Chatterbox, Docling** — direct provider/service APIs reached by Backend or other adaptive consumers. Some audio providers are OpenAI-compatible, while Chatterbox and Parakeet require their existing adapters; stock Atlas does not register these media and document paths as LiteLLM routes
 - **Cloud Providers** (virtual manifest) — toggles only
 
 **Consumers, not targets** (they *use* MCP rather than expose it):
@@ -212,7 +214,7 @@ So "the full MCP-ification of the stack" is realistically ~6–9 MCP servers, no
 Depends on (services the MCP gateway would consume):
 - **MCP server adapters** wrapping individual stack services (Postgres / Neo4j / Weaviate / SearXNG / MinIO / n8n / custom Backend)
 - **Kong API Gateway** — exposes the MCP gateway via an `mcp.localhost` route
-- **Supabase (PostgreSQL)** — MetaMCP namespace + auth persistence (Option A), or Gateway's small config (Option B)
+- **Supabase (PostgreSQL), future only** — MetaMCP namespace/auth persistence or a Gateway configuration store would be introduced only if that optional layer is adopted
 
 Consumed by (services that would call the MCP gateway):
 - **Open WebUI** — native MCP client (v0.6.31+); reaches MCP directly
@@ -1247,7 +1249,7 @@ Consumed by (services that would call LiveKit):
 
 ### 3.10. MCP gateway
 - **`mcpo` vs MetaMCP vs IBM ContextForge**: `mcpo` is the lowest-friction MCP→OpenAPI wrapper (from the Open WebUI org); MetaMCP adds namespace and RBAC aggregation; IBM ContextForge has the broadest transport support
-- **Recommended path**: start with `mcpo` (Open WebUI v0.6.31+ already speaks MCP); add MetaMCP when more than 2–3 MCP servers warrant aggregated, namespaced routing
+- **Recommended path**: keep the shipped direct FastMCP 3 composite; consider MetaMCP only when distinct consumer namespaces or policy require aggregation, and use `mcpo` only for a protocol-translation case
 
 ### 3.11. Personal-knowledge surfaces
 - **SilverBullet vs Karakeep vs Paperless-ngx**: SilverBullet for authored markdown notes (files on disk); Karakeep for captured / AI-tagged web content; Paperless-ngx for OCR'd document archive. All three feed the same downstream RAG indexes — pick by capture mode, not as alternatives.
