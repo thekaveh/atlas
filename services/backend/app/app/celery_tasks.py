@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -8,8 +9,11 @@ import httpx
 from celery.utils.time import get_exponential_backoff_interval
 
 from celery_app import celery_app
+from db_connection import close_pg_pools
 from memory_service import MemoryService
 
+
+logger = logging.getLogger(__name__)
 
 TRANSIENT_EXCEPTIONS = (
     TimeoutError,
@@ -19,10 +23,24 @@ TRANSIENT_EXCEPTIONS = (
 )
 
 
+async def _run_memory_consolidate(user_id: Optional[str]) -> dict[str, Any]:
+    try:
+        return await MemoryService().consolidate(
+            user_id=user_id, retry_transient=True
+        )
+    finally:
+        # ``asyncio.run`` owns a fresh loop for each Celery task invocation.
+        # asyncpg pools are loop-bound, so no cached pool may outlive it.
+        try:
+            await close_pg_pools()
+        except Exception:
+            # Cleanup must not replace the transient task error that Celery's
+            # autoretry policy needs to observe.
+            logger.exception("Postgres pool cleanup failed after consolidation")
+
+
 def run_memory_consolidate(user_id: Optional[str]) -> dict[str, Any]:
-    return asyncio.run(
-        MemoryService().consolidate(user_id=user_id, retry_transient=True)
-    )
+    return asyncio.run(_run_memory_consolidate(user_id))
 
 
 @celery_app.task(

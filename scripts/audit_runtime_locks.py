@@ -93,6 +93,18 @@ AUDIT_SPECS = (
             }
         ),
     ),
+    AuditSpec(
+        "services/parakeet/provider/mlx/requirements-locked.txt",
+        # PYSEC-2025-138 and PYSEC-2025-139 are memory-safety findings in
+        # mlx<0.29.4. The Apple Silicon lock resolves mlx 0.29.3 because no
+        # 0.29.4 wheel is published for this exact Python/platform graph yet;
+        # the provider accepts audio only through the bounded parser and does
+        # not expose arbitrary MLX program/model loading to request callers.
+        # Atlas maintainers own re-review by 2026-09-15; remove these IDs as
+        # soon as the fixed wheel resolves for aarch64-apple-darwin.
+        frozenset({"PYSEC-2025-138", "PYSEC-2025-139"}),
+    ),
+    AuditSpec("bootstrapper/requirements-locked.txt"),
     AuditSpec("services/asset-baker/app/requirements-locked.txt"),
     AuditSpec("services/asset-worker/app/requirements-locked.txt"),
     AuditSpec("services/docling/provider/gpu/requirements-locked.txt"),
@@ -107,16 +119,7 @@ AUDIT_SPECS = (
     AuditSpec("services/local-deep-researcher/build/config/runtime-requirements.lock"),
 )
 
-SOURCE_SPECS = (
-    SourceSpec(
-        "services/parakeet/provider/mlx/requirements.txt",
-        python_platform="aarch64-apple-darwin",
-        # mlx 0.29.4 is the published fix but has no compatible wheel in the
-        # resolved Apple Silicon graph yet; fail closed when these IDs clear or
-        # when any different advisory appears.
-        reviewed_advisories=frozenset({"PYSEC-2025-138", "PYSEC-2025-139"}),
-    ),
-)
+SOURCE_SPECS: tuple[SourceSpec, ...] = ()
 
 UV_PROJECTS = (
     "bootstrapper",
@@ -134,6 +137,7 @@ NPM_PROJECTS = (
 AUDITED_RUNTIME_MANIFESTS = frozenset(
     {
         "bootstrapper/pyproject.toml",
+        "bootstrapper/requirements-locked.txt",
         "bootstrapper/uv.lock",
         "services/airflow/build/requirements.txt",
         "services/airflow/build/requirements-locked.txt",
@@ -170,6 +174,7 @@ AUDITED_RUNTIME_MANIFESTS = frozenset(
         "services/parakeet/provider/gpu/requirements.txt",
         "services/parakeet/provider/gpu/requirements-locked.txt",
         "services/parakeet/provider/mlx/requirements.txt",
+        "services/parakeet/provider/mlx/requirements-locked.txt",
     }
 )
 

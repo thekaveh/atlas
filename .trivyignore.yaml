@@ -1,0 +1,4 @@
+# Trivy consumes this file directly. Each exception must be package/path scoped,
+# carry a concrete risk statement, and expire; scripts.container_security rejects
+# broad, undocumented, duplicate, or stale entries before a scan can run.
+vulnerabilities: []

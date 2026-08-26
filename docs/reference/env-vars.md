@@ -752,7 +752,7 @@
 | TEI_RERANKER_PORT | tei-reranker |  | Host port for the TEI rerank API (in-container listen port is 80). |
 | TEI_RERANKER_LOCALHOST_PORT | tei-reranker | 63049 | Host port for the host-installed TEI rerank source variant. |
 | TEI_RERANKER_MODEL_ID | tei-reranker | mixedbread-ai/mxbai-rerank-base-v1 | - |
-| TEI_RERANKER_REVISION | tei-reranker | main | - |
+| TEI_RERANKER_REVISION | tei-reranker | 800f24c113213a187e65bde9db00c15a2bb12738 | - |
 | TEI_RERANKER_MAX_CLIENT_BATCH_SIZE | tei-reranker | 32 | - |
 | TEI_RERANKER_MEMORY_LIMIT | tei-reranker | 4g | - |
 | TEI_RERANKER_CPU_LIMIT | tei-reranker | 2.0 | - |

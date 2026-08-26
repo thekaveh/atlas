@@ -2277,6 +2277,9 @@ class WizardScreen(Screen):
                     style="bold red",
                     source="pipeline",
                 )
+                self._mark_launch_failed()
+                starter.banner = original_banner
+                self._close_launch_log_tee()
                 return
 
         # Tell the compose-line classifier the actual project name so

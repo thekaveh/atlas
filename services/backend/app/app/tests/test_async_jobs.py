@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 import os
 import sys
@@ -229,6 +230,97 @@ def test_memory_consolidate_task_calls_memory_service(monkeypatch):
     assert celery_tasks.run_memory_consolidate(None) == result
     assert seen["user_id"] is None
     assert seen["retry_transient"] is True
+
+
+def test_memory_consolidate_worker_does_not_reuse_a_pool_across_task_loops(
+    monkeypatch,
+):
+    _stub_required_env(monkeypatch)
+    import celery_tasks
+    import db_connection
+
+    db_connection._pools.clear()
+    created = []
+
+    class LoopBoundPool:
+        def __init__(self):
+            self.loop = asyncio.get_running_loop()
+            self.closed = False
+
+        def is_closing(self):
+            if asyncio.get_running_loop() is not self.loop:
+                raise RuntimeError("pool reused from a closed task loop")
+            return self.closed
+
+        async def close(self):
+            assert asyncio.get_running_loop() is self.loop
+            self.closed = True
+
+        def terminate(self):
+            self.closed = True
+
+    async def fake_create_pool(*_args, **_kwargs):
+        pool = LoopBoundPool()
+        created.append(pool)
+        return pool
+
+    class FakeMemoryService:
+        async def consolidate(self, *, user_id, retry_transient):
+            assert retry_transient is True
+            pool = await db_connection.get_pg_pool("postgresql://test")
+            assert pool.loop is asyncio.get_running_loop()
+            return {"user_id": user_id}
+
+    monkeypatch.setattr(db_connection.asyncpg, "create_pool", fake_create_pool)
+    monkeypatch.setattr(celery_tasks, "MemoryService", FakeMemoryService)
+
+    assert celery_tasks.run_memory_consolidate("first") == {"user_id": "first"}
+    assert celery_tasks.run_memory_consolidate("second") == {"user_id": "second"}
+    assert len(created) == 2
+    assert all(pool.closed for pool in created)
+    assert db_connection._pools == {}
+
+
+def test_memory_consolidate_worker_closes_pools_when_consolidation_fails(
+    monkeypatch,
+):
+    _stub_required_env(monkeypatch)
+    import celery_tasks
+
+    closed = []
+
+    class FakeMemoryService:
+        async def consolidate(self, *, user_id, retry_transient):
+            raise TimeoutError("temporary LiteLLM timeout")
+
+    async def fake_close_pg_pools():
+        closed.append(asyncio.get_running_loop())
+
+    monkeypatch.setattr(celery_tasks, "MemoryService", FakeMemoryService)
+    monkeypatch.setattr(celery_tasks, "close_pg_pools", fake_close_pg_pools)
+
+    with pytest.raises(TimeoutError, match="temporary LiteLLM timeout"):
+        celery_tasks.run_memory_consolidate("user-1")
+
+    assert len(closed) == 1
+
+
+def test_memory_consolidate_cleanup_failure_preserves_transient_error(monkeypatch):
+    _stub_required_env(monkeypatch)
+    import celery_tasks
+
+    class FakeMemoryService:
+        async def consolidate(self, *, user_id, retry_transient):
+            raise TimeoutError("temporary LiteLLM timeout")
+
+    async def fail_close_pg_pools():
+        raise RuntimeError("pool close failed")
+
+    monkeypatch.setattr(celery_tasks, "MemoryService", FakeMemoryService)
+    monkeypatch.setattr(celery_tasks, "close_pg_pools", fail_close_pg_pools)
+
+    with pytest.raises(TimeoutError, match="temporary LiteLLM timeout"):
+        celery_tasks.run_memory_consolidate("user-1")
 
 
 def test_memory_consolidate_worker_propagates_transient_llm_failure(monkeypatch):

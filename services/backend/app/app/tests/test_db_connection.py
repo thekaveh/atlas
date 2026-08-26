@@ -226,6 +226,24 @@ def test_close_pg_pools_terminates_a_pool_that_misses_the_deadline(monkeypatch):
     _reset_pools()
 
 
+def test_close_pg_pools_evicts_and_terminates_a_pool_whose_close_raises():
+    _reset_pools()
+    import db_connection
+
+    class BrokenClosePool(_FakePool):
+        async def close(self):
+            raise RuntimeError("close failed")
+
+    pool = BrokenClosePool(1)
+    db_connection._pools["postgresql://u:p@db:5432/atlas"] = pool
+
+    _run(db_connection.close_pg_pools())
+
+    assert db_connection._pools == {}
+    assert pool.terminated is True
+    _reset_pools()
+
+
 def test_pool_never_exceeds_max_size_under_concurrency():
     _reset_pools()
     import asyncio as _asyncio

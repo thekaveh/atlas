@@ -1,5 +1,7 @@
 """Textual launch failures must propagate to the CLI exit status."""
 
+import asyncio
+
 from ui.textual.screens.wizard_screen import WizardScreen
 
 
@@ -46,5 +48,41 @@ def test_launch_cannot_detach_before_startup_reaches_log_stream(monkeypatch):
 
         assert exit_codes == []
         assert notifications == ["Startup is still running; Ctrl+C cancels it."]
+    finally:
+        _close_test_screen(screen)
+
+
+def test_project_name_persistence_failure_restores_launch_state() -> None:
+    exit_codes: list[int] = []
+    original_banner = object()
+
+    class Starter:
+        banner = original_banner
+
+        def __init__(self) -> None:
+            self.persist_calls: list[str] = []
+
+        def _persist_project_name(self, project_name: str) -> bool:
+            self.persist_calls.append(project_name)
+            return False
+
+    starter = Starter()
+    screen = WizardScreen(
+        steps=[],
+        services=[],
+        starter=starter,
+        prefilled_stack_options={"project_name": "atlas-test"},
+        on_launch_result=exit_codes.append,
+    )
+    screen._phase = "launch"
+
+    try:
+        asyncio.run(screen._run_pipeline_and_stream())
+
+        assert starter.persist_calls == ["atlas-test"]
+        assert starter.banner is original_banner
+        assert exit_codes == [1]
+        assert screen._launch_detach_ready is True
+        assert screen._launch_succeeded is False
     finally:
         _close_test_screen(screen)

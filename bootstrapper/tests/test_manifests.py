@@ -1113,11 +1113,12 @@ def test_comfyui_ingress_contract_matches_compose_and_kong_boundaries():
             "tei-reranker",
             "Arbitrary reranker model portability",
             "partial",
-            "documented",
+            "tested",
             (
-                "TEI_RERANKER_REVISION defaults to mutable main",
-                "pin a model commit for reproducible artifacts",
-                "future main contents",
+                "default model revision is pinned",
+                "800f24c113213a187e65bde9db00c15a2bb12738",
+                "reproducible ONNX amd64 and safetensors arm64 artifacts",
+                "Operator model or revision overrides are not pre-certified",
                 "both backends",
                 "memory limits",
             ),
@@ -1323,7 +1324,7 @@ def test_supabase_postgres_host_auth_contract_matches_compose():
         host_bind_ip.default,
         (capability.status, capability.verification),
     ) == (
-        ["${HOST_BIND_IP:-}${SUPABASE_DB_PORT}:5432"],
+        ["${HOST_BIND_IP:-127.0.0.1:}${SUPABASE_DB_PORT}:5432"],
         "trust",
         "",
         ("not-supported", "documented"),
@@ -1331,9 +1332,8 @@ def test_supabase_postgres_host_auth_contract_matches_compose():
     _assert_text_contract(capability.note, contains=(
         "host-published SUPABASE_DB_PORT",
         "POSTGRES_HOST_AUTH_METHOD=trust",
-        "HOST_BIND_IP=127.0.0.1:",
-        "firewall SUPABASE_DB_PORT",
-        "remove the supabase-db ports: publish",
+        "loopback by default",
+        "explicit HOST_BIND_IP override",
         "authenticated database policy before remote access",
     ))
 

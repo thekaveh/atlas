@@ -277,6 +277,9 @@ jobs:
       - name: Compiled service runtime lock checks
         run: uv run --project bootstrapper python -m scripts.check_runtime_locks
 
+      - name: Container image inventory + exception-policy check
+        run: uv run --project bootstrapper python -m scripts.container_security
+
       - name: Compiled CI test lock checks
         run: uv run --project bootstrapper python -m scripts.check_test_locks
 

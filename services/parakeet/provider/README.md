@@ -15,15 +15,16 @@ can use them interchangeably.
 | `whisper-cpp-localhost` | whisper.cpp | MIT | macOS Metal+Core ML (best) / Linux |
 | `disabled` | none | — | — |
 
-The default for fresh installs is **`speaches-container-cpu`** — works on
-every platform with no host install. The first transcription request pulls
-the Faster-Whisper model (~466 MB for distil-large-v3) and caches it under
-the `speaches-cache` volume.
+The default for fresh installs is **`speaches-container-cpu`** — it starts on
+every platform with no host install. The pinned Speaches release does not
+download a missing model on the first transcription request, and Atlas keeps
+`PRELOAD_MODELS` empty until the source-aware preload work in #799 is complete.
+See the STT provider guide before expecting transcription from this default.
 
-For Mac users who care about transcription speed, **`whisper-cpp-localhost`**
-is the fastest option (Metal + Core ML / ANE), followed by
-**`parakeet-localhost`** with parakeet-mlx. The Parakeet path remains the
-SOTA-quality choice for English/European languages.
+For Mac users, both **`whisper-cpp-localhost`** (Metal + Core ML / ANE) and
+**`parakeet-localhost`** (MLX) provide native acceleration. Benchmark the
+chosen model and representative audio on the target host; Atlas does not make
+a hardware-independent speed or quality ranking.
 
 ## 2. Directory layout
 
@@ -32,7 +33,8 @@ services/parakeet/provider/
 ├── mlx/                Apple Silicon MLX server for Parakeet (parakeet-localhost)
 │   ├── api_server.py
 │   ├── README.md
-│   └── requirements.txt
+│   ├── requirements.txt
+│   └── requirements-locked.txt
 ├── gpu/                NVIDIA CUDA container build for Parakeet (parakeet-container-gpu)
 │   ├── Dockerfile
 │   ├── requirements.txt
@@ -55,9 +57,13 @@ Speaches (default — already enabled in `.env.example`):
 
 ```bash
 ./start.sh
-curl -X POST http://localhost:63042/v1/audio/transcriptions \
-  -F file=@sample.wav -F model=whisper-1
+curl http://localhost:63060/health
 ```
+
+This proves the default Speaches container is up. Transcription remains
+unavailable until the `whisper-1` alias target is explicitly installed or
+preloaded; see the warning in the full STT provider guide and tracked issue
+#799. The service does not lazily pull it on the first request.
 
 Parakeet on NVIDIA GPU:
 
@@ -73,9 +79,14 @@ inference readiness even though consumers may start independently.
 Parakeet on macOS MLX:
 
 ```bash
-# Terminal 1 — run from repo root
-pip install -r services/parakeet/provider/mlx/requirements.txt
-cd services/parakeet/provider && python -m uvicorn mlx.api_server:app --host 0.0.0.0 --port 63042
+# Terminal 1 — run from repo root with the lock's certified interpreter
+python3.12 -m venv .venv-parakeet-mlx
+. .venv-parakeet-mlx/bin/activate
+python -m pip install -r services/parakeet/provider/mlx/requirements-locked.txt
+export PARAKEET_API_TOKEN='<same random value configured in repo-root .env>'
+export PARAKEET_LOCALHOST_BIND_HOST=0.0.0.0
+export PARAKEET_LOCALHOST_PORT=63042
+cd services/parakeet/provider && python -m mlx.api_server
 
 # Terminal 2
 ./start.sh --stt-provider-source parakeet-localhost
@@ -115,15 +126,12 @@ Disable STT entirely:
 ./start.sh --stt-provider-source disabled
 ```
 
-## 4. Performance reference
+## 4. Performance evaluation
 
-| Backend + hardware | Realtime factor (lower is faster) |
-|---|---|
-| Speaches CPU (Faster-Whisper distil-large-v3) on M2 Pro | ~0.3× |
-| Speaches GPU (CUDA, large-v3) on RTX 4090 | ~0.05× |
-| whisper.cpp Metal+CoreML (large-v3) on M2 Pro | ~0.1× |
-| Parakeet-MLX (v3) on M2 Ultra | ~0.003× (300× realtime) |
-| Parakeet CUDA (v3) on A100 | ~0.0003× (3380× realtime) |
+Throughput and word-error rate depend on the exact checkpoint, audio corpus,
+codec, duration, timestamps, hardware, and thermal state. Benchmark
+representative inputs on the deployment host and record real-time factor,
+word-error rate, and peak resident/GPU memory before capacity planning.
 
 ## 5. How Open WebUI is wired
 
@@ -132,6 +140,7 @@ the chosen source:
 
 - `AUDIO_STT_ENGINE=openai`
 - `AUDIO_STT_OPENAI_API_BASE_URL=${STT_ENDPOINT}/v1`
+- `AUDIO_STT_OPENAI_API_KEY=${OPEN_WEB_UI_STT_API_KEY}` (source-aware bearer token)
 - `AUDIO_STT_MODEL=whisper-1` (the OpenAI-compatible model name all engines accept)
 
 You can change the model name in the Open WebUI admin panel — Audio settings.

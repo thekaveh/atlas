@@ -218,9 +218,7 @@ def test_local_deep_researcher_aiohttp_security_floor_is_exported() -> None:
 
 def test_all_unlocked_runtime_graphs_are_resolved_before_audit() -> None:
     paths = {spec.requirements for spec in audit_runtime_locks.SOURCE_SPECS}
-    assert paths == {
-        "services/parakeet/provider/mlx/requirements.txt",
-    }
+    assert paths == set()
     assert audit_runtime_locks.UV_PROJECTS == (
         "bootstrapper",
         "services/docling/provider/localhost",
@@ -231,12 +229,27 @@ def test_all_unlocked_runtime_graphs_are_resolved_before_audit() -> None:
     )
 
 
+def test_bootstrapper_and_parakeet_mlx_runtime_locks_are_drift_checked() -> None:
+    assert any(
+        spec.project == "bootstrapper"
+        and spec.lock == "bootstrapper/requirements-locked.txt"
+        for spec in check_runtime_locks.UV_RUNTIME_LOCKS
+    )
+    assert any(
+        spec.requirements == "services/parakeet/provider/mlx/requirements.txt"
+        and spec.lock
+        == "services/parakeet/provider/mlx/requirements-locked.txt"
+        and spec.platforms == ("aarch64-apple-darwin",)
+        for spec in check_runtime_locks.RUNTIME_LOCKS
+    )
+
+
 def test_every_networked_lock_and_audit_subprocess_has_a_deadline() -> None:
     audit_source = Path(audit_runtime_locks.__file__).read_text(encoding="utf-8")
     check_source = Path(check_runtime_locks.__file__).read_text(encoding="utf-8")
     test_check_source = Path(check_test_locks.__file__).read_text(encoding="utf-8")
     assert audit_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 4
-    assert check_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 1
+    assert check_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 2
     assert test_check_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 1
     assert audit_runtime_locks.COMMAND_TIMEOUT_SECONDS == 300
     assert check_runtime_locks.COMMAND_TIMEOUT_SECONDS == 300

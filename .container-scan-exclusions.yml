@@ -1,0 +1,13 @@
+builds:
+  - target: "services/docling/provider|gpu/Dockerfile"
+    reason: "CUDA build exceeds the hosted CPU runner profile; its pinned base image is still scanned in the manifest matrix."
+    expired_at: 2026-09-15
+  - target: "services/parakeet/provider|gpu/Dockerfile"
+    reason: "CUDA build exceeds the hosted CPU runner profile; its pinned base image is still scanned in the manifest matrix."
+    expired_at: 2026-09-15
+  - target: "https://github.com/neo4j-labs/llm-graph-builder.git#${LLM_GRAPH_BUILDER_REF}:backend|Dockerfile"
+    reason: "Remote-context final-image scanning needs a separately pinned source archive; the manifest base and upstream ref remain drift-watched."
+    expired_at: 2026-09-15
+  - target: "https://github.com/neo4j-labs/llm-graph-builder.git#${LLM_GRAPH_BUILDER_REF}:frontend|Dockerfile"
+    reason: "Remote-context final-image scanning needs a separately pinned source archive; the manifest base and upstream ref remain drift-watched."
+    expired_at: 2026-09-15

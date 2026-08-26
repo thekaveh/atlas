@@ -75,6 +75,13 @@ _pools: dict[str, asyncpg.Pool] = {}
 _pools_lock = asyncio.Lock()
 
 
+def _terminate_pool(pool: asyncpg.Pool) -> None:
+    try:
+        pool.terminate()
+    except Exception:
+        logger.exception("Postgres pool termination failed")
+
+
 async def get_pg_pool(
     database_url: str,
     *,
@@ -123,15 +130,21 @@ async def acquire_conn(database_url: str, **pool_kwargs):
 async def close_pg_pools() -> None:
     """Dispose all cached pools (FastAPI lifespan shutdown)."""
     async with _pools_lock:
-        for pool in _pools.values():
-            try:
-                await asyncio.wait_for(
-                    pool.close(), timeout=_POOL_CLOSE_TIMEOUT_SECONDS
-                )
-            except TimeoutError:
-                logger.warning(
-                    "Postgres pool close exceeded %.1fs; terminating it",
-                    _POOL_CLOSE_TIMEOUT_SECONDS,
-                )
-                pool.terminate()
+        pools = tuple(_pools.values())
+        # Evict before awaiting any loop-bound close. A broken pool must never
+        # survive cleanup and get reused by the next Celery ``asyncio.run``.
         _pools.clear()
+    for pool in pools:
+        try:
+            await asyncio.wait_for(
+                pool.close(), timeout=_POOL_CLOSE_TIMEOUT_SECONDS
+            )
+        except TimeoutError:
+            logger.warning(
+                "Postgres pool close exceeded %.1fs; terminating it",
+                _POOL_CLOSE_TIMEOUT_SECONDS,
+            )
+            _terminate_pool(pool)
+        except Exception:
+            logger.exception("Postgres pool close failed; terminating it")
+            _terminate_pool(pool)

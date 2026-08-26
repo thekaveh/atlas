@@ -58,6 +58,7 @@ class ImageRef:
     default: str
     container: str
     notes: str = ""
+    platform: str = ""
 
 
 @dataclass(frozen=True)

@@ -29,8 +29,8 @@ capabilities:
     note: "The LiteLLM route requires its master key, but TEI's host-published port and CORS-only rerank.localhost alias expose the unauthenticated native API."
   - name: "Arbitrary reranker model portability"
     status: partial
-    verification: documented
-    note: "The default model is selected for ONNX amd64 and safetensors arm64 compatibility, but TEI_RERANKER_REVISION defaults to mutable main; pin a model commit for reproducible artifacts. Operator overrides and future main contents are not pre-certified for both backends or their memory limits."
+    verification: tested
+    note: "The default model revision is pinned to the tested 800f24c113213a187e65bde9db00c15a2bb12738 commit for reproducible ONNX amd64 and safetensors arm64 artifacts. Operator model or revision overrides are not pre-certified for both backends or their memory limits."
 
 containers:
   - tei-reranker
@@ -43,6 +43,7 @@ images:
   - var: TEI_RERANKER_CPU_ARM64_IMAGE
     default: "ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-latest@sha256:35c50d7494de22deecdb783b8f5b7e1d05765709bd90071b03469b9440d28656"
     container: tei-reranker
+    platform: "linux/arm64"
     notes: "Used when TEI_RERANKER_SOURCE=container-cpu on arm64 hosts (Apple Silicon). Compiled with candle backend (loads safetensors natively, no ONNX required). Unversioned tag — HF doesn't publish versioned arm64 tags as of 2026-06-06."
   - var: TEI_RERANKER_GPU_IMAGE
     default: "ghcr.io/huggingface/text-embeddings-inference:1.9@sha256:536efce2a0dc0acd0336d683ef1b81fcf900f76c8fb850e25a6d48a54a97df91"
@@ -75,7 +76,7 @@ env:
   - name: TEI_RERANKER_MODEL_ID
     default: "mixedbread-ai/mxbai-rerank-base-v1"
   - name: TEI_RERANKER_REVISION
-    default: "main"
+    default: "800f24c113213a187e65bde9db00c15a2bb12738"
   - name: TEI_RERANKER_MAX_CLIENT_BATCH_SIZE
     default: 32
   - name: TEI_RERANKER_MEMORY_LIMIT

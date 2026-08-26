@@ -39,7 +39,7 @@ capabilities:
   - name: "Authenticated remote PostgreSQL access"
     status: not-supported
     verification: documented
-    note: "The host-published SUPABASE_DB_PORT uses POSTGRES_HOST_AUTH_METHOD=trust; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_DB_PORT, or remove the supabase-db ports: publish, and configure an authenticated database policy before remote access."
+    note: "The host-published SUPABASE_DB_PORT uses POSTGRES_HOST_AUTH_METHOD=trust and is loopback by default; any explicit HOST_BIND_IP override that exposes it remotely requires an authenticated database policy before remote access."
 
 containers:
   - supabase-db

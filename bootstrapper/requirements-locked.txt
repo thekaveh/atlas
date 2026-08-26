@@ -1,0 +1,26 @@
+attrs==26.1.0
+certifi==2025.8.3
+charset-normalizer==3.4.3
+click==8.4.2
+colorama==0.4.6 ; sys_platform == 'win32'
+idna==3.18
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+linkify-it-py==2.0.3
+markdown-it-py==3.0.0
+mdit-py-plugins==0.4.2
+mdurl==0.1.2
+pillow==12.3.0
+platformdirs==4.4.0
+pygments==2.20.0
+pyyaml==6.0.2
+referencing==0.37.0
+requests==2.34.2
+rich==15.0.0
+rpds-py==0.30.0
+textual==8.2.8
+textual-image==0.12.0
+tomli==2.4.1 ; python_full_version < '3.11'
+typing-extensions==4.15.0
+uc-micro-py==1.0.3
+urllib3==2.7.0

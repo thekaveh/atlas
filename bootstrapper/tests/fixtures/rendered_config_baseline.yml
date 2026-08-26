@@ -4053,6 +4053,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 5432
       published: '63012'
       protocol: tcp
@@ -4329,7 +4330,7 @@ services:
   tei-reranker:
     command:
     - --model-id=mixedbread-ai/mxbai-rerank-base-v1
-    - --revision=main
+    - --revision=800f24c113213a187e65bde9db00c15a2bb12738
     - --max-client-batch-size=32
     - --port=80
     container_name: atlas-tei-reranker
