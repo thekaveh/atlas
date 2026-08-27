@@ -505,7 +505,7 @@ def test_jupyter_julia_runtime_uses_a_pinned_clean_environment() -> None:
         "4e7e9e776634d24835250de67cde39b0d4af15bc432eb20697e6be6c28ea69e8",
         "COPY julia/Project.toml julia/Manifest.toml",
         "/opt/julia/environments/v1.12/",
-        "Pkg.instantiate()",
+        "Pkg.instantiate(; allow_autoprecomp=false)",
         "JUPYTER_DATA_DIR=/opt/conda/share/jupyter",
         "chown -R ${NB_UID}:${NB_GID} /opt/julia",
         "find /opt/julia -name Manifest.toml",
@@ -513,6 +513,7 @@ def test_jupyter_julia_runtime_uses_a_pinned_clean_environment() -> None:
 
     assert all(path.is_file() for path in lockfiles)
     assert all(fragment in dockerfile for fragment in expected_fragments)
+    assert "Pkg.precompile()" not in dockerfile
 
 
 def test_container_security_workflow_pins_scanner_and_failure_policy() -> None:

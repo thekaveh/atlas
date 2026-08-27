@@ -131,9 +131,13 @@ RUN cs launch --fork almond:${ALMOND_VERSION} --scala ${ALMOND_SCALA_2_VERSION} 
 # bundled tests/docs and otherwise produce duplicate, non-runtime findings.
 USER root
 COPY julia/Project.toml julia/Manifest.toml /opt/julia/environments/v1.12/
+# Instantiation materialises the exact packages and artifacts. Disable bulk
+# auto-precompilation here: it is redundant for image correctness and can take
+# hours under the arm64/QEMU leg of required build validation. Loading IJulia
+# below still validates and compiles the kernel's actual dependency path.
 RUN JUPYTER_DATA_DIR=/opt/conda/share/jupyter \
     julia --project=/opt/julia/environments/v1.12 --startup-file=no -e \
-      'using Pkg; Pkg.instantiate(); Pkg.precompile(); using IJulia; IJulia.installkernel("Julia 1.12")' \
+      'using Pkg; Pkg.instantiate(; allow_autoprecomp=false); using IJulia; IJulia.installkernel("Julia 1.12")' \
  && rm -rf /opt/conda/share/jupyter/kernels/julia-1.11 \
  && find /opt/julia -name Manifest.toml \
       ! -path /opt/julia/environments/v1.12/Manifest.toml -delete \
