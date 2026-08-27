@@ -422,6 +422,15 @@ def test_required_final_image_scan_blocks_only_fixable_findings() -> None:
     assert "--ignore-unfixed" in final_scan
 
 
+def test_required_image_validation_reclaims_ephemeral_runner_storage() -> None:
+    services_lint, _ = _workflow_sources()
+
+    assert 'docker image rm "$image_tag"' in services_lint
+    assert "docker buildx prune --force" in services_lint
+    final_scan = services_lint.split("- name: Scan built final runtime images", 1)[1]
+    assert 'docker image rm "$image_ref"' in final_scan
+
+
 def test_backend_runtime_excludes_ci_artifacts_and_build_installer() -> None:
     dockerignore = (ROOT / "services/backend/app/.dockerignore").read_text(
         encoding="utf-8"

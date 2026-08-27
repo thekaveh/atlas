@@ -415,10 +415,15 @@ jobs:
               fi
               if [ "$scan_image" = true ]; then
                 printf '%s\n' "$image_tag" >> "$scan_image_list"
+              else
+                docker image rm "$image_tag"
               fi
             done
             image_index=$((image_index + 1))
           done
+          # The GitHub runner has limited disk. Loaded scan targets remain in
+          # Docker; the duplicate BuildKit cache is no longer needed.
+          docker buildx prune --force
 
       - name: Scan built final runtime images
         run: |
@@ -434,4 +439,5 @@ jobs:
               --no-progress \
               --timeout 10m \
               "$image_ref"
+            docker image rm "$image_ref"
           done < "${RUNNER_TEMP}/atlas-ci-scan-images.txt"
