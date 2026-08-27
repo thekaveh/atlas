@@ -650,6 +650,7 @@ def test_every_required_services_lint_job_has_a_deadline() -> None:
     for job in ("lint", "compose-equivalence", "audit-scripts", "build-validation"):
         assert workflow["jobs"][job]["timeout-minutes"] > 0, job
         assert workflow["jobs"][job]["runs-on"] == "ubuntu-24.04", job
+    assert workflow["jobs"]["build-validation"]["timeout-minutes"] == 360
 
 
 def test_every_docs_publication_job_has_a_deadline() -> None:
