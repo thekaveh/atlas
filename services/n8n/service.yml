@@ -41,10 +41,10 @@ containers:
 
 images:
   - var: N8N_IMAGE
-    default: "n8nio/n8n:2.36.7"
+    default: "n8nio/n8n:2.28.2"
     container: n8n
   - var: N8N_INIT_IMAGE
-    default: "n8nio/n8n:2.36.7"
+    default: "n8nio/n8n:2.28.2"
     container: n8n-init
 
 sources:
@@ -79,7 +79,7 @@ env:
     default: container
   - name: N8N_INIT_NODES
     default: "n8n-nodes-comfyui@0.0.9,@ksc1234/n8n-nodes-comfyui-image-to-image@1.0.2"
-    description: "Exact community package specs installed before n8n starts. Atlas' default ComfyUI set uses the committed package-lock; n8n 2.36.7 already supplies first-party MCP nodes. Custom values must use name@x.y.z for every comma-separated package."
+    description: "Exact community package specs installed before n8n starts. Atlas' default ComfyUI set uses the committed package-lock; n8n 2.28.2 already supplies first-party MCP nodes. Custom values must use name@x.y.z for every comma-separated package."
   - name: N8N_SEED_HTTP_TIMEOUT_MS
     default: 10000
     description: "Absolute deadline in milliseconds for each consumer workflow seeder HTTP operation; must be positive."

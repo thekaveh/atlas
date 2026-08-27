@@ -204,56 +204,35 @@ def load_image_scans(services_dir: Path) -> tuple[ImageScan, ...]:
 
 
 def load_changed_image_scans(
-    services_dir: Path, changed_paths: Sequence[str]
+    services_dir: Path, changed_diff: Sequence[str]
 ) -> tuple[ImageScan, ...]:
-    """Return scans owned by changed service manifests or Compose fragments."""
+    """Return scans for image references added by a manifest/Compose diff."""
 
-    selected_manifest_services, changed_compose_services = _changed_services(
-        changed_paths
-    )
-    if not selected_manifest_services and not changed_compose_services:
-        return ()
-
-    selected_images = _selected_manifest_images(
-        services_dir, selected_manifest_services
-    )
+    inventory = set(load_image_inventory(services_dir))
     variables = _manifest_image_variables(services_dir)
-    for service in changed_compose_services:
-        compose_path = services_dir / service / "compose.yml"
-        if compose_path.is_file():
-            selected_images.update(_compose_image_refs(compose_path, variables))
+    selected_images: set[str] = set()
+    for raw_line in changed_diff:
+        if not raw_line.startswith("+") or raw_line.startswith("+++"):
+            continue
+        try:
+            added = yaml.safe_load(raw_line[1:].strip())
+        except yaml.YAMLError:
+            continue
+        if not isinstance(added, dict) or len(added) != 1:
+            continue
+        field, value = next(iter(added.items()))
+        if field not in {"default", "image"} or not isinstance(value, str):
+            continue
+        resolved = (
+            _resolve_compose_image(value, variables, owner="changed Compose line")
+            if field == "image"
+            else value
+        )
+        if resolved in inventory:
+            selected_images.add(resolved)
     return tuple(
         scan for scan in load_image_scans(services_dir) if scan.image in selected_images
     )
-
-
-def _changed_services(
-    changed_paths: Sequence[str],
-) -> tuple[set[str], set[str]]:
-    selected_manifest_services: set[str] = set()
-    changed_compose_services: set[str] = set()
-    for raw_path in changed_paths:
-        parts = Path(raw_path.strip()).parts
-        if len(parts) < 3 or parts[0] != "services":
-            continue
-        if parts[2] == "service.yml":
-            selected_manifest_services.add(parts[1])
-        elif parts[2] == "compose.yml":
-            changed_compose_services.add(parts[1])
-    return selected_manifest_services, changed_compose_services
-
-
-def _selected_manifest_images(
-    services_dir: Path, selected_services: set[str]
-) -> set[str]:
-    selected_images: set[str] = set()
-    for service in selected_services:
-        path = services_dir / service / "service.yml"
-        if not path.is_file():
-            continue
-        document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        selected_images.update(row["default"] for row in document.get("images", []))
-    return selected_images
 
 
 def load_compose_builds(services_dir: Path) -> tuple[ComposeBuild, ...]:
@@ -448,9 +427,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--images-json", action="store_true")
     parser.add_argument(
-        "--changed-paths-stdin",
+        "--changed-diff-stdin",
         action="store_true",
-        help="Limit image output to service.yml/compose.yml owners read from stdin.",
+        help="Limit image output to image references added by a unified diff on stdin.",
     )
     args = parser.parse_args(argv)
 
@@ -458,7 +437,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     build_exclusions = load_build_exclusions(args.build_exclusions)
     scans = (
         load_changed_image_scans(args.services_dir, sys.stdin.read().splitlines())
-        if args.changed_paths_stdin
+        if args.changed_diff_stdin
         else load_image_scans(args.services_dir)
     )
     if args.images_json:

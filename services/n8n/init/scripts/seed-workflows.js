@@ -220,8 +220,8 @@ async function main() {
         // No API key: n8n CE can't activate over the public API. Persist
         // active=true via the CLI (publish:workflow) — n8n's production webhook
         // is only registered when the SERVER (re)starts (empirically verified on
-        // n8nio/n8n:2.28.2; 2.36.7 retains the publish:workflow --id CLI), so
-        // Atlas restarts n8n once after
+        // n8nio/n8n:2.28.2: publish sets active=true in the DB but the running
+        // server ignores it until restart), so Atlas restarts n8n once after
         // seeding (_reactivate_n8n_if_needed) to register it with no consumer action.
         const pub = runCommand('n8n', ['publish:workflow', '--id=' + wf.seed_id]);
         if (pub.status === 0) {

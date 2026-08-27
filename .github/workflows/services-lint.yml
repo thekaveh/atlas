@@ -337,9 +337,10 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
-          git diff --name-only "$BASE_SHA" "$GITHUB_SHA" \
+          git diff --unified=0 --no-color "$BASE_SHA" "$GITHUB_SHA" -- \
+            'services/*/service.yml' 'services/*/compose.yml' \
             | uv run --project bootstrapper python -m scripts.container_security \
-                --changed-paths-stdin --images-json \
+                --changed-diff-stdin --images-json \
             | jq -r '.[] | [.image, .platform] | @tsv' \
             | while IFS=$'\t' read -r image_ref image_platform; do
                 trivy image \

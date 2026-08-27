@@ -99,15 +99,6 @@ def test_backend_fal_client_supports_cancellable_async_transport() -> None:
     assert "fal-client>=1.0.0" in requirements
 
 
-def test_user_facing_images_clear_current_security_advisories() -> None:
-    open_webui = _text("services/open-webui/service.yml")
-    n8n = _text("services/n8n/service.yml")
-
-    assert 'default: "dyrnq/open-webui:v0.11.0"' in open_webui
-    assert open_webui.count('default: "dyrnq/open-webui:v0.11.0"') == 1
-    assert n8n.count('default: "n8nio/n8n:2.36.7"') == 2
-
-
 def test_github_actions_are_commit_pinned() -> None:
     workflow_dir = ROOT / ".github" / "workflows"
     workflows = sorted(

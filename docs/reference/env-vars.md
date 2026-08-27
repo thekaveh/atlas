@@ -553,7 +553,7 @@
 | N8N_PROTOCOL | n8n | http | - |
 | N8N_EXECUTIONS_MODE | n8n | queue | - |
 | N8N_INIT_SOURCE | n8n | container | - |
-| N8N_INIT_NODES | n8n | n8n-nodes-comfyui@0.0.9,@ksc1234/n8n-nodes-comfyui-image-to-image@1.0.2 | Exact community package specs installed before n8n starts. Atlas' default ComfyUI set uses the committed package-lock; n8n 2.36.7 already supplies first-party MCP nodes. Custom values must use name@x.y.z for every comma-separated package. |
+| N8N_INIT_NODES | n8n | n8n-nodes-comfyui@0.0.9,@ksc1234/n8n-nodes-comfyui-image-to-image@1.0.2 | Exact community package specs installed before n8n starts. Atlas' default ComfyUI set uses the committed package-lock; n8n 2.28.2 already supplies first-party MCP nodes. Custom values must use name@x.y.z for every comma-separated package. |
 | N8N_SEED_HTTP_TIMEOUT_MS | n8n | 10000 | Absolute deadline in milliseconds for each consumer workflow seeder HTTP operation; must be positive. |
 | N8N_SEED_COMMAND_TIMEOUT_MS | n8n | 120000 | Deadline in milliseconds for each consumer workflow n8n CLI operation; must be positive. |
 | N8N_SEED_MAX_RESPONSE_BYTES | n8n | 1048576 | Maximum bytes accepted from one consumer workflow seeder HTTP response; must be positive. |

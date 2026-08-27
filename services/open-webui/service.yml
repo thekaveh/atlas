@@ -40,7 +40,7 @@ containers:
 
 images:
   - var: OPEN_WEB_UI_IMAGE
-    default: "dyrnq/open-webui:v0.11.0"
+    default: "dyrnq/open-webui:v0.6.32"
     container: open-web-ui
   - var: OPEN_WEB_UI_INIT_IMAGE
     # Pinned to the patch version the litellm/init Dockerfile pins, so the

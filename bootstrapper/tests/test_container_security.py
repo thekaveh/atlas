@@ -119,21 +119,28 @@ def test_container_security_preserves_explicit_single_arch_platforms() -> None:
     } == {"linux/amd64"}
 
 
-def test_changed_scan_inventory_is_limited_to_affected_service() -> None:
-    scans = container_security.load_changed_image_scans(
-        ROOT / "services",
-        ["services/redis/service.yml", "docs/index.md"],
-    )
-
-    assert scans
+def test_changed_scan_inventory_includes_only_added_image_references() -> None:
     redis_manifest = yaml.safe_load(
         (ROOT / "services/redis/service.yml").read_text(encoding="utf-8")
     )
-    assert {scan.image for scan in scans} == {
-        row["default"] for row in redis_manifest["images"]
-    }
+    image = redis_manifest["images"][0]["default"]
+    scans = container_security.load_changed_image_scans(
+        ROOT / "services",
+        [
+            "diff --git a/services/redis/service.yml b/services/redis/service.yml",
+            "+    description: metadata-only changes do not select every owned image",
+            f'+    default: "{image}"',
+        ],
+    )
+
+    assert scans
+    assert {scan.image for scan in scans} == {image}
     assert container_security.load_changed_image_scans(
-        ROOT / "services", ["docs/index.md"]
+        ROOT / "services",
+        [
+            "diff --git a/services/redis/service.yml b/services/redis/service.yml",
+            "+    description: metadata-only changes do not select every owned image",
+        ],
     ) == ()
 
 
@@ -160,7 +167,11 @@ def test_changed_compose_scan_includes_cross_service_inventory_image(
     )
 
     scans = container_security.load_changed_image_scans(
-        tmp_path, ["services/consumer/compose.yml"]
+        tmp_path,
+        [
+            "diff --git a/services/consumer/compose.yml b/services/consumer/compose.yml",
+            "+    image: vendor/owner:1.2.3",
+        ],
     )
 
     assert {scan.image for scan in scans} == {"vendor/owner:1.2.3"}
@@ -373,7 +384,7 @@ def test_required_workflow_scans_final_images_with_pinned_trivy() -> None:
         "trivy image",
         "--image-src docker",
         "--image-src remote",
-        "--changed-paths-stdin",
+        "--changed-diff-stdin",
         "--severity HIGH,CRITICAL",
         "--ignorefile .trivyignore.yaml",
         "--exit-code 1",
