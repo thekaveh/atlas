@@ -446,7 +446,7 @@ def _workflow_dockerfiles(source: str) -> set[str]:
         r'^\s+"(services/[^"|]+)\|([^"|]+)\|[^"]*"', re.MULTILINE
     )
     return {
-        str((Path(context) / dockerfile).resolve().relative_to(ROOT))
+        str((ROOT / context / dockerfile).resolve().relative_to(ROOT))
         for context, dockerfile in build_spec.findall(source)
     }
 

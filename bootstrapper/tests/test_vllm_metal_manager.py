@@ -820,6 +820,7 @@ def test_stop_sigint_success(tmp_path, monkeypatch):
         if sig == 0 and not alive["v"]:
             raise ProcessLookupError
 
+    monkeypatch.setattr(mgr, "_pid_alive", lambda pid: True)
     monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: False)
     monkeypatch.setattr(mgr, "_managed_process_alive", lambda pid: alive["v"])
     monkeypatch.setattr(mod.os, "killpg", fake_killpg)
@@ -834,6 +835,7 @@ def test_stop_reaps_exited_leader_during_grace_period(tmp_path, monkeypatch):
     mgr.pid_file.write_text("556")
     state = {"alive": True, "signals": []}
 
+    monkeypatch.setattr(mgr, "_pid_alive", lambda pid: True)
     monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: False)
     monkeypatch.setattr(mgr, "_managed_process_alive", lambda pid: state["alive"])
     monkeypatch.setattr(

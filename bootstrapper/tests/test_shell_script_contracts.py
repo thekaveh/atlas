@@ -59,7 +59,7 @@ def test_n8n_default_community_packages_are_exactly_locked() -> None:
     lock = json.loads((config / "package-lock.json").read_text(encoding="utf-8"))
 
     assert lock["packages"][""]["dependencies"] == package["dependencies"]
-    assert package["dependencies"]["n8n-workflow"] == "2.36.3"
+    assert package["dependencies"]["n8n-workflow"] == "2.28.1"
     for path, metadata in lock["packages"].items():
         if not path or metadata.get("link"):
             continue
