@@ -626,7 +626,11 @@ def _warn_control_flow(exc: BaseException, note: str) -> None:
     if hasattr(exc, "add_note"):
         exc.add_note(note)
     else:  # Python 3.10 compatibility
-        exc.args = (*exc.args, note)
+        notes = getattr(exc, "__notes__", None)
+        if notes is None:
+            notes = []
+            exc.__notes__ = notes
+        notes.append(note)
     print(f"WARNING: {note}", file=sys.stderr, flush=True)
 
 

@@ -194,6 +194,7 @@ def test_failed_interrupt_compensation_retains_evidence_and_warning(
 ):
     manager = _generic_manager(tmp_path)
     fake = type("FakeProcess", (), {"pid": 999_994})()
+    original_args = control_flow.args
     monkeypatch.setattr(ManagedHostManager, "_spawn", lambda self: fake)
     monkeypatch.setattr(
         ManagedHostManager,
@@ -208,6 +209,7 @@ def test_failed_interrupt_compensation_retains_evidence_and_warning(
         manager.start(wait_timeout=1.0)
 
     assert manager.pid_file.read_text(encoding="utf-8").splitlines() == [str(fake.pid)]
+    assert raised.value.args == original_args
     assert any(
         f"terminate pid {fake.pid} manually" in note.lower()
         for note in getattr(raised.value, "__notes__", [])
