@@ -1,4 +1,17 @@
 # Trivy consumes this file directly. Each exception must be package/path scoped,
 # carry a concrete risk statement, and expire; scripts.container_security rejects
 # broad, undocumented, duplicate, or stale entries before a scan can run.
-vulnerabilities: []
+vulnerabilities:
+  - id: CVE-2026-14456
+    purls:
+      - "pkg:apk/alpine/libcrypto3@3.5.7-r0?arch=x86_64&distro=3.24.1"
+      - "pkg:apk/alpine/libcrypto3@3.5.7-r0?arch=aarch64&distro=3.24.1"
+      - "pkg:apk/alpine/libssl3@3.5.7-r0?arch=x86_64&distro=3.24.1"
+      - "pkg:apk/alpine/libssl3@3.5.7-r0?arch=aarch64&distro=3.24.1"
+    expired_at: 2026-09-30
+    statement: >-
+      Alpine has published OpenSSL 3.5.8-r0 but no stable image tag containing
+      it. Atlas uses these Alpine images only for finite init jobs and shell
+      clients; none starts an OpenSSL QUIC listener, so the affected server-only
+      allocation path is unreachable. Remove this exception when a patched
+      stable Alpine image is published.
