@@ -822,6 +822,55 @@ def test_custom_nodes_comfyui_sets_env_overrides_path(tmp_path: Path) -> None:
     assert nodes_paths == [str(manifest.parent / "nodes.yaml")]
 
 
+@pytest.mark.parametrize(
+    "nodes_yaml",
+    (
+        _VALID_CONSUMER_NODE_YAML + "    install_requirements: \"false\"\n",
+        _VALID_CONSUMER_NODE_YAML + "    mps_unsafe: 1\n",
+        _VALID_CONSUMER_NODE_YAML.replace(
+            "    repo: https://github.com/consumer/ComfyUI-ConsumerDemo.git\n",
+            "    repo: https://github.com/consumer/ComfyUI-ConsumerDemo.git\n"
+            "    repo: https://github.com/consumer/other.git\n",
+        ),
+    ),
+)
+def test_consumer_custom_nodes_reject_ambiguous_install_intent(
+    tmp_path: Path, nodes_yaml: str
+) -> None:
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer_with_nodes(
+        tmp_path, "ambiguous-node", nodes_yaml=nodes_yaml
+    )
+
+    with pytest.raises(ConsumerManifestError, match="boolean|duplicate key"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+@pytest.mark.parametrize(
+    "nodes_yaml",
+    ("false\n", "custom_nodes: false\n"),
+)
+def test_consumer_custom_nodes_reject_falsey_container_shapes(
+    tmp_path: Path, nodes_yaml: str
+) -> None:
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    with pytest.raises(ConsumerManifestError, match="top-level mapping|non-list"):
+        load_consumer_config(
+            tmp_path,
+            explicit_paths=[
+                str(
+                    _write_consumer_with_nodes(
+                        tmp_path, "falsey-node-shape", nodes_yaml=nodes_yaml
+                    )
+                )
+            ],
+        )
+
+
 def test_custom_nodes_missing_file_raises(tmp_path: Path) -> None:
     """A ``custom_nodes.comfyui`` path that does not resolve to a real file fails
     loud at load time via _resolve_existing_file (a dropped consumer node file
@@ -1157,6 +1206,10 @@ def test_env_overlay_parser_agrees_with_the_canonical_env_reader(tmp_path: Path)
     "    sources: notamap\n",
     "    env:\n      - FOO=1\n",
     "    sources:\n      - FOO=1\n",
+    "    env: []\n",
+    "    sources: []\n",
+    "    env: false\n",
+    "    sources: 0\n",
 ])
 def test_a_malformed_profile_overrides_block_is_a_manifest_error(tmp_path, shape):
     """It escaped as a raw AttributeError out of `./start.sh`.
@@ -1177,6 +1230,21 @@ def test_a_malformed_profile_overrides_block_is_a_manifest_error(tmp_path, shape
     )
 
     with pytest.raises(ConsumerManifestError, match="malformed|mapping"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+@pytest.mark.parametrize("value", ("[]", "false", "0"))
+def test_falsey_nonmapping_profile_overrides_is_a_manifest_error(tmp_path, value):
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "malformed-top-level")
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8") + f"profile_overrides: {value}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConsumerManifestError, match="profile_overrides must be a mapping"):
         load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
 
 

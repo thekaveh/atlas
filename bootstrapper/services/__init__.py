@@ -11,7 +11,10 @@ import socket
 import subprocess
 import sys
 
-from utils.atomic_write import atomic_write_text
+if __package__ == "bootstrapper.services":
+    from ..utils.atomic_write import atomic_write_text
+else:
+    from utils.atomic_write import atomic_write_text
 
 
 _LIFECYCLE_LOCK_TIMEOUT_SECONDS = 30.0

@@ -658,6 +658,11 @@ def _merge_profile_overrides_block(
         bucket = acc.setdefault(canonical_profile(str(prof_name)), {})
         for field_name, value in fields_raw.items():
             fname = str(field_name)
+            if fname in {"sources", "env"} and not isinstance(value, Mapping):
+                raise ConsumerManifestError(
+                    f"profile_overrides.{prof_name}.{fname} must be a mapping "
+                    f"({origin})"
+                )
             if isinstance(value, Mapping):
                 sub = bucket.setdefault(fname, {})
                 if not isinstance(sub, dict):
@@ -3003,12 +3008,12 @@ def load_consumer_config(
             declared_profile = cprof
             declared_profile_origin = origin
 
-        profile_overrides_block = data.get("profile_overrides") or {}
+        profile_overrides_block = data.get("profile_overrides", {})
+        if not isinstance(profile_overrides_block, Mapping):
+            raise ConsumerManifestError(
+                f"profile_overrides must be a mapping in {manifest_path}"
+            )
         if profile_overrides_block:
-            if not isinstance(profile_overrides_block, Mapping):
-                raise ConsumerManifestError(
-                    f"profile_overrides must be a mapping in {manifest_path}"
-                )
             from services.profiles import (
                 ProfileConfigError,
                 load_profile_bundles,
@@ -3023,17 +3028,6 @@ def load_consumer_config(
                     {str(k): v for k, v in profile_overrides_block.items()},
                     origin=origin,
                 )
-            except (AttributeError, TypeError) as exc:
-                # `_parse_bundle` does `(raw.get("env") or {}).items()` with no
-                # type check, so `env: notamap` or `sources: [FOO=1]` escapes
-                # as a bare AttributeError. This call exists precisely so a
-                # typo fails at manifest load rather than at profile-apply
-                # time — an unhandled traceback out of `./start.sh` is not
-                # that. `load_consumer_config` is unguarded at its call site.
-                raise ConsumerManifestError(
-                    f"profile_overrides in {origin} is malformed: each profile "
-                    f"must map 'env' and 'sources' to mappings ({exc})"
-                ) from exc
             except ProfileConfigError as exc:
                 raise ConsumerManifestError(str(exc)) from exc
             _merge_profile_overrides_block(
@@ -3113,13 +3107,13 @@ def load_consumer_config(
                 if model:
                     record_ollama.append(model)
 
-        custom_nodes_block = data.get("custom_nodes") or {}
+        custom_nodes_block = data.get("custom_nodes", {})
         record_custom_node_files: list[Path] = []
+        if not isinstance(custom_nodes_block, Mapping):
+            raise ConsumerManifestError(
+                f"custom_nodes must be a mapping in {manifest_path}"
+            )
         if custom_nodes_block:
-            if not isinstance(custom_nodes_block, Mapping):
-                raise ConsumerManifestError(
-                    f"custom_nodes must be a mapping in {manifest_path}"
-                )
             for raw_node_file in _as_list(custom_nodes_block.get("comfyui")):
                 node_file = _resolve_existing_file(
                     base_dir,
@@ -3133,7 +3127,13 @@ def load_consumer_config(
                 # non-GitHub repo, unsafe name) fails loud here rather than
                 # surfacing as a missing workflow node at runtime — the same
                 # fail-loud discipline as every other consumer block.
-                for node in parse_custom_nodes_strict(node_file):
+                try:
+                    parsed_nodes = parse_custom_nodes_strict(node_file)
+                except (ValueError, yaml.YAMLError) as exc:
+                    raise ConsumerManifestError(
+                        f"custom_nodes.comfyui file {node_file} is invalid: {exc}"
+                    ) from exc
+                for node in parsed_nodes:
                     all_custom_nodes.append((consumer_name, node))
 
         record_storage = _parse_storage_block(data, consumer_name, manifest_path)

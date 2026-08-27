@@ -82,8 +82,13 @@ def _parse_bundle(name: str, raw: object, *, origin: str) -> ProfileBundle:
             )
         host_bind_ip = value
 
+    sources_raw = raw.get("sources", {})
+    if not isinstance(sources_raw, dict):
+        raise ProfileConfigError(
+            f"{origin}: profile '{name}' sources must be a mapping"
+        )
     sources: dict[str, str] = {}
-    for svc, sid in (raw.get("sources") or {}).items():
+    for svc, sid in sources_raw.items():
         svc_s, sid_s = str(svc), str(sid)
         if not _SERVICE_NAME_RE.match(svc_s):
             raise ProfileConfigError(
@@ -97,8 +102,13 @@ def _parse_bundle(name: str, raw: object, *, origin: str) -> ProfileBundle:
             )
         sources[svc_s] = sid_s
 
+    env_raw = raw.get("env", {})
+    if not isinstance(env_raw, dict):
+        raise ProfileConfigError(
+            f"{origin}: profile '{name}' env must be a mapping"
+        )
     env: dict[str, str] = {}
-    for var, value in (raw.get("env") or {}).items():
+    for var, value in env_raw.items():
         var_s = str(var)
         if not _ENV_VAR_RE.match(var_s):
             raise ProfileConfigError(

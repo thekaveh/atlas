@@ -131,6 +131,14 @@ def test_malformed_yaml_raises(tmp_path):
     assert exc.value.plugin == "plug"
 
 
+def test_non_utf8_manifest_is_a_plugin_scoped_error(tmp_path):
+    plugin = _write(tmp_path, TABLEAU_YML)
+    (plugin / "plugin.yml").write_bytes(b"\xff")
+
+    with pytest.raises(PluginManifestError, match="could not parse YAML"):
+        load_manifest(plugin)
+
+
 def test_wrong_version_raises(tmp_path):
     with pytest.raises(PluginManifestError) as exc:
         load_manifest(_write(tmp_path, "plugin_manifest_version: 2\nname: x\nroute_prefix: /x\n"))
@@ -140,6 +148,56 @@ def test_wrong_version_raises(tmp_path):
 def test_unknown_field_raises(tmp_path):
     body = "plugin_manifest_version: 1\nname: x\nroute_prefix: /x\nbogus: 1\n"
     with pytest.raises(PluginManifestError):
+        load_manifest(_write(tmp_path, body))
+
+
+@pytest.mark.parametrize(
+    "duplicate",
+    (
+        "auth: key-auth\nauth: open\n",
+        "route_prefix: /first\nroute_prefix: /second\n",
+        "env:\n  - name: TOKEN\n    required: true\n    required: false\n",
+    ),
+)
+def test_duplicate_plugin_policy_fields_are_rejected(tmp_path, duplicate):
+    body = "plugin_manifest_version: 1\nname: strict\n"
+    if "route_prefix:" not in duplicate:
+        body += "route_prefix: /strict\n"
+    body += duplicate
+
+    with pytest.raises(PluginManifestError, match="duplicate key"):
+        load_manifest(_write(tmp_path, body))
+
+
+def test_plugin_manifest_allows_explicit_yaml_merge_override(tmp_path):
+    body = (
+        "plugin_manifest_version: 1\nname: strict\nroute_prefix: /strict\n"
+        "<<: &defaults {auth: inherit}\nauth: key-auth\n"
+    )
+
+    assert load_manifest(_write(tmp_path, body)).auth == "key-auth"
+
+
+def test_plugin_manifest_allows_merge_sequence_with_explicit_override(tmp_path):
+    body = (
+        "plugin_manifest_version: 1\nname: strict\nroute_prefix: /strict\n"
+        "<<: [{auth: inherit}, {docs_url: https://example.test/docs}]\n"
+        "auth: key-auth\n"
+    )
+
+    manifest = load_manifest(_write(tmp_path, body))
+
+    assert manifest.auth == "key-auth"
+    assert manifest.docs_url == "https://example.test/docs"
+
+
+def test_plugin_manifest_rejects_duplicate_inside_merge_sequence(tmp_path):
+    body = (
+        "plugin_manifest_version: 1\nname: strict\nroute_prefix: /strict\n"
+        "<<: [{auth: inherit, auth: open}]\n"
+    )
+
+    with pytest.raises(PluginManifestError, match="duplicate key"):
         load_manifest(_write(tmp_path, body))
 
 

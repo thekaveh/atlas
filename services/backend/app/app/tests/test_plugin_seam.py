@@ -426,6 +426,37 @@ def test_malformed_manifest_skips_only_that_plugin(tmp_path, monkeypatch, caplog
     assert "invalid plugin.yml" in caplog.text
 
 
+def test_non_utf8_manifest_skips_only_that_plugin(tmp_path, monkeypatch, caplog):
+    _plugin_pkg(
+        tmp_path,
+        "good_plugin",
+        "/good/ping",
+        "plugin_manifest_version: 1\nname: good\nroute_prefix: /good\n",
+    )
+    broken = _plugin_pkg(
+        tmp_path,
+        "broken_plugin",
+        "/__broken__",
+        "plugin_manifest_version: 1\nname: broken\nroute_prefix: /broken\n",
+    )
+    (broken / "plugin.yml").write_bytes(b"\xff")
+
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+    caplog.set_level(logging.ERROR, logger="uvicorn.error")
+    import plugin_seam
+
+    inventory = plugin_seam.load_plugins(app)
+
+    assert "/good/ping" in {route.path for route in app.router.routes}
+    assert "/__broken__" not in {route.path for route in app.router.routes}
+    assert {entry["name"]: entry["status"] for entry in inventory}["good"] == "loaded"
+    assert any(entry["name"] == "broken_plugin" and entry["status"] == "error" for entry in inventory)
+    assert "invalid plugin.yml" in caplog.text
+
+
 def test_duplicate_plugin_name_second_is_skipped(tmp_path, monkeypatch):
     _plugin_pkg(tmp_path, "a_plugin", "/alpha/ping",
                 "plugin_manifest_version: 1\nname: dup\nroute_prefix: /alpha\n")

@@ -62,7 +62,7 @@
       {
         "path": "bootstrapper/core/consumer_manifest.py",
         "symbol": "load_consumer_config",
-        "cyclomatic_complexity": 75,
+        "cyclomatic_complexity": 73,
         "rationale": "Fail-closed parser for the versioned consumer manifest; each branch emits a distinct validation failure and the contract suite exercises those outcomes."
       },
       {
@@ -202,7 +202,7 @@
       {
         "path": "bootstrapper/core/consumer_manifest.py",
         "symbol": "load_consumer_config",
-        "cyclomatic_complexity": 75,
+        "cyclomatic_complexity": 73,
         "rationale": "Fail-closed parser and validator for a versioned external manifest. Its branches correspond to distinct validation errors and are covered by schema and consumer-contract tests."
       },
       {

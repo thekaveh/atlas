@@ -24,15 +24,80 @@ testable; validation uses Pydantic v2 (already a backend dependency).
 from __future__ import annotations
 
 import re
+from collections.abc import Hashable
 from pathlib import Path
 from typing import Any, Optional
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from yaml.nodes import MappingNode, SequenceNode
 
 PLUGIN_MANIFEST_FILENAME = "plugin.yml"
 SUPPORTED_MANIFEST_VERSION = 1
 SECRET_MASK = "***"
+
+
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """Safe loader rejecting duplicate keys while retaining YAML merges."""
+
+
+def _merged_mapping_nodes(node):
+    if isinstance(node, MappingNode):
+        return (node,)
+    if isinstance(node, SequenceNode):
+        return tuple(item for item in node.value if isinstance(item, MappingNode))
+    return ()
+
+
+def _validate_unique_mapping_keys(loader, node, deep=False, seen=None):
+    if seen is None:
+        seen = set()
+    if id(node) in seen:
+        return
+    seen.add(id(node))
+    explicit_keys = set()
+    merge_seen = False
+    for key_node, value_node in node.value:
+        if key_node.tag == "tag:yaml.org,2002:merge":
+            if merge_seen:
+                raise yaml.constructor.ConstructorError(
+                    "while constructing a mapping", node.start_mark,
+                    "found duplicate key '<<'", key_node.start_mark,
+                )
+            merge_seen = True
+            for merge_node in _merged_mapping_nodes(value_node):
+                _validate_unique_mapping_keys(loader, merge_node, deep, seen)
+            continue
+        key = loader.construct_object(key_node, deep=deep)
+        if not isinstance(key, Hashable):
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping", node.start_mark,
+                "found unhashable key", key_node.start_mark,
+            )
+        if key in explicit_keys:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping", node.start_mark,
+                f"found duplicate key {key!r}", key_node.start_mark,
+            )
+        explicit_keys.add(key)
+
+
+def _construct_unique_mapping(loader, node, deep=False):
+    _validate_unique_mapping_keys(loader, node, deep)
+    loader.flatten_mapping(node)
+    return yaml.constructor.BaseConstructor.construct_mapping(
+        loader, node, deep=deep
+    )
+
+
+_UniqueKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_unique_mapping,
+)
+
+
+def _load_yaml_strict(text: str) -> Any:
+    return yaml.load(text, Loader=_UniqueKeyLoader)
 
 # Shared path grammar — MUST stay identical to bootstrapper/schemas/plugin.schema.json's
 # route_prefix/health_path pattern so the container-time (Pydantic) and host-time
@@ -240,8 +305,8 @@ def load_manifest(plugin_dir: Path) -> Optional[PluginManifest]:
         return None
     plugin_hint = plugin_dir.name
     try:
-        raw = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as exc:
+        raw = _load_yaml_strict(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, yaml.YAMLError) as exc:
         raise PluginManifestError(plugin_hint, f"could not parse YAML ({exc})") from exc
     if raw is None:
         raise PluginManifestError(plugin_hint, "manifest is empty")

@@ -66,6 +66,21 @@ def test_loader_rejects_unknown_profile_and_field(tmp_path):
         load_profile_bundles(bad_field)
 
 
+@pytest.mark.parametrize("field", ("sources", "env"))
+@pytest.mark.parametrize("value", ("[]", "[one]", "0", "false", "not-a-map"))
+def test_loader_requires_profile_map_fields_to_be_mappings(
+    tmp_path, field, value
+):
+    path = tmp_path / "profiles.yml"
+    path.write_text(
+        f"profiles:\n  default:\n    {field}: {value}\n  prod: {{}}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProfileConfigError, match=rf"{field} must be a mapping"):
+        load_profile_bundles(path)
+
+
 def test_missing_profiles_file_yields_empty_bundles(tmp_path):
     bundles = load_profile_bundles(tmp_path / "absent.yml")
     assert set(bundles) == set(CANONICAL_PROFILES)
