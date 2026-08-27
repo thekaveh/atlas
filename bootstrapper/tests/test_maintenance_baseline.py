@@ -20,7 +20,7 @@ EXPECTED_BASELINE_SNAPSHOT = {
     "functions_over_100_physical_lines": 70,
     "functions_over_4_parameters": 138,
     "modules_over_600_logical_lines": 16,
-    "tracked_files": 1472,
+    "tracked_files": 1473,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {
