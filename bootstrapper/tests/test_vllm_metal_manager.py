@@ -19,6 +19,9 @@ import json
 import platform
 import subprocess
 import tarfile
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from types import SimpleNamespace
@@ -1076,6 +1079,43 @@ def test_remove_stops_and_deletes_state(tmp_path, monkeypatch):
     monkeypatch.setattr(mgr, "_stop_locked", lambda: True)
     mgr.remove()
     assert not mgr.state_dir.exists()
+
+
+def test_stop_on_absent_state_does_not_create_service_directory(tmp_path):
+    mgr = _mgr(tmp_path)
+
+    assert mgr.stop() is False
+    assert not mgr.state_dir.exists()
+
+
+def test_stop_waiting_for_remove_does_not_recreate_deleted_state(
+    tmp_path, monkeypatch
+):
+    remover = _mgr(tmp_path)
+    stopper = _mgr(tmp_path)
+    remover.state_dir.mkdir(parents=True)
+    (remover.state_dir / "junk").write_text("x")
+    monkeypatch.setattr(VllmMetalManager, "_stop_locked", lambda self: False)
+    removed = threading.Event()
+    release_remove = threading.Event()
+    real_rmtree = mod.shutil.rmtree
+
+    def delayed_rmtree(path):
+        real_rmtree(path)
+        removed.set()
+        assert release_remove.wait(timeout=2)
+
+    monkeypatch.setattr(mod.shutil, "rmtree", delayed_rmtree)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        removal = pool.submit(remover.remove)
+        assert removed.wait(timeout=2)
+        stopping = pool.submit(stopper.stop)
+        time.sleep(0.05)
+        release_remove.set()
+        removal.result(timeout=2)
+        stopping.result(timeout=2)
+
+    assert not remover.state_dir.exists()
 
 
 # ─────────────────────────── health ───────────────────────────

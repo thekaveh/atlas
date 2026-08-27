@@ -532,7 +532,7 @@ class VllmMetalManager:
     @contextmanager
     def _launch_guard(self):
         """Serialize native installation/start decisions across launchers."""
-        self.state_dir.mkdir(parents=True, exist_ok=True)
+        self.state_dir.parent.mkdir(parents=True, exist_ok=True)
         with self.launch_lock_file.open("a+", encoding="utf-8") as lock:
             if fcntl is None:
                 yield
