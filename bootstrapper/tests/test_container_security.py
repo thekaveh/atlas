@@ -55,6 +55,10 @@ def test_container_security_ledger_does_not_claim_registry_discovery() -> None:
     assert "not registry discovery" in row
     assert "registry-derived" not in row
     assert "registry-supported" not in row
+    images = container_security.load_image_inventory(ROOT / "services")
+    scans = container_security.load_image_scans(ROOT / "services")
+    assert f"All {len(images)} manifest-owned image defaults" in row
+    assert f"currently producing {len(scans)} isolated image-platform scans" in row
 
 
 def test_container_scan_job_name_distinguishes_platforms() -> None:

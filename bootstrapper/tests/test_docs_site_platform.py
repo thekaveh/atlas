@@ -676,6 +676,31 @@ def test_documentation_guidance_uses_the_single_root_safe_gate() -> None:
     assert "thekaveh.github.io" not in readme
 
 
+def test_service_contributor_docs_describe_inventory_and_diagram_workflow() -> None:
+    text = (ROOT / "docs/CONTRIBUTING-services.md").read_text(encoding="utf-8")
+    workflow = text.split("## 12. After you save the files", 1)[1].split(
+        "## 13. Audit-script", 1
+    )[0]
+
+    assert "Representative services (not exhaustive)" in text
+    commands = (
+        "python -m bootstrapper.docs.regen qdrant",
+        "docs/diagrams/architecture.html",
+        "docs/diagrams/architecture.svg",
+        "python -m scripts.docs.render_diagrams",
+        "make docs-build",
+        "python -m tools.validate_fragments",
+        "make docs-check",
+    )
+    positions = [workflow.index(command) for command in commands]
+    assert positions == sorted(positions)
+    assert "required when the new manifest owns a same-folder README" in workflow
+    assert "docs:` field points to an aggregate/doc-only README" in workflow
+    assert "touch ONLY" not in workflow
+    assert "final check" not in workflow
+    assert "no regen step" not in text.lower()
+
+
 def test_docs_pages_workflow_is_main_only_pinned_and_uses_a_wiki_deploy_key() -> None:
     workflow = yaml.safe_load(PAGES_WORKFLOW.read_text(encoding="utf-8"))
     text = PAGES_WORKFLOW.read_text(encoding="utf-8")

@@ -46,7 +46,7 @@ Atlas generates and preserves `DOCLING_API_TOKEN` in `.env`. The provider
 loads that file once at process import, so this step must precede the host
 process on a fresh checkout.
 
-**Step 3: Start doc processor server on host (in separate terminal)**
+**Step 3: Start doc processor server on host (Terminal 2, repository root)**
 ```bash
 cd services/docling/provider/localhost
 uv run server.py

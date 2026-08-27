@@ -147,7 +147,7 @@ Three legitimate flavors of folder live under `services/`. Pick the right one be
 
 Every manifest declares one of six categories. The category drives two things: the wizard block your row renders in, and the port-slot block your service draws from.
 
-| Category | Wizard block | Services currently in this category | When to pick |
+| Category | Wizard block | Representative services (not exhaustive) | When to pick |
 |---|---|---|---|
 | `infra` | Infra | Kong, globals, Prometheus, Grafana, Ray, backup, cloudflared | Gateways, project-wide config, observability, prod-readiness |
 | `data` | Data | Supabase, Redis, MinIO, Neo4j, Weaviate (+ `multi2vec-clip` as a Weaviate sub-module), Spark | Databases, caches, object storage |
@@ -502,26 +502,29 @@ uv run --project bootstrapper python -m services.env_assembler
 # 2. Regenerate README.md TOPOLOGY block (auto-includes the new row)
 uv run --project bootstrapper python -m tools.generate_readme_topology
 
-# 3. (top-level architecture diagram — hand-authored; no regen step)
-#    Update docs/diagrams/architecture.svg by hand via the
-#    architecture-diagram skill if your service materially changes the
-#    full-stack topology (new category band, new always-on tier, etc.).
-
-# 4. Lint — fails if any of steps 1-3 were skipped
-uv run --project bootstrapper python -m tools.validate_fragments
-
-# 5. (Optional, recommended for new manifests) Regen per-service README + diagram
+# 3. Generate the per-service README and diagrams
+#    (required when the new manifest owns a same-folder README)
 PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen qdrant
 # After this, services/qdrant/{README.md, architecture.svg, architecture.html} exist.
+
+# 4. Update docs/diagrams/architecture.html and docs/diagrams/architecture.svg together
+#    via the architecture-diagram skill if the full-stack topology changes.
+#    Render the committed PNG, then refresh the generated surfaces.
+uv run --project bootstrapper python -m scripts.docs.render_diagrams
+make docs-build
+
+# 5. Lint manifests and all three documentation surfaces
+uv run --project bootstrapper python -m tools.validate_fragments
+make docs-check
 ```
 
 **When to re-run each step:**
 
 - **`env_assembler`** — after any change to a manifest's `env:` block, port allocation, or source variants.
 - **`generate_readme_topology`** — after any change to a manifest's `rows:`, `display_name`, `category`, or `alias`.
-- **Top-level `docs/diagrams/architecture.svg`** — hand-authored; touch ONLY when a service is added/removed at the band-level (new category, new gateway, etc.). Routine `data_flow.calls` edits flow into per-service diagrams via `bootstrapper.docs.regen`.
-- **`validate_fragments`** — always, as the final check before committing.
-- **`docs.regen`** — only after creating a new service, or after editing `data_flow.calls` on an existing service. The drift gate in CI (`bootstrapper.docs.regen --all --check`) catches stale per-service READMEs/SVGs/HTMLs.
+- **Top-level `docs/diagrams/architecture.html` and `architecture.svg`** — hand-authored masters; update both when a service is added or removed at the band level (new category, new gateway, and similar topology changes). After either master changes, run `python -m scripts.docs.render_diagrams` as shown above before `make docs-build`. Routine `data_flow.calls` edits flow into per-service diagrams via `bootstrapper.docs.regen`.
+- **`validate_fragments`** — always, before the final `make docs-check` gate.
+- **`docs.regen`** — required after creating a new service that owns a same-folder README, or after editing `data_flow.calls` on an existing service. Manifests whose `docs:` field points to an aggregate/doc-only README are exempt from same-folder generation. The drift gate in CI (`bootstrapper.docs.regen --all --check`) catches stale existing per-service READMEs/SVGs/HTMLs.
 
 **No external prerequisites.** Graphviz used to be required for the top-level diagram regen; that step is retired now that the diagram is hand-authored via the architecture-diagram skill.
 

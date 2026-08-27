@@ -236,12 +236,23 @@ def test_converter_construction_is_single_flight_across_threads(monkeypatch):
 
 def test_docling_docs_keep_source_specific_launch_and_route_contracts():
     aggregate = (ROOT / "services/doc-processor/README.md").read_text()
+    quick_start = aggregate.split("## 2. Quick Start", 1)[1].split(
+        "## 3. Test the API", 1
+    )[0]
+    localhost_flow = quick_start.split(
+        "### 2.2. Localhost Users (CPU or Native GPU)", 1
+    )[1].split(
+        "### 2.3. Disable Document Processor", 1
+    )[0]
 
     assert aggregate.index("export DOCLING_API_TOKEN") < aggregate.index("curl -X POST")
     assert "localhost:63051/v1/document/convert" in aggregate
     assert "localhost:18159/v1/document/convert" in aggregate
     assert "container-GPU provider only" in aggregate
     assert "localhost provider does not advertise that route" in aggregate
+    assert "Step 3: Start doc processor server on host (Terminal 2, repository root)" in localhost_flow
+    assert localhost_flow.index("cd ../../../..") < localhost_flow.index("./start.sh")
+    assert localhost_flow.index("./start.sh") < localhost_flow.index("uv run server.py")
 
 
 def test_docling_localhost_docs_start_atlas_before_each_provider_launch():
