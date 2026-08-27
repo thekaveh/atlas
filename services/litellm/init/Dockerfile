@@ -5,6 +5,12 @@
 # litellm's runtime config. Python-slim avoids the apk + build-deps gymnastics.
 FROM python:3.12.7-slim
 
+# The pinned base predates current Debian security packages. Apply available
+# fixes at build time; the required image scan verifies the resulting runtime.
+RUN apt-get update && \
+    apt-get upgrade --yes && \
+    rm -rf /var/lib/apt/lists/*
+
 # psycopg2-binary keeps the image small (no system libpq build chain), while
 # PyYAML renders config.yaml. These exact pins mirror the repository-owned,
 # vulnerability-audited shared init closure in

@@ -12,6 +12,12 @@
 ARG BASE_IMAGE=python:3.12.7-slim
 FROM ${BASE_IMAGE}
 
+# The pinned base predates current Debian security packages. Apply available
+# fixes at build time; the required image scan verifies the resulting runtime.
+RUN apt-get update && \
+    apt-get upgrade --yes && \
+    rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1

@@ -428,6 +428,7 @@ jobs:
               --image-src docker \
               --scanners vuln \
               --severity HIGH,CRITICAL \
+              --ignore-unfixed \
               --ignorefile .trivyignore.yaml \
               --exit-code 1 \
               --no-progress \

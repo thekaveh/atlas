@@ -415,6 +415,37 @@ def test_required_final_image_scan_is_dependency_diff_scoped() -> None:
     assert 'done < "${RUNNER_TEMP}/atlas-ci-images.txt"' not in services_lint
 
 
+def test_required_final_image_scan_blocks_only_fixable_findings() -> None:
+    services_lint, _ = _workflow_sources()
+
+    final_scan = services_lint.split("- name: Scan built final runtime images", 1)[1]
+    assert "--ignore-unfixed" in final_scan
+
+
+def test_backend_runtime_excludes_ci_artifacts_and_build_installer() -> None:
+    dockerignore = (ROOT / "services/backend/app/.dockerignore").read_text(
+        encoding="utf-8"
+    )
+    dockerfile = (ROOT / "services/backend/app/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+
+    assert "**/.ci-venv" in dockerignore
+    assert "**/__pycache__" in dockerignore
+    assert "apt-get upgrade --yes" in dockerfile
+    assert "pip uninstall --yes uv" in dockerfile
+
+
+def test_changed_debian_images_apply_available_security_updates() -> None:
+    for relative in (
+        "services/jupyterhub/build/Dockerfile",
+        "services/litellm/init/Dockerfile",
+        "services/open-webui/init/Dockerfile",
+    ):
+        dockerfile = (ROOT / relative).read_text(encoding="utf-8")
+        assert "apt-get upgrade --yes" in dockerfile, relative
+
+
 def test_container_security_workflow_pins_scanner_and_failure_policy() -> None:
     _, scheduled = _workflow_sources()
 

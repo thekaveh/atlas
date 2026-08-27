@@ -15,3 +15,48 @@ vulnerabilities:
       clients; none starts an OpenSSL QUIC listener, so the affected server-only
       allocation path is unreachable. Remove this exception when a patched
       stable Alpine image is published.
+  - id: GHSA-r7wm-3cxj-wff9
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.18.6"
+    expired_at: 2026-09-30
+    statement: >-
+      Ray 2.56.0 bundles this library only inside ray_dist.jar. Atlas exposes
+      no Ray port through public ingress; only trusted backend and notebook
+      clients can submit work. Upgrade the client and service images together
+      when upstream publishes a compatible patched release.
+  - id: CVE-2026-54512
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.18.6"
+    expired_at: 2026-09-30
+    statement: >-
+      Ray 2.56.0 bundles this library only inside ray_dist.jar. Atlas exposes
+      no Ray port through public ingress; only trusted backend and notebook
+      clients can submit work. Remove this exception with the next compatible
+      Ray release.
+  - id: CVE-2026-54513
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.18.6"
+    expired_at: 2026-09-30
+    statement: >-
+      Ray 2.56.0 bundles this library only inside ray_dist.jar. Atlas exposes
+      no Ray port through public ingress; only trusted backend and notebook
+      clients can submit work. Remove this exception with the next compatible
+      Ray release.
+  - id: CVE-2026-54399
+    purls:
+      - "pkg:maven/org.apache.httpcomponents.core5/httpcore5@5.0.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Ray 2.56.0 bundles this HTTP library only inside ray_dist.jar. Atlas
+      exposes no Ray port through public ingress; only trusted backend and
+      notebook clients can submit work. Remove this exception with the next
+      compatible Ray release.
+  - id: CVE-2026-69244
+    purls:
+      - "pkg:pypi/aiohttp@3.14.1"
+    expired_at: 2026-09-30
+    statement: >-
+      Ray 2.56.0 vendors this aiohttp copy for its runtime-environment agent.
+      The Ray cluster is isolated on the private Compose network and accepts
+      runtime environments only from trusted backend and notebook clients;
+      remove this exception with the next compatible Ray release.
