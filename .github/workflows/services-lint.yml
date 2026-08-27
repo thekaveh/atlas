@@ -356,10 +356,12 @@ jobs:
               done
 
       - name: Build local Compose and init images
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
-          image_list="${RUNNER_TEMP}/atlas-ci-images.txt"
-          : > "$image_list"
+          scan_image_list="${RUNNER_TEMP}/atlas-ci-scan-images.txt"
+          : > "$scan_image_list"
           image_index=0
           for spec in \
             "services/airflow/build|Dockerfile|--build-arg BASE_IMAGE=apache/airflow:3.3.1" \
@@ -382,7 +384,23 @@ jobs:
             "services/open-webui/init|Dockerfile|"
           do
             IFS='|' read -r context dockerfile extra_args <<< "$spec"
-            dockerfile_path="$context/$dockerfile"
+            dockerfile_path="$(cd "$context" && realpath "$dockerfile")"
+            dockerfile_path="${dockerfile_path#"$GITHUB_WORKSPACE"/}"
+            scan_image=false
+            if ! git diff --quiet "$BASE_SHA" "$GITHUB_SHA" -- \
+              "$dockerfile_path" \
+              ":(glob)$context/**/requirements*.txt" \
+              ":(glob)$context/**/constraints*.txt" \
+              ":(glob)$context/**/pyproject.toml" \
+              ":(glob)$context/**/uv.lock" \
+              ":(glob)$context/**/package.json" \
+              ":(glob)$context/**/package-lock.json" \
+              ":(glob)$context/**/pom.xml" \
+              ":(glob)$context/**/*.gradle" \
+              ":(glob)$context/**/gradle.lockfile"
+            then
+              scan_image=true
+            fi
             platforms="linux/amd64 linux/arm64"
             if [ "$context|$dockerfile" = "services/asset-baker/app|Dockerfile" ]; then
               platforms="linux/amd64"
@@ -395,7 +413,9 @@ jobs:
               else
                 docker buildx build --load --platform "$platform" -t "$image_tag" -f "$dockerfile_path" "$context/"
               fi
-              printf '%s\n' "$image_tag" >> "$image_list"
+              if [ "$scan_image" = true ]; then
+                printf '%s\n' "$image_tag" >> "$scan_image_list"
+              fi
             done
             image_index=$((image_index + 1))
           done
@@ -413,4 +433,4 @@ jobs:
               --no-progress \
               --timeout 10m \
               "$image_ref"
-          done < "${RUNNER_TEMP}/atlas-ci-images.txt"
+          done < "${RUNNER_TEMP}/atlas-ci-scan-images.txt"

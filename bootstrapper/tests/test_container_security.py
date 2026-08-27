@@ -380,7 +380,7 @@ def test_required_workflow_scans_final_images_with_pinned_trivy() -> None:
     required_fragments = (
         "aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567",
         "version: v0.74.0",
-        "atlas-ci-images.txt",
+        "atlas-ci-scan-images.txt",
         "trivy image",
         "--image-src docker",
         "--image-src remote",
@@ -391,6 +391,28 @@ def test_required_workflow_scans_final_images_with_pinned_trivy() -> None:
     )
     assert all(fragment in services_lint for fragment in required_fragments)
     assert "fetch-depth: 0" in services_lint
+
+
+def test_required_final_image_scan_is_dependency_diff_scoped() -> None:
+    services_lint, _ = _workflow_sources()
+
+    assert 'git diff --quiet "$BASE_SHA" "$GITHUB_SHA"' in services_lint
+    assert '"$dockerfile_path"' in services_lint
+    assert "realpath --relative-to" not in services_lint
+    for dependency_pathspec in (
+        "requirements*.txt",
+        "constraints*.txt",
+        "pyproject.toml",
+        "uv.lock",
+        "package.json",
+        "package-lock.json",
+        "pom.xml",
+        "*.gradle",
+        "gradle.lockfile",
+    ):
+        assert dependency_pathspec in services_lint
+    assert 'done < "${RUNNER_TEMP}/atlas-ci-scan-images.txt"' in services_lint
+    assert 'done < "${RUNNER_TEMP}/atlas-ci-images.txt"' not in services_lint
 
 
 def test_container_security_workflow_pins_scanner_and_failure_policy() -> None:
