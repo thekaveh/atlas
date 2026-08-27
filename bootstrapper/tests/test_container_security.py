@@ -27,6 +27,42 @@ def test_container_security_inventory_covers_every_manifest_default() -> None:
     assert json.loads(container_security.render_images_json(expected)) == list(expected)
 
 
+def test_container_security_summary_labels_platform_expansion(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    scans = (
+        container_security.ImageScan("vendor/example:1.2.3", "linux/amd64"),
+        container_security.ImageScan("vendor/example:1.2.3", "linux/arm64"),
+    )
+    monkeypatch.setattr(container_security, "load_image_scans", lambda _path: scans)
+    monkeypatch.setattr(container_security, "load_exceptions", lambda _path: ())
+    monkeypatch.setattr(
+        container_security, "load_build_exclusions", lambda _path: ()
+    )
+
+    assert container_security.main(["--services-dir", str(tmp_path)]) == 0
+    assert "2 image-platform scan(s)" in capsys.readouterr().out
+
+
+def test_container_security_ledger_does_not_claim_registry_discovery() -> None:
+    ledger = (ROOT / "docs/maintenance/external-contract-ledger.md").read_text()
+    row = next(
+        line for line in ledger.splitlines()
+        if line.startswith("| Container image vulnerability gate |")
+    )
+
+    assert "attempted on both" in row
+    assert "not registry discovery" in row
+    assert "registry-derived" not in row
+    assert "registry-supported" not in row
+
+
+def test_container_scan_job_name_distinguishes_platforms() -> None:
+    workflow = (ROOT / ".github/workflows/container-security.yml").read_text()
+
+    assert "name: Scan ${{ matrix.image }} (${{ matrix.platform }})" in workflow
+
+
 @pytest.mark.parametrize(
     "reference",
     [

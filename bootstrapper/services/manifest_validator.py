@@ -447,38 +447,64 @@ def _load_compose_includes(compose_path: Path) -> tuple[list[str], str | None]:
     return includes, None
 
 
-def _check_fragment_includes(
-    manifests: list[Manifest], services_root: Path
+def _missing_fragment_manifest_issues(
+    manifests: list[Manifest], expected: set[str]
 ) -> list[ValidationIssue]:
-    """Every on-disk fragment must appear in the top-level Compose exactly once."""
-    del manifests  # On-disk fragments are the authority for this invariant.
-    expected = {
-        path.relative_to(services_root.parent).as_posix()
-        for path in services_root.glob("*/compose.yml")
-    }
-    compose_path = services_root.parent / "docker-compose.yml"
-    if not compose_path.is_file():
-        if not expected:
-            return []
-        return [_fragment_include_issue("docker-compose.yml is missing")]
-    includes, shape_error = _load_compose_includes(compose_path)
-    if shape_error is not None:
-        return [
-            _fragment_include_issue(
-                f"docker-compose.yml has invalid include shape: {shape_error}"
-            )
-        ]
+    manifest_names = {manifest.name for manifest in manifests}
+    return [
+        ValidationIssue(
+            kind="missing_fragment_manifest",
+            manifest=Path(path).parent.name,
+            message=f"{path} has no sibling service.yml manifest",
+        )
+        for path in sorted(expected)
+        if Path(path).parent.name not in manifest_names
+    ]
+
+
+def _fragment_include_drift_issues(
+    expected: set[str], includes: list[str]
+) -> list[ValidationIssue]:
     actual = set(includes)
     drift = (
         ("missing fragment include(s)", sorted(expected - actual)),
         ("unknown fragment include(s)", sorted(actual - expected)),
-        ("duplicate fragment include(s)", sorted({p for p in includes if includes.count(p) > 1})),
+        (
+            "duplicate fragment include(s)",
+            sorted({path for path in includes if includes.count(path) > 1}),
+        ),
     )
     return [
         _fragment_include_issue(f"docker-compose.yml has {label}: {paths}")
         for label, paths in drift
         if paths
     ]
+
+
+def _check_fragment_includes(
+    manifests: list[Manifest], services_root: Path
+) -> list[ValidationIssue]:
+    """Every on-disk fragment must appear in the top-level Compose exactly once."""
+    expected = {
+        path.relative_to(services_root.parent).as_posix()
+        for path in services_root.glob("*/compose.yml")
+    }
+    manifest_issues = _missing_fragment_manifest_issues(manifests, expected)
+    compose_path = services_root.parent / "docker-compose.yml"
+    if not compose_path.is_file():
+        if not expected:
+            return manifest_issues
+        return manifest_issues + [
+            _fragment_include_issue("docker-compose.yml is missing")
+        ]
+    includes, shape_error = _load_compose_includes(compose_path)
+    if shape_error is not None:
+        return manifest_issues + [
+            _fragment_include_issue(
+                f"docker-compose.yml has invalid include shape: {shape_error}"
+            )
+        ]
+    return manifest_issues + _fragment_include_drift_issues(expected, includes)
 
 
 def _check_per_manifest_contract(manifests: list[Manifest]) -> list[ValidationIssue]:

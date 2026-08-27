@@ -505,15 +505,16 @@ class VllmMetalManager:
         )
 
     def confirm_started_process(self, pid: int) -> bool:
-        """Verify the recorded launch leader before releasing rollback authority."""
-        owned = (
+        """Verify the leader while retaining group rollback authority."""
+        return (
             self._read_pid() == pid
             and self._pid_alive(pid)
             and not self._pid_is_stranger(pid)
         )
-        if owned and self._untracked_pid == pid:
-            self._untracked_pid = None
-        return owned
+
+    def commit_started_process(self) -> None:
+        """Release same-run process-group ownership after stack convergence."""
+        self._untracked_pid = None
 
     def _reject_exited_launch(self, process: subprocess.Popen) -> None:
         poll = getattr(process, "poll", None)

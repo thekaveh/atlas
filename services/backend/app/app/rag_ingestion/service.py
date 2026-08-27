@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
+from redis.exceptions import RedisError
 
 from .clients import (
     CorpusFile,
@@ -62,6 +63,34 @@ async def _cancel_pending_task(task: asyncio.Task[Any]) -> None:
 
 logger = logging.getLogger(__name__)
 _DISPATCH_LEASE_SECONDS = 30
+
+
+async def _join_cleanup_task(
+    task: asyncio.Task[Any], *, operation: str, ingestion_id: str
+) -> None:
+    """Join owned cleanup despite repeated cancellation; log, never replace."""
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            continue
+        except Exception:
+            break
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        logger.warning(
+            "RAG %s cleanup was cancelled for ingestion %s",
+            operation,
+            ingestion_id,
+        )
+    except Exception as exc:
+        logger.error(
+            "RAG %s cleanup failed for ingestion %s",
+            operation,
+            ingestion_id,
+            exc_info=exc,
+        )
 
 
 def weaviate_class_name(collection_prefix: str, profile_name: str) -> str:
@@ -121,6 +150,7 @@ TRANSIENT_EXCEPTIONS = (
     ConnectionError,
     httpx.TimeoutException,
     httpx.NetworkError,
+    RedisError,
 )
 
 
@@ -478,9 +508,20 @@ class RagIngestionService:
             return record
         finally:
             heartbeat_stop.set()
-            await heartbeat
-            await asyncio.to_thread(
-                self.store.release_execution, ingestion_id, owner
+            await _join_cleanup_task(
+                heartbeat,
+                operation="execution heartbeat",
+                ingestion_id=ingestion_id,
+            )
+            release = asyncio.create_task(
+                asyncio.to_thread(
+                    self.store.release_execution, ingestion_id, owner
+                )
+            )
+            await _join_cleanup_task(
+                release,
+                operation="execution lease release",
+                ingestion_id=ingestion_id,
             )
 
     async def _record_unexpected_failure(

@@ -491,6 +491,24 @@ def test_fragment_with_extra_service_flagged(
     assert "redis-undeclared" in drift[0].message
 
 
+def test_included_fragment_without_service_manifest_is_flagged(services_root):
+    fragment = services_root / "orphan" / "compose.yml"
+    fragment.parent.mkdir()
+    fragment.write_text("services:\n  orphan:\n    image: alpine\n")
+    (services_root.parent / "docker-compose.yml").write_text(
+        "include:\n  - services/orphan/compose.yml\n"
+    )
+
+    issues = validate_manifests(
+        load_manifests(services_root), services_root=services_root
+    )
+
+    assert any(
+        issue.kind == "missing_fragment_manifest" and "orphan" in issue.message
+        for issue in issues
+    )
+
+
 def test_manifest_container_missing_from_fragment_flagged(
     services_root, write_manifest, minimal_manifest_dict
 ):

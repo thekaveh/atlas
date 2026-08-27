@@ -330,7 +330,6 @@ class _Manager:
         self.running = False
         return was_running
 
-
 def test_generate_service_configuration_does_not_launch_native_hosts(monkeypatch):
     starter = start_module.AtlasStarter()
     monkeypatch.setattr(starter.service_config, "generate_and_update_env", lambda: True)

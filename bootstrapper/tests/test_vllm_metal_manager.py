@@ -694,6 +694,19 @@ def test_dead_launch_leader_keeps_group_sweep_authority(tmp_path, monkeypatch):
     assert mgr._untracked_pid == 5155
 
 
+def test_verified_launch_retains_group_authority_until_commit(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    mgr._untracked_pid = 5156
+    monkeypatch.setattr(mgr, "_read_pid", lambda: 5156)
+    monkeypatch.setattr(mgr, "_pid_alive", lambda _pid: True)
+    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda _pid: False)
+
+    assert mgr.confirm_started_process(5156) is True
+    assert mgr._untracked_pid == 5156
+    mgr.commit_started_process()
+    assert mgr._untracked_pid is None
+
+
 def test_launch_identity_interrupt_compensates_and_propagates(tmp_path, monkeypatch):
     mgr = _mgr(tmp_path)
     mgr.venv_python.parent.mkdir(parents=True, exist_ok=True)

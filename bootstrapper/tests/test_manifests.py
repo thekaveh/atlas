@@ -540,6 +540,109 @@ def test_malformed_yaml_rejected(services_root):
         load_manifests(services_root)
 
 
+def test_duplicate_yaml_keys_are_rejected_at_any_manifest_depth(services_root):
+    service_dir = services_root / "redis"
+    service_dir.mkdir()
+    (service_dir / "service.yml").write_text(
+        """
+name: redis
+label: Redis
+category: infra
+containers: [redis]
+env: []
+sources:
+  default: container
+  default: disabled
+  options:
+    - id: container
+      label: Container
+    - id: disabled
+      label: Disabled
+""".strip()
+    )
+
+    with pytest.raises(ManifestLoadError, match="duplicate key.*default"):
+        load_manifests(services_root)
+
+
+def test_manifest_allows_explicit_override_of_yaml_merge(services_root):
+    service_dir = services_root / "redis"
+    service_dir.mkdir()
+    (service_dir / "service.yml").write_text(
+        """
+name: redis
+label: Redis
+category: infra
+containers: [redis]
+capabilities:
+  - name: Synthetic service contract
+    status: supported
+    verification: tested
+    note: Merge behavior is covered.
+env:
+  - name: REDIS_SOURCE
+    default: disabled
+    description: Deployment source.
+sources:
+  <<: &defaults
+    var: REDIS_SOURCE
+    default: container
+    options:
+      - {id: container, label: Container}
+      - {id: disabled, label: Disabled}
+  default: disabled
+""".strip(),
+        encoding="utf-8",
+    )
+
+    assert load_manifests(services_root)[0].sources.default == "disabled"
+
+
+@pytest.mark.parametrize(
+    "merge_block",
+    (
+        "<<: &defaults\n    default: container\n    default: disabled",
+        "<<: &first {var: REDIS_SOURCE}\n  <<: &second {default: disabled}",
+    ),
+)
+def test_manifest_rejects_duplicates_in_yaml_merge_contracts(
+    services_root, merge_block
+):
+    service_dir = services_root / "redis"
+    service_dir.mkdir()
+    (service_dir / "service.yml").write_text(
+        "name: redis\nlabel: Redis\ncategory: infra\ncontainers: [redis]\n"
+        "env: []\nsources:\n  " + merge_block + "\n  options: []\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ManifestLoadError, match="duplicate key"):
+        load_manifests(services_root)
+
+
+def test_strict_yaml_allows_multiple_inheritance_in_one_merge_sequence():
+    from services.manifests import load_yaml_strict
+
+    document = load_yaml_strict(
+        "first: &first {one: 1}\n"
+        "second: &second {two: 2}\n"
+        "combined:\n  <<: [*first, *second]\n  three: 3\n"
+    )
+
+    assert document["combined"] == {"one": 1, "two": 2, "three": 3}
+
+
+def test_manifest_wraps_unhashable_yaml_key(services_root):
+    service_dir = services_root / "redis"
+    service_dir.mkdir()
+    (service_dir / "service.yml").write_text(
+        "? [bad, key]\n: value\n", encoding="utf-8"
+    )
+
+    with pytest.raises(ManifestLoadError, match="unhashable key"):
+        load_manifests(services_root)
+
+
 def test_source_default_must_be_one_of_options(
     services_root, write_manifest, full_manifest_dict
 ):

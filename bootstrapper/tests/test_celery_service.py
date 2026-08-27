@@ -27,6 +27,14 @@ def _compose() -> dict:
     return yaml.safe_load(COMPOSE.read_text())
 
 
+def test_celery_docs_distinguish_public_and_operator_failure_details() -> None:
+    readme = README.read_text(encoding="utf-8")
+
+    assert "generic `Background job failed`" in readme
+    assert "detailed errors and raw tracebacks remain in worker logs" in readme
+    assert "error text from Redis" not in readme
+
+
 def test_celery_manifest_admission_contract() -> None:
     manifest = _manifest()
 

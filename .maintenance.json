@@ -174,12 +174,6 @@
         "rationale": "Media boundary combining validation, ownership, admission, persistence, and provider submission; lifecycle tests protect the state transitions."
       },
       {
-        "path": "services/backend/app/app/memory_service.py",
-        "symbol": "MemoryService.consolidate",
-        "cyclomatic_complexity": 33,
-        "rationale": "Memory consolidation lifecycle combines filtering, provider execution, persistence, and failure mapping; memory-service tests cover its outcome branches."
-      },
-      {
         "path": "services/open-webui/extras/tools/comfyui_image_generation_tool.py",
         "symbol": "Tools.generate_image",
         "cyclomatic_complexity": 32,

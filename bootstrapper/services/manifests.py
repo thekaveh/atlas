@@ -17,6 +17,7 @@ those modules for the consumer-side flow.
 from __future__ import annotations
 
 import json
+from collections.abc import Hashable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,77 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError as JsonSchemaError
+from yaml.nodes import MappingNode, SequenceNode
+
+
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """Safe YAML loader that rejects overwritten mapping keys."""
+
+
+def _merged_mapping_nodes(node):
+    if isinstance(node, MappingNode):
+        return (node,)
+    if isinstance(node, SequenceNode):
+        return tuple(item for item in node.value if isinstance(item, MappingNode))
+    return ()
+
+
+def _validate_unique_mapping_keys(loader, node, deep=False, seen=None):
+    if seen is None:
+        seen = set()
+    if id(node) in seen:
+        return
+    seen.add(id(node))
+    explicit_keys = set()
+    merge_seen = False
+    for key_node, value_node in node.value:
+        if key_node.tag == "tag:yaml.org,2002:merge":
+            if merge_seen:
+                raise yaml.constructor.ConstructorError(
+                    "while constructing a mapping",
+                    node.start_mark,
+                    "found duplicate key '<<'",
+                    key_node.start_mark,
+                )
+            merge_seen = True
+            for merge_node in _merged_mapping_nodes(value_node):
+                _validate_unique_mapping_keys(loader, merge_node, deep, seen)
+            continue
+        key = loader.construct_object(key_node, deep=deep)
+        if not isinstance(key, Hashable):
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                "found unhashable key",
+                key_node.start_mark,
+            )
+        if key in explicit_keys:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"found duplicate key {key!r}",
+                key_node.start_mark,
+            )
+        explicit_keys.add(key)
+
+
+def _construct_unique_mapping(loader, node, deep=False):
+    _validate_unique_mapping_keys(loader, node, deep)
+    loader.flatten_mapping(node)
+    return yaml.constructor.BaseConstructor.construct_mapping(
+        loader, node, deep=deep
+    )
+
+
+_UniqueKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_unique_mapping,
+)
+
+
+def load_yaml_strict(text: str) -> Any:
+    """Safely parse YAML while rejecting duplicate keys at every depth."""
+    return yaml.load(text, Loader=_UniqueKeyLoader)
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -327,7 +399,7 @@ def _load_one(service_dir: Path) -> Manifest:
         )
 
     try:
-        raw = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        raw = load_yaml_strict(manifest_path.read_text(encoding="utf-8"))
     except yaml.YAMLError as e:
         raise _PerManifestError(
             f"services/{service_dir.name}/service.yml: invalid YAML — {e}"

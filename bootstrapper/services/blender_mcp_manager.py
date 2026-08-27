@@ -413,7 +413,6 @@ class BlenderMcpManager:
                 )
         ready = self._await_spawned_readiness(process, wait_timeout)
         if ready is not None:
-            self._untracked_pid = None
             return ready
         tail = self._log_tail()
         self._stop_locked()
@@ -438,6 +437,10 @@ class BlenderMcpManager:
 
     def _spawned_endpoint_owned(self, pid: int) -> bool:
         return process_group_owns_tcp_listener(pid, self.bind, self.port)
+
+    def commit_started_process(self) -> None:
+        """Release same-run process-group ownership after stack convergence."""
+        self._untracked_pid = None
 
     def stop(self) -> bool:
         with self._launch_guard():

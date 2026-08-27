@@ -232,3 +232,46 @@ def test_converter_construction_is_single_flight_across_threads(monkeypatch):
 
     assert first is second
     assert calls == 1
+
+
+def test_docling_docs_keep_source_specific_launch_and_route_contracts():
+    aggregate = (ROOT / "services/doc-processor/README.md").read_text()
+
+    assert aggregate.index("export DOCLING_API_TOKEN") < aggregate.index("curl -X POST")
+    assert "localhost:63051/v1/document/convert" in aggregate
+    assert "localhost:18159/v1/document/convert" in aggregate
+    assert "container-GPU provider only" in aggregate
+    assert "localhost provider does not advertise that route" in aggregate
+
+
+def test_docling_localhost_docs_start_atlas_before_each_provider_launch():
+    localhost = (
+        ROOT / "services/docling/provider/localhost/README.md"
+    ).read_text()
+    quick_start = localhost.split("## 2. Configuration", 1)[0]
+    integration = localhost.split("## 6. Integration with Atlas", 1)[1].split(
+        "## 7. Performance", 1
+    )[0]
+    assert quick_start.index("./start.sh") < quick_start.index("uv run server.py")
+    assert quick_start.index("cd ../../../..") < quick_start.index("./start.sh")
+    assert "Terminal 3, opened at the repository root" in quick_start
+    assert "if still in the provider directory" not in quick_start
+    for method in integration.split("### 6.")[1:]:
+        assert "./start.sh" in method
+        assert "uv run server.py" in method
+        assert method.index("./start.sh") < method.index("uv run server.py")
+
+
+def test_docling_localhost_docs_list_runtime_contract_variables():
+    localhost = (
+        ROOT / "services/docling/provider/localhost/README.md"
+    ).read_text()
+    for variable in (
+        "DOCLING_API_TOKEN",
+        "DOCLING_AUTH_MODE",
+        "DOCLING_LOCALHOST_BIND_HOST",
+        "DOCLING_MAX_FILE_SIZE",
+        "DOCLING_UPLOAD_TIMEOUT_SECONDS",
+        "DOCLING_INFERENCE_TIMEOUT_SECONDS",
+    ):
+        assert variable in localhost

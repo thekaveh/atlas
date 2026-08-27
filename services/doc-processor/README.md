@@ -35,15 +35,21 @@ cd services/docling/provider/localhost
 uv sync
 ```
 
-**Step 2: Start doc processor server on host (in separate terminal)**
+**Step 2: Start Atlas and generate the provider credential (repository root)**
+
+```bash
+cd ../../../..  # repository root
+./start.sh --doc-processor-source docling-localhost
+```
+
+Atlas generates and preserves `DOCLING_API_TOKEN` in `.env`. The provider
+loads that file once at process import, so this step must precede the host
+process on a fresh checkout.
+
+**Step 3: Start doc processor server on host (in separate terminal)**
 ```bash
 cd services/docling/provider/localhost
 uv run server.py
-```
-
-**Step 3: Start the stack with doc processor enabled**
-```bash
-./start.sh --doc-processor-source docling-localhost
 ```
 
 **Note:**
@@ -60,13 +66,26 @@ DOC_PROCESSOR_SOURCE=disabled
 
 ## 3. Test the API
 
+Export the generated credential from the repository root, then use the port for
+the selected source:
+
 ```bash
+# repository root
+export DOCLING_API_TOKEN="$(sed -n 's/^DOCLING_API_TOKEN=//p' .env)"
+
+# Container GPU source
 curl -X POST http://localhost:63051/v1/document/convert \
   -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
   -F "file=@document.pdf" \
   -F "output_format=markdown" \
   -F "use_ocr=auto" \
   -F "table_mode=accurate"
+
+# Localhost source: use the native provider port instead
+curl -X POST http://localhost:18159/v1/document/convert \
+  -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
+  -F "file=@document.pdf" \
+  -F "output_format=markdown"
 ```
 
 ## 4. Configuration
@@ -104,7 +123,7 @@ curl -X POST http://localhost:63051/v1/document/convert \
 | `DOCLING_CHUNK_SIZE` | Default chunk size for RAG | `512` |
 | `DOCLING_CHUNK_OVERLAP` | Default chunk overlap | `50` |
 
-Request bodies are capped before multipart parsing at `DOCLING_MAX_FILE_SIZE` plus 1 MiB of framing/form overhead and must arrive within the total `DOCLING_UPLOAD_TIMEOUT_SECONDS` deadline (120 seconds by default). Uploads then stream to bounded temporary files and are rejected (`413`/`408`/`400`) if they exceed the file limit, time out, or are empty, so a failed conversion is never indexed as document content downstream. `DOCLING_CHUNK_OVERLAP` must stay non-negative and no more than half of `DOCLING_CHUNK_SIZE`; a single conversion is capped at 10,000 chunks. Full validation and status-code behavior lives in the provider's shared `api_server.py` module.
+Request bodies are capped before multipart parsing at `DOCLING_MAX_FILE_SIZE` plus 1 MiB of framing/form overhead and must arrive within the total `DOCLING_UPLOAD_TIMEOUT_SECONDS` deadline (120 seconds by default). Uploads then stream to bounded temporary files and are rejected (`413`/`408`/`400`) if they exceed the file limit, time out, or are empty, so a failed conversion is never indexed as document content downstream. `DOCLING_CHUNK_OVERLAP` must stay non-negative and no more than half of `DOCLING_CHUNK_SIZE`; a single conversion is capped at 10,000 chunks. Container-GPU validation and status-code behavior lives in `provider/shared/api_server.py`; the localhost provider enforces the same conversion fields through its native `server.py` route.
 
 ### 4.4. Localhost-Specific
 
@@ -117,7 +136,7 @@ Container mode publishes Docling on loopback by default. Set `HOST_BIND_IP=0.0.0
 
 ### 4.5. Provider boundary and LightRAG adapter
 
-`GET /health` is public so Docker and service managers can probe readiness. Every other Docling route, including `/docs`, `/v1/models`, `POST /v1/document/convert`, and `POST /internal/lightrag/bundle`, requires `Authorization: Bearer ${DOCLING_API_TOKEN}` while `DOCLING_AUTH_MODE=required`. Atlas generates and preserves the token in `.env`; use a placeholder such as `<DOCLING_API_TOKEN>` in shared examples, never the generated value. Setting authentication to `disabled` is an explicit emergency/local rollback, not the normal operating mode. A wildcard CORS origin is rejected while authentication is required.
+`GET /health` is public so Docker and service managers can probe readiness. Every other route exposed by the selected provider, including `/docs`, `POST /v1/document/convert`, and `POST /internal/lightrag/bundle`, requires `Authorization: Bearer ${DOCLING_API_TOKEN}` while `DOCLING_AUTH_MODE=required`. `GET /v1/models` is exposed by the container-GPU provider only; the localhost provider does not advertise that route. Atlas generates and preserves the token in `.env`; use a placeholder such as `<DOCLING_API_TOKEN>` in shared examples, never the generated value. Setting authentication to `disabled` is an explicit emergency/local rollback, not the normal operating mode. A wildcard CORS origin is rejected while authentication is required.
 
 Conversion capacity is reserved before multipart parsing, so overload is rejected with `429` before a large body is accepted. Conversion and lazy model loading have a finite 900-second default deadline. If the deadline expires, the provider returns a generic `504` response and then exits with status 70 so Docker can restart it. A native deployment must be run under a service manager such as systemd or launchd with restart-on-failure; a bare `uv run server.py` process will remain stopped after a fatal timeout.
 
@@ -125,7 +144,7 @@ In-stack LightRAG does not receive the Docling provider token. Instead, `docling
 
 ## 5. API Reference
 
-The service exposes a REST API: `POST /v1/document/convert` uploads a file and returns structured content (optionally chunked for RAG) with the request shown in §3; `GET /health` is the public readiness probe, returning `200` only when the selected provider's document converter can be imported and `503` otherwise; `GET /v1/models` lists the available conversion model configuration. The full request/response schema, all `convert` parameters (`output_format`, `use_ocr`, `table_mode`, `enable_chunking`, `chunk_size`, `chunk_overlap`), and response fields are served at `/docs` after bearer authentication.
+Both providers expose `POST /v1/document/convert` and public `GET /health`; the response schema for health is source-specific. The container-GPU provider additionally exposes `GET /v1/models`. The selected provider's complete OpenAPI schema, including all conversion parameters (`output_format`, `use_ocr`, `table_mode`, `enable_chunking`, `chunk_size`, `chunk_overlap`), is served at `/docs` after bearer authentication.
 
 ## 6. Supported Formats
 

@@ -9,6 +9,7 @@ import threading
 from uuid import uuid4
 
 import pytest
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 
 def _stub_required_env(monkeypatch):
@@ -516,7 +517,11 @@ def test_memory_consolidate_worker_retries_busy_execution_lease(monkeypatch):
             "user-1", idempotency_key="stable-job"
         )
 
-    assert captured == {"countdown": celery_tasks.memory_execution_lease_seconds()}
+    assert captured["countdown"] == celery_tasks.memory_execution_lease_seconds()
+    assert captured["kwargs"]["user_id"] == "user-1"
+    assert captured["kwargs"]["idempotency_key"] == "stable-job"
+    assert captured["kwargs"]["retry_state"]["attempt"] == 0
+    assert captured["kwargs"]["retry_state"]["owner"]
 
 
 def test_memory_consolidate_worker_completes_claimed_execution(monkeypatch):
@@ -543,6 +548,139 @@ def test_memory_consolidate_worker_completes_claimed_execution(monkeypatch):
     assert len(completed) == 1
     assert completed[0][0] == "stable-job"
     assert completed[0][2] == result
+
+
+def test_memory_consolidate_retries_redis_claim_failure_without_running(monkeypatch):
+    _stub_required_env(monkeypatch)
+    import celery_tasks
+
+    class RetryScheduled(RuntimeError):
+        pass
+
+    captured = {}
+    monkeypatch.setattr(
+        celery_tasks,
+        "claim_memory_execution",
+        lambda *_args: (_ for _ in ()).throw(RedisConnectionError("redis down")),
+    )
+    monkeypatch.setattr(
+        celery_tasks,
+        "run_memory_consolidate",
+        lambda *_args: pytest.fail("claim failure must not run consolidation"),
+    )
+
+    def retry(**kwargs):
+        captured.update(kwargs)
+        raise RetryScheduled()
+
+    monkeypatch.setattr(celery_tasks.memory_consolidate_task, "retry", retry)
+    with pytest.raises(RetryScheduled):
+        celery_tasks.memory_consolidate_task.run(
+            "user-1", idempotency_key="stable-job"
+        )
+
+    assert captured["kwargs"]["retry_state"]["attempt"] == 1
+    assert captured["kwargs"]["retry_state"]["owner"]
+    assert isinstance(captured["exc"], RedisConnectionError)
+
+
+def test_memory_claim_retry_fences_commit_ambiguous_owner(monkeypatch):
+    _stub_required_env(monkeypatch)
+    import celery_tasks
+
+    class RetryScheduled(RuntimeError):
+        pass
+
+    owners = []
+    captured = {}
+
+    recovery_owners = []
+
+    def claim(_task_id, owner, recovery_owner=None):
+        owners.append(owner)
+        recovery_owners.append(recovery_owner)
+        if len(owners) == 1:
+            raise RedisConnectionError("SET committed before disconnect")
+        return "claimed", None
+
+    def retry(**kwargs):
+        captured.update(kwargs)
+        raise RetryScheduled()
+
+    result = {"user_id": "user-1", "facts_merged": 0}
+    monkeypatch.setattr(celery_tasks, "claim_memory_execution", claim)
+    monkeypatch.setattr(celery_tasks.memory_consolidate_task, "retry", retry)
+    monkeypatch.setattr(celery_tasks, "run_memory_consolidate", lambda _uid: result)
+    monkeypatch.setattr(celery_tasks, "complete_memory_execution", lambda *_a: True)
+    with pytest.raises(RetryScheduled):
+        celery_tasks.memory_consolidate_task.run(
+            "user-1", idempotency_key="stable-job"
+        )
+
+    assert captured["kwargs"]["retry_state"]["owner"] == owners[0]
+    assert celery_tasks.memory_consolidate_task.run(**captured["kwargs"]) == result
+    assert owners[1] != owners[0]
+    assert recovery_owners == [None, owners[0]]
+
+
+def test_memory_consolidate_retries_only_result_commit_after_redis_failure(
+    monkeypatch,
+):
+    _stub_required_env(monkeypatch)
+    import celery_tasks
+
+    class RetryScheduled(RuntimeError):
+        pass
+
+    result = {"user_id": "user-1", "facts_merged": 1}
+    captured = {}
+    monkeypatch.setattr(
+        celery_tasks, "claim_memory_execution", lambda *_args: ("claimed", None)
+    )
+    monkeypatch.setattr(
+        celery_tasks, "run_memory_consolidate", lambda _user_id: result
+    )
+    monkeypatch.setattr(
+        celery_tasks,
+        "complete_memory_execution",
+        lambda *_args: (_ for _ in ()).throw(RedisConnectionError("redis down")),
+    )
+
+    def retry(**kwargs):
+        captured.update(kwargs)
+        raise RetryScheduled()
+
+    monkeypatch.setattr(celery_tasks.memory_consolidate_task, "retry", retry)
+    with pytest.raises(RetryScheduled):
+        celery_tasks.memory_consolidate_task.run(
+            "user-1", idempotency_key="stable-job"
+        )
+
+    retry_state = captured["kwargs"]["retry_state"]
+    assert retry_state["result"] == result
+    assert retry_state["owner"]
+    assert retry_state["attempt"] == 1
+
+
+def test_memory_consolidate_completion_retry_never_reruns_consolidation(monkeypatch):
+    _stub_required_env(monkeypatch)
+    import celery_tasks
+
+    result = {"user_id": "user-1", "facts_merged": 1}
+    monkeypatch.setattr(
+        celery_tasks,
+        "run_memory_consolidate",
+        lambda *_args: pytest.fail("completion retry must not rerun consolidation"),
+    )
+    monkeypatch.setattr(
+        celery_tasks, "complete_memory_execution", lambda *_args: True
+    )
+
+    assert celery_tasks.memory_consolidate_task.run(
+        "user-1",
+        idempotency_key="stable-job",
+        retry_state={"attempt": 1, "result": result, "owner": "worker-1"},
+    ) == result
 
 
 def test_memory_consolidate_transient_retry_carries_bounded_attempt(monkeypatch):
@@ -578,14 +716,15 @@ def test_memory_consolidate_transient_retry_carries_bounded_attempt(monkeypatch)
 
     with pytest.raises(RetryScheduled):
         celery_tasks.memory_consolidate_task.run(
-            "user-1", idempotency_key="stable-job", transient_attempt=2
+            "user-1",
+            idempotency_key="stable-job",
+            retry_state={"attempt": 2},
         )
 
-    assert captured["kwargs"] == {
-        "user_id": "user-1",
-        "idempotency_key": "stable-job",
-        "transient_attempt": 3,
-    }
+    assert captured["kwargs"]["user_id"] == "user-1"
+    assert captured["kwargs"]["idempotency_key"] == "stable-job"
+    assert captured["kwargs"]["retry_state"]["attempt"] == 3
+    assert captured["kwargs"]["retry_state"]["owner"]
     assert isinstance(captured["exc"], TimeoutError)
     assert released[0][0] == "stable-job"
 
@@ -652,7 +791,9 @@ def test_job_status_redacts_failure_tracebacks(monkeypatch):
     status = celery_app.get_celery_job_status("celery-task-err")
 
     assert status["status"] == "failure"
-    assert status["error"] == "database password leaked"
+    assert status["error"] == "Background job failed"
+    assert "database password leaked" not in repr(status)
+    assert "internal URLs" not in repr(status)
     assert status["traceback"] is None
 
 
@@ -702,8 +843,15 @@ def test_rag_lease_contention_retries_are_unbounded_but_transients_are_bounded()
 
 
 @pytest.mark.parametrize("transient_attempt", (0, 2))
+@pytest.mark.parametrize(
+    "error",
+    (
+        ConnectionError("temporary upstream outage"),
+        RedisConnectionError("temporary Redis outage"),
+    ),
+)
 def test_rag_transient_retry_budget_is_independent_of_celery_retry_count(
-    monkeypatch, transient_attempt
+    monkeypatch, transient_attempt, error
 ):
     import celery_tasks
     import rag_ingestion
@@ -714,7 +862,7 @@ def test_rag_transient_retry_budget_is_independent_of_celery_retry_count(
     captured = {}
 
     def fail_ingestion(*_args, **_kwargs):
-        raise ConnectionError("temporary upstream outage")
+        raise error
 
     def capture_retry(**kwargs):
         captured.update(kwargs)

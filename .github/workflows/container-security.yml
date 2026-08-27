@@ -43,7 +43,7 @@ jobs:
           printf 'images=%s\n' "$images" >> "$GITHUB_OUTPUT"
 
   scan:
-    name: Scan ${{ matrix.image }}
+    name: Scan ${{ matrix.image }} (${{ matrix.platform }})
     needs: inventory
     runs-on: ubuntu-24.04
     timeout-minutes: 35

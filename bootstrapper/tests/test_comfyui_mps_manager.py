@@ -14,6 +14,7 @@ import subprocess
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -24,6 +25,19 @@ from services.comfyui_mps_manager import (
     manager_from_env,
 )
 from tests.three_surface_test_utils import surface_text
+
+
+def test_stack_commit_releases_managed_host_group_authority():
+    import start as start_module
+
+    starter = start_module.AtlasStarter.__new__(start_module.AtlasStarter)
+    manager = SimpleNamespace(commit_started_process=Mock())
+    starter._managed_hosts_started_this_run = [("probe", manager)]
+
+    starter.commit_managed_host_processes()
+
+    manager.commit_started_process.assert_called_once_with()
+    assert starter._managed_hosts_started_this_run == []
 
 
 # ─────────────────────────── fakes / seams ───────────────────────────
@@ -932,6 +946,19 @@ def test_dead_launch_leader_keeps_group_sweep_authority(tmp_path, monkeypatch):
 
     assert mgr.confirm_started_process(5155) is False
     assert mgr._untracked_pid == 5155
+
+
+def test_verified_launch_retains_group_authority_until_commit(tmp_path, monkeypatch):
+    mgr = _mgr(tmp_path)
+    mgr._untracked_pid = 5156
+    monkeypatch.setattr(mgr, "_read_pid", lambda: 5156)
+    monkeypatch.setattr(mgr, "_pid_alive", lambda _pid: True)
+    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda _pid: False)
+
+    assert mgr.confirm_started_process(5156) is True
+    assert mgr._untracked_pid == 5156
+    mgr.commit_started_process()
+    assert mgr._untracked_pid is None
 
 
 def test_launch_identity_interrupt_compensates_and_propagates(tmp_path, monkeypatch):

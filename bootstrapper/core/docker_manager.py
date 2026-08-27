@@ -150,7 +150,7 @@ class DockerManager:
         except Exception as e:
             return False, f"Could not detect Docker Compose version: {e}"
     
-    def _compose_file_args(self) -> List[str]:
+    def _compose_file_args(self, *, include_consumer: bool = True) -> List[str]:
         """Compose ``-f`` arguments.
 
         Empty by default — Docker Compose auto-discovers ``docker-compose.yml``
@@ -166,7 +166,11 @@ class DockerManager:
         """
         user_dir = self.root_dir / "services" / "_user"
         overlays = sorted(user_dir.glob("*/compose.yml")) if user_dir.is_dir() else []
-        consumer_overlays = list(self.config_parser.load_consumer_config().compose_overlays)
+        consumer_overlays = (
+            list(self.config_parser.load_consumer_config().compose_overlays)
+            if include_consumer
+            else []
+        )
         # Atlas-owned generated overlays, produced during
         # generate_service_configuration when a consumer declares the relevant
         # section: the minio-init storage overlay (#404) and the litellm api-key
@@ -213,6 +217,47 @@ class DockerManager:
             )
         return file_args
 
+    def _teardown_safe_compose_file_args(
+        self, args: List[str]
+    ) -> tuple[List[str], bool]:
+        """Return optional compose files, or base-only args for broken teardown."""
+        try:
+            file_args = self._compose_file_args()
+        except Exception as exc:
+            if not args or args[0] != "down":
+                raise
+            self._on_command(
+                "⚠️  Consumer overlays could not be loaded during teardown "
+                f"({type(exc).__name__}); continuing with the base stack."
+            )
+            return ['-f', 'docker-compose.yml'], False
+        return file_args, bool(file_args)
+
+    def _validated_compose_file_args(
+        self, args: List[str], command_prefix: List[str]
+    ) -> tuple[List[str], bool]:
+        """Preflight optional teardown overlays before touching live resources."""
+        file_args, optional_included = self._teardown_safe_compose_file_args(args)
+        if not optional_included or not args or args[0] != "down":
+            return file_args, optional_included
+        config_cmd = command_prefix + file_args + ["config", "-q"]
+        self._on_command(f"      Preflight: {' '.join(config_cmd)}")
+        result = subprocess.run(
+            config_cmd,
+            cwd=str(self.root_dir),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode:
+            self._on_command(
+                "⚠️  Optional compose overlays failed teardown preflight; "
+                "continuing with the base stack."
+            )
+            return ['-f', 'docker-compose.yml'], False
+        return file_args, True
+
     def execute_compose_command(
         self,
         args: List[str],
@@ -250,9 +295,15 @@ class DockerManager:
             # silently ignored custom env files at the compose seam.
             full_cmd.extend([f'--env-file={self.config_parser.env_file_path}'])
 
-        # Merge any downstream services/_user/<name>/compose.yml overlays
-        # (no-op when none exist — preserves default behavior).
-        full_cmd.extend(self._compose_file_args())
+        command_prefix = full_cmd.copy()
+        try:
+            file_args, _optional_included = self._validated_compose_file_args(
+                args, command_prefix
+            )
+        except Exception as exc:
+            self._on_command(f"❌ Error preparing docker compose command: {exc}")
+            return 1
+        full_cmd.extend(file_args)
         full_cmd.extend(args)
 
         self._on_command(f"      Command: {' '.join(full_cmd)}")
@@ -860,36 +911,78 @@ class DockerManager:
     # and line-buffering, the alternate-screen Live region would be torn up
     # by raw subprocess output.
 
-    def _build_compose_command(
+    def _compose_command_prefix(
         self,
-        args: List[str],
-        use_env_file: bool = True,
-        top_level_flags: Optional[List[str]] = None,
+        use_env_file: bool,
+        top_level_flags: Optional[List[str]],
     ) -> List[str]:
-        """
-        Internal helper — build the full `docker compose` argv with project
-        name and --env-file flag, mirroring `execute_compose_command` but
-        without running it. Used by the streaming variants below.
-
-        `top_level_flags` are inserted between the `docker compose` binary
-        and the `-p` / `--env-file` flags — i.e. they're docker-compose
-        global flags (like `--ansi=always` or `--progress=plain`) that
-        must come before the subcommand.
-        """
         full_cmd = self.detect_docker_compose_command().split()
         if top_level_flags:
             full_cmd.extend(top_level_flags)
         project_name = self.project_name_override or self.config_parser.get_project_name()
         full_cmd.extend(['-p', project_name])
         if use_env_file and self.config_parser.env_file_exists():
-            # Use the resolved path (honors ATLAS_ENV_FILE) — hardcoding .env
-            # silently ignored custom env files at the compose seam.
             full_cmd.extend([f'--env-file={self.config_parser.env_file_path}'])
-        # Merge any downstream services/_user/<name>/compose.yml overlays
-        # (no-op when none exist — preserves default behavior).
-        full_cmd.extend(self._compose_file_args())
-        full_cmd.extend(args)
         return full_cmd
+
+    def _build_compose_command_state(
+        self,
+        args: List[str],
+        use_env_file: bool = True,
+        top_level_flags: Optional[List[str]] = None,
+    ) -> tuple[List[str], bool]:
+        full_cmd = self._compose_command_prefix(use_env_file, top_level_flags)
+        file_args, optional_included = self._validated_compose_file_args(args, full_cmd)
+        full_cmd.extend(file_args)
+        full_cmd.extend(args)
+        return full_cmd, optional_included
+
+    def _build_compose_command(
+        self,
+        args: List[str],
+        use_env_file: bool = True,
+        top_level_flags: Optional[List[str]] = None,
+    ) -> List[str]:
+        """Build compose argv without executing it."""
+        command, _consumer_included = self._build_compose_command_state(
+            args, use_env_file, top_level_flags
+        )
+        return command
+
+    def _stream_compose_command(
+        self, full_cmd: List[str], on_line: Callable[[str], None]
+    ) -> int:
+        env = os.environ.copy()
+        env['BUILDKIT_PROGRESS'] = 'plain'
+        try:
+            proc = subprocess.Popen(
+                full_cmd,
+                cwd=str(self.root_dir),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=1,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+            )
+        except Exception as exc:
+            on_line(f"❌ Error launching docker compose: {exc}")
+            return 1
+        try:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                on_line(line.rstrip("\n"))
+            return proc.wait()
+        except KeyboardInterrupt:
+            return self._terminate_subprocess(proc)
+        except BaseException:
+            self._terminate_subprocess(proc)
+            raise
+        finally:
+            if proc.stdout is not None:
+                proc.stdout.close()
 
     def stream_compose(
         self,
@@ -920,40 +1013,17 @@ class DockerManager:
 
         Returns the subprocess exit code.
         """
-        full_cmd = self._build_compose_command(
-            args,
-            use_env_file=use_env_file,
-            top_level_flags=['--ansi=always'],
-        )
-        self._on_command(f"      Command: {' '.join(full_cmd)}")
-
-        env = os.environ.copy()
-        env['BUILDKIT_PROGRESS'] = 'plain'
-
         try:
-            proc = subprocess.Popen(
-                full_cmd,
-                cwd=str(self.root_dir),
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                bufsize=1,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=env,
+            full_cmd, _optional_included = self._build_compose_command_state(
+                args,
+                use_env_file=use_env_file,
+                top_level_flags=['--ansi=always'],
             )
-        except Exception as e:
-            on_line(f"❌ Error launching docker compose: {e}")
+        except Exception as exc:
+            on_line(f"❌ Error preparing docker compose command: {exc}")
             return 1
-
-        try:
-            assert proc.stdout is not None
-            for line in proc.stdout:
-                on_line(line.rstrip("\n"))
-            return proc.wait()
-        except KeyboardInterrupt:
-            return self._terminate_subprocess(proc)
+        self._on_command(f"      Command: {' '.join(full_cmd)}")
+        return self._stream_compose_command(full_cmd, on_line)
 
     def stream_logs(self, on_line: Callable[[str], None]) -> int:
         """

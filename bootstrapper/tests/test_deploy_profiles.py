@@ -72,6 +72,30 @@ def test_missing_profiles_file_yields_empty_bundles(tmp_path):
     assert all(b == ProfileBundle() for b in bundles.values())
 
 
+def test_profile_bundles_reject_duplicate_yaml_mapping_keys(tmp_path):
+    path = tmp_path / "profiles.yml"
+    path.write_text(
+        """
+profiles:
+  default:
+    host_bind_ip: 127.0.0.1
+    host_bind_ip: 0.0.0.0
+  prod: {}
+""".strip()
+    )
+
+    with pytest.raises(ProfileConfigError, match="duplicate key.*host_bind_ip"):
+        load_profile_bundles(path)
+
+
+def test_profile_bundles_wrap_unhashable_yaml_key(tmp_path):
+    path = tmp_path / "profiles.yml"
+    path.write_text("? [bad, key]\n: value\n", encoding="utf-8")
+
+    with pytest.raises(ProfileConfigError, match="unhashable key"):
+        load_profile_bundles(path)
+
+
 def test_merge_consumer_overrides_override_only():
     bundles = load_profile_bundles()
     merged = merge_consumer_profile_overrides(

@@ -48,15 +48,19 @@ def _ray_address() -> Optional[str]:
     if not ray_addr:
         return None
     # ray://ray-head:10001 → http://ray-head:8265
-    # ray://anyscale.example.com:10001 → https://anyscale.example.com:8265
+    # ray://my-cluster.anyscale.com:10001 → https://my-cluster.anyscale.com:8265
     # (external HTTPS-by-default for Anyscale; configurable via RAY_DASHBOARD_URL override)
     explicit_dashboard = os.environ.get("RAY_DASHBOARD_URL", "").strip()
     if explicit_dashboard:
         return explicit_dashboard
     if ray_addr.startswith("ray://"):
         host = ray_addr[len("ray://"):].rsplit(":", 1)[0]
-        scheme = "https" if "." in host else "http"  # heuristic: bare hostname = LAN
-        return f"{scheme}://{host}:8265"
+        normalized_host = host.rstrip(".").lower()
+        # Only the known hosted Ray control plane implies TLS. Dotted LAN
+        # names and IPv4 addresses commonly serve the dashboard over HTTP;
+        # other TLS deployments must use the explicit override above.
+        scheme = "https" if normalized_host.endswith(".anyscale.com") else "http"
+        return f"{scheme}://{host.rstrip('.')}:8265"
     return None
 
 

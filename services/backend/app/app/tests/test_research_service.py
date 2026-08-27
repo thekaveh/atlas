@@ -93,6 +93,9 @@ def test_research_admission_rejects_before_database_work():
 
 def test_cancelled_research_retains_capacity_until_cleanup_and_close_waits():
     class Conn:
+        def transaction(self):
+            return _Transaction(self)
+
         async def fetchrow(self, *_args):
             return {"id": "session-1"}
 
@@ -710,6 +713,9 @@ def test_cancel_research_does_not_clobber_terminal_status_after_stale_read():
         def __init__(self):
             self.cancel_log_inserted = False
 
+        def transaction(self):
+            return _Transaction(self)
+
         async def fetchrow(self, sql, *args):
             if "SELECT status" in sql:
                 return {"status": ResearchStatus.RUNNING.value}
@@ -740,6 +746,57 @@ def test_cancel_research_does_not_clobber_terminal_status_after_stale_read():
     assert conn.cancel_log_inserted is False
 
 
+def test_cancel_research_rolls_back_before_cancelling_task_when_log_fails():
+    class Conn:
+        def __init__(self):
+            self.in_transaction = False
+            self.rolled_back = False
+
+        def transaction(self):
+            conn = self
+
+            class Transaction(_Transaction):
+                async def __aexit__(self, exc_type, exc, tb):
+                    conn.in_transaction = False
+                    conn.rolled_back = exc_type is not None
+                    return False
+
+            return Transaction(self)
+
+        async def fetchrow(self, *_args):
+            assert self.in_transaction is True
+            return {"id": "session-1"}
+
+        async def execute(self, *_args):
+            assert self.in_transaction is True
+            raise RuntimeError("research log unavailable")
+
+        async def close(self):
+            return None
+
+    class Task:
+        cancel_called = False
+
+        def cancel(self):
+            self.cancel_called = True
+
+    conn = Conn()
+    task = Task()
+    service = object.__new__(ResearchService)
+    service._active_tasks = {"session-1": task}
+
+    async def get_conn():
+        return conn
+
+    service._get_db_connection = get_conn
+
+    with pytest.raises(RuntimeError, match="research log unavailable"):
+        asyncio.run(service.cancel_research("session-1"))
+
+    assert conn.rolled_back is True
+    assert task.cancel_called is False
+
+
 @pytest.mark.parametrize(
     "method_name",
     [
@@ -753,6 +810,9 @@ def test_research_record_access_applies_owner_predicate(method_name):
     class OwnerConn:
         def __init__(self):
             self.calls = []
+
+        def transaction(self):
+            return _Transaction(self)
 
         async def fetchrow(self, sql, *args):
             self.calls.append((sql, args))

@@ -465,7 +465,10 @@ registered consumers in the launch overview. Multiple manifests may be supplied
 by repeating `--consumer` or by setting `ATLAS_CONSUMER_MANIFEST` with
 `os.pathsep`-separated paths. List-valued model declarations merge by ordered
 union; scalar conflicts such as different `PROJECT_NAME` values fail during
-validation instead of silently last-wins.
+validation instead of silently last-wins. Duplicate YAML mapping keys at any
+depth are invalid and fail with their key name rather than being silently
+overwritten. Standard YAML merge inheritance remains supported, including an
+explicit key overriding a merged default.
 
 An `env.values` entry may be **key-gated** instead of a plain scalar, so a
 consumer can enable a paid provider only when its key is present — declaratively,

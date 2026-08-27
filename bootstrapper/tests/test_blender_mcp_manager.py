@@ -388,6 +388,15 @@ def test_start_requires_provisioned_state(tmp_path):
         m.start()
 
 
+def test_blender_group_authority_is_released_only_on_commit(tmp_path):
+    manager = _manager(tmp_path)
+    manager._untracked_pid = 4242
+
+    manager.commit_started_process()
+
+    assert manager._untracked_pid is None
+
+
 def test_start_failure_reports_log_tail(tmp_path, monkeypatch):
     m = _manager(tmp_path)
     m.state_dir.mkdir(parents=True)

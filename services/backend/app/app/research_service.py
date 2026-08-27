@@ -648,27 +648,15 @@ class ResearchService:
     ) -> bool:
         """Cancel a running research session"""
         conn = await self._get_db_connection()
-        
         try:
-            # PENDING is cancellable too: the insert(PENDING)->RUNNING update
-            # races this path, and the background task is already live in
-            # _active_tasks during that window. Make the DB update conditional
-            # so a stale read cannot overwrite COMPLETED/FAILED.
-            cancelled_row = await conn.fetchrow("""
-                UPDATE public.research_sessions
-                SET status = $1, completed_at = $2
-                WHERE id = $3 AND status IN ($4, $5)
-                  AND ($6::uuid IS NULL OR user_id = $6::uuid)
-                RETURNING id
-            """, ResearchStatus.CANCELLED.value, datetime.now(timezone.utc), session_id,
-                ResearchStatus.PENDING.value, ResearchStatus.RUNNING.value,
-                UUID(owner_user_id) if owner_user_id else None)
-
-            if not cancelled_row:
-                return False
-            
-            # Cancel background task if it exists
-            if session_id in self._active_tasks:
+            persistence = asyncio.create_task(
+                self._persist_research_cancellation(
+                    conn, session_id, owner_user_id
+                )
+            )
+            cancelled, caller_cancelled = await _join_owned_task(persistence)
+            # Cancel locally only after the durable status + audit commit.
+            if cancelled and session_id in self._active_tasks:
                 task = self._active_tasks[session_id]
                 if task is not None:
                     task.cancel()
@@ -679,15 +667,35 @@ class ResearchService:
                         cancel_requested = self._cancel_requested_tasks = set()
                     cancel_requested.add(task)
                     task.add_done_callback(cancel_requested.discard)
-
-            await conn.execute("""
-                INSERT INTO public.research_logs (session_id, step_number, step_type, message)
-                VALUES ($1, $2, $3, $4)
-            """, session_id, 98, "cancel", "Research session cancelled by user")
-            
-            return True
+            if caller_cancelled:
+                raise asyncio.CancelledError
+            return cancelled
         finally:
             await self._release_db_connection(conn)
+
+    async def _persist_research_cancellation(
+        self, conn: Any, session_id: str, owner_user_id: Optional[str]
+    ) -> bool:
+        async with conn.transaction():
+            cancelled_row = await conn.fetchrow("""
+                UPDATE public.research_sessions
+                SET status = $1, completed_at = $2
+                WHERE id = $3 AND status IN ($4, $5)
+                  AND ($6::uuid IS NULL OR user_id = $6::uuid)
+                RETURNING id
+            """, ResearchStatus.CANCELLED.value,
+                datetime.now(timezone.utc), session_id,
+                ResearchStatus.PENDING.value, ResearchStatus.RUNNING.value,
+                UUID(owner_user_id) if owner_user_id else None)
+            if not cancelled_row:
+                return False
+            await conn.execute("""
+                INSERT INTO public.research_logs
+                    (session_id, step_number, step_type, message)
+                VALUES ($1, $2, $3, $4)
+            """, session_id, 98, "cancel",
+                "Research session cancelled by user")
+        return True
 
     async def get_research_logs(
         self, session_id: str, owner_user_id: Optional[str] = None

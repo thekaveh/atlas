@@ -17,6 +17,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from rag_ingestion.clients import (
     CorpusFile,
@@ -1100,6 +1101,37 @@ def test_worker_transient_error_is_persisted_for_retry_and_reraised(
     assert completed.status == "completed"
     assert completed.phase("embed").status == "completed"
     assert completed.phase("embed").note is None
+
+
+def test_release_failure_cannot_mask_primary_transient_error(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content body"})
+    profile_path = _profiles_file(tmp_path)
+
+    class FailingReleaseStore(InMemoryIngestionStore):
+        def release_execution(self, ingestion_id, owner):
+            raise RedisConnectionError("redis unavailable during release")
+
+    class TransientEmbedder:
+        def available(self):
+            return True
+
+        async def embed(self, _texts):
+            raise httpx.ReadTimeout("primary embedding timeout")
+
+    store = FailingReleaseStore()
+    service = RagIngestionService(
+        store=store,
+        deps=Deps(embedder=TransientEmbedder(), poll_interval=0.01),
+        profiles_path=profile_path,
+    )
+    record, _ = service.submit("showcase-default")
+
+    with pytest.raises(httpx.ReadTimeout, match="primary embedding timeout"):
+        asyncio.run(service.run(record.id, retry_transient=True))
+
+    persisted = store.get(record.id)
+    assert persisted is not None
+    assert persisted.status == "pending"
 
 
 def test_worker_final_transient_attempt_records_terminal_failure(

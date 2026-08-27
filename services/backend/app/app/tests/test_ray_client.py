@@ -53,6 +53,37 @@ def test_ray_address_external_returns_https(monkeypatch):
     assert _ray_address() == "https://my-cluster.anyscale.com:8265"
 
 
+@pytest.mark.parametrize(
+    ("host", "rendered_host"),
+    (
+        ("MY-CLUSTER.ANYSCALE.COM", "MY-CLUSTER.ANYSCALE.COM"),
+        ("my-cluster.anyscale.com.", "my-cluster.anyscale.com"),
+    ),
+)
+def test_ray_address_normalizes_hosted_domain_for_tls(
+    monkeypatch, host, rendered_host
+):
+    monkeypatch.setenv("RAY_ADDRESS", f"ray://{host}:10001")
+    monkeypatch.delenv("RAY_DASHBOARD_URL", raising=False)
+
+    assert _ray_address() == f"https://{rendered_host}:8265"
+
+
+def test_ray_address_preserves_scoped_ipv6_interface_case(monkeypatch):
+    monkeypatch.setenv("RAY_ADDRESS", "ray://[fe80::1%ETH0]:10001")
+    monkeypatch.delenv("RAY_DASHBOARD_URL", raising=False)
+
+    assert _ray_address() == "http://[fe80::1%ETH0]:8265"
+
+
+@pytest.mark.parametrize("host", ("127.0.0.1", "ray-head.internal.example"))
+def test_ray_address_non_hosted_dotted_hosts_stay_http(monkeypatch, host):
+    monkeypatch.setenv("RAY_ADDRESS", f"ray://{host}:10001")
+    monkeypatch.delenv("RAY_DASHBOARD_URL", raising=False)
+
+    assert _ray_address() == f"http://{host}:8265"
+
+
 def test_ray_dashboard_url_override(monkeypatch):
     """Explicit RAY_DASHBOARD_URL wins over derivation."""
     monkeypatch.setenv("RAY_ADDRESS", "ray://ray-head:10001")

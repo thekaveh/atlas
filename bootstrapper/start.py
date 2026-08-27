@@ -2397,6 +2397,10 @@ class AtlasStarter:
 
     def commit_managed_host_processes(self) -> None:
         """Release rollback ownership after the stack has converged."""
+        for _label, manager in self._managed_hosts_started_this_run:
+            commit = getattr(manager, "commit_started_process", None)
+            if callable(commit):
+                commit()
         self._managed_hosts_started_this_run.clear()
 
     def _finalize_managed_blender_mcp(self) -> bool:

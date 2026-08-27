@@ -19,6 +19,8 @@ from pathlib import Path
 
 import yaml
 
+from services.manifests import load_yaml_strict
+
 # Canonical profile names — locked to the manifest options' `profiles:` tag
 # vocabulary (service.schema.json enum) so `option_in_profile` /
 # `validate_sources_for_profile` compose without translation.
@@ -119,7 +121,10 @@ def load_profile_bundles(path: Path | None = None) -> dict[str, ProfileBundle]:
         path = Path(__file__).resolve().parent.parent / "profiles.yml"
     if not path.exists():
         return {name: ProfileBundle() for name in CANONICAL_PROFILES}
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    try:
+        raw = load_yaml_strict(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise ProfileConfigError(f"{path}: invalid YAML — {exc}") from exc
     profiles_raw = raw.get("profiles")
     if not isinstance(profiles_raw, dict):
         raise ProfileConfigError(f"{path}: missing/invalid top-level 'profiles' map")

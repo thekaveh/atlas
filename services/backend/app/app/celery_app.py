@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import os
 import json
+import logging
 from typing import Any
 
 from celery import Celery
 from celery.signals import worker_process_init
 
 from observability import configure_celery_otel
+
+
+logger = logging.getLogger(__name__)
 
 
 def _redis_url() -> str:
@@ -107,7 +111,7 @@ def memory_execution_lease_seconds() -> int:
 
 
 def claim_memory_execution(
-    task_id: str, owner: str
+    task_id: str, owner: str, recovery_owner: str | None = None
 ) -> tuple[str, dict[str, Any] | None]:
     """Claim consolidation execution or return its completed result."""
 
@@ -126,6 +130,18 @@ def claim_memory_execution(
         current = client.get(key) or ""
         if current.startswith("done:"):
             return "done", json.loads(current.removeprefix("done:"))
+        if recovery_owner and current == f"running:{recovery_owner}":
+            refreshed = client.eval(
+                "if redis.call('GET', KEYS[1]) == ARGV[1] then "
+                "return redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3]) "
+                "else return 0 end",
+                1,
+                key,
+                f"running:{recovery_owner}",
+                f"running:{owner}",
+                memory_execution_lease_seconds(),
+            )
+            return ("claimed", None) if refreshed else ("busy", None)
         return "busy", None
     finally:
         client.close()
@@ -208,5 +224,10 @@ def get_celery_job_status(job_id: str) -> dict[str, Any]:
     if successful:
         payload["result"] = result.result
     elif failed:
-        payload["error"] = str(result.result)
+        logger.error(
+            "Celery job %s failed (error_type=%s)",
+            job_id,
+            type(result.result).__name__,
+        )
+        payload["error"] = "Background job failed"
     return payload

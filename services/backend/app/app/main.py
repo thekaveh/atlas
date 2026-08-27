@@ -3984,7 +3984,7 @@ async def memory_summarize(
 @app.get("/memory/user/{user_id}", response_model=MemoryListResponse)
 async def memory_list(
     user_id: str,
-    namespace: str = Query(default="default", min_length=1, max_length=128),
+    namespace: Optional[str] = Query(default=None, min_length=1, max_length=128),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     principal: BackendPrincipal = Depends(require_memory_principal),

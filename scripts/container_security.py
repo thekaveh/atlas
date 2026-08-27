@@ -465,7 +465,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(render_scan_matrix_json(scans))
     else:
         print(
-            f"Container security policy OK: {len(scans)} manifest image(s), "
+            f"Container security policy OK: {len(scans)} image-platform scan(s), "
             f"{len(exceptions)} active exception(s), "
             f"{len(build_exclusions)} reviewed build exclusion(s)"
         )

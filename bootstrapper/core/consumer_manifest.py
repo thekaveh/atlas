@@ -10,6 +10,7 @@ from typing import Any, Iterable, Mapping
 
 import yaml
 
+from services.manifests import load_yaml_strict
 from utils.atomic_write import assert_safe_env_assignment, env_lines
 
 try:
@@ -772,7 +773,7 @@ def _load_manifest(path: Path) -> Mapping[str, Any]:
     if not path.is_file():
         raise ConsumerManifestError(f"consumer manifest does not exist: {path}")
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        data = load_yaml_strict(path.read_text(encoding="utf-8")) or {}
     except yaml.YAMLError as exc:
         raise ConsumerManifestError(f"could not parse consumer manifest {path}: {exc}") from exc
     if not isinstance(data, Mapping):
