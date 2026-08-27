@@ -455,6 +455,66 @@ def test_changed_debian_images_apply_available_security_updates() -> None:
         assert "apt-get upgrade --yes" in dockerfile, relative
 
 
+def test_jupyter_runtime_pins_patched_python_and_node_tooling() -> None:
+    requirements = (ROOT / "services/jupyterhub/build/requirements.txt").read_text(
+        encoding="utf-8"
+    )
+    locked = (ROOT / "services/jupyterhub/build/requirements-locked.txt").read_text(
+        encoding="utf-8"
+    )
+    dockerfile = (ROOT / "services/jupyterhub/build/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+
+    for package in (
+        "brotli==1.2.0",
+        "jupyterlab==4.6.3",
+        "jupyterlab-git==0.54.0",
+        "notebook==7.6.2",
+        "wheel==0.46.2",
+    ):
+        assert package in requirements.lower()
+        assert package in locked.lower()
+    assert "ARG NPM_VERSION=11.19.1" in dockerfile
+    assert 'npm install --global "npm@${NPM_VERSION}"' in dockerfile
+
+
+def test_jupyter_scala_kernels_pin_patched_transitive_libraries() -> None:
+    dockerfile = (ROOT / "services/jupyterhub/build/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+
+    assert "com.google.protobuf:protobuf-java:3.25.5" in dockerfile
+    assert "org.lz4:lz4-java:1.8.1" in dockerfile
+    assert "find /home/jovyan/.cache/coursier" in dockerfile
+    assert "*-sources.jar" in dockerfile
+
+
+def test_jupyter_julia_runtime_uses_a_pinned_clean_environment() -> None:
+    dockerfile = (ROOT / "services/jupyterhub/build/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+
+    lockfiles = (
+        ROOT / "services/jupyterhub/build/julia/Project.toml",
+        ROOT / "services/jupyterhub/build/julia/Manifest.toml",
+    )
+    expected_fragments = (
+        "ARG JULIA_VERSION=1.12.7",
+        "9243c0b524c7f300883240a1ee5ea3916a30e070bff718acf8ccaee31a731ef2",
+        "4e7e9e776634d24835250de67cde39b0d4af15bc432eb20697e6be6c28ea69e8",
+        "COPY julia/Project.toml julia/Manifest.toml",
+        "/opt/julia/environments/v1.12/",
+        "Pkg.instantiate()",
+        "JUPYTER_DATA_DIR=/opt/conda/share/jupyter",
+        "chown -R ${NB_UID}:${NB_GID} /opt/julia",
+        "find /opt/julia -name Manifest.toml",
+    )
+
+    assert all(path.is_file() for path in lockfiles)
+    assert all(fragment in dockerfile for fragment in expected_fragments)
+
+
 def test_container_security_workflow_pins_scanner_and_failure_policy() -> None:
     _, scheduled = _workflow_sources()
 

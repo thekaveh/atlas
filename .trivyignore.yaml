@@ -2,6 +2,416 @@
 # carry a concrete risk statement, and expire; scripts.container_security rejects
 # broad, undocumented, duplicate, or stale entries before a scan can run.
 vulnerabilities:
+  - id: CVE-2025-9086
+    purls:
+      - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibCURL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-10536
+    purls:
+      - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibCURL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-11856
+    purls:
+      - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibCURL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-12064
+    purls:
+      - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibCURL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-3805
+    purls:
+      - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibCURL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-5773
+    purls:
+      - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibCURL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-6276
+    purls:
+      - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibCURL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-8286
+    purls:
+      - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibCURL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-8924
+    purls:
+      - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibCURL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-8925
+    purls:
+      - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibCURL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-8926
+    purls:
+      - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibCURL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-8927
+    purls:
+      - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibCURL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-8932
+    purls:
+      - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibCURL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-9079
+    purls:
+      - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibCURL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-9080
+    purls:
+      - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibCURL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-9545
+    purls:
+      - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibCURL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-9547
+    purls:
+      - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibCURL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-53587
+    purls:
+      - "pkg:julia/LibGit2_jll@1.9.0%2B0?uuid=e37daf67-58a4-590a-8e99-b0245dd2ffc5"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibGit2_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-5917
+    purls:
+      - "pkg:julia/LibGit2_jll@1.9.0%2B0?uuid=e37daf67-58a4-590a-8e99-b0245dd2ffc5"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibGit2_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2025-15661
+    purls:
+      - "pkg:julia/LibSSH2_jll@1.11.3%2B1?uuid=29816b5a-b9ab-546f-933c-edad1886dfa8"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibSSH2_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-55199
+    purls:
+      - "pkg:julia/LibSSH2_jll@1.11.3%2B1?uuid=29816b5a-b9ab-546f-933c-edad1886dfa8"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibSSH2_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-55200
+    purls:
+      - "pkg:julia/LibSSH2_jll@1.11.3%2B1?uuid=29816b5a-b9ab-546f-933c-edad1886dfa8"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibSSH2_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-58050
+    purls:
+      - "pkg:julia/LibSSH2_jll@1.11.3%2B1?uuid=29816b5a-b9ab-546f-933c-edad1886dfa8"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibSSH2_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-58051
+    purls:
+      - "pkg:julia/LibSSH2_jll@1.11.3%2B1?uuid=29816b5a-b9ab-546f-933c-edad1886dfa8"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibSSH2_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-66032
+    purls:
+      - "pkg:julia/LibSSH2_jll@1.11.3%2B1?uuid=29816b5a-b9ab-546f-933c-edad1886dfa8"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibSSH2_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-66033
+    purls:
+      - "pkg:julia/LibSSH2_jll@1.11.3%2B1?uuid=29816b5a-b9ab-546f-933c-edad1886dfa8"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibSSH2_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-66034
+    purls:
+      - "pkg:julia/LibSSH2_jll@1.11.3%2B1?uuid=29816b5a-b9ab-546f-933c-edad1886dfa8"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibSSH2_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-66035
+    purls:
+      - "pkg:julia/LibSSH2_jll@1.11.3%2B1?uuid=29816b5a-b9ab-546f-933c-edad1886dfa8"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      LibSSH2_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-34180
+    purls:
+      - "pkg:julia/OpenSSL_jll@3.5.6%2B0?uuid=458c3c95-2e84-50aa-8efc-19380b2a3a95"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      OpenSSL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-34181
+    purls:
+      - "pkg:julia/OpenSSL_jll@3.5.6%2B0?uuid=458c3c95-2e84-50aa-8efc-19380b2a3a95"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      OpenSSL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-34182
+    purls:
+      - "pkg:julia/OpenSSL_jll@3.5.6%2B0?uuid=458c3c95-2e84-50aa-8efc-19380b2a3a95"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      OpenSSL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-34183
+    purls:
+      - "pkg:julia/OpenSSL_jll@3.5.6%2B0?uuid=458c3c95-2e84-50aa-8efc-19380b2a3a95"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      OpenSSL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-42764
+    purls:
+      - "pkg:julia/OpenSSL_jll@3.5.6%2B0?uuid=458c3c95-2e84-50aa-8efc-19380b2a3a95"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      OpenSSL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-45445
+    purls:
+      - "pkg:julia/OpenSSL_jll@3.5.6%2B0?uuid=458c3c95-2e84-50aa-8efc-19380b2a3a95"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      OpenSSL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-45447
+    purls:
+      - "pkg:julia/OpenSSL_jll@3.5.6%2B0?uuid=458c3c95-2e84-50aa-8efc-19380b2a3a95"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      OpenSSL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-7383
+    purls:
+      - "pkg:julia/OpenSSL_jll@3.5.6%2B0?uuid=458c3c95-2e84-50aa-8efc-19380b2a3a95"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      OpenSSL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-9076
+    purls:
+      - "pkg:julia/OpenSSL_jll@3.5.6%2B0?uuid=458c3c95-2e84-50aa-8efc-19380b2a3a95"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      OpenSSL_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2025-6021
+    purls:
+      - "pkg:julia/XML2_jll@2.13.9%2B0?uuid=02c8fc9c-b97f-50b9-bbe4-9be30ff0a78a"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      XML2_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-6732
+    purls:
+      - "pkg:julia/XML2_jll@2.13.9%2B0?uuid=02c8fc9c-b97f-50b9-bbe4-9be30ff0a78a"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      XML2_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+  - id: CVE-2026-27135
+    purls:
+      - "pkg:julia/nghttp2_jll@1.64.0%2B1?uuid=8e850ede-7688-5339-a07c-302acd2aaf8d"
+    expired_at: 2026-09-30
+    statement: >-
+      Julia 1.12.7 is the current stable runtime, and its registry resolves
+      nghttp2_jll to this exact newest-compatible build; the scanner's patched
+      build is not compatible with the stable runtime. The token-authenticated
+      kernel runs as unprivileged jovyan with no public Julia service endpoint.
+      Remove this exception when Julia publishes a compatible patched JLL.
+
+  - id: CVE-2026-69247
+    purls:
+      - "pkg:pypi/cryptography@49.0.0"
+    expired_at: 2026-09-30
+    statement: >-
+      MLflow 3.15.1 caps cryptography below 50, while this finding requires
+      cryptography 50. Atlas exposes no PKCS#7 envelope-decryption API in the
+      notebook service, so the affected unauthenticated decrypt path is not
+      reachable. Remove this exception when MLflow permits cryptography 50.
   - id: CVE-2026-14456
     purls:
       - "pkg:apk/alpine/libcrypto3@3.5.7-r0?arch=x86_64&distro=3.24.1"

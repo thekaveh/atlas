@@ -76,6 +76,14 @@ networkx>=3.3
 # Jupyter Extensions
 ipywidgets>=8.1.0
 jupyter-server-proxy>=4.1.0
+# The pinned upstream Python 3.11 image predates fixes now required by the
+# final-image vulnerability gate. Keep these direct so the image does not
+# silently fall back to the older base-image copies.
+brotli==1.2.0
+jupyterlab==4.6.3
+jupyterlab-git==0.54.0
+notebook==7.6.2
+wheel==0.46.2
 
 # Deep Learning — PyTorch core
 torch==2.13.0
