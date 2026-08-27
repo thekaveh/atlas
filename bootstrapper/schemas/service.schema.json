@@ -124,7 +124,7 @@
           },
           "default": {
             "type": "string",
-            "description": "Default image reference (e.g. 'ollama/ollama:latest')."
+            "description": "Default image reference pinned to an exact release tag or immutable sha256 digest (e.g. 'ollama/ollama:0.18.3')."
           },
           "container": {
             "type": "string",

@@ -50,6 +50,73 @@ def _free_port() -> int:
         return listener.getsockname()[1]
 
 
+def test_remove_preserves_state_when_live_owner_survives_failed_stop(
+    tmp_path, monkeypatch
+):
+    manager = ManagedHostManager(_spec(), tmp_path)
+    manager.pid_file.write_text("999999\n", encoding="utf-8")
+
+    class OwnedProcess:
+        pid = 4242
+
+        def poll(self):
+            return None
+
+    owned = OwnedProcess()
+    manager._owned_process = owned
+    manager._owned_group_pid = owned.pid
+    monkeypatch.setattr(manager, "_signal", lambda *_args: False)
+    monkeypatch.setattr(
+        manager,
+        "_managed_process_alive",
+        lambda pid: pid == owned.pid,
+    )
+
+    with pytest.raises(ManagedHostError, match="refusing to remove"):
+        manager.remove()
+
+    assert manager.state_dir.exists()
+    assert manager._owned_process is owned
+
+
+def test_remove_preserves_leaderless_group_until_sweep_succeeds(
+    tmp_path, monkeypatch
+):
+    manager = ManagedHostManager(_spec(), tmp_path)
+
+    class ExitedProcess:
+        pid = 4242
+
+        def poll(self):
+            return 0
+
+    manager._owned_process = ExitedProcess()
+    manager._owned_group_pid = 4242
+    monkeypatch.setattr(manager, "_pid_alive", lambda _pid: False)
+    monkeypatch.setattr(manager, "_group_survives", lambda _pid: True)
+    sweep_succeeds = False
+    monkeypatch.setattr(
+        manager,
+        "_sweep_orphaned_group",
+        lambda _pid: sweep_succeeds,
+    )
+    monkeypatch.setattr(
+        manager,
+        "_managed_process_alive",
+        lambda pid: pid == manager._owned_group_pid,
+    )
+
+    with pytest.raises(ManagedHostError, match="refusing to remove"):
+        manager.remove()
+    assert manager.state_dir.exists()
+    assert manager._owned_group_pid == 4242
+
+    sweep_succeeds = True
+    manager.remove()
+    assert not manager.state_dir.exists()
+    assert manager._owned_group_pid is None
+
+
 def test_workdir_relative_executable_passes_preflight_and_launches(tmp_path):
     workdir = tmp_path / "app"
     workdir.mkdir()

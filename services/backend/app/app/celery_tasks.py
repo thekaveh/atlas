@@ -8,7 +8,13 @@ from uuid import uuid4
 import httpx
 from celery.utils.time import get_exponential_backoff_interval
 
-from celery_app import celery_app
+from celery_app import (
+    celery_app,
+    claim_memory_execution,
+    complete_memory_execution,
+    memory_execution_lease_seconds,
+    release_memory_execution,
+)
 from db_connection import close_pg_pools
 from memory_service import MemoryService
 
@@ -43,15 +49,56 @@ def run_memory_consolidate(user_id: Optional[str]) -> dict[str, Any]:
     return asyncio.run(_run_memory_consolidate(user_id))
 
 
-@celery_app.task(
-    name="memory_consolidate",
-    autoretry_for=TRANSIENT_EXCEPTIONS,
-    retry_backoff=True,
-    retry_jitter=True,
-    retry_kwargs={"max_retries": 3},
-)
-def memory_consolidate_task(user_id: Optional[str] = None) -> dict[str, Any]:
-    return run_memory_consolidate(user_id)
+def _release_memory_execution_safely(task_id: str, owner: str) -> None:
+    try:
+        release_memory_execution(task_id, owner)
+    except Exception:
+        logger.exception("Memory consolidation execution lease release failed")
+
+
+@celery_app.task(bind=True, name="memory_consolidate", max_retries=None)
+def memory_consolidate_task(
+    self,
+    user_id: Optional[str] = None,
+    idempotency_key: Optional[str] = None,
+    transient_attempt: int = 0,
+) -> dict[str, Any]:
+    if idempotency_key is None:
+        return run_memory_consolidate(user_id)
+    owner = f"{self.request.id or 'celery'}:{uuid4()}"
+    state, completed = claim_memory_execution(idempotency_key, owner)
+    if state == "done":
+        assert completed is not None
+        return completed
+    if state == "busy":
+        raise self.retry(countdown=memory_execution_lease_seconds())
+    try:
+        result = run_memory_consolidate(user_id)
+    except TRANSIENT_EXCEPTIONS as exc:
+        _release_memory_execution_safely(idempotency_key, owner)
+        if transient_attempt >= 3:
+            raise
+        countdown = get_exponential_backoff_interval(
+            factor=1,
+            retries=transient_attempt,
+            maximum=60,
+            full_jitter=True,
+        )
+        raise self.retry(
+            exc=exc,
+            countdown=countdown,
+            kwargs={
+                "user_id": user_id,
+                "idempotency_key": idempotency_key,
+                "transient_attempt": transient_attempt + 1,
+            },
+        )
+    except Exception:
+        _release_memory_execution_safely(idempotency_key, owner)
+        raise
+    if not complete_memory_execution(idempotency_key, owner, result):
+        raise RuntimeError("Memory consolidation execution lease was lost")
+    return result
 
 
 @celery_app.task(

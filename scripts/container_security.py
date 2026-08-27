@@ -8,6 +8,7 @@ from datetime import date
 import json
 from pathlib import Path
 import re
+import sys
 from typing import Sequence
 
 import yaml
@@ -28,6 +29,19 @@ _COMPOSE_IMAGE_RE = re.compile(
     r"^\$\{(?P<var>[A-Za-z_][A-Za-z0-9_]*)(?:(?::-|-)(?P<default>.+))?\}$"
 )
 _DEFAULT_SCAN_PLATFORMS = ("linux/amd64", "linux/arm64")
+_PINNED_IMAGE_TAGS = (
+    re.compile(r"^\d+\.\d+\.\d+(?:\.\d+)?(?:$|[-+._][A-Za-z0-9][A-Za-z0-9.+_-]*)$"),
+    re.compile(r"^v\d+\.\d+\.\d+(?:$|[-+._][A-Za-z0-9][A-Za-z0-9.+_-]*)$"),
+    re.compile(r"^RELEASE\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$"),
+    re.compile(r"^python-\d+\.\d+\.\d+(?:$|[-+._][A-Za-z0-9][A-Za-z0-9.+_-]*)$"),
+    re.compile(r"^\d{2}\.\d{2}-py\d+$"),
+    re.compile(r"^.+[-_]v?\d+\.\d+\.\d+$"),
+)
+_DIGEST_PIN = re.compile(r"@sha256:[0-9a-fA-F]{64}$")
+_EXACT_IMAGE_RELEASES = (
+    re.compile(r"^postgres:\d+\.\d+-alpine$"),
+    re.compile(r"^trinodb/trino:\d+$"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +72,28 @@ class ComposeBuild:
 def load_image_inventory(services_dir: Path) -> tuple[str, ...]:
     """Return the sorted, de-duplicated defaults owned by service manifests."""
 
-    return load_manifest_image_refs(services_dir)
+    images = load_manifest_image_refs(services_dir)
+    floating = [image for image in images if not image_reference_is_pinned(image)]
+    if floating:
+        raise ValueError(
+            "Manifest image defaults contain floating or untagged references: "
+            + ", ".join(floating)
+        )
+    return images
+
+
+def image_reference_is_pinned(image: str) -> bool:
+    """Return whether an image uses an immutable digest or exact release tag."""
+
+    if _DIGEST_PIN.search(image):
+        return True
+    final_component = image.rsplit("/", 1)[-1]
+    if ":" not in final_component:
+        return False
+    tag = final_component.rsplit(":", 1)[1]
+    return any(pattern.match(tag) for pattern in _PINNED_IMAGE_TAGS) or any(
+        pattern.match(image) for pattern in _EXACT_IMAGE_RELEASES
+    )
 
 
 def _manifest_image_variables(services_dir: Path) -> dict[str, str]:
@@ -76,29 +111,69 @@ def load_compose_image_refs(services_dir: Path) -> tuple[str, ...]:
     variables = _manifest_image_variables(services_dir)
     refs: set[str] = set()
     for compose_path in sorted(services_dir.glob("*/compose.yml")):
-        document = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
-        for name, service in (document.get("services") or {}).items():
-            if not isinstance(service, dict) or "build" in service:
-                continue
-            image = service.get("image")
-            if not isinstance(image, str) or not image.strip():
-                raise ValueError(f"{compose_path}: service {name} lacks a valid image")
-            match = _COMPOSE_IMAGE_RE.fullmatch(image.strip())
-            if match:
-                resolved = match.group("default") or variables.get(match.group("var"))
-                if resolved is None:
-                    raise ValueError(
-                        f"{compose_path}: service {name} image variable "
-                        f"{match.group('var')} has no manifest default"
-                    )
-                refs.add(resolved)
-            elif "${" not in image:
-                refs.add(image.strip())
-            else:
-                raise ValueError(
-                    f"{compose_path}: service {name} uses an unsupported image expression"
-                )
+        refs.update(_compose_image_refs(compose_path, variables))
     return tuple(sorted(refs))
+
+
+def _resolve_compose_image(image: str, variables: dict[str, str], *, owner: str) -> str:
+    match = _COMPOSE_IMAGE_RE.fullmatch(image.strip())
+    if match:
+        resolved = match.group("default") or variables.get(match.group("var"))
+        if resolved is None:
+            raise ValueError(
+                f"{owner} image variable {match.group('var')} has no manifest default"
+            )
+        return resolved
+    if "${" not in image:
+        return image.strip()
+    raise ValueError(f"{owner} uses an unsupported image expression")
+
+
+def _compose_image_refs(
+    compose_path: Path, variables: dict[str, str]
+) -> set[str]:
+    refs: set[str] = set()
+    document = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
+    for name, service in (document.get("services") or {}).items():
+        if not isinstance(service, dict) or "build" in service:
+            continue
+        image = service.get("image")
+        if not isinstance(image, str) or not image.strip():
+            raise ValueError(f"{compose_path}: service {name} lacks a valid image")
+        refs.add(
+            _resolve_compose_image(
+                image, variables, owner=f"{compose_path}: service {name}"
+            )
+        )
+    return refs
+
+
+def _validate_build_image_args(
+    compose_path: Path,
+    service_name: str,
+    build: dict,
+    variables: dict[str, str],
+) -> None:
+    args = build.get("args") or {}
+    if not isinstance(args, dict):
+        raise ValueError(f"{compose_path}: service {service_name} build.args must be a mapping")
+    for name, value in args.items():
+        if not str(name).endswith("IMAGE"):
+            continue
+        if not isinstance(value, str):
+            raise ValueError(
+                f"{compose_path}: service {service_name} build arg {name} must be a string"
+            )
+        resolved = _resolve_compose_image(
+            value,
+            variables,
+            owner=f"{compose_path}: service {service_name} build arg {name}",
+        )
+        if not image_reference_is_pinned(resolved):
+            raise ValueError(
+                f"{compose_path}: service {service_name} build arg {name} "
+                f"contains floating or untagged image {resolved!r}"
+            )
 
 
 def load_image_scans(services_dir: Path) -> tuple[ImageScan, ...]:
@@ -128,20 +203,77 @@ def load_image_scans(services_dir: Path) -> tuple[ImageScan, ...]:
     )
 
 
+def load_changed_image_scans(
+    services_dir: Path, changed_paths: Sequence[str]
+) -> tuple[ImageScan, ...]:
+    """Return scans owned by changed service manifests or Compose fragments."""
+
+    selected_manifest_services, changed_compose_services = _changed_services(
+        changed_paths
+    )
+    if not selected_manifest_services and not changed_compose_services:
+        return ()
+
+    selected_images = _selected_manifest_images(
+        services_dir, selected_manifest_services
+    )
+    variables = _manifest_image_variables(services_dir)
+    for service in changed_compose_services:
+        compose_path = services_dir / service / "compose.yml"
+        if compose_path.is_file():
+            selected_images.update(_compose_image_refs(compose_path, variables))
+    return tuple(
+        scan for scan in load_image_scans(services_dir) if scan.image in selected_images
+    )
+
+
+def _changed_services(
+    changed_paths: Sequence[str],
+) -> tuple[set[str], set[str]]:
+    selected_manifest_services: set[str] = set()
+    changed_compose_services: set[str] = set()
+    for raw_path in changed_paths:
+        parts = Path(raw_path.strip()).parts
+        if len(parts) < 3 or parts[0] != "services":
+            continue
+        if parts[2] == "service.yml":
+            selected_manifest_services.add(parts[1])
+        elif parts[2] == "compose.yml":
+            changed_compose_services.add(parts[1])
+    return selected_manifest_services, changed_compose_services
+
+
+def _selected_manifest_images(
+    services_dir: Path, selected_services: set[str]
+) -> set[str]:
+    selected_images: set[str] = set()
+    for service in selected_services:
+        path = services_dir / service / "service.yml"
+        if not path.is_file():
+            continue
+        document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        selected_images.update(row["default"] for row in document.get("images", []))
+    return selected_images
+
+
 def load_compose_builds(services_dir: Path) -> tuple[ComposeBuild, ...]:
     """Derive unique final-image build targets from every Compose fragment."""
 
     root = services_dir.parent.resolve()
+    variables = _manifest_image_variables(services_dir)
     builds: dict[str, ComposeBuild] = {}
     for compose_path in sorted(services_dir.glob("*/compose.yml")):
         document = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
-        for service in (document.get("services") or {}).values():
+        for service_name, service in (document.get("services") or {}).items():
             if not isinstance(service, dict) or "build" not in service:
                 continue
             build = service["build"]
             if isinstance(build, str):
                 context, dockerfile = build, "Dockerfile"
             else:
+                _validate_build_image_args(
+                    compose_path, service_name, build, variables
+                )
                 context = build.get("context", ".")
                 dockerfile = build.get("dockerfile", "Dockerfile")
             if "://" not in context:
@@ -315,11 +447,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=ROOT / ".container-scan-exclusions.yml",
     )
     parser.add_argument("--images-json", action="store_true")
+    parser.add_argument(
+        "--changed-paths-stdin",
+        action="store_true",
+        help="Limit image output to service.yml/compose.yml owners read from stdin.",
+    )
     args = parser.parse_args(argv)
 
     exceptions = load_exceptions(args.ignorefile)
     build_exclusions = load_build_exclusions(args.build_exclusions)
-    scans = load_image_scans(args.services_dir)
+    scans = (
+        load_changed_image_scans(args.services_dir, sys.stdin.read().splitlines())
+        if args.changed_paths_stdin
+        else load_image_scans(args.services_dir)
+    )
     if args.images_json:
         print(render_scan_matrix_json(scans))
     else:

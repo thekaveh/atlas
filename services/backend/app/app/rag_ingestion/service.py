@@ -22,7 +22,7 @@ import os
 import re
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -61,6 +61,7 @@ async def _cancel_pending_task(task: asyncio.Task[Any]) -> None:
 
 
 logger = logging.getLogger(__name__)
+_DISPATCH_LEASE_SECONDS = 30
 
 
 def weaviate_class_name(collection_prefix: str, profile_name: str) -> str:
@@ -243,7 +244,7 @@ class RagIngestionService:
         return self.store.create_if_absent(record)
 
     def mark_dispatch_failed(
-        self, ingestion_id: str, message: str
+        self, ingestion_id: str, message: str, owner: Optional[str] = None
     ) -> Optional[IngestionRecord]:
         error = IngestionError(phase="dispatch", message=message)
         return self.store.fail_pending_dispatch(
@@ -256,8 +257,21 @@ class RagIngestionService:
                 "http_status": error.http_status,
                 "body": error.body,
             },
-            _now_iso(),
+            (_now_iso(), owner),
         )
+
+    def claim_dispatch(self, ingestion_id: str, owner: str) -> bool:
+        now = datetime.now(timezone.utc)
+        stale_before = now - timedelta(seconds=_DISPATCH_LEASE_SECONDS)
+        return self.store.claim_dispatch(
+            ingestion_id,
+            (owner, now.isoformat(), stale_before.isoformat()),
+        )
+
+    def mark_dispatched(
+        self, ingestion_id: str, job_id: Optional[str], owner: str
+    ) -> Optional[IngestionRecord]:
+        return self.store.mark_dispatched(ingestion_id, (job_id, owner), _now_iso())
 
     # ── run (orchestrate) ────────────────────────────────────────────
     async def _refresh_cancel(self, record: IngestionRecord) -> None:

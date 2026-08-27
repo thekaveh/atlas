@@ -68,6 +68,13 @@ class MemoryConsolidateRequest(BaseModel):
         default=None,
         description="User ID to consolidate. If None, consolidates all users."
     )
+    idempotency_key: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=96,
+        pattern=r"^[A-Za-z0-9_-]+$",
+        description="Stable retry key for asynchronous consolidation dispatch.",
+    )
 
     @field_validator("user_id")
     @classmethod

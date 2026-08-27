@@ -54,6 +54,8 @@ from typing import Any, Mapping, Optional
 
 from utils.atomic_write import atomic_write_text
 from services import (
+    clear_owned_process_tracking,
+    clear_owned_group_if_reaped,
     LaunchCompensation,
     add_lifecycle_preflight,
     acquire_lifecycle_lock,
@@ -61,16 +63,20 @@ from services import (
     await_spawned_process_readiness,
     compensate_failed_launch,
     lifecycle_support_error,
+    live_owned_process_pid,
     managed_host_advertised_host,
     process_start_identity,
     process_group_owns_tcp_listener,
+    reap_owned_process,
     refuse_occupied_port,
     refuse_untrusted_tracked_pid,
     resolve_host_executable,
+    select_managed_stop_pid,
     require_lifecycle_support,
     raise_launch_recording_failure,
     remove_state_directory,
     tracked_process_may_survive,
+    tracked_pid_is_stranger,
 )
 
 _OK = "ok"
@@ -338,6 +344,8 @@ class ManagedHostManager:
             self.state_dir.parent / f".{self.state_dir.name}.lifecycle.lock"
         )
         self._untracked_pid: Optional[int] = None
+        self._owned_process: Optional[subprocess.Popen] = None
+        self._owned_group_pid: Optional[int] = None
 
     # ── resolution ───────────────────────────────────────────────────
     @property
@@ -580,6 +588,12 @@ class ManagedHostManager:
             )
             if outcome.terminated:
                 self._untracked_pid = None
+                self._owned_process = reap_owned_process(
+                    self._owned_process,
+                    process.pid,
+                    _STOP_POLL_ROUNDS * _STOP_POLL_SECONDS,
+                )
+                clear_owned_group_if_reaped(self)
             raise_launch_recording_failure(
                 exc,
                 process.pid,
@@ -639,7 +653,7 @@ class ManagedHostManager:
         argv = self._resolved_command()
         try:
             with open(self.log_file, "ab") as log_handle:
-                return subprocess.Popen(  # noqa: S603 - fixed argv, never shell=True
+                process = subprocess.Popen(  # noqa: S603 - fixed argv, never shell=True
                     argv,
                     cwd=str(self.spec.workdir) if self.spec.workdir else None,
                     env=self._child_env(),
@@ -647,6 +661,9 @@ class ManagedHostManager:
                     stderr=subprocess.STDOUT,
                     start_new_session=True,
                 )
+                self._owned_process = process
+                self._owned_group_pid = process.pid
+                return process
         except (OSError, ManagedHostError) as exc:
             raise ManagedHostError(f"could not launch {self.spec.name!r}: {exc}") from exc
 
@@ -678,14 +695,13 @@ class ManagedHostManager:
             return self._stop_locked()
 
     def _stop_locked(self) -> bool:
-        pid = self._read_pid() or self._untracked_pid
+        pid, owned_pid, alive = select_managed_stop_pid(self)
         if pid is None:
             _pid, evidence_may_survive = tracked_process_may_survive(self)
             if evidence_may_survive:
                 return False
-            self._clear_process_tracking()
-            return True
-        if not self._pid_alive(pid):
+            return self._clear_process_tracking()
+        if not alive:
             return self._finish_leaderless_stop(pid)
         # PID-reuse guard (#947). Every built-in manager uses the same recorded
         # start-time identity (see _pid_is_stranger). A crashed process
@@ -695,7 +711,7 @@ class ManagedHostManager:
         # here is worse than in the built-in managers, because `_signal`
         # escalates to `os.killpg`: it would take out the stranger's whole
         # process group. Preserve the evidence and refuse to signal.
-        if self._pid_is_stranger(pid):
+        if tracked_pid_is_stranger(self, pid, owned_pid):
             # Ownership is mismatched or unknowable. Preserve the pid file so
             # an operator can inspect/retry; never erase the only evidence.
             return False
@@ -709,16 +725,23 @@ class ManagedHostManager:
         # a failed stop KEEPS the pid file so the process is not orphan-tracked
         return False
 
-    def _clear_process_tracking(self) -> None:
-        self.pid_file.unlink(missing_ok=True)
-        self._untracked_pid = None
+    def _clear_process_tracking(self) -> bool:
+        return clear_owned_process_tracking(
+            self, _STOP_POLL_ROUNDS * _STOP_POLL_SECONDS
+        )
 
     def _finish_leaderless_stop(self, pid: int) -> bool:
         if self._group_survives(pid):
-            if self._untracked_pid != pid or not self._sweep_orphaned_group(pid):
+            owned_pid = live_owned_process_pid(self)
+            if pid not in {
+                self._untracked_pid,
+                owned_pid,
+                self._owned_group_pid,
+            }:
                 return False
-        self._clear_process_tracking()
-        return True
+            if not self._sweep_orphaned_group(pid):
+                return False
+        return self._clear_process_tracking()
 
     @staticmethod
     def _sweep_orphaned_group(pid: int) -> bool:
@@ -788,13 +811,12 @@ class ManagedHostManager:
     def _await_exit(self, pid: int) -> bool:
         for _ in range(_STOP_POLL_ROUNDS):
             if not self._managed_process_alive(pid):
-                self.pid_file.unlink(missing_ok=True)
-                self._untracked_pid = None
-                return True
+                return self._clear_process_tracking()
             time.sleep(_STOP_POLL_SECONDS)
         return False
 
     def status(self) -> HostProcessStatus:
+        live_owned_process_pid(self)
         pid = self._read_pid()
         # A pidfile + kill-0 probe alone trusts a RECYCLED PID: after a reboot
         # or crash another process can inherit the number, and kill-0 then

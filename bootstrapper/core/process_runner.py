@@ -136,6 +136,19 @@ def _join_capture_after_failure(capture: _Capture) -> None:
         _report_capture_join_failure(join_error)
 
 
+def _close_process_pipes(process: subprocess.Popen[bytes]) -> None:
+    """Close capture handles after their reader threads have finished."""
+
+    for stream in (process.stdout, process.stderr):
+        close = getattr(stream, "close", None)
+        if close is None:
+            continue
+        try:
+            close()
+        except (OSError, ValueError):
+            pass
+
+
 @contextmanager
 def cleanup_active_processes_on_sigterm() -> Iterator[None]:
     """Make a main-thread owner clean worker-launched groups on SIGTERM/SIGHUP."""
@@ -551,21 +564,24 @@ def _terminate_unregistered(
     Best-effort and never raises: it runs on an exception path where the
     original exception must survive.
     """
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        if process.poll() is not None:
-            return
-        try:
-            os.killpg(process.pid, sig)
-        except OSError:
-            try:
-                process.send_signal(sig)
-            except OSError:
+    try:
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            if process.poll() is not None:
                 return
-        try:
-            process.wait(timeout=max(0.0, termination_grace_seconds))
-            return
-        except (subprocess.TimeoutExpired, OSError):
-            continue
+            try:
+                os.killpg(process.pid, sig)
+            except OSError:
+                try:
+                    process.send_signal(sig)
+                except OSError:
+                    return
+            try:
+                process.wait(timeout=max(0.0, termination_grace_seconds))
+                return
+            except (subprocess.TimeoutExpired, OSError):
+                continue
+    finally:
+        _close_process_pipes(process)
 
 
 def _wait_for_completion(
@@ -669,5 +685,8 @@ def run_with_deadline(
             raise
         else:
             capture.join()
+        finally:
+            if process is not None:
+                _close_process_pipes(process)
     assert process is not None
     return capture.completed(command, process.returncode)

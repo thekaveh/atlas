@@ -432,6 +432,8 @@ def test_cancelled_request_holds_slot_until_transform_thread_exits(
             )
             assert await asyncio.to_thread(started.wait, 2)
             first.cancel()
+            await asyncio.sleep(0)
+            first.cancel()
             await asyncio.sleep(0.05)
 
             second = await client.post(

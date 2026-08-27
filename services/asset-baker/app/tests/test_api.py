@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import threading
 
+import httpx2 as httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -445,6 +448,51 @@ def test_worker_busy_ref_does_not_fetch_storage(monkeypatch, tmp_path):
     )
 
     assert response.status_code == 429
+
+
+def test_cancelled_request_holds_slot_until_bake_thread_exits(
+    monkeypatch, tmp_path
+) -> None:
+    from asset_baker import api
+
+    started = threading.Event()
+    release = threading.Event()
+    calls = 0
+
+    def blocking_process(_data, _params, *, storage=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            started.set()
+            assert release.wait(timeout=5)
+        raise api.HTTPException(status_code=418, detail="probe complete")
+
+    monkeypatch.setattr(api.ArtifactStorage, "fetch", lambda *_args: b"raw")
+    monkeypatch.setattr(api, "_process_bytes", blocking_process)
+    monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
+    app = api.create_app(api_token=_TOKEN)
+
+    async def scenario() -> int:
+        transport = httpx.ASGITransport(app=app)
+        headers = {"Authorization": f"Bearer {_TOKEN}"}
+        payload = {"input": {"bucket": "raw-assets", "key": "mesh.glb"}, "params": {}}
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://asset-baker.test",
+            headers=headers,
+        ) as client:
+            first = asyncio.create_task(client.post("/assets/bake/ref", json=payload))
+            assert await asyncio.to_thread(started.wait, 2)
+            first.cancel()
+            await asyncio.sleep(0.05)
+            second = await client.post("/assets/bake/ref", json=payload)
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await first
+            return second.status_code
+
+    assert asyncio.run(scenario()) == 429
+    assert calls == 1
 
 
 def test_bake_upload_invalid_form_param_returns_422() -> None:

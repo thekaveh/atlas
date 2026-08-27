@@ -11,11 +11,30 @@ message rather than a 500.
 """
 
 import os
+from dataclasses import dataclass
 from typing import Optional
 
 
 class RayDisabledError(Exception):
     """Raised by RayClient methods when Ray is not configured."""
+
+
+class RayJobAlreadyExistsError(RuntimeError):
+    """Raised when a caller-provided Ray submission ID already exists."""
+
+    def __init__(self, submission_id: str):
+        self.submission_id = submission_id
+        super().__init__(f"Ray job {submission_id!r} already exists")
+
+
+@dataclass(frozen=True, slots=True)
+class RayJobSubmission:
+    """One fully reconcilable Ray job-submission request."""
+
+    entrypoint: str
+    submission_id: str
+    runtime_env: dict | None = None
+    metadata: dict | None = None
 
 
 def _ray_address() -> Optional[str]:
@@ -62,10 +81,21 @@ class RayClient:
             self._client = JobSubmissionClient(self._addr)
         return self._client
 
-    def submit_job(self, entrypoint: str, runtime_env: dict | None = None, metadata: dict | None = None) -> str:
-        return self._ensure_client().submit_job(
-            entrypoint=entrypoint, runtime_env=runtime_env or {}, metadata=metadata or {}
-        )
+    def submit_job(self, submission: RayJobSubmission) -> str:
+        client = self._ensure_client()
+        try:
+            return client.submit_job(
+                entrypoint=submission.entrypoint,
+                runtime_env=submission.runtime_env or {},
+                metadata=submission.metadata or {},
+                submission_id=submission.submission_id,
+            )
+        except RuntimeError:
+            try:
+                client.get_job_info(submission.submission_id)
+            except Exception:
+                raise
+            raise RayJobAlreadyExistsError(submission.submission_id) from None
 
     def get_job_status(self, job_id: str) -> dict:
         client = self._ensure_client()

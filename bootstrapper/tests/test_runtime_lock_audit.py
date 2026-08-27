@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from copy import deepcopy
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -36,6 +38,101 @@ def _inline_docker_pins(dockerfile: Path) -> set[str]:
     }
 
 
+_PIP_OPTIONS_WITH_VALUES = {
+    "--cache-dir",
+    "--cert",
+    "--client-cert",
+    "--extra-index-url",
+    "--find-links",
+    "--index-url",
+    "--proxy",
+    "--retries",
+    "--root-user-action",
+    "--timeout",
+    "--trusted-host",
+}
+_EXACT_PIP_PIN = re.compile(
+    r"^[A-Za-z0-9_.-]+(?:\[[A-Za-z0-9_.-]+(?:,[A-Za-z0-9_.-]+)*\])?"
+    r"==[A-Za-z0-9](?:[A-Za-z0-9_.+-]*[A-Za-z0-9])?$"
+)
+
+
+def _pip_operand(
+    tokens: list[str], index: int
+) -> tuple[str, str | None, int]:
+    token = tokens[index]
+    paired = {
+        "-c": "constraint",
+        "--constraint": "constraint",
+        "-r": "requirement",
+        "--requirement": "requirement",
+        "-e": "editable",
+        "--editable": "editable",
+    }
+    if token in paired:
+        value = tokens[index + 1] if index + 1 < len(tokens) else token
+        return paired[token], value, index + 2
+    if token.startswith("--constraint=") or token.startswith("-c"):
+        return "constraint", token, index + 1
+    if token.startswith("--requirement=") or token.startswith("-r"):
+        return "requirement", token, index + 1
+    if token.startswith("--editable=") or token.startswith("-e"):
+        return "editable", token, index + 1
+    if token in _PIP_OPTIONS_WITH_VALUES:
+        return "option", None, index + 2
+    return "token", token, index + 1
+
+
+@dataclass
+class _PipInstallState:
+    requirements: list[str] = field(default_factory=list)
+    violations: set[str] = field(default_factory=set)
+    has_constraint: bool = False
+    requires_hashes: bool = False
+
+
+def _record_pip_operand(
+    state: _PipInstallState, kind: str, value: str | None
+) -> None:
+    if kind == "constraint":
+        state.has_constraint = True
+    elif kind == "requirement" and value is not None:
+        state.requirements.append(value)
+    elif kind == "editable" and value is not None:
+        state.violations.add(value)
+    elif value == "--require-hashes":
+        state.requires_hashes = True
+    elif value is not None and not value.startswith("-"):
+        if not _EXACT_PIP_PIN.fullmatch(value):
+            state.violations.add(value)
+
+
+def _pip_install_violations(tokens: list[str]) -> set[str]:
+    state = _PipInstallState()
+    index = 0
+    while index < len(tokens):
+        kind, value, index = _pip_operand(tokens, index)
+        _record_pip_operand(state, kind, value)
+    if state.requirements and not (
+        state.has_constraint or state.requires_hashes
+    ):
+        state.violations.update(state.requirements)
+    return state.violations
+
+
+def _inline_docker_install_violations(dockerfile: Path) -> set[str]:
+    """Return direct pip operands that are not lock-owned exact pins."""
+
+    text = dockerfile.read_text(encoding="utf-8").replace("\\\n", " ")
+    commands = re.findall(r"^\s*RUN\s+([^\n]*)", text, flags=re.MULTILINE)
+    violations: set[str] = set()
+    for command in commands:
+        for match in re.finditer(r"\bpip\d*\s+install\s+", command):
+            tail = re.split(r"\s*(?:&&|\|\||;)\s*", command[match.end() :], 1)[0]
+            violations.update(_pip_install_violations(shlex.split(tail)))
+    return violations
+
+
 @pytest.mark.parametrize(
     "command",
     [
@@ -61,6 +158,36 @@ def test_inline_docker_pin_discovery_normalizes_pep508_extras(tmp_path: Path) ->
     )
 
     assert _inline_docker_pins(dockerfile) == {"requests==2.0"}
+
+
+@pytest.mark.parametrize(
+    "operand",
+    [
+        "unsafe-package",
+        "unsafe-package>=1.0",
+        "https://example.invalid/unsafe.whl",
+        "git+https://example.invalid/unsafe.git",
+        "--editable=git+https://example.invalid/unsafe.git",
+        "-egit+https://example.invalid/unsafe.git",
+    ],
+)
+def test_inline_docker_installs_reject_unlocked_operands(
+    tmp_path: Path, operand: str
+) -> None:
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text(f"RUN pip install {operand}\n", encoding="utf-8")
+
+    assert _inline_docker_install_violations(dockerfile) == {operand}
+
+
+def test_inline_docker_installs_allow_constrained_requirements(tmp_path: Path) -> None:
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text(
+        "RUN pip install -r requirements.txt -c requirements-locked.txt\n",
+        encoding="utf-8",
+    )
+
+    assert _inline_docker_install_violations(dockerfile) == set()
 
 
 def test_audit_runtime_lock_accepts_exact_reviewed_advisories(
@@ -359,6 +486,10 @@ def test_dependabot_runtime_pip_parity_rejects_inventory_drift(mutation: str) ->
 def test_inline_dockerfile_pins_are_also_owned_by_a_compiled_lock() -> None:
     root = Path(audit_runtime_locks.__file__).parents[1]
     for dockerfile in (root / "services").rglob("Dockerfile*"):
+        assert not _inline_docker_install_violations(dockerfile), (
+            f"{dockerfile.relative_to(root)} installs unlocked inline operands: "
+            f"{sorted(_inline_docker_install_violations(dockerfile))}"
+        )
         inline = _inline_docker_pins(dockerfile)
         inline = {pin for pin in inline if not pin.lower().startswith("uv==")}
         if not inline:

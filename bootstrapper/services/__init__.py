@@ -24,6 +24,66 @@ class LaunchCompensation:
     cleanup_errors: tuple[str, ...] = ()
 
 
+def reap_owned_process(process, pid: int, timeout: float):
+    """Collect an owned child's status, retaining it only while still live."""
+    if process is None or process.pid != pid:
+        return process
+    wait = getattr(process, "wait", None)
+    if wait is None:
+        return None
+    try:
+        wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return process
+    return None
+
+
+def live_owned_process_pid(manager) -> int | None:
+    """Return a positively live child PID and discard stale Popen evidence."""
+    owned = getattr(manager, "_owned_process", None)
+    poll = getattr(owned, "poll", None)
+    if owned is None or not callable(poll) or poll() is not None:
+        manager._owned_process = None
+        return None
+    return owned.pid
+
+
+def clear_owned_process_tracking(manager, timeout: float) -> bool:
+    """Reap an owned child before discarding its durable PID evidence."""
+    owned = getattr(manager, "_owned_process", None)
+    if owned is not None:
+        manager._owned_process = reap_owned_process(owned, owned.pid, timeout)
+        if manager._owned_process is not None:
+            return False
+    manager.pid_file.unlink(missing_ok=True)
+    manager._untracked_pid = None
+    manager._owned_group_pid = None
+    return True
+
+
+def clear_owned_group_if_reaped(manager) -> None:
+    if manager._owned_process is None:
+        manager._owned_group_pid = None
+
+
+def select_managed_stop_pid(manager) -> tuple[int | None, int | None, bool]:
+    """Prefer a verified live child over possibly stale persisted evidence."""
+    owned_pid = live_owned_process_pid(manager)
+    pid = (
+        owned_pid
+        or getattr(manager, "_owned_group_pid", None)
+        or manager._read_pid()
+        or getattr(manager, "_untracked_pid", None)
+    )
+    alive = pid is not None and (pid == owned_pid or manager._pid_alive(pid))
+    return pid, owned_pid, alive
+
+
+def tracked_pid_is_stranger(manager, pid: int, owned_pid: int | None) -> bool:
+    """Apply PID-reuse validation except to this manager's exact child."""
+    return pid != owned_pid and manager._pid_is_stranger(pid)
+
+
 def lifecycle_support_error(
     fcntl_module, os_module, signal_module, label: str
 ) -> str | None:
@@ -495,7 +555,13 @@ def tracked_process_may_survive(manager) -> tuple[int | None, bool]:
     unreadable retained evidence as potentially live.
     """
     try:
-        pid = manager._read_pid() or getattr(manager, "_untracked_pid", None)
+        owned_pid = live_owned_process_pid(manager)
+        pid = (
+            owned_pid
+            or getattr(manager, "_owned_group_pid", None)
+            or manager._read_pid()
+            or getattr(manager, "_untracked_pid", None)
+        )
     except Exception:  # noqa: BLE001 - cleanup must fail closed
         return None, True
     if pid is None:

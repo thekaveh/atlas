@@ -302,6 +302,23 @@ jobs:
     # are intentionally excluded for runner size/time.
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Push events diff against github.event.before, which may precede
+          # several commits in one push. Keep the full base reachable.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: "0.11.19"
+
+      - name: Sync inventory dependencies
+        run: uv sync --project bootstrapper --group dev --locked
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
@@ -309,9 +326,40 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
+      - name: Install pinned Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: v0.74.0
+          cache: true
+
+      - name: Scan changed manifest-owned remote images
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          git diff --name-only "$BASE_SHA" "$GITHUB_SHA" \
+            | uv run --project bootstrapper python -m scripts.container_security \
+                --changed-paths-stdin --images-json \
+            | jq -r '.[] | [.image, .platform] | @tsv' \
+            | while IFS=$'\t' read -r image_ref image_platform; do
+                trivy image \
+                  --image-src remote \
+                  --platform "$image_platform" \
+                  --scanners vuln \
+                  --severity HIGH,CRITICAL \
+                  --ignorefile .trivyignore.yaml \
+                  --exit-code 1 \
+                  --no-progress \
+                  --timeout 30m \
+                  "$image_ref"
+              done
+
       - name: Build local Compose and init images
         run: |
           set -euo pipefail
+          image_list="${RUNNER_TEMP}/atlas-ci-images.txt"
+          : > "$image_list"
+          image_index=0
           for spec in \
             "services/airflow/build|Dockerfile|--build-arg BASE_IMAGE=apache/airflow:3.3.1" \
             "services/asset-worker/app|Dockerfile|" \
@@ -339,10 +387,29 @@ jobs:
               platforms="linux/amd64"
             fi
             for platform in $platforms; do
+              platform_tag="${platform#linux/}"
+              image_tag="atlas-ci/runtime-${image_index}-${platform_tag}:${GITHUB_SHA}"
               if [ -n "$extra_args" ]; then
-                docker buildx build --load --platform "$platform" $extra_args -f "$dockerfile_path" "$context/"
+                docker buildx build --load --platform "$platform" -t "$image_tag" $extra_args -f "$dockerfile_path" "$context/"
               else
-                docker buildx build --load --platform "$platform" -f "$dockerfile_path" "$context/"
+                docker buildx build --load --platform "$platform" -t "$image_tag" -f "$dockerfile_path" "$context/"
               fi
+              printf '%s\n' "$image_tag" >> "$image_list"
             done
+            image_index=$((image_index + 1))
           done
+
+      - name: Scan built final runtime images
+        run: |
+          set -euo pipefail
+          while IFS= read -r image_ref; do
+            trivy image \
+              --image-src docker \
+              --scanners vuln \
+              --severity HIGH,CRITICAL \
+              --ignorefile .trivyignore.yaml \
+              --exit-code 1 \
+              --no-progress \
+              --timeout 10m \
+              "$image_ref"
+          done < "${RUNNER_TEMP}/atlas-ci-images.txt"

@@ -183,7 +183,7 @@ def discovery() -> ServiceDiscovery:
 
 
 def test_discovery_includes_all_configurable_app_services(discovery: ServiceDiscovery) -> None:
-    """All 16 configurable services must surface in discover().
+    """All 48 configurable services must surface in discover().
 
     Was a 13-service list pre-C3: Open WebUI, JupyterHub, and Local
     Deep Researcher were missing because of CLI-flag / runtime_sc gaps.
@@ -255,8 +255,8 @@ def test_local_deep_researcher_has_container_and_disabled_options(
 
 def test_source_mapping_includes_app_service_flags() -> None:
     """SourceOverrideManager.source_mapping must carry the CLI keys for
-    the three app services; otherwise the wizard's discover() filter
-    drops them.
+    every configurable service family; otherwise the wizard's discover()
+    filter drops entries that have valid manifest source options.
     """
     from utils.source_override_manager import SourceOverrideManager
 

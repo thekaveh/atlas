@@ -11,6 +11,7 @@ from __future__ import annotations
 import click.testing
 import pytest
 import select
+import signal
 import subprocess
 import sys
 import textwrap
@@ -93,6 +94,130 @@ def _generic_lifecycle_manager(tmp_path):
         HostProcessSpec(name="guardrail-test", command=("sleep", "300"), port=8399),
         tmp_path,
     )
+
+
+class _OwnedProcess:
+    pid = 4242
+
+    def __init__(self):
+        self.wait_calls = 0
+
+    def poll(self):
+        return None
+
+    def wait(self, **_kwargs):
+        self.wait_calls += 1
+        return 0
+
+
+def test_stop_uses_live_owned_child_when_pid_file_is_missing(tmp_path, monkeypatch):
+    manager = _generic_lifecycle_manager(tmp_path)
+    signals = []
+    owned = _OwnedProcess()
+    manager._owned_process = owned
+    monkeypatch.setattr(manager, "_pid_alive", lambda _pid: True)
+    monkeypatch.setattr(
+        manager,
+        "_signal",
+        lambda pid, sig: signals.append((pid, sig)) or True,
+    )
+    monkeypatch.setattr(manager, "_managed_process_alive", lambda _pid: False)
+
+    assert manager.stop() is True
+    assert signals == [(4242, signal.SIGTERM)]
+    assert owned.wait_calls == 1
+    assert manager._owned_process is None
+    assert not manager.pid_file.exists()
+
+
+def test_leaderless_owned_child_authorizes_group_sweep(tmp_path, monkeypatch):
+    manager = _generic_lifecycle_manager(tmp_path)
+    swept = []
+    owned = _OwnedProcess()
+    manager._owned_process = owned
+    manager._owned_group_pid = owned.pid
+    monkeypatch.setattr(manager, "_group_survives", lambda _pid: True)
+    monkeypatch.setattr(
+        manager,
+        "_sweep_orphaned_group",
+        lambda pid: swept.append(pid) or True,
+    )
+
+    assert manager._finish_leaderless_stop(4242) is True
+    assert swept == [4242]
+    assert owned.wait_calls == 1
+    assert manager._owned_process is None
+
+
+def test_exited_owned_leader_preserves_group_sweep_authorization(
+    tmp_path, monkeypatch
+):
+    manager = _generic_lifecycle_manager(tmp_path)
+    swept = []
+
+    class ExitedProcess:
+        pid = 4242
+
+        def poll(self):
+            return 0
+
+    manager._owned_process = ExitedProcess()
+    manager._owned_group_pid = 4242
+    monkeypatch.setattr(manager, "_group_survives", lambda _pid: True)
+    monkeypatch.setattr(
+        manager,
+        "_sweep_orphaned_group",
+        lambda pid: swept.append(pid) or True,
+    )
+
+    assert manager._finish_leaderless_stop(4242) is True
+    assert swept == [4242]
+    assert manager._owned_group_pid is None
+
+
+def test_live_owned_child_wins_over_stale_dead_pidfile(tmp_path, monkeypatch):
+    manager = _generic_lifecycle_manager(tmp_path)
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("999999\n", encoding="utf-8")
+    owned = _OwnedProcess()
+    manager._owned_process = owned
+    signals = []
+    monkeypatch.setattr(
+        manager,
+        "_signal",
+        lambda pid, sig: signals.append((pid, sig)) or True,
+    )
+    monkeypatch.setattr(manager, "_managed_process_alive", lambda _pid: False)
+
+    assert manager.stop() is True
+    assert signals == [(owned.pid, signal.SIGTERM)]
+    assert manager._owned_process is None
+    assert not manager.pid_file.exists()
+
+
+def test_exited_owned_child_cannot_bypass_reused_pid_guard(tmp_path, monkeypatch):
+    manager = _generic_lifecycle_manager(tmp_path)
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    manager.pid_file.write_text("4242\nstart_utc=old\n", encoding="utf-8")
+
+    class ExitedProcess:
+        pid = 4242
+
+        def poll(self):
+            return 0
+
+    manager._owned_process = ExitedProcess()
+    monkeypatch.setattr(manager, "_pid_alive", lambda _pid: True)
+    monkeypatch.setattr(manager, "_pid_is_stranger", lambda _pid: True)
+    monkeypatch.setattr(
+        manager,
+        "_signal",
+        lambda *_args: pytest.fail("reused PID must not be signalled"),
+    )
+
+    assert manager.stop() is False
+    assert manager._owned_process is None
+    assert manager.pid_file.exists()
 
 
 @contextmanager

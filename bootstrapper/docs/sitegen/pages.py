@@ -56,8 +56,11 @@ ARCHITECTURE_PERSPECTIVES: dict[str, tuple[str, str, list[str]]] = {
     ),
     "data-engineering-lakehouse-flow": (
         "Data Engineering Lakehouse Flow",
-        "MinIO, Iceberg REST, Spark, JupyterHub, Zeppelin, Airflow, Trino, and Redpanda.",
-        ["MinIO", "Iceberg REST", "Spark", "JupyterHub", "Zeppelin", "Airflow", "Trino", "Redpanda"],
+        "MinIO, Iceberg REST, Supabase Postgres, Spark, JupyterHub, Zeppelin, Airflow, Trino, and Redpanda.",
+        [
+            "MinIO", "Iceberg REST", "Supabase/Postgres", "Spark",
+            "JupyterHub", "Zeppelin", "Airflow", "Trino", "Redpanda",
+        ],
     ),
     "observability-flow": (
         "Observability Flow",
@@ -122,10 +125,15 @@ ARCHITECTURE_SOURCE_FILES: dict[str, list[str]] = {
         "services/vllm-metal/service.yml",
     ],
     "data-engineering-lakehouse-flow": [
+        "services/jupyterhub/service.yml",
+        "services/zeppelin/service.yml",
+        "services/airflow/service.yml",
+        "services/redpanda/service.yml",
         "services/minio/service.yml",
         "services/trino/service.yml",
         "services/iceberg-rest/service.yml",
         "services/spark/service.yml",
+        "services/supabase/service.yml",
     ],
     "observability-flow": [
         "services/backend/service.yml",
@@ -236,6 +244,8 @@ ARCHITECTURE_EDGES: dict[str, list[tuple[str, str, str]]] = {
         ("Trino", "Iceberg REST", "catalog"),
         ("Spark", "MinIO", "objects"),
         ("Trino", "MinIO", "objects"),
+        ("Iceberg REST", "Supabase/Postgres", "metadata"),
+        ("Iceberg REST", "MinIO", "warehouse objects"),
     ],
     "observability-flow": [
         ("Backend", "OTel Collector", "OTLP"),
@@ -321,8 +331,9 @@ ARCHITECTURE_LAYOUTS: dict[str, dict[str, tuple[int, int]]] = {
     "data-engineering-lakehouse-flow": {
         "JupyterHub": (40, 30), "Zeppelin": (40, 160),
         "Airflow": (40, 290), "Redpanda": (40, 420),
-        "Spark": (390, 210), "Trino": (390, 420),
-        "Iceberg REST": (720, 150), "MinIO": (720, 360),
+        "Spark": (390, 180), "Trino": (390, 430),
+        "Iceberg REST": (720, 100), "MinIO": (1050, 400),
+        "Supabase/Postgres": (1050, 30),
     },
     "observability-flow": {
         "Backend": (40, 20), "Celery Workers": (40, 130),
@@ -348,6 +359,36 @@ ARCHITECTURE_LAYOUTS: dict[str, dict[str, tuple[int, int]]] = {
     },
 }
 
+# Full connector point lists for the few dense perspectives where straight
+# diagonals would cross and make edge ownership ambiguous. Labels are placed
+# on their dedicated gutters instead of at the bounding-box midpoint.
+ARCHITECTURE_ROUTES: dict[
+    str,
+    dict[
+        tuple[str, str],
+        tuple[list[tuple[int, int]], tuple[int, int]],
+    ],
+] = {
+    "data-engineering-lakehouse-flow": {
+        ("Spark", "MinIO"): (
+            [(530, 210), (610, 260), (940, 260), (940, 415), (1050, 415)],
+            (780, 250),
+        ),
+        ("Trino", "Iceberg REST"): (
+            [(530, 460), (610, 520), (1210, 520), (1210, 180), (790, 180), (790, 160)],
+            (1040, 510),
+        ),
+        ("Iceberg REST", "MinIO"): (
+            [(860, 130), (1020, 130), (1020, 360), (1120, 360), (1120, 400)],
+            (1010, 245),
+        ),
+        ("Trino", "MinIO"): (
+            [(530, 460), (980, 460), (980, 430), (1050, 430)],
+            (790, 450),
+        ),
+    },
+}
+
 _NODE_KINDS = {
     "Clients": "frontend", "Gateway Clients": "frontend",
     "Direct Clients": "frontend", "Browser": "frontend", "Open WebUI": "frontend",
@@ -358,6 +399,7 @@ _NODE_KINDS = {
     "Doc Processing": "backend", "Ingestion": "backend", "LightRAG": "backend",
     "Data Stores": "data", "MinIO": "data", "Weaviate": "data",
     "Neo4j": "data", "Iceberg REST": "data", "Supabase Auth": "data",
+    "Supabase/Postgres": "data",
     "Cloud Providers": "cloud", "Cloud LLMs": "cloud", "Cloud Keys": "cloud",
     "cloud enabled": "cloud", "Kong": "security", "API Keys": "security",
     "Local Secrets": "security", "Runtime Secrets": "security",
@@ -810,6 +852,10 @@ def _architecture_diagram_html(
     nodes: list[str],
     edges: list[tuple[str, str, str]],
     positions: dict[str, tuple[int, int]],
+    routes: dict[
+        tuple[str, str],
+        tuple[list[tuple[int, int]], tuple[int, int]],
+    ] | None = None,
 ) -> str:
     boxes = []
     arrows = []
@@ -836,6 +882,7 @@ def _architecture_diagram_html(
             f'<text x="{box_x + box_width / 2}" y="{y + 43}" fill="#94a3b8" font-size="9" text-anchor="middle">{role}</text>'
         )
     occupied_labels: list[tuple[float, float, float, float]] = []
+    routes = routes or {}
     for source, target, label in edges:
         source_x, source_y = positions[source]
         target_x, target_y = positions[target]
@@ -844,13 +891,25 @@ def _architecture_diagram_html(
         else:
             x1, x2 = source_x, target_x + box_width
         y1, y2 = source_y + 30, target_y + 30
-        label_x = (x1 + x2) / 2
-        base_label_y = (y1 + y2) / 2 - 5
-        arrows.append(
-            f'<line data-source="{html.escape(source)}" data-target="{html.escape(target)}" '
-            f'x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="#64748b" '
-            f'stroke-width="1.5" marker-end="url(#arrowhead)"/>'
-        )
+        routed = routes.get((source, target))
+        if routed:
+            points, (label_x, base_label_y) = routed
+            point_text = " ".join(f"{x},{y}" for x, y in points)
+            arrows.append(
+                f'<polyline data-source="{html.escape(source)}" '
+                f'data-target="{html.escape(target)}" points="{point_text}" '
+                f'fill="none" stroke="#64748b" stroke-width="1.5" '
+                f'marker-end="url(#arrowhead)"/>'
+            )
+        else:
+            label_x = (x1 + x2) / 2
+            base_label_y = (y1 + y2) / 2 - 5
+            arrows.append(
+                f'<line data-source="{html.escape(source)}" '
+                f'data-target="{html.escape(target)}" x1="{x1}" y1="{y1}" '
+                f'x2="{x2}" y2="{y2}" stroke="#64748b" '
+                f'stroke-width="1.5" marker-end="url(#arrowhead)"/>'
+            )
         label_width = max(40, len(label) * 5 + 12)
         label_y = base_label_y
         for offset in (0, -18, 18, -36, 36, -54, 54):
@@ -961,6 +1020,7 @@ def architecture_pages(model: DocsModel) -> dict[Path, str]:
             nodes,
             ARCHITECTURE_EDGES[slug],
             ARCHITECTURE_LAYOUTS[slug],
+            ARCHITECTURE_ROUTES.get(slug),
         )
         pages[arch / f"{slug}.md"] = f"""# {title}
 

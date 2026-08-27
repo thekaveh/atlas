@@ -22,6 +22,27 @@ from core import process_runner
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_run_with_deadline_closes_capture_pipes(monkeypatch):
+    real_popen = subprocess.Popen
+    launched = []
+
+    def recording_popen(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        launched.append(process)
+        return process
+
+    monkeypatch.setattr(process_runner.subprocess, "Popen", recording_popen)
+
+    result = process_runner.run_with_deadline(
+        [sys.executable, "-c", "print('closed')"]
+    )
+
+    assert result.stdout == "closed\n"
+    assert len(launched) == 1
+    assert launched[0].stdout is not None and launched[0].stdout.closed
+    assert launched[0].stderr is not None and launched[0].stderr.closed
+
+
 def _wait_for_recorded_pid(path: Path, *, timeout: float = 3.0) -> int:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:

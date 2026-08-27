@@ -27,6 +27,33 @@ def test_container_security_inventory_covers_every_manifest_default() -> None:
     assert json.loads(container_security.render_images_json(expected)) == list(expected)
 
 
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "vendor/example:latest",
+        "vendor/example:1",
+        "vendor/example",
+        "vendor/example:1.2.3x",
+        "vendor/example:python-3.12.13latest",
+    ],
+)
+def test_manifest_image_inventory_rejects_floating_defaults(
+    tmp_path: Path, reference: str
+) -> None:
+    service = tmp_path / "example"
+    service.mkdir()
+    (service / "service.yml").write_text(
+        "images:\n"
+        "  - var: EXAMPLE_IMAGE\n"
+        "    container: example\n"
+        f"    default: {reference}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="floating or untagged"):
+        container_security.load_image_inventory(tmp_path)
+
+
 def test_container_security_scans_multiarch_images_on_both_platforms() -> None:
     expected = load_manifest_image_refs(ROOT / "services")
     scans = container_security.load_image_scans(ROOT / "services")
@@ -52,6 +79,77 @@ def test_container_security_preserves_explicit_single_arch_platforms() -> None:
     } == {"linux/amd64"}
 
 
+def test_changed_scan_inventory_is_limited_to_affected_service() -> None:
+    scans = container_security.load_changed_image_scans(
+        ROOT / "services",
+        ["services/redis/service.yml", "docs/index.md"],
+    )
+
+    assert scans
+    redis_manifest = yaml.safe_load(
+        (ROOT / "services/redis/service.yml").read_text(encoding="utf-8")
+    )
+    assert {scan.image for scan in scans} == {
+        row["default"] for row in redis_manifest["images"]
+    }
+    assert container_security.load_changed_image_scans(
+        ROOT / "services", ["docs/index.md"]
+    ) == ()
+
+
+def test_changed_compose_scan_includes_cross_service_inventory_image(
+    tmp_path: Path,
+) -> None:
+    for name, image in (("owner", "vendor/owner:1.2.3"), ("consumer", "vendor/consumer:2.3.4")):
+        service = tmp_path / name
+        service.mkdir()
+        (service / "service.yml").write_text(
+            "images:\n"
+            f"  - var: {name.upper()}_IMAGE\n"
+            f"    container: {name}\n"
+            f"    default: {image}\n",
+            encoding="utf-8",
+        )
+    (tmp_path / "owner/compose.yml").write_text(
+        "services:\n  owner:\n    image: ${OWNER_IMAGE}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "consumer/compose.yml").write_text(
+        "services:\n  consumer:\n    image: vendor/owner:1.2.3\n",
+        encoding="utf-8",
+    )
+
+    scans = container_security.load_changed_image_scans(
+        tmp_path, ["services/consumer/compose.yml"]
+    )
+
+    assert {scan.image for scan in scans} == {"vendor/owner:1.2.3"}
+
+
+def test_compose_build_image_args_must_be_exactly_pinned(tmp_path: Path) -> None:
+    service = tmp_path / "example"
+    service.mkdir()
+    (service / "service.yml").write_text(
+        "images:\n"
+        "  - var: EXAMPLE_IMAGE\n"
+        "    container: example\n"
+        "    default: vendor/example:1.2.3\n",
+        encoding="utf-8",
+    )
+    (service / "compose.yml").write_text(
+        "services:\n"
+        "  example:\n"
+        "    build:\n"
+        "      context: build\n"
+        "      args:\n"
+        "        BASE_IMAGE: python:latest\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="build arg BASE_IMAGE"):
+        container_security.load_compose_builds(tmp_path)
+
+
 @pytest.mark.parametrize(
     "image_var", ["CHATTERBOX_IMAGE", "COMFYUI_IMAGE", "DOCLING_GPU_IMAGE"]
 )
@@ -67,20 +165,20 @@ def test_compose_only_remote_image_cannot_escape_scan_inventory(tmp_path: Path) 
     service = tmp_path / "example"
     service.mkdir()
     (service / "service.yml").write_text(
-        "images:\n  - var: KNOWN_IMAGE\n    container: known\n    default: vendor/known:v1\n",
+        "images:\n  - var: KNOWN_IMAGE\n    container: known\n    default: vendor/known:1.2.3\n",
         encoding="utf-8",
     )
     (service / "compose.yml").write_text(
         "services:\n  known:\n    image: ${KNOWN_IMAGE}\n"
-        "  missed:\n    image: vendor/missed:v1\n",
+        "  missed:\n    image: vendor/missed:1.2.3\n",
         encoding="utf-8",
     )
 
     assert container_security.load_compose_image_refs(tmp_path) == (
-        "vendor/known:v1",
-        "vendor/missed:v1",
+        "vendor/known:1.2.3",
+        "vendor/missed:1.2.3",
     )
-    with pytest.raises(ValueError, match="vendor/missed:v1"):
+    with pytest.raises(ValueError, match="vendor/missed:1.2.3"):
         container_security.load_image_scans(tmp_path)
 
 
@@ -223,6 +321,25 @@ def _workflow_sources() -> tuple[str, str]:
 def test_required_workflow_validates_container_policy() -> None:
     services_lint, _ = _workflow_sources()
     assert "python -m scripts.container_security" in services_lint
+
+
+def test_required_workflow_scans_final_images_with_pinned_trivy() -> None:
+    services_lint, _ = _workflow_sources()
+
+    required_fragments = (
+        "aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567",
+        "version: v0.74.0",
+        "atlas-ci-images.txt",
+        "trivy image",
+        "--image-src docker",
+        "--image-src remote",
+        "--changed-paths-stdin",
+        "--severity HIGH,CRITICAL",
+        "--ignorefile .trivyignore.yaml",
+        "--exit-code 1",
+    )
+    assert all(fragment in services_lint for fragment in required_fragments)
+    assert "fetch-depth: 0" in services_lint
 
 
 def test_container_security_workflow_pins_scanner_and_failure_policy() -> None:

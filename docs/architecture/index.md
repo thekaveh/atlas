@@ -13,7 +13,7 @@ Generated catalog of split Atlas architecture perspectives.
 | [Network And Routing Topology](network-routing-topology.md) | Host ports, Kong aliases, direct service ports, backend-network-only services, and localhost-mode boundaries. |
 | [Data And RAG Flow](data-rag-flow.md) | Ingestion, document processing, object storage, vector and graph stores, backend APIs, Open WebUI, and tool/MCP-adjacent flows. |
 | [LLM Provider Flow](llm-provider-flow.md) | Ollama, managed vLLM Metal, LiteLLM, cloud passthroughs, Open WebUI, backend, MCP/tool access, and trace hooks. |
-| [Data Engineering Lakehouse Flow](data-engineering-lakehouse-flow.md) | MinIO, Iceberg REST, Spark, JupyterHub, Zeppelin, Airflow, Trino, and Redpanda. |
+| [Data Engineering Lakehouse Flow](data-engineering-lakehouse-flow.md) | MinIO, Iceberg REST, Supabase Postgres, Spark, JupyterHub, Zeppelin, Airflow, Trino, and Redpanda. |
 | [Observability Flow](observability-flow.md) | Prometheus, Grafana, Langfuse, OpenTelemetry Collector, Tempo, Loki, and service instrumentation boundaries. |
 | [Security, Auth, And Secrets Boundary](security-auth-secrets-boundary.md) | Route-specific Kong controls, backend identity validation, application-enforced plugin keys, runtime secrets, and explicitly public or operator-trusted surfaces. |
 | [Service Admission Workflow](service-admission-workflow.md) | Manifest, compose fragment, topology row, env assembler, docs regeneration, diagrams, tests, and CI drift gates. |

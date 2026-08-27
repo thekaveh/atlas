@@ -267,6 +267,82 @@ def test_data_rag_architecture_routes_graph_writes_through_lightrag() -> None:
     assert layout["LightRAG"][1] < layout["Weaviate"][1]
 
 
+def test_lakehouse_architecture_includes_durable_catalog_metadata() -> None:
+    from bootstrapper.docs.sitegen.pages import (
+        ARCHITECTURE_EDGES,
+        ARCHITECTURE_PERSPECTIVES,
+        ARCHITECTURE_ROUTES,
+        ARCHITECTURE_SOURCE_FILES,
+    )
+
+    slug = "data-engineering-lakehouse-flow"
+    assert "Supabase/Postgres" in ARCHITECTURE_PERSPECTIVES[slug][2]
+    assert ("Iceberg REST", "Supabase/Postgres", "metadata") in (
+        ARCHITECTURE_EDGES[slug]
+    )
+    assert ("Iceberg REST", "MinIO", "warehouse objects") in (
+        ARCHITECTURE_EDGES[slug]
+    )
+    assert "services/supabase/service.yml" in ARCHITECTURE_SOURCE_FILES[slug]
+    assert set(ARCHITECTURE_ROUTES[slug]) == {
+        ("Spark", "MinIO"),
+        ("Trino", "Iceberg REST"),
+        ("Iceberg REST", "MinIO"),
+        ("Trino", "MinIO"),
+    }
+    assert {
+        "services/jupyterhub/service.yml",
+        "services/zeppelin/service.yml",
+        "services/airflow/service.yml",
+        "services/redpanda/service.yml",
+    } <= set(ARCHITECTURE_SOURCE_FILES[slug])
+
+
+def _orthogonal_segments(points):
+    return tuple(zip(points, points[1:]))
+
+
+def _orthogonal_segments_intersect(first, second) -> bool:
+    (ax1, ay1), (ax2, ay2) = first
+    (bx1, by1), (bx2, by2) = second
+    a_vertical = ax1 == ax2
+    b_vertical = bx1 == bx2
+    if a_vertical == b_vertical:
+        if a_vertical and ax1 == bx1:
+            return max(min(ay1, ay2), min(by1, by2)) <= min(
+                max(ay1, ay2), max(by1, by2)
+            )
+        if not a_vertical and ay1 == by1:
+            return max(min(ax1, ax2), min(bx1, bx2)) <= min(
+                max(ax1, ax2), max(bx1, bx2)
+            )
+        return False
+    vertical, horizontal = (first, second) if a_vertical else (second, first)
+    (vx, vy1), (_, vy2) = vertical
+    (hx1, hy), (hx2, _) = horizontal
+    return min(hx1, hx2) <= vx <= max(hx1, hx2) and min(vy1, vy2) <= hy <= max(
+        vy1, vy2
+    )
+
+
+def test_lakehouse_minio_routes_use_distinct_nonintersecting_anchors() -> None:
+    from bootstrapper.docs.sitegen.pages import ARCHITECTURE_ROUTES
+
+    routes = ARCHITECTURE_ROUTES["data-engineering-lakehouse-flow"]
+    minio_routes = [
+        routes[edge][0]
+        for edge in (("Spark", "MinIO"), ("Trino", "MinIO"), ("Iceberg REST", "MinIO"))
+    ]
+    assert len({route[-1] for route in minio_routes}) == len(minio_routes)
+    for index, route in enumerate(minio_routes):
+        for other in minio_routes[index + 1 :]:
+            assert not any(
+                _orthogonal_segments_intersect(left, right)
+                for left in _orthogonal_segments(route)
+                for right in _orthogonal_segments(other)
+            )
+
+
 def test_track_architecture_models_explicit_disabled_overrides() -> None:
     from bootstrapper.docs.sitegen.pages import (
         ARCHITECTURE_EDGES,

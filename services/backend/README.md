@@ -18,7 +18,7 @@ Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts 
 | Chunking | `POST /api/chunk` | Chonkie-backed splitting; accepts a Supabase user JWT, the internal-service token, or the scoped notebook token. |
 | RAG evaluation | `POST /api/rag/evaluate` | Ragas-backed metrics; accepts the same stateless-route credentials as chunking. |
 | RAG ingestion | `POST /api/rag/ingestions`, `GET /api/rag/ingestions[/{id}]`, `POST /api/rag/ingestions/{id}/cancel` | Internal-service only. Generic ingestion job over a consumer `rag_ingestion_profile` with machine-readable per-phase status. |
-| Ray jobs | `POST /api/ray/jobs/submit`, `GET`/`DELETE /api/ray/jobs/{job_id}`, `/api/ray/cluster/status` | Requires `Authorization: Bearer ${RAY_JOB_API_TOKEN}` on direct and Kong access paths. |
+| Ray jobs | `POST /api/ray/jobs/submit`, `GET`/`DELETE /api/ray/jobs/{job_id}`, `/api/ray/cluster/status` | Requires `Authorization: Bearer ${RAY_JOB_API_TOKEN}` on direct and Kong access paths. Submit requires a stable `submission_id` (`raysubmit_` plus letters, digits, or underscores) so every accepted job remains reconcilable after a lost response. |
 
 Canonical port table: [Ports and Routes](../../docs/reference/ports-routes.md).
 
@@ -92,6 +92,9 @@ curl -H "Authorization: Bearer ${RAY_JOB_API_TOKEN}" \
 
 Every `/api/ray` route requires this bearer token, including requests through
 the direct Backend port and deployments where `BACKEND_KONG_AUTH=disabled`.
+Every submission must include a validated `submission_id`; send the same value
+on each retry. A reused ID returns `409`; inspect or stop that job through the
+existing `{job_id}` routes instead of launching a second copy.
 
 LangMem long-term memory:
 
@@ -108,6 +111,15 @@ LANGMEM_EMBEDDING_MODEL=
 Extraction runs the LLM call outside the database transaction, then commits accepted facts and the completed session atomically, with a per-user lock enforcing `LANGMEM_MAX_FACTS_PER_USER` across replicas. Failed extractions record a terminal failed session rather than partial facts. The full transaction and locking sequence is documented in the LangMem extraction module's docstring.
 
 Memory writes (edits, soft deletes, consolidation, retention) mark a durable `vector_sync_pending` intent alongside the Postgres change, and a reconciliation pass syncs the corresponding Weaviate objects and clears the marker on success; failures remain retryable, and Postgres `is_active` stays the recall authority throughout. The deterministic-ID and stale-version comparison logic is documented in the vector-sync reconciliation module.
+
+Async `POST /memory/consolidate?async_job=true` accepts an optional
+`idempotency_key`. Reusing it derives and republishes the same stable Celery job
+ID, so a request lost before broker acknowledgement can be retried safely. The
+worker claims a Redis execution lease before consolidation and records the
+completed result for the Celery visibility window (one hour by default);
+concurrent duplicate deliveries wait for that lease or return the stored result
+instead of repeating consolidation. Omit the key only for fire-and-forget calls
+that will not be retried after a lost response.
 
 Graphiti temporal graph memory experiment:
 

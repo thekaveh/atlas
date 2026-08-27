@@ -215,6 +215,7 @@ def test_start_status_health_stop_round_trip(running_service):
 
     assert manager.stop() is True
     assert manager.status().running is False
+    assert manager._owned_process is None
 
 
 def test_starting_an_already_running_service_is_idempotent(running_service):

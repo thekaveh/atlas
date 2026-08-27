@@ -8,6 +8,7 @@ from typing import Optional, cast, Dict, Any, List, Union, Literal
 from contextlib import asynccontextmanager
 import os
 import asyncio
+import hashlib
 import logging
 import math
 import httpx
@@ -66,10 +67,14 @@ from memory_models import (
     MemoryListResponse, MemoryHealthResponse,
 )
 from ray_routes import router as ray_router
-from celery_app import celery_is_enabled, get_celery_job_status
+from celery_app import (
+    celery_is_enabled,
+    get_celery_job_status,
+)
 from celery_tasks import memory_consolidate_task, rag_ingestion_task
 from rag_ingestion import (
     ingestion_execution_lease_seconds,
+    IngestionExecutionBusy,
     ProfileNotFoundError,
     RagIngestionQueuedResponse,
     RagIngestionRecordResponse,
@@ -877,6 +882,165 @@ def get_rag_ingestion_service() -> RagIngestionService:
     return _rag_ingestion_service
 
 
+async def _mark_rag_dispatch_failed(
+    service: RagIngestionService,
+    record_id: str,
+    failure: tuple[str, str | None],
+    cancellation_seen: asyncio.Event,
+) -> None:
+    message, owner = failure
+    cleanup = asyncio.create_task(
+        asyncio.to_thread(service.mark_dispatch_failed, record_id, message, owner)
+    )
+    await _join_owned_task(cleanup, cancellation_seen)
+
+
+async def _mark_rag_dispatched(
+    service: RagIngestionService,
+    record_id: str,
+    dispatch: tuple[str | None, str],
+    cancellation_seen: asyncio.Event,
+) -> Any:
+    job_id, owner = dispatch
+    update = asyncio.create_task(
+        asyncio.to_thread(service.mark_dispatched, record_id, job_id, owner)
+    )
+    return await _join_owned_task(update, cancellation_seen)
+
+
+async def _dispatch_rag_ingestion(
+    record_id: str, cancellation_seen: asyncio.Event
+) -> Any:
+    dispatch = asyncio.create_task(
+        asyncio.to_thread(
+            rag_ingestion_task.apply_async,
+            kwargs={"ingestion_id": record_id},
+            task_id=f"rag-ingestion-{record_id}",
+        )
+    )
+    return await _join_owned_task(dispatch, cancellation_seen)
+
+
+async def _claim_rag_dispatch(
+    service: RagIngestionService,
+    record_id: str,
+    owner: str,
+    cancellation_seen: asyncio.Event,
+) -> bool:
+    claim = asyncio.create_task(
+        asyncio.to_thread(service.claim_dispatch, record_id, owner)
+    )
+    claimed = await _join_owned_task(claim, cancellation_seen)
+    if cancellation_seen.is_set() and claimed:
+        await _mark_rag_dispatch_failed(
+            service,
+            record_id,
+            ("RAG ingestion request cancelled before dispatch", owner),
+            cancellation_seen,
+        )
+    _raise_if_cancelled(cancellation_seen)
+    return claimed
+
+
+async def _submit_rag_record(
+    service: RagIngestionService,
+    request: RagIngestionRequest,
+    cancellation_seen: asyncio.Event,
+) -> tuple[Any, bool]:
+    submit_task = asyncio.create_task(
+        asyncio.to_thread(
+            service.submit, request.profile, corpus_path=request.corpus_path
+        )
+    )
+    return await _join_owned_task(submit_task, cancellation_seen)
+
+
+async def _reconcile_cancelled_rag_submit(
+    service: RagIngestionService,
+    record: Any,
+    created: bool,
+    cancellation_seen: asyncio.Event,
+) -> None:
+    if not cancellation_seen.is_set():
+        return
+    if created:
+        await _mark_rag_dispatch_failed(
+            service,
+            record.id,
+            ("RAG ingestion request cancelled before dispatch", None),
+            cancellation_seen,
+        )
+    raise asyncio.CancelledError()
+
+
+def _existing_rag_response(
+    record: Any, created: bool, async_job: bool
+) -> Any | None:
+    recover_prepared = record.dispatch_state == "prepared" and (
+        record.status == "pending"
+        or (record.status == "running" and not async_job)
+    )
+    recover_dispatch = (
+        record.status == "pending"
+        and record.dispatch_state == "dispatching"
+    )
+    if created or recover_prepared or recover_dispatch:
+        return None
+    return _rag_idempotent_response(record)
+
+
+def _rag_idempotent_response(record: Any) -> RagIngestionQueuedResponse:
+    return RagIngestionQueuedResponse(
+        ingestion_id=record.id,
+        job_id=record.dispatch_job_id,
+        status=record.status,
+        message="Idempotent: existing ingestion returned (not re-run).",
+    )
+
+
+async def _queue_rag_ingestion(
+    service: RagIngestionService,
+    record: Any,
+    created: bool,
+    cancellation_seen: asyncio.Event,
+) -> RagIngestionQueuedResponse:
+    owner = uuid4().hex
+    claimed = await _claim_rag_dispatch(
+        service, record.id, owner, cancellation_seen
+    )
+    if not claimed:
+        latest = await asyncio.to_thread(service.store.get, record.id)
+        assert latest is not None
+        return _rag_idempotent_response(latest)
+    task = None
+    try:
+        task = await _dispatch_rag_ingestion(record.id, cancellation_seen)
+        await _mark_rag_dispatched(
+            service, record.id, (task.id, owner), cancellation_seen
+        )
+    except Exception as exc:  # noqa: BLE001 - broker unreachable
+        logger.exception("Queue RAG ingestion failed")
+        if task is None:
+            await _mark_rag_dispatch_failed(
+                service,
+                record.id,
+                ("RAG ingestion dispatch failed", owner),
+                cancellation_seen,
+            )
+        _raise_if_cancelled(cancellation_seen)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Failed to queue RAG ingestion",
+        ) from exc
+    _raise_if_cancelled(cancellation_seen)
+    return RagIngestionQueuedResponse(
+        ingestion_id=record.id,
+        job_id=task.id,
+        status="pending",
+        message="RAG ingestion queued.",
+    )
+
+
 @app.post(
     "/api/rag/ingestions",
     response_model=RagIngestionQueuedResponse,
@@ -892,9 +1056,10 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
     returns the existing job without re-running it.
     """
     service = get_rag_ingestion_service()
+    cancellation_seen = asyncio.Event()
     try:
-        record, created = await asyncio.to_thread(
-            service.submit, request.profile, corpus_path=request.corpus_path
+        record, created = await _submit_rag_record(
+            service, request, cancellation_seen
         )
     except ProfileNotFoundError:
         raise HTTPException(
@@ -904,39 +1069,32 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-    if not created:
-        return RagIngestionQueuedResponse(
-            ingestion_id=record.id,
-            job_id=None,
-            status=record.status,
-            message="Idempotent: existing ingestion returned (not re-run).",
-        )
+    await _reconcile_cancelled_rag_submit(
+        service, record, created, cancellation_seen
+    )
+    use_celery = async_job and celery_is_enabled()
+    existing = _existing_rag_response(record, created, use_celery)
+    if existing is not None:
+        return existing
 
-    if async_job and celery_is_enabled():
-        try:
-            task = await asyncio.to_thread(
-                rag_ingestion_task.apply_async, kwargs={"ingestion_id": record.id}
-            )
-        except Exception as exc:  # noqa: BLE001 - broker unreachable
-            logger.exception("Queue RAG ingestion failed")
-            await asyncio.to_thread(
-                service.mark_dispatch_failed,
-                record.id,
-                "RAG ingestion dispatch failed",
-            )
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Failed to queue RAG ingestion",
-            ) from exc
-        return RagIngestionQueuedResponse(
-            ingestion_id=record.id,
-            job_id=task.id,
-            status="pending",
-            message="RAG ingestion queued.",
+    if use_celery:
+        return await _queue_rag_ingestion(
+            service, record, created, cancellation_seen
         )
 
     # Synchronous fallback (Celery disabled or async_job=false).
-    final = await service.run(record.id)
+    run_task = asyncio.create_task(service.run(record.id))
+    try:
+        final = await _join_owned_task(run_task, cancellation_seen)
+    except IngestionExecutionBusy:
+        lookup = asyncio.create_task(
+            asyncio.to_thread(service.store.get, record.id)
+        )
+        latest = await _join_owned_task(lookup, cancellation_seen)
+        assert latest is not None
+        _raise_if_cancelled(cancellation_seen)
+        return _rag_idempotent_response(latest)
+    _raise_if_cancelled(cancellation_seen)
     return RagIngestionQueuedResponse(
         ingestion_id=final.id,
         job_id=None,
@@ -3754,17 +3912,32 @@ async def memory_consolidate(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Celery worker tier is disabled",
             )
+        if request.idempotency_key:
+            scope = user_id or "all-users"
+            token = hashlib.sha256(
+                f"{scope}\0{request.idempotency_key}".encode("utf-8")
+            ).hexdigest()
+        else:
+            token = uuid4().hex
+        task_id = f"memory-consolidate-{token}"
+        cancellation_seen = asyncio.Event()
         try:
-            task = await asyncio.to_thread(
-                memory_consolidate_task.apply_async,
-                kwargs={"user_id": user_id}
+            dispatch = asyncio.create_task(
+                asyncio.to_thread(
+                    memory_consolidate_task.apply_async,
+                    kwargs={"user_id": user_id, "idempotency_key": task_id},
+                    task_id=task_id,
+                )
             )
+            task = await _join_owned_task(dispatch, cancellation_seen)
         except Exception as exc:
             logger.exception("Queue memory consolidation failed")
+            _raise_if_cancelled(cancellation_seen)
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Failed to queue memory consolidation",
             ) from exc
+        _raise_if_cancelled(cancellation_seen)
         return JSONResponse(
             status_code=status.HTTP_202_ACCEPTED,
             content=AsyncJobQueuedResponse(

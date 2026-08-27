@@ -165,6 +165,113 @@ def test_failed_research_creation_releases_admission_slot():
     assert service._active_tasks == {}
 
 
+def test_cancel_after_research_commit_retains_background_ownership():
+    release_started = asyncio.Event()
+    release_connection = asyncio.Event()
+    background_started = asyncio.Event()
+
+    class Conn:
+        def transaction(self):
+            return _Transaction(self)
+
+        async def execute(self, *_args):
+            return None
+
+    service = object.__new__(ResearchService)
+    service.max_concurrent_research = 1
+    service._active_tasks = {}
+    service._maintenance_task = None
+
+    async def get_conn():
+        return Conn()
+
+    async def release_conn(_conn):
+        release_started.set()
+        await release_connection.wait()
+
+    async def background(*_args):
+        background_started.set()
+        await asyncio.Event().wait()
+
+    service._get_db_connection = get_conn
+    service._release_db_connection = release_conn
+    service._run_research_background = background
+
+    async def scenario():
+        creation = asyncio.create_task(service.start_research("atlas"))
+        await release_started.wait()
+        creation.cancel()
+        release_connection.set()
+        with pytest.raises(asyncio.CancelledError):
+            await creation
+        await background_started.wait()
+        assert len(service._active_tasks) == 1
+        owned = next(iter(service._active_tasks.values()))
+        assert isinstance(owned, asyncio.Task)
+        assert owned.done() is False
+        owned.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await owned
+
+    asyncio.run(scenario())
+
+
+def test_cancel_during_commit_retains_background_ownership():
+    commit_started = asyncio.Event()
+    release_commit = asyncio.Event()
+    background_started = asyncio.Event()
+
+    class BlockingCommit(_Transaction):
+        async def __aexit__(self, exc_type, exc, tb):
+            self.conn.in_transaction = False
+            commit_started.set()
+            await release_commit.wait()
+
+    class Conn:
+        def __init__(self):
+            self.in_transaction = False
+
+        def transaction(self):
+            return BlockingCommit(self)
+
+        async def execute(self, *_args):
+            assert self.in_transaction is True
+
+        async def close(self):
+            return None
+
+    service = object.__new__(ResearchService)
+    service.max_concurrent_research = 1
+    service._active_tasks = {}
+    service._maintenance_task = None
+
+    async def get_conn():
+        return Conn()
+
+    async def background(*_args):
+        background_started.set()
+        await asyncio.Event().wait()
+
+    service._get_db_connection = get_conn
+    service._run_research_background = background
+
+    async def scenario():
+        creation = asyncio.create_task(service.start_research("atlas"))
+        await commit_started.wait()
+        creation.cancel()
+        release_commit.set()
+        with pytest.raises(asyncio.CancelledError):
+            await creation
+        await background_started.wait()
+        owned = next(iter(service._active_tasks.values()))
+        assert owned.done() is False
+        owned.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await owned
+
+    asyncio.run(scenario())
+
+
 def test_cancelled_background_task_records_terminal_failure():
     service = object.__new__(ResearchService)
     service._active_tasks = {}
