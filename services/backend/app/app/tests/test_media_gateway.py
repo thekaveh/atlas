@@ -1013,6 +1013,7 @@ class _FakeComfyUIMediaClient:
     submit_payload = None
     poll_payload = None
     cancel_result = True
+    cancel_calls = 0
 
     def __init__(self, *args, **kwargs):
         self.model = kwargs.get("model")
@@ -1067,6 +1068,7 @@ class _FakeComfyUIMediaClient:
         }
 
     async def cancel_media_operation(self, **kwargs):
+        type(self).cancel_calls += 1
         type(self).cancel_kwargs = kwargs
         result = type(self).cancel_result
         if isinstance(result, Exception):
@@ -1081,6 +1083,7 @@ def _reset_comfyui_fake():
     _FakeComfyUIMediaClient.submit_payload = None
     _FakeComfyUIMediaClient.poll_payload = None
     _FakeComfyUIMediaClient.cancel_result = True
+    _FakeComfyUIMediaClient.cancel_calls = 0
 
 
 def test_comfyui_submit_returns_202_with_local_zero_cost_envelope(monkeypatch):
@@ -1211,6 +1214,173 @@ def test_comfyui_cancel_marks_terminal_and_propagates(monkeypatch):
     assert body["status"] == "cancellation_requested"
     assert body["provenance"]["provider_cancellation_requested"] is True
     assert _FakeComfyUIMediaClient.cancel_kwargs["operation_id"] == op_id
+
+
+@pytest.mark.parametrize(
+    "first_result", [False, RuntimeError("ambiguous cancellation response")]
+)
+def test_comfyui_cancel_redelivers_after_ambiguous_first_attempt(
+    monkeypatch, first_result
+):
+    _reset_comfyui_fake()
+    main = _fresh_main_comfyui(monkeypatch)
+    monkeypatch.setattr(
+        main, "ComfyUIMediaClient", _FakeComfyUIMediaClient, raising=False
+    )
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    submitted = client.post(
+        "/media/generate",
+        json={
+            "modality": "image",
+            "provider": "comfyui",
+            "model": "krea2-turbo-bf16",
+            "input": {"prompt": "p"},
+        },
+    )
+    op_id = submitted.json()["operation_id"]
+    _FakeComfyUIMediaClient.cancel_result = first_result
+
+    first = client.post(f"/media/operations/{op_id}/cancel")
+    assert first.status_code == 200
+    assert first.json()["provenance"]["provider_cancellation_requested"] is False
+
+    _FakeComfyUIMediaClient.cancel_result = True
+    retried = client.post(f"/media/operations/{op_id}/cancel")
+    assert retried.status_code == 200
+    assert retried.json()["provenance"]["provider_cancellation_requested"] is True
+    assert _FakeComfyUIMediaClient.cancel_calls == 2
+
+
+def test_comfyui_confirmed_cancel_repeat_returns_current_operation(monkeypatch):
+    _reset_comfyui_fake()
+    main = _fresh_main_comfyui(monkeypatch)
+    monkeypatch.setattr(
+        main, "ComfyUIMediaClient", _FakeComfyUIMediaClient, raising=False
+    )
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    submitted = client.post(
+        "/media/generate",
+        json={
+            "modality": "image",
+            "provider": "comfyui",
+            "model": "krea2-turbo-bf16",
+            "input": {"prompt": "p"},
+        },
+    )
+    op_id = submitted.json()["operation_id"]
+
+    assert client.post(f"/media/operations/{op_id}/cancel").status_code == 200
+    repeated = client.post(f"/media/operations/{op_id}/cancel")
+
+    assert repeated.status_code == 200
+    assert repeated.json()["status"] == "cancellation_requested"
+    assert repeated.json()["provenance"]["provider_cancellation_requested"] is True
+    assert _FakeComfyUIMediaClient.cancel_calls == 1
+
+
+def test_concurrent_comfyui_cancel_retries_remain_nonterminal(monkeypatch):
+    import httpx
+
+    _reset_comfyui_fake()
+    main = _fresh_main_comfyui(monkeypatch)
+    monkeypatch.setattr(
+        main, "ComfyUIMediaClient", _FakeComfyUIMediaClient, raising=False
+    )
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    submitted = client.post(
+        "/media/generate",
+        json={
+            "modality": "image",
+            "provider": "comfyui",
+            "model": "krea2-turbo-bf16",
+            "input": {"prompt": "p"},
+        },
+    )
+    op_id = submitted.json()["operation_id"]
+    _FakeComfyUIMediaClient.cancel_result = False
+    assert client.post(f"/media/operations/{op_id}/cancel").status_code == 200
+
+    async def retry_twice():
+        transport = httpx.ASGITransport(app=main.app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as async_client:
+            return await asyncio.gather(
+                async_client.post(f"/media/operations/{op_id}/cancel"),
+                async_client.post(f"/media/operations/{op_id}/cancel"),
+            )
+
+    responses = asyncio.run(retry_twice())
+    assert [response.status_code for response in responses] == [200, 200]
+    persisted = asyncio.run(main.MEDIA_OPERATION_STORE.get(op_id))
+    assert persisted["last_payload"]["status"] == "cancellation_requested"
+    assert persisted["last_payload"]["provenance"][
+        "provider_cancellation_requested"
+    ] is False
+
+
+def test_concurrent_comfyui_cancel_confirmation_is_monotonic(monkeypatch):
+    import httpx
+
+    _reset_comfyui_fake()
+    main = _fresh_main_comfyui(monkeypatch)
+    monkeypatch.setattr(
+        main, "ComfyUIMediaClient", _FakeComfyUIMediaClient, raising=False
+    )
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    submitted = client.post(
+        "/media/generate",
+        json={
+            "modality": "image",
+            "provider": "comfyui",
+            "model": "krea2-turbo-bf16",
+            "input": {"prompt": "p"},
+        },
+    )
+    op_id = submitted.json()["operation_id"]
+    _FakeComfyUIMediaClient.cancel_result = False
+    assert client.post(f"/media/operations/{op_id}/cancel").status_code == 200
+
+    class MixedResultClient(_FakeComfyUIMediaClient):
+        calls = 0
+
+        async def cancel_media_operation(self, **kwargs):
+            type(self).calls += 1
+            if type(self).calls == 1:
+                await asyncio.sleep(0.05)
+                return False
+            return True
+
+    monkeypatch.setattr(main, "ComfyUIMediaClient", MixedResultClient)
+
+    async def retry_twice():
+        transport = httpx.ASGITransport(app=main.app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as async_client:
+            return await asyncio.gather(
+                async_client.post(f"/media/operations/{op_id}/cancel"),
+                async_client.post(f"/media/operations/{op_id}/cancel"),
+            )
+
+    responses = asyncio.run(retry_twice())
+    assert [response.status_code for response in responses] == [200, 200]
+    persisted = asyncio.run(main.MEDIA_OPERATION_STORE.get(op_id))
+    assert persisted["last_payload"]["provenance"][
+        "provider_cancellation_requested"
+    ] is True
 
 
 def test_comfyui_cancel_on_terminal_returns_409(monkeypatch):

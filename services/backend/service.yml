@@ -56,7 +56,10 @@ env:
     description: "Maximum accepted /storage/upload body size in bytes before the backend returns 413."
   - name: COMFYUI_MAX_IMAGE_BYTES
     default: 20971520
-    description: "Maximum generated-image response bytes accepted from ComfyUI before the Backend aborts the download."
+    description: "Maximum input or generated-image bytes accepted by the Backend's ComfyUI bridge before it aborts the transfer."
+  - name: COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS
+    default: ""
+    description: "Comma-separated exact HTTPS origins allowed for remote ComfyUI init-image URLs. Blank rejects all remote URLs; data URIs remain available."
   - name: COMFYUI_COMPLETION_TIMEOUT_SECONDS
     default: 300
     description: "End-to-end deadline in seconds for synchronous ComfyUI generation and workflow requests. The Backend poller and bundled Open WebUI tool share this default."
@@ -74,7 +77,7 @@ env:
     description: "Container path under which operator-provided read-only RAG corpus mounts are resolved. Mount the same path into Backend and Celery worker when asynchronous ingestion is enabled."
   - name: RAG_INGESTION_EXECUTION_LEASE_SECONDS
     default: 30
-    description: "Renewable execution-ownership lease for RAG ingestion workers. Must be an integer from 10 through 300; duplicate deliveries retry until the active owner completes or its lease expires."
+    description: "Renewable execution-ownership lease for RAG ingestion workers. Must be an integer from 10 through 300; duplicate deliveries retry until the active owner completes, an exact-owner recovery claim succeeds, or the lease expires."
   - name: RESEARCH_SESSION_LEASE_SECONDS
     default: 300
     description: "Maximum age in seconds for pending research work or a running session heartbeat before the Backend atomically marks the abandoned session failed."

@@ -212,13 +212,84 @@ def memory_consolidate_task(
     return _run_claimed_memory(self, state)
 
 
+@dataclass(frozen=True)
+class _RagRetryState:
+    ingestion_id: str
+    phase_attempt: int = 0
+    infrastructure_attempt: int = 0
+    recovery_owner: Optional[str] = None
+
+    def retry_kwargs(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "phase_attempt": self.phase_attempt,
+            "infrastructure_attempt": self.infrastructure_attempt,
+        }
+        if self.recovery_owner is not None:
+            payload["recovery_owner"] = self.recovery_owner
+        return {"ingestion_id": self.ingestion_id, "retry_state": payload}
+
+
+def _rag_retry_state(
+    ingestion_id: str,
+    transient_attempt: int,
+    retry_state: Optional[dict[str, Any]],
+) -> _RagRetryState:
+    if type(transient_attempt) is not int or transient_attempt < 0:
+        raise ValueError("transient_attempt must be a non-negative integer")
+    if retry_state is None:
+        return _RagRetryState(ingestion_id, phase_attempt=transient_attempt)
+    if not isinstance(retry_state, dict):
+        raise ValueError("retry_state must be an object")
+    return _RagRetryState(
+        ingestion_id,
+        _rag_retry_counter(retry_state, "phase_attempt"),
+        _rag_retry_counter(retry_state, "infrastructure_attempt"),
+        _rag_recovery_owner(retry_state),
+    )
+
+
+def _rag_retry_counter(payload: dict[str, Any], key: str) -> int:
+    value = payload.get(key, 0)
+    if type(value) is not int or value < 0:
+        raise ValueError(f"retry_state.{key} must be a non-negative integer")
+    return value
+
+
+def _rag_recovery_owner(payload: dict[str, Any]) -> Optional[str]:
+    owner = payload.get("recovery_owner")
+    if owner is not None and not isinstance(owner, str):
+        raise ValueError("retry_state.recovery_owner must be a string")
+    return owner
+
+
+def _rag_retry_countdown(attempt: int) -> int:
+    return get_exponential_backoff_interval(
+        factor=1,
+        retries=min(attempt, 10),
+        maximum=600,
+        full_jitter=True,
+    )
+
+
+def _schedule_rag_retry(task, exc, state: _RagRetryState, countdown: int) -> None:
+    raise task.retry(
+        exc=exc,
+        countdown=countdown,
+        args=(),
+        kwargs=state.retry_kwargs(),
+    )
+
+
 @celery_app.task(
     bind=True,
     name="rag_ingestion",
     max_retries=None,
 )
 def rag_ingestion_task(
-    self, ingestion_id: str, transient_attempt: int = 0
+    self,
+    ingestion_id: str,
+    transient_attempt: int = 0,
+    retry_state: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Run a submitted RAG ingestion job to completion (#413). The record was
     already created + persisted by the submit endpoint; this drives the phases and
@@ -230,43 +301,45 @@ def rag_ingestion_task(
         run_rag_ingestion,
     )
 
+    state = _rag_retry_state(ingestion_id, transient_attempt, retry_state)
     owner = f"{self.request.id or 'celery'}:{uuid4()}"
     try:
         return run_rag_ingestion(
             ingestion_id,
             execution_owner=owner,
-            retry_transient=transient_attempt < 3,
+            execution_recovery_owner=state.recovery_owner,
+            retry_transient=state.phase_attempt < 3,
         )
     except IngestionExecutionBusy as exc:
-        raise self.retry(
-            exc=exc,
-            countdown=ingestion_execution_lease_seconds(),
+        state = replace(state, recovery_owner=None)
+        _schedule_rag_retry(
+            self, exc, state, ingestion_execution_lease_seconds()
         )
     except IngestionExecutionLeaseLost as exc:
-        raise self.retry(
-            exc=exc,
-            countdown=ingestion_execution_lease_seconds(),
-            args=(),
-            kwargs={
-                "ingestion_id": ingestion_id,
-                "transient_attempt": transient_attempt,
-            },
+        state = replace(state, recovery_owner=owner)
+        _schedule_rag_retry(
+            self, exc, state, ingestion_execution_lease_seconds()
+        )
+    except RedisError as exc:
+        state = replace(
+            state,
+            infrastructure_attempt=state.infrastructure_attempt + 1,
+            recovery_owner=owner,
+        )
+        _schedule_rag_retry(
+            self,
+            exc,
+            state,
+            _rag_retry_countdown(state.infrastructure_attempt - 1),
         )
     except TRANSIENT_EXCEPTIONS as exc:
-        if transient_attempt >= 3:
+        if state.phase_attempt >= 3:
             raise
-        countdown = get_exponential_backoff_interval(
-            factor=1,
-            retries=transient_attempt,
-            maximum=600,
-            full_jitter=True,
+        state = replace(
+            state,
+            phase_attempt=state.phase_attempt + 1,
+            recovery_owner=None,
         )
-        raise self.retry(
-            exc=exc,
-            countdown=countdown,
-            args=(),
-            kwargs={
-                "ingestion_id": ingestion_id,
-                "transient_attempt": transient_attempt + 1,
-            },
+        _schedule_rag_retry(
+            self, exc, state, _rag_retry_countdown(state.phase_attempt - 1)
         )

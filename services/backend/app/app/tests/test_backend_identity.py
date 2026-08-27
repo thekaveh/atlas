@@ -351,6 +351,39 @@ def test_first_party_tokens_are_limited_to_their_route_families(monkeypatch) -> 
     assert exc.value.status_code == 403
 
 
+def test_comfyui_cancel_route_requires_automation_principal(
+    fastapi_client, monkeypatch
+) -> None:
+    import main
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def cancel_prompt(self, prompt_id):
+            return prompt_id == "prompt-1"
+
+    monkeypatch.setattr(main, "ComfyUIClient", Client)
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "required")
+    monkeypatch.setenv("BACKEND_OPEN_WEBUI_API_TOKEN", "webui-secret")
+    subject = str(uuid4())
+
+    user = fastapi_client.post(
+        "/comfyui/cancel/prompt-1", headers=_user_headers(monkeypatch, subject)
+    )
+    assert user.status_code == 403
+
+    service = fastapi_client.post(
+        "/comfyui/cancel/prompt-1",
+        headers={"Authorization": "Bearer webui-secret"},
+    )
+    assert service.status_code == 200
+    assert service.json()["success"] is True
+
+
 def test_every_builtin_backend_route_has_an_explicit_identity_boundary(
     fastapi_client,
 ) -> None:

@@ -463,6 +463,7 @@ services:
       COMFYUI_BASE_URL: http://comfyui:18188
       COMFYUI_COMPLETION_TIMEOUT_SECONDS: '300'
       COMFYUI_ENABLED: 'true'
+      COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS: ''
       COMFYUI_MANIFEST_PATH: /comfyui-manifest/selected-models.yaml
       COMFYUI_MAX_IMAGE_BYTES: '20971520'
       COMFYUI_SOURCE: container-cpu

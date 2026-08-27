@@ -63,13 +63,14 @@
 | BACKEND_PORT | backend |  | - |
 | BACKEND_SCALE | backend |  | Always 1 (BACKEND_SOURCE is single-valued). |
 | MAX_UPLOAD_BYTES | backend | 104857600 | Maximum accepted /storage/upload body size in bytes before the backend returns 413. |
-| COMFYUI_MAX_IMAGE_BYTES | backend | 20971520 | Maximum generated-image response bytes accepted from ComfyUI before the Backend aborts the download. |
+| COMFYUI_MAX_IMAGE_BYTES | backend | 20971520 | Maximum input or generated-image bytes accepted by the Backend's ComfyUI bridge before it aborts the transfer. |
+| COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS | backend |  | Comma-separated exact HTTPS origins allowed for remote ComfyUI init-image URLs. Blank rejects all remote URLs; data URIs remain available. |
 | COMFYUI_COMPLETION_TIMEOUT_SECONDS | backend | 300 | End-to-end deadline in seconds for synchronous ComfyUI generation and workflow requests. The Backend poller and bundled Open WebUI tool share this default. |
 | RAG_INGESTION_MAX_FILE_BYTES | backend | 104857600 | Maximum bytes loaded from any single mounted or MinIO RAG corpus file. Oversize files fail ingestion before unbounded allocation. |
 | RAG_INGESTION_MAX_CORPUS_BYTES | backend | 1073741824 | Maximum aggregate bytes loaded by one RAG corpus discovery pass across mounted or MinIO files. |
 | RAG_INGESTION_MAX_FILES | backend | 10000 | Maximum number of files accepted in one mounted or MinIO RAG corpus discovery pass. |
 | RAG_INGESTION_CORPUS_ROOT | backend | /app/corpus | Container path under which operator-provided read-only RAG corpus mounts are resolved. Mount the same path into Backend and Celery worker when asynchronous ingestion is enabled. |
-| RAG_INGESTION_EXECUTION_LEASE_SECONDS | backend | 30 | Renewable execution-ownership lease for RAG ingestion workers. Must be an integer from 10 through 300; duplicate deliveries retry until the active owner completes or its lease expires. |
+| RAG_INGESTION_EXECUTION_LEASE_SECONDS | backend | 30 | Renewable execution-ownership lease for RAG ingestion workers. Must be an integer from 10 through 300; duplicate deliveries retry until the active owner completes, an exact-owner recovery claim succeeds, or the lease expires. |
 | RESEARCH_SESSION_LEASE_SECONDS | backend | 300 | Maximum age in seconds for pending research work or a running session heartbeat before the Backend atomically marks the abandoned session failed. |
 | RESEARCH_MAX_CONCURRENT | backend | 4 | Maximum research sessions admitted concurrently per Backend process. Excess start requests fail before database work with HTTP 429. |
 | BACKEND_PG_POOL_MIN | backend | 1 | Minimum connections kept warm in the Backend's shared asyncpg pool (#804). Short-lived DB ops draw from this pool instead of paying a fresh connect handshake each time; long-hold paths (memory vector-reconcile) keep dedicated connections. |

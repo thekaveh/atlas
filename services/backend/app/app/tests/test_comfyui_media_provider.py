@@ -164,22 +164,57 @@ def test_role_file_parsing():
     assert cmc._extract_role_files("plain-name.safetensors") == {}
 
 
-def test_extension_and_content_type_sniffing():
-    assert cmc._guess_extension("https://x/y.png", b"") == "png"
-    assert cmc._guess_extension("https://x/y.JPG", b"") == "jpg"
-    assert cmc._guess_extension("https://x/y", b"\x89PNG\r\n\x1a\n") == "png"
-    assert cmc._guess_extension("data:x", b"\xff\xd8\xff") == "jpg"
+def test_artifact_content_type_from_filename():
     assert cmc._content_type_for("a.png") == "image/png"
     assert cmc._content_type_for("a.jpeg") == "image/jpeg"
     assert cmc._content_type_for("a.webp") == "image/webp"
 
 
-def test_first_present_and_coerce():
-    assert cmc._first_present({"b": "x"}, ("a", "b")) == "x"
-    assert cmc._first_present({}, ("a", "b")) is None
+def test_coerce_float():
     assert cmc._coerce_float("0.4", default=0.75) == 0.4
     assert cmc._coerce_float(None, default=0.75) == 0.75
     assert cmc._coerce_float("nope", default=0.75) == 0.75
+
+
+def test_select_init_image_distinguishes_absent_from_invalid():
+    assert cmc._select_init_image({}) is None
+    assert cmc._select_init_image({"image": " data:image/png;base64,AA== "}) == (
+        "data:image/png;base64,AA=="
+    )
+
+    for payload in ({"image": ""}, {"image_url": 42}, {"init_image": None}):
+        with pytest.raises(ValueError, match="non-empty string"):
+            cmc._select_init_image(payload)
+
+
+def test_select_init_image_rejects_multiple_aliases():
+    with pytest.raises(ValueError, match="only one"):
+        cmc._select_init_image(
+            {"image": "data:image/png;base64,AA==", "image_url": "https://x.test/a.png"}
+        )
+
+
+def test_trusted_image_origins_are_exact_and_canonical():
+    assert cmc._trusted_image_origins(
+        "https://Images.Example.com, https://images.example.com:8443"
+    ) == frozenset(
+        {"https://images.example.com:443", "https://images.example.com:8443"}
+    )
+
+
+@pytest.mark.parametrize(
+    "origin",
+    (
+        "http://images.example.com",
+        "https://user@images.example.com",
+        "https://images.example.com/path",
+        "https://images.example.com?query=1",
+        "https://*.example.com",
+    ),
+)
+def test_trusted_image_origins_reject_malformed_policy(origin):
+    with pytest.raises(ValueError, match="COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS"):
+        cmc._trusted_image_origins(origin)
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -254,13 +289,24 @@ def test_operation_payload_local_zero_cost_envelope():
 # ────────────────────────────────────────────────────────────────────
 # Full submit/poll/cancel flow through a mocked ComfyUI transport
 # ────────────────────────────────────────────────────────────────────
-PNG_MAGIC = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+PNG_MAGIC = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg=="
+)
 
 
-def _client_with_transport(handler: Callable[[httpx.Request], httpx.Response]) -> ComfyUIMediaClient:
+async def _client_with_transport(
+    handler: Callable[[httpx.Request], httpx.Response]
+) -> ComfyUIMediaClient:
     """Build a ComfyUIMediaClient whose httpx calls are routed by `handler`."""
     client = ComfyUIMediaClient(base_url="http://comfyui.test")
+    await client.client.aclose()
+    await client.image_client.aclose()
     client.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client.image_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        follow_redirects=False,
+        trust_env=False,
+    )
     return client
 
 
@@ -269,11 +315,12 @@ def _run(handler, body: Callable[[ComfyUIMediaClient], Any]) -> Any:
     (the client + its httpx connection share the loop)."""
 
     async def _driver():
-        client = _client_with_transport(handler)
+        client = await _client_with_transport(handler)
         try:
             return await body(client)
         finally:
             await client.client.aclose()
+            await client.image_client.aclose()
 
     return asyncio.run(_driver())
 
@@ -460,53 +507,84 @@ def test_poll_lost_prompt_when_absent_everywhere():
     _run(handler, body)
 
 
-def test_cancel_deletes_queue_and_interrupts_when_running():
+@pytest.mark.parametrize("cancelled", [True, False])
+def test_cancel_uses_only_targeted_job_endpoint(cancelled):
     calls = []
 
     def handler(request):
-        url = str(request.url)
-        calls.append((request.method, url))
-        if url.endswith("/queue") and request.method == "GET":
-            return httpx.Response(200, json={"queue_running": [[0, "pid-r"]], "queue_pending": []})
-        if url.endswith("/interrupt"):
-            return httpx.Response(200, json={})
-        return httpx.Response(200, json={})
+        calls.append((request.method, request.url.raw_path))
+        return httpx.Response(200, json={"cancelled": cancelled})
 
     async def body(client):
-        ok = await client.cancel_media_operation(operation_id="pid-r", modality="image")
-        assert ok is True
+        result = await client.cancel_media_operation(
+            operation_id="pid/running", modality="image"
+        )
+        assert result is cancelled
 
     _run(handler, body)
-    # queue GET, queue POST (delete), interrupt POST — interrupt fires because
-    # the prompt was in queue_running.
-    assert any(m == "POST" and u.endswith("/interrupt") for (m, u) in calls)
-    assert any(m == "POST" and u.endswith("/queue") for (m, u) in calls)
+    assert calls == [("POST", b"/api/jobs/pid%2Frunning/cancel")]
 
 
-def test_cancel_pending_only_does_not_interrupt():
+@pytest.mark.parametrize(
+    ("status", "payload"),
+    [
+        (404, {"cancelled": False}),
+        (405, {"cancelled": False}),
+        (500, {"cancelled": False}),
+        (200, None),
+        (200, {}),
+        (200, {"cancelled": 1}),
+        (200, {"cancelled": "true"}),
+    ],
+)
+def test_cancel_rejects_unsupported_or_malformed_responses(status, payload):
     def handler(request):
-        if request.url.path.endswith("/queue") and request.method == "GET":
-            return httpx.Response(200, json={"queue_running": [], "queue_pending": [[1, "pid-p"]]})
-        if request.url.path.endswith("/interrupt"):
-            pytest.fail("interrupt must not fire for a pending-only prompt")
-        return httpx.Response(200, json={})
+        if payload is None:
+            return httpx.Response(status, content=b"not-json")
+        return httpx.Response(status, json=payload)
 
     async def body(client):
-        ok = await client.cancel_media_operation(operation_id="pid-p", modality="image")
-        assert ok is True  # queue-delete only; no interrupt needed
+        result = await client.cancel_media_operation(
+            operation_id="pid", modality="image"
+        )
+        assert result is False
 
     _run(handler, body)
 
 
-def test_cancel_returns_false_on_transport_failure():
+def test_interrupted_history_is_terminal_cancelled():
+    entry = {
+        "status": {
+            "status_str": "error",
+            "messages": [["execution_interrupted", {}]],
+        }
+    }
+    assert cmc.ComfyUIMediaClient._history_status(entry) == ("cancelled", None)
+
     def handler(request):
-        return httpx.Response(500)
+        return httpx.Response(200, json={"pid": entry})
 
     async def body(client):
-        ok = await client.cancel_media_operation(operation_id="pid", modality="image")
-        assert ok is False
+        payload = await client.get_media_operation(
+            operation_id="pid", modality="image"
+        )
+        assert payload["status"] == "cancelled"
+        assert payload["artifacts"] == []
+        assert payload["artifact_url"] is None
 
     _run(handler, body)
+
+
+def test_interruption_message_does_not_override_success_history():
+    entry = {
+        "status": {
+            "status_str": "success",
+            "messages": [["execution_interrupted", {}]],
+        },
+        "outputs": {"1": {"images": [{"filename": "kept.png"}]}},
+    }
+
+    assert cmc.ComfyUIMediaClient._history_status(entry) == ("success", None)
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -522,7 +600,7 @@ def test_img2img_data_uri_is_uploaded_and_strength_sets_denoise():
             return httpx.Response(200, json={"prompt_id": "pid-i2i"})
         if url.endswith("/upload/image"):
             captured["upload"] = request.content
-            return httpx.Response(200, json={"name": "stored.png", "subfolder": "", "type": "input"})
+            return httpx.Response(200, json={"name": "stored.png", "subfolder": "", "type": "temp"})
         return httpx.Response(404)
 
     async def body(client):
@@ -543,12 +621,16 @@ def test_img2img_data_uri_is_uploaded_and_strength_sets_denoise():
     graph = captured["body"]["prompt"]
     # init image uploaded then referenced by LoadImage
     assert graph["5"]["class_type"] == "LoadImage"
-    assert graph["5"]["inputs"]["image"] == "stored.png"
+    assert graph["5"]["inputs"]["image"] == "stored.png [temp]"
+    assert b'\r\n\r\ntemp\r\n' in captured["upload"]
     # strength drives KSampler denoise, clamped to [0,1]
     assert graph["4"]["inputs"]["denoise"] == 0.4
 
 
-def test_img2img_fetches_url_init_image():
+def test_img2img_fetches_url_init_image_from_exact_trusted_origin(monkeypatch):
+    monkeypatch.setenv(
+        "COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS", "https://remote-img.test"
+    )
     captured: Dict[str, Any] = {}
 
     def handler(request):
@@ -556,7 +638,7 @@ def test_img2img_fetches_url_init_image():
         if "remote-img.test" in url:
             return httpx.Response(200, content=PNG_MAGIC, headers={"content-type": "image/png"})
         if url.endswith("/upload/image"):
-            return httpx.Response(200, json={"name": "u.png", "subfolder": "s", "type": "input"})
+            return httpx.Response(200, json={"name": "u.png", "subfolder": "s", "type": "temp"})
         if url.endswith("/prompt"):
             captured["body"] = json.loads(request.content)
             return httpx.Response(200, json={"prompt_id": "pid-u"})
@@ -572,7 +654,78 @@ def test_img2img_fetches_url_init_image():
     _run(handler, body)
     graph = captured["body"]["prompt"]
     # subfolder-prefixed name feeds LoadImage
-    assert graph["5"]["inputs"]["image"] == "s/u.png"
+    assert graph["5"]["inputs"]["image"] == "s/u.png [temp]"
+
+
+def test_img2img_rejects_remote_url_when_no_origin_is_trusted(monkeypatch):
+    monkeypatch.delenv("COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS", raising=False)
+
+    def handler(request):
+        pytest.fail(f"untrusted URL must not be fetched: {request.url}")
+
+    async def body(client):
+        with pytest.raises(ValueError, match="trusted origin"):
+            await client.submit_media_operation(
+                modality="image",
+                input_payload={"prompt": "x", "image": "https://remote-img.test/a.png"},
+                model="sdxl_base.safetensors",
+            )
+
+    _run(handler, body)
+
+
+@pytest.mark.parametrize(
+    "url",
+    (
+        "http://remote-img.test/a.png",
+        "https://user@remote-img.test/a.png",
+        "https://remote-img.test.evil/a.png",
+        "https://remote-img.test:444/a.png",
+        "https://remote-img.test/a.png#fragment",
+    ),
+)
+def test_img2img_rejects_url_outside_exact_trusted_origin(monkeypatch, url):
+    monkeypatch.setenv(
+        "COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS", "https://remote-img.test"
+    )
+
+    def handler(request):
+        pytest.fail(f"untrusted URL must not be fetched: {request.url}")
+
+    async def body(client):
+        with pytest.raises(ValueError, match="trusted origin"):
+            await client.submit_media_operation(
+                modality="image",
+                input_payload={"prompt": "x", "image": url},
+                model="sdxl_base.safetensors",
+            )
+
+    _run(handler, body)
+
+
+def test_comfyui_client_rejects_invalid_trusted_origin_config(monkeypatch):
+    monkeypatch.setenv(
+        "COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS", "https://images.example.com/path"
+    )
+
+    with pytest.raises(ValueError, match="COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS"):
+        ComfyUIMediaClient(base_url="http://comfyui.test")
+
+
+def test_comfyui_download_client_alone_disables_proxy_environment(monkeypatch):
+    monkeypatch.delenv("COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS", raising=False)
+    client = ComfyUIMediaClient(base_url="http://comfyui.test")
+    try:
+        assert client.client._trust_env is True
+        assert client.client.follow_redirects is False
+        assert client.image_client._trust_env is False
+        assert client.image_client.follow_redirects is False
+    finally:
+        async def close_clients():
+            await client.client.aclose()
+            await client.image_client.aclose()
+
+        asyncio.run(close_clients())
 
 
 def test_img2img_rejects_non_url_non_data_source():
@@ -587,10 +740,14 @@ def test_img2img_rejects_non_url_non_data_source():
     _run(lambda r: httpx.Response(200, json={}), body)
 
 
-def test_img2img_url_init_image_rejects_oversized_declared_length():
+def test_img2img_url_init_image_rejects_oversized_declared_length(monkeypatch):
     """A caller-supplied init-image URL whose Content-Length exceeds the byte
     cap is rejected before the body is buffered → ValueError → gateway 400, so
     a huge remote file can't OOM the worker."""
+
+    monkeypatch.setenv(
+        "COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS", "https://big-img.test"
+    )
 
     def handler(request):
         if "big-img.test" in str(request.url):
@@ -610,10 +767,14 @@ def test_img2img_url_init_image_rejects_oversized_declared_length():
     _run(handler, body)
 
 
-def test_img2img_url_init_image_caps_streamed_body_without_content_length():
+def test_img2img_url_init_image_caps_streamed_body_without_content_length(monkeypatch):
     """When no Content-Length is declared (chunked transfer — the case a
     malicious upstream would use to slip past the header precheck), the cap is
     still enforced incrementally while streaming, not after buffering."""
+
+    monkeypatch.setenv(
+        "COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS", "https://chunked-img.test"
+    )
 
     async def _chunks():
         for _ in range(64):
@@ -632,6 +793,99 @@ def test_img2img_url_init_image_caps_streamed_body_without_content_length():
                 input_payload={"prompt": "x", "image": "https://chunked-img.test/huge.png"},
                 model="sdxl_base.safetensors",
             )
+
+    _run(handler, body)
+
+
+def test_img2img_data_uri_enforces_comfyui_byte_limit():
+    async def body(client):
+        client.max_image_bytes = 8
+        b64 = base64.b64encode(PNG_MAGIC).decode("ascii")
+        with pytest.raises(ValueError, match="byte limit"):
+            await client.submit_media_operation(
+                modality="image",
+                input_payload={"prompt": "x", "image": f"data:image/png;base64,{b64}"},
+                model="sdxl_base.safetensors",
+            )
+
+    _run(lambda _request: httpx.Response(500), body)
+
+
+def test_img2img_remote_response_mime_must_match_decoded_image(monkeypatch):
+    monkeypatch.setenv(
+        "COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS", "https://remote-img.test"
+    )
+
+    def handler(request):
+        if request.url.host == "remote-img.test":
+            return httpx.Response(
+                200, content=PNG_MAGIC, headers={"content-type": "image/jpeg"}
+            )
+        return httpx.Response(404)
+
+    async def body(client):
+        with pytest.raises(ValueError, match="does not match"):
+            await client.submit_media_operation(
+                modality="image",
+                input_payload={"prompt": "x", "image": "https://remote-img.test/a.jpg"},
+                model="sdxl_base.safetensors",
+            )
+
+    _run(handler, body)
+
+
+def test_img2img_upload_extension_comes_from_verified_content(monkeypatch):
+    monkeypatch.setenv(
+        "COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS", "https://remote-img.test"
+    )
+    captured: Dict[str, Any] = {}
+
+    def handler(request):
+        if request.url.host == "remote-img.test":
+            return httpx.Response(
+                200, content=PNG_MAGIC, headers={"content-type": "image/png"}
+            )
+        if request.url.path.endswith("/upload/image"):
+            captured["upload"] = request.content
+            return httpx.Response(200, json={"name": "verified.png", "type": "temp"})
+        if request.url.path.endswith("/prompt"):
+            captured["prompt"] = json.loads(request.content)
+            return httpx.Response(200, json={"prompt_id": "pid"})
+        return httpx.Response(404)
+
+    async def body(client):
+        await client.submit_media_operation(
+            modality="image",
+            input_payload={"prompt": "x", "image": "https://remote-img.test/spoof.jpg"},
+            model="sdxl_base.safetensors",
+        )
+
+    _run(handler, body)
+    assert b"atlas-init-" in captured["upload"]
+    assert b".png" in captured["upload"]
+    assert b".jpg" not in captured["upload"]
+    assert captured["prompt"]["prompt"]["5"]["inputs"]["image"] == (
+        "verified.png [temp]"
+    )
+
+
+def test_img2img_redirect_error_does_not_disclose_full_url(monkeypatch):
+    monkeypatch.setenv(
+        "COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS", "https://remote-img.test"
+    )
+    secret_url = "https://remote-img.test/a.png?token=secret-value"
+
+    def handler(request):
+        return httpx.Response(302, headers={"location": "https://evil.test/a.png"})
+
+    async def body(client):
+        with pytest.raises(ValueError) as exc:
+            await client.submit_media_operation(
+                modality="image",
+                input_payload={"prompt": "x", "image": secret_url},
+                model="sdxl_base.safetensors",
+            )
+        assert "secret-value" not in str(exc.value)
 
     _run(handler, body)
 

@@ -3011,8 +3011,9 @@ async def cancel_media_operation(
     Records nonterminal ``cancellation_requested`` and retains the budget
     reservation until provider polling confirms a terminal outcome. This is
     required because FAL may accept cancellation while in-progress work still
-    completes. Idempotency: ``404`` for an unknown operation and ``409`` for an
-    already-terminal operation or an existing cancellation request.
+    completes. ComfyUI cancellations with an ambiguous provider response may be
+    safely redelivered to its targeted job endpoint; confirmed requests return
+    the existing operation. Other repeats and terminal operations return 409.
     """
     try:
         operation = await MEDIA_OPERATION_STORE.get(operation_id)
@@ -3059,6 +3060,12 @@ async def cancel_media_operation(
                 ),
             )
         if current_status == "cancellation_requested":
+            provenance = dict(last_payload.get("provenance") or {})
+            if operation.get("provider") == "comfyui":
+                if provenance.get("provider_cancellation_requested") is True:
+                    return _media_response(last_payload)
+                persisted = operation
+                break
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
@@ -3105,6 +3112,12 @@ async def cancel_media_operation(
             )
         except Exception:  # noqa: BLE001 — best-effort by contract
             provider_cancellation_requested = False
+
+    # False is already the persisted intent default. Never write it again:
+    # a concurrent targeted ComfyUI retry may have confirmed cancellation,
+    # and that monotonic True result must not be downgraded by a stale writer.
+    if not provider_cancellation_requested:
+        return _media_response(dict(persisted["last_payload"]))
 
     payload = dict(persisted["last_payload"])
     provenance = dict(payload.get("provenance") or {})

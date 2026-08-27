@@ -217,6 +217,27 @@ def test_committed_env_example_matches_assembler_output():
     )
 
 
+def test_backend_declares_and_forwards_comfyui_trusted_image_origins():
+    manifests = {
+        manifest.name: manifest
+        for manifest in load_manifests(_REPO_ROOT / "services")
+    }
+    backend_env = {decl.name: decl for decl in manifests["backend"].env}
+
+    trusted_origins = backend_env["COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS"]
+    assert trusted_origins.default == ""
+    assert "exact HTTPS origins" in trusted_origins.description
+
+    compose = (_REPO_ROOT / "services/backend/compose.yml").read_text()
+    assert (
+        "COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS: "
+        "${COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS:-}"
+    ) in compose
+
+    assembled = assemble_env_example(manifests.values())
+    assert "COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS=\n" in assembled
+
+
 def test_multiline_description_each_line_commented(tmp_path):
     """Multi-line description must have every line prefixed with '# '."""
     services_root = tmp_path / "services"

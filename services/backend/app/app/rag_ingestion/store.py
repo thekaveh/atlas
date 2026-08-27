@@ -16,6 +16,7 @@ import json
 import os
 import threading
 import time
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from .models import IngestionRecord
@@ -25,6 +26,13 @@ _KEY_PREFIX = "atlas:rag:ingestions:"
 _IDX_PREFIX = "atlas:rag:idempotency:"
 _INDEX_SET = "atlas:rag:ingestion-ids"
 _LEASE_PREFIX = "atlas:rag:execution:"
+
+
+@dataclass(frozen=True)
+class ExecutionClaim:
+    owner: str
+    lease_seconds: int
+    recovery_owner: Optional[str] = None
 
 
 class IngestionStore:
@@ -68,9 +76,7 @@ class IngestionStore:
     ) -> Optional[IngestionRecord]:
         raise NotImplementedError
 
-    def claim_execution(
-        self, ingestion_id: str, owner: str, lease_seconds: int
-    ) -> bool:
+    def claim_execution(self, ingestion_id: str, claim: ExecutionClaim) -> bool:
         raise NotImplementedError
 
     def renew_execution(
@@ -225,9 +231,7 @@ class InMemoryIngestionStore(IngestionStore):
                 self._save_locked(record)
             return record
 
-    def claim_execution(
-        self, ingestion_id: str, owner: str, lease_seconds: int
-    ) -> bool:
+    def claim_execution(self, ingestion_id: str, claim: ExecutionClaim) -> bool:
         with self._lock:
             blob = self._records.get(ingestion_id)
             if blob is None:
@@ -238,8 +242,16 @@ class InMemoryIngestionStore(IngestionStore):
             now = time.monotonic()
             current = self._leases.get(ingestion_id)
             if current is not None and current[1] > now:
-                return False
-            self._leases[ingestion_id] = (owner, now + lease_seconds)
+                current_owner = current[0]
+                if (
+                    claim.recovery_owner != current_owner
+                    or claim.owner == current_owner
+                ):
+                    return False
+            self._leases[ingestion_id] = (
+                claim.owner,
+                now + claim.lease_seconds,
+            )
             return True
 
     def renew_execution(
@@ -421,9 +433,16 @@ if record.status == 'completed' or record.status == 'failed'
    or record.status == 'cancelled' then
     return 0
 end
-if redis.call('GET', KEYS[2]) then return 0 end
-redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2])
-return 1
+local current = redis.call('GET', KEYS[2])
+if not current then
+    redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2])
+    return 1
+end
+if ARGV[3] ~= '' and current == ARGV[3] and ARGV[1] ~= ARGV[3] then
+    redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2])
+    return 1
+end
+return 0
 """
 
     _RENEW_EXECUTION_SCRIPT = """
@@ -575,17 +594,16 @@ return 1
         )
         return IngestionRecord.from_dict(json.loads(result)) if result else None
 
-    def claim_execution(
-        self, ingestion_id: str, owner: str, lease_seconds: int
-    ) -> bool:
+    def claim_execution(self, ingestion_id: str, claim: ExecutionClaim) -> bool:
         return bool(
             self._redis.eval(
                 self._CLAIM_EXECUTION_SCRIPT,
                 2,
                 _KEY_PREFIX + ingestion_id,
                 _LEASE_PREFIX + ingestion_id,
-                owner,
-                lease_seconds,
+                claim.owner,
+                claim.lease_seconds,
+                claim.recovery_owner or "",
             )
         )
 

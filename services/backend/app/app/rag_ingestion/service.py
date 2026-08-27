@@ -48,7 +48,7 @@ from .models import (
     IngestionRecord,
 )
 from .profiles import LoadedProfile, get_profile
-from .store import IngestionStore, default_store
+from .store import ExecutionClaim, IngestionStore, default_store
 
 
 async def _cancel_pending_task(task: asyncio.Task[Any]) -> None:
@@ -396,6 +396,7 @@ class RagIngestionService:
         *,
         retry_transient: bool = False,
         execution_owner: Optional[str] = None,
+        execution_recovery_owner: Optional[str] = None,
         execution_lease_seconds: Optional[int] = None,
     ) -> IngestionRecord:
         record = await asyncio.to_thread(self.store.get, ingestion_id)
@@ -416,8 +417,9 @@ class RagIngestionService:
             if execution_lease_seconds is None
             else _validate_execution_lease_seconds(execution_lease_seconds)
         )
+        claim = ExecutionClaim(owner, lease_seconds, execution_recovery_owner)
         claimed = await asyncio.to_thread(
-            self.store.claim_execution, ingestion_id, owner, lease_seconds
+            self.store.claim_execution, ingestion_id, claim
         )
         if not claimed:
             latest = await asyncio.to_thread(self.store.get, ingestion_id)

@@ -23,6 +23,7 @@ def _stub_required_env(monkeypatch):
 
 
 def _fresh_main(monkeypatch, *, budget_enabled, default_cap="", disabled_providers=""):
+    _CapturingFalClient.cancel_result = True
     _stub_required_env(monkeypatch)
     monkeypatch.setenv("FAL_SOURCE", "enabled")
     monkeypatch.setenv("FAL_API_KEY", "fal-key")

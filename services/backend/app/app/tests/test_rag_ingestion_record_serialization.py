@@ -12,11 +12,19 @@ from rag_ingestion.models import (
     RagIngestionRecordResponse,
 )
 from rag_ingestion.store import (
+    ExecutionClaim,
     RedisIngestionStore,
     _IDX_PREFIX,
     _INDEX_SET,
     _KEY_PREFIX,
 )
+
+
+def test_redis_execution_claim_script_supports_exact_owner_recovery() -> None:
+    script = RedisIngestionStore._CLAIM_EXECUTION_SCRIPT
+    assert "current == ARGV[3]" in script
+    assert "ARGV[1] ~= ARGV[3]" in script
+    assert ExecutionClaim("fresh", 60, "old").recovery_owner == "old"
 
 
 def test_redis_dispatch_scripts_normalize_legacy_records() -> None:

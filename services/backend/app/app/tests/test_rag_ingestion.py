@@ -35,7 +35,11 @@ from rag_ingestion.service import (
     RagIngestionService,
 )
 from rag_ingestion.models import IngestionRecord
-from rag_ingestion.store import InMemoryIngestionStore, RedisIngestionStore
+from rag_ingestion.store import (
+    ExecutionClaim,
+    InMemoryIngestionStore,
+    RedisIngestionStore,
+)
 
 
 # ── fakes ────────────────────────────────────────────────────────────
@@ -646,14 +650,40 @@ def test_execution_claim_fences_non_owner_saves_and_allows_recovery():
     )
     store.create_if_absent(record)
 
-    assert store.claim_execution(record.id, "worker-a", 60) is True
-    assert store.claim_execution(record.id, "worker-b", 60) is False
+    assert store.claim_execution(record.id, ExecutionClaim("worker-a", 60)) is True
+    assert store.claim_execution(record.id, ExecutionClaim("worker-b", 60)) is False
     claimed = store.get(record.id)
     claimed.status = "running"
     assert store.save_claimed(claimed, "worker-b") is False
     assert store.save_claimed(claimed, "worker-a") is True
     assert store.release_execution(record.id, "worker-a") is True
-    assert store.claim_execution(record.id, "worker-b", 60) is True
+    assert store.claim_execution(record.id, ExecutionClaim("worker-b", 60)) is True
+
+
+def test_execution_claim_recovery_replaces_only_exact_ambiguous_owner():
+    store = InMemoryIngestionStore()
+    record = IngestionRecord(
+        id="ingestion-recovery",
+        consumer="acme",
+        profile="default",
+        revision="1",
+        idempotency_key="key-recovery",
+    )
+    store.create_if_absent(record)
+
+    assert store.claim_execution(record.id, ExecutionClaim("old", 60)) is True
+    assert store.claim_execution(
+        record.id, ExecutionClaim("fresh-a", 60, "unrelated")
+    ) is False
+    assert store.claim_execution(
+        record.id, ExecutionClaim("fresh-a", 60, "old")
+    ) is True
+    assert store.claim_execution(
+        record.id, ExecutionClaim("fresh-b", 60, "old")
+    ) is False
+    assert store.claim_execution(
+        record.id, ExecutionClaim("fresh-a", 60, "fresh-a")
+    ) is False
 
 
 def test_run_rejects_concurrent_execution_before_side_effects(tmp_path, monkeypatch):
@@ -674,7 +704,7 @@ def test_run_rejects_concurrent_execution_before_side_effects(tmp_path, monkeypa
         profiles_path=profile_path,
     )
     record, _ = service.submit("showcase-default")
-    assert store.claim_execution(record.id, "worker-a", 60) is True
+    assert store.claim_execution(record.id, ExecutionClaim("worker-a", 60)) is True
 
     with pytest.raises(IngestionExecutionBusy):
         asyncio.run(
@@ -688,6 +718,49 @@ def test_run_rejects_concurrent_execution_before_side_effects(tmp_path, monkeypa
 
     assert embedder.available() is True
     assert store.get(record.id).status == "pending"
+
+
+def test_run_propagates_execution_recovery_claim(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+
+    class RecordingStore(InMemoryIngestionStore):
+        def __init__(self):
+            super().__init__()
+            self.claims = []
+
+        def claim_execution(self, ingestion_id, claim):
+            self.claims.append((ingestion_id, claim))
+            return super().claim_execution(ingestion_id, claim)
+
+    store = RecordingStore()
+    service = RagIngestionService(
+        store=store,
+        deps=Deps(
+            embedder=FakeEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(available=False),
+            poll_interval=0.01,
+        ),
+        profiles_path=profile_path,
+    )
+    record, _ = service.submit("showcase-default")
+
+    asyncio.run(
+        service.run(
+            record.id,
+            execution_owner="fresh-owner",
+            execution_recovery_owner="ambiguous-owner",
+            execution_lease_seconds=60,
+        )
+    )
+
+    assert store.claims == [
+        (
+            record.id,
+            ExecutionClaim("fresh-owner", 60, "ambiguous-owner"),
+        )
+    ]
 
 
 @pytest.mark.parametrize("lease_seconds", (True, 9, 301, 30.0, "30"))
@@ -713,7 +786,7 @@ def test_run_rejects_invalid_execution_lease_before_claim(
             service.run(record.id, execution_lease_seconds=lease_seconds)
         )
 
-    assert store.claim_execution(record.id, "worker-a", 60) is True
+    assert store.claim_execution(record.id, ExecutionClaim("worker-a", 60)) is True
 
 
 def test_missing_profile_does_not_strand_execution_claim(tmp_path):
@@ -735,7 +808,7 @@ def test_missing_profile_does_not_strand_execution_claim(tmp_path):
     with pytest.raises(ProfileNotFoundError):
         asyncio.run(service.run(record.id))
 
-    assert store.claim_execution(record.id, "worker-a", 60) is True
+    assert store.claim_execution(record.id, ExecutionClaim("worker-a", 60)) is True
 
 
 def test_run_cancels_active_phase_when_execution_lease_is_lost(

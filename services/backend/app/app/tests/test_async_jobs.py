@@ -843,15 +843,8 @@ def test_rag_lease_contention_retries_are_unbounded_but_transients_are_bounded()
 
 
 @pytest.mark.parametrize("transient_attempt", (0, 2))
-@pytest.mark.parametrize(
-    "error",
-    (
-        ConnectionError("temporary upstream outage"),
-        RedisConnectionError("temporary Redis outage"),
-    ),
-)
 def test_rag_transient_retry_budget_is_independent_of_celery_retry_count(
-    monkeypatch, transient_attempt, error
+    monkeypatch, transient_attempt
 ):
     import celery_tasks
     import rag_ingestion
@@ -862,7 +855,7 @@ def test_rag_transient_retry_budget_is_independent_of_celery_retry_count(
     captured = {}
 
     def fail_ingestion(*_args, **_kwargs):
-        raise error
+        raise ConnectionError("temporary upstream outage")
 
     def capture_retry(**kwargs):
         captured.update(kwargs)
@@ -876,11 +869,74 @@ def test_rag_transient_retry_budget_is_independent_of_celery_retry_count(
             "ingestion-1", transient_attempt=transient_attempt
         )
 
-    assert captured["kwargs"] == {
-        "ingestion_id": "ingestion-1",
-        "transient_attempt": transient_attempt + 1,
+    assert captured["kwargs"]["ingestion_id"] == "ingestion-1"
+    assert captured["kwargs"]["retry_state"] == {
+        "phase_attempt": transient_attempt + 1,
+        "infrastructure_attempt": 0,
     }
     assert captured["args"] == ()
+
+
+def test_rag_redis_retries_do_not_consume_phase_budget(monkeypatch):
+    import celery_tasks
+    import rag_ingestion
+
+    class RetryScheduled(RuntimeError):
+        pass
+
+    captured = {}
+    invoked = {}
+
+    def fail_ingestion(*_args, **kwargs):
+        invoked.update(kwargs)
+        raise RedisConnectionError("temporary Redis outage")
+
+    def capture_retry(**kwargs):
+        captured.update(kwargs)
+        raise RetryScheduled()
+
+    monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", fail_ingestion)
+    monkeypatch.setattr(celery_tasks.rag_ingestion_task, "retry", capture_retry)
+
+    with pytest.raises(RetryScheduled):
+        celery_tasks.rag_ingestion_task.run(
+            "ingestion-1",
+            retry_state={
+                "phase_attempt": 0,
+                "infrastructure_attempt": 3,
+                "recovery_owner": "ambiguous-owner",
+            },
+        )
+
+    current_owner = invoked["execution_owner"]
+    assert current_owner != "ambiguous-owner"
+    assert invoked["execution_recovery_owner"] == "ambiguous-owner"
+    assert captured["kwargs"]["retry_state"] == {
+        "phase_attempt": 0,
+        "infrastructure_attempt": 4,
+        "recovery_owner": current_owner,
+    }
+    assert captured["countdown"] <= 600
+
+
+@pytest.mark.parametrize(
+    "retry_state",
+    [
+        [],
+        {"phase_attempt": True},
+        {"phase_attempt": -1},
+        {"infrastructure_attempt": True},
+        {"infrastructure_attempt": -1},
+        {"recovery_owner": 7},
+    ],
+)
+def test_rag_retry_state_rejects_malformed_values(monkeypatch, retry_state):
+    import celery_tasks
+
+    with pytest.raises(ValueError, match="retry_state"):
+        celery_tasks.rag_ingestion_task.run(
+            "ingestion-1", retry_state=retry_state
+        )
 
 
 def test_rag_transient_retry_budget_stops_after_three_retries(monkeypatch):
@@ -908,7 +964,13 @@ def test_rag_transient_retry_budget_stops_after_three_retries(monkeypatch):
     assert captured["retry_transient"] is False
 
 
-def test_rag_execution_lease_loss_is_rescheduled(monkeypatch):
+@pytest.mark.parametrize(
+    ("exception_name", "carries_owner"),
+    [("IngestionExecutionLeaseLost", True), ("IngestionExecutionBusy", False)],
+)
+def test_rag_execution_claim_retry_is_rescheduled(
+    monkeypatch, exception_name, carries_owner
+):
     import celery_tasks
     import rag_ingestion
 
@@ -916,24 +978,31 @@ def test_rag_execution_lease_loss_is_rescheduled(monkeypatch):
         pass
 
     captured = {}
+    invoked = {}
 
-    def lose_lease(*_args, **_kwargs):
-        raise rag_ingestion.IngestionExecutionLeaseLost("lease lost")
+    def fail_claim(*_args, **kwargs):
+        invoked.update(kwargs)
+        raise getattr(rag_ingestion, exception_name)("claim unavailable")
 
     def capture_retry(**kwargs):
         captured.update(kwargs)
         raise RetryScheduled()
 
-    monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", lose_lease)
+    monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", fail_claim)
     monkeypatch.setattr(celery_tasks.rag_ingestion_task, "retry", capture_retry)
 
     with pytest.raises(RetryScheduled):
         celery_tasks.rag_ingestion_task.run(
-            "ingestion-1", transient_attempt=2
+            "ingestion-1",
+            transient_attempt=2,
+            retry_state={"phase_attempt": 2, "recovery_owner": "stale-owner"},
         )
 
-    assert captured["kwargs"] == {
-        "ingestion_id": "ingestion-1",
-        "transient_attempt": 2,
-    }
+    assert captured["kwargs"]["ingestion_id"] == "ingestion-1"
+    state = captured["kwargs"]["retry_state"]
+    assert state["phase_attempt"] == 2
+    assert state["infrastructure_attempt"] == 0
+    assert state.get("recovery_owner") == (
+        invoked["execution_owner"] if carries_owner else None
+    )
     assert captured["args"] == ()
