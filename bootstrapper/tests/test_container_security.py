@@ -508,11 +508,12 @@ def test_jupyter_julia_runtime_uses_a_pinned_clean_environment() -> None:
         "Pkg.instantiate(; allow_autoprecomp=false)",
         "JUPYTER_DATA_DIR=/opt/conda/share/jupyter",
         "chown -R ${NB_UID}:${NB_GID} /opt/julia",
-        "find /opt/julia -name Manifest.toml",
+        'find "/opt/julia-${JULIA_VERSION}" -name Manifest.toml',
     )
 
     assert all(path.is_file() for path in lockfiles)
     assert all(fragment in dockerfile for fragment in expected_fragments)
+    assert "find /opt/julia -name Manifest.toml" not in dockerfile
     assert "Pkg.precompile()" not in dockerfile
 
 
