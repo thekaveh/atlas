@@ -139,8 +139,9 @@ RUN JUPYTER_DATA_DIR=/opt/conda/share/jupyter \
     julia --project=/opt/julia/environments/v1.12 --startup-file=no -e \
       'using Pkg; Pkg.instantiate(; allow_autoprecomp=false); using IJulia; IJulia.installkernel("Julia 1.12")' \
  && rm -rf /opt/conda/share/jupyter/kernels/julia-1.11 \
- && find "/opt/julia-${JULIA_VERSION}" -name Manifest.toml \
-      ! -path "/opt/julia-${JULIA_VERSION}/environments/v1.12/Manifest.toml" -delete \
+ && find /opt/julia -name Manifest.toml \
+      ! -path /opt/julia/environments/v1.12/Manifest.toml -delete \
+ && find "/opt/julia-${JULIA_VERSION}" -name Manifest.toml -delete \
  && chown -R ${NB_UID}:${NB_GID} /opt/julia
 USER ${NB_UID}
 
