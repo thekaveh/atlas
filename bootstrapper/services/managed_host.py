@@ -53,6 +53,31 @@ from pathlib import Path
 from typing import Any, Mapping, Optional
 
 from utils.atomic_write import atomic_write_text
+from services import (
+    clear_owned_process_tracking,
+    clear_owned_group_if_reaped,
+    LaunchCompensation,
+    add_lifecycle_preflight,
+    acquire_lifecycle_lock,
+    await_owned_process_readiness,
+    await_spawned_process_readiness,
+    compensate_failed_launch,
+    lifecycle_support_error,
+    live_owned_process_pid,
+    managed_host_advertised_host,
+    process_start_identity,
+    process_group_owns_tcp_listener,
+    reap_owned_process,
+    refuse_occupied_port,
+    refuse_untrusted_tracked_pid,
+    resolve_host_executable,
+    select_managed_stop_pid,
+    require_lifecycle_support,
+    raise_launch_recording_failure,
+    remove_state_directory,
+    tracked_process_may_survive,
+    tracked_pid_is_stranger,
+)
 
 _OK = "ok"
 _WARN = "warn"
@@ -73,6 +98,10 @@ _INSTALL_TIMEOUT_SECONDS = 30 * 60.0
 
 class ManagedHostError(RuntimeError):
     """Raised for declared managed-host-process lifecycle failures."""
+
+    def __init__(self, message: str, *, surviving_process: bool = False) -> None:
+        super().__init__(message)
+        self.surviving_process = surviving_process
 
 
 @dataclass
@@ -238,7 +267,7 @@ def read_recorded_start_time(pid_file: Path) -> Optional[str]:
         # not comparable against a UTC probe — reading it would make every
         # already-running managed host look like a stranger exactly once,
         # which is the failure this guard exists to prevent. An unrecognized
-        # stamp simply reads as absent, and the guard degrades to proceed.
+        # stamp reads as absent, and the guard refuses to authorize signalling.
         if line.startswith("start_utc="):
             return line[len("start_utc="):].strip() or None
     return None
@@ -248,29 +277,51 @@ def write_pid_file_with_identity(pid_file: Path, pid: int, start_time: Optional[
     """Record `(pid, start time)` atomically.
 
     Atomic because a torn read yields a pid with no stamp, which the guard
-    reads as "unknowable, proceed" — silently disabling the very reuse check
-    the stamp exists to feed.
+    treats as untrusted. New launch paths require a non-empty start time;
+    ``None`` remains supported only for legacy-format tests and migration.
     """
     body = str(pid) if start_time is None else f"{pid}\nstart_utc={start_time}"
     atomic_write_text(pid_file, body + "\n")
 
 
+def require_process_start_time(pid: int, probe) -> str:
+    """Capture a launch identity, retrying briefly for process visibility."""
+    for _attempt in range(3):
+        try:
+            started = probe(pid)
+        except Exception:  # noqa: BLE001 — converted to a launch failure below
+            started = None
+        if started:
+            return started
+        time.sleep(0.05)
+    raise ManagedHostError(
+        f"could not capture start-time identity for newly launched pid {pid}"
+    )
+
+
 def pid_is_stranger(pid: int, pid_file: Path, probe) -> bool:
-    """True only when `pid` can be PROVEN not to be the recorded process.
+    """True unless `pid` can be proven to be the recorded process.
 
     `(pid, start time)` is unique on POSIX; an argv is not an identity, since
     a wrapper script, `exec`, `setproctitle` or a gunicorn/celery master
-    rewrites it. Falls back to False (proceed) whenever the answer is
-    unknowable, matching the built-in managers' rule that an unknowable probe
-    must never block teardown.
+    rewrites it. An absent stamp or failed live probe is UNKNOWN, and UNKNOWN
+    must refuse signalling: killing a stranger is worse than requiring manual
+    cleanup of a legacy pid file.
     """
     recorded = read_recorded_start_time(pid_file)
-    if not recorded:
-        return False
-    live = probe(pid)
-    if not live:
-        return False
-    return live != recorded
+    if recorded and recorded.startswith("linux-proc-start-v1:"):
+        live = probe(pid)
+    elif recorded:
+        # Linux releases before the versioned /proc token wrote normalized
+        # `ps lstart` values. Probe that same representation during upgrade so
+        # a still-live Atlas process remains stoppable; unknown formats still
+        # mismatch and fail closed.
+        from services import legacy_process_start_identity
+
+        live = legacy_process_start_identity(pid)
+    else:
+        live = None
+    return not recorded or not live or live != recorded
 
 
 class ManagedHostManager:
@@ -289,6 +340,12 @@ class ManagedHostManager:
         self.pid_file = self.state_dir / f"{spec.name}.pid"
         self.log_file = self.state_dir / f"{spec.name}.log"
         self.venv_dir = self.state_dir / "venv"
+        self.lifecycle_lock_file = (
+            self.state_dir.parent / f".{self.state_dir.name}.lifecycle.lock"
+        )
+        self._untracked_pid: Optional[int] = None
+        self._owned_process: Optional[subprocess.Popen] = None
+        self._owned_group_pid: Optional[int] = None
 
     # ── resolution ───────────────────────────────────────────────────
     @property
@@ -299,11 +356,14 @@ class ManagedHostManager:
         return self.spec.bind in _LOOPBACK
 
     def _probe_host(self) -> str:
-        return "127.0.0.1" if self.spec.bind in ("0.0.0.0", "::") else self.spec.bind
+        return {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(
+            self.spec.bind, self.spec.bind
+        )
 
     def endpoint(self) -> str:
         scheme = "http" if self.spec.health.kind == "http" else "tcp"
-        return f"{scheme}://localhost:{self.spec.port}"
+        host = managed_host_advertised_host(self.spec.bind)
+        return f"{scheme}://{host}:{self.spec.port}"
 
     def _resolved_command(self) -> list[str]:
         """Rewrite a leading ``python`` to the venv interpreter when one exists.
@@ -321,6 +381,10 @@ class ManagedHostManager:
     # ── preflight (read-only) ────────────────────────────────────────
     def preflight(self) -> PreflightResult:
         result = PreflightResult()
+        add_lifecycle_preflight(
+            result, lifecycle_support_error(fcntl, os, signal, "managed-host"),
+            (_OK, _FAIL),
+        )
         self._preflight_bind(result)
         self._preflight_venv(result)
         self._preflight_command(result)
@@ -371,7 +435,7 @@ class ManagedHostManager:
         binary = argv[0]
         if self.spec.venv and binary == str(self.venv_python):
             result.add("command", _OK, f"runs the venv interpreter: {' '.join(argv[:3])}…")
-        elif shutil.which(binary) or Path(binary).expanduser().exists():
+        elif resolve_host_executable(binary, self.spec.workdir):
             result.add("command", _OK, f"executable resolves: {binary}")
         else:
             result.add("command", _FAIL, f"command not found on PATH: {binary!r}")
@@ -397,6 +461,10 @@ class ManagedHostManager:
 
         Idempotent: an existing venv is reused unless ``update`` is set.
         """
+        with self._lifecycle_lock():
+            self._install_locked(update=update)
+
+    def _install_locked(self, *, update: bool = False) -> None:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         if self.spec.venv is not None:
             self._install_venv(update=update)
@@ -439,9 +507,9 @@ class ManagedHostManager:
     def _child_env(self) -> dict[str, str]:
         env = dict(os.environ)
         env.update({str(k): str(v) for k, v in self.spec.env.items()})
-        env.setdefault("ATLAS_MANAGED_HOST_NAME", self.spec.name)
-        env.setdefault("ATLAS_MANAGED_HOST_PORT", str(self.spec.port))
-        env.setdefault("ATLAS_MANAGED_HOST_BIND", self.spec.bind)
+        env["ATLAS_MANAGED_HOST_NAME"] = self.spec.name
+        env["ATLAS_MANAGED_HOST_PORT"] = str(self.spec.port)
+        env["ATLAS_MANAGED_HOST_BIND"] = self.spec.bind
         return env
 
     # ── lifecycle ────────────────────────────────────────────────────
@@ -451,8 +519,8 @@ class ManagedHostManager:
                 f"refusing non-loopback bind {self.spec.bind} for {self.spec.name!r}; "
                 f"set allow_remote: true to override"
             )
-        self.state_dir.mkdir(parents=True, exist_ok=True)
         with self._lifecycle_lock():
+            self.state_dir.mkdir(parents=True, exist_ok=True)
             return self._start_locked(wait_timeout)
 
     @contextmanager
@@ -464,58 +532,100 @@ class ManagedHostManager:
         untracked and holding the port. The dedicated ComfyUI manager already
         took an flock here; the generic extraction did not.
 
-        Held only across `start()`. `stop()` and `remove()` deliberately do NOT
-        take it: `remove()` calls `stop()`, and flock is per open-file
-        description, so a second acquisition from the same process would
-        self-deadlock.
+        Public lifecycle methods take this stable parent-directory lock and
+        call their private ``*_locked`` implementation, avoiding nested flock
+        acquisition while preventing start/stop/remove races.
         """
-        if fcntl is None:  # non-POSIX: no lock available, behave as before
-            yield
-            return
-        handle = open(self.state_dir / "lifecycle.lock", "w", encoding="utf-8")
+        self.state_dir.parent.mkdir(parents=True, exist_ok=True)
+        require_lifecycle_support(
+            lifecycle_support_error(fcntl, os, signal, "managed-host"),
+            ManagedHostError,
+        )
+        handle = open(self.lifecycle_lock_file, "w", encoding="utf-8")
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            acquire_lifecycle_lock(
+                handle, fcntl, (repr(self.spec.name), ManagedHostError), time,
+            )
             yield
         finally:
             handle.close()  # closing releases the lock
 
     def _start_locked(self, wait_timeout: float) -> HostProcessStatus:
+        refuse_untrusted_tracked_pid(
+            (self._read_pid() or self._untracked_pid, self.pid_file),
+            self._managed_process_alive, self._pid_is_stranger,
+            (repr(self.spec.name), ManagedHostError),
+        )
         status = self.status()
         if status.running:
-            return status
+            return await_owned_process_readiness(
+                self,
+                status,
+                wait_timeout,
+                (repr(self.spec.name), self.spec.bind, self.spec.port, ManagedHostError, time),
+            )
+        refuse_occupied_port(
+            status, self._port_in_use,
+            (
+                f"port {self.spec.port} is already in use by an unmanaged process; "
+                f"stop it or change the declared port for {self.spec.name!r}",
+                ManagedHostError,
+            ),
+        )
         process = self._spawn()
+        self._untracked_pid = process.pid
         try:
             self._write_pid_file(process.pid)
-        except OSError as exc:
+        except BaseException as exc:
             # Without this the child keeps running while `status()` reports
             # False: untracked, unstoppable, still holding the port. The
             # dedicated ComfyUI manager already guarded this; the generic
             # extraction dropped it.
-            self._terminate_untracked(process)
-            raise ManagedHostError(
-                f"{self.spec.name!r} started (pid {process.pid}) but its pid file "
-                f"could not be written: {exc}. The process was terminated."
-            ) from exc
-        return self._await_port(process, wait_timeout)
+            outcome = compensate_failed_launch(
+                process.pid,
+                self.pid_file,
+                lambda: self._terminate_untracked(process),
+            )
+            if outcome.terminated:
+                self._untracked_pid = None
+                self._owned_process = reap_owned_process(
+                    self._owned_process,
+                    process.pid,
+                    _STOP_POLL_ROUNDS * _STOP_POLL_SECONDS,
+                )
+                clear_owned_group_if_reaped(self)
+            raise_launch_recording_failure(
+                exc,
+                process.pid,
+                outcome,
+                (f"{self.spec.name!r} pid file / process identity", ManagedHostError),
+            )
+        status = self._await_port(process, wait_timeout)
+        self._untracked_pid = None
+        return status
 
     @staticmethod
-    def _terminate_untracked(process: subprocess.Popen) -> None:
+    def _terminate_untracked(process: subprocess.Popen) -> bool:
         """Kill a child we can no longer track, so it cannot outlive us."""
         for sig in (signal.SIGTERM, signal.SIGKILL):
             if process.poll() is not None:
-                return
+                return ManagedHostManager._sweep_orphaned_group(process.pid)
             try:
                 os.killpg(process.pid, sig)
             except OSError:
                 try:
                     process.send_signal(sig)
                 except OSError:
-                    return
+                    continue
             try:
                 process.wait(timeout=_STOP_POLL_ROUNDS * _STOP_POLL_SECONDS)
-                return
+                return ManagedHostManager._sweep_orphaned_group(process.pid)
             except subprocess.TimeoutExpired:
                 continue
+        return (
+            process.poll() is not None
+            and ManagedHostManager._sweep_orphaned_group(process.pid)
+        )
 
     def _write_pid_file(self, pid: int) -> None:
         """Record the pid together with the process start time.
@@ -527,26 +637,23 @@ class ManagedHostManager:
         which a wrapper script, ``exec``, ``setproctitle`` or a gunicorn/celery
         master can rewrite at will.
 
-        Written as an optional second line so an older single-line pid file
-        still parses; that case degrades to the pre-existing behavior rather
-        than to a wrong answer.
+        New launches require the second line. Older single-line pid files still
+        parse, but are treated as untrusted and never authorize a signal.
         """
-        started = self._process_start_time(pid)
-        body = str(pid) if started is None else f"{pid}\nstart_utc={started}"
+        started = require_process_start_time(pid, self._process_start_time)
+        body = f"{pid}\nstart_utc={started}"
         # ATOMIC. `write_text` truncates and then writes, and the `start_utc=`
         # line lands after the pid in the same call — so a crash or a
         # concurrent read mid-write yields a file with a pid and NO stamp.
-        # `_recorded_start_time` then returns None, `_pid_is_stranger` reads
-        # that as "unknowable -> proceed", and the reuse guard this function
-        # exists to feed is silently disabled. Measured 18% torn reads under
-        # concurrent access before this change.
+        # `_recorded_start_time` then returns None and ownership becomes
+        # untrusted. Atomic replacement prevents that torn state.
         atomic_write_text(self.pid_file, body + "\n")
 
     def _spawn(self) -> subprocess.Popen:
         argv = self._resolved_command()
         try:
             with open(self.log_file, "ab") as log_handle:
-                return subprocess.Popen(  # noqa: S603 - fixed argv, never shell=True
+                process = subprocess.Popen(  # noqa: S603 - fixed argv, never shell=True
                     argv,
                     cwd=str(self.spec.workdir) if self.spec.workdir else None,
                     env=self._child_env(),
@@ -554,44 +661,60 @@ class ManagedHostManager:
                     stderr=subprocess.STDOUT,
                     start_new_session=True,
                 )
-        except OSError as exc:
+                self._owned_process = process
+                self._owned_group_pid = process.pid
+                return process
+        except (OSError, ManagedHostError) as exc:
             raise ManagedHostError(f"could not launch {self.spec.name!r}: {exc}") from exc
 
     def _await_port(self, process: subprocess.Popen, wait_timeout: float) -> HostProcessStatus:
-        deadline = time.monotonic() + wait_timeout
-        while time.monotonic() < deadline:
-            if process.poll() is not None:
-                break  # child died — a port held by a FOREIGN process is not success
-            if self._port_in_use():
-                return HostProcessStatus(running=True, pid=process.pid, port_open=True)
-            time.sleep(0.5)
+        if await_spawned_process_readiness(
+            self,
+            process,
+            wait_timeout,
+            (time, repr(self.spec.name), ManagedHostError),
+        ):
+            return HostProcessStatus(running=True, pid=process.pid, port_open=True)
         tail = self._log_tail()
-        self.stop()
+        self._stop_locked()
+        _pid, may_survive = tracked_process_may_survive(self)
         raise ManagedHostError(
-            f"{self.spec.name!r} did not open {self.spec.bind}:{self.spec.port} within "
-            f"{wait_timeout:.0f}s. Log tail:\n{tail}"
+            f"{self.spec.name!r} did not become healthy on "
+            f"{self.spec.bind}:{self.spec.port} within "
+            f"{wait_timeout:.0f}s. Log tail:\n{tail}",
+            surviving_process=may_survive,
+        )
+
+    def _spawned_endpoint_owned(self, pid: int) -> bool:
+        return process_group_owns_tcp_listener(
+            pid, self.spec.bind, self.spec.port
         )
 
     def stop(self) -> bool:
-        pid = self._read_pid()
-        if pid is None or not self._pid_alive(pid):
-            if pid is not None:
-                self._sweep_orphaned_group(pid)
-            self.pid_file.unlink(missing_ok=True)
-            return True
-        # PID-reuse guard (#947). The three built-in managers solve the same
-        # problem by matching the process argv; this one compares the start
-        # time recorded at spawn, which is an identity rather than a guess
-        # (see _pid_is_stranger). A crashed process
+        with self._lifecycle_lock():
+            return self._stop_locked()
+
+    def _stop_locked(self) -> bool:
+        pid, owned_pid, alive = select_managed_stop_pid(self)
+        if pid is None:
+            _pid, evidence_may_survive = tracked_process_may_survive(self)
+            if evidence_may_survive:
+                return False
+            return self._clear_process_tracking()
+        if not alive:
+            return self._finish_leaderless_stop(pid)
+        # PID-reuse guard (#947). Every built-in manager uses the same recorded
+        # start-time identity (see _pid_is_stranger). A crashed process
         # leaves its pid file behind; the OS can then recycle that pid onto
         # an unrelated process owned by the same user — so `_pid_alive` says
         # yes and the PermissionError arm of it never fires. Signalling blind
         # here is worse than in the built-in managers, because `_signal`
         # escalates to `os.killpg`: it would take out the stranger's whole
-        # process group. Drop the stale pid instead.
-        if self._pid_is_stranger(pid):
-            self.pid_file.unlink(missing_ok=True)
-            return True
+        # process group. Preserve the evidence and refuse to signal.
+        if tracked_pid_is_stranger(self, pid, owned_pid):
+            # Ownership is mismatched or unknowable. Preserve the pid file so
+            # an operator can inspect/retry; never erase the only evidence.
+            return False
         if not self._signal(pid, signal.SIGTERM):
             return False
         if self._await_exit(pid):
@@ -602,27 +725,48 @@ class ManagedHostManager:
         # a failed stop KEEPS the pid file so the process is not orphan-tracked
         return False
 
-    def _sweep_orphaned_group(self, pid: int) -> None:
-        """Kill the process group when its LEADER died but members did not.
+    def _clear_process_tracking(self) -> bool:
+        return clear_owned_process_tracking(
+            self, _STOP_POLL_ROUNDS * _STOP_POLL_SECONDS
+        )
 
-        `_spawn` passes `start_new_session=True` precisely so the whole tree is
-        killable as one group, but `stop()` short-circuited on the leader being
-        dead and never signalled it. A double-forking command, or a crashed
-        gunicorn/uvicorn master whose workers survive, therefore left the port
-        held forever: `status()` reports not-running, `stop()` reports success,
-        and every later `start()` fails to bind. Verified as a permanent wedge.
+    def _finish_leaderless_stop(self, pid: int) -> bool:
+        if self._group_survives(pid):
+            owned_pid = live_owned_process_pid(self)
+            if pid not in {
+                self._untracked_pid,
+                owned_pid,
+                self._owned_group_pid,
+            }:
+                return False
+            if not self._sweep_orphaned_group(pid):
+                return False
+        return self._clear_process_tracking()
+
+    @staticmethod
+    def _sweep_orphaned_group(pid: int) -> bool:
+        """Kill a positively-owned group when its leader died.
+
+        The caller must have current in-memory ownership (a live ``Popen`` or
+        ``_untracked_pid``). A stale pid file is not proof: its old group can
+        disappear, the number can be reused by another group, and that new
+        leader can exit. Signalling that leaderless PGID would hit strangers.
         """
-        if not self._group_survives(pid):
-            return
+        if not ManagedHostManager._group_survives(pid):
+            return True
         for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
                 os.killpg(pid, sig)
             except OSError:
-                return
+                return False
             for _ in range(_STOP_POLL_ROUNDS):
-                if not self._group_survives(pid):
-                    return
+                if not ManagedHostManager._group_survives(pid):
+                    return True
                 time.sleep(_STOP_POLL_SECONDS)
+        return not ManagedHostManager._group_survives(pid)
+
+    def _managed_process_alive(self, pid: int) -> bool:
+        return self._pid_alive(pid) or self._group_survives(pid)
 
     @staticmethod
     def _group_survives(pid: int) -> bool:
@@ -644,8 +788,12 @@ class ManagedHostManager:
             return False  # the pid EXISTS: recycled or alive, not a remnant
         try:
             os.killpg(pid, 0)
-        except OSError:
+        except ProcessLookupError:
             return False
+        except PermissionError:
+            return True
+        except OSError:
+            return True  # unclassifiable probe failure: fail closed
         return True
 
     @staticmethod
@@ -662,21 +810,20 @@ class ManagedHostManager:
 
     def _await_exit(self, pid: int) -> bool:
         for _ in range(_STOP_POLL_ROUNDS):
-            if not self._pid_alive(pid):
-                self.pid_file.unlink(missing_ok=True)
-                return True
+            if not self._managed_process_alive(pid):
+                return self._clear_process_tracking()
             time.sleep(_STOP_POLL_SECONDS)
         return False
 
     def status(self) -> HostProcessStatus:
+        live_owned_process_pid(self)
         pid = self._read_pid()
         # A pidfile + kill-0 probe alone trusts a RECYCLED PID: after a reboot
         # or crash another process can inherit the number, and kill-0 then
         # reports a dead service as running — so ensure_running_with_ownership
         # no-ops while nothing listens, and the later stop() signals the
-        # stranger. Also require that the PID is not provably a stranger —
-        # the built-in managers guard this same site for the same reason
-        # (#647/#947), though by a weaker argv test.
+        # stranger. Require a matching recorded start time as positive proof of
+        # ownership, exactly like every built-in manager (#647/#947).
         running = (
             pid is not None
             and self._pid_alive(pid)
@@ -694,7 +841,8 @@ class ManagedHostManager:
         return {"reachable": self._port_in_use(timeout=limit)}
 
     def _health_http(self, timeout: float) -> dict:
-        url = f"http://{self._probe_host()}:{self.spec.port}{self.spec.health.path}"
+        host = self._probe_host()
+        url = f"http://{f'[{host}]' if ':' in host else host}:{self.spec.port}{self.spec.health.path}"
         try:
             with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310
                 body = response.read(65536).decode("utf-8", errors="replace")
@@ -746,9 +894,11 @@ class ManagedHostManager:
         if not result.ok:
             failures = "; ".join(c["detail"] for c in result.checks if c["status"] == _FAIL)
             raise ManagedHostError(f"preflight failed for {self.spec.name!r}: {failures}")
-        already = self.status().running
-        self.install()
-        return self.start(), not already
+        with self._lifecycle_lock():
+            self.state_dir.mkdir(parents=True, exist_ok=True)
+            already = self.status().running
+            self._install_locked()
+            return self._start_locked(60.0), not already
 
     def remove(self) -> None:
         """Stop the process and delete the Atlas-owned state directory.
@@ -761,19 +911,23 @@ class ManagedHostManager:
         comfyui_mps_manager enforces: attempt the stop, then refuse on LIVENESS,
         not on the stop's return value.
         """
-        # Gate on liveness ONLY, not on stop()'s return. A process that exits
-        # between `_pid_alive` and the signal makes `_signal` see
-        # ProcessLookupError from both killpg and kill — that is an OSError, so
-        # stop() reports False for a process that is already gone, and gating on
-        # it would refuse a removal that should succeed. comfyui_mps_manager
-        # checks only `status().running` for the same reason.
-        self.stop()
-        if self.status().running:
-            raise ManagedHostError(
-                f"refusing to remove managed state for {self.spec.name!r} while "
-                f"its process is still running"
+        # Gate on a fresh raw PID/process-group probe, not `_stop_locked()`'s
+        # return or ownership-qualified `status()`. A process may exit between
+        # the liveness check and signal, while unreadable or mismatched retained
+        # evidence must fail closed rather than be erased. The built-in host
+        # managers apply the same post-stop survivor contract.
+        with self._lifecycle_lock():
+            self._stop_locked()
+            pid, may_survive = tracked_process_may_survive(self)
+            if may_survive:
+                detail = f" pid {pid}" if pid is not None else " retained PID evidence"
+                raise ManagedHostError(
+                    f"refusing to remove managed state for {self.spec.name!r} while "
+                    f"its tracked{detail} may still be alive"
+                )
+            remove_state_directory(
+                self.state_dir, ("managed state directory", ManagedHostError)
             )
-        shutil.rmtree(self.state_dir, ignore_errors=True)
 
     # ── helpers ──────────────────────────────────────────────────────
     def _port_in_use(self, *, timeout: float = 1.0) -> bool:
@@ -805,9 +959,15 @@ class ManagedHostManager:
 
     @staticmethod
     def _process_start_time(pid: int) -> Optional[str]:
-        """Absolute start time of ``pid`` per ``ps``, or None if unknowable.
+        """Stable process-start identity, or ``None`` if unknowable.
 
-        ``lstart`` renders through the ambient ``TZ`` and ``LC_TIME``, so the
+        Linux uses boot-relative ticks from ``/proc/<pid>/stat`` field 22.
+        Unlike ``ps lstart``, that token cannot move when NTP, a VM resume, or
+        an administrator adjusts the realtime clock. The version prefix makes
+        legacy realtime stamps fail closed instead of comparing unlike units.
+
+        On other POSIX hosts, ``lstart`` renders through ambient ``TZ`` and
+        ``LC_TIME``, so the
         SAME live process reads back differently depending on who asks — this
         machine returns four distinct strings for one pid under local time,
         ``TZ=UTC``, ``TZ=Asia/Tokyo`` and ``LC_ALL=de_DE``. That matters because
@@ -816,32 +976,14 @@ class ManagedHostManager:
         call our own process a stranger and orphan it. Pinning both makes the
         rendered value a function of the process alone.
         """
-        try:
-            out = subprocess.run(
-                ["ps", "-o", "lstart=", "-p", str(pid)],
-                capture_output=True, text=True, timeout=5, check=False,
-                encoding="utf-8", errors="replace",
-                env={**os.environ, "TZ": "UTC", "LC_ALL": "C", "LANG": "C"},
-            )
-        except (OSError, subprocess.SubprocessError):
-            return None
-        if out.returncode != 0:
-            return None
-        # Exactly ONE line, or nothing. A `ps` answering rc=0 with two lines
-        # wrote extra pid-file lines, and `_recorded_start_time` reads only the
-        # first `start_utc=` line — so the recorded value could never match a
-        # later probe and our own live process was disowned as a stranger.
-        # Ambiguity degrades to "unknowable -> proceed", which is the
-        # documented behavior for a stamp that cannot be read.
-        lines = [line.strip() for line in (out.stdout or "").splitlines() if line.strip()]
-        return lines[0] if len(lines) == 1 else None
+        return process_start_identity(pid)
 
     def _recorded_start_time(self) -> Optional[str]:
         """The start time stamped into the pid file at spawn, if present."""
         return read_recorded_start_time(self.pid_file)
 
     def _pid_is_stranger(self, pid: int) -> bool:
-        """True only when we can PROVE ``pid`` is NOT the process we launched.
+        """True unless ``pid`` can be positively proven to be our process.
 
         A pid is not an identity — the OS recycles it, and a crashed service
         leaves its pid file behind — but ``(pid, start time)`` is unique on
@@ -859,24 +1001,8 @@ class ManagedHostManager:
         is simply not an identity: a wrapper script, ``exec``, ``setproctitle``
         or a gunicorn/celery master rewrites it.
 
-        Falls back to False (proceed) when the answer is unknowable — a pid
-        file written before this format, or a ``ps`` that will not answer —
-        which is the pre-existing behavior and matches the built-in managers'
-        rule that an unknowable probe must never block teardown.
-
-        KNOWN LIMITATION (Linux, unfixed): ``ps -o lstart=`` is computed there
-        as ``/proc/stat btime + starttime/Hz``, and ``btime`` derives from the
-        REALTIME clock — so ANY realtime adjustment that moves `btime`
-        across a second boundary — an NTP step, a VM suspend/resume, or
-        ordinary chrony/ntpd SLEW, which needs no step at all — shifts a live
-        process's rendered start time and this comparison
-        would call it a stranger, orphaning it. macOS is immune (``ki_start``
-        is an absolute timestamp frozen at fork). The robust Linux fix is to
-        read ``/proc/<pid>/stat`` field 22 directly, which is boot-relative and
-        clock-step immune. That is deliberately NOT done here: it needs a third
-        stamp format, and a format mismatch between stamp and probe is exactly
-        the shape that produced the earlier orphaning bugs. Under a steady
-        clock the value is stable (3000/3000 probes on procps-ng 4.0.2).
+        Returns True (refuse signalling) when the answer is unknowable — a pid
+        file written before this format, or a ``ps`` that will not answer.
 
         On ``lstart`` granularity, since it invites the question: it resolves to
         one second, so two processes started back-to-back do share a value.
@@ -888,13 +1014,7 @@ class ManagedHostManager:
         ``Popen`` (0 misses in 40 spawn-and-probe cycles), so neither drift nor
         a spawn race can silently turn our own process into a stranger.
         """
-        recorded = self._recorded_start_time()
-        if recorded is None:
-            return False  # legacy pid file — no better answer than before
-        current = self._process_start_time(pid)
-        if current is None:
-            return False  # can't tell — proceed
-        return current != recorded
+        return pid_is_stranger(pid, self.pid_file, self._process_start_time)
 
     @staticmethod
     def _pid_alive(pid: int) -> bool:
@@ -913,11 +1033,7 @@ class ManagedHostManager:
         except ProcessLookupError:
             return False
         except PermissionError:
-            # #647 doctrine (mirrors the built-in managers): a process we
-            # cannot signal is not ours — treat a recycled/stale pid as
-            # not-running rather than adopting (or later SIGTERMing) a
-            # stranger.
-            return False
+            return True  # exists, but ownership is untrusted
         return True
 
     def _log_tail(self, lines: int = 12) -> str:

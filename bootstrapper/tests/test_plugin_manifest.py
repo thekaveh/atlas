@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import textwrap
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -122,6 +124,40 @@ def test_malformed_manifest_raises(tmp_path):
         load_plugin_manifest(_pkg(tmp_path, "plug", "name: [unclosed\n"))
 
 
+def test_non_utf8_manifest_is_a_plugin_scoped_error(tmp_path):
+    invalid = _pkg(tmp_path, "invalid", TABLEAU_YML)
+    (invalid / "plugin.yml").write_bytes(b"\xff")
+
+    with pytest.raises(PluginManifestError, match="could not parse YAML"):
+        load_plugin_manifest(invalid)
+
+
+def test_discovery_continues_after_non_utf8_manifest(tmp_path):
+    invalid = _pkg(tmp_path, "invalid", TABLEAU_YML)
+    (invalid / "plugin.yml").write_bytes(b"\xff")
+    _pkg(tmp_path, "valid", RAG_YML)
+
+    result = discover_plugin_manifests([tmp_path])
+
+    assert [manifest.name for manifest in result.manifests] == ["rag"]
+    assert any("invalid plugin.yml for 'invalid'" in error for error in result.errors)
+
+
+def test_plugin_manifest_supports_package_style_import(monkeypatch) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+
+    completed = subprocess.run(
+        [sys.executable, "-c", "import bootstrapper.core.plugin_manifest"],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_schema_violation_raises(tmp_path):
     body = "plugin_manifest_version: 2\nname: x\nroute_prefix: /x\n"
     with pytest.raises(PluginManifestError) as exc:
@@ -133,6 +169,56 @@ def test_unknown_field_rejected(tmp_path):
     body = "plugin_manifest_version: 1\nname: x\nroute_prefix: /x\nbogus: 1\n"
     with pytest.raises(PluginManifestError):
         load_plugin_manifest(_pkg(tmp_path, "plug", body))
+
+
+@pytest.mark.parametrize(
+    "duplicate",
+    (
+        "auth: key-auth\nauth: open\n",
+        "route_prefix: /first\nroute_prefix: /second\n",
+        "env:\n  - name: TOKEN\n    required: true\n    required: false\n",
+    ),
+)
+def test_duplicate_plugin_policy_fields_are_rejected(tmp_path, duplicate):
+    body = "plugin_manifest_version: 1\nname: strict\n"
+    if "route_prefix:" not in duplicate:
+        body += "route_prefix: /strict\n"
+    body += duplicate
+
+    with pytest.raises(PluginManifestError, match="duplicate key"):
+        load_plugin_manifest(_pkg(tmp_path, "strict", body))
+
+
+def test_plugin_manifest_allows_explicit_yaml_merge_override(tmp_path):
+    body = (
+        "plugin_manifest_version: 1\nname: strict\nroute_prefix: /strict\n"
+        "<<: &defaults {auth: inherit}\nauth: key-auth\n"
+    )
+
+    assert load_plugin_manifest(_pkg(tmp_path, "strict", body)).auth == "key-auth"
+
+
+def test_plugin_manifest_allows_merge_sequence_with_explicit_override(tmp_path):
+    body = (
+        "plugin_manifest_version: 1\nname: strict\nroute_prefix: /strict\n"
+        "<<: [{auth: inherit}, {docs_url: https://example.test/docs}]\n"
+        "auth: key-auth\n"
+    )
+
+    manifest = load_plugin_manifest(_pkg(tmp_path, "strict", body))
+
+    assert manifest.auth == "key-auth"
+    assert manifest.docs_url == "https://example.test/docs"
+
+
+def test_plugin_manifest_rejects_duplicate_inside_merge_sequence(tmp_path):
+    body = (
+        "plugin_manifest_version: 1\nname: strict\nroute_prefix: /strict\n"
+        "<<: [{auth: inherit, auth: open}]\n"
+    )
+
+    with pytest.raises(PluginManifestError, match="duplicate key"):
+        load_plugin_manifest(_pkg(tmp_path, "strict", body))
 
 
 def test_discover_collects_valid_and_reports_conflicts(tmp_path):

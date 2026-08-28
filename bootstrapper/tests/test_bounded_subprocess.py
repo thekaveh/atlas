@@ -188,40 +188,114 @@ def test_run_bounded_does_not_block_sigterm_in_child():
     assert result.stdout == "False\n"
 
 
+def _wait_until_ready(marker: Path, process: subprocess.Popen) -> None:
+    deadline = time.monotonic() + 2
+    while not marker.exists() and time.monotonic() < deadline:
+        assert process.poll() is None, "signal-test wrapper exited before readiness"
+        time.sleep(0.01)
+    assert marker.exists(), "signal-test wrapper did not become ready"
+
+
+def _process_is_live(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    status = subprocess.run(
+        ["ps", "-o", "stat=", "-p", str(pid)],
+        check=False,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return bool(status) and not status.startswith("Z")
+
+
+def _wait_until_process_stops(pid: int) -> None:
+    deadline = time.monotonic() + 2
+    while _process_is_live(pid) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not _process_is_live(pid), f"descendant process {pid} survived"
+
+
+def _read_pid(path: Path) -> int | None:
+    return int(path.read_text()) if path.exists() else None
+
+
+def _stop_test_process(
+    process: subprocess.Popen, command_group: int | None = None
+) -> None:
+    groups = [process.pid, command_group]
+    for process_group in groups:
+        if process_group is not None:
+            try:
+                os.killpg(process_group, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+    try:
+        process.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        pass
+    for process_group in groups:
+        if process_group is not None:
+            try:
+                os.killpg(process_group, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    if process.poll() is None:
+        process.wait(timeout=1)
+
+
+def _descendant_command(
+    marker: Path, ready: Path, command_group: Path, descendant_pid: Path
+) -> str:
+    descendant = (
+        "import pathlib,time; time.sleep(0.5); "
+        f"pathlib.Path({str(marker)!r}).touch()"
+    )
+    return (
+        "import os,pathlib,subprocess,sys,time; "
+        f"pathlib.Path({str(command_group)!r}).write_text(str(os.getpid())); "
+        f"child=subprocess.Popen({[sys.executable, '-c', descendant]!r}); "
+        f"pathlib.Path({str(descendant_pid)!r}).write_text(str(child.pid)); "
+        f"pathlib.Path({str(ready)!r}).touch(); "
+        "time.sleep(10)"
+    )
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
 def test_run_bounded_terminates_descendants_when_wrapper_is_interrupted(
     tmp_path: Path,
 ):
     marker = tmp_path / "interrupted-orphan-ran"
-    child = (
-        "import subprocess,sys,time; "
-        "subprocess.Popen([sys.executable, '-c', "
-        "'import pathlib,time; time.sleep(0.5); pathlib.Path(r\"%s\").touch()']); "
-        "time.sleep(10)"
-    ) % marker
+    ready = tmp_path / "interrupted-ready"
+    command_group = tmp_path / "interrupted-command-group"
+    descendant_pid = tmp_path / "interrupted-descendant-pid"
+    child = _descendant_command(marker, ready, command_group, descendant_pid)
     wrapper = (
         "from scripts.bounded_subprocess import run_bounded; "
         f"run_bounded({[sys.executable, '-c', child]!r})"
     )
-    process = subprocess.Popen([sys.executable, "-c", wrapper], cwd=ROOT)
-    time.sleep(0.1)
-    os.kill(process.pid, signal.SIGINT)
-    process.wait(timeout=2)
-
-    time.sleep(0.7)
-    assert process.returncode != 0
-    assert not marker.exists()
+    process = subprocess.Popen(
+        [sys.executable, "-c", wrapper], cwd=ROOT, start_new_session=True
+    )
+    try:
+        _wait_until_ready(ready, process)
+        os.kill(process.pid, signal.SIGINT)
+        process.wait(timeout=2)
+        _wait_until_process_stops(int(descendant_pid.read_text()))
+        assert process.returncode != 0
+        assert not marker.exists()
+    finally:
+        _stop_test_process(process, _read_pid(command_group))
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
 def test_cli_sigterm_terminates_command_tree(tmp_path: Path):
     marker = tmp_path / "sigterm-orphan-ran"
-    child = (
-        "import subprocess,sys,time; "
-        "subprocess.Popen([sys.executable, '-c', "
-        "'import pathlib,time; time.sleep(0.5); pathlib.Path(r\"%s\").touch()']); "
-        "time.sleep(10)"
-    ) % marker
+    ready = tmp_path / "sigterm-ready"
+    command_group = tmp_path / "sigterm-command-group"
+    descendant_pid = tmp_path / "sigterm-descendant-pid"
+    child = _descendant_command(marker, ready, command_group, descendant_pid)
     process = subprocess.Popen(
         [
             sys.executable,
@@ -235,41 +309,54 @@ def test_cli_sigterm_terminates_command_tree(tmp_path: Path):
             child,
         ],
         cwd=ROOT,
+        start_new_session=True,
     )
-    time.sleep(0.1)
-    os.kill(process.pid, signal.SIGTERM)
-    process.wait(timeout=2)
-
-    time.sleep(0.7)
-    assert process.returncode == 128 + signal.SIGTERM
-    assert not marker.exists()
+    try:
+        _wait_until_ready(ready, process)
+        os.kill(process.pid, signal.SIGTERM)
+        process.wait(timeout=2)
+        _wait_until_process_stops(int(descendant_pid.read_text()))
+        assert process.returncode == 128 + signal.SIGTERM
+        assert not marker.exists()
+    finally:
+        _stop_test_process(process, _read_pid(command_group))
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
 def test_direct_run_bounded_sigterm_terminates_command_tree(tmp_path: Path):
     marker = tmp_path / "direct-sigterm-orphan-ran"
-    child = (
-        "import subprocess,sys,time; "
-        "subprocess.Popen([sys.executable, '-c', "
-        "'import pathlib,time; time.sleep(0.5); pathlib.Path(r\"%s\").touch()']); "
-        "time.sleep(10)"
-    ) % marker
+    ready = tmp_path / "direct-sigterm-ready"
+    command_group = tmp_path / "direct-sigterm-command-group"
+    descendant_pid = tmp_path / "direct-sigterm-descendant-pid"
+    child = _descendant_command(marker, ready, command_group, descendant_pid)
     wrapper = (
         "from scripts.bounded_subprocess import run_bounded; "
         f"run_bounded({[sys.executable, '-c', child]!r})"
     )
-    process = subprocess.Popen([sys.executable, "-c", wrapper], cwd=ROOT)
-    time.sleep(0.1)
-    os.kill(process.pid, signal.SIGTERM)
-    process.wait(timeout=2)
-
-    time.sleep(0.7)
-    assert process.returncode == 128 + signal.SIGTERM
-    assert not marker.exists()
+    process = subprocess.Popen(
+        [sys.executable, "-c", wrapper], cwd=ROOT, start_new_session=True
+    )
+    try:
+        _wait_until_ready(ready, process)
+        os.kill(process.pid, signal.SIGTERM)
+        process.wait(timeout=2)
+        _wait_until_process_stops(int(descendant_pid.read_text()))
+        assert process.returncode == 128 + signal.SIGTERM
+        assert not marker.exists()
+    finally:
+        _stop_test_process(process, _read_pid(command_group))
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
-def test_cli_sigint_is_redacted_and_has_no_traceback():
+def test_cli_sigint_is_redacted_and_has_no_traceback(tmp_path: Path):
+    ready = tmp_path / "cli-sigint-ready"
+    command_group = tmp_path / "cli-sigint-command-group"
+    command = (
+        "import os,pathlib,time; "
+        f"pathlib.Path({str(command_group)!r}).write_text(str(os.getpid())); "
+        f"pathlib.Path({str(ready)!r}).touch(); "
+        "time.sleep(10)"
+    )
     process = subprocess.Popen(
         [
             sys.executable,
@@ -280,21 +367,24 @@ def test_cli_sigint_is_redacted_and_has_no_traceback():
             "--",
             sys.executable,
             "-c",
-            "import time; time.sleep(10)",
+            command,
         ],
         cwd=ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        start_new_session=True,
     )
-    time.sleep(0.1)
-    os.kill(process.pid, signal.SIGINT)
-    stdout, stderr = process.communicate(timeout=2)
-
-    assert process.returncode == 130
-    assert stdout == "interrupt test interrupted (subprocess details redacted)\n"
-    assert "Traceback" not in stderr
-    assert str(ROOT) not in stderr
+    try:
+        _wait_until_ready(ready, process)
+        os.kill(process.pid, signal.SIGINT)
+        stdout, stderr = process.communicate(timeout=2)
+        assert process.returncode == 130
+        assert stdout == "interrupt test interrupted (subprocess details redacted)\n"
+        assert "Traceback" not in stderr
+        assert str(ROOT) not in stderr
+    finally:
+        _stop_test_process(process, _read_pid(command_group))
 
 
 def test_run_bounded_rejects_excessive_combined_output():
@@ -560,6 +650,7 @@ def test_every_required_services_lint_job_has_a_deadline() -> None:
     for job in ("lint", "compose-equivalence", "audit-scripts", "build-validation"):
         assert workflow["jobs"][job]["timeout-minutes"] > 0, job
         assert workflow["jobs"][job]["runs-on"] == "ubuntu-24.04", job
+    assert workflow["jobs"]["build-validation"]["timeout-minutes"] == 360
 
 
 def test_every_docs_publication_job_has_a_deadline() -> None:
@@ -639,6 +730,13 @@ def _services_lint_steps() -> list[dict]:
     return [step for job in workflow["jobs"].values() for step in job.get("steps", [])]
 
 
+def _docs_pages_steps() -> list[dict]:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/docs-pages.yml").read_text(encoding="utf-8")
+    )
+    return [step for job in workflow["jobs"].values() for step in job.get("steps", [])]
+
+
 def _step_index(steps: list[dict], predicate) -> int:
     matches = [i for i, step in enumerate(steps) if predicate(step)]
     assert matches, "no workflow step matched"
@@ -651,19 +749,21 @@ def _is_privacy_cache(step: dict) -> bool:
     )
 
 
-def test_the_docs_job_caches_the_mkdocs_privacy_assets():
+@pytest.mark.parametrize("steps_loader", [_services_lint_steps, _docs_pages_steps])
+def test_every_docs_job_caches_the_mkdocs_privacy_assets(steps_loader):
     """`mkdocs build --strict` + the Material privacy plugin downloads ~20
     external assets at build time, and `.cache` is gitignored. Without a CI
     cache the docs job refetches all of them every run, so one transient
     failure is a hard --strict error on a diff that touched no external URL
     (#934, #941)."""
-    steps = _services_lint_steps()
+    steps = steps_loader()
     cache_at = _step_index(steps, _is_privacy_cache)
-    build_at = _step_index(steps, lambda s: "strict build" in s.get("name", ""))
+    build_at = _step_index(steps, lambda step: step.get("run") == "make docs-check")
     assert cache_at < build_at, "the cache must be restored before the strict build"
 
 
-def test_the_privacy_cache_key_hashes_files_that_actually_exist():
+@pytest.mark.parametrize("steps_loader", [_services_lint_steps, _docs_pages_steps])
+def test_every_privacy_cache_key_hashes_files_that_actually_exist(steps_loader):
     """A `hashFiles()` pattern that matches nothing yields an EMPTY string, so
     the key silently collapses to a constant and the cache never re-primes when
     the fonts or stylesheets change. The first version of this step hashed
@@ -673,7 +773,7 @@ def test_the_privacy_cache_key_hashes_files_that_actually_exist():
     """
     import re
 
-    steps = _services_lint_steps()
+    steps = steps_loader()
     cache = steps[_step_index(steps, _is_privacy_cache)]
     key = cache["with"]["key"]
     patterns = re.findall(r"hashFiles\(([^)]*)\)", key)
@@ -701,4 +801,3 @@ def test_the_privacy_cache_key_hashes_files_that_actually_exist():
             f"cache-key pattern {pattern!r} matches untracked/generated files; "
             f"they may not exist when the step runs: {tracked.stderr.strip()}"
         )
-

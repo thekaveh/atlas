@@ -278,6 +278,10 @@ class PromptStep:
     subtitle: str = ""
     options: list[PromptOption] = field(default_factory=list)
     default_value: str | None = None
+    # A value committed during this wizard session and restored after Back.
+    # Unlike ``default_value`` (persisted state), this is preloaded into the
+    # active input so pressing Enter reconfirms it instead of emitting KEEP.
+    restored_input_value: str | None = None
     # Initial checked values for ``kind="multiselect"`` steps. Each
     # entry must match an ``options[i].value``.
     default_values: list[str] = field(default_factory=list)
@@ -368,6 +372,37 @@ def normalize_number_entry(raw: str, step: "PromptStep") -> str:
         except ValueError:
             return str(step.default_value or "")
     return str(max(step.number_min, min(step.number_max, value)))
+
+
+def _secret_input_hint(step: "PromptStep", *, include_restored: bool = True) -> str:
+    existing = (step.default_value or "").strip()
+    restored = (step.restored_input_value or "").strip() if include_restored else ""
+    placeholder = _mask_secret(existing) if existing else "paste API key here…"
+    if restored.lower() == "clear":
+        return "pending removal  ·  Enter to confirm removal  ·  edit to change"
+    if restored:
+        return "pending replacement loaded  ·  Enter to confirm replacement"
+    if existing:
+        return step.secret_keep_hint or (
+            f"key currently set ({placeholder})  ·  Enter to keep  ·  "
+            "type a new key to replace  ·  type \"clear\" + Enter to remove"
+        )
+    return "paste a key + Enter to enable  ·  Enter (empty) to leave disabled"
+
+
+def _text_input_hint(step: "PromptStep", *, include_restored: bool = True) -> str:
+    default = (step.default_value or "").strip()
+    restored = (step.restored_input_value or "").strip() if include_restored else ""
+    if restored.lower() == "clear":
+        return "pending clear  ·  Enter to confirm clear  ·  edit to change"
+    if restored:
+        return "pending session value loaded  ·  Enter to confirm"
+    if default:
+        return (
+            f"currently set ({default})  ·  Enter to keep  ·  "
+            "type new text to replace  ·  type \"clear\" + Enter to remove"
+        )
+    return "type a value + Enter, or press Enter (empty) to skip"
 
 
 class PromptPanel(Container):
@@ -621,30 +656,23 @@ class PromptPanel(Container):
             self._hide_number_widgets()
             existing = (step.default_value or "").strip()
             placeholder = _mask_secret(existing) if existing else "paste API key here…"
-            if existing:
-                hint_text = step.secret_keep_hint or (
-                    f"key currently set ({placeholder})  ·  Enter to keep  ·  "
-                    "type a new key to replace  ·  type \"clear\" + Enter to remove"
-                )
-            else:
-                hint_text = (
-                    "paste a key + Enter to enable  ·  Enter (empty) to leave disabled"
-                )
+            hint_text = _secret_input_hint(step)
+            restored = step.restored_input_value or ""
             if self._secret_input is None:
                 self._secret_input = Input(
-                    value="",
+                    value=restored,
                     placeholder=placeholder,
                     password=True,
                     id="secret-input",
                 )
                 self._number_slot.mount(self._secret_input)
             else:
-                self._secret_input.value = ""
+                self._secret_input.value = restored
                 # Reset horizontal scroll — without this, a previously
                 # pasted long key leaves the cursor parked at the end
                 # and the masked dots scroll out of view.
                 try:
-                    self._secret_input.cursor_position = 0
+                    self._secret_input.cursor_position = len(restored)
                 except Exception:  # noqa: BLE001
                     pass
                 self._secret_input.placeholder = placeholder
@@ -668,24 +696,19 @@ class PromptPanel(Container):
             self._hide_secret_widgets()
             default = (step.default_value or "").strip()
             placeholder = default if default else "type a value"
+            restored = step.restored_input_value or ""
             if self._number_input is None:
                 self._number_input = Input(
-                    value="",
+                    value=restored,
                     placeholder=placeholder,
                     id="number-input",
                 )
                 self._number_slot.mount(self._number_input)
             else:
-                self._number_input.value = ""
+                self._number_input.value = restored
                 self._number_input.placeholder = placeholder
                 self._number_input.display = True
-            if default:
-                hint_text = (
-                    f"currently set ({default})  ·  Enter to keep  ·  "
-                    "type new text to replace  ·  type \"clear\" + Enter to remove"
-                )
-            else:
-                hint_text = "type a value + Enter, or press Enter (empty) to skip"
+            hint_text = _text_input_hint(step)
             if self._number_hint is None:
                 self._number_hint = Static(hint_text, id="number-hint")
                 self._number_slot.mount(self._number_hint)
@@ -1668,28 +1691,43 @@ class PromptPanel(Container):
             self._mount_visible_rows(restore_identity=prev_identity)
             return
         if (
+            self._step.kind == "text"
+            and self._number_input is not None
+            and self._number_hint is not None
+            and event.input is self._number_input
+        ):
+            value = (event.value or "").strip()
+            if not value:
+                self._number_hint.update(
+                    _text_input_hint(self._step, include_restored=False)
+                )
+            elif value.lower() == "clear":
+                self._number_hint.update(
+                    "pending clear  ·  Enter to confirm clear  ·  edit to change"
+                )
+            else:
+                n = len(value)
+                self._number_hint.update(
+                    f"✓ {n} char{'s' if n != 1 else ''} entered  ·  Enter to confirm"
+                )
+            return
+        if (
             self._step.kind != "secret"
             or self._secret_input is None
             or self._secret_hint is None
             or event.input is not self._secret_input
         ):
             return
-        n = len(event.value or "")
+        value = (event.value or "").strip()
+        n = len(value)
         if n == 0:
-            # Restore the static hint when the field is cleared.
-            existing = (self._step.default_value or "").strip()
-            placeholder = _mask_secret(existing) if existing else "paste API key here…"
-            if existing:
-                self._secret_hint.update(
-                    self._step.secret_keep_hint or (
-                        f"key currently set ({placeholder})  ·  Enter to keep  ·  "
-                        "type a new key to replace  ·  type \"clear\" + Enter to remove"
-                    )
-                )
-            else:
-                self._secret_hint.update(
-                    "paste a key + Enter to enable  ·  Enter (empty) to leave disabled"
-                )
+            self._secret_hint.update(
+                _secret_input_hint(self._step, include_restored=False)
+            )
+        elif value.strip().lower() == "clear":
+            self._secret_hint.update(
+                "pending removal  ·  Enter to confirm removal  ·  edit to change"
+            )
         else:
             self._secret_hint.update(f"✓ {n} char{'s' if n != 1 else ''} entered  ·  Enter to confirm")
 

@@ -26,6 +26,8 @@ from __future__ import annotations
 import shutil
 import subprocess
 import tempfile
+import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -211,8 +213,18 @@ def _render(compose_file: Path) -> dict:
 
 def _load_baseline() -> dict:
     if not BASELINE.is_file():
-        pytest.skip(f"baseline fixture missing at {BASELINE}")
+        raise FileNotFoundError(
+            f"required byte-equivalence baseline fixture missing at {BASELINE}"
+        )
     return _strip_volatile_defaults(yaml.safe_load(BASELINE.read_text()))
+
+
+def test_missing_baseline_is_a_hard_gate_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        sys.modules[__name__], "BASELINE", tmp_path / "deleted-baseline.yml"
+    )
+    with pytest.raises(FileNotFoundError, match="required byte-equivalence"):
+        _load_baseline()
 
 
 def test_full_stack_matches_baseline():
@@ -256,3 +268,31 @@ def test_full_stack_networks_match():
     rendered = _render(COMPOSE)
     baseline = _load_baseline()
     assert rendered.get("networks", {}) == baseline.get("networks", {})
+
+
+def test_supabase_database_remote_bind_requires_an_explicit_override() -> None:
+    env_file = _build_test_env()
+
+    def render_host_ip(path: Path) -> str:
+        result = subprocess.run(
+            [
+                "docker", "compose", "--env-file", str(path), "-p", "atlas",
+                "-f", str(COMPOSE), "config", "--format", "json",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        return payload["services"]["supabase-db"]["ports"][0]["host_ip"]
+
+    assert render_host_ip(env_file) == "127.0.0.1"
+    remote_env = env_file.with_name(f"{env_file.name}-remote")
+    remote_env.write_text(
+        env_file.read_text(encoding="utf-8").replace(
+            "HOST_BIND_IP=\n", "HOST_BIND_IP=0.0.0.0:\n", 1
+        ),
+        encoding="utf-8",
+    )
+    assert render_host_ip(remote_env) == "0.0.0.0"

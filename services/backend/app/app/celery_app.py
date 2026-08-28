@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 import os
+import json
+import logging
 from typing import Any
 
 from celery import Celery
+from celery.signals import worker_process_init
+
+from observability import configure_celery_otel
+
+
+logger = logging.getLogger(__name__)
 
 
 def _redis_url() -> str:
@@ -81,12 +89,106 @@ celery_app.conf.update(
 )
 
 
+@worker_process_init.connect(weak=False)
+def _configure_worker_otel(*_args, **_kwargs) -> None:
+    configure_celery_otel(service_name="backend-celery-worker")
+
+
 def celery_is_enabled() -> bool:
     return (
         os.getenv("CELERY_SOURCE", "disabled") == "container"
         and bool(os.getenv("CELERY_BROKER_URL"))
         and bool(os.getenv("CELERY_RESULT_BACKEND"))
     )
+
+
+def _memory_execution_key(task_id: str) -> str:
+    return f"atlas:celery:memory-execution:{task_id}"
+
+
+def memory_execution_lease_seconds() -> int:
+    return _worker_limits["task_time_limit"] + 60
+
+
+def claim_memory_execution(
+    task_id: str, owner: str, recovery_owner: str | None = None
+) -> tuple[str, dict[str, Any] | None]:
+    """Claim consolidation execution or return its completed result."""
+
+    from redis import Redis
+
+    client = Redis.from_url(_redis_url(), decode_responses=True)
+    try:
+        key = _memory_execution_key(task_id)
+        if client.set(
+            key,
+            f"running:{owner}",
+            nx=True,
+            ex=memory_execution_lease_seconds(),
+        ):
+            return "claimed", None
+        current = client.get(key) or ""
+        if current.startswith("done:"):
+            return "done", json.loads(current.removeprefix("done:"))
+        if recovery_owner and current == f"running:{recovery_owner}":
+            refreshed = client.eval(
+                "if redis.call('GET', KEYS[1]) == ARGV[1] then "
+                "return redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3]) "
+                "else return 0 end",
+                1,
+                key,
+                f"running:{recovery_owner}",
+                f"running:{owner}",
+                memory_execution_lease_seconds(),
+            )
+            return ("claimed", None) if refreshed else ("busy", None)
+        return "busy", None
+    finally:
+        client.close()
+
+
+def release_memory_execution(task_id: str, owner: str) -> bool:
+    """Release only the caller's live consolidation execution lease."""
+
+    from redis import Redis
+
+    client = Redis.from_url(_redis_url(), decode_responses=True)
+    try:
+        return bool(
+            client.eval(
+                "if redis.call('GET', KEYS[1]) == ARGV[1] then "
+                "return redis.call('DEL', KEYS[1]) else return 0 end",
+                1,
+                _memory_execution_key(task_id),
+                f"running:{owner}",
+            )
+        )
+    finally:
+        client.close()
+
+
+def complete_memory_execution(
+    task_id: str, owner: str, result: dict[str, Any]
+) -> bool:
+    """Atomically replace the caller's lease with a bounded result marker."""
+
+    from redis import Redis
+
+    client = Redis.from_url(_redis_url(), decode_responses=True)
+    try:
+        return bool(
+            client.eval(
+                "if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end "
+                "redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3]); return 1",
+                1,
+                _memory_execution_key(task_id),
+                f"running:{owner}",
+                "done:" + json.dumps(result, separators=(",", ":"), sort_keys=True),
+                _visibility_timeout,
+            )
+        )
+    finally:
+        client.close()
 
 
 def _normalize_status(status: str) -> str:
@@ -122,5 +224,10 @@ def get_celery_job_status(job_id: str) -> dict[str, Any]:
     if successful:
         payload["result"] = result.result
     elif failed:
-        payload["error"] = str(result.result)
+        logger.error(
+            "Celery job %s failed (error_type=%s)",
+            job_id,
+            type(result.result).__name__,
+        )
+        payload["error"] = "Background job failed"
     return payload

@@ -268,7 +268,7 @@ The same preflight also runs as a CI-safe doctor check: `./start.sh doctor` repo
 
 Weights load **lazily on the first request** (~9–13 s slower than a warm request on an M2 Ultra). `health` reports `reachable` and the compute `device` (`mps` when `/system_stats` shows a non-CPU device). A freshly launched process is *reachable but cold*; the first generation warms it. `./start.sh` waits up to 60 s for reachability and prints a warm/cold line — a still-warming host is **not** an error (downstream containers retry), so read first-request latency as model load, not a hang.
 
-`status` is **ownership-aware**: it verifies the pidfile's PID actually belongs to a ComfyUI process before reporting `running`, rather than trusting a possibly-recycled PID. A stale or foreign PID is treated as not running, and `start` clears it and relaunches automatically — no manual `stop` → `start` dance needed to recover. See `bootstrapper/tests/test_comfyui_mps_manager.py` for the exact recovery logic.
+`status` is **ownership-aware**: it requires the pidfile's recorded process start time to match the live PID before reporting `running`, rather than trusting a possibly recycled PID or a mutable command line. A dead stale PID whose process group is also gone is cleared automatically before relaunch. If the PID or process group is still live but its identity is missing, mismatched, or cannot be probed, `start` and `stop` fail closed and preserve the evidence for manual inspection; Atlas never signals or silently replaces that untrusted process. See `bootstrapper/tests/test_comfyui_mps_manager.py` for the exact recovery logic.
 
 ### 10.5. Unsupported hosts
 

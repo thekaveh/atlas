@@ -2,7 +2,7 @@
 
 Workflow automation engine. The stack runs n8n in **queue mode** by default — one `n8n` web/API container plus an `n8n-worker` container that consumes jobs from Redis. A short-lived `n8n-init` container handles first-run setup: installing community nodes (ComfyUI image-to-image). Seeded workflow templates (under `services/n8n/init/config/`) and PostgreSQL credentials are imported **manually** — `n8n-init` prints the next steps; it does not auto-import workflows or seed credentials (see the setup steps below). The result is a fully-wired automation surface that ties LLM (LiteLLM), media (ComfyUI/STT/TTS/Docling/SearXNG), and data (Supabase/Weaviate/MinIO) services together without writing code.
 
-n8n is also the only "agents"-tier service besides Hermes; the two are complementary. n8n is event-driven and visual (cron triggers, webhooks, manual runs); Hermes is conversational and skill-driven. n8n reaches Hermes through a shared `HERMES_ENDPOINT` env var so a workflow can hand off to an agent (the reverse edge — Hermes calling a workflow — isn't wired today; see §4).
+n8n and Hermes are complementary agents-tier services. n8n is event-driven and visual (cron triggers, webhooks, manual runs); Hermes is conversational and skill-driven. n8n reaches Hermes through a shared `HERMES_ENDPOINT` env var so a workflow can hand off to an agent (the reverse edge — Hermes calling a workflow — isn't wired today; see §4).
 
 ## 1. Overview
 
@@ -16,7 +16,7 @@ Track placement: n8n is available in `all`, `gen-ai-eng`, and `gen-ai-rag`. In t
 |---|---|---|
 | Direct | `http://localhost:${N8N_PORT}` (default `63075`) | UI + REST API. |
 | Kong | `http://n8n.localhost:${KONG_HTTP_PORT}` | Recommended for browser use; needs `./start.sh --setup-hosts`. Kong route uses `preserve_host: True`. |
-| Webhook | `${N8N_HOST}/webhook/<path>` | n8n's webhook entry point; resolves to whichever host you used to reach n8n. |
+| Webhook | `${WEBHOOK_URL}webhook/<path>` | n8n's externally reachable webhook entry point; `WEBHOOK_URL` defaults to the complete Kong base URL, including scheme and port. |
 
 Canonical port table: [Ports and Routes](../../docs/reference/ports-routes.md).
 

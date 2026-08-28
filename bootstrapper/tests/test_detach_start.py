@@ -25,7 +25,7 @@ def test_linear_detach_path_skips_following_logs() -> None:
     src = LINEAR_STARTUP.read_text(encoding="utf-8")
 
     detach_pos = src.find("if options.detach:")
-    status_pos = src.find("show_detached_status_summary(\n            json_output=options.json_output")
+    status_pos = src.find("show_detached_status_summary(json_output=True)")
     logs_pos = src.find("starter.show_container_logs()")
 
     assert detach_pos != -1, "linear start flow must branch on detach"

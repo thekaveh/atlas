@@ -30,6 +30,11 @@ from pathlib import Path
 import yaml
 from jsonschema import Draft202012Validator
 
+if __package__ == "bootstrapper.core":
+    from ..services.manifests import load_yaml_strict
+else:
+    from services.manifests import load_yaml_strict
+
 PLUGIN_MANIFEST_FILENAME = "plugin.yml"
 SECRET_MASK = "***"
 KONG_TIMEOUT_FIELDS = ("connect_timeout", "write_timeout", "read_timeout")
@@ -137,8 +142,8 @@ def load_plugin_manifest(plugin_dir: Path) -> PluginManifest | None:
         return None
     hint = plugin_dir.name
     try:
-        raw = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as exc:
+        raw = load_yaml_strict(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, yaml.YAMLError) as exc:
         raise PluginManifestError(hint, f"could not parse YAML ({exc})") from exc
     if not isinstance(raw, dict):
         raise PluginManifestError(hint, "manifest must be a mapping at the top level")

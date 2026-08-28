@@ -39,3 +39,12 @@ def test_neo4j_healthcheck_executes_a_real_cypher_probe():
     assert healthcheck.get("disable") is not True
     assert "cypher-shell" in command
     assert "RETURN 1" in command
+
+
+def test_backend_weaviate_init_dependency_is_optional():
+    compose = yaml.safe_load(
+        (REPO / "services" / "backend" / "compose.yml").read_text(encoding="utf-8")
+    )
+    dependency = compose["services"]["backend"]["depends_on"]["weaviate-init"]
+    assert dependency["condition"] == "service_completed_successfully"
+    assert dependency["required"] is False

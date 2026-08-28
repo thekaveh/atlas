@@ -76,7 +76,28 @@ A few services have engine-specific listen ports that won't match a naive `*_POR
 
 ## 4. Localhost-mode port overrides
 
-Every localhost-source service exposes a `<SVC>_LOCALHOST_PORT` integer env var. The URL is derived inline as `http://host.docker.internal:${<SVC>_LOCALHOST_PORT:-<default>}` at compose-render time AND by `bootstrapper/utils/kong_config_generator.py`, so both consumers stay in sync. Today: `COMFYUI_LOCALHOST_PORT`, `DOCLING_LOCALHOST_PORT`, `HERMES_LOCALHOST_PORT` (API) / `HERMES_LOCALHOST_DASHBOARD_PORT`, `LIGHTRAG_LOCALHOST_PORT`, `OPENCLAW_LOCALHOST_PORT`, `OLLAMA_LOCALHOST_PORT`, `NEO4J_LOCALHOST_HTTP_PORT` / `NEO4J_LOCALHOST_BOLT_PORT`, `TEI_RERANKER_LOCALHOST_PORT`, `WEAVIATE_LOCALHOST_PORT`, `PARAKEET_LOCALHOST_PORT`, `WHISPER_CPP_LOCALHOST_PORT`, `CHATTERBOX_LOCALHOST_PORT`. See PR #10 and the localhost-port-override entry in `docs/CHANGELOG.md` for the design rationale.
+Localhost and managed-host sources expose explicit port variables, but they do
+not all share one transport or routing contract. Some HTTP endpoints have a
+Kong alias, while others are consumed directly by another service; a single
+service family can expose both kinds. TCP protocols are never rewritten as
+HTTP.
+
+| Category | Service or mode | Port variable(s) | Transport / consumer | Kong route |
+|---|---|---|---|---|
+| HTTP + Kong | ComfyUI localhost and managed MPS | `COMFYUI_LOCALHOST_PORT`, `COMFYUI_MPS_LOCALHOST_PORT` | HTTP via `host.docker.internal` | `comfyui.localhost` |
+| HTTP + Kong | Docling and Tika | `DOCLING_LOCALHOST_PORT`, `TIKA_LOCALHOST_PORT` | HTTP via `host.docker.internal` | `docling.localhost`, `tika.localhost` |
+| Direct HTTP localhost | Hermes API | `HERMES_LOCALHOST_PORT` | `HERMES_ENDPOINT` consumers reach the API via `host.docker.internal` | No Kong route |
+| HTTP + Kong | Hermes dashboard | `HERMES_LOCALHOST_DASHBOARD_PORT` | HTTP via `host.docker.internal` | `hermes.localhost` |
+| HTTP + Kong | LightRAG, OpenClaw, Ollama, TEI reranker, Weaviate | `LIGHTRAG_LOCALHOST_PORT`, `OPENCLAW_LOCALHOST_PORT`, `OLLAMA_LOCALHOST_PORT`, `TEI_RERANKER_LOCALHOST_PORT`, `WEAVIATE_LOCALHOST_PORT` | HTTP via `host.docker.internal` | `lightrag.localhost`, `openclaw.localhost`, `ollama.localhost`, `rerank.localhost`, `weaviate.localhost` |
+| HTTP + Kong | STT/TTS localhost engines | `PARAKEET_LOCALHOST_PORT`, `WHISPER_CPP_LOCALHOST_PORT`, `CHATTERBOX_LOCALHOST_PORT` | HTTP via `host.docker.internal` | `stt.localhost`, `tts.localhost` |
+| HTTP + Kong | Neo4j Browser/API | `NEO4J_LOCALHOST_HTTP_PORT` | HTTP via `host.docker.internal` | `graph.localhost` |
+| Direct HTTP managed host | vLLM Metal | `VLLM_METAL_LOCALHOST_PORT` | LiteLLM reaches the OpenAI-compatible API via `host.docker.internal` | No Kong route |
+| TCP, no Kong | Blender MCP | `BLENDER_MCP_LOCALHOST_PORT` | `tcp://host:port` MCP bridge endpoint | No Kong route |
+| TCP, no Kong | Neo4j Bolt | `NEO4J_LOCALHOST_BOLT_PORT` | Bolt clients reach the host database directly | No Kong route |
+
+See the generated [port and route reference](../reference/ports-routes.md) for
+the complete host-published inventory and PR #10 / the localhost-port-override
+entry in `docs/CHANGELOG.md` for the design rationale.
 
 ## 5. Advanced overrides
 

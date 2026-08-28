@@ -66,7 +66,7 @@ Kong   -> flower.localhost -> Flower
 
 ## 5. Retry, Timeout, And Failure Behavior
 
-The worker uses JSON task/result serialization and Redis as both broker and result backend. Memory consolidation tasks run with a soft time limit before the hard time limit so failures are captured instead of leaving a request open indefinitely. The job endpoint surfaces Celery failure state and error text from Redis; raw tracebacks stay in worker logs and Flower for operators rather than the public backend API.
+The worker uses JSON task/result serialization and Redis as both broker and result backend. Memory consolidation tasks run with a soft time limit before the hard time limit so failures are captured instead of leaving a request open indefinitely. The public job endpoint surfaces Celery failure state with the generic `Background job failed` message; exception types are logged server-side, while detailed errors and raw tracebacks remain in worker logs and Flower for operators.
 
 Redis visibility timeout is intentionally longer than the hard task time limit. If a worker is killed before acknowledging a task, Redis can redeliver it after the visibility timeout; tasks should therefore remain idempotent or tolerate a retry. RAG ingestion uses the Backend's Redis state database and receives the same compiled profiles, upstream endpoints, corpus limits, and scoped MinIO credential references. It acquires and renews an owner-fenced execution lease before phase side effects, and each state save verifies the owner. A duplicate delivery that finds an active lease waits for its expiry and retries; a worker that loses ownership cancels its active async phase, logs the renewal failure, and reschedules without overwriting replacement state. Transient upstream failures retain a separate three-retry exponential-backoff budget whose counter is independent of lease contention; exhaustion records a terminal ingestion failure. LightRAG replays are idempotent through deterministic document identities and duplicate-source handling. Memory consolidation deactivates/updates memory rows through existing service logic, so future tasks that mutate external systems must be reviewed before being added to the queue.
 
@@ -76,6 +76,7 @@ Redis visibility timeout is intentionally longer than the hard task time limit. 
 
 | Service | Category |
 |---|---|
+| otel-collector | infra |
 | minio | data |
 | redis | data |
 | supabase | data |

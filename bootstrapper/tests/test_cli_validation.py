@@ -22,6 +22,97 @@ from start import main
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.parametrize(
+    ("args", "factory_name", "error_type"),
+    [
+        (("managed-host", "remove", "example", "--yes"), "_managed_host_manager", "generic"),
+        (("blender-mcp", "remove"), "_blender_mcp_manager", "blender"),
+    ],
+)
+def test_remove_cli_exits_nonzero_when_state_deletion_fails(
+    monkeypatch, args, factory_name, error_type,
+):
+    from types import SimpleNamespace
+    import start as start_module
+    from services.blender_mcp_manager import BlenderMcpError
+    from services.managed_host import ManagedHostError
+
+    exception_type = ManagedHostError if error_type == "generic" else BlenderMcpError
+    manager = SimpleNamespace(
+        state_dir=Path("/tmp/atlas-test-state"),
+        remove=lambda: (_ for _ in ()).throw(exception_type("could not remove state")),
+    )
+    monkeypatch.setattr(start_module, factory_name, lambda *_args: manager)
+
+    result = CliRunner().invoke(main, list(args))
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, exception_type)
+    assert "Removed" not in result.output and "removed" not in result.output
+
+
+@pytest.mark.parametrize("manager_kind", ["generic", "blender"])
+def test_remove_cli_is_idempotent_for_absent_state(tmp_path, monkeypatch, manager_kind):
+    import start as start_module
+    from services.blender_mcp_manager import BlenderMcpManager
+    from services.managed_host import HostProcessSpec, ManagedHostManager
+
+    if manager_kind == "generic":
+        manager = ManagedHostManager(
+            HostProcessSpec(name="remove-test", command=("sleep", "300"), port=8399),
+            tmp_path / manager_kind,
+        )
+        args, factory = ("managed-host", "remove", "example", "--yes"), "_managed_host_manager"
+    else:
+        manager = BlenderMcpManager(tmp_path / manager_kind)
+        args, factory = ("blender-mcp", "remove"), "_blender_mcp_manager"
+    monkeypatch.setattr(start_module, factory, lambda *_args: manager)
+
+    first = CliRunner().invoke(main, list(args))
+    second = CliRunner().invoke(main, list(args))
+
+    assert first.exit_code == second.exit_code == 0
+    assert "removed" in first.output.lower() and "removed" in second.output.lower()
+
+
+@pytest.mark.parametrize("manager_kind", ["generic", "blender"])
+def test_remove_cli_rejects_descendant_not_found_with_existing_root(
+    tmp_path, monkeypatch, manager_kind,
+):
+    import services as services_package
+    import start as start_module
+    from services.blender_mcp_manager import BlenderMcpError, BlenderMcpManager
+    from services.managed_host import HostProcessSpec, ManagedHostError, ManagedHostManager
+
+    if manager_kind == "generic":
+        manager = ManagedHostManager(
+            HostProcessSpec(name="remove-test", command=("sleep", "300"), port=8399),
+            tmp_path / manager_kind,
+        )
+        args, factory, error_type = (
+            ("managed-host", "remove", "example", "--yes"),
+            "_managed_host_manager", ManagedHostError,
+        )
+    else:
+        manager = BlenderMcpManager(tmp_path / manager_kind)
+        args, factory, error_type = (
+            ("blender-mcp", "remove"), "_blender_mcp_manager", BlenderMcpError,
+        )
+    manager.state_dir.mkdir(parents=True)
+    monkeypatch.setattr(start_module, factory, lambda *_args: manager)
+    monkeypatch.setattr(
+        services_package.shutil,
+        "rmtree",
+        lambda _path: (_ for _ in ()).throw(FileNotFoundError("vanished child")),
+    )
+
+    result = CliRunner().invoke(main, list(args))
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, error_type)
+    assert "removed" not in result.output.lower()
+
+
 @pytest.mark.parametrize("value", ["0", "9", "-1", "99"])
 def test_spark_workers_out_of_range_exits_2(value):
     result = CliRunner().invoke(main, ["--spark-workers", value])
@@ -41,6 +132,136 @@ def test_prometheus_retention_out_of_range_exits_2(value):
     result = CliRunner().invoke(main, ["--prometheus-retention-days", value])
     assert result.exit_code == 2
     assert "prometheus-retention-days must be in 1-365" in result.output
+
+
+@pytest.mark.parametrize("boundary", ["below", "above"])
+def test_numeric_base_port_out_of_range_fails_before_starter_construction(
+    monkeypatch, boundary,
+):
+    import start as start_module
+    from core.port_manager import PortManager
+
+    manager = PortManager()
+    offsets = manager.port_offsets()
+    maximum = 65535 - (max(offsets.values()) if offsets else 0)
+    value = 1023 if boundary == "below" else maximum + 1
+
+    monkeypatch.setattr(
+        start_module,
+        "AtlasStarter",
+        lambda *_args, **_kwargs: pytest.fail("starter must not be constructed"),
+    )
+
+    result = CliRunner().invoke(
+        main,
+        ["--no-tui", "--cold", "--base-port", value],
+    )
+
+    assert result.exit_code == 2
+    assert "1024" in result.output
+    assert str(maximum) in result.output
+
+
+def test_numeric_base_port_accepts_canonical_dynamic_maximum(monkeypatch):
+    import start as start_module
+    from core.port_manager import PortManager
+
+    manager = PortManager()
+    offsets = manager.port_offsets()
+    maximum = 65535 - (max(offsets.values()) if offsets else 0)
+
+    # --list-tracks exits before starter construction but still runs the
+    # option callback, which is the boundary under test.
+    result = CliRunner().invoke(main, ["--base-port", str(maximum), "--list-tracks"])
+    assert result.exit_code == 0
+
+
+def test_no_port_migrate_help_lists_all_migrations():
+    result = CliRunner().invoke(main, ["--help"])
+    assert result.exit_code == 0
+    assert "catalog v4" in result.output
+
+
+def test_explicit_consumer_error_fails_before_environment_preparation(
+    monkeypatch, tmp_path,
+):
+    import start as start_module
+
+    missing = tmp_path / "missing.consumer.yml"
+
+    class ConfigParser:
+        def load_consumer_config(self):
+            raise FileNotFoundError(missing)
+
+    class Starter:
+        config_parser = ConfigParser()
+
+        def prepare_environment(self, *_args, **_kwargs):
+            pytest.fail("invalid explicit consumer must fail before preparation")
+
+    monkeypatch.setattr(start_module, "AtlasStarter", Starter)
+
+    result = CliRunner().invoke(
+        main,
+        ["--consumer", str(missing), "--no-tui", "--cold"],
+    )
+
+    assert result.exit_code == 2
+    assert "invalid --consumer manifest" in result.output
+    assert str(missing) in result.output
+
+
+def test_json_wraps_prelinear_consumer_failure(monkeypatch, tmp_path):
+    import json
+    import start as start_module
+
+    missing = tmp_path / "missing.consumer.yml"
+
+    class ConfigParser:
+        def load_consumer_config(self):
+            raise FileNotFoundError(missing)
+
+    class Starter:
+        config_parser = ConfigParser()
+
+    monkeypatch.setattr(start_module, "AtlasStarter", Starter)
+
+    result = CliRunner().invoke(
+        main,
+        ["--consumer", str(missing), "--json", "--no-tui"],
+    )
+
+    assert result.exit_code == 2
+    assert json.loads(result.stdout) == {"ok": False, "exit_code": 2}
+    assert "invalid --consumer manifest" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--json", "--base-port", "70000"],
+        ["--json", "--project", "env", "--base-port", "70000"],
+        ["--json", "--not-an-atlas-option"],
+    ],
+)
+def test_json_wraps_root_command_parse_failures(args):
+    import json
+
+    result = CliRunner().invoke(main, args)
+
+    assert result.exit_code == 2
+    assert json.loads(result.stdout) == {"ok": False, "exit_code": 2}
+    assert "Error:" in result.stderr
+
+
+def test_root_json_option_does_not_wrap_subcommand_output():
+    help_result = CliRunner().invoke(main, ["--json", "env", "--help"])
+    assert help_result.exit_code == 0
+    assert '"exit_code"' not in help_result.stdout
+
+    failing_result = CliRunner().invoke(main, ["--json", "env"])
+    assert failing_result.exit_code == 2
+    assert '"exit_code"' not in failing_result.stdout
 
 
 def test_manifest_backed_source_flags_match_manifest_choices():

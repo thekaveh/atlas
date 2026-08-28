@@ -284,6 +284,22 @@ def test_lint_passes_real_manifests_and_valid_fake():
     )
 
 
+def test_lint_rejects_unconditional_fallback_before_terminal_position():
+    from services.manifest_validator import _check_auto_prefer_integrity
+
+    issues = _check_auto_prefer_integrity(
+        [
+            _mk_manifest(
+                [
+                    {"id": "container-cpu"},
+                    {"id": "container-gpu", "requires_capability": "nvidia_gpu"},
+                ]
+            )
+        ]
+    )
+    assert [issue.kind for issue in issues] == ["auto_prefer_fallback_not_terminal"]
+
+
 # ── doctor ───────────────────────────────────────────────────────────
 
 

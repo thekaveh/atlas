@@ -12,11 +12,30 @@ from rag_ingestion.models import (
     RagIngestionRecordResponse,
 )
 from rag_ingestion.store import (
+    ExecutionClaim,
     RedisIngestionStore,
     _IDX_PREFIX,
     _INDEX_SET,
     _KEY_PREFIX,
 )
+
+
+def test_redis_execution_claim_script_supports_exact_owner_recovery() -> None:
+    script = RedisIngestionStore._CLAIM_EXECUTION_SCRIPT
+    assert "current == ARGV[3]" in script
+    assert "ARGV[1] ~= ARGV[3]" in script
+    assert ExecutionClaim("fresh", 60, "old").recovery_owner == "old"
+
+
+def test_redis_dispatch_scripts_normalize_legacy_records() -> None:
+    prepared_default = (
+        "if record.dispatch_state == nil then record.dispatch_state = 'prepared' end"
+    )
+    assert prepared_default in RedisIngestionStore._CLAIM_DISPATCH_SCRIPT
+    assert prepared_default in RedisIngestionStore._DISPATCH_FAILED_SCRIPT
+    assert "record.dispatch_owner == ARGV[4]" in RedisIngestionStore._DISPATCHED_SCRIPT
+    assert "record.dispatch_owner == owner" in RedisIngestionStore._DISPATCH_FAILED_SCRIPT
+    assert "record.dispatch_claimed_at <= ARGV[3]" in RedisIngestionStore._CLAIM_DISPATCH_SCRIPT
 
 
 _TEST_REDIS_URL = os.getenv("ATLAS_TEST_REDIS_URL")
@@ -113,7 +132,7 @@ def test_redis_lua_roundtrip_preserves_public_list_contract() -> None:
         failed = store.fail_pending_dispatch(
             record_id,
             {"phase": "dispatch", "message": "queue unavailable"},
-            "2026-07-16T00:00:00Z",
+            ("2026-07-16T00:00:00Z", None),
         )
         assert failed is not None
         assert len(failed.errors) == 1

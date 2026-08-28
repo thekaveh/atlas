@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from core.consumer_manifest import ConsumerManifestError, load_consumer_config
 from utils.comfyui_custom_nodes import (
     active_custom_nodes,
     load_custom_nodes,
@@ -174,6 +175,91 @@ def test_parse_custom_nodes_strict_valid(tmp_path):
     assert len(nodes) == 1
     assert nodes[0].name == "comfyui-krea2edit"
     assert nodes[0].from_consumer is True
+
+
+@pytest.mark.parametrize("value", ("[]", "false", "0", '""', "null"))
+def test_consumer_manifest_rejects_falsey_nonmapping_custom_nodes_block(
+    tmp_path: Path, value: str
+) -> None:
+    (tmp_path / ".env.example").write_text("PROJECT_NAME=atlas\n", encoding="utf-8")
+    consumer = tmp_path / "falsey-custom-nodes-block"
+    consumer.mkdir()
+    manifest = consumer / "atlas.consumer.yml"
+    manifest.write_text(
+        f"name: falsey-custom-nodes-block\ncustom_nodes: {value}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConsumerManifestError, match="custom_nodes must be a mapping"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+@pytest.mark.parametrize("document", ("[]\n", "false\n", "0\n", ""))
+def test_parse_custom_nodes_strict_rejects_falsey_nonmapping_documents(
+    tmp_path, document
+):
+    path = tmp_path / "c.yaml"
+    path.write_text(document, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="top-level mapping"):
+        parse_custom_nodes_strict(path)
+
+
+@pytest.mark.parametrize(
+    "document",
+    ("custom_nodes: {}\n", "custom_nodes: false\n", "custom_nodes: 0\n", 'custom_nodes: ""\n'),
+)
+def test_parse_custom_nodes_strict_rejects_falsey_nonlist_node_collections(
+    tmp_path, document
+):
+    path = tmp_path / "c.yaml"
+    path.write_text(document, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="non-list custom_nodes"):
+        parse_custom_nodes_strict(path)
+
+
+@pytest.mark.parametrize("field", ("install_requirements", "mps_unsafe"))
+@pytest.mark.parametrize("value", ('"false"', "0", "[]", "{}"))
+def test_parse_custom_nodes_strict_requires_exact_boolean_flags(
+    tmp_path, field, value
+):
+    path = tmp_path / "c.yaml"
+    path.write_text(
+        "custom_nodes:\n"
+        "  - name: strict-node\n"
+        "    repo: https://github.com/o/strict-node.git\n"
+        f"    ref: {_SHA}\n"
+        f"    {field}: {value}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=rf"{field}.*boolean"):
+        parse_custom_nodes_strict(path)
+
+
+@pytest.mark.parametrize("field", ("repo", "ref", "install_requirements"))
+def test_parse_custom_nodes_strict_rejects_duplicate_sensitive_fields(
+    tmp_path, field
+):
+    values = {
+        "repo": "https://github.com/o/other.git",
+        "ref": _SHA2,
+        "install_requirements": "false",
+    }
+    path = tmp_path / "c.yaml"
+    path.write_text(
+        "custom_nodes:\n"
+        "  - name: strict-node\n"
+        "    repo: https://github.com/o/strict-node.git\n"
+        f"    ref: {_SHA}\n"
+        "    install_requirements: true\n"
+        f"    {field}: {values[field]}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="duplicate key"):
+        parse_custom_nodes_strict(path)
 
 
 @pytest.mark.parametrize(

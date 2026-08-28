@@ -47,6 +47,7 @@ These services can run on your host machine instead of in containers:
 | **Document Processor** | `DOC_PROCESSOR_SOURCE` | `docling-localhost` | Use a host Docling service |
 | **Apache Tika** | `TIKA_SOURCE` | `tika-localhost` | Use a host Tika server for long-tail fallback extraction |
 | **Blender MCP** | `BLENDER_MCP_SOURCE` | `localhost`, `managed-localhost` | Use a host-installed Blender MCP add-on/server without exposing it through Kong. `managed-localhost` runs an Atlas-provisioned headless Blender + MCP bridge — see `services/blender-mcp/README.md`. |
+| **vLLM Metal** | `VLLM_METAL_SOURCE` | `managed-localhost` | Run a managed Apple-silicon OpenAI-compatible model server as an optional LiteLLM upstream; it has no Kong route. |
 
 ### 3.2. Container-Only or Stack-Managed Services
 
@@ -77,9 +78,9 @@ The interactive wizard's per-provider multiselects persist as comma-separated en
 
 ## 4. Detailed SOURCE Configurations
 
-### 4.1. LLM access (LiteLLM gateway + Ollama upstream + cloud toggles)
+### 4.1. LLM access (LiteLLM gateway + Ollama, vLLM Metal, and cloud upstreams)
 
-LLM access in this stack is split between **LiteLLM** (the always-on OpenAI-compatible gateway every consumer reads) and four configurable upstreams behind it: an Ollama engine plus three cloud providers. See [LiteLLM Gateway](https://github.com/thekaveh/atlas/blob/main/services/litellm/README.md) for the consumer-facing surface; the variables below pick what LiteLLM forwards to.
+LLM access in this stack is split between **LiteLLM** (the always-on OpenAI-compatible gateway Atlas-managed consumers read) and configurable upstreams behind it: Ollama, the optional managed vLLM Metal host, and three cloud providers. See [LiteLLM Gateway](https://github.com/thekaveh/atlas/blob/main/services/litellm/README.md) for the consumer-facing surface; the variables below pick what LiteLLM forwards to.
 
 #### 4.1.1. `LLM_PROVIDER_SOURCE` — Ollama upstream (single-select)
 
@@ -127,14 +128,24 @@ ollama pull qwen3-embedding:0.6b
 ```bash
 LLM_PROVIDER_SOURCE=none
 ```
-- **Use case**: Cloud-only operation (no local Ollama engine)
-- **Pros**: Minimal local resource usage; LiteLLM forwards everything to enabled cloud providers
-- **Cons**: API costs, internet dependency
-- **Requirements**: At least one of `CLOUD_OPENAI_SOURCE`, `CLOUD_ANTHROPIC_SOURCE`, `CLOUD_OPENROUTER_SOURCE` must be `enabled`. The bootstrapper refuses to start when `LLM_PROVIDER_SOURCE=none` AND every cloud source is `disabled`.
+- **Use case**: Disable the Ollama upstream while using vLLM Metal and/or cloud providers
+- **Pros**: No Ollama resource usage; LiteLLM still provides one consumer endpoint
+- **Cons**: Requires another configured upstream
+- **Requirements**: Enable `VLLM_METAL_SOURCE=managed-localhost` and/or at least one `CLOUD_*_SOURCE`. The bootstrapper refuses to start only when `LLM_PROVIDER_SOURCE=none`, vLLM Metal is disabled, and every cloud source is disabled.
 
-The legacy values `LLM_PROVIDER_SOURCE=api` and `LLM_PROVIDER_SOURCE=disabled` have been removed — use `none` together with the per-provider cloud toggles below instead.
+The legacy values `LLM_PROVIDER_SOURCE=api` and `LLM_PROVIDER_SOURCE=disabled` have been removed — use `none` to mean “no Ollama upstream.”
 
-#### 4.1.2. `CLOUD_OPENAI_SOURCE` / `CLOUD_ANTHROPIC_SOURCE` / `CLOUD_OPENROUTER_SOURCE` (multi-toggle)
+#### 4.1.2. `VLLM_METAL_SOURCE` — managed Apple-silicon upstream
+
+`VLLM_METAL_SOURCE=managed-localhost` installs and supervises a native vLLM
+Metal process on a supported Apple-silicon host, then registers its
+`VLLM_METAL_MODEL` alias with LiteLLM. It is independent of
+`LLM_PROVIDER_SOURCE`: a vLLM-Metal-only configuration is valid with
+`LLM_PROVIDER_SOURCE=none` and every cloud source disabled. The default is
+`disabled`; see [vLLM Metal](../../services/vllm-metal/README.md) for platform,
+model, port, and lifecycle requirements.
+
+#### 4.1.3. `CLOUD_OPENAI_SOURCE` / `CLOUD_ANTHROPIC_SOURCE` / `CLOUD_OPENROUTER_SOURCE` (multi-toggle)
 
 Each cloud provider is an independent `enabled` / `disabled` switch — turn on as many as you want simultaneously. Consumers request model IDs against `LITELLM_BASE_URL`; LiteLLM routes per-provider based on the active model set that `model_resolver` computes from the YAML catalogs + env on each `docker compose up`.
 
@@ -144,7 +155,7 @@ CLOUD_ANTHROPIC_SOURCE=enabled       # requires ANTHROPIC_API_KEY
 CLOUD_OPENROUTER_SOURCE=enabled      # requires OPENROUTER_API_KEY
 ```
 
-#### 4.1.3. Per-provider activation rules (applied by `model_resolver` on every `docker compose up`)
+#### 4.1.4. Per-provider activation rules (applied by `model_resolver` on every `docker compose up`)
 
 | Provider state | `*_USER_MODELS` env var | Result |
 |---|---|---|
@@ -154,8 +165,8 @@ CLOUD_OPENROUTER_SOURCE=enabled      # requires OPENROUTER_API_KEY
 
 **Bootstrapper safety net** — `source_validator.enforce_runtime_invariants()` flips `CLOUD_*_SOURCE=enabled` back to `disabled` when the matching API key is empty and prints a warning. This protects against the "looks ready in .env, errors at first request" failure mode.
 
-- **Use case**: Mix-and-match local + cloud, or run cloud-only with `LLM_PROVIDER_SOURCE=none`
-- **Pros**: One URL/key for every consumer; provider failover and spend logging handled by LiteLLM
+- **Use case**: Mix-and-match Ollama, vLLM Metal, and cloud, or run without Ollama using `LLM_PROVIDER_SOURCE=none`
+- **Pros**: One URL/key for the default Atlas-managed consumer path, with spend logging handled by LiteLLM. Services that explicitly support a native-provider override can bypass that path.
 - **Cons**: API costs and per-provider quota considerations
 - **Requirements**: The provider's API key must be present in `.env`
 

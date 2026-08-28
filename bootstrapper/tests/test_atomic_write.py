@@ -322,7 +322,16 @@ def test_env_lines_does_not_split_on_the_separators_that_promote() -> None:
     """
     from utils.atomic_write import env_lines
 
-    for ch in ("\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85", " ", " "):
+    for ch in (
+        "\x0b",
+        "\x0c",
+        "\x1c",
+        "\x1d",
+        "\x1e",
+        "\x85",
+        chr(0x2028),
+        chr(0x2029),
+    ):
         text = f"KEY=a{ch}SUPABASE_SERVICE_KEY=attacker\n"
         assert len(text.splitlines()) == 2, "precondition: splitlines would split here"
         assert env_lines(text) == [f"KEY=a{ch}SUPABASE_SERVICE_KEY=attacker"]

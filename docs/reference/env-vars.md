@@ -63,13 +63,14 @@
 | BACKEND_PORT | backend |  | - |
 | BACKEND_SCALE | backend |  | Always 1 (BACKEND_SOURCE is single-valued). |
 | MAX_UPLOAD_BYTES | backend | 104857600 | Maximum accepted /storage/upload body size in bytes before the backend returns 413. |
-| COMFYUI_MAX_IMAGE_BYTES | backend | 20971520 | Maximum generated-image response bytes accepted from ComfyUI before the Backend aborts the download. |
+| COMFYUI_MAX_IMAGE_BYTES | backend | 20971520 | Maximum input or generated-image bytes accepted by the Backend's ComfyUI bridge before it aborts the transfer. |
+| COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS | backend |  | Comma-separated exact HTTPS origins allowed for remote ComfyUI init-image URLs. Blank rejects all remote URLs; data URIs remain available. |
 | COMFYUI_COMPLETION_TIMEOUT_SECONDS | backend | 300 | End-to-end deadline in seconds for synchronous ComfyUI generation and workflow requests. The Backend poller and bundled Open WebUI tool share this default. |
 | RAG_INGESTION_MAX_FILE_BYTES | backend | 104857600 | Maximum bytes loaded from any single mounted or MinIO RAG corpus file. Oversize files fail ingestion before unbounded allocation. |
 | RAG_INGESTION_MAX_CORPUS_BYTES | backend | 1073741824 | Maximum aggregate bytes loaded by one RAG corpus discovery pass across mounted or MinIO files. |
 | RAG_INGESTION_MAX_FILES | backend | 10000 | Maximum number of files accepted in one mounted or MinIO RAG corpus discovery pass. |
 | RAG_INGESTION_CORPUS_ROOT | backend | /app/corpus | Container path under which operator-provided read-only RAG corpus mounts are resolved. Mount the same path into Backend and Celery worker when asynchronous ingestion is enabled. |
-| RAG_INGESTION_EXECUTION_LEASE_SECONDS | backend | 30 | Renewable execution-ownership lease for RAG ingestion workers. Must be an integer from 10 through 300; duplicate deliveries retry until the active owner completes or its lease expires. |
+| RAG_INGESTION_EXECUTION_LEASE_SECONDS | backend | 30 | Renewable execution-ownership lease for RAG ingestion workers. Must be an integer from 10 through 300; duplicate deliveries retry until the active owner completes, an exact-owner recovery claim succeeds, or the lease expires. |
 | RESEARCH_SESSION_LEASE_SECONDS | backend | 300 | Maximum age in seconds for pending research work or a running session heartbeat before the Backend atomically marks the abandoned session failed. |
 | RESEARCH_MAX_CONCURRENT | backend | 4 | Maximum research sessions admitted concurrently per Backend process. Excess start requests fail before database work with HTTP 429. |
 | BACKEND_PG_POOL_MIN | backend | 1 | Minimum connections kept warm in the Backend's shared asyncpg pool (#804). Short-lived DB ops draw from this pool instead of paying a fresh connect handshake each time; long-hold paths (memory vector-reconcile) keep dedicated connections. |
@@ -220,10 +221,10 @@
 | DOCLING_INFERENCE_TIMEOUT_SECONDS | docling | 900 | Finite conversion and lazy-load deadline in seconds (1-3600). A timeout returns 504 and then exits the provider process for restart. |
 | DOCLING_LOCALHOST_BIND_HOST | docling | 127.0.0.1 | Native Docling listen address. Set another interface explicitly only when remote access is intended. |
 | DOCLING_ADAPTER_MAX_JOBS | docling | 2 | Maximum outstanding LightRAG adapter jobs, reserved before multipart parsing. |
-| DOCLING_ADAPTER_RESULT_TTL_SECONDS | docling | 900 | Seconds a completed LightRAG adapter result may remain before its artifact and job slot are removed. |
+| DOCLING_ADAPTER_RESULT_TTL_SECONDS | docling | 900 | Seconds a completed LightRAG adapter result may remain before verified artifact cleanup begins; the job slot stays occupied and cleanup is retried if deletion fails. |
 | DOCLING_ADAPTER_MAX_RESULT_BYTES | docling | 104857600 | Maximum ZIP result bytes streamed from Docling to adapter storage before the job fails safely. |
 | DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS | docling | 3 | Total bounded Docling request attempts when the provider returns HTTP 429. |
-| DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS | docling | 300 | Positive maximum seconds for one result transmission; expiry deletes the artifact and releases its adapter slot. |
+| DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS | docling | 300 | Positive maximum seconds for one result transmission; expiry starts verified artifact cleanup, and the adapter slot is released only after deletion succeeds. |
 | DOCLING_ADAPTER_TMPFS_SIZE | docling | 512m | Bounded adapter temporary-storage mount. Size must cover MAX_JOBS times the larger of upload-plus-request-body (upload plus 1 MiB multipart overhead) or upload-plus-result limits, plus at least 64 MiB staging headroom; startup fails when actual capacity is smaller. |
 | DOCLING_ADAPTER_SCALE | docling |  | Derived adapter replica count; one only when both LightRAG and Docling are enabled. |
 | DOCLING_ADAPTER_UPSTREAM_ENDPOINT | docling |  | Authenticated internal bundle route selected for the adapter; never exposed to LightRAG. |
@@ -574,6 +575,7 @@
 | LLM_PROVIDER_SOURCE | ollama | ollama-container-cpu | - |
 | OLLAMA_USER_MODELS | ollama |  | Comma-separated Ollama model names to activate/pull. Pre-filled by env_assembler from the catalog's default-active Ollama set (see services/ollama/models.yaml); the wizard overwrites it with the user's selection. |
 | OLLAMA_CUSTOM_MODELS | ollama |  | Free-text extra Ollama models (consumer model_sidecars.ollama lands here). Pulled by the ollama-pull init container for container-* sources and by the bootstrapper onto the host daemon for ollama-localhost (#757). |
+| OLLAMA_PULL_STALL_TIMEOUT_SECONDS | ollama | 120 | Abort and retry an ollama-pull download only after transfer speed stays below 1 KiB/s for this many seconds; progressing large-model downloads have no artificial wall-clock cutoff. |
 | OLLAMA_AUTO_IMPORT_LOCAL_MODELS | ollama | True | When LLM_PROVIDER_SOURCE=ollama-localhost, litellm-init queries the upstream's /api/tags and auto-imports every model found, unioning with OLLAMA_USER_MODELS. Set false to keep strict wizard-only control. |
 | OLLAMA_DEPLOY_RESOURCES | ollama | ~ | Reserved for future GPU deploy block. Currently '~' (null). |
 | OLLAMA_SCALE | ollama |  | - |
@@ -752,7 +754,7 @@
 | TEI_RERANKER_PORT | tei-reranker |  | Host port for the TEI rerank API (in-container listen port is 80). |
 | TEI_RERANKER_LOCALHOST_PORT | tei-reranker | 63049 | Host port for the host-installed TEI rerank source variant. |
 | TEI_RERANKER_MODEL_ID | tei-reranker | mixedbread-ai/mxbai-rerank-base-v1 | - |
-| TEI_RERANKER_REVISION | tei-reranker | main | - |
+| TEI_RERANKER_REVISION | tei-reranker | 800f24c113213a187e65bde9db00c15a2bb12738 | - |
 | TEI_RERANKER_MAX_CLIENT_BATCH_SIZE | tei-reranker | 32 | - |
 | TEI_RERANKER_MEMORY_LIMIT | tei-reranker | 4g | - |
 | TEI_RERANKER_CPU_LIMIT | tei-reranker | 2.0 | - |

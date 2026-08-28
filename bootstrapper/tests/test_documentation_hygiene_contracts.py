@@ -13,8 +13,21 @@ def test_public_documentation_map_excludes_publication_mechanics() -> None:
         "gh repo edit",
         "Maintainer checks",
         "Maintainer publication",
+        "MkDocs-linked",
+        "publishable docs site",
     ):
         assert forbidden not in text
+
+    for provider_guide in (
+        "services/docling/provider/localhost/README.md",
+        "services/parakeet/provider/README.md",
+        "services/parakeet/provider/mlx/README.md",
+        "services/parakeet/provider/whisper-cpp/README.md",
+        "services/tts-provider/provider/README.md",
+        "services/tts-provider/provider/localhost/README.md",
+        "services/supabase/db/_user/README.md",
+    ):
+        assert provider_guide in text
 
 
 def test_current_docs_do_not_reference_retired_external_locations() -> None:
@@ -44,6 +57,13 @@ def test_hand_maintained_docs_do_not_duplicate_dynamic_service_counts() -> None:
     service_readme = (ROOT / "services/README.md").read_text(encoding="utf-8")
     assert "53 service families" not in roadmap
     assert "53 manifests" not in service_readme
+
+
+def test_multi2vec_docs_do_not_publish_unbenchmarked_performance_numbers() -> None:
+    text = (ROOT / "services/multi2vec-clip/README.md").read_text(encoding="utf-8")
+    for unsupported in ("<5s", "~50-150ms", "~5-10×", "near-linearly"):
+        assert unsupported not in text
+    assert "benchmark" in text.lower()
 
 
 def test_populated_research_catalogs_have_no_placeholder_files() -> None:

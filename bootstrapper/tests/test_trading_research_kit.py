@@ -93,8 +93,12 @@ def test_financial_research_notebook_is_registered_and_guarded() -> None:
         "AWS_ENDPOINT_URL_S3",
         "MLFLOW_TRACKING_URI",
         "LITELLM_BASE_URL",
+        "NoSuchBucket",
+        "isinstance(error, dict)",
+        "isinstance(metadata, dict)",
     ]:
         assert expected in text
+    assert "except Exception:\n        s3.create_bucket" not in text
 
     for doc in (ROOT / "services" / "jupyterhub" / "README.md",):
         assert "`11_financial_research_kit.ipynb`" in doc.read_text(encoding="utf-8")

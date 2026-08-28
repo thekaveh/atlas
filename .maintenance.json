@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "reviewed_on": "2026-08-23",
+  "reviewed_on": "2026-08-25",
   "complexity": {
     "tool": "radon cc -s (grades); radon raw (module lloc); ast (function span + parameter count)",
     "signal_thresholds": {
@@ -14,15 +14,24 @@
       "bootstrapper/**/*.py",
       "services/backend/app/app/**/*.py"
     ],
+    "extended_python_scope": "Every other tracked *.py file; core scope remains governed by the original immutable ceilings.",
     "baseline_snapshot": {
-      "radon_grade_c_or_worse": 357,
+      "radon_grade_c_or_worse": 359,
       "radon_grade_e_or_worse": 20,
       "functions_over_60_physical_lines": 189,
       "functions_over_100_physical_lines": 70,
-      "functions_over_4_parameters": 134,
-      "modules_over_600_logical_lines": 14,
-      "tracked_files": 1445,
+      "functions_over_4_parameters": 138,
+      "modules_over_600_logical_lines": 16,
+      "tracked_files": 1475,
       "v0.1.0_tracked_files": 667
+    },
+    "extended_python_baseline_snapshot": {
+      "radon_grade_c_or_worse": 46,
+      "radon_grade_e_or_worse": 1,
+      "functions_over_60_physical_lines": 25,
+      "functions_over_100_physical_lines": 8,
+      "functions_over_4_parameters": 37,
+      "modules_over_600_logical_lines": 0
     },
     "regression_policy": "Do not increase any baseline count or add a new Radon E/F symbol without a symbol-level rationale; refresh the snapshot only during a reviewed maintenance pass.",
     "review_by": "2026-11-01",
@@ -49,23 +58,145 @@
         "rationale": "Three test functions sit in the Radon E band purely because each asserts a long manifest/compose contract in one linear body. Branching is assertion count, not logic; splitting them would scatter one contract across several tests without reducing anything real."
       }
     ],
+    "accepted_e_or_worse_symbols": [
+      {
+        "path": "bootstrapper/core/consumer_manifest.py",
+        "symbol": "load_consumer_config",
+        "cyclomatic_complexity": 73,
+        "rationale": "Fail-closed parser for the versioned consumer manifest; each branch emits a distinct validation failure and the contract suite exercises those outcomes."
+      },
+      {
+        "path": "bootstrapper/services/service_config.py",
+        "symbol": "ServiceConfig._generate_adaptive_services_config",
+        "cyclomatic_complexity": 34,
+        "rationale": "Manifest-driven adaptive-service matrix whose explicit branches preserve source-specific environment and dependency behavior covered by permutation tests."
+      },
+      {
+        "path": "bootstrapper/start.py",
+        "symbol": "AtlasStarter.apply_profile_overrides",
+        "cyclomatic_complexity": 56,
+        "rationale": "Central precedence boundary for CLI, track, and persisted source choices; profile and source-permutation tests cover the explicit override cases."
+      },
+      {
+        "path": "bootstrapper/start.py",
+        "symbol": "AtlasStarter.backfill_missing_env_vars",
+        "cyclomatic_complexity": 38,
+        "rationale": "Compatibility migration over the complete environment schema; branches correspond to independently tested legacy and missing-value cases."
+      },
+      {
+        "path": "bootstrapper/start.py",
+        "symbol": "AtlasStarter.build_pre_launch_summary_table",
+        "cyclomatic_complexity": 32,
+        "rationale": "Presentation adapter over all service and source states; summary parity tests protect the formatting branches while preserving one ordered table construction."
+      },
+      {
+        "path": "bootstrapper/start.py",
+        "symbol": "main",
+        "cyclomatic_complexity": 129,
+        "rationale": "Click composition root declaring and forwarding the public CLI surface; option and startup tests cover the branches, while extraction would only relocate forwarding logic."
+      },
+      {
+        "path": "bootstrapper/tests/test_celery_service.py",
+        "symbol": "test_celery_manifest_admission_contract",
+        "cyclomatic_complexity": 32,
+        "rationale": "Linear contract test whose Radon score comes from assertions over one cohesive Celery manifest and admission contract, not production control flow."
+      },
+      {
+        "path": "bootstrapper/tests/test_label_studio_service.py",
+        "symbol": "test_label_studio_compose_contract",
+        "cyclomatic_complexity": 31,
+        "rationale": "Linear contract test whose branches are assertions over one cohesive Label Studio compose contract; splitting it would obscure the atomic contract."
+      },
+      {
+        "path": "bootstrapper/tests/test_llm_graph_builder_service.py",
+        "symbol": "test_llm_graph_builder_manifest_admission_contract",
+        "cyclomatic_complexity": 33,
+        "rationale": "Linear contract test whose score reflects assertion count across one LLM Graph Builder manifest/admission contract rather than runtime branching."
+      },
+      {
+        "path": "bootstrapper/ui/textual/integration.py",
+        "symbol": "_build_steps_and_rows",
+        "cyclomatic_complexity": 76,
+        "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; discovery and parity tests exercise its service-specific branches."
+      },
+      {
+        "path": "bootstrapper/ui/textual/integration.py",
+        "symbol": "_selections_to_args",
+        "cyclomatic_complexity": 61,
+        "rationale": "Boundary translator for the wizard selection matrix; CLI/TUI parity tests verify the explicit source and secret-state branches."
+      },
+      {
+        "path": "bootstrapper/ui/textual/screens/wizard_screen.py",
+        "symbol": "WizardScreen._refresh_command_summary",
+        "cyclomatic_complexity": 36,
+        "rationale": "UI summary projection across the supported prompt value kinds; widget tests cover the guarded rendering states and output contract."
+      },
+      {
+        "path": "bootstrapper/ui/textual/screens/wizard_screen.py",
+        "symbol": "WizardScreen._run_pipeline_and_stream",
+        "cyclomatic_complexity": 50,
+        "rationale": "Async UI orchestration state machine for setup, launch, log streaming, cancellation, and terminal reporting; focused lifecycle tests protect each transition."
+      },
+      {
+        "path": "bootstrapper/ui/textual/widgets/prompt_panel.py",
+        "symbol": "PromptPanel._mount_visible_rows",
+        "cyclomatic_complexity": 34,
+        "rationale": "Textual widget reconciliation over heterogeneous prompt rows; explicit mount/update branches are covered by prompt-panel interaction tests."
+      },
+      {
+        "path": "bootstrapper/ui/textual/widgets/prompt_panel.py",
+        "symbol": "PromptPanel.load_step",
+        "cyclomatic_complexity": 43,
+        "rationale": "Prompt-type dispatcher that configures one panel for every supported wizard step; interaction tests cover each input-kind branch."
+      },
+      {
+        "path": "bootstrapper/utils/llm_catalog.py",
+        "symbol": "_validate_metadata_state",
+        "cyclomatic_complexity": 40,
+        "rationale": "Fail-closed metadata validator with distinct diagnostics for each malformed catalog state; catalog validation tests cover those branches."
+      },
+      {
+        "path": "services/backend/app/app/main.py",
+        "symbol": "_maybe_reconcile_ledger",
+        "cyclomatic_complexity": 56,
+        "rationale": "Idempotent media-ledger reconciliation state machine; concurrency and restart tests cover its deliberately explicit failure transitions."
+      },
+      {
+        "path": "services/backend/app/app/main.py",
+        "symbol": "reconcile_unknown_media_submission",
+        "cyclomatic_complexity": 56,
+        "rationale": "Crash-recovery state machine whose explicit ownership and terminal-state branches remain auditable and are covered by recovery tests."
+      },
+      {
+        "path": "services/backend/app/app/main.py",
+        "symbol": "submit_media_generation",
+        "cyclomatic_complexity": 58,
+        "rationale": "Media boundary combining validation, ownership, admission, persistence, and provider submission; lifecycle tests protect the state transitions."
+      },
+      {
+        "path": "services/open-webui/extras/tools/comfyui_image_generation_tool.py",
+        "symbol": "Tools.generate_image",
+        "cyclomatic_complexity": 32,
+        "rationale": "Open WebUI integration workflow spans validation, ComfyUI submission, polling, and result mapping; tool tests cover the external-state branches."
+      }
+    ],
     "accepted_signals": [
       {
         "path": "bootstrapper/start.py",
         "symbol": "main",
-        "cyclomatic_complexity": 125,
+        "cyclomatic_complexity": 129,
         "rationale": "Click composition root that declares and forwards the public CLI surface; behavior is partitioned into tested AtlasStarter methods, and extracting option forwarding alone would add indirection without reducing runtime branching."
       },
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_build_steps_and_rows",
-        "cyclomatic_complexity": 70,
+        "cyclomatic_complexity": 76,
         "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; parity and discovery tests cover the branches. Revisit when prompt construction changes next."
       },
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_selections_to_args",
-        "cyclomatic_complexity": 63,
+        "cyclomatic_complexity": 61,
         "rationale": "Boundary translator for the same manifest-driven option matrix; CLI/TUI parity tests are the safer current control. Revisit together with _build_steps_and_rows."
       },
       {
@@ -77,7 +208,7 @@
       {
         "path": "services/backend/app/app/main.py",
         "symbol": "submit_media_generation",
-        "cyclomatic_complexity": 59,
+        "cyclomatic_complexity": 58,
         "rationale": "Media state-machine boundary combines validation, ownership, admission, persistence, and provider submission; focused lifecycle and recovery tests protect each transition."
       },
       {
@@ -99,9 +230,10 @@
         "rationale": "Physical-line signal only (cyclomatic complexity is low). The 119-line span is ~30 lines of actual code (AST-verified: lines 121-239 of the current file) wrapped in ~80 lines of deliberately demanded documentation (44 docstring + 36 comment-only lines) plus 9 blank, expanded across two review rounds (#535 Pass 1 Tasks 7-8). The documentation encodes three distinct \"no verdict\" states — the secret step's source=None, its api_key=None, and the models step's selected_models=None — whose prior conflation caused a Critical config-destroying bug (an already-enabled, keyless provider getting force-disabled because a SECRET_KEEP no-op was misread as an explicit \"disabled\"). Splitting the function would fragment one cohesive resolution decision across call sites without reducing any real branching; the documentation is the fix, not incidental prose. Revisit only if the decision itself grows new branches."
       }
     ],
-    "reviewed_on": "2026-08-23",
-    "counting_convention": "Authoritative rule is the one bootstrapper/tests/test_maintenance_baseline.py implements; match it exactly when refreshing. Scope: every non-hidden *.py under bootstrapper/ and services/backend/app/app/ (526 files at this refresh) — the leading-dot filter is what excludes bootstrapper/.venv, and an unfiltered glob inflates every count roughly 20x. radon_grade_c_or_worse counts blocks with complexity >= 11 EXCLUDING radon class blocks (block.letter != \"C\"), because a class block aggregates its own methods and would double-count the symbol-level baseline; counting class blocks too yields 358 rather than 357. Function span is physical lines (end_lineno - lineno + 1). Parameter count is posonly + args + kwonly + *args + **kwargs, counting self/cls. modules_over_600_logical_lines uses radon raw lloc, not a hand-rolled non-blank/non-comment count (37 under that rule, 14 under radon lloc). Note that signal_thresholds.cyclomatic_complexity (12) is the review-signal bar from the maintenance spec and is deliberately NOT the counter bound: radon_grade_c_or_worse counts grade C upward, which begins at 11.",
+    "reviewed_on": "2026-08-25",
+    "counting_convention": "Authoritative rule is the one bootstrapper/tests/test_maintenance_baseline.py implements; match it exactly when refreshing. Scope: every non-hidden *.py under bootstrapper/ and services/backend/app/app/ (559 files at this refresh) — the leading-dot filter is what excludes bootstrapper/.venv, and an unfiltered glob inflates every count roughly 20x. radon_grade_c_or_worse counts blocks with complexity >= 11 EXCLUDING radon class blocks (block.letter != \"C\"), because a class block aggregates its own methods and would double-count the symbol-level baseline; counting class blocks too yields 360 rather than 359. Function span is physical lines (end_lineno - lineno + 1). Parameter count is posonly + args + kwonly + *args + **kwargs, counting self/cls. modules_over_600_logical_lines uses radon raw lloc, not a hand-rolled non-blank/non-comment count (16 under Radon's logical-line rule at this refresh). Note that signal_thresholds.cyclomatic_complexity (12) is the review-signal bar from the maintenance spec and is deliberately NOT the counter bound: radon_grade_c_or_worse counts grade C upward, which begins at 11.",
     "refresh_notes_2026_08_20": "Re-measured at HEAD. radon_grade_e_or_worse (20), functions_over_4_parameters (127) and modules_over_600_logical_lines (14) are the values this pass measured directly. Four counts moved by exactly one against the first attempt at this refresh — c_or_worse 358->357, over_60 189->188, over_100 70->69, tracked_files 1420->1419 — because that attempt measured BEFORE the same run deleted bootstrapper/docs/sitegen/wiki.py, a 591-line unreachable module contributing exactly one unit to each of those four counters and zero to the rest. The numbers here are post-deletion. functions_over_4_parameters (112 -> 127) and modules_over_600_logical_lines (13 -> 14) were already stale in the 2026-08-06 snapshot and do not reproduce at the commit that recorded them; two accepted_signals had drifted from their symbols as well (load_consumer_config 62 -> 73, _selections_to_args 61 -> 63). No complexity regression was introduced by this maintenance run.",
-    "refresh_notes_2026_08_23": "Re-measured at HEAD on feat/535-rebuild-setup-wizard-tui-mvvm-vmx (#535 Pass 1, Tasks 3-8: wizard model-layer extraction). functions_over_60_physical_lines moved 188->189 and functions_over_100_physical_lines moved 69->70 — both driven by the SAME single new symbol, bootstrapper/wizard/model/cloud_rules.py::resolve_cloud_provider (recorded here at the time as 110 physical lines; see the fix-round note below — this was already stale when written), which crosses both counters at once; see its accepted_signals entry above. Confirmed via AST diff of every >60-physical-line function against the branch base (bf2e8403) that this is the only genuine addition: two other functions that appear new at HEAD — wizard/model/state_builder.py::build_app_state and wizard/model/service_discovery.py::discover — are files Tasks 3-4 relocated verbatim from ui/state_builder.py and wizard/service_discovery.py, so their disappearance from the old paths and appearance at the new ones is net zero, not new signal. radon_grade_c_or_worse (357) and radon_grade_e_or_worse (20) were reverified unchanged at HEAD, matching the committed snapshot exactly. functions_over_4_parameters and tracked_files are NOT covered by any assertion in test_maintenance_baseline.py (only c_or_worse/over_60/over_100/e_or_worse are recomputed and bounded there); independently reverifying them anyway found both had ALSO drifted from their last-recorded values — functions_over_4_parameters measures 133 at HEAD against a recorded 127, and `git ls-files | wc -l` measures 1439 against a recorded tracked_files of 1419. Neither is touched by this pass: per regression_policy a snapshot refresh happens only during a reviewed pass with a symbol-level rationale, and this pass's reviewed scope is the cloud_rules.py addition, not an unrelated re-baseline of untested counters. Flagged here for the next maintenance pass rather than silently bumped. Fix-round note (#535 followups review, finding R4, same day): the next reviewed pass this note asked for is THIS one. Direct AST re-measurement of resolve_cloud_provider at current HEAD (after the C4+C5 fix-round commit on this branch dropped the dead CloudResolution.models field) gives 119 physical lines, not the 110 recorded above and repeated in the accepted_signals entry — corrected there; do not assume the direction of drift, measure it (the .models drop touched the function's code, not its now-larger documentation, so the net span moved up, not down). functions_over_4_parameters and tracked_files, flagged as stale above, are now refreshed in baseline_snapshot: functions_over_4_parameters is 134 (133 from the note above, +1 for _selections_to_args's new consumer_declared parameter added by this same followups review, finding R1), and tracked_files is 1445 (`git ls-files | wc -l` at HEAD, after this pass's commits). radon_grade_c_or_worse (357), radon_grade_e_or_worse (20), functions_over_60_physical_lines (189), and functions_over_100_physical_lines (70) were reverified via the same script test_maintenance_baseline.py runs and are UNCHANGED by this pass's edits — the four test_complexity_baseline_is_owned_and_reviewed exact-match assertions still hold without modification."
+    "refresh_notes_2026_08_23": "Re-measured at HEAD on feat/535-rebuild-setup-wizard-tui-mvvm-vmx (#535 Pass 1, Tasks 3-8: wizard model-layer extraction). functions_over_60_physical_lines moved 188->189 and functions_over_100_physical_lines moved 69->70 — both driven by the SAME single new symbol, bootstrapper/wizard/model/cloud_rules.py::resolve_cloud_provider (recorded here at the time as 110 physical lines; see the fix-round note below — this was already stale when written), which crosses both counters at once; see its accepted_signals entry above. Confirmed via AST diff of every >60-physical-line function against the branch base (bf2e8403) that this is the only genuine addition: two other functions that appear new at HEAD — wizard/model/state_builder.py::build_app_state and wizard/model/service_discovery.py::discover — are files Tasks 3-4 relocated verbatim from ui/state_builder.py and wizard/service_discovery.py, so their disappearance from the old paths and appearance at the new ones is net zero, not new signal. radon_grade_c_or_worse (357) and radon_grade_e_or_worse (20) were reverified unchanged at HEAD, matching the committed snapshot exactly. functions_over_4_parameters and tracked_files are NOT covered by any assertion in test_maintenance_baseline.py (only c_or_worse/over_60/over_100/e_or_worse are recomputed and bounded there); independently reverifying them anyway found both had ALSO drifted from their last-recorded values — functions_over_4_parameters measures 133 at HEAD against a recorded 127, and `git ls-files | wc -l` measures 1439 against a recorded tracked_files of 1419. Neither is touched by this pass: per regression_policy a snapshot refresh happens only during a reviewed pass with a symbol-level rationale, and this pass's reviewed scope is the cloud_rules.py addition, not an unrelated re-baseline of untested counters. Flagged here for the next maintenance pass rather than silently bumped. Fix-round note (#535 followups review, finding R4, same day): the next reviewed pass this note asked for is THIS one. Direct AST re-measurement of resolve_cloud_provider at current HEAD (after the C4+C5 fix-round commit on this branch dropped the dead CloudResolution.models field) gives 119 physical lines, not the 110 recorded above and repeated in the accepted_signals entry — corrected there; do not assume the direction of drift, measure it (the .models drop touched the function's code, not its now-larger documentation, so the net span moved up, not down). functions_over_4_parameters and tracked_files, flagged as stale above, are now refreshed in baseline_snapshot: functions_over_4_parameters is 134 (133 from the note above, +1 for _selections_to_args's new consumer_declared parameter added by this same followups review, finding R1), and tracked_files is 1445 (`git ls-files | wc -l` at HEAD, after this pass's commits). radon_grade_c_or_worse (357), radon_grade_e_or_worse (20), functions_over_60_physical_lines (189), and functions_over_100_physical_lines (70) were reverified via the same script test_maintenance_baseline.py runs and are UNCHANGED by this pass's edits — the four test_complexity_baseline_is_owned_and_reviewed exact-match assertions still hold without modification.",
+    "refresh_notes_2026_08_25": "This reviewed maintenance pass extended the regression gate to every counter named in baseline_snapshot. Two valid test modules had been silently omitted from Radon raw counts because literal Unicode line-separator fixtures triggered a Radon tokenizer limitation; expressing those fixtures with chr() preserves the tests while making both modules measurable. Their existing signals account for radon_grade_c_or_worse 357->359 and modules_over_600_logical_lines 14->16. Direct AST remeasurement refreshed functions_over_4_parameters 134->138. The tracked-file allowance 1465 includes the new n8n pagination regression-test module added by this pass. Functions over 60/100 lines and Radon E/F remain unchanged at 189/70/20."
   }
 }

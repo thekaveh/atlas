@@ -21,10 +21,13 @@ The service is reusable by consumers that send TEI's request body shape (`query`
 | `localhost` | 0 | `http://host.docker.internal:${TEI_RERANKER_LOCALHOST_PORT}` | Host-installed TEI |
 | `disabled` | 0 | `""` | Reranker service off |
 
-When `TEI_RERANKER_SOURCE=container` (either GPU or CPU variant), Kong also
-generates the gateway alias `rerank.localhost` → `http://tei-reranker:80/`, so
-callers can reach the reranker through the gateway in addition to the direct
-`http://tei-reranker:80` / `http://localhost:${TEI_RERANKER_PORT}` endpoints.
+For every enabled source, Kong generates the `rerank.localhost` gateway alias.
+The `container-cpu` and `container-gpu` variants route it to
+`http://tei-reranker:80/`; the `localhost` variant routes it through
+`host.docker.internal:${TEI_RERANKER_LOCALHOST_PORT}`. Container callers can
+also use `http://tei-reranker:80`, while host callers can use the published
+`http://localhost:${TEI_RERANKER_PORT}` endpoint for a container variant or the
+host-installed TEI port directly for `localhost`.
 
 ## 3. Configuration
 
@@ -33,7 +36,7 @@ TEI_RERANKER_SOURCE=disabled                       # default
 TEI_RERANKER_PORT=...                              # slot-allocated
 TEI_RERANKER_LOCALHOST_PORT=63049                  # host-installed TEI rerank port
 TEI_RERANKER_MODEL_ID=mixedbread-ai/mxbai-rerank-base-v1
-TEI_RERANKER_REVISION=main
+TEI_RERANKER_REVISION=800f24c113213a187e65bde9db00c15a2bb12738
 TEI_RERANKER_MAX_CLIENT_BATCH_SIZE=32
 TEI_RERANKER_MEMORY_LIMIT=4g
 TEI_RERANKER_CPU_LIMIT=2.0
@@ -127,4 +130,4 @@ Container `start_period` is 120 s (first run downloads the model).
 | LiteLLM standard rerank route | supported | tested | The tei-rerank alias uses LiteLLM's Hugging Face adapter to translate Cohere-shaped documents into TEI text pairs behind gateway authentication. |
 | Direct LightRAG-to-TEI reranking | not-supported | tested | LightRAG sends a documents payload that native TEI rejects; it must use the opt-in backend adapter rather than the TEI endpoint directly. |
 | Authenticated native reranker access | partial | tested | The LiteLLM route requires its master key, but TEI's host-published port and CORS-only rerank.localhost alias expose the unauthenticated native API. |
-| Arbitrary reranker model portability | partial | documented | The default model is selected for ONNX amd64 and safetensors arm64 compatibility, but TEI_RERANKER_REVISION defaults to mutable main; pin a model commit for reproducible artifacts. Operator overrides and future main contents are not pre-certified for both backends or their memory limits. |
+| Arbitrary reranker model portability | partial | tested | The default model revision is pinned to the tested 800f24c113213a187e65bde9db00c15a2bb12738 commit for reproducible ONNX amd64 and safetensors arm64 artifacts. Operator model or revision overrides are not pre-certified for both backends or their memory limits. |

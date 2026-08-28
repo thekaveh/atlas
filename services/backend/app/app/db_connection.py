@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
 import asyncpg
+
+
+logger = logging.getLogger(__name__)
 
 
 def _uses_transaction_pooler(database_url: str) -> bool:
@@ -50,9 +54,32 @@ async def connect_postgres(
 
 _POOL_MIN = int(os.getenv("BACKEND_PG_POOL_MIN", "1"))
 _POOL_MAX = int(os.getenv("BACKEND_PG_POOL_MAX", "10"))
+_POOL_CLOSE_TIMEOUT_SECONDS = 10.0
+
+
+class PoolConfigurationError(ValueError):
+    """Raised when the configured asyncpg pool bounds are impossible."""
+
+
+def validate_pool_config() -> None:
+    if _POOL_MIN < 0:
+        raise PoolConfigurationError("BACKEND_PG_POOL_MIN must be non-negative")
+    if _POOL_MAX <= 0:
+        raise PoolConfigurationError("BACKEND_PG_POOL_MAX must be positive")
+    if _POOL_MIN > _POOL_MAX:
+        raise PoolConfigurationError(
+            "BACKEND_PG_POOL_MIN must not exceed BACKEND_PG_POOL_MAX"
+        )
 
 _pools: dict[str, asyncpg.Pool] = {}
 _pools_lock = asyncio.Lock()
+
+
+def _terminate_pool(pool: asyncpg.Pool) -> None:
+    try:
+        pool.terminate()
+    except Exception:
+        logger.exception("Postgres pool termination failed")
 
 
 async def get_pg_pool(
@@ -66,12 +93,13 @@ async def get_pg_pool(
     Sizing is env-tunable (``BACKEND_PG_POOL_MIN`` / ``BACKEND_PG_POOL_MAX``).
     The transaction-pooler ``statement_cache_size=0`` nuance and the existing
     connect/command timeouts are preserved."""
+    validate_pool_config()
     pool = _pools.get(database_url)
-    if pool is not None and not pool._closed:  # noqa: SLF001 — asyncpg exposes no public isopen
+    if pool is not None and not pool.is_closing():
         return pool
     async with _pools_lock:
         pool = _pools.get(database_url)
-        if pool is not None and not pool._closed:  # noqa: SLF001
+        if pool is not None and not pool.is_closing():
             return pool
         kwargs: dict = {"timeout": timeout, "command_timeout": command_timeout}
         if _uses_transaction_pooler(database_url):
@@ -102,6 +130,21 @@ async def acquire_conn(database_url: str, **pool_kwargs):
 async def close_pg_pools() -> None:
     """Dispose all cached pools (FastAPI lifespan shutdown)."""
     async with _pools_lock:
-        for pool in _pools.values():
-            await pool.close()
+        pools = tuple(_pools.values())
+        # Evict before awaiting any loop-bound close. A broken pool must never
+        # survive cleanup and get reused by the next Celery ``asyncio.run``.
         _pools.clear()
+    for pool in pools:
+        try:
+            await asyncio.wait_for(
+                pool.close(), timeout=_POOL_CLOSE_TIMEOUT_SECONDS
+            )
+        except TimeoutError:
+            logger.warning(
+                "Postgres pool close exceeded %.1fs; terminating it",
+                _POOL_CLOSE_TIMEOUT_SECONDS,
+            )
+            _terminate_pool(pool)
+        except Exception:
+            logger.exception("Postgres pool close failed; terminating it")
+            _terminate_pool(pool)

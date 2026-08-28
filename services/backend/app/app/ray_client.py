@@ -11,11 +11,30 @@ message rather than a 500.
 """
 
 import os
+from dataclasses import dataclass
 from typing import Optional
 
 
 class RayDisabledError(Exception):
     """Raised by RayClient methods when Ray is not configured."""
+
+
+class RayJobAlreadyExistsError(RuntimeError):
+    """Raised when a caller-provided Ray submission ID already exists."""
+
+    def __init__(self, submission_id: str):
+        self.submission_id = submission_id
+        super().__init__(f"Ray job {submission_id!r} already exists")
+
+
+@dataclass(frozen=True, slots=True)
+class RayJobSubmission:
+    """One fully reconcilable Ray job-submission request."""
+
+    entrypoint: str
+    submission_id: str
+    runtime_env: dict | None = None
+    metadata: dict | None = None
 
 
 def _ray_address() -> Optional[str]:
@@ -29,15 +48,19 @@ def _ray_address() -> Optional[str]:
     if not ray_addr:
         return None
     # ray://ray-head:10001 → http://ray-head:8265
-    # ray://anyscale.example.com:10001 → https://anyscale.example.com:8265
+    # ray://my-cluster.anyscale.com:10001 → https://my-cluster.anyscale.com:8265
     # (external HTTPS-by-default for Anyscale; configurable via RAY_DASHBOARD_URL override)
     explicit_dashboard = os.environ.get("RAY_DASHBOARD_URL", "").strip()
     if explicit_dashboard:
         return explicit_dashboard
     if ray_addr.startswith("ray://"):
         host = ray_addr[len("ray://"):].rsplit(":", 1)[0]
-        scheme = "https" if "." in host else "http"  # heuristic: bare hostname = LAN
-        return f"{scheme}://{host}:8265"
+        normalized_host = host.rstrip(".").lower()
+        # Only the known hosted Ray control plane implies TLS. Dotted LAN
+        # names and IPv4 addresses commonly serve the dashboard over HTTP;
+        # other TLS deployments must use the explicit override above.
+        scheme = "https" if normalized_host.endswith(".anyscale.com") else "http"
+        return f"{scheme}://{host.rstrip('.')}:8265"
     return None
 
 
@@ -62,10 +85,21 @@ class RayClient:
             self._client = JobSubmissionClient(self._addr)
         return self._client
 
-    def submit_job(self, entrypoint: str, runtime_env: dict | None = None, metadata: dict | None = None) -> str:
-        return self._ensure_client().submit_job(
-            entrypoint=entrypoint, runtime_env=runtime_env or {}, metadata=metadata or {}
-        )
+    def submit_job(self, submission: RayJobSubmission) -> str:
+        client = self._ensure_client()
+        try:
+            return client.submit_job(
+                entrypoint=submission.entrypoint,
+                runtime_env=submission.runtime_env or {},
+                metadata=submission.metadata or {},
+                submission_id=submission.submission_id,
+            )
+        except RuntimeError:
+            try:
+                client.get_job_info(submission.submission_id)
+            except Exception:
+                raise
+            raise RayJobAlreadyExistsError(submission.submission_id) from None
 
     def get_job_status(self, job_id: str) -> dict:
         client = self._ensure_client()

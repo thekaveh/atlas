@@ -243,8 +243,8 @@ default.
 | Empty or invalid upload | 400/422 | Permit and temporary state are released |
 | Native inference deadline | 504 | Response completes, then provider exits and restarts |
 | Adapter upstream receives 429 | internal retry | Bounded retry within the job deadline |
-| Adapter upstream 4xx/5xx or disconnect | failure state | Generic poll failure; artifacts deleted |
-| Adapter result expires | 404 | Artifact and outstanding-job slot are removed |
+| Adapter upstream 4xx/5xx or disconnect | failure state | Generic poll failure; verified artifact cleanup starts |
+| Adapter result expires | 404 | Verified artifact cleanup starts; the outstanding-job slot remains occupied and cleanup is retried if deletion fails |
 
 Client disconnect does not cause a second inference request to enter while the
 native thread is still running. The provider waits for ordinary cancellable
@@ -275,12 +275,12 @@ must cover:
 1. fail-closed bearer authentication and public health checks for every API
    variant;
 2. rejection before request-body reads when admission is full;
-3. exact permit release on success, validation failure, disconnect, and error;
+3. exact permit release on success, validation failure, disconnect, and error only after owned temporary artifacts are confirmed deleted, with retry and retained capacity on cleanup failure;
 4. deadline validation, 504 response shape, and post-response fatal callback
    without actually exiting the test process;
 5. Parakeet startup loading readiness and watchdog behavior;
 6. exact LightRAG v1.5.4 submit, poll, and result payloads;
-7. canonical, traversal-safe zip entries and cleanup on download or expiry;
+7. canonical, traversal-safe zip entries and verified cleanup on download or expiry, including retained admission and retry after unlink failure;
 8. adapter outstanding-job bounds before upload parsing;
 9. idempotent secret generation and manifest/env-example parity;
 10. token propagation to every named server-side consumer;

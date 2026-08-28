@@ -127,6 +127,31 @@ def test_load_tracks_duplicate_key_raises(tmp_path: Path):
         load_tracks(p)
 
 
+def test_load_tracks_rejects_duplicate_yaml_mapping_keys(tmp_path: Path):
+    p = tmp_path / "t.yml"
+    p.write_text(
+        """
+tracks:
+  - key: probe
+    display_name: First
+    display_name: Second
+    description: duplicate mapping key
+    services: '*'
+""".strip()
+    )
+
+    with pytest.raises(TracksLoadError, match="duplicate key.*display_name"):
+        load_tracks(p)
+
+
+def test_load_tracks_wraps_unhashable_yaml_key(tmp_path: Path):
+    p = tmp_path / "t.yml"
+    p.write_text("? [bad, key]\n: value\n", encoding="utf-8")
+
+    with pytest.raises(TracksLoadError, match="unhashable key"):
+        load_tracks(p)
+
+
 def test_load_tracks_unknown_service_raises(tmp_path: Path):
     """Cross-check: a service that doesn't exist as services/<name>/ rejects."""
     p = tmp_path / "t.yml"

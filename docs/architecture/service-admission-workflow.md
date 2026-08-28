@@ -4,6 +4,8 @@ Manifest, compose fragment, topology row, env assembler, docs regeneration, diag
 
 ## 1. Diagram
 
+![Service Admission Workflow architecture diagram](../diagrams/img/architecture-service-admission-workflow.png)
+
 [Open the full-size diagram](./service-admission-workflow.html).
 
 ## 2. Notes
@@ -14,3 +16,9 @@ Manifest, compose fragment, topology row, env assembler, docs regeneration, diag
 
 - `bootstrapper/services/manifest_validator.py`
 - `bootstrapper/services/source_validator.py`
+- `bootstrapper/services/topology.py`
+- `bootstrapper/services/env_assembler.py`
+- `bootstrapper/docs/regen.py`
+- `bootstrapper/docs/diagram_renderer.py`
+- `bootstrapper/tools/validate_fragments.py`
+- `.github/workflows/services-lint.yml`

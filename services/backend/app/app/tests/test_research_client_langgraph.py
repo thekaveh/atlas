@@ -5,8 +5,62 @@ import json
 import logging
 
 import httpx
+import pytest
 
 from research_client import ResearchClient, ResearchRequest, ResearchStatus
+from research_service import ResearchService
+
+
+def test_cancel_research_waits_through_commit_cancellation_before_stopping_work():
+    commit_started = asyncio.Event()
+    allow_commit = asyncio.Event()
+
+    class Conn:
+        def transaction(self):
+            class Transaction:
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, exc_type, exc, tb):
+                    commit_started.set()
+                    await allow_commit.wait()
+                    return False
+
+            return Transaction()
+
+        async def fetchrow(self, *_args):
+            return {"id": "session-1"}
+
+        async def execute(self, *_args):
+            return None
+
+        async def close(self):
+            return None
+
+    async def scenario():
+        service = object.__new__(ResearchService)
+
+        async def get_conn():
+            return Conn()
+
+        async def work():
+            await asyncio.Future()
+
+        service._get_db_connection = get_conn
+        background = asyncio.create_task(work())
+        service._active_tasks = {"session-1": background}
+        cancellation = asyncio.create_task(service.cancel_research("session-1"))
+        await commit_started.wait()
+        cancellation.cancel()
+        await asyncio.sleep(0)
+        assert not cancellation.done() and not background.cancelled()
+        allow_commit.set()
+        with pytest.raises(asyncio.CancelledError):
+            await cancellation
+        await asyncio.sleep(0)
+        assert background.cancelled()
+
+    asyncio.run(scenario())
 
 
 class FakeResponse:

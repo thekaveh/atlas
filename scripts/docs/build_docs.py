@@ -50,6 +50,9 @@ def _diagram_asset_maps(manifest: Manifest, surface: str) -> dict[str, str]:
             source_dir = Path(page.source).parent.as_posix()
             result[f"{source_dir}/architecture.svg"] = f"{prefix}/{diagram_id}.{extension}"
             result[f"{source_dir}/architecture.html"] = f"{prefix}/{diagram_id}.{extension}"
+            result[f"docs/diagrams/img/{diagram_id}.png"] = (
+                f"{prefix}/{diagram_id}.{extension}"
+            )
             result[master] = f"{prefix}/{diagram_id}.{extension}"
     return result
 

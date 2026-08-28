@@ -7,17 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 1. [Unreleased]
 
-### 1.1. Added — 2026-08-25 — Backend plugins can declare Kong upstream timeouts (#974)
+### 1.1. Fixed — 2026-08-26 — Startup, shutdown, storage, and operator surfaces fail truthfully
+
+- **ComfyUI img2img inputs are decoded and fetched fail-closed.** Data URIs require strict base64 PNG, JPEG, or WebP payloads; image bytes are decoder-verified before upload, decompression bombs and oversized inputs are rejected, and remote URLs are disabled unless their exact HTTPS origin appears in `COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS`. Remote fetches do not follow redirects or inherit proxy environment variables, and verified image content—not a URL suffix—selects the uploaded filename and media type.
+- **ComfyUI cancellation is targeted and retryable.** Both Backend adapters use the pinned core's atomic `POST /api/jobs/{job_id}/cancel` contract and accept only an exact boolean result, eliminating the queue-snapshot race and bodyless global `/interrupt`. Interrupted history is terminal `cancelled`; ambiguous ComfyUI deliveries may be redelivered without changing FAL's stricter repeat semantics, while older localhost instances fail closed.
+- **RAG execution claims recover after ambiguous Redis writes.** Every delivery gets a fresh owner, and only an atomic exact-owner compare-and-set may replace an ambiguous live claim. Redis outages retry independently and indefinitely with jittered backoff capped at 600 seconds, while upstream phase failures retain their existing three-retry terminal policy; execution leases, terminal idempotency, and heartbeat fencing are unchanged.
+- **Asynchronous work handoffs retain definitive ownership through request cancellation.** RAG ingestion and research creation reconcile their durable state, Ray submission requires a stable validated `submission_id` and returns `409` for an existing ID, and async memory consolidation accepts a scoped `idempotency_key` backed by a worker-side execution lease and bounded result marker.
+- **Required pull-request checks scan container changes before merge.** Changed manifest images and built runtime images now receive pinned Trivy scans; generic exact-release checks also cover manifest defaults, Docker ARG defaults, and inline pip install operands.
+- **The Alpine init-image OpenSSL advisory is narrowly time-boxed.** CVE-2026-14456 affects OpenSSL QUIC listeners, but Atlas's Alpine images run finite init jobs and shell clients and never start one. Alpine has published the fixed package without a patched stable image tag, so the scan policy carries exact package-and-architecture exceptions through 2026-09-30 instead of either moving production init jobs to an alpha image or suppressing the CVE globally.
+
+- **Root startup validation is failure-atomic and machine-readable.** Invalid base ports, consumer manifests, and track synthesis now fail before mutating `.env`; `--json` reserves stdout for exactly one terminal result even when Click rejects root arguments, while genuine subcommands retain their native output. Foreground log exit codes now propagate instead of being discarded.
+- **Managed host lifecycle actions require positive process identity.** Generic, ComfyUI MPS, vLLM Metal, and Blender launchers require a start-time stamp before accepting a child as managed, and cross-process locks serialize install, start, stop, and removal for each managed state directory. Missing identity triggers bounded whole-process-group compensation; a failed compensation retains in-memory and on-disk PID recovery evidence and reports the surviving PID instead of claiming termination. Unknown, mismatched, permission-denied, and stale leaderless-group ownership never authorizes signalling, and control-flow interrupts are re-raised after visible cleanup diagnostics.
+- **Managed host admission and readiness fail closed.** Generic and Blender lifecycle locks now time out instead of blocking forever; platforms without the required POSIX lock/process-group primitives fail preflight and direct start before spawning. A port occupied by an unmanaged process is rejected under the lifecycle lock, and launch ownership remains in memory until readiness succeeds so a dead leader's surviving process group can still be swept or reported for rollback.
+- **Shutdown reports what actually happened.** Managed Blender teardown participates in the explicit managed-host stop path; manual stop, launch rollback, and state removal all verify raw PID/process-group liveness after signalling, preserve evidence for survivors, and return failure instead of trusting ownership-qualified status or a nominal stop result. State-directory deletion errors also propagate instead of reporting a successful removal. Project-name persistence is best-effort: a failure warns while the current teardown still uses the requested override. Hosts cleanup failures propagate, missing `sudo` is handled as an operational error, and help text now describes every managed runtime and migration.
+- **Required n8n webhook reactivation is part of launch success.** A failed post-seed n8n restart now fails both linear and Textual launch paths, rolls back newly created managed hosts, and never commits or announces a successful stack. Default shutdown advisories also use fail-closed raw tracking evidence, warning when corrupt, unreadable, unstamped, or mismatched PID state means a host may still be alive even though ownership-qualified status is false.
+- **MinIO bucket creation distinguishes absence from operational failure.** Asset worker, asset baker, and the financial-research notebook create a bucket only for an explicit `404`/`NoSuchBucket`/`NotFound`; authentication failures, timeouts, and other storage errors propagate instead of being misreported as a missing bucket.
+- **Back navigation restores the complete pending answer.** Options, numbers, multiselects, inline secondary values, secrets, free text, and explicit clears survive a revisit. Pressing Enter on a visibly restored secret/text value now reconfirms the session answer instead of silently replacing it with the persisted-value KEEP sentinel; hidden-step secondary state is pruned rather than leaking into launch arguments.
+- **Architecture and operations references match supported runtime paths.** Generated SOURCE and LLM diagrams now include managed vLLM Metal, track overrides model both enabled and explicit-disabled outcomes, and the routing diagram labels inbound direct-port access as host NAT. Localhost port documentation separates Kong-routed HTTP, direct managed-host HTTP, and TCP/no-Kong endpoints; managed-host operations name Blender MCP from the outset, and CLI help distinguishes wizard tracks from deployment profiles while treating the linear stdout flow as a supported path.
+
+### 1.2. Added — 2026-08-25 — Backend plugins can declare Kong upstream timeouts (#974)
 
 - **`plugin.yml` now accepts `connect_timeout`, `write_timeout`, and `read_timeout` in milliseconds.** Each optional value is validated identically by the host bootstrapper and backend container against Kong's integer range (`1..2147483646`). Atlas copies only explicitly declared fields, so omissions retain Kong's 60,000 ms defaults. Since Kong scopes these settings to services, each timed plugin receives a deterministic dedicated backend service and path route; untimed plugins remain on the existing shared `backend-api` service, and `inherit` / `open` / `key-auth` behavior is preserved on both paths.
 
-### 1.2. Changed — 2026-08-23 — Wizard TUI moved to Textual 8.2.8; log pane and command summary are now drag-selectable (#535 Pass 0/1)
+### 1.3. Changed — 2026-08-23 — Wizard TUI moved to Textual 8.2.8; log pane and command summary are now drag-selectable (#535 Pass 0/1)
 
 - **Textual floor raised 6.2.1 → 8.2.8.** The upgrade was needed for selection auto-scroll, cross-container selection, and the `TextSelected` event (added in Textual 6.11.0), none of which the old floor carried. Textual 8.x in turn requires `rich>=14.2.0`, so `bootstrapper/pyproject.toml`'s `rich` floor moves up to match (it had drifted to `>=13.0.0`, letting `uv` resolve an undisclosed jump to `rich` 15.0.0). Follow-up (#535 followups review, finding R9): raising the floor's number alone reproduced the same unbounded shape that caused the original drift, and `rich` was still resolving 15.0.0 — a major above the documented `14.2.0` requirement — undisclosed. `rich` is now capped `>=14.2.0,<16`, pinning the ceiling to the major actually locked and tested, matching the `textual-image>=0.12,<0.13` convention already used a few lines below it. `textual`'s own floor is left unbounded — it was raised and reviewed this same pass rather than left to drift, and capping the framework owning the whole wizard surface is a bigger, separate call than this narrow fix.
 - **User-visible: the log pane and the command summary are now drag-selectable** like any other text on screen — Textual 8.x dropped the restriction that kept scrolling containers (`RichLog`, which the log pane subclasses) from supporting mouse selection. The existing keyboard-driven, filter-aware copy actions (which copy the whole matching scrollback, not just what's visible) are unchanged and still the recommended way to copy a filtered log.
 - **Internal: a new `wizard/model/` layer** (`state.py`, `state_builder.py`, `service_discovery.py`, plus extracted domain rules for tracks, cloud-provider resolution, and LLM source selection) is Pass 1 of an MVVM rebuild of the setup wizard (#535). A new AST-based test enforces the layer import direction (`view → viewmodel → model`) so the split can't silently erode.
 
-### 1.3. Security — 2026-08-22 — Airflow base image and two runtime locks carried patched advisories
+### 1.4. Security — 2026-08-22 — Airflow base image and two runtime locks carried patched advisories
 
 - **`apache/airflow` 3.3.0 → 3.3.1, and the locks that pin its provider graph.** The 3.3.0 image and the Airflow runtime lock carried advisories whose fix is a patch release: `apache-airflow`/`-core`/`-task-sdk` 3.3.0→3.3.1, `providers-common-compat` 1.17.0→1.18.0, `providers-common-sql` 2.0.3→2.1.0, `providers-amazon` 9.33.0→9.34.0, and `sqlparse` 0.5.5→0.6.0. The JupyterHub lock shares `sqlparse` and takes the same bump; it resolves byte-identically on both required platforms, so the lock stays single-file. Both locks were recompiled against themselves as a constraint with only the advisory packages released, so nothing else in either graph moved. The image pin moves in twenty places — `.env.example`, the service manifest, four `compose.yml` build blocks, the Dockerfile `ARG`, the CI build-validation invocation, three test files, the rendered-config golden ×4, and both READMEs.
 
@@ -25,93 +43,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **One exception instead of a bump, for a capped transitive.** `CVE-2026-68508` is RCE in `hydra-core` via `hydra.utils.instantiate()` resolving `_target_` out of a config the caller does not control. 1.3.4 ships the fix, but `nemo-toolkit` caps `hydra-core<=1.3.2` in every extra the Parakeet GPU lock pulls — including the newest 3.0.0 — so there is no reachable upgrade target. Atlas never imports hydra; the provider's only NeMo entry point is `ASRModel.from_pretrained` on the operator-pinned `PARAKEET_MODEL`, which no request payload can select. Recorded as a fail-closed reviewed exception with a 2026-09-01 re-review, alongside the `PYSEC-2026-3624` exception already carried on that lock.
 
-### 1.4. Fixed — 2026-08-22 — The wizard's Ollama picker hid every model below the one you expanded
+### 1.5. Fixed — 2026-08-22 — The wizard's Ollama picker hid every model below the one you expanded
 
 - **A loop variable shadowed the active filter chip.** `_rebuild_visible` binds `tag` to the selected filter chip and re-reads it, per option, in the badge test at the top of its loop. Two inner loops that splice in host-pulled variants reused `tag` as their own loop target, so after the first expanded family with anything pulled, `tag` held a variant string like `"8b"` — and every remaining family failed the badge match and disappeared, while the chip row still read `ALL`. Reachable on any `ollama-*` source, and `_sort_key` floats pulled families to the top, so the first family a user expands is exactly the one that triggers it. Renaming the loop target then exposed that its body used the same shadowed name for the leaf's own `variant=`, correct only by accident of the two meanings coinciding inside the loop.
 
-### 1.5. Fixed — 2026-08-22 — The three-surface docs gate validated a tree it never produced
+### 1.6. Fixed — 2026-08-22 — The three-surface docs gate validated a tree it never produced
 
 - **`check_docs` passed without checking either generated surface.** `check()` calls `build(..., check=True)`, which renders into a temporary directory and returns without writing `generated/` — which is gitignored and absent on a clean checkout. Both surface validators then globbed zero files and the gate printed PASS having examined neither the site nor the wiki; with a stale tree left by an earlier branch it validated the *old* output. CI escaped it only because the Makefile happens to run a full build immediately before, an ordering dependency expressed nowhere in the gate and not honoured by `check_site.py`. `check()` now produces the tree it validates, using `build()` rather than the bare renderers so the diagram assets exist too — without them the wiki-link check reports every embedded image as a missing target.
 
-### 1.6. Fixed — 2026-08-22 — Supabase tables were readable and writable without authentication
+### 1.7. Fixed — 2026-08-22 — Supabase tables were readable and writable without authentication
 
 - **Two seed slices created `public` tables with no RLS.** Slice 06 grants `anon` SELECT across `public`, PostgREST publishes that schema with `PGRST_DB_ANON_ROLE: anon`, and `HOST_BIND_IP` ships empty so it binds `0.0.0.0` — leaving RLS as the only control. Verified against a running stack: an unauthenticated GET returned every row of `comfyui_workflows`, and `anon` could DELETE. One of the two is GoTrue's migration tracker, whose four rows exist so GoTrue skips a migration PostgreSQL 17 rejects — a single unauthenticated DELETE returns the auth service to a crash-loop. Separately, `anon` held SELECT on `storage.objects`/`buckets`, where RLS is disabled by design so the grant is the only gate; that grant was being reissued by slice 06 after slice 04 dropped it, so the fix and its explicit REVOKEs live at the authoritative site.
 
-### 1.7. Fixed — 2026-08-22 — Every Supabase call through Kong returned 401
+### 1.8. Fixed — 2026-08-22 — Every Supabase call through Kong returned 401
 
 - **`key-auth` was enforced with no consumer holding a key.** Five services (`auth-v1`, `rest-v1`, `graphql-v1`, `realtime-v1-rest`, `storage-v1`) enable `key-auth` with no `anonymous` fallthrough, and DB-less Kong has no admin API — so the declarative file is the only place a credential can come from, and it carried none. A/B against the pinned `kong:3.9.3`: the correct `SUPABASE_ANON_KEY` was indistinguishable from a wrong one, both `401 Unauthorized`. The state was test-locked by an assertion that the consumer list had exactly one entry. Also fixed: the Atlas root-dashboard route matched host + path prefix `/`, and Kong ranks by number of matching criteria rather than prefix length, so it outranked every Supabase path route — `/rest/v1/…` on `localhost` returned 200 with dashboard HTML.
 
-### 1.8. Fixed — 2026-08-20 — A consumer's managed host process could SIGKILL an unrelated process group
+### 1.9. Fixed — 2026-08-20 — A consumer's managed host process could SIGKILL an unrelated process group
 
 - **The PID-reuse guard never reached the generic manager.** #647 and #947 hardened `blender_mcp_manager`, `comfyui_mps_manager` and `vllm_metal_manager` against a recycled pid, but `ManagedHostManager` — the consumer-declarable path added by #795/#941 — was written without `_pid_is_stranger`. A crashed consumer process leaves its pid file behind; the OS recycles that pid onto a process owned by the same user, so `_pid_alive`'s `PermissionError` arm never fires and the pid reads as live. `./start.sh managed-host stop <name>` then signalled it. The blast radius was larger than in the built-ins because `_signal()` escalates through `os.killpg`, so the SIGTERM/SIGKILL pair hit the stranger's whole **process group**. `status()` had the mirror-image bug: it reported the stranger as running, so `ensure_running_with_ownership` skipped the real launch and the stack came up against a process that did not exist.
 
   The guard now runs in both `stop()` and `status()` and identifies the process by **`(pid, start time)`**, which is unique on POSIX: `start()` stamps the start time into the pid file and the guard compares it against the live process. Two earlier attempts matched the process argv instead and each failed in a different direction — seeding markers from the whole argv cleared 87 unrelated processes on one machine (`-m`, `127.0.0.1`, the port number all match half a process table), while curating the markers left specs whose tokens are all generic with no evidence that appears in a command line at all, so the guard disowned its own live process and `stop()` deleted the pid file while the service kept running. An argv is not an identity: a wrapper script, `exec`, `setproctitle` or a gunicorn master rewrites it. The `ps` probe is pinned to `TZ=UTC` and `LC_ALL=C`, because `lstart` otherwise renders through the ambient timezone and locale — a service started from an interactive shell and stopped from launchd or CI (both UTC) would not have matched its own record.
 
-### 1.9. Security — 2026-08-20 — A consumer manifest could hijack any generated secret
+### 1.10. Security — 2026-08-20 — A consumer manifest could hijack any generated secret
 
 - **`.env` line injection through a consumer value or key.** `.env` is line-oriented and `parse_env_file` resolves it last-wins, and consumer entries were emitted as `KEY=VALUE` with no sanitization. A YAML block scalar is the natural way to write a newline by accident, and it landed a second assignment below the generated one — `SUPABASE_SERVICE_KEY`, `SUPABASE_JWT_SECRET`, `N8N_ENCRYPTION_KEY`, the MinIO secrets or `BASE_PORT` — which then won. It was permanent, too: the rewrite pattern `^KEY=.*$` is MULTILINE but not DOTALL, so later runs rewrote only the first line and stepped over the injected remainder. The same worked through a **key** carrying a newline, since the emitted line is `KEY=VALUE` either way, and a key containing `=` additionally defeated the duplicate-key conflict check. This matters because a consumer manifest can come from a third-party repo that vendors Atlas as a submodule. Keys are now validated as shell identifiers and values rejected if multi-line, at both the manifest parse boundary and the `.env` write boundary — several override paths (the env-user overlay, storage exports, auto-source and auto-BASE_PORT resolution, profile apply) do not pass through the parser, so the writer has to be safe on its own.
 
-### 1.10. Fixed — 2026-08-20 — Env backfill silently undid a deselect-all
+### 1.11. Fixed — 2026-08-20 — Env backfill silently undid a deselect-all
 
 - **A blank multi-select is an answer, not a missing value.** `backfill_missing_env_vars` refills blank `.env` keys from `.env.example`, which is right for a value the user never set. But the wizard's multi-selects write exactly that shape: deselecting every Ollama model wrote `OLLAMA_USER_MODELS=`, backfill runs last in the pipeline, and the same run restored the default trio — so `ollama-pull` downloaded several GB the user had just declined, with "Filled 4 blank value(s)" as the only trace. `WEAVIATE_ENABLE_MODULES` and `N8N_INIT_NODES` behaved the same way. Those lists are now excluded from the blank-fill. Single-valued settings deliberately are not: a blank `LITELLM_DEFAULT_MODEL` is an error state, not a choice.
 
-### 1.11. Fixed — 2026-08-20 — Two consumer-manifest parsing defects
+### 1.12. Fixed — 2026-08-20 — Two consumer-manifest parsing defects
 
 - **`active: false` on an n8n workflow meant the opposite.** Unquoted it is a YAML boolean, and `False or "fromJson"` is `"fromJson"` — the policy that honours the workflow file's own `"active": true`. So the one value meaning "keep this workflow off" seeded a live webhook. The asymmetry gave it away: `active: true` rendered `"True"`, which is not a policy and was loudly rejected.
 - **`dev:` and `default:` profile overrides raced instead of conflicting.** `dev` aliases `default`, but overrides were bucketed by the raw name, so two blocks targeting one profile landed in separate buckets, the conflict detector never fired, and YAML key order decided the winner.
 
-### 1.12. Fixed — 2026-08-20 — `.env` snapshot retention could be silently disabled
+### 1.13. Fixed — 2026-08-20 — `.env` snapshot retention could be silently disabled
 
 - **The pruning glob was unescaped while its regex was escaped.** `ATLAS_ENV_FILE` is operator-supplied and documented as such, so a basename containing a bracket turned the glob into a character class matching nothing and pruning never ran — retaining every secret snapshot, the one outcome the retention cap exists to prevent. A related path-form bug counted the just-written snapshot as prunable when the source path was relative, retaining one fewer than asked and, at a cap of 1, deleting the file being returned.
 
-### 1.13. Fixed — 2026-08-20 — Subprocess output decoded with the ambient locale, crashing on one non-ASCII byte
+### 1.14. Fixed — 2026-08-20 — Subprocess output decoded with the ambient locale, crashing on one non-ASCII byte
 
 - **15 call sites passed `text=True` without `encoding=`.** Thirteen sibling sites already paired the two, so this was drift rather than a decision. Without `encoding=`, decoding follows `locale.getpreferredencoding()` — ASCII under `LC_ALL=C`, which is what CI runners, launchd and minimal containers actually set. A single non-ASCII byte from `pip`, `git`, `ollama` or `ps` then raises `UnicodeDecodeError`, a `ValueError` that none of the surrounding `except (OSError, SubprocessError, TimeoutExpired)` handlers catch, so a clean error became a raw traceback. `blender_mcp_manager._pid_is_stranger` was itself exposed, since it reads `ps -o command=` output carrying user paths. All 15 now pass `encoding="utf-8", errors="replace"`.
 
-### 1.14. Fixed — 2026-08-20 — `.env` snapshots accumulated without bound
+### 1.15. Fixed — 2026-08-20 — `.env` snapshots accumulated without bound
 
 - **Every rewrite of `.env` took a backup and nothing ever removed one.** A base-port change, Supabase key generation or an env migration each drop a timestamped `0600` copy of `.env` next to it, and `create_private_backup` had no retention at all — six production call sites, zero pruning anywhere in the tree. Each copy holds the Supabase JWT signing keys plus whatever cloud-provider keys are configured, so after a key rotation the superseded secret stayed readable on disk indefinitely, in a growing set of files nothing tracked. `create_private_backup` now keeps the five most recent snapshots per source-and-version prefix and prunes the rest, after the new snapshot is durable and never touching the one it is about to return. `.env.backup.*` remains gitignored.
 
-### 1.15. Fixed — 2026-08-20 — #935 left the retired `qwen3.6` default in 26 places
+### 1.16. Fixed — 2026-08-20 — #935 left the retired `qwen3.6` default in 26 places
 
 - **The default-model move was never swept past `docs/`.** #935 made `qwen3.8:latest` the default-active content and vision model and updated `services/ollama/models.yaml`, `.env.example` and the docs tree, but not `services/*/`. Five of the survivors were live runtime fallbacks — `LITELLM_DEFAULT_MODEL: ${LITELLM_DEFAULT_MODEL:-ollama/qwen3.6:latest}` in the n8n (x2) and local-deep-researcher compose fragments, the JupyterHub startup script's generated `.env`, and the example ETL DAG — so any environment where that variable is empty asked LiteLLM for a model the catalog no longer registers and got `Invalid model name` back. The rest were READMEs, docstrings and notebooks naming the retired tag as current, including two that contradicted the file they cited: `services/ollama/README.md` claimed `qwen3.6` was the `default: true` entry in `models.yaml`, and `services/hermes/README.md` described a priority list #935 had already changed. The one remaining mention in `services/*/` runtime configuration, in `models.yaml`, is a deliberate historical comparison. Illustrative uses elsewhere are intentionally left: the TUI widget docstrings render sample option rows as ASCII art, `docs/superpowers/` is an archive of past plans, and the backend test fixtures use the tag as an arbitrary model id.
 
-### 1.16. Fixed — 2026-08-20 — The MCP notebook raised `NameError` for every reader
+### 1.17. Fixed — 2026-08-20 — The MCP notebook raised `NameError` for every reader
 
 - **`15_mcp_clients.ipynb` used `Client` in four cells and imported only `FastMCP`.** The in-memory transport demo in the last cell is not gated on `MCP_SERVERS_URL`, so running the notebook top-to-bottom failed with `NameError: name 'Client' is not defined` whether or not MCP was enabled. The invocation cell was separately unusable: it called a literal `"tool_name"` placeholder that can never resolve. It now drives the call from the tool list the discovery cell already produces, filling required string arguments from the tool's own `inputSchema`. An unused `import traceback` went with it.
 
-### 1.17. Documentation — 2026-08-20 — The changelog's `[Unreleased]` section read oldest-first at the bottom
+### 1.18. Documentation — 2026-08-20 — The changelog's `[Unreleased]` section read oldest-first at the bottom
 
 - **Entries had been appended rather than prepended.** The file declares Keep a Changelog, which is newest-first, but roughly a month of work — the wizard Setup/Logs tab split, the bounded response cache, the `qwen3.8` default move, both blender-mcp process-lifecycle fixes, the landing-page grounding pass — sat ~2,600 lines below the top while a reader landed on 2026-07-19 entries. The `[Unreleased]` section is now strictly newest-first (verified: zero ascending violations across every dated entry (115 of them at the time of writing)), with every entry and line preserved. Three ungrounded claims in `AGENTS.md` were corrected in the same pass: a `services/litellm/catalog-init/` path that does not exist, a virtual-manifest roster listing 5 of the 7 manifests that declare `virtual: true`, and a test count of 1,300 against an actual 3,659.
 
-### 1.18. Fixed — 2026-08-16 — The documentation landing page overstated the platform and under-rendered the tracks
+### 1.19. Fixed — 2026-08-16 — The documentation landing page overstated the platform and under-rendered the tracks
 
 - **"60 service families" counted directories, not families.** A service family is a `service.yml` owner (`manifests.py::_is_service_dir` requires it), so the three doc-only folders — `stt-provider`, `doc-processor`, `multi2vec-clip` — inflated the total by exactly three. The real count is **57**. `docs/ROADMAP.md` already stated the policy ("the generated documentation home … derive their current counts directly from `services/*/service.yml`, avoiding hand-maintained totals"), but the home was the one page carrying a hand-maintained total, and nothing enforced the policy.
 - **The page claimed 7 tracks above 6 cards.** `All / Custom` had no card at all, so the assertion and the evidence directly beneath it disagreed — on the `.io` site and the wiki `Home` as well, since both derive from the same landing source.
 - **Track names now match `tracks.yml` display names verbatim** on both hand-authored surfaces. The README wrote `Trading/Financial Research` and `All/Custom` where the source (and the landing page) say `Trading / Financial Research` and `All / Custom` — the two surfaces disagreed with the source and with each other.
 - **Five tests now ground the opener** (`test_docs_landing_grounding.py`): the service-family count against `services/*/service.yml`, the track count and one card per track against `tracks.yml`, canonical display names verbatim on both surfaces, and the always-on core against the locked tier. Each is mutation-checked against the exact defect it replaces. The opener is the fastest-decaying region in the repo — it asserts counts and names the generator does not derive — so the fix that matters is the enforcement, not the numbers.
 
-### 1.19. Fixed — 2026-08-15 — `blender-mcp stop` could SIGKILL an unrelated process
+### 1.20. Fixed — 2026-08-15 — `blender-mcp stop` could SIGKILL an unrelated process
 
 - **A recycled pid is a stranger, and the pid file outlives the crash.** When the managed bridge dies without cleanup, its pid file remains; the OS is then free to hand that pid to something else entirely. `blender_mcp_manager.stop()` signalled it blind — SIGTERM, then SIGKILL — so a stale pid file could take out someone's editor or build. Confirmed by a test that spawns a real unrelated process and asserts it survives; without the guard, it does not.
-- **`_pid_is_stranger` now gates the signal**, the same guard `comfyui_mps_manager` and `vllm_metal_manager` have carried. It reads the process command line via `ps` and refuses to signal a pid whose argv shows no Blender binary, launcher, or state dir. An unavailable or ambiguous `ps` returns "not a stranger" and proceeds — teardown is never blocked on an unknowable probe.
-- **The `ps` probe now asks for unlimited width (`-ww`) in all three managers.** Linux procps truncates `ps` output to the terminal width — 80 columns when there is no tty, which is every CI job and every daemon — so a real bridge command line (binary + `--python` + launcher path) had its path markers cut off the end and the manager's **own** process read as a stranger, meaning `stop()` would refuse to stop it. macOS `ps` does not truncate, which is exactly why this passed locally and failed on the Linux runner. `comfyui_mps` and `vllm_metal` carried the same latent weakness and were fixed alongside; they were saved only by luck, having short markers (`main.py`, `vllm`) that appear early in the argv.
-- **The §1.167 zombie-reap test was re-armed in the same change.** Adding this guard silently defanged it: its child also read as a stranger, so `stop()` short-circuited and the test passed without ever reaching the reap it exists to cover. The child's argv now carries the state dir so it registers as ours, with an explicit setup assertion, and removing the reap makes it fail again.
+- **`_pid_is_stranger` now gates the signal**, using the process start time recorded alongside the PID. If that identity is absent, mismatched, or cannot be probed, ownership is unknown: teardown refuses to signal, preserves the PID file for inspection, and reports failure instead of risking an unrelated process group.
+- **Command-line substring ownership was retired in all three managers.** Generic markers such as `Blender`, `main.py`, or `vllm` can also appear in unrelated processes and are not identities. The shared `(pid, start time)` comparison now provides the only authorization to signal.
+- **The `blender-mcp stop` zombie-reap test was re-armed in the same change.** Adding this guard silently defanged it: its child also read as a stranger, so `stop()` short-circuited and the test passed without ever reaching the reap it exists to cover. The test now stamps the child PID with its real start time, with an explicit ownership assertion, and removing the reap makes it fail again.
 
-### 1.20. Fixed — 2026-08-15 — The docs CI check failed on transient asset fetches, and never said so
+### 1.21. Fixed — 2026-08-15 — The docs CI check failed on transient asset fetches, and never said so
 
 - **The failure had no cause attached, which is why it kept recurring.** `make docs-check` ends in `mkdocs build --strict`, and Material's `privacy` plugin self-hosts external assets by *downloading* them at build time — ~20 files (Google Fonts, plus mermaid from unpkg). `.cache` is gitignored, so CI refetched every one on every run, and under `--strict` a single transient failure is a hard error. This is how #934 and #941 failed on diffs that touched no external URL.
-- **The docs job now caches `.cache`** (`actions/cache`, keyed on `mkdocs.yml` + `docs/stylesheets/**`), so the steady state performs no third-party fetches at all and a font or theme change re-primes it. The `privacy` plugin stays enabled — it is what keeps the *published* site from calling third parties, so disabling it would trade a CI annoyance for a real privacy regression.
+- **The docs jobs now cache `.cache`** (`actions/cache`, keyed on `scripts/docs/build_docs.py` + `docs/assets/stylesheets/**`), so the steady state performs no third-party fetches at all and a font or theme change re-primes it. The `privacy` plugin stays enabled — it is what keeps the *published* site from calling third parties, so disabling it would trade a CI annoyance for a real privacy regression.
 - **`--forward-stderr` now forwards output on failure too.** The flag already existed, documented as "use only for non-secret build logs", and every `docs-check` step passes it — but `bounded_subprocess` honoured it only on *success*, returning early on a non-zero exit. So the one flag that exists to surface build logs did nothing in the only case anyone needs it: CI printed `subprocess output redacted` and nothing else. Steps that do not opt in stay fully redacted, which is the entire safety boundary and now has its own test.
 - **The cache key hashes tracked sources, and a test enforces that.** The first attempt keyed on `mkdocs.yml` + `docs/stylesheets/**` — but `mkdocs.yml` is *generated* (absent when the cache step runs) and the stylesheets live under `docs/assets/stylesheets`. Both patterns matched nothing, `hashFiles()` returned an empty string, and CI logged `Cache saved with key: mkdocs-privacy-` with no hash at all: a constant key that would never re-prime when the fonts changed. It now hashes `scripts/docs/build_docs.py` (which declares the theme fonts and generates `mkdocs.yml`) plus `docs/assets/stylesheets/**`, and a test asserts every `hashFiles` pattern matches at least one **tracked** file — the untracked half is the dangerous one, since it is green locally and empty in CI.
 - The forwarded streams are flushed in order (stdout is block-buffered when piped, stderr is not) so the detail cannot land *above* the line naming what failed, and the header reads `failed (exit N); output follows:` rather than claiming redaction while printing the output.
-### 1.21. Fixed — 2026-08-15 — `blender-mcp stop` reported failure for a process it had just killed
+### 1.22. Fixed — 2026-08-15 — `blender-mcp stop` reported failure for a process it had just killed
 
 - **A zombie still answers `kill(0)`.** A child of the current process that has exited but has not been waited on stays in the process table until reaped. `blender_mcp_manager._pid_alive` probed liveness with `os.kill(pid, 0)` alone, so after SIGTERM actually killed the bridge, `stop()` kept polling for its full 10-second grace window, escalated to SIGKILL, polled again, then returned `False` — and, per its own "a failed stop keeps the pid file" rule, left a stale pid file behind.
 - **`comfyui_mps` and `vllm_metal` were never affected**: both already reap via a `_reap_child` helper. `blender_mcp` was the one manager missing it, and it now uses the same approach rather than a third variant.
-- Surfaced while building the generic managed-host framework (§1.166), whose tests spawn a **real** process instead of mocking `Popen`. A mocked process cannot exhibit this — the bug lives precisely in the interaction between `Popen` child ownership and `os.kill(pid, 0)` — so the regression test spawns a real one too and asserts all three symptoms: the return value, the elapsed time, and the stale pid file.
+- Surfaced while building the consumer-declared managed-host framework (#795), whose tests spawn a **real** process instead of mocking `Popen`. A mocked process cannot exhibit this — the bug lives precisely in the interaction between `Popen` child ownership and `os.kill(pid, 0)` — so the regression test spawns a real one too and asserts all three symptoms: the return value, the elapsed time, and the stale pid file.
 
-### 1.22. Added — 2026-08-15 — Consumers can declare their own managed host process (#795)
+### 1.23. Added — 2026-08-15 — Consumers can declare their own managed host process (#795)
 
 - **Three hand-built managers were converging on one shape.** ComfyUI-MPS, vLLM-Metal and Blender-MCP each implement `preflight → install → start → status → health → stop → remove` over a `~/.atlas/<name>` state dir. A consumer that needed a fourth — an MLX segmentation service, a Metal-only inference server — had to either land a bespoke manager upstream or hand-roll a lifecycle outside Atlas.
 - **`managed_host_services:` in `atlas.consumer.yml`** declares one: name, command, port, optional venv (with an optional `metal:` guard), install steps, and a health probe. `./start.sh managed-host list|preflight|install|start|stop|status|health|remove <name>` runs the same lifecycle the built-ins get, `doctor` reports a `managed-host-services` row, and the endpoint contract gains `ATLAS_<NAME>_HOST_ENDPOINT`.
@@ -121,56 +139,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The three built-ins now share the framework's `PreflightResult`** instead of carrying three near-identical copies, so the count of duplicated verdict types went from three to zero rather than to four. `ProcessStatus` stays per-manager: each reports genuinely different fields (device, served model ids, port-open), and unifying it would produce a union type nobody reads.
 - **A zombie no longer reads as running.** The generic manager reaps its own exited children before probing liveness: a process that has exited but not been waited on still answers `kill(0)`, which would make `stop()` poll its whole grace window and then report failure for a process it had just killed.
 
-### 1.23. Added — 2026-08-14 — The Logs tab says when it is holding an error (#912)
+### 1.24. Added — 2026-08-14 — The Logs tab says when it is holding an error (#912)
 
 - **A toast is the wrong medium for a failure you were not there to see.** The launch-phase error toast announces itself once and evaporates. If the operator is on the Setup tab — or away from the keyboard entirely — the only remaining trace is a log line behind a hidden tab, and the run looks fine.
 - **The Logs tab label now carries a red `!`** — `[  Logs! ]` — from the moment an error is written while the tab is hidden until the tab is actually visited. Visiting it *is* the acknowledgement, so there is no dismiss key to learn.
 - **Errors only.** Warnings were deliberately excluded: a normal launch emits enough of them that the marker would be lit from the first minute onward, which conveys exactly as much as no marker at all.
 - The glyph is measured as part of the tab's plain-text width, not painted over it, so the click targets and border padding stay correct while it is lit — a regression test asserts the `Logs` label still falls inside its own recorded span after the marker appears.
-- The Setup/Logs tabs themselves are now documented in the wizard guide (tab semantics, `1`/`2`/`Shift+Tab` navigation, per-tab shortcut bar, and this marker), which the original §1.155 split never covered.
-### 1.24. Added — 2026-08-11 — Host-Ollama residency: stop a multi-model run evicting its own working set (#798)
+- The Setup/Logs tabs themselves are now documented in the wizard guide (tab semantics, `1`/`2`/`Shift+Tab` navigation, per-tab shortcut bar, and this marker), which the original Setup/Logs tab split never covered.
+### 1.25. Added — 2026-08-11 — Host-Ollama residency: stop a multi-model run evicting its own working set (#798)
 
 - **The failure has no error message, which is why it needs a check.** A pipeline touching several models in sequence — a LightRAG ingest with separate extract, embed and keyword models — evicts its own working set when the daemon's `OLLAMA_MAX_LOADED_MODELS` is below that count: Ollama unloads one model to load the next and reloads it moments later. The run simply crawls, and only `ollama ps` cycling through `Stopping…` reveals it.
-- **New `ollama-residency` doctor check.** Declare `OLLAMA_MODELS_RESIDENT_MIN` (the number of distinct models one run touches) and `./start.sh doctor` reads the host daemon's real `OLLAMA_MAX_LOADED_MODELS` *and* `OLLAMA_KEEP_ALIVE`, failing before a long run rather than after it, with the `launchctl` command to fix it. Advisory by construction, like its §1.159 parallel-serving sibling: an unreadable host config reports `skipped`, never `fail`, because warning about a value that could not be read trains people to ignore doctor output.
+- **New `ollama-residency` doctor check.** Declare `OLLAMA_MODELS_RESIDENT_MIN` (the number of distinct models one run touches) and `./start.sh doctor` reads the host daemon's real `OLLAMA_MAX_LOADED_MODELS` *and* `OLLAMA_KEEP_ALIVE`, failing before a long run rather than after it, with the `launchctl` command to fix it. Advisory by construction, like its parallel-serving doctor sibling: an unreadable host config reports `skipped`, never `fail`, because warning about a value that could not be read trains people to ignore doctor output.
 - **`OLLAMA_KEEP_ALIVE` is now a first-class variable** on the container sources, where Atlas does own the daemon. It is **not** defaulted to `-1`: that pins *every* loaded model in RAM until reverted and the daemon restarted — tens of gigabytes on a large model-set, competing directly with ComfyUI and vLLM-Metal on a unified-memory host. Operator opt-in, with the cost stated wherever it is documented.
 - **Two levers, deliberately distinguished** in the docs, because conflating them is why this bites: `OLLAMA_MAX_LOADED_MODELS` is how many models fit resident; `OLLAMA_KEEP_ALIVE` is how long each stays after last use. Ollama's 5m default evicts even when there are enough slots.
 - `reusing-atlas.md` documents host sizing for multi-model ingest, including the full set-for-the-run-then-revert `launchctl` sequence and its RAM cost. `keep_alive` is read as a duration string (`5m`, `1h`, `-1`) through its own probe rather than the int-coercing parallel reader, which would have reported it as permanently unknown.
 
-### 1.25. Changed — 2026-08-11 — Default Ollama content/vision model moves to qwen3.8
+### 1.26. Changed — 2026-08-11 — Default Ollama content/vision model moves to qwen3.8
 
 - **`qwen3.8:latest` replaces `qwen3.6:latest`** as the default-active Ollama content *and* vision model. Verified against the live library before pinning: `qwen3.8:latest` and the `27b` family (`27b`, `27b-mlx`, `27b-bf16`, `27b-mxfp8`, `27b-nvfp4`, `27b-q4_*`, `27b-q8_0`, `27b-mtp-*`) all resolve. 27B parameters, 18 GB at `:latest`, 256K context, natively multimodal across image *and* video.
 - **`think: false` is now load-bearing rather than incidental.** Qwen3.8 ships with **thinking mode on by default** (disableable per request), where the previous default did not. Without that request default every extract/keyword call would pay for reasoning tokens it does not need and return prose wrapped around the answer. Roles that genuinely want deliberation can re-enable it per request.
 - **Two upstream knobs are deliberately not wired**: `reasoning_effort` (depth) and `preserve_thinking` (carry reasoning across turns). `bootstrapper/schemas/models.schema.json` pins `request_defaults` to `think` only, so exposing them is a schema change rather than a catalog edit — recorded here instead of silently widened.
 - **The Hermes fallback moved too.** `services/hermes/init/scripts/init-hermes.sh` carries the only copy of the default model outside the catalog, used when `HERMES_DEFAULT_MODEL` is blank. It is *not* derived from `models.yaml`, so a rename that missed it would silently fall through to the next candidate — a cloud model — changing cost and locality with no error. The script now says so.
 - Everything else propagates: `.env.example`'s `OLLAMA_USER_MODELS`, `LITELLM_DEFAULT_MODEL` and `LITELLM_VISION_MODEL` are generated from the catalog's default-active set by `env_assembler`, not hand-maintained.
-- **Note on size:** `:latest` is 18 GB. On a unified-memory host this is the single largest resident default, and it multiplies with `OLLAMA_NUM_PARALLEL` — see §1.162's `OLLAMA_KV_CACHE_TYPE=q8_0`, which exists to offset exactly that.
+- **Note on size:** `:latest` is 18 GB. On a unified-memory host this is the single largest resident default, and it multiplies with `OLLAMA_NUM_PARALLEL`; the `OLLAMA_KV_CACHE_TYPE=q8_0` change exists to offset exactly that.
 
-### 1.26. Changed — 2026-08-10 — Bounded the response cache, protected the Redis queues, quantized Ollama's KV cache
+### 1.27. Changed — 2026-08-10 — Bounded the response cache, protected the Redis queues, quantized Ollama's KV cache
 
 - **The LiteLLM response cache now has a useful lifetime and a namespace.** Gateway caching has always been on, but with no explicit `ttl` LiteLLM fell back to `BaseCache`'s **60 seconds** — bounded, but far too short to pay off on anything except rapid-fire identical prompts. `LITELLM_CACHE_TTL` now defaults to an hour, and `LITELLM_CACHE_NAMESPACE` (`litellm.cache`) makes gateway keys scannable and separately droppable on a Redis db 0 that it shares with four other consumers. Both are baked as literals at render time rather than `os.environ/…` references, because that form resolves to a string and `ttl` must be numeric; an unparseable value falls back rather than failing the render.
 - **Redis now sheds cache instead of taking the queue down.** The policy moves from `noeviction` to **`volatile-lru`**, which evicts only keys carrying a TTL — on this stack, the response cache. n8n's BullMQ queue, Kong's rate-limit counters, Langfuse's queue and the backend's media store are written *without* a TTL and are therefore never eviction candidates. Under `noeviction` a full instance rejected **writes**, so an oversized cache could break the queue; the worst case is unchanged, since with nothing volatile left `volatile-lru` returns the same OOM error. `REDIS_MAXMEMORY` is now settable and defaults to `0` (unlimited), so no existing deployment's working set shrinks on upgrade — but a cap is now one variable away, and without one the container still OOM-kills rather than evicting.
-- **Ollama quantizes its KV cache by default.** `OLLAMA_KV_CACHE_TYPE=q8_0` roughly halves the attention KV cache for a negligible quality cost. This is the dominant per-slot memory cost and `OLLAMA_NUM_PARALLEL` multiplies it, so it pairs directly with §1.159's parallel-serving work. `OLLAMA_FLASH_ATTENTION=1` is pinned alongside because the quantization is a **no-op without it** — a silently-inactive memory setting is worse than an absent one, since it reads as configured. Both apply to the `ollama container-*` sources; the host daemon owns them for `ollama-localhost`.
+- **Ollama quantizes its KV cache by default.** `OLLAMA_KV_CACHE_TYPE=q8_0` roughly halves the attention KV cache for a negligible quality cost. This is the dominant per-slot memory cost and `OLLAMA_NUM_PARALLEL` multiplies it, so it pairs directly with the parallel-serving work. `OLLAMA_FLASH_ATTENTION=1` is pinned alongside because the quantization is a **no-op without it** — a silently-inactive memory setting is worse than an absent one, since it reads as configured. Both apply to the `ollama container-*` sources; the host daemon owns them for `ollama-localhost`.
 - Documented explicitly, because the question comes up: **Redis cannot cache an attention KV cache.** Those are per-sequence tensors touched on every generated token; Redis is a network hop. Ollama has no external cache backend of any kind. What Redis caches for LLM traffic is whole responses, one layer up at the gateway.
 
-### 1.27. Fixed — 2026-08-10 — Langfuse tracing was shipping to the public cloud; langfuse-web never went healthy (#928, #929)
+### 1.28. Fixed — 2026-08-10 — Langfuse tracing was shipping to the public cloud; langfuse-web never went healthy (#928, #929)
 
 - **Gateway tracing recorded nothing, silently (#929).** LiteLLM was given `LANGFUSE_BASE_URL`, but the langfuse-python **v2** SDK bundled in the pinned LiteLLM image reads only `LANGFUSE_HOST` — confirmed in the v2.57.13 source, `os.environ.get("LANGFUSE_HOST", "https://cloud.langfuse.com")`. With it unset, every trace was shipped to the **public Langfuse cloud** using locally-generated keys, rejected there, and dropped. LiteLLM still logged `Initialized Success Callbacks - ['langfuse']`, every call still succeeded, and `GET /api/public/traces` returned a clean, empty HTTP 200 — so nothing anywhere indicated a problem. Both host variables are now set to the same endpoint: `LANGFUSE_HOST` for the current pin, `LANGFUSE_BASE_URL` because v4 prefers it and keeps the old name only as a deprecated alias.
 - **`langfuse-web` was permanently `(unhealthy)` (#928).** Next.js standalone binds `process.env.HOSTNAME`, and Docker sets that to the container ID, so the server listened on the container's eth0 IP only while the healthcheck probed loopback. The app was fully functional throughout, but `./start.sh` exited non-zero, which breaks scripted bring-up for any consumer enabling Langfuse. Pinning `HOSTNAME=0.0.0.0` is the standard Next.js-in-Docker fix. Upstream's own compose does not hit this because it ships no healthcheck on `langfuse-web` at all.
 - **Coverage is now documented honestly.** Langfuse tracing in Atlas is gateway-level: it captures exactly what passes through LiteLLM, which covers Open WebUI, the backend, and LightRAG's default binding. The documented exception is LightRAG's per-role `*_LLM_BINDING_HOST` overrides, which can point a role straight at a native provider and bypass the gateway — those calls produce no traces and nothing warns about it. Noted in both the Langfuse and LightRAG READMEs, and the "no traces appear" troubleshooting now leads with the one-command check that would have caught #929.
 
-### 1.28. Changed — 2026-08-09 — Track matrix collapsed to one generated home (#838)
+### 1.29. Changed — 2026-08-09 — Track matrix collapsed to one generated home (#838)
 
 - **The track matrix had two byte-identical generated homes** — nav §4 (`docs/tracks.md`) and §10.5 (`docs/reference/tracks.md`), both rendered from the same `model.tracks`. Because they were generated from one source they could never drift, which is exactly why the duplication survived unnoticed. The reference copy is removed and the nav-section page — the one users actually browse — survives; `docs/reference/index.md` and the six landing-page cards now point at it. The renumber ripple this deferral warned about turned out to be contained: §10.6 → §10.5 and §10.7 → §10.6, with no hand-authored page affected.
 - **Guarded against silent return** — a test asserts the matrix has exactly one generated home, rendering the real page set and matching on the table header rather than on a filename. Mutation-proven: restore the second generator and it fails.
 - Two of #838's three items remain open by decision, not oversight: the CHANGELOG/ROADMAP split is deferred until the current issue queue stops appending to them, and the nav reordering plus `docs/deployment/` rename is blocked on a target order that no document specifies.
 
-### 1.29. Added — 2026-08-09 — Ollama parallel-serving doctor lint for host daemons (#849)
+### 1.30. Added — 2026-08-09 — Ollama parallel-serving doctor lint for host daemons (#849)
 
 - **`./start.sh doctor` now catches an under-provisioned host Ollama.** On `ollama-localhost` Atlas cannot set the daemon's environment — the host-prereq doctrine means the operator owns it. Ollama defaults to **one** parallel slot and *silently serializes* concurrent requests rather than rejecting them, so a consumer needing eight gets correct-but-slow behaviour with nothing in any log to explain it. Declare `OLLAMA_PARALLEL_MIN` and the new `ollama-parallel` check reads the daemon's actual `OLLAMA_NUM_PARALLEL` back, failing with the exact `launchctl setenv` command when the host is below it.
 - **Deliberately narrow, and advisory by construction.** The probe reads the host config only where that is genuinely verifiable — macOS, where the daemon inherits `launchctl setenv` — and reports *unknown* everywhere else, because a daemon's environment otherwise depends on how it was started (systemd drop-in, shell export, container) with no single readable source. An unknown reports `skipped` and never warns: a warning about a value that could not be read would train people to ignore doctor output. That scoping is what makes the check safe to ship without the live per-platform validation CI cannot provide, which is why part 2 of #849 had been deferred.
 - Part 1 of #849 (the `OLLAMA_NUM_PARALLEL` / `OLLAMA_MAX_LOADED_MODELS` compose env for the container sources) already shipped earlier; this completes the ticket.
 
-### 1.30. Fixed — 2026-08-09 — Wizard tab follow-ups from the #911 review (#912)
+### 1.31. Fixed — 2026-08-09 — Wizard tab follow-ups from the #911 review (#912)
 
 - **The command summary no longer vanishes on short terminals** — `#lower-pane` clips, and `PromptPanel`'s `1fr` claimed the leftover rows first, so the summary was laid out past the clip and rendered **zero visible rows below ~32 terminal rows** while its own CSS comment claimed it "yields on short terminals". It is now docked, which makes that claim true down to the point where the pane itself has fewer than three rows — genuine space exhaustion rather than a layout bug. Guarded at 44/38/34/32/30 rows.
 - **A failed launch no longer contradicts itself** — the footer said "ctrl+q detach" while the log pane directly above it still said "ctrl+c to cancel", because only the success path updated the pane's border subtitle. Both keys worked, so nothing broke, but the two pieces of chrome disagreed. A setup-phase worker error still shows "cancel", which is the truthful hint for a launch that never started.
@@ -181,49 +199,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test gaps closed** — click routing now covers the Setup tab, a border click while tabs are disabled, and the widget-relative coordinate basis; the summary's height cap is asserted against `MAX_BODY_ROWS` rather than a substring that passed with `max-height: 0`; and the documented drag-to-select on the summary is finally pinned.
 - **Busy-wait polls bounded** — three `while …: await asyncio.sleep(0)` loops in the provider-boundary, parakeet-startup and docling-cleanup tests hot-spun with no deadline, so a condition that never came true hung with no diagnostic. They now use a real deadline and report what they last observed. The single-turn `await asyncio.sleep(0)` yields elsewhere are a correct idiom and were left alone.
 
-### 1.31. Fixed — 2026-08-09 — comfyui-krea2edit was provisionable but inert (#909)
+### 1.32. Fixed — 2026-08-09 — comfyui-krea2edit was provisionable but inert (#909)
 
 - **The Identity Edit LoRA is now a catalog entry** — `comfyui-krea2edit` exists to run `krea2_identity_edit_v1_2.safetensors`, and its own README lists that LoRA as a hard requirement. Without it the nodes register and nothing edits, while `provision-nodes` reports success and `doctor` reports the node present — installed-but-inert, a worse failure shape than a clean error because every signal Atlas emits says it is installed. `krea2-identity-edit-v1-2` (1.83 GB, category `lora`, pinned by revision + sha256) now ships in the curated catalog and declares `requires_custom_node: [comfyui-krea2edit]`, so the linkage is expressed in the schema rather than in prose nothing enforces.
 - **Licensing adds no new surface** — HuggingFace has no SPDX entry for the Krea 2 Community License, so `other` is what *every* Krea 2 artifact carries, including the base weights Atlas already ships. The LoRA's `NOTICE` places it under that same agreement as a Derivative Model of Krea 2 Raw, so selecting it accepts exactly what `krea2-raw-bf16` / `krea2-turbo-bf16` already accept. It is an unofficial community fine-tune and says so; a test pins its licence fields equal to the base weights'.
 - **Raw-vs-Turbo caveat documented** — the LoRA's `base_model` is Krea 2 **Raw**. The node advertises both, but identity fidelity may differ on Turbo, which is the cheaper and more common pick — worth knowing before paying for a 35 GB Raw download to find out.
 - **Dead node URL corrected** — the manifest fixtures pinned `krea-ai/comfyui-krea2edit`, which does not exist; the real pack is `lbouaraba/comfyui-krea2edit`. It lived only in tests, but those were the sole place in the tree naming a URL for this node and it reads as canonical, so a consumer copying it got a clone failure at provision time rather than an obviously-wrong value. A guard now fails if the dead URL reappears.
 
-### 1.32. Fixed — 2026-08-08 — Wizard UX pass from a live run (tabs, prompts, stop, base port)
+### 1.33. Fixed — 2026-08-08 — Wizard UX pass from a live run (tabs, prompts, stop, base port)
 
 - **The tabs now look like tabs** — they shipped inheriting the border colour, so neither read as selected and nothing suggested the other was clickable. The active tab is bold accent, the inactive one muted, and hovering an inactive tab brightens it; the active tab keeps its accent when hovered. `_tab_segment` now returns the styled markup and its rendered width separately, so the byline and the click targets are measured from plain text — previously a single string was measured with an ad-hoc escaped-bracket correction that would have silently shifted every click target the moment styling was added. The byline-only border (no tabs, during the wizard) is untouched and still byte-identical at 60/90/140/200 columns.
 - **The answered prompt no longer lingers on the Setup tab** — a regression from the tab split. Before it, `_transition_to_launch` called `remove_children()`, which took the prompt panel and command summary down as a side effect; the tab swap replaced that teardown to keep the stack overview live, and nothing assumed the retiring job, so the Setup tab kept showing the last answered question (`67/67`) for the whole launch. They are now hidden, not unmounted — other paths still hold references.
-- **You can stop the stack from the TUI** — nothing could before: `ctrl+c` sets exit 130 and exits, `ctrl+q` detaches, and both leave containers running, so stopping meant leaving and running `./stop.sh`. `ctrl+s` stops (volumes kept) and `ctrl+x` cold-stops (volumes removed). Neither acts on a single press: each arms and only a second press of the *same* key commits, so arming a stop then pressing cold re-arms rather than deleting volumes uncommitted. Managed ComfyUI-MPS / vLLM-Metal runtimes are host-global singletons shared across consumers, so they are deliberately left running — and the completion notice says so, rather than reporting "stopped" while a GPU-holding process is still up. Offered only after a *successful* launch: `_launch_detach_ready` is also set on failure, and teardown-on-failure is a separate decision (tracked in #912).
+- **You can stop the stack from the TUI** — nothing could before: `ctrl+c` sets exit 130 and exits, `ctrl+q` detaches, and both leave containers running, so stopping meant leaving and running `./stop.sh`. `ctrl+s` stops (volumes kept) and `ctrl+x` cold-stops (volumes removed). Neither acts on a single press: each arms and only a second press of the *same* key commits, so arming a stop then pressing cold re-arms rather than deleting volumes uncommitted. Managed ComfyUI-MPS, vLLM-Metal, and Blender MCP runtimes are host-global singletons shared across consumers, so they are deliberately left running — and the completion notice says so. Offered only after a *successful* launch: `_launch_detach_ready` is also set on failure, and teardown-on-failure is a separate decision (tracked in #912).
 - **The base-port step accepts `auto`** — `auto` was already a first-class value on the CLI (`--base-port auto`) and in consumer manifests (`BASE_PORT: auto`), but the wizard step is `kind="number"` and silently replaced any non-numeric entry with the default, so the literal was unenterable. It now resolves to a concrete free block at selection time (three downstream consumers `int()` this value), which also lets the stack overview preview the ports the run will really bind, while the command summary still shows `--base-port auto`.
 - **Long option hints stay inside their indent** — line 2 of an option row started with the label-column spaces but was one logical line to Rich, so only the first visual row was indented and every wrapped continuation restarted at column 0. Most visible on the wizard's first prompt, whose track hints enumerate a whole track's service list.
 - **"Profile" now means one thing** — the track picker was titled `Track · pick your profile` and asked "Which profile fits what you're building?", spending the word one step before the real dev/prod profile step, which made prod/dev read as missing. It is not missing: it is step 2, it is never skipped, and its selection is honoured. The track step now asks about workloads. Separately, `--track` and `--profile` now reach the command summary — neither did, so a summary advertised as copy-pasteable was dropping the two flags that decide which services run and how they are hardened.
 
-### 1.33. Fixed — 2026-08-08 — Runtime-lock advisory refresh (pypdf, GitPython, lightning)
+### 1.34. Fixed — 2026-08-08 — Runtime-lock advisory refresh (pypdf, GitPython, lightning)
 
 - **Patched two runtime graphs** — `pypdf` 6.14.2 → 6.15.0 in the backend runtime and test locks (CVE-2026-71852, CVE-2026-71870), and `gitpython` 3.1.57 → 3.1.58 in the JupyterHub lock (GHSA-4gmw-gg2m-w46p, GHSA-9rj7-rf2p-w77r, GHSA-hh9p-6wh2-4mfc, GHSA-jm78-9fvv-mhgr, GHSA-wvpp-8hx9-p66j). Both are patch-level bumps within the pinned major. These advisories were published after the last green run and were failing `Audit compiled service runtime locks` on every open PR, not just one.
 - **Reviewed exception for PyTorch Lightning** — PYSEC-2026-3624 / CVE-2026-58659 is an RCE in `_load_state`, reachable only through `LightningModule.load_from_checkpoint` on an attacker-supplied checkpoint. No released 2.x carries the fix (upstream landed it in commit `d710d68`; OSV reports "fixed in 2022.6.15", a CalVer artifact of the pre-1.x line that is unusable as an upgrade target). Atlas never calls `load_from_checkpoint` — `lightning` is transitive via `nemo-toolkit`, and the Parakeet GPU provider loads through `nemo_asr.models.ASRModel.from_pretrained` on the operator-pinned `PARAKEET_MODEL` repo. Recorded as a fail-closed exception in `scripts/audit_runtime_locks.py` with a documented drop trigger, matching the existing MLflow/cryptography precedent in the same file.
-### 1.34. Changed — 2026-08-07 — Wizard splits into Setup and Logs tabs
+### 1.35. Changed — 2026-08-07 — Wizard splits into Setup and Logs tabs
 
 - **The launch logs get their own tab** — Atlas now ships 61 source-configurable services, and the stack overview grew with them: on a 44-row terminal the fixed chrome over-subscribed the screen by 6 rows, squeezing the log pane to nothing exactly when it matters. The wizard now has two tabs. Setup keeps the stack overview, the step prompt, and the command summary; Logs shows the filter chips and the log pane. The logo pane and the shortcuts bar stay on both, and the shortcuts contents swap per tab. On a 44-row terminal the log pane goes from effectively zero rows to 20+.
 - **Tabs cost no vertical space** — they render on the logo pane's bottom border, to the left of the existing author/license/version/repo byline, which keeps its place and elides on narrow terminals. Switch with `1`/`2`, `shift+tab`, or by clicking a tab label. Launch switches to Logs automatically; Setup stays reachable, and because both bodies stay mounted the stack overview keeps updating live while you read logs and the log stream keeps appending while you are on Setup.
 - **Copying** — the command summary and stack overview are selectable with a normal drag. The log pane is a scrolling `RichLog`, which Textual will not drag-select, so it gains `y` (copy the log buffer) and `Y` (copy the full session log); terminal-native Shift-drag also works.
 
-### 1.35. Fixed — 2026-08-07 — Wizard command summary overflowed with many services
+### 1.36. Fixed — 2026-08-07 — Wizard command summary overflowed with many services
 
 - **Command summary no longer grows one line per selected source** — the live `./start.sh` preview rendered each flag on its own continuation line, so with the number of source-configurable services Atlas now ships it reached ~30 rows by the end of the wizard and overflowed its slot in the pane it shares with the prompt. The command now renders as one flowing line that soft-wraps to the panel width, so its height tracks the command's total width rather than the selection count, and the panel caps at four content rows with `overflow-y: auto` — a very long command scrolls inside the panel instead of squeezing the prompt/service area. A full 29-flag selection now occupies 4 rows instead of ~30. Flags, values, styling, border, and position are unchanged.
 - **Command summary emits pasteable flag values** — model multiselect steps rendered `--ollama-models 3 selected (nomic-embed-text,…)` and `--openai-models 2 selected (…)`. Those flags take a comma-separated string, so the count-and-parenthesis description was not a valid invocation (Click would read the trailing names as stray positional arguments). The summary now emits the CSV itself, shell-quoted because it contains commas; an explicitly cleared custom-model list renders as `""`. API keys still render as the `<set>` placeholder — the raw secret is never printed.
 - **"Generate encryption keys failed" on a warm start with existing DB volumes** — `generate_missing_keys` asserted that `GRAPH_DB_AUTH` had been de-placeholdered, but the rotator that writes it (`generate_and_update_graph_db_password`) deliberately skips when this project's Neo4j data volume already exists — the password is baked in at first boot and rewriting `.env` cannot change it. So on every warm start with an existing graph volume the composite legitimately stayed at `neo4j/neo4j_password`, that single `False` failed `all(results.values())`, and the pipeline reported `Generate encryption keys failed` even though every rotator had succeeded and only advisory "rotation is skipped" warnings were printed. The assertion is now gated on the same existing-volume guard as the rotator; a genuine fresh install (no volume) and a cold start (volumes wiped, `force_regenerate=True`) still enforce it, so the placeholder check is not weakened.
 - **Wizard panels are separated by a real gutter, and the gap above the shortcuts bar is gone** — the brand, stack-overview, prompt, and command-summary panels all had `margin: 0`, so their rounded borders butted directly together and the stack read as one fused block rather than discrete panes. Each panel below the first now carries a one-row top margin so the screen background shows through between them. Separately, `#lower-pane` claimed all remaining height and the leftover collected *between* the command summary and the shortcuts bar; the prompt panel now absorbs that slack, so the summary sits directly above the footer while the footer stays pinned to the bottom.
 
-### 1.36. Added — 2026-08-05 — Consumer-declared ComfyUI custom nodes + managed-MPS install (#905)
+### 1.37. Added — 2026-08-05 — Consumer-declared ComfyUI custom nodes + managed-MPS install (#905)
 
 - **Consumer-declared custom nodes** — a consumer can now declare `custom_nodes.comfyui` (a path or path-list to a consumer-authored pinned-node YAML) in `atlas.consumer.yml`; the paths merge into `COMFYUI_CUSTOM_NODES_FILE` (os.pathsep-joined). The Atlas-shipped `services/comfyui/custom-nodes.yaml` is always present in the merged allowlist (catalog models reference its nodes) and wins on name collision; consumer-declared nodes are active unconditionally (a model need not `requires_custom_node` them — they are workflow nodes, e.g. an edit-workflow node). The pinned-SHA + GitHub-HTTPS discipline is enforced at consumer-manifest load (fail-loud) and again at provision; cross-source name collisions reject as `ConsumerManifestError`. Completes the container↔managed-MPS parity arc (#754 models, #757 ollama, custom nodes).
-- **Managed-MPS custom-node install** — `./start.sh comfyui-mps provision-nodes` clones the resolved custom nodes (Atlas + consumer) into the host ComfyUI `custom_nodes/` at their pinned SHAs and pip-installs their requirements into the host venv — idempotent (git rev-parse), per-node non-fatal, mirroring #754. Hardened against the shared-MPS-venv pollution risk: a `pip freeze` before/after warns loudly on any `torch`/`torchvision`/`torchaudio` drift and points at `comfyui-mps install --update` (which re-pins); an optional `mps_unsafe: true` field pre-skips CUDA/x86-only nodes on Apple Silicon. A `doctor` check reports declared-but-missing nodes. (End-to-end Apple-Silicon validation of `comfyui-krea2edit` — the driving tableau#318 use case — is deferred to a live run; the node is deps-free. It also needs the Identity Edit LoRA, which §1.157 adds to the catalog — see #909.)
+- **Managed-MPS custom-node install** — `./start.sh comfyui-mps provision-nodes` clones the resolved custom nodes (Atlas + consumer) into the host ComfyUI `custom_nodes/` at their pinned SHAs and pip-installs their requirements into the host venv — idempotent (git rev-parse), per-node non-fatal, mirroring #754. Hardened against the shared-MPS-venv pollution risk: a `pip freeze` before/after warns loudly on any `torch`/`torchvision`/`torchaudio` drift and points at `comfyui-mps install --update` (which re-pins); an optional `mps_unsafe: true` field pre-skips CUDA/x86-only nodes on Apple Silicon. A `doctor` check reports declared-but-missing nodes. (End-to-end Apple-Silicon validation of `comfyui-krea2edit` — the driving tableau#318 use case — is deferred to a live run; the node is deps-free. It also needs the Identity Edit LoRA catalog entry from #909.)
 
-### 1.37. Fixed — 2026-08-05 — Wizard Ctrl+Q detach after a launch failure
+### 1.38. Fixed — 2026-08-05 — Wizard Ctrl+Q detach after a launch failure
 
 - **Failed launches no longer lock the user in the TUI** — `_launch_detach_ready` was set only on the success path, so after *any* launch failure (build, init, profile validation, project-name persist) the user could not Ctrl+Q to detach and instead saw a misleading "Startup is still running; Ctrl+C cancels it" toast. `_mark_launch_failed` now flips the detach flag, so a failed launch frees Ctrl+Q while the failure stays visible in the log pane.
 
-### 1.38. Fixed — 2026-08-05 — Backend memory/research resilience
+### 1.39. Fixed — 2026-08-05 — Backend memory/research resilience
 
 - **Memory facts default to vector-sync-pending until embedded** — facts were inserted with `vector_sync_pending=false`, and the per-fact embedding-writeback loop ran outside any guard, so a transient DB blip on a later fact left the un-reached facts at `weaviate_id=NULL` with `vector_sync_pending=false` — permanently invisible to Weaviate semantic recall (the reconciler only retries `pending=true`). Facts now insert `pending=true` and clear it only once the embedding is durably stored, so any interruption is recoverable. Covered by a new extraction-contract test.
 - **Research startup sweep is best-effort** — `start_maintenance`'s initial `recover_stale_sessions` ran unguarded at FastAPI lifespan startup, so a DB still initializing when the backend boots prevented startup. It is now best-effort (the maintenance loop recovers stale sessions on later sweeps), consistent with the lazy-pool philosophy.
@@ -231,51 +249,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Consolidation index coercion** — LLM-returned merge/supersede indices are now coerced to int before validation; a float index (e.g. `0.0`) previously raised `TypeError` and aborted consolidation for the current and all subsequent users.
 - **Research source url null-safety** — a source dict carrying `url: None` no longer trips the `research_sources.url` NOT NULL constraint and rolled back the entire result transaction; it coerces to `""`.
 
-### 1.39. Fixed — 2026-08-05 — Research-sources cascade-delete index
+### 1.40. Fixed — 2026-08-05 — Research-sources cascade-delete index
 
 - **Index on `research_sources.result_id`** — the `result_id` foreign key cascades on `research_results` deletion, but had no index, so deleting a research result (directly or via the `sessions -> results -> sources` cascade) forced a sequential scan of `research_sources` to locate orphaned children. An index on `result_id` lets Postgres find the children directly; the seed-schema golden was regenerated to match.
 
-### 1.40. Fixed — 2026-08-05 — JupyterHub empty-notebook-dir crash-loop guard
+### 1.41. Fixed — 2026-08-05 — JupyterHub empty-notebook-dir crash-loop guard
 
 - **Nullglob-safe sample-notebook copy** — the JupyterHub startup script copied `/home/jovyan/notebooks/*` into `work/examples/` under `set -e`. With bash's default `nullglob` off, a present-but-empty notebooks directory (a custom image or empty bind-mount) left the glob literal, so `cp` errored and aborted startup, crash-looping the container. The copy is now guarded with `compgen -G` so an empty directory is skipped instead of fatal. The default image, which bakes the sample notebooks in, was unaffected.
 
-### 1.41. Fixed — 2026-08-05 — Provider startup, bounded-subprocess, and supply-chain hardening
+### 1.42. Fixed — 2026-08-05 — Provider startup, bounded-subprocess, and supply-chain hardening
 
 - **Parakeet startup supervised-restart on transient loader failure** — `ModelStartup` now terminates the provider process on a *generic* load failure, not only on the startup deadline. Previously a transient HuggingFace rate-limit, network blip during weight download, or CUDA OOM left the container alive with `/health` returning `503` indefinitely, because Docker's `restart: unless-stopped` restarts on container exit, not on a failed healthcheck. Mirroring the deadline branch, any load exception now drives the process down for supervised restart; a deterministic misconfig (bad model name) crash-loops under Docker's restart backoff, which is visible and bounded.
 - **Bounded-subprocess deadline and parent-loss hardening** — the reaper's final `wait()` after `SIGKILL` is now bounded, so a leader wedged in uninterruptible sleep (frozen mount, NFS, kernel lock) can no longer block the deadline/`SIGTERM` path indefinitely; and the main-thread cleanup contextmanager now also intercepts `SIGHUP` (terminal close / SSH disconnect), the most common way a long-running bounded command loses its parent. Children launched with `start_new_session=True` do not inherit the parent's `SIGHUP`, so without the handler they were re-parented to init and kept running — the escaped-subprocess leak the subsystem exists to prevent.
 - **Compose-config error redaction** — `validate_compose_config` no longer echoes the resolved compose command line (project name, `--env-file` path, and every `-f` overlay) into its error message on timeout, matching the redaction the rest of the bounded-subprocess wrapper already enforces.
 - **TEI reranker amd64/GPU and Jenkins image digest pins** — the TEI amd64 (`cpu-1.9`) and GPU (`1.9`) image defaults and the Jenkins compose build-arg fallback are now bound to an immutable index digest, matching the existing arm64 TEI pin; the moving `cpu-1.9` family tag and bare `1.9` minor tag were republished per patch. The channel-tag pin test now covers both TEI architectures.
 
-### 1.42. Added — 2026-07-19 — Managed headless Blender MCP source
+### 1.43. Added — 2026-07-19 — Managed headless Blender MCP source
 
 - **`BLENDER_MCP_SOURCE=managed-localhost` (#759)** — Atlas now provisions the pinned `ahujasid/blender-mcp` add-on (sha256-verified) and runs headless `blender --background` as a managed host process, via a generated launcher that shims the add-on's timer registration into a main-thread queue so the same execution contract holds without a GUI event loop. The bridge binds loopback-only unless `BLENDER_MCP_ALLOW_REMOTE=true` (a deliberate double opt-in), and the lifecycle mirrors the ComfyUI MPS surface: `./start.sh blender-mcp preflight|install|start|stop|status|health|remove`.
 - **Content-quality lint gate (`scripts/docs/content_quality.py`)** — enforced in the docs-drift audit; flags diagram-narration prose, production/style narration, marketing adjectives in service READMEs, and copy-pasted blocks across architecture pages, plus a one-time content pass removing existing instances.
 
-### 1.43. Added — 2026-07-19 — Host model pulls for `ollama-localhost`
+### 1.44. Added — 2026-07-19 — Host model pulls for `ollama-localhost`
 
 - **Declared models provisioned onto the host daemon (#757)** — `ollama-localhost` now pulls the declared union (`OLLAMA_USER_MODELS` ∪ `OLLAMA_CUSTOM_MODELS`) onto the host Ollama daemon at every start: present tags skip via `/api/tags`, missing ones stream through `POST /api/pull`, and per-tag failures warn without aborting the stack. The `unpullable-models` doctor check names any declared-but-missing tag; manual `ollama pull` is now an optional pre-warm rather than a required setup step.
 
-### 1.44. Added — 2026-07-19 — Endpoint exports for host media directories and the Blender bridge
+### 1.45. Added — 2026-07-19 — Endpoint exports for host media directories and the Blender bridge
 
 - **`ATLAS_COMFYUI_INPUT_DIR` + `ATLAS_BLENDER_MCP_HOST_ENDPOINT` (#758)** — `endpoints export` now emits the managed-MPS ComfyUI input directory (the image-staging twin of `ATLAS_COMFYUI_OUTPUT_DIR`, emitted only under `COMFYUI_SOURCE=managed-localhost-mps`) and a Blender MCP host endpoint under either Blender host source. The latter carries a **`tcp://`** scheme — the add-on serves a raw TCP socket, not HTTP, so consumers must dial it with a socket client.
 
-### 1.45. Added — 2026-07-19 — Managed-MPS ComfyUI model provisioning
+### 1.46. Added — 2026-07-19 — Managed-MPS ComfyUI model provisioning
 
 - **Declared weights provisioned at start (#754)** — `COMFYUI_SOURCE=managed-localhost-mps` now downloads the resolved `COMFYUI_USER_MODELS` set into `COMFYUI_MPS_MODELS_PATH` at every start — idempotent and sha-verified, completing the #718 warn → provision arc — with a standalone `comfyui-mps provision` lifecycle command for out-of-band runs. No manual weight staging remains for the managed host source.
 
-### 1.46. Added — 2026-07-19 — Declarative deployment profiles
+### 1.47. Added — 2026-07-19 — Declarative deployment profiles
 
 - **`bootstrapper/profiles.yml` (#755)** — the deployment profile is now a declarative bundle: platform-defined `default`/`prod` maps (`dev` aliases `default`) of per-service `sources` (a concrete option id or `auto`), unless-operator-set `env` values, and `host_bind_ip`. Consumers pin `profile:` and override individual fields via `profile_overrides:` in `atlas.consumer.yml`; switches are tracked through the `ATLAS_PROFILE_APPLIED` marker and reset the prior profile's asserted sources first, while an explicit `--<svc>-source` CLI flag on the current run always wins.
 
-### 1.47. Added — 2026-07-19 — Durable host-adaptive `<SVC>_SOURCE: auto`
+### 1.48. Added — 2026-07-19 — Durable host-adaptive `<SVC>_SOURCE: auto`
 
 - **`auto` source sentinel (#753)** — services can declare an ordered `auto_prefer` preference list in their manifest; setting `<SVC>_SOURCE: auto` (typically committed in `atlas.consumer.yml`) resolves the first entry whose host capability (`apple_silicon` / `nvidia_gpu` / `host_ollama`) holds and whose option the active profile offers. The resolution is durable across restarts and cold `.env` regens, and explicit non-default operator overrides are honored.
 
-### 1.48. Fixed — 2026-07-15 — Startup and API safety boundaries
+### 1.49. Fixed — 2026-07-15 — Startup and API safety boundaries
 
 - **Provider authentication migration** — Atlas now generates and preserves `DOCLING_API_TOKEN` and `PARAKEET_API_TOKEN`; every Docling and Atlas-managed Parakeet route except `/health` requires the matching bearer by default. Backend, n8n web/worker, JupyterHub, Open WebUI, and Hermes receive only the token required by their trusted server-side path. Existing local-only deployments can temporarily set the corresponding `*_AUTH_MODE=disabled` as an explicit rollback while clients are migrated.
 - **Bounded provider lifecycle** — Docling conversion and Parakeet startup/inference reserve capacity before multipart parsing, cap upload bytes, enforce a finite total 120-second upload deadline, and enforce a finite 900-second model-work deadline. Slow uploads return `408` and release admission; fatal native/model timeouts return `504` before the provider process exits for supervised restart. Their published container ports and native bind hosts default to loopback.
-- **Isolated LightRAG parser adapter** — In-stack LightRAG v1.5.4 now reaches Docling through an unexposed compatibility adapter on `docling-lightrag-network`; LightRAG never receives `DOCLING_API_TOKEN`. The adapter implements `POST /v1/convert/file/async` (multipart field `files`), `GET /v1/status/poll/{task_id}`, `GET /v1/result/{task_id}`, and `GET /health`, with pre-parser request-body limits, bounded jobs, attempts, streamed result size, artifact TTL, and a validated configurable temporary-storage budget. Completed results retain their job slot through a full one-shot download, ignore and do not advertise byte ranges, and are deleted when transmission completes or its finite timeout elapses.
+- **Isolated LightRAG parser adapter** — In-stack LightRAG v1.5.4 now reaches Docling through an unexposed compatibility adapter on `docling-lightrag-network`; LightRAG never receives `DOCLING_API_TOKEN`. The adapter implements `POST /v1/convert/file/async` (multipart field `files`), `GET /v1/status/poll/{task_id}`, `GET /v1/result/{task_id}`, and `GET /health`, with pre-parser request-body limits, bounded jobs, attempts, streamed result size, artifact TTL, and a validated configurable temporary-storage budget. Completed results retain their job slot through a full one-shot download and ignore and do not advertise byte ranges. Transmission completion or timeout starts verified cleanup; an unlink failure is logged and retried while the slot remains occupied until deletion succeeds.
 - **Research admission bulkhead** — each Backend process admits at most `RESEARCH_MAX_CONCURRENT` research sessions (default `4`); excess starts return retryable HTTP `429` before database or background work.
 - **Durable RAG definitions and synchronized memory vectors** — queued ingestions now persist and expose the effective corpus and normalized profile snapshot so registry edits cannot change work after submission. Confirmed Weaviate conflicts replace current objects, while profile reconciliation removes chunks left by shortened or deleted sources. LangMem uses memory UUIDs as vector IDs and a durable Postgres marker to reconcile activation, deactivation, edits, soft deletes, consolidation, and retention across deterministic and legacy objects. GraphQL errors preserve pending work, and optimistic timestamps reject consolidation decisions made stale by concurrent edits.
 - **Deferred media cancellation and strict adapter boundaries** — media cancellation now remains nonterminal and retains its spend reservation until provider polling confirms the outcome. Hosted-media model validation completes before state, accounting, storage, or provider work; LightRAG reranking rejects malformed indexes and non-finite scores; and reranker/Tika timeouts fail startup unless finite, positive, and no greater than one hour.
@@ -338,86 +356,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Documentation hierarchy and completeness** — all tracked reader documentation now uses deterministic hierarchical numbering and professional text, nested provider and migration guides participate in the three-surface manifest, stale placeholder READMEs are removed, and generated surfaces reject structural drift.
 - **Reproducible dependency corrections** — Atlas now enforces Docker Compose 2.20.3 for modular `include` support and the Local Deep Researcher lock carries audited security floors for Click, langchain-classic, LangSmith, and Soup Sieve.
 
-### 1.49. Added — 2026-07-13 — ComfyUI media-gateway provider
+### 1.50. Added — 2026-07-13 — ComfyUI media-gateway provider
 
 - **Media gateway multi-provider (#519)** — `POST /media/generate` now accepts `provider=comfyui, modality=image`, routing the same submit/poll/cancel seam to the managed/localhost ComfyUI host (`COMFYUI_ENDPOINT`) that #335 ships. Local generation is genuinely free (`cost_usd=0.0`, still ledger-recorded for provenance); the `artifact_url` is a backend `/comfyui/image/{filename}` proxy path. Text2img (CheckpointLoaderSimple for SD1.5/SDXL; the split UNETLoader/CLIPLoader(krea2)/VAELoader graph for Krea 2) and img2img (init image + `strength`, #453 contract parity) are both supported, as is `POST /media/operations/{id}/cancel` (#518 parity: queue-delete + interrupt). Closes the multi-provider half of #339's charter; unblocks the local-ComfyUI side of the Tableau #26 E2E.
 
-### 1.50. Fixed — 2026-07-13 — Synchronized three-surface documentation
+### 1.51. Fixed — 2026-07-13 — Synchronized three-surface documentation
 
 - **Canonical publication pipeline (#606 / #607)** — repository Markdown, the MkDocs `.io` site, and the native GitHub wiki now derive from one ordered manifest with strict drift, self-containment, local-link, diagram, and notebook-source checks. At this historical release point, the public hierarchy covered 102 pages, 59 service guides, and 71 synchronized architecture diagrams.
 - **Native wiki HTML links (#613)** — HTML hero actions are now rewritten to their manifest-derived numbered wiki pages while the MkDocs site retains its pretty URLs. The shared link model audits Markdown and HTML links and images, and the docs gate rejects missing wiki-local targets, including dotted hierarchical slugs.
 - **Promotion sync (#615)** — `develop` records the protected `main` documentation promotion as an ancestor before the wiki-link correction is promoted, preserving strict GitFlow ordering without changing the verified documentation content.
 
-### 1.51. Added — 2026-07-10 — Consumer manifest registration
+### 1.52. Added — 2026-07-10 — Consumer manifest registration
 
 - **Consumer manifest (#399)** — parent repositories can now register Atlas integrations with `atlas.consumer.yml` via `./start.sh --consumer <path>` or `ATLAS_CONSUMER_MANIFEST`, declaring project branding/env, external Compose overlays, backend plugin roots, and ComfyUI/Ollama model sidecars without symlinking into `services/_user/`. Compose validation, the consumer doctor, launch summaries, and docs now understand the manifest contract; list-valued model entries merge by ordered union while scalar conflicts fail validation.
 - **Promotion sync:** `develop` was merge-synced with the current `main` tip before promoting the consumer manifest work, preserving strict-mode branch ordering while keeping the documentation record current.
 
-### 1.52. Added — 2026-07-10 — Consumer overlay doctor
+### 1.53. Added — 2026-07-10 — Consumer overlay doctor
 
 - **Consumer doctor (#401)** — `./start.sh doctor` now runs headless consumer preflight checks without starting containers, with text output for local debugging and `--format json` for CI. The first registry includes Compose validation, `_user` overlay env-reference validation, plugin directory sanity, model sidecar parsing, endpoint reporting, and tracked-file cleanliness.
 - **Promotion sync:** `develop` was merge-synced with the current `main` tip before promoting the consumer doctor work, preserving strict-mode branch ordering while keeping the documentation record current.
 
-### 1.53. Added — 2026-07-10 — Headless consumer validation commands
+### 1.54. Added — 2026-07-10 — Headless consumer validation commands
 
 - **Headless env and compose checks (#397)** — `./start.sh env backfill` now exposes the additive `.env` backfill path without entering the startup flow, and `./start.sh compose validate` runs the assembled Compose config validation including `services/_user` overlays. Both commands are non-interactive and documented for parent-repo submodule upgrade scripts.
 - **Promotion sync:** `develop` was merge-synced with the current `main` tip before promoting the headless bootstrapper command work, preserving strict-mode branch ordering while keeping the documentation record current.
 
-### 1.54. Added — 2026-07-10 — Non-following start for automation
+### 1.55. Added — 2026-07-10 — Non-following start for automation
 
 - **Detached start mode (#398)** — `./start.sh --no-tui --detach` (alias `--no-follow`) now runs the normal linear start pipeline, waits for Compose health gates, prints a final per-service status summary, and exits instead of tailing `docker compose logs -f`. `--json` emits the detached status summary in machine-readable form for parent-repo wrappers and CI.
 - **Promotion sync:** `develop` was merge-synced with the current `main` tip before promoting the detached start work, preserving strict-mode branch ordering while keeping the documentation record current.
 
-### 1.55. Added — 2026-07-10 — MinIO parent-owned consumer buckets
+### 1.56. Added — 2026-07-10 — MinIO parent-owned consumer buckets
 
 - **Extensible MinIO bucket provisioning (#409)** — `minio-init` now accepts `MINIO_EXTRA_CONSUMERS`, a parent-owned `CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:EXTRA_BUCKET_VAR,...]` declaration that lets `_user` overlays provision their own buckets and scoped service-account credentials without forking Atlas's init script. The reuse, submodule, service, `.io`, and wiki docs now show the DayDreams-style overlay pattern.
 - **Promotion sync:** `develop` was merge-synced with the current `main` tip before promoting the MinIO extra-consumer bucket work, preserving strict-mode branch ordering while keeping the documentation record current.
 
-### 1.56. Documentation — 2026-07-10 — Consumer reference layout
+### 1.57. Documentation — 2026-07-10 — Consumer reference layout
 
 - **Parent-repo consumer layout (#421)** — documented the RAG-showcase/DayDreams-style submodule pattern: parent-owned Compose overlays symlinked into `services/_user/`, force-set project SOURCE/branding wrappers, explicit track override behavior, what-lives-where ownership, and a validation checklist for clean consumer repos.
 - **Promotion sync:** `develop` was merge-synced with the current `main` tip before promoting the consumer-layout documentation work, preserving strict-mode branch ordering while keeping the documentation record current.
 
-### 1.57. Added — 2026-07-10 — Ragas RAG evaluation surface
+### 1.58. Added — 2026-07-10 — Ragas RAG evaluation surface
 
 - **Backend Ragas evaluation API (#378)** — `POST /api/rag/evaluate` now exposes Atlas-owned Ragas evaluation for supplied question, answer, retrieved-context, and optional reference records. The endpoint supports faithfulness, answer relevancy, context precision, and context recall metrics while routing evaluator calls through the existing LiteLLM gateway.
 - **JupyterHub exploratory Ragas surface (#378)** — the JupyterHub image now installs Ragas and ships `14_ragas_evaluation.ipynb` for opt-in local metric experiments plus calls to the Backend `/api/rag/evaluate` runtime contract.
 - **Promotion sync:** `develop` was merge-synced with the current `main` tip before promoting the Ragas evaluation work, preserving strict-mode branch ordering while keeping the documentation record current.
 
-### 1.58. Added — 2026-07-10 — Chonkie RAG chunking surface
+### 1.59. Added — 2026-07-10 — Chonkie RAG chunking surface
 
 - **Backend Chonkie chunking API (#375)** — `POST /api/chunk` now exposes Atlas-owned token, recursive, and semantic text splitting backed by Chonkie. Responses include ordered chunks, stable character offsets, optional token counts, and strategy metadata so n8n and downstream ingestion workflows can call the Backend instead of importing Chonkie directly.
 - **JupyterHub exploratory Chonkie surface (#375)** — the JupyterHub image now installs Chonkie and ships `13_chonkie_chunking.ipynb` for comparing token, recursive, optional semantic chunking, and the Backend `/api/chunk` runtime contract.
 - **Promotion sync:** `develop` was merge-synced with the current `main` tip before promoting the Chonkie chunking work, preserving strict-mode branch ordering while keeping the documentation record current.
 - **Ancestry sync:** the final `main` → `develop` synchronization for this promotion is merged with merge-commit semantics so `develop` records the protected `main` tip as an ancestor before the develop-to-main PR is merged.
 
-### 1.59. Added — 2026-07-10 — External consumer env overlay
+### 1.60. Added — 2026-07-10 — External consumer env overlay
 
 - **External env overlay for submodule consumers (#396)** — `ATLAS_ENV_USER_FILE` now points Atlas at a parent-owned `.env` overlay outside the checkout. Atlas applies sibling `.env.user` first, then the external overlay, then CLI flags, on every start including `--cold`; missing or unreadable external files warn and continue so wrapper scripts can fail gracefully.
 - **Promotion sync:** `develop` was merge-synced with the current `main` tip before promoting the external-overlay work, preserving strict-mode branch ordering while keeping the documentation record current.
 
-### 1.60. Added — 2026-07-09 — Asset worker glTF post-processing service
+### 1.61. Added — 2026-07-09 — Asset worker glTF post-processing service
 
 - **Asset worker glTF/GLB post-processing (#343)** — new disabled-by-default `asset-worker` media service for upload- or MinIO-reference-based model post-processing. The service normalizes uploaded assets upright to the ground plane, scales by requested height or width target, runs the pinned glTF-Transform CLI with Draco/Meshopt/texture options, persists artifacts to MinIO when configured, and exposes deterministic SHA256 artifact metadata plus a local fallback download route.
 - **Promotion sync:** `develop` was merge-synced with the current `main` tip before promoting the asset-worker work, preserving strict-mode branch ordering while keeping the documentation record current.
 
-### 1.61. Added — 2026-07-09 — Hosted media gateway foundation
+### 1.62. Added — 2026-07-09 — Hosted media gateway foundation
 
 - **Media gateway operation model (#339)** — the backend now exposes `POST /media/generate` and `GET /media/operations/{operation_id}` as the provider-neutral hosted-media surface. The first registry entry supports FAL image generation, keeps provider keys backend-only, returns normalized provider/model/modality/artifact/cost/license/provenance fields, and preserves `POST /comfyui/generate` as the simple-image compatibility route.
 - **Promotion sync:** `develop` was merge-synced with the current `main` tip before promoting the media gateway work, preserving strict-mode branch ordering while keeping the documentation record current.
 
-### 1.62. Added — 2026-07-09 — ComfyUI pinned core + custom-node provisioning
+### 1.63. Added — 2026-07-09 — ComfyUI pinned core + custom-node provisioning
 
 - **ComfyUI runtime foundation (#334)** — the ai-dock runtime now exposes a pinned upstream `COMFYUI_REF=v0.9.2` with `COMFYUI_AUTO_UPDATE=true`, keeping the ComfyUI core version explicit without changing container families. The bootstrapper also writes `active-custom-nodes.tsv` from selected models' `requires_custom_node` values, but only after mapping them through `services/comfyui/custom-nodes.yaml`; the AI-Dock provisioning hook clones those allowlisted GitHub repos into the `comfyui-custom-nodes` volume at full commit SHAs and installs declared requirements through the ComfyUI Python environment.
 - **Custom-node safety contract:** node auto-install is allowlist-only, repo URLs must be GitHub HTTPS `.git` URLs, refs must be full 40-character commit SHAs, and unknown catalog requirements warn instead of cloning arbitrary code.
 - **Promotion sync:** `develop` was merge-synced with the current `main` tip before promoting the ComfyUI runtime work, preserving strict-mode branch ordering while keeping the documentation record current.
 
-### 1.63. Added — 2026-07-09 — ComfyUI model-bundle catalog foundation
+### 1.64. Added — 2026-07-09 — ComfyUI model-bundle catalog foundation
 
 - **ComfyUI multi-file model bundles (#336)** — catalog entries can now declare `files:` so one wizard selection expands into multiple download rows with per-file category, filename, SHA256, target directory, precision, and variant metadata. The generated manifest records `bundle_id` / `bundle_file_role`, the init downloader honors explicit target directories while preserving backward-compatible TSV rows, and custom sidecar YAML supports the same bundle shape.
 - **Promotion sync:** `develop` was ancestry-synced with the current `main` tip before promoting the ComfyUI bundle work, preserving strict-mode branch ordering while keeping the documentation record current.
 
-### 1.64. Fixed — 2026-07-07 — overnight maintenance: init quoting, bootstrapper/backend hardening, latent SQL abort
+### 1.65. Fixed — 2026-07-07 — overnight maintenance: init quoting, bootstrapper/backend hardening, latent SQL abort
 
 Broad verify-and-fix pass. Headline fixes:
 
@@ -429,7 +447,7 @@ Broad verify-and-fix pass. Headline fixes:
 
 Deferred (need a product/architecture decision; rationale in the run report): the `public.users` FK is unsatisfiable (no population path — breaks memory/research inserts for any real `user_id`); the wiki↔docs-site prose templates have diverged; backend `requirements.txt` has no lockfile (posture decision); several asyncpg connection-held-across-LLM-call sites in the backend.
 
-### 1.65. Added — 2026-07-05 — FAL cloud media provider + backend Kong auth + user Supabase migration slot
+### 1.66. Added — 2026-07-05 — FAL cloud media provider + backend Kong auth + user Supabase migration slot
 
 Backfilling `[Unreleased]` for the 2026-07-05 merges that were missing from this log:
 
@@ -437,26 +455,26 @@ Backfilling `[Unreleased]` for the 2026-07-05 merges that were missing from this
 - **Optional backend Kong auth (#330 / #322)** — `BACKEND_KONG_AUTH=key-auth` (opt-in, default disabled) adds key-auth + ACL to the `backend-api` gateway route, gating the Ray job-submission and storage-upload surfaces.
 - **User Supabase migration slot (#329)** — `db-init-runner` applies a `_user` SQL mount alphabetically after the Atlas scripts, so downstream forks can ship custom migrations without forking the init image.
 
-### 1.66. Fixed — 2026-07-05 — backend plugin requirements + install-error surfacing + env-overlay cold-start preservation
+### 1.67. Fixed — 2026-07-05 — backend plugin requirements + install-error surfacing + env-overlay cold-start preservation
 
 - **Backend plugin requirements loading (#326)** and **fail-clearly on plugin dependency install errors (#327)** — the plugin seam loads shared + per-plugin `requirements.txt` and raises a typed `PluginRequirementsInstallError` instead of crashing opaquely at import time.
 - **Preserve user env overlays across cold start (#328)** — the `.env.user` overlay survives `stop.sh --cold` / fresh bootstrapper regeneration.
 
-### 1.67. Added — 2026-07-03 — Atlas root dashboard
+### 1.68. Added — 2026-07-03 — Atlas root dashboard
 
 - **Kong root now serves Atlas instead of Supabase Studio.** The bare gateway root (`http://localhost:${KONG_HTTP_PORT}`) returns a generated Atlas service directory with SOURCE state, track context, direct/Kong links, auth notes, warnings, and browser-side reachability probes. Supabase Studio remains available through its explicit `supabase-studio.localhost` route and keeps the existing Kong basic-auth gate.
 
-### 1.68. Fixed — 2026-07-02 — overnight maintenance hardening
+### 1.69. Fixed — 2026-07-02 — overnight maintenance hardening
 
 - **Startup and init resilience:** `./start.sh --setup-hosts` now requests privilege only for the hosts-file write instead of asking operators to run the whole launcher under `sudo`, `local-deep-researcher` bounds each LiteLLM health-poll attempt with `curl --max-time`, `lightrag-init` fails fast when no chat model can be resolved, and the launcher waits for one-shot init containers so failures surface before the stack is reported ready.
 - **Credential and configuration hygiene:** Neo4j and Supabase volume-baked password rotation stays guarded after volumes exist, secret manifest rows now carry descriptions in `.env.example`, and LightRAG role/base model resolution remains documented and tested.
 - **Docs and examples:** MinIO release-pin notes now distinguish the Docker-published pin from GitHub-only upstream releases, duplicate roadmap headings were removed, and all bundled Jupyter notebooks now declare nbformat 4.5+ cell IDs with a regression test.
 
-### 1.69. Changed — 2026-06-29 — SearXNG: thin `use_default_settings` override instead of a forked settings.yml
+### 1.70. Changed — 2026-06-29 — SearXNG: thin `use_default_settings` override instead of a forked settings.yml
 
 - Replaced the ~2800-line forked `services/searxng/config/settings.yml` (a full copy of SearXNG's defaults incl. the ~250-engine list) with a ~40-line **thin override** built on `use_default_settings`. The fork drifted from the pinned image on every bump — engines lost their modules (`Cannot load engine …: FileNotFoundError`) or changed config APIs (`Engine setup was not successful`), spamming startup errors (this is the durable fix for the searxng follow-up from the #176 cleanup, which had removed 8 dead-module engines but left 7 config-drift ones). The override now carries only what the stack needs: `search.formats: [html, json]` (JSON is off in the default; the backend/n8n/LDR/Hermes all use the JSON API) and `use_default_settings.engines.remove: [ahmia, torch]` (Tor-only engines that need a Tor proxy we don't wire). Everything else — full engine list with correct per-engine config, `server.limiter: false`, `valkey.url: false`, `enable_metrics: true`, and the `secret_key` placeholder — is inherited from the image and stays version-matched on future bumps. `SEARXNG_SECRET` is applied via the SearXNG-native env var (compose), not written into the file (the README's old "bootstrapper writes SEARXNG_SECRET into settings.yml" note was wrong and is corrected). Verified live: SearXNG boots with **0** engine-load errors (was 21+) and the JSON search API returns results. README updated.
 
-### 1.70. Fixed — 2026-06-28 — post-launch service error-log cleanup (realtime crash + 3 noisy services)
+### 1.71. Fixed — 2026-06-28 — post-launch service error-log cleanup (realtime crash + 3 noisy services)
 
 A full audit of a freshly-launched stack surfaced one crash-loop and three sources of recurring error logs; all fixed and verified live:
 
@@ -467,44 +485,44 @@ A full audit of a freshly-launched stack surfaced one crash-loop and three sourc
 
 (Benign, left as-is: cadvisor/node-exporter `/etc/machine-id` + udev notices on macOS Docker, SLF4J `StaticLoggerBinder` warnings, uvicorn's `uvicorn.error` *logger name*, lightrag's startup-only "relation does not exist" lazy check-then-create probes, grafana's `xychart already registered` notice, zeppelin's default-XML notice.)
 
-### 1.71. Fixed — 2026-06-28 — lightrag-init `password authentication failed` — pipeline ordering (the real "stale volume" cause)
+### 1.72. Fixed — 2026-06-28 — lightrag-init `password authentication failed` — pipeline ordering (the real "stale volume" cause)
 
 - **Root cause of the recurring `FATAL: password authentication failed for user "supabase_admin"` (lightrag-init exit 1), which the launcher mis-reported as a "stale supabase-db volume".** `generate_service_configuration` bakes `SUPABASE_DB_PASSWORD` (and `GRAPH_DB_PASSWORD` / `REDIS_PASSWORD`) into the derived `LIGHTRAG_PG_URI` / `LIGHTRAG_NEO4J_PASSWORD` / `LIGHTRAG_REDIS_URI` connection values — but in both the Textual and linear launch flows it ran **before** `generate_encryption_keys` rotated those passwords. So on a cold start (or any first-run placeholder→real upgrade) the URI carried the *stale* password while the Postgres volume was freshly `initdb`'d with the *new* one → auth failed against a perfectly fresh volume. This was NOT a stale volume; wiping/`--cold` didn't help because the ordering re-created the mismatch every run.
 - **Fix:** moved `Validate Supabase keys` + `Generate encryption keys` ahead of `Generate service configuration` (and the Kong/LiteLLM config steps) in both flows, so every secret is finalized before any step derives a connection string from it. Added a source-order regression guard (`test_secret_gen_before_config_gen.py`) for both flows. Recovery after pulling this fix is a normal (non-cold) `./start.sh` — `generate_service_configuration` rewrites `LIGHTRAG_PG_URI` to match the existing volume's password; no wipe required.
 
-### 1.72. Fixed — 2026-06-28 — Cold start now regenerates the volume-baked DB passwords
+### 1.73. Fixed — 2026-06-28 — Cold start now regenerates the volume-baked DB passwords
 
 - On a cold start the data volumes are wiped, but `generate_missing_keys` rotated the three **volume-baked** DB passwords — `SUPABASE_DB_PASSWORD`, `SUPABASE_DB_APP_PASSWORD`, `GRAPH_DB_PASSWORD` (neo4j) — with a hardcoded `force=False`, ignoring the cold flag that every other regenerated secret honors. The cold path only re-randomized them indirectly (via `setup_env_file` resetting `.env` to the placeholder), so a `.env` that retained a real-but-stale value could survive a cold start and then drift from the freshly `initdb`'d volume → `FATAL: password authentication failed for user "supabase_admin"` (which cascades to `lightrag-init` and every other DB client). Fix: pass `force=force_regenerate` for those three, coupling the password regen to the cold volume wipe so a cold start always yields a consistent fresh (password, volume) pair. Non-cold behavior is unchanged — real values still stick and the existing-volume guard still applies. (Recovering an *already*-drifted volume still needs a one-time `./start.sh --cold` or `docker volume rm <project>-supabase-db-data`, since a baked password can't be changed by rewriting `.env`.) The wizard's **Cold start · rebuild** step now spells this out — its subtitle and the per-option hints note that a cold start regenerates the Supabase + Neo4j DB passwords to match the fresh data.
 
-### 1.73. Fixed — 2026-06-28 — Launch pipeline crash on the embedding dimension warning (`'function' object has no attribute 'print'`)
+### 1.74. Fixed — 2026-06-28 — Launch pipeline crash on the embedding dimension warning (`'function' object has no attribute 'print'`)
 
 - The Textual launch flow swaps `starter.banner` for a `_NullBanner` to suppress stdout while inside the app. Its `__getattr__` returned a bare `lambda` for undefined attributes, so `starter.banner.console.print(...)` raised `'function' object has no attribute 'print'`. This crashed the **"Apply user model selections"** pipeline step whenever a non-768-dim embedding default triggered the dimension warning (`start.py` `apply_user_model_selections`). Fix: `_NullBanner.__getattr__` now returns a chain-swallowing `_NullSink`, so `banner.console.print(...)` — and any `banner.<attr>.<method>(...)` chain reached under the NullBanner (17 such `self.banner.console.*` call sites exist) — is a safe no-op. (The dimension warning is still surfaced at selection time in the embedding step's heading/subtitle.)
 
-### 1.74. Fixed — 2026-06-28 — Wizard "default for chat" no longer lists embedding models
+### 1.75. Fixed — 2026-06-28 — Wizard "default for chat" no longer lists embedding models
 
 - The LLM-defaults **chat / content** picker (`LITELLM_DEFAULT_MODEL`) was offering embedding models (e.g. `nomic-embed-text:latest`, `mxbai-embed-large:latest`) as chat-default candidates. Two root causes: the catalog capability lookup was **tag-sensitive** (the curated catalog stores `nomic-embed-text` bare but the wizard selects `nomic-embed-text:latest`, so the tagged form missed the catalog and fell through to a content-only default), and **non-catalog** models (`mxbai-embed-large` isn't in the curated catalog) were synthesized as content-only. Fix: `_classify`/`_description` now match the catalog tag-insensitively (exact name OR family root on both sides), and a shared `model_resolver.looks_like_embedding()` heuristic classifies catalog-unknown models so embedding models are routed to the embedding picker and kept out of the chat/vision pickers. `model_resolver._synthesize` uses the same heuristic, so the runtime default-model resolver agrees with the wizard (it previously synthesized any catalog-unknown embedding model as `content=8`). A regression test reproduces the exact reported selection set.
 
-### 1.75. Changed — 2026-06-28 — Image-pin sweep: kill moving tags, refresh stale pins (#168 / #169 / #170)
+### 1.76. Changed — 2026-06-28 — Image-pin sweep: kill moving tags, refresh stale pins (#168 / #169 / #170)
 
 - **Moving `:latest` / floating tags pinned to concrete versions (#168).** Closed the reproducibility hole behind the ollama drift incident (a volume-preserving reset reused a months-old cached `ollama/ollama:latest` that could no longer run `qwen35moe` or pull the 1536-dim embedder): `ollama/ollama` → `0.30.11`, `n8nio/n8n` → `2.28.2`, `dyrnq/open-webui` → `v0.6.32`, `searxng/searxng` → `2026.6.28-357662d86`, `nousresearch/hermes-agent` → `v2026.6.19`, `ghcr.io/openclaw/openclaw` → `2026.6.10`, the seven `alpine:latest` init images → `3.24.1`, plus the floating partials `python:3.12`→`3.12.13`, `python:3.11-slim`→`3.11.15-slim`, `redis:7.2-alpine`→`7.2.14-alpine`, `postgres:17/15-alpine`→`17.10/15.18-alpine`, and `multi2vec-clip` → the `…ViT-B-32-1.5.1` build. Each pin equals what a fresh `latest` pull returned that day — reproducibility, not a behavioral upgrade. (`CHATTERBOX_IMAGE:gpu` and `TEI_RERANKER_CPU_ARM64_IMAGE:cpu-arm64-latest` stay floating — upstream publishes no version-pinnable variant.)
 - **Stale concrete pins refreshed + jupyter base migrated off Docker Hub (#169).** Same-major / patch-minor bumps: weaviate `1.27.5`→`1.38.2` (aligns with the merged `weaviate-client>=4.22`), neo4j `5.19.0`→`5.26.27` (5.26 LTS), kong `3.9.0`→`3.9.3`, zeppelin `0.12.0`→`0.12.1`, cloudflared `2025.8.1`→`2026.6.1`, node-exporter `v1.8.2`→`v1.11.1`, cadvisor `v0.49.1`→`v0.55.1`, redis-exporter `v1.62.0`→`v1.86.0`, postgres-exporter `v0.18.1`→`v0.19.1`, lightrag `v1.5.0`→`v1.5.4`. The two GPU base tags upstream no longer builds were moved forward: docling `pytorch/pytorch:2.5.1-cuda12.4-…` → `2.12.1-cuda12.6-cudnn9-runtime`, parakeet `nvcr.io/nvidia/pytorch:25.01-py3` → `26.06-py3`. The jupyterhub base migrated from the Docker-Hub `jupyter/datascience-notebook:python-3.11` (frozen since 2023) to the maintained `quay.io/jupyter/datascience-notebook:python-3.11.10` — same Python 3.11 line, maintained registry.
 - **Supabase tier bumped as one coordinated set (#170).** supabase/postgres `17.4.1.016`→`17.6.1.139`, postgres-meta `v0.88.9`→`v0.96.6`, storage-api `v1.22.7`→`v1.61.5`, gotrue `v2.171.0`→`v2.191.0`, realtime `v2.33.72`→`v2.112.0`, studio off the moving `:latest` to `2026.06.22-sha-2207d7f`. postgrest (`v12`→`v14`) was intentionally held (breaking major). The dockerized real-Postgres seed harness was bumped to 17.6.1.139 and re-verified: seed-rows golden byte-unchanged, schema golden regenerated (the only delta is base-image evolution — 17.6 no longer pre-creates the still-installable `pg_graphql` in the default DB; some role ownership moved to `supabase_admin`); `seed_harness._normalize` now strips pg_dump ≥ 17.5's randomized `\restrict`/`\unrestrict` nonce lines. **Runtime caveat:** the harness validates `supabase/postgres` + our SQL only, not the storage-api/gotrue/realtime boot-against-17.6 path — smoke-test the stack before production reliance.
 - **Held by decision (not regressions):** breaking majors postgrest v14, prometheus v3, grafana 13, redis 8; and litellm (no newer `-stable` build than `v1.83.14-stable.patch.2`).
 
-### 1.76. Changed — 2026-06-28 — Batched safe Dependabot dependency-floor bumps (#167)
+### 1.77. Changed — 2026-06-28 — Batched safe Dependabot dependency-floor bumps (#167)
 
 - Combined six non-breaking backend/jupyterhub version-floor bumps into one PR to avoid the strict-mode merge cascade across the same-file Dependabot PRs: backend `asyncpg>=0.31.0`, `weaviate-client>=4.22.0`, `hiredis>=3.4.0`, `pytest>=9.1.1`, `pytest-asyncio>=1.4.0`, and jupyterhub `weaviate-client>=4.22.0`. The major-bump Dependabot PRs (langchain 0.x→1.x, numpy 1.x→2.x) and the docling lock-regeneration (#151) were left open as deliberate, validated follow-ups.
 
-### 1.77. Added — 2026-06-27 — Brand-overridable block-art logo (`BRAND_LOGO_FILE`)
+### 1.78. Added — 2026-06-27 — Brand-overridable block-art logo (`BRAND_LOGO_FILE`)
 
 - The ASCII block-art lockup (wizard brand panel + `--no-tui` banner) is now part of the `BRAND_*` rebranding contract: set `BRAND_LOGO_FILE` to a text file (wide rows, optional `---` separator, then a compact fallback) to override the hardcoded "ATLAS" art. Empty = built-in ATLAS, byte-for-byte. Both render surfaces resolve through the new `bootstrapper/utils/brand_logo.py`, so a custom lockup stays in parity across the TUI and the linear banner (the parity test now covers a custom lockup on both paths). The image-derived globe splash (`atlas_hero.py`) is out of scope and stays the Atlas hero. Docs: `docs/quick-start/interactive-setup-wizard.md` §15.1.
 
-### 1.78. Changed — 2026-06-27 — Model catalog source-of-truth: Supabase DB → per-service YAML
+### 1.79. Changed — 2026-06-27 — Model catalog source-of-truth: Supabase DB → per-service YAML
 
 - The LLM and ComfyUI model catalogs moved out of the `public.llms` / `public.comfyui_models` Postgres tables (both **dropped** via guarded decommission migrations `15-decommission-llms.sql` / `16-decommission-comfyui-models.sql`) into per-service `services/{ollama,litellm,comfyui}/models.yaml`. DB-free resolvers (`bootstrapper/utils/model_resolver.py` / `comfyui_resolver.py`) compute the active set at startup; the `litellm-catalog-init` and `comfyui-catalog-init` sidecars were removed.
 - New wizard step picks the default model per role (content / embeddings / vision). Embedding entries declare their output dimension via `dim:`; the picker auto-selects the model whose `dim` matches the backend `memory_facts vector(768)` column (`MEMORY_FACTS_EMBEDDING_DIM`) and warns on a mismatch. The Supabase seed scripts were repartitioned per-service (`services/supabase/db/scripts/`).
 
-### 1.79. Fixed — 2026-06-27 — Model-SoT follow-ups
+### 1.80. Fixed — 2026-06-27 — Model-SoT follow-ups
 
 - **ComfyUI custom-models sidecar read again:** the host-side resolver falls back to the repo path `services/comfyui/custom-models.yaml` instead of the dead `/custom-models.yaml` container path, so operator-authored custom models are no longer silently dropped.
 - **`docker compose up` no longer aborts on Docker 29.x / macOS:** `litellm-init` mounts the model YAMLs into `/atlas-models` (via `ATLAS_MODELS_DIR`) instead of nesting them under the read-only `/catalog` bind mount (runc could not create a mountpoint inside a `:ro` mount).
@@ -514,27 +532,27 @@ A full audit of a freshly-launched stack surfaced one crash-loop and three sourc
 - **`local-deep-researcher` vestigial DB wiring removed:** the `public.llms` query was deleted in the model-SoT move, but the dead supabase wiring it left behind (`DATABASE_URL`, `psycopg2-binary`/`postgresql-client`, `depends_on: supabase-db-init`, `data_flow.calls: supabase`) remained and crash-looped stale images. LDR is now correctly **DB-free** — the `research_*` tables are persisted by the backend, which calls the LangGraph server over HTTP.
 - **`ollama-pull` retries transient pull failures:** each model pull now retries up to 3 times with linear backoff before logging the terminal (non-fatal) ERROR, so a transient registry/network blip on a default model (e.g. `qwen3-embedding:0.6b`) self-heals instead of leaving the model unpulled until the next `compose up`.
 
-### 1.80. Added — 2026-06-21 — Phase 1 reuse mechanics (`services/_user/` auto-launch + release tags)
+### 1.81. Added — 2026-06-21 — Phase 1 reuse mechanics (`services/_user/` auto-launch + release tags)
 
 - **`services/_user/` overlay services now launch.** The bootstrapper discovers every `services/_user/<name>/compose.yml` and merges it into the `docker compose` invocation (`DockerManager._compose_file_args`: `-f docker-compose.yml -f services/_user/<name>/compose.yml …`), so a downstream consumer's co-located services come up/down with the stack. When no overlay exists the invocation is unchanged — default file auto-discovery preserved, byte-equivalence baseline unaffected. Overlay services are self-contained Compose fragments (own image/ports/env, joined to the shared network); they are intentionally not wired into the wizard/topology/`.env.example`.
 - **Release/version-tag convention** for pinning a vendored Atlas: semver `vMAJOR.MINOR.PATCH` documented in `docs/deployment/releasing.md`, with the first tag `v0.1.0`.
 - Docs: new `docs/deployment/releasing.md`; `reusing-atlas.md` readiness rows flipped to **Ready** + a §6.1 extension walkthrough; `CONTRIBUTING-services.md` §21 updated. Phase 1 design: `docs/superpowers/specs/2026-06-21-phase1-reuse-mechanics-design.md`.
 
-### 1.81. Added — 2026-06-20 — Cloudflare Tunnel service (`cloudflared`)
+### 1.82. Added — 2026-06-20 — Cloudflare Tunnel service (`cloudflared`)
 
 - New `services/cloudflared/` service, **disabled by default** (`CLOUDFLARED_SOURCE=disabled`). Set `CLOUDFLARED_SOURCE=container` + provide `CLOUDFLARE_TUNNEL_TOKEN` to run an outbound Cloudflare Tunnel daemon that terminates TLS at the Cloudflare edge and proxies to Kong — no inbound ports opened. Egress-only (no Kong route); requires a named tunnel configured in the Cloudflare Zero Trust dashboard.
 
-### 1.82. Added — 2026-06-20 — On-demand backup runner (`backup`)
+### 1.83. Added — 2026-06-20 — On-demand backup runner (`backup`)
 
 - New `services/backup/` one-shot runner, **disabled by default** (`BACKUP_SOURCE=disabled`; never long-running). Invoke with `docker compose run --rm backup`. Dumps the Supabase Postgres database (`pg_dump`) and snapshots the critical named volumes (supabase-storage, graph-db, weaviate) to S3-compatible storage — on-box MinIO by default, `BACKUP_S3_ALIAS_URL` for offsite. Ships `restore-postgres.sh` for recovery drills.
 
-### 1.83. Added — 2026-06-20 — Secrets hygiene guard + cross-OS doc accuracy
+### 1.84. Added — 2026-06-20 — Secrets hygiene guard + cross-OS doc accuracy
 
 - **Placeholder-secret coverage guard** — a test (`test_no_unrotated_nonempty_secret_defaults`) now asserts every `secret: true` manifest default is either empty (generated-when-absent) or a registered `KeyGenerator.PLACEHOLDER_DEFAULTS` literal (rotated-when-placeholder). It caught and registered a previously-unregistered composite, `GRAPH_DB_AUTH`.
 - **Prod-launch secrets gate** — `KeyGenerator.assert_no_placeholders_remaining()` refuses to launch under `--profile prod` if any managed secret in `.env` still equals its shipped placeholder. It runs after key generation (so a fresh `./start.sh --profile prod` auto-rotates first and passes) and fails loud if `.env` is unreadable. A rotation-consistency test proves every gated placeholder is actually rotated by `generate_missing_keys()`.
 - **Cross-OS doc accuracy** — corrected the README's overstated "works on all OS" claim: Atlas runs natively on Linux and macOS (Intel/Apple Silicon) and on Windows via WSL2 / Git Bash (the `start.sh`/`stop.sh` entrypoints are POSIX shell; there is no native PowerShell/cmd wrapper).
 
-### 1.84. Added — 2026-06-20 — Production-hardening profile (`--profile prod`)
+### 1.85. Added — 2026-06-20 — Production-hardening profile (`--profile prod`)
 
 A new deployment profile consolidates all production-hardening behaviors under a
 single flag and a matching wizard step:
@@ -567,7 +585,7 @@ single flag and a matching wizard step:
   localhost sources in prod), and the CLI validator rejects them with an
   explicit error.
 
-### 1.85. Changed — 2026-06-20 — Atlas startup artwork gated behind a master switch (off by default)
+### 1.86. Changed — 2026-06-20 — Atlas startup artwork gated behind a master switch (off by default)
 
 - **`feature_flags.splash_enabled()`** is a new single source of truth that
   gates ALL Atlas startup block-art: the TUI opening splash overlay
@@ -581,7 +599,7 @@ single flag and a matching wizard step:
 - The `atlas_poster_*.json` grids remain committed (latent) so re-enabling is a
   one-line change.
 
-### 1.86. Added — 2026-06-18 — Atlas brand identity: logo, wizard splash, poster
+### 1.87. Added — 2026-06-18 — Atlas brand identity: logo, wizard splash, poster
 
 Building on the rename, the project gained a visual identity (PRs #116–#119):
 
@@ -595,7 +613,7 @@ Building on the rename, the project gained a visual identity (PRs #116–#119):
 - **Splash suppression** — the new `--no-splash` flag and `ATLAS_NO_SPLASH`
   environment variable skip the splash for non-interactive / fast launches.
 
-### 1.87. Changed — 2026-06-16 — Project renamed: GenAI Vanilla → Atlas
+### 1.88. Changed — 2026-06-16 — Project renamed: GenAI Vanilla → Atlas
 
 This release renames the project end-to-end. Every variant of the old
 name (`GenAI Vanilla`, `GenAI Vanilla Stack`, `genai-vanilla`,
@@ -683,7 +701,7 @@ Internals (no operator action required):
 - Historical CHANGELOG entries below this section deliberately preserved
   (they describe the project as it was named at the time).
 
-### 1.88. Fixed — 2026-06-16 overnight maintenance pass
+### 1.89. Fixed — 2026-06-16 overnight maintenance pass
 
 - **`./start.sh` usage errors now exit with click's conventional code.** The
   `--spark-workers` range check raised `click.UsageError` from inside the broad
@@ -709,7 +727,7 @@ Internals (no operator action required):
   `MAX_UPLOAD_BYTES` is `.env`-overridable (it is a code default, not wired into
   the backend's compose/`.env.example`).
 
-### 1.89. Fixed — 2026-06-15
+### 1.90. Fixed — 2026-06-15
 
 - **supabase-db-init: `storage.objects.path_tokens` backfill (CRITICAL, PR #105):**
   `services/supabase/db/scripts/04-storage.sql` switched to
@@ -767,7 +785,7 @@ Internals (no operator action required):
   var. Surfaces misconfiguration at compose-up instead of at first /research
   request.
 
-### 1.90. Changed — 2026-06-15
+### 1.91. Changed — 2026-06-15
 
 - **Backend hot-reload via `uvicorn[standard] --reload` (PR #104):** the
   backend `Dockerfile` CMD now passes `--reload`; `services/backend/app/app/
@@ -789,7 +807,7 @@ Internals (no operator action required):
   `requirements.txt` changes) instead of the stale "edit + force-recreate"
   guidance.
 
-### 1.91. Fixed — 2026-06-14 overnight maintenance pass (18 commits, passes 1-42)
+### 1.92. Fixed — 2026-06-14 overnight maintenance pass (18 commits, passes 1-42)
 
 - **Dependabot ignore: `groq` (HIGH):** the `services/backend/app/app/requirements.txt`
   pin `groq>=0.30.0,<1` keeps groq inside the `langchain-groq>=0.1.5` window —
@@ -866,7 +884,7 @@ Stopped at 10 consecutive zero-issue passes (passes 33-42); no
 MAX_PASSES cap hit. Test suite at 907 passed + 3 skipped; all 6
 audit scripts and the docs-drift gate exit 0.
 
-### 1.92. Fixed — 2026-06-13 overnight maintenance pass (15 commits, passes 1-50)
+### 1.93. Fixed — 2026-06-13 overnight maintenance pass (15 commits, passes 1-50)
 
 - **Hermes capability wiring (HIGH):** `service_config.py` now emits
   `TTS_INTERNAL_URL`, `STT_INTERNAL_URL`, `COMFYUI_INTERNAL_URL`, and
@@ -919,7 +937,7 @@ audit scripts and the docs-drift gate exit 0.
   noun) to "All three share a single lifecycle" — same scaling
   semantic, cleaner prose.
 
-### 1.93. Fixed — 2026-06-11 overnight maintenance passes 56-62 (7 commits)
+### 1.94. Fixed — 2026-06-11 overnight maintenance passes 56-62 (7 commits)
 
 - n8n queue mode: the worker now exports metrics too (5 mirrored
   `N8N_METRICS*` vars + a dedicated `n8n-worker:5678` scrape job) —
@@ -944,7 +962,7 @@ audit scripts and the docs-drift gate exit 0.
   Kong "10 localhost routes" count, and the MinIO console-port docstring
   (63019, not 63018) refreshed.
 
-### 1.94. Fixed — 2026-06-11 overnight maintenance passes 50-55 (5 commits)
+### 1.95. Fixed — 2026-06-11 overnight maintenance passes 50-55 (5 commits)
 
 - Backend: `cancel_research` now accepts PENDING sessions (the
   insert→RUNNING race window previously left a live background task
@@ -970,7 +988,7 @@ audit scripts and the docs-drift gate exit 0.
   `%postgres` interpreter. OPENCLAW_ENDPOINT documented as a
   forward-looking hook (no consumer wired today).
 
-### 1.95. Fixed — 2026-06-11 overnight maintenance passes 46-49 (5 commits)
+### 1.96. Fixed — 2026-06-11 overnight maintenance passes 46-49 (5 commits)
 
 - **Backfill vs migrations (HIGH):** `backfill_missing_env_vars()` no
   longer pre-seeds keys the migration chain owns. Previously it spliced
@@ -1005,7 +1023,7 @@ audit scripts and the docs-drift gate exit 0.
   cross-seam guard pins every hardcoded localhost-port fallback literal
   to `.env.example`. Suite grew 826 → 839.
 
-### 1.96. Fixed — 2026-06-11 overnight maintenance passes 40-45 (6 commits)
+### 1.97. Fixed — 2026-06-11 overnight maintenance passes 40-45 (6 commits)
 
 - Neo4j backup tooling: `auto_restore.sh` / `restore.sh` no longer print
   "restored successfully" when `neo4j-admin database load` fails — failures
@@ -1035,7 +1053,7 @@ audit scripts and the docs-drift gate exit 0.
   contract for `COMFYUI_CUSTOM_MODELS_FILE`, and migration v2 recognizes
   quoted URL values.
 
-### 1.97. Fixed — 2026-06-10 overnight maintenance passes 35-39 (6 commits)
+### 1.98. Fixed — 2026-06-10 overnight maintenance passes 35-39 (6 commits)
 
 - Redis README cluster closure: the per-database index map now matches
   compose reality everywhere (n8n BullMQ on db `/0`, LightRAG + Open WebUI
@@ -1059,7 +1077,7 @@ audit scripts and the docs-drift gate exit 0.
 - All `redis-cli` doc examples now carry `-a "$REDIS_PASSWORD"`
   (`requirepass` is on) and use `--scan` instead of `KEYS`.
 
-### 1.98. Fixed — 2026-06-10 overnight maintenance pass 34 (1 commit)
+### 1.99. Fixed — 2026-06-10 overnight maintenance pass 34 (1 commit)
 
 - README long-tail factual sweep (the last seven never-audited service
   docs): weaviate's ports corrected (63026/63027 — it listed Redis's
@@ -1073,7 +1091,7 @@ audit scripts and the docs-drift gate exit 0.
   code remainder pool (12 widgets, utils/core internals, wizard
   sections) was read end-to-end the same pass — clean.
 
-### 1.99. Fixed — 2026-06-10 overnight maintenance passes 32-33 (2 commits)
+### 1.100. Fixed — 2026-06-10 overnight maintenance passes 32-33 (2 commits)
 
 - The dead `WEAVIATE_LITELLM_BASE_URL` chain removed (generated into
   `.env` with the same wrong `/v1` suffix, consumed by nothing,
@@ -1085,7 +1103,7 @@ audit scripts and the docs-drift gate exit 0.
   that contradicted the runtime graph registration removed; linear
   banner taglines now honor `BRAND_TAGLINE`.
 
-### 1.100. Fixed — 2026-06-10 overnight maintenance passes 27-31 (5 commits)
+### 1.101. Fixed — 2026-06-10 overnight maintenance passes 27-31 (5 commits)
 
 - **Weaviate-backed memory inserts/searches 404'd on every call** — the
   collection's `text2vec-openai.baseURL` carried a `/v1` suffix that
@@ -1107,7 +1125,7 @@ audit scripts and the docs-drift gate exit 0.
 - searxng's trusted-proxy claim now matches limiter.toml; hosts-check
   and kong-consumer test nits.
 
-### 1.101. Fixed — 2026-06-10 overnight maintenance pass 26 (1 commit)
+### 1.102. Fixed — 2026-06-10 overnight maintenance pass 26 (1 commit)
 
 - **Every parakeet-GPU transcription request 500'd** — NeMo's RNNT/TDT
   decoder returns `List[Hypothesis]` even without `return_hypotheses`,
@@ -1121,7 +1139,7 @@ audit scripts and the docs-drift gate exit 0.
   memory growth from one bad form value), in both the shared and
   localhost copies.
 
-### 1.102. Fixed — 2026-06-10 overnight maintenance passes 21-25 (4 commits)
+### 1.103. Fixed — 2026-06-10 overnight maintenance passes 21-25 (4 commits)
 
 - **Neo4j backup/restore never worked on the shipped 5.19 image** —
   `database dump --output-name` doesn't exist (every backup failed AND
@@ -1143,7 +1161,7 @@ audit scripts and the docs-drift gate exit 0.
   for real, and the whole resource-close pattern class was exhaustively
   swept (23 sites verified safe).
 
-### 1.103. Fixed — 2026-06-10 overnight maintenance pass 20 (1 commit)
+### 1.104. Fixed — 2026-06-10 overnight maintenance pass 20 (1 commit)
 
 - The regen tool's doc-only boilerplate variant now also covers
   AGGREGATE folders: stt-provider / doc-processor READMEs stopped
@@ -1153,7 +1171,7 @@ audit scripts and the docs-drift gate exit 0.
   runtime; an airflow troubleshooting bullet stopped referencing the
   `OpenAIOperator` class the same README explains doesn't exist.
 
-### 1.104. Fixed — 2026-06-10 overnight maintenance pass 19 (1 commit)
+### 1.105. Fixed — 2026-06-10 overnight maintenance pass 19 (1 commit)
 
 - The host-run Docling localhost server loaded `.env` from the wrong
   directory (three parents instead of five — the load silently
@@ -1167,7 +1185,7 @@ audit scripts and the docs-drift gate exit 0.
   gained a doc-only boilerplate variant so pointer docs stop citing a
   `service.yml` they themselves say doesn't exist.
 
-### 1.105. Fixed — 2026-06-10 overnight maintenance passes 16-18 (3 commits)
+### 1.106. Fixed — 2026-06-10 overnight maintenance passes 16-18 (3 commits)
 
 - Hermes context-window guidance replaced a fabricated `ollama
   --ctx-size` flag (no such flag upstream) with the real paths:
@@ -1177,14 +1195,14 @@ audit scripts and the docs-drift gate exit 0.
   hygiene: validator tests moved onto the shared env fixture; passes
   14-15 were zero-finding verification sweeps.
 
-### 1.106. Fixed — 2026-06-10 overnight maintenance pass 13 (1 commit)
+### 1.107. Fixed — 2026-06-10 overnight maintenance pass 13 (1 commit)
 
 - The speaches GPU-image rewrite now honors a shell-exported
   `SPEACHES_GPU_IMAGE` (the pin refresher's documented override path) —
   pass 12's version consulted only `.env`, losing exported pins and, in
   the no-.env-line case, silently falling back to the CPU image again.
 
-### 1.107. Fixed — 2026-06-10 overnight maintenance pass 12 (1 commit)
+### 1.108. Fixed — 2026-06-10 overnight maintenance pass 12 (1 commit)
 
 - The image-pin refresher now also covers pins declared as plain env
   vars (`SPEACHES_GPU_IMAGE` would otherwise go stale in user `.env`s
@@ -1195,7 +1213,7 @@ audit scripts and the docs-drift gate exit 0.
   scoped; a non-integer `LIGHTRAG_EMBEDDING_DIM` now warns before
   falling back to auto-probe.
 
-### 1.108. Fixed — 2026-06-10 overnight maintenance pass 11 (1 commit)
+### 1.109. Fixed — 2026-06-10 overnight maintenance pass 11 (1 commit)
 
 - **`speaches-container-gpu` actually runs the CUDA image now** — the
   compose fragment interpolates `${SPEACHES_IMAGE}` under both
@@ -1216,7 +1234,7 @@ audit scripts and the docs-drift gate exit 0.
   imports; three never-consumed `COMFYUI_*_PATH` vars removed from the
   manifest/.env.example.
 
-### 1.109. Fixed — 2026-06-10 overnight maintenance pass 9 (1 commit)
+### 1.110. Fixed — 2026-06-10 overnight maintenance pass 9 (1 commit)
 
 - Clearing log filters while the source popup is open no longer gets
   silently reverted by the popup's stale snapshot on dismiss; one
@@ -1224,7 +1242,7 @@ audit scripts and the docs-drift gate exit 0.
   comment now cites the `ollama/`-prefixed id LiteLLM actually
   publishes.
 
-### 1.110. Fixed — 2026-06-10 overnight maintenance pass 8 (1 commit)
+### 1.111. Fixed — 2026-06-10 overnight maintenance pass 8 (1 commit)
 
 - The atomic `.env` write clamps the tmp file's mode BEFORE secrets are
   written (no umask-default window beside a 0600 `.env`); two LiteLLM
@@ -1232,7 +1250,7 @@ audit scripts and the docs-drift gate exit 0.
   is always written; non-container custom Ollama models are registered
   with a warning, not ignored).
 
-### 1.111. Fixed — 2026-06-10 overnight maintenance pass 7 (1 commit)
+### 1.112. Fixed — 2026-06-10 overnight maintenance pass 7 (1 commit)
 
 - The `--no-tui` banner now honors the `BRAND_*` rebranding knobs (it
   hardcoded the upstream credits while the Textual wizard rebranded);
@@ -1241,7 +1259,7 @@ audit scripts and the docs-drift gate exit 0.
   skip-prune moved to a module-level helper so its regression test
   binds to production code instead of an inline replica.
 
-### 1.112. Fixed — 2026-06-10 overnight maintenance pass 6 (1 commit)
+### 1.113. Fixed — 2026-06-10 overnight maintenance pass 6 (1 commit)
 
 - Pre-launch command summary no longer shows flags from steps the user
   later hid via Back-navigation (matches what launch actually
@@ -1250,7 +1268,7 @@ audit scripts and the docs-drift gate exit 0.
   launch-time prune gains a regression test; a migration docstring
   stopped overstating its STT involvement.
 
-### 1.113. Fixed — 2026-06-10 overnight maintenance pass 5 (2 commits)
+### 1.114. Fixed — 2026-06-10 overnight maintenance pass 5 (2 commits)
 
 - **Both seeded n8n research workflows were broken end-to-end**: the
   weekly scheduler sent `user_id: "system_scheduler"` (backend casts to
@@ -1273,7 +1291,7 @@ audit scripts and the docs-drift gate exit 0.
   lock-gate can't see.
 - redis fragment header no longer claims the fragment is unreferenced.
 
-### 1.114. Fixed — 2026-06-10 overnight maintenance pass 4 (2 commits)
+### 1.115. Fixed — 2026-06-10 overnight maintenance pass 4 (2 commits)
 
 - **`--base-port` runs now persist `BASE_PORT` itself** — the port
   rewriter updated every `*_PORT` but never the anchor, so the very
@@ -1296,7 +1314,7 @@ audit scripts and the docs-drift gate exit 0.
   auto-rotation; Studio auth nuance documented (Kong route gated,
   direct port open).
 
-### 1.115. Fixed — 2026-06-10 overnight maintenance pass 3 (5 commits)
+### 1.116. Fixed — 2026-06-10 overnight maintenance pass 3 (5 commits)
 
 - **CRITICAL (self-caught): the pass-2 airflow quote-safety fix broke
   airflow-init on every boot** — psql performs `:'var'` interpolation
@@ -1337,7 +1355,7 @@ audit scripts and the docs-drift gate exit 0.
   placeholder CVE id; `.gitignore` sheds two dead personal-scratch
   entries; kong/comfyui READMEs lose claims invalidated this run.
 
-### 1.116. Fixed — 2026-06-10 overnight maintenance pass 2 (6 commits)
+### 1.117. Fixed — 2026-06-10 overnight maintenance pass 2 (6 commits)
 
 - **`storage.objects` was dropped and recreated on EVERY `docker compose
   up`** (04-storage.sql) — all Supabase Storage object metadata (ComfyUI
@@ -1427,7 +1445,7 @@ audit scripts and the docs-drift gate exit 0.
   webhook-based (no execute endpoint exists); ROADMAP counts corrected
   to 32 families / 62 containers.
 
-### 1.117. Fixed — 2026-06-10 overnight maintenance pass 1 (18 commits)
+### 1.118. Fixed — 2026-06-10 overnight maintenance pass 1 (18 commits)
 
 - **`N8N_SOURCE=disabled` never disabled n8n.** `N8N_SCALE` was read from
   `.env` with the manifest value as a mere dict-default; the key always
@@ -1525,7 +1543,7 @@ audit scripts and the docs-drift gate exit 0.
 - searxng's compose no longer gates startup on redis (`valkey.url:
   false` — pure coupling; the manifest keeps a slot-pinning entry).
 
-### 1.118. Changed — 2026-06-10 overnight maintenance pass 1
+### 1.119. Changed — 2026-06-10 overnight maintenance pass 1
 
 - `data_flow.calls` corrected across five manifests (and all per-service
   README §Deps tables + diagrams regenerated): local-deep-researcher
@@ -1552,7 +1570,7 @@ audit scripts and the docs-drift gate exit 0.
   docs hub now links the research-corpus guide and superpowers
   plans/specs; test counts updated to 800+.
 
-### 1.119. Fixed — Critical bugs caught by the 2026-06-08 overnight audit
+### 1.120. Fixed — Critical bugs caught by the 2026-06-08 overnight audit
 
 - **`services/open-webui/init/scripts/register-tools.py:create_admin_user`
   shipped with a duplicate `timeout=30` keyword argument**, raising
@@ -1597,7 +1615,7 @@ audit scripts and the docs-drift gate exit 0.
   "lightrag-init logs warning, falls back to env-var defaults; LightRAG
   starts but every chat/embed call 502s until LiteLLM becomes reachable".
 
-### 1.120. Fixed — Init container resilience (7 unbounded loops)
+### 1.121. Fixed — Init container resilience (7 unbounded loops)
 
 - `services/weaviate/init/scripts/init-weaviate.sh:18` —
   `until psql ... do sleep 5; done` had no upper bound; a persistently
@@ -1617,7 +1635,7 @@ audit scripts and the docs-drift gate exit 0.
   + the generic `run_command()` helper gained explicit `timeout=` (10s
   / 60s) with `subprocess.TimeoutExpired` added to the except clauses.
 
-### 1.121. Fixed — Documentation drift (MinIO ports, TEI memory guide)
+### 1.122. Fixed — Documentation drift (MinIO ports, TEI memory guide)
 
 - `services/minio/README.md:12-13` + `docs/ROADMAP.md:63` — both files
   advertised the MinIO admin console on `63018` and S3 API on `63017`,
@@ -1628,7 +1646,7 @@ audit scripts and the docs-drift gate exit 0.
   quoted BGE-reranker-v2-m3 needing ~3 GB; updated to mxbai-rerank-base-v1
   (~1.5 GB) which has been the default since 2026-06-07.
 
-### 1.122. Fixed — Build & supply-chain hygiene
+### 1.123. Fixed — Build & supply-chain hygiene
 
 - `services/{litellm/init,litellm/catalog-init,comfyui/catalog-init}/Dockerfile`
   — patch-version pinned `FROM python:3.12-slim → python:3.12.7-slim`
@@ -1646,7 +1664,7 @@ audit scripts and the docs-drift gate exit 0.
   `except Exception` on .env-rewrite path → `except OSError`. PR #67
   narrowed line 221 but missed this parallel block.
 
-### 1.123. Tests — Structural regression guards
+### 1.124. Tests — Structural regression guards
 
 - `bootstrapper/tests/test_init_scripts_compile.py` — parametrised
   `py_compile` over every `services/*/init/scripts/*.py` + parametrised
@@ -1660,7 +1678,7 @@ audit scripts and the docs-drift gate exit 0.
   PEP 735 `[dependency-groups].dev` contract; fails if a future edit
   re-introduces deprecated `[tool.uv].dev-dependencies`.
 
-### 1.124. Docs — Top-level architecture diagram refreshed
+### 1.125. Docs — Top-level architecture diagram refreshed
 
 `docs/diagrams/architecture.svg` (and its `architecture.html` standalone
 view) refreshed to reflect the current 33-service stack. Eight services
@@ -1679,7 +1697,7 @@ The README's embedded diagram updates transparently (GitHub renders
 the SVG inline). The corresponding "Known follow-up" entry under
 [Unreleased] is removed.
 
-### 1.125. Security — Auto-rotate 8 weak credential placeholders on first launch
+### 1.126. Security — Auto-rotate 8 weak credential placeholders on first launch
 
 `.env.example` shipped publicly-known defaults for 8 credential vars
 that survived a clean `cp .env.example .env && ./start.sh` boot
@@ -1704,7 +1722,7 @@ Operator action: hand-edited `.env` files with custom values are left
 alone. Fresh installs (or any `.env` still carrying a placeholder)
 will rotate to a random value on the next `./start.sh`.
 
-### 1.126. Fixed — start.py cold-start port-clear + TUI launch flag pass-through
+### 1.127. Fixed — start.py cold-start port-clear + TUI launch flag pass-through
 
 Two latent bootstrapper holes surfaced by the overnight audit loop:
 
@@ -1724,7 +1742,7 @@ Two latent bootstrapper holes surfaced by the overnight audit loop:
    New `user_env_writes` bucket carries the residual unfiltered keys
    through to the same `apply_user_model_selections` pipeline.
 
-### 1.127. Fixed — LightRAG init resilience + open-webui init timeouts
+### 1.128. Fixed — LightRAG init resilience + open-webui init timeouts
 
 - `services/lightrag/init/scripts/resolve-models.py` embed-dim probe
   no longer swallows `Exception` — narrowed to
@@ -1743,7 +1761,7 @@ Two latent bootstrapper holes surfaced by the overnight audit loop:
   worst case, and a `try/finally` pattern around DB cursor+conn so a
   restart loop doesn't leak one connection per attempt.
 
-### 1.128. Fixed — Documentation post-migration drift sweep
+### 1.129. Fixed — Documentation post-migration drift sweep
 
 After PR #29/PR #35/PR #47 port reshuffles, ~25 stale port literals
 remained scattered across READMEs (root README, services/n8n/README.md,
@@ -1755,7 +1773,7 @@ LightRAG + TEI Reranker entries. Stale `external`/`api` source-variant
 references in README, source-configuration.md, and wizard-guide were
 also scrubbed.
 
-### 1.129. Fixed — Manifest data_flow.calls gap for LightRAG / TEI Reranker
+### 1.130. Fixed — Manifest data_flow.calls gap for LightRAG / TEI Reranker
 
 `services/kong/service.yml::data_flow.calls` was missing `lightrag` +
 `tei-reranker` despite live Kong routes; `services/hermes/service.yml`,
@@ -1766,7 +1784,7 @@ the auto-generated §5.2 / §6.2 tables and per-service architecture
 diagrams omitted the edge. Filled all four gaps + regenerated docs
 and the hermes byte-equivalence golden fixtures.
 
-### 1.130. Fixed — LightRAG three small drift bugs
+### 1.131. Fixed — LightRAG three small drift bugs
 
 - `LIGHTRAG_RERANK_BINDING_HOST` manifest declaration aligned with
   `service_config.py`'s imperative `/rerank` append (the two sources
@@ -1779,7 +1797,7 @@ and the hermes byte-equivalence golden fixtures.
   + template all read it, but the manifest under-specified the
   cross-service contract.
 
-### 1.131. Fixed — Narrow broad except clauses in 3 bootstrapper modules
+### 1.132. Fixed — Narrow broad except clauses in 3 bootstrapper modules
 
 `bootstrapper/utils/hosts_manager.py` (6 sites),
 `bootstrapper/core/docker_manager.py` (4 sites), and
@@ -1793,7 +1811,7 @@ loudly instead of being silently absorbed into safe-default returns.
 Behavioral diff: previously-masked TypeError / AttributeError / etc.
 now propagate.
 
-### 1.132. Tests — Regression-guard additions
+### 1.133. Tests — Regression-guard additions
 
 - `tests/test_lightrag_manifest_imperative_parity.py` (new):
   asserts both ends of the `LIGHTRAG_RERANK_BINDING_HOST` contract end
@@ -1812,7 +1830,7 @@ now propagate.
   Previously these tests silently failed locally — CI's resolved dep
   tree pulled psycopg2 transitively, masking the breakage.
 
-### 1.133. Fixed — CI hygiene
+### 1.134. Fixed — CI hygiene
 
 - Top-level `permissions: contents: read` on `.github/workflows/services-lint.yml`
   (no job needs write scopes; principle-of-least-privilege).
@@ -1827,7 +1845,7 @@ now propagate.
 - `services/docling/provider/gpu/Dockerfile` ARG default aligned to
   `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime` (the manifest pin).
 
-### 1.134. Added (LightRAG service)
+### 1.135. Added (LightRAG service)
 - New `services/lightrag/` manifest: graph-augmented RAG server pinned to `ghcr.io/hkuds/lightrag:v1.5.0`. Default `disabled`.
 - Storage adapts to Supabase pgvector, Neo4j, Redis with in-process fallback when any backend source is `disabled`.
 - Registered with LiteLLM as the `lightrag` model (Ollama-shim served via OpenAI adapter); reachable transitively by open-webui, openclaw, n8n, hermes, backend, local-deep-researcher, jupyterhub.
@@ -1836,12 +1854,12 @@ now propagate.
 - Init container resolves LLM/embedding model + dim from LiteLLM `/v1/models` at boot.
 - RAG-Anything is NOT added — subsumed by LightRAG v1.5.0's multimodal pipeline.
 
-### 1.135. Added (TEI Reranker service)
+### 1.136. Added (TEI Reranker service)
 - New `services/tei-reranker/` manifest: HF text-embeddings-inference running BAAI/bge-reranker-v2-m3. Default `disabled`. Four source variants: `container-cpu`, `container-gpu`, `localhost`, `disabled`.
 - Reusable by compatible consumers through its REST endpoint. Direct LightRAG-to-TEI reranking is disabled by default because their rerank payload shapes are incompatible without an adapter.
 - Kong route `rerank.localhost`.
 
-### 1.136. Added — Apache Airflow + Apache Spark cluster + Apache Zeppelin (data / apps / agents bands)
+### 1.137. Added — Apache Airflow + Apache Spark cluster + Apache Zeppelin (data / apps / agents bands)
 
 Three new services added in a single coordinated landing as the stack's
 compute / orchestration tier. Spec at
@@ -1955,7 +1973,7 @@ because rotating any of them mid-run breaks something.
   `depends_on.optional` was scrubbed of the dead-promise `prometheus`
   entry to avoid auto-generated diagrams showing an edge that doesn't
   exist.
-### 1.137. Added — Scala sample notebook + VS Code remote-Jupyter verification flow
+### 1.138. Added — Scala sample notebook + VS Code remote-Jupyter verification flow
 
 Three follow-ups to the original Scala-kernels + VS Code wiring (PR #30):
 
@@ -1981,7 +1999,7 @@ Three follow-ups to the original Scala-kernels + VS Code wiring (PR #30):
   directory ships with a `README.md` explaining the layout but no PNGs
   yet — users capture them on their own machines per §10.7.
 
-### 1.138. Assessed — OmniVoice TTS engine (skipped pending upstream readiness)
+### 1.139. Assessed — OmniVoice TTS engine (skipped pending upstream readiness)
 
 `docs/research/candidates/omnivoice.md` (new) records a feasibility
 assessment of [omnivoice.app](https://omnivoice.app) +
@@ -1997,7 +2015,7 @@ Piper 30+, Chatterbox 23). Recorded as deferred under
 triggers (SaaS API published / community wrapper appears / Speaches
 adds OmniVoice as a backend).
 
-### 1.139. Fixed — Drop unreachable JupyterHub + Hermes Prometheus scrape jobs
+### 1.140. Fixed — Drop unreachable JupyterHub + Hermes Prometheus scrape jobs
 
 `config/prometheus.yml` shipped scrape jobs targeting `jupyterhub:8000`
 and `hermes:8000`. Both were broken:
@@ -2022,7 +2040,7 @@ targets, with a Deferred note) and the top-level README §3.4 narrative.
 JupyterHub metrics return when the multi-user spec ships; Hermes
 metrics return when upstream instrumentation lands.
 
-### 1.140. Fixed — Wrong access ports in top-level README
+### 1.141. Fixed — Wrong access ports in top-level README
 
 Five URLs in `README.md`'s Quick Start access block and §4.1 Service
 Overview table quoted the wrong host port — readers would 404 or hit a
@@ -2040,7 +2058,7 @@ sibling service. `.env.example` is the canonical source for all five:
 Each wrong value appeared in BOTH the Quick Start block and the §4.1
 table; this commit aligns both with `.env.example`'s pins.
 
-### 1.141. Fixed — Observability follow-ups: cAdvisor socket, Grafana provisioning + 11.4 bump
+### 1.142. Fixed — Observability follow-ups: cAdvisor socket, Grafana provisioning + 11.4 bump
 
 Four startup-noise / functional cleanups against the observability bundle
 (PR #29), surfaced once the bind-mount fix from PR #31 let the stack
@@ -2080,7 +2098,7 @@ actually launch:
   shipping in 11.4. Bump the default in `services/grafana/service.yml`
   (and the rendered `.env.example`) to the latest 11.4 patch.
 
-### 1.142. Fixed — Prometheus + Grafana bind-mount paths produced doubled sources
+### 1.143. Fixed — Prometheus + Grafana bind-mount paths produced doubled sources
 
 `services/prometheus/compose.yml` and `services/grafana/compose.yml` (both
 added by the PR #29 observability bundle) declared their config bind-mount
@@ -2112,7 +2130,7 @@ no Docker daemon. Verified to fail on the buggy form during development
 (prometheus fragment temporarily reverted) and emits an actionable
 error naming the fragment, offending raw source, and resolved path.
 
-### 1.143. Added — Scala kernels in JupyterHub + VS Code remote-Jupyter wiring
+### 1.144. Added — Scala kernels in JupyterHub + VS Code remote-Jupyter wiring
 
 The JupyterHub container now ships three kernels and is configured for
 remote-kernel access from VS Code on the developer's host machine.
@@ -2140,14 +2158,14 @@ remote-kernel access from VS Code on the developer's host machine.
   "Existing Jupyter Server" prompt. VS Code then offers the new
   kernels via its kernel-picker.
 
-### 1.144. Changed — JupyterHub `requirements.txt`
+### 1.145. Changed — JupyterHub `requirements.txt`
 
 - **Removed `nnx-pytorch`** from the ml-lab support block. The 28-of-29
   ml-lab notebooks that `import nnx` will not run until the package is
   restored. Supporting libraries (`python-louvain`, `nltk`, `spacy`,
   `torchao`, `prettytable`) stay so non-nnx notebooks keep working.
 
-### 1.145. Added — observability bundle (Prometheus + Grafana)
+### 1.146. Added — observability bundle (Prometheus + Grafana)
 
 New paired bundle in the `infra` band giving full-stack metrics observability
 out of the box. Both services default to `disabled` — opt in with
@@ -2231,7 +2249,7 @@ instrumentation lands.
 - Per-service docs (READMEs + architecture diagrams) regenerated via
   `bootstrapper.docs.regen --all`.
 
-### 1.146. Removed (breaking) — `external` source variants stack-wide
+### 1.147. Removed (breaking) — `external` source variants stack-wide
 
 Source variants `external` (ComfyUI), `ollama-external` (Ollama), and
 `ray-external` (Ray) and their associated env vars `COMFYUI_EXTERNAL_URL`,
@@ -2257,7 +2275,7 @@ the `RAY_EXTERNAL_ADDRESS_TITLE` wizard step, and the `external`-flavored
 test fixtures in `tests/conftest.py`. `services/litellm/catalog-init`'s
 host-side auto-import path now applies only to `ollama-localhost`.
 
-### 1.147. ComfyUI model picker — localhost/external coverage (follow-up to PR #17)
+### 1.148. ComfyUI model picker — localhost/external coverage (follow-up to PR #17)
 
 The "ComfyUI · models" wizard step previously only fired for
 `container-cpu` / `container-gpu`, contradicting the Ollama-mirror
@@ -2275,7 +2293,7 @@ n8n) gets the active set populated regardless of where ComfyUI is
 actually running. Six parametrized regression tests pin the new
 predicate.
 
-### 1.148. ComfyUI model picker
+### 1.149. ComfyUI model picker
 
 Added a new wizard step ("ComfyUI · models") that lets users pick
 from a curated catalog of popular models across Image, Image-edit,
@@ -2341,7 +2359,7 @@ differs (Ollama: CSV in `.env`; ComfyUI: sidecar YAML) because ComfyUI
 lacks an upstream registry that resolves models by name. The earlier
 "pipeline divergence" concern is resolved.
 
-### 1.149. 2026-05-28 third-pass audit (follow-up to PR #12 / #13)
+### 1.150. 2026-05-28 third-pass audit (follow-up to PR #12 / #13)
 
 A third convergence audit ran the night PR #13 merged. 16 verification
 iterations dispatched 3 parallel-domain audit subagents on iter-1 +
@@ -2407,7 +2425,7 @@ Highlights:
   in the other three scripts. `.gitignore` `.audit/` rule deduplicated
   (the three audit-pass PRs each appended their own copy).
 
-### 1.150. Architecture diagrams — skill-driven rewrite
+### 1.151. Architecture diagrams — skill-driven rewrite
 
 The top-level architecture diagram (`docs/diagrams/architecture.svg`) is now
 hand-authored through the `architecture-diagram` skill — JetBrains Mono on a slate-950 <!-- lint-ok -->
@@ -2438,7 +2456,7 @@ renderer; the hermes golden snapshot under
 This closes the `Architecture-diagram skill rewrite` item that was
 deferred in the 2026-05-27 audit's `Known follow-ups` block.
 
-### 1.151. 2026-05-27 overnight audit (second pass — follow-up to PR #11)
+### 1.152. 2026-05-27 overnight audit (second pass — follow-up to PR #11)
 
 A second convergence audit ran the night PR #11 merged. 14 verification
 iterations dispatched ~14 parallel domain audits and surfaced ~80
@@ -2512,7 +2530,7 @@ Highlights of what landed:
   Pointed retired remediation reports' history-only location explicitly
   via `git show <SHA>:docs/security/<file>` commands in SECURITY.md.
 
-### 1.152. Known follow-ups (deferred from the 2026-05-27 repo-wide audit pass)
+### 1.153. Known follow-ups (deferred from the 2026-05-27 repo-wide audit pass)
 
 The cleanup PR documented at the top of this section deliberately defers three classes of work — each large enough to deserve its own plan rather than a drive-by fix:
 
@@ -2520,7 +2538,7 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **Bootstrapper utility test gaps.** `bootstrapper/utils/{localhost_validator,key_generator,llm_catalog,cloud_models,supabase_keys}.py`, `bootstrapper/core/docker_manager.py`, and `bootstrapper/services/source_validator.py` have zero unit tests. The drift gates + integration tests cover them transitively, but no isolated unit coverage exists. Adding targeted tests is tracked separately.
 - **Bootstrapper god-class refactors.** `bootstrapper/start.py::GenAIStackStarter` (~1,800 LOC, 31 methods), the 14 near-identical `_generate_<svc>_config` methods in `bootstrapper/services/service_config.py`, and the 10 `generate_<svc>_service` methods in `bootstrapper/utils/kong_config_generator.py` are flagged for table-driven consolidation in a separate refactor plan. The current code paths are all tested and correct; these are maintenance-debt items, not bugs.
 
-### 1.153. Added — Ray distributed-compute cluster
+### 1.154. Added — Ray distributed-compute cluster
 
 - New `services/ray/` family with head + worker containers, dashboard at `ray.localhost`, RAY_SOURCE source-variant pattern.
 - Wizard wires Ray worker count inline via the SecondaryNumberInput widget on the source step.
@@ -2528,7 +2546,7 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - JupyterHub picks up `ray[client]` dep + seeded `07_ray_cluster.ipynb` notebook.
 - Hermes Agent + Backend agents can dispatch compute jobs to the cluster (future integration; Ray exposes only via Backend REST today).
 
-### 1.154. Changed — Localhost port override (URL → PORT migration)
+### 1.155. Changed — Localhost port override (URL → PORT migration)
 
 - Replaced the 7 per-service `<SVC>_LOCALHOST_URL` env vars with `<SVC>_LOCALHOST_PORT` integer vars; the URL is derived at compose-render time as `http://host.docker.internal:${<SVC>_LOCALHOST_PORT:-<default>}`.
 - 3 newly-overridable services (Ollama, Neo4j HTTP + Bolt, Weaviate) gain dedicated LOCALHOST_PORT env vars.
@@ -2557,7 +2575,7 @@ The cleanup PR documented at the top of this section deliberately defers three c
 > at `services/doc-processor/README.md`. The `doc-processor` name is the
 > stable public API; `docling` is the single engine implementing it.
 
-### 1.155. Changed (Documentation consolidation — service docs live with their services, hierarchical numbering, Phase C Future content)
+### 1.156. Changed (Documentation consolidation — service docs live with their services, hierarchical numbering, Phase C Future content)
 
 - **Service docs moved alongside their services.** Every per-service README, architecture SVG, and architecture HTML moved from `docs/services/<name>/` to `services/<name>/`. The `docs/services/` directory is retired entirely. Each service folder is now the single source of truth for that service: manifest (`service.yml`), compose fragment (`compose.yml`), any `init/` scaffolding, and the human-facing `README.md` + diagrams sit in one place.
 - **Three doc-only folders introduced** for the aggregate doc-folders without a single-manifest owner: `services/stt-provider/`, `services/doc-processor/`, `services/multi2vec-clip/`. The manifest loader skips dirs without `service.yml` (`_is_service_dir` now requires the file), so these doc-only folders are invisible to the bootstrapper.
@@ -2565,11 +2583,11 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **Hierarchical section numbering.** Every service README uses `## N. <Title>` for top-level sections and `### N.M <Title>` for subsections. The `## Dependencies & Integrations` section keeps its position-driven numbering — the regen tool detects whatever number the section sits at (5 in the canonical 6-section layout, but READMEs with more pre-deps content can have it at 7, 9, 14, etc.) and emits matching `### N.1` … `### N.6` subsections.
 - **`bootstrapper/docs/regen.py` learned to preserve Phase C Future content.** The auto-block (`## N. Dependencies & Integrations` + `### N.1` Current Upstream + `### N.2` Current Downstream + `### N.3` Architecture diagram + `### N.4-6` Future placeholders) is regenerated from manifests on every run, BUT any user-authored content under `### N.4 Future — Missing pair integrations`, `### N.5 Future — Candidate new services`, and `### N.6 Future — Unused features in this service` is preserved across regen passes. New helper `_render_section_with_future` extracts the existing Future bodies before re-rendering and splices them back in.
 - **Phase C content populated in all 21 service READMEs.** Each of the three Future-* subsections in every service doc now lists concrete bullets (pair integrations to wire, candidate new services to add, unused upstream features to pursue) sourced from the Phase B research artifacts under `docs/research/rows/<svc>.md` and `docs/research/candidates/<slug>.md`. The seven previously-thin docs (backend, comfyui, local-deep-researcher, multi2vec-clip, n8n, redis, searxng) were rewritten to Hermes-grade depth (≥150 lines each, all canonical sections present).
-- **`docs/` aggressively trimmed.** Removed entirely: `docs/services/` (moved into `services/`), `docs/superpowers/` (planning-history artefacts whose value lives in git log — note: later reinstated as the active feature-track spec/plan home, see docs/README.md §1.7), `docs/security/` (completed Dependabot remediation reports — paper trail preserved in git history). Moved: `docs/scripts/*.py` → `scripts/` (these are operational scripts, not docs). What remains under `docs/`: CHANGELOG, ROADMAP, CONTRIBUTING-services, top-level README, the canonical deployment/ and quick-start/ subdirs, the stack-wide diagrams/, images/, and the Phase B research/ corpus referenced from every service doc.
+- **`docs/` aggressively trimmed.** Removed entirely: `docs/services/` (moved into `services/`), `docs/superpowers/` (planning-history artefacts whose value lives in git log — note: later reinstated as the active feature-track spec/plan home, see docs/README.md §1.8), `docs/security/` (completed Dependabot remediation reports — paper trail preserved in git history). Moved: `docs/scripts/*.py` → `scripts/` (these are operational scripts, not docs). What remains under `docs/`: CHANGELOG, ROADMAP, CONTRIBUTING-services, top-level README, the canonical deployment/ and quick-start/ subdirs, the stack-wide diagrams/, images/, and the Phase B research/ corpus referenced from every service doc.
 - **Path rewrites.** All cross-doc references to `docs/services/<X>.md` or `docs/services/<X>/README.md` repointed to `services/<X>/README.md`. The `_AGGREGATE_DOC_FOLDERS` mapping in `bootstrapper/docs/deps_resolver.py` is unchanged — it's still the source of truth for doc-folder ↔ manifest aggregation. Service manifests' `docs:` fields updated to point at the new `services/<X>/README.md` location. Constituent engine manifests (parakeet, speaches, chatterbox, docling) point to their aggregate doc folder.
 - **Migration tooling retired.** `scripts/migrate_docs_to_folders.py` (the one-shot `docs/services/<X>.md` → `docs/services/<X>/README.md` migration helper from a previous restructure) and its test `bootstrapper/tests/test_doc_migration.py` are removed — both were one-shot artefacts of completed migrations.
 
-### 1.156. Changed (Architecture diagrams — data-flow model + clustered layout)
+### 1.157. Changed (Architecture diagrams — data-flow model + clustered layout)
 
 - Architecture diagrams under `services/<name>/` now render the **data-flow** model (runtime "X calls Y" edges) instead of the bootstrap-dep model. Source of truth is a new optional `data_flow.calls` field per `services/<name>/service.yml`.
 - Diagram layout redesigned: services in the upstream and downstream lanes group by category (infra / data / llm / media / agents / apps) into mini-clusters; one edge per cluster (not per pill); focus box gains a category-colored glow; legend bar + 3 summary cards below.
@@ -2577,7 +2595,7 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - `depends_on.required`, `runtime_adaptive.adapts_to`, `runtime_deps.optional`, and `doc_extras.diagram.extra_consumers` remain in manifests (still used by the compose layer) but the diagram resolver no longer reads them.
 - Spec: diagram-refresh design (2026-05-22) — `docs/superpowers/` was retired; see git log for the design doc and the commits around that date.
 
-### 1.157. Added (Cross-service deps + diagrams — Phase B research)
+### 1.158. Added (Cross-service deps + diagrams — Phase B research)
 
 - Added 21 per-service integration-research files under `docs/research/rows/<service>.md` (missing-pair integrations, candidate new services, per-service feature gaps).
 - Added 32 candidate one-pagers under `docs/research/candidates/<slug>.md`.
@@ -2585,7 +2603,7 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - New tooling: `scripts/validate_research_schema.py` (schema validator), `bootstrapper/docs/merge_research.py` (merge + index generator), `bootstrapper/docs/research_subagent_prompt.py` (programmatic Phase B subagent prompt builder).
 - Phase C (content authoring) is next — see the cross-service deps + diagrams design (2026-05-16); `docs/superpowers/` was retired, consult git log for the doc.
 
-### 1.158. Added (Cross-service deps + diagrams — Phase A foundations)
+### 1.159. Added (Cross-service deps + diagrams — Phase A foundations)
 - Migrated `services/<name>.md` → `services/<name>/README.md` (per-service folders).
 - Added standardized **Dependencies & Integrations** subsection to every service README, with Current (manifest-derived) tables and Future (placeholder) subsections.
 - Added per-service architecture diagrams (`architecture.html` + `architecture.svg`) under each service folder, generated from manifests via `python -m bootstrapper.docs.regen`.
@@ -2594,12 +2612,12 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - New optional manifest fields: `runtime_adaptive.<container>.failure_mode` (string) and `doc_extras.diagram.extra_consumers` (list of service names).
 - Cross-service deps + diagrams research/authoring (Phases B & C) deferred — see the cross-service deps + diagrams design (2026-05-16); `docs/superpowers/` was retired, consult git log for the doc.
 
-### 1.159. Added (Dependency vulnerability monitoring)
+### 1.160. Added (Dependency vulnerability monitoring)
 - **`.github/dependabot.yml`** — weekly pip + GitHub Actions scans on every active manifest (`bootstrapper/`, `services/backend/app/`, `services/jupyterhub/build/`, `services/docling/provider/{gpu,localhost}/`, `services/parakeet/provider/{gpu,mlx}/`). Alerts grouped by ecosystem to reduce PR noise. `directories:` deliberately enumerates ALL active manifests so an omission doesn't silently drop coverage from the scan.
 - **`SECURITY.md` threat model** — published threat tiers, supported versions, and the responsible-disclosure address. Aligns with the dependabot scan-coverage list.
 - **Bulk-dismiss tooling** — operators triaging stale alerts on deleted/moved manifests can use the GitHub REST API with `reason=not_used`; the `docs/security/2026-05-14-dependabot-remediation-report.md` captures the playbook from the May 2026 cleanup (77 alerts triaged, 62 phantom dismissals).
 
-### 1.160. Added (LiteLLM Kong alias for the admin dashboard)
+### 1.161. Added (LiteLLM Kong alias for the admin dashboard)
 - **Kong route `litellm.localhost` → `http://litellm:4000/`** — added to `bootstrapper/utils/kong_config_generator.py::generate_litellm_service()` and wired into `get_adaptive_services()`. Always-on (LiteLLM is mandatory; no SOURCE variation, no dashboard-disable toggle). The same alias exposes `/ui/` (admin dashboard with per-model spend, key/team management, request logs), `/v1/*` (proxy API), and `/spend/*` (raw usage telemetry rollups) — Kong routes the entire LiteLLM surface, not just the dashboard path.
 - **`litellm.localhost` added to** `bootstrapper/utils/hosts_manager.py::GENAI_HOSTS` so `./start.sh --setup-hosts` writes the `/etc/hosts` entry.
 - **Wizard service box** now shows `http://litellm.localhost:${KONG_HTTP_PORT}` in the URL column on the LiteLLM row (was `—` before). Wired via a single `"LiteLLM": "litellm.localhost"` line in `bootstrapper/ui/state_builder.py::_HOST_ALIAS`; downstream rendering (`integration.py` → `service_table.py`) picks it up automatically.
@@ -2607,13 +2625,13 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **`preserve_host: True` on the LiteLLM Kong route** — without this, Kong rewrites the `Host` header from `litellm.localhost:${KONG_HTTP_PORT}` (the browser's URL) to `litellm:4000` (the internal upstream). LiteLLM's SPA reads the `Host` header when constructing the SSO login-redirect URL, so it embedded the internal Docker hostname, producing a `Location: http://litellm:4000/ui/login/...` that the browser cannot resolve. Setting `preserve_host: True` makes LiteLLM see the real browser-facing hostname and build correct redirects. Same pattern n8n's route uses.
 - **Admin-dashboard login credentials made explicit** — modern LiteLLM versions retired the "master key alone authenticates the UI" fallback; without explicit `UI_USERNAME` + `UI_PASSWORD`, `/v2/login` raises `ProxyException`. Compose now sets `UI_USERNAME: ${LITELLM_UI_USERNAME:-admin}` and `UI_PASSWORD: ${LITELLM_MASTER_KEY}` (reusing the auto-generated master key so operators don't have to remember a second secret). New env `LITELLM_UI_USERNAME` added to `.env.example` and `services/litellm/service.yml`. Login is `admin` / `${LITELLM_MASTER_KEY}` by default; override the username via `.env`.
 
-### 1.161. Added (MinIO Kong alias for the admin console)
+### 1.162. Added (MinIO Kong alias for the admin console)
 - **Kong route `minio.localhost` → `http://minio:9001/`** — added to `bootstrapper/utils/kong_config_generator.py::generate_minio_service()` and wired into the route orchestrator alongside the other host-aliased services. Gated on `MINIO_SOURCE != disabled`. Uses `preserve_host: True` so the MinIO console SPA constructs login/session URLs against the browser's real hostname instead of the internal `minio:9001` (same pattern n8n / Hermes / LiteLLM use). The S3 API at port 9000 is deliberately NOT aliased — S3 clients use full URLs with explicit ports anyway, and Kong proxying introduces unhelpful preserve-host complications for the S3-signature workflow.
 - **`minio.localhost` added to** `bootstrapper/utils/hosts_manager.py::GENAI_HOSTS` (so `./start.sh --setup-hosts` writes the `/etc/hosts` entry) and `bootstrapper/ui/state_builder.py::_HOST_ALIAS` (so the wizard service-box shows `http://minio.localhost:${KONG_HTTP_PORT}` on the MinIO row alongside the direct port). The cross-surface agreement test in `test_kong_and_hosts_wiring.py` enforces the parity automatically.
 - **`scripts/check-kong-routes.py::EXPECTED_HOST_ROUTES`** gained the new entry so the audit script enforces the route's continued presence.
 - **docs**: `services/minio/README.md` got an expanded "Endpoints" table covering the new alias + the preserve-host plumbing rationale; `docs/deployment/ports-and-routes.md` gained the Kong column on the MinIO Console row; `services/kong/README.md` added the dynamic-route bullet + curl example; `services/minio/README.md` got a new `## Access` section; root `README.md` got the alias row in the service table and a quick-start hint.
 
-### 1.162. Added (Tests for Ollama-LiteLLM-wizard catalog-sync invariants)
+### 1.163. Added (Tests for Ollama-LiteLLM-wizard catalog-sync invariants)
 - **4 new test files / 19 regression tests** that codify the recent Ollama-discovery bugs as a permanent guard:
   - `bootstrapper/tests/test_wizard_ollama_options.py` (5 tests) — exercises the wizard's `_merged_ollama_options` closure with mocked `/api/tags` + library scrape. Asserts: (a) every host-pulled tag lands in the family's `pulled_variants`; (b) family parent's `[pulled]` badge fires when ANY tag is on host (the "bare family name in pulled_set" bug); (c) bucket-1 fallback for tags whose family isn't in `ollama.com/library` at all; (d) options carry enough info for pre-check seeding.
   - `bootstrapper/tests/test_prompt_panel_leaf_badges.py` (4 tests) — exercises `PromptPanel._leaf_render_data` on a stub. Asserts: per-leaf `[pulled]`/`[library]` reflects `opt.pulled_variants` independently of the parent's status; mixed-status leaves within one family render correctly; empty `pulled_variants` leaves the leaf status-less (fallback to parent).
@@ -2621,17 +2639,17 @@ The cleanup PR documented at the top of this section deliberately defers three c
   - `bootstrapper/tests/test_catalog_init_auto_import.py` (7 tests) — unit tests for `services/litellm/catalog-init/scripts/sync-catalog.py::_fetch_ollama_tags`. Loads the script via `importlib.util.spec_from_file_location` with `psycopg2` stubbed in `sys.modules` so the test runs without the catalog-init container's deps. Covers: happy path, alternate `model` field name, empty upstream, unreachable upstream, malformed JSON, empty URL short-circuit, garbage-entry tolerance.
 - Tests are wired into the existing pytest infrastructure; total suite count grew from 126 to **145** (all passing).
 
-### 1.163. Fixed (Wizard Ollama-models pre-check + per-variant pulled badge)
+### 1.164. Fixed (Wizard Ollama-models pre-check + per-variant pulled badge)
 - **Per-variant `[pulled]` badge under a [library] parent** — the wizard's Ollama-models step computed leaf badges via `_inherited_leaf_badges`, which strips status tags (`pulled`, `library`, `legacy`) under the assumption *"every leaf of a [library] parent is library; the user already sees that on the parent right above"*. That assumption fails when only some specific tags of a family are pulled — e.g. a host with `qwen3.6:35b-a3b-coding-mxfp8` pulled but not `qwen3.6:27b`/`35b`/etc. The family's parent gets `[library]` but the one pulled tag should render `[pulled]` to match reality. Fix: added `pulled_variants: frozenset[str]` to `PromptOption` (populated by the wizard's `_merged_ollama_options` from `/api/tags`), and made `_leaf_render_data` emit per-leaf status (`[pulled]` when `tag in opt.pulled_variants`, else `[library]`). Family parents now show `[pulled]` whenever ANY tag of that family is on the host (was: only when the bare family name itself appeared in `/api/tags`, which it never does).
 - **Wizard auto-pre-checks every pulled host model** — `PromptPanel._load_step` for multiselect now seeds `_checked_values` from each option's `pulled_variants` in addition to the static `default_values`. Mirrors the runtime `OLLAMA_AUTO_IMPORT_LOCAL_MODELS` behaviour so the wizard UI tells the same story as `public.llms` will after confirmation. The post-confirm CSV is still the final word — operators who want a model hidden can uncheck it before pressing Enter.
 
-### 1.164. Added (Ollama auto-import for host-side sources)
+### 1.165. Added (Ollama auto-import for host-side sources)
 - **`llm-catalog-init` auto-imports every model on the host's Ollama** when `LLM_PROVIDER_SOURCE=ollama-localhost` or `ollama-external`. The catalog-init container queries the upstream's `/api/tags` at boot and unions the result with `OLLAMA_USER_MODELS`, so any `ollama pull <name>` you do on the host propagates to `public.llms` → LiteLLM → every consumer on the next `./start.sh` — no wizard re-run required. This makes the host's Ollama instance the authoritative source for which models the stack exposes, instead of relying on the wizard's multiselect to be re-run every time the host catalog changes. Container sources (`ollama-container-*`) skip auto-import because their upstream is populated FROM `OLLAMA_USER_MODELS` by `ollama-pull` (querying it would be circular).
 - **`OLLAMA_AUTO_IMPORT_LOCAL_MODELS` env var** (default: `true`) added to `services/ollama/service.yml` + `.env.example`. Set to `false` to keep strict wizard-only control of which models are exposed — useful when you have private fine-tunes on the host that shouldn't be exposed across every stack consumer.
 - **`llm-catalog-init` now reaches `host.docker.internal`** — added `extra_hosts: ["host.docker.internal:${HOST_GATEWAY_IP}"]` to the catalog-init container so the new `/api/tags` query works for `ollama-localhost`. The container also receives `LITELLM_OLLAMA_UPSTREAM` (same env-var litellm-init consumes for its rendering), so `ollama-external` is supported through the same code path.
 - **`_fetch_ollama_tags()` helper** in `services/litellm/catalog-init/scripts/sync-catalog.py` mirrors `bootstrapper/utils/ollama_discovery.py::list_pulled_models` in shape and failure mode (empty list on any error), so the two sites — the wizard's option list and the catalog's auto-import — fail consistently against the same `/api/tags` endpoint.
 
-### 1.165. Fixed (log-stream cleanup)
+### 1.166. Fixed (log-stream cleanup)
 - **Kong DNS error noise during stack restart** — Kong's default `KONG_DNS_NOT_FOUND_TTL=30s` made it cache "name not found" verdicts for half a minute, so an active websocket retry loop (e.g. an Open WebUI tab reconnecting during `./start.sh`) flooded the Kong log with DNS errors until the cache expired. `services/kong/compose.yml` now sets `KONG_DNS_NOT_FOUND_TTL=1` and `KONG_DNS_STALE_TTL=4`, so Kong picks up newly-registered service containers within ~1s instead of ~30s. Error window dropped from 37 seconds / ~18 entries to single-digit retries.
 - **Searxng `missing config file: /etc/searxng/limiter.toml`** — Searxng's bot-detection module wants an explicit `limiter.toml` next to `settings.yml`. Without it, Searxng logs the warning on every boot. Added `services/searxng/config/limiter.toml` using the current upstream schema (`[botdetection]` / `botdetection.trusted_proxies`, not the deprecated `[real_ip]` form). Trusted proxies set to Docker bridge subnets only (172.16/12, 192.168/16, 10.0/8); deliberately NOT including 127.0.0.0/8 so Searxng's own loopback healthcheck doesn't trip the X-Forwarded-For warning every check.
 - **Searxng Wikidata 403 spam at boot** — Wikidata's SPARQL endpoint rate-limits aggressively and returns 403 with 24-hour suspension on initial engine probe from a new IP. The Searxng wikidata engine eagerly probes the endpoint at `init()`, which fired before any `disabled: true` flag was honored (the disable check is for query-time, not init-time). Removed the engine block entirely from `services/searxng/config/settings.yml`. DuckDuckGo's infobox covers the same UX role. Block-removal commentary inline so operators can restore the engine if they have a dedicated Wikidata arrangement.
@@ -2639,17 +2657,17 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **`scripts/check-kong-routes.py::EXPECTED_HOST_ROUTES`** gained the new entry so the audit script enforces the route's continued presence.
 - **docs**: `services/litellm/README.md` got a new `## Access` table; `docs/deployment/ports-and-routes.md` gained the Kong column on the LiteLLM row; `services/kong/README.md` added the dynamic-route bullet + curl example; `services/litellm/README.md` got a matching `## Access` table for the service-folder reader; root `README.md` got the alias row in the service table.
 
-### 1.166. Fixed (LiteLLM gateway: empty chat responses, broken tool calls, duplicate Hermes provider)
+### 1.167. Fixed (LiteLLM gateway: empty chat responses, broken tool calls, duplicate Hermes provider)
 - **Ollama chat completions returned empty `content`** — every Ollama model was registered in LiteLLM's `model_list` as `model: ollama/<name>`, which makes LiteLLM hit Ollama's `/api/generate` endpoint. That endpoint (a) does not support tool calls, (b) flattens multi-turn message history into a single prompt, and (c) silently drops the Ollama-native `think` parameter. So any thinking-capable model (qwen3, gpt-oss, deepseek-r1) got cut off mid-`<think>` block and returned empty `content`. Hermes Agent, Open WebUI's chat surface, n8n's LLM nodes, and the backend's agentic paths were all affected. Fix: `services/litellm/init/scripts/init.py::render_model_list` now writes `model: ollama_chat/<name>` for chat models (uses `/api/chat`, which supports tool calls, multi-turn, vision payloads, and the `think` param) and keeps `model: ollama/<name>` only for embedding models (the `/v1/embeddings` route refuses the `ollama_chat/` adapter). Detection is name-based: any catalog model with `"embed"` in its name is an embedding model. Additionally, `think: false` is set on every chat entry so thinking models always populate `content` rather than the side-channel `reasoning` field; consumers that want the trace can opt back in per-request with `"think": true`. See `services/litellm/README.md` → "Ollama adapter choice" and "Thinking models".
 - **Hermes Agent registered LiteLLM twice in its provider picker** — `services/hermes/init/templates/config.yaml.tmpl` declared the gateway via both `model.provider: custom` + `base_url: http://litellm:4000/v1` AND a named `custom_providers[] = {name: litellm, base_url: http://litellm:4000/v1}` entry. Hermes's `get_compatible_custom_providers()` dedupe path did not collapse the inline anonymous entry against the named one, so the provider picker showed two `litellm` rows — one with the default model bound, the second orphaned at "0 models". Fix: kept the inline `model.provider: custom` block (Hermes's documented enum is `auto | openrouter | nous | codex | custom` — there's no `litellm` enum value) and emptied `custom_providers`. Future skills that need to address LiteLLM by an explicit named alias can add it back under a non-colliding name (e.g. `litellm-aux`).
 
-### 1.167. Changed (Per-service configuration modularization)
+### 1.168. Changed (Per-service configuration modularization)
 - **Monolithic `docker-compose.yml` retired** — the 1,425-line file split into per-service fragments under `services/<name>/compose.yml` merged at the top level via native Docker Compose `include:` directive. The new root `docker-compose.yml` is a 55-line shell. Requires Compose v2.20+ (v2.26+ recommended). Byte-equivalent rendering preserved across the full 36-container stack via the golden baseline at `bootstrapper/tests/fixtures/rendered_config_baseline.yml`.
 - **`bootstrapper/service-configs.yml` deleted** — each service's runtime data (source variants, adaptive bindings, dependency declarations) now lives in its manifest at `services/<name>/service.yml` under `runtime_sc:`, `runtime_adaptive:`, `runtime_deps:` blocks; the stack-wide tier ordering moved to `services/globals/service.yml` under `runtime_dependency_tiers:`. A new `bootstrapper/services/sc_synthesizer.py` concatenates these slices into the dict shape consumers (`service_config.py`, `source_validator.py`, `dependency_manager.py`, `ui/state_builder.py`, `wizard/llm_steps.py`) used to load from YAML. `ConfigParser.load_yaml_config()` now calls the synthesizer.
 - **Each service is now a folder** (`services/<name>/`) containing `service.yml` (manifest — env vars, source variants, image refs, dependencies, plus per-source bootstrapper runtime data under `runtime_sc:`) and `compose.yml` (Compose fragment). 24 manifests total — 21 container-backed + 3 virtual (cloud-providers, tts-provider, globals). Schema-validated against `bootstrapper/schemas/service.schema.json`.
 - **`docs/CONTRIBUTING-services.md`** documents how to add a new service.
 
-### 1.168. Added (config modularization safety net)
+### 1.169. Added (config modularization safety net)
 - **`bootstrapper/services/manifest_validator.py`** — 8 cross-manifest checks (duplicate env vars, duplicate containers, dangling dependencies, undeclared exports/effects, source-var consistency, unknown consumer references). Runs in CI.
 - **`bootstrapper/services/env_assembler.py`** — pure-function .env.example assembler from manifests (library-only).
 - **`bootstrapper/tools/validate_fragments.py`** — `python -m tools.validate_fragments` CLI entry.
@@ -2657,22 +2675,22 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **`.github/workflows/services-lint.yml`** — three CI jobs: `lint` (manifest validator + unit tests), `compose-equivalence` (rendered byte-equiv + source-permutation matrix), and `audit-scripts` (docs drift + doc-links + compose-source-deps + Kong routes + research-schema).
 - **`scripts/check-compose-source-deps.py`** updated to render compose via `docker compose config` so it sees the merged shape rather than only the thin include shell.
 
-### 1.169. Added (Hermes Agent — auto-pick default model, embedded Chat tab, dual Ollama aliases in LiteLLM)
+### 1.170. Added (Hermes Agent — auto-pick default model, embedded Chat tab, dual Ollama aliases in LiteLLM)
 - **`hermes-init` auto-picks `HERMES_DEFAULT_MODEL` when blank** — without a default, Hermes's rendered `config.yaml` had `model.default: null`, every dispatch 500'd, and Open WebUI's `hermes-agent` proxy route returned errors that looked like "Hermes can't see any models". The init script now queries `http://litellm:4000/v1/models` and picks the first match from a priority list (`ollama/qwen3.6:latest` → `claude-sonnet-4-6` → `claude-opus-4-7` → `gpt-5` → `gpt-5-codex` → `gpt-5-mini` → first-non-`hermes-agent` fallback). Cheapest-local-first, then big-context-cloud. Choice is logged in the init log for traceability. Operator override via `HERMES_DEFAULT_MODEL` in `.env` is preserved verbatim (auto-pick only fires when blank).
 - **Ollama models now registered under bare model_name in LiteLLM (in addition to the prefixed form)** — `litellm-init/scripts/init.py:render_model_list` was emitting `model_name: ollama/{name}` for Ollama rows while cloud providers used bare names (`gpt-5`, not `openai/gpt-5`). When a client like Hermes Agent strips the `ollama/` prefix on outbound (treating it as a provider hint) and forwards `qwen3.6:latest` to LiteLLM, the gateway 400'd with `Invalid model name`. Each Ollama row now emits **two** `model_list` entries pointing at the same upstream — `ollama/{name}` (kept for backwards compat: `backend`'s `LITELLM_EMBEDDING_MODEL=ollama/nomic-embed-text`, `weaviate-init`'s `/shared/weaviate-config.env`) plus bare `{name}` (for prefix-stripping clients). Both names route through the same `litellm_params`, so latency/spend tracking stays single-counted.
 - **Embedded Chat tab in the Hermes dashboard** — set `HERMES_DASHBOARD_TUI=1` (now the default) to expose the upstream-supported `/chat` route + `/ws/chat` WebSocket inside the dashboard, with a PTY-backed `hermes --tui` session as the backing terminal. Users can talk to the agent directly from the web UI without round-tripping through Open WebUI / curl. Documented in [upstream docs](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard); the `ptyprocess` extra ships in `nousresearch/hermes-agent:latest`. Flip to `0` in `.env` for a read-only dashboard.
 
-### 1.170. Added (Ollama wizard step — search box, MLX badge, cloud-only filter, tag column alignment)
+### 1.171. Added (Ollama wizard step — search box, MLX badge, cloud-only filter, tag column alignment)
 - **Inline search box** above the filter-chip row on the Ollama models step: a 1-cell `Input` (placeholder `Tab or /  to filter models by name…`) that narrows the visible list by case-insensitive substring match against the model name. `Tab`, mouse click, and `/` all focus it; `Tab`, `Enter`, or `Esc` return focus to the option list. The substring filter STACKS with the chip filter — both must match for a row to render. Lives as a persistent `Input` on `PromptPanel` (mounted once, display toggled) to dodge a `DuplicateIds` race on the splash → real-options re-render that the lazy-fetch flow triggers for `options_provider` steps. Focus is explicitly parked on the option list immediately after mount so a freshly-mounted Input never swallows a Space/`j`/`k` the user thought was driving the cursor; the input lights up in bold cyan-on-tinted-bg when it actually has focus.
 - **Keystroke routing while search is focused** — `WizardScreen.check_action` whitelists `back` (Esc), `quit_wizard` (Ctrl+Q), `move` (arrow keys), and `toggle_search_focus` (Tab); every other priority-binding (`f`, `a`, `e`, `w`, `i`, `space`, vim-style `j`/`k`) is suppressed so the keystrokes land in the Input as text. The `j`/`k` bindings were split off into a new `vim_move` action specifically so they can be suppressed independently of the arrow-key `move` action. Enter on the focused search input unfocuses (via `PromptPanel.on_input_submitted`) instead of confirming the whole step.
 - **`[mlx]` capability badge** — Apple-Silicon-optimised MLX variants are now flagged per-leaf in the variant tree. New parser regex `_VARIANT_MLX_RE` in `bootstrapper/utils/ollama_library.py` detects the upstream `border-neutral-600 … MLX` chip on each variant block of `ollama.com/library/{model}`; `OllamaVariant.mlx: bool` plus the existing `capabilities` property surface the tag. `mlx` is added to `_PER_VARIANT_CAPS` in `prompt_panel.py` so it stays per-variant (NOT inherited from parent to all leaves) since only specific quant tags carry it.
 - **Capability column alignment** — capability tags now render in a fixed canonical column order (`embedding · thinking · vision · tools · audio · mlx`) with reserved per-slot widths; absent tags reserve their column so the same capability lands at the same horizontal position across every visible row. Status tags (`pulled` / `library` / `legacy` / `default`) follow with variable width. Start column is computed dynamically by `PromptPanel._mount_visible_rows` — it walks the visible row set, finds the longest prefix+label content, and passes that column to every `OptionRow` so even outlier-length variants like `qwen3.6:35b-a3b-coding-mxfp8 (38GB · 256K ctx)` keep the tag block flush with shorter siblings. Narrow terminals (< 100 cells for parents, < 130 for leaves) fall back to inline variable-width tags to avoid pushing the pull-count column off-screen.
 - **Ollama Cloud-exclusive models filtered out** — the live listing-page scrape now flags entries that carry the `cloud` chip AND publish no `x-test-size` variants (e.g. `glm-5`, `minimax-m2`, `kimi-k2`, `deepseek-v4-pro`, …). These cannot be `ollama pull`-ed, so the wizard drops them from the multiselect before render and writes `[info/ollama-fetch] excluded N cloud-only Ollama Cloud model(s) — not pullable: …` to the session log. Hybrid models that publish both cloud and pullable local variants (`gemma3`, `gpt-oss`, `qwen3-coder`, `deepseek-v3.1`, …) keep `cloud_only=False` and remain in the list with their local variants intact. New field `OllamaLibraryEntry.cloud_only: bool`; new regex `_CLOUD_BADGE_RE`; filter applied in `bootstrapper/wizard/llm_steps.py:_fetch_ollama_options`.
 
-### 1.171. Added (env-file backfill helper)
+### 1.172. Added (env-file backfill helper)
 - **`backfill_missing_env_vars()` on `GenAIStackStarter`** — appends keys present in `.env.example` but missing from the user's `.env`, preserving every existing value. Catches the upstream-merge case where new services land in `.env.example` (MinIO, Hermes, Speaches, Chatterbox, Whisper.cpp) but the user's pre-existing `.env` predates the merge; without backfill, `docker compose up` failed with `service "minio" has neither an image nor a build context specified` because `${MINIO_IMAGE}` was empty. Preserves the source file's section organisation — missing vars are emitted under their original `# === SECTION ===` heading with their immediate context comments intact, ordered by where they appear in `.env.example`. Idempotent; called four times (once at every entry to the `setup_env_file` pipeline + a final defensive call before `docker compose up` so any intermediate write that drops keys is recovered).
 
-### 1.172. Fixed (service startup)
+### 1.173. Fixed (service startup)
 - **`speaches` restart loop** — the `PRELOAD_MODELS` env in `docker-compose.yml` was a comma-separated CSV (`hexgrad/Kokoro-82M,Systran/faster-distil-whisper-large-v3`), but Speaches types the field as `list[str]` on a `pydantic_settings.BaseSettings` model whose `EnvSettingsSource` decodes complex fields via `json.loads`. The CSV blew up with `JSONDecodeError: Expecting value`. Switched to a JSON-array literal `'[]'` (empty) — the names Speaches expects in `PRELOAD_MODELS` are internal `executor_registry` ids (e.g. `kokoro`), not the HuggingFace ids we keep in `SPEACHES_TTS_MODEL`/`SPEACHES_STT_MODEL` (those go on the request, not the preload). Empty preload matches the existing "lazy-loads on first /v1/audio/* request" comment; users wanting preload can edit the line directly with registry ids.
 - **`hermes` healthcheck failing** — the historic `wget -q -O- http://127.0.0.1:8642/v1/models …` probe exited `wget: not found`, and the obvious python fallback hit `python: not found` (the image only ships `python3`). Verified the image actually does ship `curl` (the previous compose comment was wrong on both counts). Switched to `curl --fail --silent --show-error -H "Authorization: Bearer $$API_SERVER_KEY" http://127.0.0.1:8642/v1/models`. Container now `(healthy)`.
 - **`hermes-init` was a no-op** — the compose block mounted `./hermes-init/scripts:/scripts:ro` + `./hermes-init/templates:/templates:ro` against an `alpine:latest` image but had **no `entrypoint` or `command`** — the container started, found nothing to run, exited 0 in ~150ms, and `docker compose ps` reported `Exited (0)` looking exactly like a successful init. `/opt/data/config.yaml` was never rendered; `hermes` then fell back to its image's bundled default (`provider: openrouter, default: anthropic/claude-opus-4.7`) and 401-spammed the log indefinitely because `OPENROUTER_API_KEY` was empty. Added `entrypoint: ["/scripts/init-hermes.sh"]` matching the existing `weaviate-init` / `openclaw-init` pattern. The script now actually runs, `/opt/data/config.yaml` renders against the LiteLLM-routed template, no more 401s.
@@ -2680,12 +2698,12 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **`supabase-realtime` libcluster spam every 5 seconds** — the upstream `supabase/realtime:v2.33.72` image hardcodes `Cluster.Strategy.DNSPoll` (the `fly6pn` topology) and ignored our `LIBCLUSTER_STRATEGY` / `LIBCLUSTER_TOPOLOGIES` overrides. With no `DNS_NODES` env set, libcluster logged `query or basename param is invalid: query: nil` on a 5-second cadence. Pointing `DNS_NODES` at the container's own hostname created a different warning (`unable to connect to :realtime@<container-ip>` — Erlang node mismatch). Final fix: `DNS_NODES: supabase-realtime-noop.invalid` — the `.invalid` TLD (RFC 6761) returns NXDOMAIN, libcluster's empty-peer-list path is silent, the env var is set so libcluster considers itself "configured". Dropped the two ineffective `LIBCLUSTER_*` vars.
 - **`n8n` / `n8n-worker` migration race** — both containers were depending on `supabase-db-init: service_completed_successfully` but not on each other, so both started concurrently and both ran TypeORM migrations against the shared `n8n` schema. One container would lose on `CreateWorkflowHistoryTable1692967111175` with `duplicate key value violates unique constraint "pg_type_typname_nsp_index"`, retry, succeed; while n8n recovered automatically the boot logs printed scary `error running database migrations` lines on every cold start. Added a healthcheck to `n8n` (`wget -qO- http://127.0.0.1:5678/healthz`, 15s interval / 90s start_period) and changed `n8n-worker.depends_on.n8n` from `service_started` to `service_healthy` so the worker waits for n8n's migration phase to finish before starting its own.
 
-### 1.173. Added (MinIO artifact-tier object storage)
+### 1.174. Added (MinIO artifact-tier object storage)
 - **MinIO object storage**: S3-compatible artifact-tier storage service with five pre-provisioned buckets (`comfyui`, `backend`, `n8n`, `jupyter`, `docling`) and scoped service-account credentials surfaced as `MINIO_<NAME>_ACCESS_KEY` / `MINIO_<NAME>_SECRET_KEY` in `.env`. Admin console at `http://localhost:63031`; S3 API at `http://localhost:63030`. Consumer code is unchanged in this release; each consumer integration ships in a dedicated follow-up. Pinned to the dated Docker Hub release tag `minio/minio:RELEASE.2025-09-07T16-13-09Z`; note that the upstream service-account-CVE fix `RELEASE.2025-10-15T17-29-55Z` is published on GitHub only and not yet on Docker Hub — operators handling untrusted credentials should rebuild from source or pin a later tag once available.
 - **`minio-init` provisioner**: one-shot container running `minio/mc` that creates buckets, named IAM policies (`<consumer>-policy`), and service accounts on every `./start.sh`. Idempotent — re-runs are no-ops.
 - **Bootstrapper integration**: `MINIO_PORT=63030` / `MINIO_CONSOLE_PORT=63031` registered in `PortManager.PORT_MAPPING` (recomputed correctly under `--base-port`); `KeyGenerator` extended with `MINIO_ROOT_PASSWORD` + 10 per-consumer service-account credentials (idempotent — hand-edits stick); `--minio-source [container|disabled]` Click flag plumbed through `SourceOverrideManager`; wizard surfaces MinIO as a DATA-tier service via the manifest at `services/minio/service.yml` (synthesized by `bootstrapper/services/sc_synthesizer.py`) plus display-name / description / tag registrations.
 
-### 1.174. Added (Hermes Agent runtime)
+### 1.175. Added (Hermes Agent runtime)
 - **New `hermes` service** (`nousresearch/hermes-agent:latest` — upstream publishes only `latest` + immutable `sha-<commit>` tags, no semver; production should pin to a specific sha per `services/hermes/README.md`) — programmable AI agent runtime by Nous Research. Promoted from `docs/ROADMAP.md` Tier 2 to shipped. Container by default (3 SOURCE modes: `container`, `localhost`, `disabled`), ~2-4 GB RAM, no GPU. File-based persistence under `/opt/data` (`hermes-data` named volume) — no Postgres / Redis dependency. OpenAI-compatible API on port 8642 → host `63028`; web dashboard on 9119 → host `63029`, Kong-aliased as `hermes.localhost`.
 - **New `hermes-init` companion** — renders `/opt/data/config.yaml` from environment before Hermes starts. Wires LiteLLM (`http://litellm:4000/v1`) for reasoning, Speaches / Chatterbox / Parakeet via OpenAI-compatible base-URL overrides for voice (`TTS_ENDPOINT` / `STT_ENDPOINT`), ComfyUI via a skill-override file at `/opt/data/skills/creative-comfyui-host-override.md`, and SearXNG for web search. Empty endpoint → block omitted from `config.yaml` (graceful degradation when a dependency is disabled). Bootstraps deps via inline `apk add` then re-execs under bash (matches openclaw-init / weaviate-init convention).
 - **`hermes-agent` registered in the LiteLLM model_list** — `litellm-init/scripts/init.py` appends a `hermes-agent` row pointing at `${HERMES_ENDPOINT}/v1` when `HERMES_SOURCE != disabled`. Consequence: Open WebUI, n8n, backend, jupyterhub, openclaw all see the new model automatically with no per-consumer wiring.
@@ -2696,7 +2714,7 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **docs**: new `services/hermes/README.md` (full service doc), updated `docs/README.md`, `README.md` (5 OpenClaw parallels), `docs/deployment/ports-and-routes.md` (+rows for 63028/63029 and `hermes.localhost`), `docs/deployment/source-configuration.md` (table rows + dedicated subsection), `docs/quick-start/interactive-setup-wizard.md` (wizard table row), `services/kong/README.md` (route + curl example), `services/ollama/README.md` (LiteLLM consumer list), `services/litellm/README.md` / `services/openclaw/README.md` / `services/open-webui/README.md` (cross-references), `docs/ROADMAP.md` (marks Tier-2 entry as shipped, corrects the wrong Supabase-dependency claim — Hermes is file-based).
 - **runtime verification**: pulled and booted `nousresearch/hermes-agent:latest` (multi-arch — `linux/amd64` + `linux/arm64`); image is **~5.66 GB** on disk; OpenAI-compatible API responds at `/v1/models` with the bundled `hermes-agent` model id; 87 default skills sync into `~/.hermes/skills/` on every start; entrypoint refuses `HERMES_UID=0` (default `10000` is safe).
 
-### 1.175. Added (Ollama multi-select enrichments — capability tags, sizes, recency-bucket sort, filter chips)
+### 1.176. Added (Ollama multi-select enrichments — capability tags, sizes, recency-bucket sort, filter chips)
 - **Capability tag badges on every Ollama row** — `[embedding]`, `[thinking]`, `[vision]`, `[tools]`, `[audio]`. Scraped from each model card's `x-test-capability` spans on `ollama.com/library`. Curated catalog `embeddings` (plural) aliases to the live-scrape `embedding` (singular) so a row never shows both.
 - **Single-select filter chip row** above the multi-select: `Filter  [ALL]  embedding  thinking  vision  tools  audio`. Click a chip to narrow the list; click `ALL` to reset. View-only — rows checked under one filter survive switching to another. New widget `bootstrapper/ui/textual/widgets/multiselect_filter_chips.py`; new fields `PromptStep.filter_tags`, `PromptPanel._filter_tag` / `_visible_indices`.
 - **Approximate disk-size column** — every variant rendered as Q4_K_M footprint (`8b → 4.8GB`, `70b → 42GB`, `0.6b → 360MB`, `270m → 162MB`) via `option_row._approx_size`. Computed from Ollama's published parameter count (`params × 0.6 bytes/param` rule of thumb; real downloads are ±10–15% of the figure shown). On narrow terminals the column compresses to the first three variants + `…`, then drops entirely below the pull-count column.
@@ -2704,7 +2722,7 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **Two-bucket recency sort** — models updated within 365 days come first, sorted by total pulls descending; everything older gets a muted `[legacy]` badge and drops below in the same sort. This demotes year-old hits (`llama3.1` at 114M pulls) below newer-but-popular models (`deepseek-r1`, `gemma3`, `qwen3`). Threshold lives at `llm_steps._LEGACY_THRESHOLD_DAYS = 365`. `updated X ago` annotation appears in the hint line.
 - **`OllamaLibraryEntry` dataclass replaces the names-only scrape** — `name`, `capabilities`, `sizes`, `pulls`, `updated`, `age_days`. Parser anchors on Alpine.js `x-test-*` test attributes (stable). `list_library_models()` removed (no callers).
 
-### 1.176. Added (wizard rework — DB-driven model_list, live model lists, multi-select prompts)
+### 1.177. Added (wizard rework — DB-driven model_list, live model lists, multi-select prompts)
 - **`public.llms` is now the single source of truth for the LiteLLM `model_list`**. Removed the hardcoded model lists in `bootstrapper/utils/litellm_config_generator.py`; the bootstrapper now writes only a stub `volumes/litellm/config.yaml` with empty `model_list`. The real config is rendered on every `docker compose up` by `litellm-init/scripts/init.py` from `SELECT … FROM public.llms WHERE active = true`.
 - **`llm-catalog-init` container** (`llm-catalog-init/Dockerfile` + `scripts/sync-catalog.py`, python:3.12-slim): runs between `supabase-db-init` and `ollama-pull`/`litellm-init`. UPSERTs the curated catalog from `bootstrapper/utils/llm_catalog.py` and applies wizard / `.env`-driven model selections (`OPENAI_USER_MODELS`, `ANTHROPIC_USER_MODELS`, `OPENROUTER_USER_MODELS`, `OLLAMA_USER_MODELS`, `OLLAMA_CUSTOM_MODELS`). Pre-flight check verifies the `(provider, name)` unique constraint exists.
 - **`bootstrapper/utils/llm_catalog.py`**: single source of truth for curated cloud + Ollama catalog. Each entry carries capability flags (`content`, `structured_content`, `vision`, `embeddings`), `context_window`, `default_active`. Cloud catalog includes gpt-5 family, claude-4.x line, and OpenRouter aggregator routes.
@@ -2727,13 +2745,13 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **Validator auto-disable for `enabled+empty-key`**: `services/source_validator.py:_enforce_cloud_keys_present` flips `CLOUD_*_SOURCE=enabled` back to `disabled` when the matching `*_API_KEY` is empty (with a warning), guarding against unusable launch state from hand-edited .env or CLI-flag misuse.
 - **Cloud `/v1/models` fallback diagnostics**: `bootstrapper/utils/cloud_models.py` now accepts an `on_warn` callback. The wizard registers a sink (`integration._set_wizard_warn_sink`) that routes failures into `_safe_log` so they land in both the log pane and `/tmp/atlas-launch-*.log` — e.g. `[warn/openai-fetch] live /v1/models failed — falling back to catalog (cause: HTTP 401 Unauthorized)`. Distinguishes empty-key, transport, JSON, missing-`data[]`, and post-filter empty-set failures.
 
-### 1.177. Changed (wizard rework)
+### 1.178. Changed (wizard rework)
 - **Wizard step ordering**: cloud secret + multi-select pairs (OpenAI / Anthropic / OpenRouter) are spliced **immediately after the LLM Engine + Ollama steps**, not after every other service-source step. New flow: base port → ComfyUI → LLM Engine → Ollama variants → cloud key+models pairs → other services → cold/hosts/confirm.
 - **Cloud providers re-classified as APIs, not services**: removed from `bootstrapper/ui/state_builder.py:_SERVICES`. They no longer appear in the services grid, footer counts, or no-TUI pre-launch summary table — instead they render in their own "Cloud APIs" block.
 - **Catalog mount path**: `llm-catalog-init` mounts `./bootstrapper/utils:/catalog:ro` (sibling to `/scripts`) instead of layering `llm_catalog.py` inside the `/scripts:ro` mount. Avoids a Docker file-on-dir overlay edge case that silently broke first-run launches.
 - **`docker compose` flags in wizard launch**: `--ansi=always` → `--ansi=never`. The animated TTY-based progress is incompatible with our Popen-piped stdout (compose reports `failed to get console: provided file is not a console` and exits 1). Per-service coloring is now synthesized client-side via `palette.color_for_source` instead of relying on compose's embedded ANSI codes.
 
-### 1.178. Fixed (wizard regressions discovered + fixed during this round)
+### 1.179. Fixed (wizard regressions discovered + fixed during this round)
 - **`DuplicateIds` crash on consecutive secret prompts** (`prompt_panel.py`): widgets were re-mounted per step but `Container.remove_children()` is async — the previous step's `Input(id="secret-input")` was still in the node list when the next step's mount tried to register the same id. Switched to widget-reuse: persistent `_number_input` / `_secret_input` / hint Statics created once and re-shown per step.
 - **`NameError: PromptOption is not defined`** in `wizard_screen.py:_load_current_step` splash branch: missing import, now added.
 - **`'NoneType' object has no attribute '__dict__'`** in `llm-catalog-init`'s `load_catalog()`: Python 3.12's `@dataclass` decorator (with `from __future__ import annotations`) calls `dataclasses._is_type` → `sys.modules.get(cls.__module__)`. Module loaded via `importlib.util.spec_from_file_location()` wasn't registered. Fix: `sys.modules["llm_catalog"] = module` before `exec_module()`.
@@ -2752,7 +2770,7 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **Setup-phase wizard warnings dropped from session log**: the launch-log file was only opened during the setup→launch transition, so cloud `/v1/models` fetch failures during the wizard's setup phase were silently lost — contradicting troubleshooting docs that promised the file captured everything. Tee now opens at wizard start; the announce-in-pane line moves to the launch transition (when the pane exists). The file is also closed on setup-phase quit.
 - **Migration constraint check could falsely no-op**: `05a-public-tables-migrations.sql` and `sync-catalog.py:verify_constraint` checked only `pg_constraint.conname`; if any other table somehow had the same constraint name, the guard would skip the ALTER. Both call sites now scope by `conrelid = 'public.llms'::regclass`.
 
-### 1.179. Changed
+### 1.180. Changed
 - **Validator side effects split off**: `SourceValidator.validate_all_sources()` is now read-only. The auto-disable-cloud-providers-with-missing-keys behaviour moved to `enforce_runtime_invariants()` — `start.py` calls both, but pure-tooling callers (linters, dry-runs) can validate without mutating .env.
 - **Cloud APIs overview live-updates on multi-select 0-selection**: unchecking every model in a cloud provider's multi-select now flips the matching Cloud APIs row to `disabled` immediately (matching the `_selections_to_args` policy that treats empty CSV as "user wants this provider off"), instead of waiting until launch to surprise the user.
 - **Command summary covers cloud + Ollama selections**: `--cloud-X-source enabled/disabled`, `--X-api-key <set>` (sanitized; never the raw key), `--X-models N selected (...)`, `--ollama-models`, `--ollama-custom-models`. The "equivalent CLI" preview is equivalent again.
@@ -2771,24 +2789,24 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **Single unified Ollama models picker with `[pulled]` / `[library]` badges** — replaces the previous two-page `pulled` + `library` split, which produced two near-duplicate multi-select pages for `ollama-localhost` / `ollama-external` users (the library was a strict superset of `/api/tags`). Now: container modes show the library scrape only; localhost/external show a merged view where `[pulled]` rows are on disk on the user's upstream and `[library]` rows are catalog entries that need a manual `ollama pull`. Step constants `OLLAMA_LIVE_TITLE` and `OLLAMA_CATALOG_TITLE` collapse into a single `OLLAMA_MODELS_TITLE`.
 - **Multi-select scrolling fix** — the option-list container is now a `VerticalScroll` with `max-height: 18` and the focused row is `scroll_visible()`'d after every `move()`. Previously a 230-entry library scrape grew the panel past the viewport and pressing Down moved the cursor off-screen invisibly.
 
-### 1.180. Deferred / known limitations
+### 1.181. Deferred / known limitations
 - **`utils/cloud_models.py --check` self-test CLI** — useful for triage; not shipped this round.
 
-### 1.181. Cleanup
+### 1.182. Cleanup
 - **Dropped 7 non-default Ollama catalog entries** (`llama3.3`, `llama3.2`, `mistral-small`, `phi4`, `qwen3.6:7b`, `deepseek-r1`, `mxbai-embed-large`). Superseded by the live `ollama.com/library` scrape; never sat in `default_active`. `OLLAMA_DEFAULT_CATALOG` now contains only the default-active trio.
 - **Removed dead `_changed_count` method** (`wizard_screen.py`) — defined but never called from anywhere. Pre-existing dead code.
 - **Removed dead `ensure-litellm-db.sh`** — replaced by `litellm-init/scripts/init.py`.
 - **Removed `LITELLM_INIT_IMAGE` from `.env.example`** — no longer used since `litellm-init` builds from a Dockerfile instead of `image:`.
 - **Fetch-label deduplication** — the wizard's `Fetching <provider> models…` status row now strips the redundant " Cloud" suffix from cloud provider names.
 
-### 1.182. Added
+### 1.183. Added
 - **LiteLLM Gateway** (mandatory core service): always-on OpenAI-compatible front door for every LLM provider. Pinned image `ghcr.io/berriai/litellm:v1.83.14-stable.patch.2`, listening on port 63012 (the slot formerly held by Ollama). Persistence on a dedicated `litellm` database in the existing Supabase Postgres (Prisma migrations run automatically); response caching + rate-limit state in Redis.
   - **Wizard model**: LiteLLM is a locked tile (no source toggle). A separate **LLM Engine** tile single-selects the local Ollama upstream (`ollama-container-cpu`, `ollama-container-gpu`, `ollama-localhost`, `ollama-external`, `none`). Three new **Cloud APIs** (OpenAI / Anthropic / OpenRouter) appear in a dedicated overview block rather than as service tiles — each is a secret-input + multiselect pair that toggles the corresponding provider in LiteLLM's `model_list`. Bootstrapper refuses to start when no upstream is configured (engine=`none` + every cloud provider disabled).
   - **CLI flags**: `--llm-provider-source` enum dropped `api`/`disabled`, added `none`. New flags `--cloud-openai-source`, `--cloud-anthropic-source`, `--cloud-openrouter-source` (each `enabled`/`disabled`).
   - **Master key**: bootstrapper auto-generates `LITELLM_MASTER_KEY` (`sk-…`) on first start and never overwrites it on subsequent runs.
   - **Documented backup**: Portkey AI Gateway (Apache-2.0) — switch path noted in `services/litellm/README.md`.
 - **`vllm-container-gpu` upstream** is deferred to a follow-up plan (tracked in ROADMAP).
-### 1.183. Changed (LiteLLM migration)
+### 1.184. Changed (LiteLLM migration)
 - **Consumer env-var rename (breaking)**: every service that talks to an LLM now reads `LITELLM_BASE_URL` + `LITELLM_API_KEY`. The legacy `OLLAMA_BASE_URL` / `OLLAMA_ENDPOINT` env vars are removed from all consumer compose blocks (`open-web-ui`, `backend`, `n8n`, `n8n-worker`, `n8n-init`, `jupyterhub`, `local-deep-researcher`, `openclaw-gateway`, `weaviate-init`, `weaviate`).
 - **`LLM_PROVIDER_PORT` renamed to `LITELLM_PORT`** (same default 63012). `bootstrapper/core/port_manager.py` and `.env.example` updated.
 - **Backend memory service refactored** (`backend/app/memory_service.py`, `memory_store.py`): switched from Ollama's native `/api/generate` + `/api/embeddings` to LiteLLM's OpenAI-compatible `/v1/chat/completions` + `/v1/embeddings`. All 7 Weaviate collection schemas migrated from `text2vec-ollama` (with `apiEndpoint`) to `text2vec-openai` (with `baseURL` pointed at LiteLLM). New helper `_litellm_complete()` consolidates the chat completion call sites.
@@ -2825,7 +2843,7 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **ROADMAP additions**: Tier 1 — unified LLM gateway (LiteLLM, or equivalent) and per-service configuration modularization. Tier 2 — Hermes Agent (Nous Research's programmable agent runtime, with Open WebUI integration link).
 - New documentation structure under `/docs/`, ROADMAP.md, and this CHANGELOG.
 
-### 1.184. Changed
+### 1.185. Changed
 - **Loosened `depends_on` edges for SOURCE-replaceable providers**: `n8n`, `n8n-worker`, and `jupyterhub` no longer hard-depend on `weaviate` (`jupyterhub` also no longer hard-depends on `ollama` or `neo4j-graph-db`); `weaviate` no longer hard-depends on `multi2vec-clip`. `n8n` / `n8n-worker` / `jupyterhub` now depend on `supabase-db-init` instead of `supabase-db`. Optional consumers use `WEAVIATE_URL` (and equivalent endpoint env vars) plus runtime readiness checks instead of static compose dependencies — the stack still starts when those providers are disabled, localhost-backed, or externalized.
 - **Weaviate module configuration now `.env`-driven**: `WEAVIATE_ENABLE_MODULES` and `CLIP_INFERENCE_API` are exposed in `.env.example` and consumed by the Weaviate compose service. Disabling the CLIP provider no longer requires editing `docker-compose.yml` — set `MULTI2VEC_CLIP_SOURCE=disabled`, drop `multi2vec-clip` from `WEAVIATE_ENABLE_MODULES`, and clear `CLIP_INFERENCE_API`.
 - **Service-definition consolidation**: `bootstrapper/ui/state_builder.all_services()` is the single source of truth for the canonical service list, consumed by both the Textual `ServiceTable` and the `--no-tui` summary table. No duplicated inline service tables.
@@ -2833,16 +2851,16 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **README.md restructuring** for better usability and new documentation organization / navigation.
 - **Architecture diagrams updated** to include JupyterHub and other recently added services.
 
-### 1.185. Removed
+### 1.186. Removed
 - **Legacy Rich-based bootstrapper UI** (the Rich `Live` + `readchar` wizard, the `Textual` post-wizard log app, and all of their supporting modules): `bootstrapper/ui/presentation_app.py`, `bootstrapper/ui/log_stream_app.py`, `bootstrapper/ui/select_widget.py`, `bootstrapper/ui/number_widget.py`, `bootstrapper/ui/status_ribbon.py`, `bootstrapper/ui/log_pane.py`, `bootstrapper/ui/info_box.py`, `bootstrapper/ui/palette.py`, `bootstrapper/ui/logo.py`, and `bootstrapper/wizard/tui_wizard.py`. The `ATLAS_USE_LEGACY_WIZARD=1` env-var fallback that briefly let users opt back into the Rich Live wizard during the migration is also gone.
 - **Earlier obsolete bootstrapper modules folded into the wizard rebuild**: `wizard/interactive_wizard.py`, `wizard/prompts.py`, `wizard/ui_renderer.py`, `utils/scroll_pin.py`, `utils/ansi_filter.py`, `ui/services_poller.py`, `ui/confirm_widget.py`. Pruned dead methods (`up_with_build`, `set_service_state`, `apply_service_snapshot`, `clear_status`, `prompt_confirm`), dead palette helpers (`style_for_service_state`, `dot_for_service_state`, `DOT_STARTING`, `DOT_OFF`, `DOT_UNHEALTHY`, `COLOR_STARTING`), and unused state constants / `ServiceEntry` fields (`SERVICE_STATE_*`, `GROUP_*`, `CATEGORY_*`, `state`, `group`, `category`, `is_default_source`, `endpoints`).
 
-### 1.186. Fixed
+### 1.187. Fixed
 - **Kong route generator now honors `COMFYUI_LOCALHOST_URL`**: `bootstrapper/utils/kong_config_generator.py` previously hardcoded `http://host.docker.internal:8000/` for the `comfyui-api` route under `COMFYUI_SOURCE=localhost`, ignoring any `.env` override. It now parses `COMFYUI_LOCALHOST_URL` and uses its host:port for both the Kong service URL and the localhost reachability probe (matching the openclaw generator's per-service env-var pattern).
 - **LiteLLM crash-loop on first launch via the TUI**: the wizard pipeline (`bootstrapper/ui/textual/screens/wizard_screen.py`) never called `generate_litellm_configuration`, so `volumes/litellm/config.yaml` was never written before `docker compose up`. Docker's bind-mount then created an empty *directory* at the source path, and the LiteLLM container died with `IsADirectoryError: '/app/config.yaml'`. The wizard's `steps` list now runs the generator right after Kong (matching the linear `start.py` flow), and `LiteLLMConfigGenerator.write_config` self-heals: if the destination already exists as an empty directory, it `rmdir`s it and writes a real file. Non-empty directories raise a clear error rather than silently no-oping.
 - **Supabase keys now auto-generate on first launch without `--cold`**: `bootstrapper/start.py:validate_supabase_keys` previously generated missing JWT keys only on cold start, leaving fresh-clone users with an opaque "Missing Supabase keys" error on no-flag `./start.sh`. It now auto-generates whenever all three of `SUPABASE_JWT_SECRET` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_KEY` are blank — the fresh-clone case. Mixed state (some set, some blank) is detected and refused with a directive to run `./bootstrapper/generate_supabase_keys.sh`, since the generator HMAC-signs the anon and service keys with the JWT secret and silently rewriting all three would clobber hand-pasted values. Cold start is unaffected (it wipes `.env` first, so its keys come back via the same all-blank path).
 
-### 1.187. Dependencies
+### 1.188. Dependencies
 - Added `textual >= 0.85` — owns the entire wizard / launch / log-streaming experience.
 - Removed `readchar` (was used by the now-deleted Rich Live prompt widgets).
 - Removed `InquirerPy` (replaced earlier in this `[Unreleased]` cycle).

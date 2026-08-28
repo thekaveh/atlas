@@ -5,16 +5,22 @@ FROM ${BASE_IMAGE}
 
 WORKDIR /app
 
-# Install uv (pinned so the dependency installer itself is deterministic —
-# an unpinned uv resolves requirements differently across releases).
-RUN pip install --no-cache-dir uv==0.11.19
+# Apply published Debian security fixes that postdate the pinned Python image.
+# Unfixed upstream findings remain visible in the scheduled full-image scan;
+# the required PR gate blocks on vulnerabilities that have a remediation.
+RUN apt-get update && \
+    apt-get upgrade --yes && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better layer caching
 COPY ./app/requirements.txt ./app/requirements-locked.txt ./
 
-# Install dependencies using uv with --system flag
-RUN uv pip install --system --no-cache-dir \
-      -r requirements.txt -c requirements-locked.txt
+# Install dependencies with a deterministic uv version, then remove the build
+# installer so its Rust dependency graph is not shipped in the runtime image.
+RUN pip install --no-cache-dir uv==0.11.19 && \
+    uv pip install --system --no-cache-dir \
+      -r requirements.txt -c requirements-locked.txt && \
+    pip uninstall --yes uv
 
 # Copy application code
 COPY ./app .

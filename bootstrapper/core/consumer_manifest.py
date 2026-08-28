@@ -10,6 +10,7 @@ from typing import Any, Iterable, Mapping
 
 import yaml
 
+from services.manifests import load_yaml_strict
 from utils.atomic_write import assert_safe_env_assignment, env_lines
 
 try:
@@ -657,6 +658,11 @@ def _merge_profile_overrides_block(
         bucket = acc.setdefault(canonical_profile(str(prof_name)), {})
         for field_name, value in fields_raw.items():
             fname = str(field_name)
+            if fname in {"sources", "env"} and not isinstance(value, Mapping):
+                raise ConsumerManifestError(
+                    f"profile_overrides.{prof_name}.{fname} must be a mapping "
+                    f"({origin})"
+                )
             if isinstance(value, Mapping):
                 sub = bucket.setdefault(fname, {})
                 if not isinstance(sub, dict):
@@ -772,7 +778,7 @@ def _load_manifest(path: Path) -> Mapping[str, Any]:
     if not path.is_file():
         raise ConsumerManifestError(f"consumer manifest does not exist: {path}")
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        data = load_yaml_strict(path.read_text(encoding="utf-8")) or {}
     except yaml.YAMLError as exc:
         raise ConsumerManifestError(f"could not parse consumer manifest {path}: {exc}") from exc
     if not isinstance(data, Mapping):
@@ -1967,7 +1973,11 @@ def _parse_host_venv(raw: Any, *, name: str, base_dir: Path, origin: str) -> Ven
         python = f"python{python}"
     return VenvSpec(
         python=python,
-        metal=bool(raw.get("metal", False)),
+        metal=_host_boolean(
+            raw.get("metal", False),
+            label=f"managed_host_services[{name!r}].venv.metal",
+            origin=origin,
+        ),
         requirements=resolved,
         packages=tuple(str(pkg) for pkg in _as_list(raw.get("packages"))),
     )
@@ -2057,6 +2067,31 @@ def _host_workdir(raw: Mapping[str, Any], *, name: str, base_dir: Path) -> Path:
     )
 
 
+def _host_environment(raw: Mapping[str, Any], *, name: str, origin: str) -> dict[str, str]:
+    if "env" not in raw:
+        return {}
+    value = raw["env"]
+    if not isinstance(value, Mapping):
+        raise ConsumerManifestError(
+            f"managed_host_services[{name!r}].env must be a mapping ({origin})"
+        )
+    return {str(key): str(item) for key, item in value.items()}
+
+
+def _host_boolean(value: Any, *, label: str, origin: str) -> bool:
+    if not isinstance(value, bool):
+        raise ConsumerManifestError(f"{label} must be a boolean ({origin})")
+    return value
+
+
+def _host_allow_remote(raw: Mapping[str, Any], *, name: str, origin: str) -> bool:
+    return _host_boolean(
+        raw.get("allow_remote", False),
+        label=f"managed_host_services[{name!r}].allow_remote",
+        origin=origin,
+    )
+
+
 def _parse_host_service(
     raw: Any, *, consumer_name: str, base_dir: Path, origin: str, seen: set[str]
 ) -> HostProcessSpec:
@@ -2084,11 +2119,11 @@ def _parse_host_service(
         port=_parse_host_port(raw.get("port"), name=name, origin=origin),
         workdir=_host_workdir(raw, name=name, base_dir=base_dir),
         bind=str(raw.get("bind") or "127.0.0.1").strip(),
-        env={str(k): str(v) for k, v in (raw.get("env") or {}).items()},
+        env=_host_environment(raw, name=name, origin=origin),
         venv=_parse_host_venv(raw.get("venv"), name=name, base_dir=base_dir, origin=origin),
         install=install,
         health=_parse_host_health(raw.get("health"), name=name, origin=origin),
-        allow_remote=bool(raw.get("allow_remote", False)),
+        allow_remote=_host_allow_remote(raw, name=name, origin=origin),
         owner=consumer_name,
     )
 
@@ -2973,12 +3008,12 @@ def load_consumer_config(
             declared_profile = cprof
             declared_profile_origin = origin
 
-        profile_overrides_block = data.get("profile_overrides") or {}
+        profile_overrides_block = data.get("profile_overrides", {})
+        if not isinstance(profile_overrides_block, Mapping):
+            raise ConsumerManifestError(
+                f"profile_overrides must be a mapping in {manifest_path}"
+            )
         if profile_overrides_block:
-            if not isinstance(profile_overrides_block, Mapping):
-                raise ConsumerManifestError(
-                    f"profile_overrides must be a mapping in {manifest_path}"
-                )
             from services.profiles import (
                 ProfileConfigError,
                 load_profile_bundles,
@@ -2993,17 +3028,6 @@ def load_consumer_config(
                     {str(k): v for k, v in profile_overrides_block.items()},
                     origin=origin,
                 )
-            except (AttributeError, TypeError) as exc:
-                # `_parse_bundle` does `(raw.get("env") or {}).items()` with no
-                # type check, so `env: notamap` or `sources: [FOO=1]` escapes
-                # as a bare AttributeError. This call exists precisely so a
-                # typo fails at manifest load rather than at profile-apply
-                # time — an unhandled traceback out of `./start.sh` is not
-                # that. `load_consumer_config` is unguarded at its call site.
-                raise ConsumerManifestError(
-                    f"profile_overrides in {origin} is malformed: each profile "
-                    f"must map 'env' and 'sources' to mappings ({exc})"
-                ) from exc
             except ProfileConfigError as exc:
                 raise ConsumerManifestError(str(exc)) from exc
             _merge_profile_overrides_block(
@@ -3083,13 +3107,13 @@ def load_consumer_config(
                 if model:
                     record_ollama.append(model)
 
-        custom_nodes_block = data.get("custom_nodes") or {}
+        custom_nodes_block = data.get("custom_nodes", {})
         record_custom_node_files: list[Path] = []
+        if not isinstance(custom_nodes_block, Mapping):
+            raise ConsumerManifestError(
+                f"custom_nodes must be a mapping in {manifest_path}"
+            )
         if custom_nodes_block:
-            if not isinstance(custom_nodes_block, Mapping):
-                raise ConsumerManifestError(
-                    f"custom_nodes must be a mapping in {manifest_path}"
-                )
             for raw_node_file in _as_list(custom_nodes_block.get("comfyui")):
                 node_file = _resolve_existing_file(
                     base_dir,
@@ -3103,7 +3127,13 @@ def load_consumer_config(
                 # non-GitHub repo, unsafe name) fails loud here rather than
                 # surfacing as a missing workflow node at runtime — the same
                 # fail-loud discipline as every other consumer block.
-                for node in parse_custom_nodes_strict(node_file):
+                try:
+                    parsed_nodes = parse_custom_nodes_strict(node_file)
+                except (ValueError, yaml.YAMLError) as exc:
+                    raise ConsumerManifestError(
+                        f"custom_nodes.comfyui file {node_file} is invalid: {exc}"
+                    ) from exc
+                for node in parsed_nodes:
                     all_custom_nodes.append((consumer_name, node))
 
         record_storage = _parse_storage_block(data, consumer_name, manifest_path)

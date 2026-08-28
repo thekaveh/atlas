@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import os
 import shutil
 import time
@@ -28,6 +29,20 @@ from .upstream import DoclingUpstream, UpstreamConversionError
 
 
 SUBMIT_PATH = "/v1/convert/file/async"
+logger = logging.getLogger(__name__)
+
+
+async def _join_cleanup(finish) -> None:
+    task = asyncio.create_task(finish())
+    cancelled: asyncio.CancelledError | None = None
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError as exc:
+            cancelled = exc
+    task.result()
+    if cancelled is not None:
+        raise cancelled
 
 
 class _EphemeralFileResponse(FileResponse):
@@ -59,7 +74,7 @@ class _EphemeralFileResponse(FileResponse):
                 timeout=self._timeout_seconds,
             )
         finally:
-            await self._finish()
+            await _join_cleanup(self._finish)
 
 
 def _positive_int(
@@ -112,7 +127,9 @@ class _AdmissionMiddleware:
         try:
             await self.app(scope, receive, send)
         finally:
-            await self.registry.release_reservation(reservation)
+            await _join_cleanup(
+                lambda: self.registry.release_reservation(reservation)
+            )
 
 
 def create_app(
@@ -184,7 +201,10 @@ def create_app(
             interval = min(60, registry.result_ttl_seconds)
             while True:
                 await asyncio.sleep(interval)
-                await registry.cleanup_expired()
+                try:
+                    await registry.cleanup_expired()
+                except Exception:
+                    logger.exception("Docling adapter result cleanup sweep failed")
 
         sweeper = asyncio.create_task(sweep_expired_results())
         try:
@@ -212,26 +232,27 @@ def create_app(
         reservation = getattr(request.state, "adapter_reservation", None)
         if reservation is None:
             return JSONResponse({"detail": "Adapter admission failed"}, status_code=503)
+        upload_path: Path | None = None
         try:
-            upload_path = await spool_upload(
-                files,
-                max_bytes=maximum_upload,
-                suffix=_safe_suffix(files.filename),
-                directory=root,
-            )
-        except UploadTooLargeError:
-            return JSONResponse({"detail": "Upload is too large"}, status_code=413)
-        except EmptyUploadError:
-            return JSONResponse({"detail": "Upload is empty"}, status_code=400)
-        finally:
-            await files.close()
+            try:
+                upload_path = await spool_upload(
+                    files,
+                    max_bytes=maximum_upload,
+                    suffix=_safe_suffix(files.filename),
+                    directory=root,
+                )
+            except UploadTooLargeError:
+                return JSONResponse({"detail": "Upload is too large"}, status_code=413)
+            except EmptyUploadError:
+                return JSONResponse({"detail": "Upload is empty"}, status_code=400)
+            finally:
+                await _join_cleanup(files.close)
 
-        upload_name = Path(files.filename or "upload.bin").name or "upload.bin"
+            upload_name = Path(files.filename or "upload.bin").name or "upload.bin"
 
-        async def convert(path: Path, name: str) -> bytes | Path:
-            return await provider.convert(path, name, timeout)
+            async def convert(path: Path, name: str) -> bytes | Path:
+                return await provider.convert(path, name, timeout)
 
-        try:
             task_id = await registry.start(
                 reservation,
                 upload_path=upload_path,
@@ -239,7 +260,12 @@ def create_app(
                 worker=convert,
             )
         except BaseException:
-            upload_path.unlink(missing_ok=True)
+            if upload_path is not None:
+                await _join_cleanup(
+                    lambda: registry.abandon_upload(
+                        reservation, upload_path=upload_path
+                    )
+                )
             raise
         return {"task_id": task_id}
 

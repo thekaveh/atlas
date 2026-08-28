@@ -1,5 +1,13 @@
 # Atlas vNext Strategy Report
 
+> **Archived strategy snapshot (July 2, 2026).** This report preserves the
+> evidence and recommendations available on that date; it is not a description
+> of the current repository. The core slices of its five first-wave
+> recommendations have since shipped, while planned follow-ups such as Docling
+> MCP remain tracked; several inventory counts and current-tense gap statements
+> below are intentionally historical. See the [current roadmap](../ROADMAP.md)
+> and generated [service catalog](../services.md) for present status.
+
 ## 1. Executive Summary
 
 Atlas' strategic position is strongest when it is framed as a self-hosted AI engineering platform, not as another chat UI, model runtime, RAG framework, or one-click app launcher. Its durable advantage is the integrated substrate: SOURCE-configurable services, Kong routing, tracks, manifests, generated docs, notebooks, automation, vector and graph stores, object storage, and observability primitives in one repeatable local stack. Its main weakness is that the product surface has not caught up with the platform architecture.

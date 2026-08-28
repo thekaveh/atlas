@@ -17,7 +17,7 @@ services:
           cpus: '${TEI_RERANKER_CPU_LIMIT:-2.0}'
     command:
       - "--model-id=${TEI_RERANKER_MODEL_ID:-mixedbread-ai/mxbai-rerank-base-v1}"
-      - "--revision=${TEI_RERANKER_REVISION:-main}"
+      - "--revision=${TEI_RERANKER_REVISION:-800f24c113213a187e65bde9db00c15a2bb12738}"
       - "--max-client-batch-size=${TEI_RERANKER_MAX_CLIENT_BATCH_SIZE:-32}"
       - "--port=80"
     ports:

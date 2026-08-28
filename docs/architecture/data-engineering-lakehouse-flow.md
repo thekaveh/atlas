@@ -1,8 +1,10 @@
 # 6.9. Data Engineering Lakehouse Flow
 
-MinIO, Iceberg REST, Spark, JupyterHub, Zeppelin, Airflow, Trino, and Redpanda.
+MinIO, Iceberg REST, Supabase Postgres, Spark, JupyterHub, Zeppelin, Airflow, Trino, and Redpanda.
 
 ## 1. Diagram
+
+![Data Engineering Lakehouse Flow architecture diagram](../diagrams/img/architecture-data-engineering-lakehouse-flow.png)
 
 [Open the full-size diagram](./data-engineering-lakehouse-flow.html).
 
@@ -12,7 +14,12 @@ Iceberg REST's catalog metadata lives in Supabase Postgres via a JDBC catalog, n
 
 ## 3. Source Files
 
+- `services/jupyterhub/service.yml`
+- `services/zeppelin/service.yml`
+- `services/airflow/service.yml`
+- `services/redpanda/service.yml`
 - `services/minio/service.yml`
 - `services/trino/service.yml`
 - `services/iceberg-rest/service.yml`
 - `services/spark/service.yml`
+- `services/supabase/service.yml`

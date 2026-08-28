@@ -47,6 +47,15 @@ _EXT_BY_CONTENT_TYPE = {
     "model/gltf-binary": "glb",
 }
 
+_RASTER_FORMATS = {
+    "PNG": ("image/png", "png"),
+    "JPEG": ("image/jpeg", "jpg"),
+    "WEBP": ("image/webp", "webp"),
+}
+_RASTER_CONTENT_TYPES = frozenset(
+    content_type for content_type, _extension in _RASTER_FORMATS.values()
+)
+
 
 class ImageInputError(ValueError):
     """Bad / unhostable client input (maps to HTTP 400)."""
@@ -143,6 +152,99 @@ def parse_data_uri(value: str) -> Optional[Tuple[bytes, str]]:
         raise ImageInputError("image data URI decoded to empty bytes")
     _check_byte_limit(data, max_bytes)
     return data, content_type
+
+
+def _require_positive_byte_limit(max_bytes: int) -> None:
+    if type(max_bytes) is not int or max_bytes <= 0:
+        raise ImageInputError("configured byte limit must be a positive integer")
+
+
+def _decode_strict_base64(raw: str, max_bytes: int) -> bytes:
+    padding = len(raw) - len(raw.rstrip("="))
+    if (len(raw) * 3) // 4 - min(padding, 2) > max_bytes:
+        raise ImageInputError("image input exceeds configured byte limit")
+    try:
+        data = base64.b64decode(raw, validate=True)
+    except Exception as exc:  # binascii.Error and friends
+        raise ImageInputError("image data URI is not valid base64") from exc
+    if not data:
+        raise ImageInputError("image data URI decoded to empty bytes")
+    if len(data) > max_bytes:
+        raise ImageInputError("image input exceeds configured byte limit")
+    return data
+
+
+def parse_strict_image_data_uri(value: str, max_bytes: int) -> Tuple[bytes, str]:
+    """Decode a bounded base64 PNG/JPEG/WebP data URI.
+
+    Unlike :func:`parse_data_uri`, this provider boundary never accepts
+    percent-encoded data or an implicit/unknown media type.
+    """
+
+    _require_positive_byte_limit(max_bytes)
+    match = _DATA_URI_RE.match((value or "").strip())
+    if not match or not match.group("b64"):
+        raise ImageInputError("image data URI must use base64 encoding")
+    content_type = (match.group("mime") or "").strip().lower()
+    if content_type not in _RASTER_CONTENT_TYPES:
+        raise ImageInputError("image data URI must contain PNG, JPEG, or WebP")
+    return _decode_strict_base64(match.group("data"), max_bytes), content_type
+
+
+def _inspect_raster(data: bytes, max_pixels: int) -> Optional[Tuple[str, str]]:
+    from io import BytesIO
+
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(data)) as image:
+                if getattr(image, "n_frames", 1) != 1:
+                    raise ImageInputError("image input must be single-frame")
+                if image.width * image.height > max_pixels:
+                    raise ImageInputError(
+                        "image dimensions exceed MEDIA_INPUT_MAX_PIXELS "
+                        f"({max_pixels} pixels)"
+                    )
+                detected = _RASTER_FORMATS.get(str(image.format or "").upper())
+                image.verify()
+            with Image.open(BytesIO(data)) as image:
+                image.load()
+    except ImageInputError:
+        raise
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise ImageInputError(
+            f"image dimensions exceed MEDIA_INPUT_MAX_PIXELS ({max_pixels} pixels)"
+        ) from exc
+    except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as exc:
+        raise ImageInputError("image input is not valid PNG, JPEG, or WebP") from exc
+    return detected
+
+
+def validate_raster_image(
+    data: bytes, content_type: str, max_bytes: int
+) -> Tuple[str, str]:
+    """Verify bounded raster bytes and return normalized MIME + extension."""
+
+    _require_positive_byte_limit(max_bytes)
+    if not data:
+        raise ImageInputError("image input decoded to empty bytes")
+    if len(data) > max_bytes:
+        raise ImageInputError("image input exceeds configured byte limit")
+    declared = (content_type or "").split(";", 1)[0].strip().lower()
+    if declared not in _RASTER_CONTENT_TYPES:
+        raise ImageInputError("image input must be PNG, JPEG, or WebP")
+    max_pixels = _positive_env_int(
+        "MEDIA_INPUT_MAX_PIXELS", DEFAULT_MEDIA_INPUT_MAX_PIXELS
+    )
+    detected = _inspect_raster(data, max_pixels)
+    if detected is None:
+        raise ImageInputError("image input is not valid PNG, JPEG, or WebP")
+    normalized_type, extension = detected
+    if normalized_type != declared:
+        raise ImageInputError("declared image MIME type does not match decoded image")
+    return normalized_type, extension
 
 
 def _encode_data_uri(data: bytes, content_type: str) -> str:

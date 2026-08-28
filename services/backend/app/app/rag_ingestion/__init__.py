@@ -47,6 +47,7 @@ def run_rag_ingestion(
     ingestion_id: str,
     *,
     execution_owner: Optional[str] = None,
+    execution_recovery_owner: Optional[str] = None,
     retry_transient: bool = True,
 ) -> Dict[str, Any]:
     """Synchronous entrypoint for the Celery worker: run an already-submitted
@@ -57,6 +58,7 @@ def run_rag_ingestion(
             ingestion_id,
             retry_transient=retry_transient,
             execution_owner=execution_owner,
+            execution_recovery_owner=execution_recovery_owner,
         )
     )
     return record.to_dict()

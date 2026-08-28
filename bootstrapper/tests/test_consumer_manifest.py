@@ -203,6 +203,192 @@ def test_docker_manager_includes_manifest_overlays_without_user_symlink(
     assert not (tmp_path / "services" / "_user").exists()
 
 
+def test_consumer_manifest_rejects_nested_duplicate_yaml_keys(tmp_path: Path) -> None:
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = tmp_path / "atlas.consumer.yml"
+    manifest.write_text(
+        """
+name: duplicate-probe
+env:
+  values:
+    MINIO_SOURCE: container
+    MINIO_SOURCE: disabled
+""".strip()
+    )
+
+    with pytest.raises(ConsumerManifestError, match="duplicate key.*MINIO_SOURCE"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+def test_compose_down_survives_a_malformed_consumer_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from core.consumer_manifest import ConsumerManifestError
+    from core.docker_manager import DockerManager
+
+    manager = DockerManager(str(tmp_path))
+    manager._compose_cmd = "docker compose"
+    monkeypatch.setattr(manager.config_parser, "get_project_name", lambda: "atlas")
+    monkeypatch.setattr(manager.config_parser, "env_file_exists", lambda: False)
+    monkeypatch.setattr(
+        manager.config_parser,
+        "load_consumer_config",
+        lambda: (_ for _ in ()).throw(ConsumerManifestError("invalid yaml")),
+    )
+    commands = []
+    monkeypatch.setattr(
+        "core.docker_manager.subprocess.run",
+        lambda command, **_kwargs: commands.append(command)
+        or type("Result", (), {"returncode": 0})(),
+    )
+
+    assert manager.execute_compose_command(["down", "--remove-orphans"]) == 0
+    assert commands == [
+        [
+            "docker", "compose", "-p", "atlas", "-f", "docker-compose.yml",
+            "down", "--remove-orphans",
+        ]
+    ]
+
+
+def test_compose_down_omits_an_overlay_rejected_by_preflight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from core.docker_manager import DockerManager
+
+    manager = DockerManager(str(tmp_path))
+    manager._compose_cmd = "docker compose"
+    monkeypatch.setattr(manager.config_parser, "get_project_name", lambda: "atlas")
+    monkeypatch.setattr(manager.config_parser, "env_file_exists", lambda: False)
+    monkeypatch.setattr(
+        manager, "_compose_file_args",
+        lambda include_consumer=True: (["-f", "overlay.yml"] if include_consumer else []),
+    )
+    commands = []
+    returncodes = iter((17, 0))
+    monkeypatch.setattr(
+        "core.docker_manager.subprocess.run",
+        lambda command, **_kwargs: commands.append(command)
+        or type("Result", (), {"returncode": next(returncodes)})(),
+    )
+
+    assert manager.execute_compose_command(["down"]) == 0
+    assert commands[0][-4:] == ["-f", "overlay.yml", "config", "-q"]
+    assert commands[1][-3:] == ["-f", "docker-compose.yml", "down"]
+    assert "overlay.yml" not in commands[1]
+
+
+def test_compose_down_propagates_an_operational_failure_after_valid_preflight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from core.docker_manager import DockerManager
+
+    manager = DockerManager(str(tmp_path))
+    manager._compose_cmd = "docker compose"
+    monkeypatch.setattr(manager.config_parser, "get_project_name", lambda: "atlas")
+    monkeypatch.setattr(manager.config_parser, "env_file_exists", lambda: False)
+    monkeypatch.setattr(manager, "_compose_file_args", lambda: ["-f", "overlay.yml"])
+    commands = []
+    returncodes = iter((0, 17))
+    monkeypatch.setattr(
+        "core.docker_manager.subprocess.run",
+        lambda command, **_kwargs: commands.append(command)
+        or type("Result", (), {"returncode": next(returncodes)})(),
+    )
+
+    assert manager.execute_compose_command(["down"]) == 17
+    assert commands[0][-4:] == ["-f", "overlay.yml", "config", "-q"]
+    assert commands[1][-3:] == ["-f", "overlay.yml", "down"]
+    assert len(commands) == 2
+
+
+def test_compose_down_returns_failure_when_overlay_preflight_cannot_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from core.docker_manager import DockerManager
+
+    manager = DockerManager(str(tmp_path))
+    manager._compose_cmd = "docker compose"
+    monkeypatch.setattr(manager.config_parser, "get_project_name", lambda: "atlas")
+    monkeypatch.setattr(manager.config_parser, "env_file_exists", lambda: False)
+    monkeypatch.setattr(manager, "_compose_file_args", lambda: ["-f", "overlay.yml"])
+    calls = []
+
+    def fail_preflight(command, **_kwargs):
+        calls.append(command)
+        raise OSError("compose plugin disappeared")
+
+    monkeypatch.setattr("core.docker_manager.subprocess.run", fail_preflight)
+
+    assert manager.execute_compose_command(["down"]) == 1
+    assert len(calls) == 1 and calls[0][-2:] == ["config", "-q"]
+
+
+def test_consumer_manifest_allows_explicit_override_of_yaml_merge(tmp_path: Path):
+    from core.consumer_manifest import load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = tmp_path / "atlas.consumer.yml"
+    manifest.write_text(
+        """
+name: merge-probe
+env:
+  values:
+    <<: &defaults
+      WEAVIATE_MEMORY_LIMIT: 2g
+    WEAVIATE_MEMORY_LIMIT: 4g
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    assert config.env_overrides["WEAVIATE_MEMORY_LIMIT"] == "4g"
+
+
+@pytest.mark.parametrize(
+    "merge_body",
+    (
+        "<<: &defaults\n      WEAVIATE_MEMORY_LIMIT: 2g\n      WEAVIATE_MEMORY_LIMIT: 3g",
+        "<<: &first {WEAVIATE_MEMORY_LIMIT: 2g}\n    <<: &second {MINIO_SOURCE: container}",
+    ),
+)
+def test_consumer_manifest_rejects_duplicates_in_yaml_merge_contracts(
+    tmp_path: Path, merge_body: str
+) -> None:
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = tmp_path / "atlas.consumer.yml"
+    manifest.write_text(
+        "name: merge-probe\nenv:\n  values:\n    " + merge_body + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConsumerManifestError, match="duplicate key"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+def test_consumer_manifest_wraps_unhashable_yaml_key(tmp_path: Path):
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = tmp_path / "atlas.consumer.yml"
+    manifest.write_text("? [bad, key]\n: value\n", encoding="utf-8")
+
+    with pytest.raises(ConsumerManifestError, match="unhashable key"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+def test_consumer_contract_documents_strict_yaml_keys_and_merge_overrides():
+    contract = " ".join(REUSING_ATLAS.read_text(encoding="utf-8").split())
+
+    assert "Duplicate YAML mapping keys at any depth are invalid" in contract
+    assert "explicit key overriding a merged default" in contract
+
+
 def test_consumer_manifest_cli_option_reaches_compose_validate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -266,14 +452,13 @@ def test_consumer_manifest_unions_list_values_and_fails_scalar_conflicts(
         "two",
         project_name="shared",
         include_brand=False,
-        extra="""
-model_sidecars:
-  comfyui:
-    - ./models/custom-models.yaml
-  ollama:
-    - llama3.2:latest
-    - qwen2.5:latest
-""",
+    )
+    two.write_text(
+        two.read_text(encoding="utf-8").replace(
+            "    - llama3.2:latest\n",
+            "    - llama3.2:latest\n    - qwen2.5:latest\n",
+        ),
+        encoding="utf-8",
     )
 
     config = load_consumer_config(tmp_path, explicit_paths=[str(one), str(two)])
@@ -637,6 +822,55 @@ def test_custom_nodes_comfyui_sets_env_overrides_path(tmp_path: Path) -> None:
     assert nodes_paths == [str(manifest.parent / "nodes.yaml")]
 
 
+@pytest.mark.parametrize(
+    "nodes_yaml",
+    (
+        _VALID_CONSUMER_NODE_YAML + "    install_requirements: \"false\"\n",
+        _VALID_CONSUMER_NODE_YAML + "    mps_unsafe: 1\n",
+        _VALID_CONSUMER_NODE_YAML.replace(
+            "    repo: https://github.com/consumer/ComfyUI-ConsumerDemo.git\n",
+            "    repo: https://github.com/consumer/ComfyUI-ConsumerDemo.git\n"
+            "    repo: https://github.com/consumer/other.git\n",
+        ),
+    ),
+)
+def test_consumer_custom_nodes_reject_ambiguous_install_intent(
+    tmp_path: Path, nodes_yaml: str
+) -> None:
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer_with_nodes(
+        tmp_path, "ambiguous-node", nodes_yaml=nodes_yaml
+    )
+
+    with pytest.raises(ConsumerManifestError, match="boolean|duplicate key"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+@pytest.mark.parametrize(
+    "nodes_yaml",
+    ("false\n", "custom_nodes: false\n"),
+)
+def test_consumer_custom_nodes_reject_falsey_container_shapes(
+    tmp_path: Path, nodes_yaml: str
+) -> None:
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    with pytest.raises(ConsumerManifestError, match="top-level mapping|non-list"):
+        load_consumer_config(
+            tmp_path,
+            explicit_paths=[
+                str(
+                    _write_consumer_with_nodes(
+                        tmp_path, "falsey-node-shape", nodes_yaml=nodes_yaml
+                    )
+                )
+            ],
+        )
+
+
 def test_custom_nodes_missing_file_raises(tmp_path: Path) -> None:
     """A ``custom_nodes.comfyui`` path that does not resolve to a real file fails
     loud at load time via _resolve_existing_file (a dropped consumer node file
@@ -950,7 +1184,7 @@ def test_env_overlay_parser_agrees_with_the_canonical_env_reader(tmp_path: Path)
         "A=x\x0bSUPABASE_SERVICE_KEY=y\n",
         "A=x\x0cB=y\n",
         "A=x\x85B=y\n",
-        "A=x B=y\n",
+        "A=x" + chr(0x2028) + "B=y\n",
     ]
     for text in samples:
         overlay = tmp_path / "overlay.env"
@@ -972,6 +1206,10 @@ def test_env_overlay_parser_agrees_with_the_canonical_env_reader(tmp_path: Path)
     "    sources: notamap\n",
     "    env:\n      - FOO=1\n",
     "    sources:\n      - FOO=1\n",
+    "    env: []\n",
+    "    sources: []\n",
+    "    env: false\n",
+    "    sources: 0\n",
 ])
 def test_a_malformed_profile_overrides_block_is_a_manifest_error(tmp_path, shape):
     """It escaped as a raw AttributeError out of `./start.sh`.
@@ -992,6 +1230,21 @@ def test_a_malformed_profile_overrides_block_is_a_manifest_error(tmp_path, shape
     )
 
     with pytest.raises(ConsumerManifestError, match="malformed|mapping"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+@pytest.mark.parametrize("value", ("[]", "false", "0"))
+def test_falsey_nonmapping_profile_overrides_is_a_manifest_error(tmp_path, value):
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "malformed-top-level")
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8") + f"profile_overrides: {value}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConsumerManifestError, match="profile_overrides must be a mapping"):
         load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
 
 

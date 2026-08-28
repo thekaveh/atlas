@@ -99,6 +99,19 @@ def test_auth_users_are_synchronized_to_public_users():
     assert "auth.role() = 'service_role'" in users_slice
 
 
+def test_media_ledger_enforces_status_and_cost_invariants():
+    media_slice = _read("17-backend-media-ledger.sql")
+    for constraint in (
+        "media_spend_ledger_status_check",
+        "media_spend_ledger_estimated_cost_check",
+        "media_spend_ledger_final_cost_check",
+    ):
+        assert constraint in media_slice
+    assert "status IN ('reserved', 'submitted', 'committed', 'released', 'denied')" in media_slice
+    assert "estimated_cost_usd IS NULL OR estimated_cost_usd >= 0" in media_slice
+    assert "final_cost_usd IS NULL OR final_cost_usd >= 0" in media_slice
+
+
 def test_old_mixed_files_are_gone():
     for stale in ("05-public-tables.sql", "05a-public-tables-migrations.sql",
                   "08-seed-data.sql", "09-research-tables.sql",

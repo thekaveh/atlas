@@ -231,7 +231,26 @@ def test_capability_entries_are_immutable(
 
 
 def test_load_full_manifest(services_root, write_manifest, full_manifest_dict):
-    write_manifest("ollama", full_manifest_dict("ollama"))
+    manifest = full_manifest_dict("ollama")
+    manifest["images"][0]["platform"] = "linux/arm64"
+    manifest["env"].append(
+        {"name": "OLLAMA_RETENTION_DAYS", "default": "7"}
+    )
+    manifest["rows"] = [
+        {
+            "display_name": "Ollama",
+            "source_var": "LLM_PROVIDER_SOURCE",
+            "secondary_number": {
+                "env_var": "OLLAMA_RETENTION_DAYS",
+                "label": "Retention (days)",
+                "default": "7",
+                "visible_when_source": ["ollama-container-cpu"],
+                "min": 1,
+                "max": 365,
+            },
+        }
+    ]
+    write_manifest("ollama", manifest)
     manifests = load_manifests(services_root)
     assert len(manifests) == 1
     m = manifests[0]
@@ -239,6 +258,7 @@ def test_load_full_manifest(services_root, write_manifest, full_manifest_dict):
     assert m.docs == "services/ollama/README.md"
     assert len(m.images) == 2
     assert m.images[0].var == "LLM_PROVIDER_IMAGE"
+    assert m.images[0].platform == "linux/arm64"
     assert m.sources is not None
     assert m.sources.var == "LLM_PROVIDER_SOURCE"
     assert m.sources.default == "ollama-container-cpu"
@@ -251,6 +271,22 @@ def test_load_full_manifest(services_root, write_manifest, full_manifest_dict):
     assert m.depends_on.optional == []
     assert m.exports[0].name == "OLLAMA_ENDPOINT"
     assert m.exports[0].consumers == ["litellm", "weaviate"]
+    assert m.rows[0].secondary_number is not None
+    assert m.rows[0].secondary_number.env_var == "OLLAMA_RETENTION_DAYS"
+    assert m.rows[0].secondary_number.visible_when_source == ["ollama-container-cpu"]
+    assert m.rows[0].secondary_number.number_min == 1
+    assert m.rows[0].secondary_number.number_max == 365
+
+
+def test_real_tei_arm_image_preserves_declared_platform():
+    repo_root = Path(__file__).resolve().parents[2]
+    tei = next(
+        manifest
+        for manifest in load_manifests(repo_root / "services")
+        if manifest.name == "tei-reranker"
+    )
+    arm_image = next(image for image in tei.images if image.platform == "linux/arm64")
+    assert arm_image.platform == "linux/arm64"
 
 
 def test_load_multiple_manifests_in_deterministic_order(
@@ -501,6 +537,109 @@ def test_malformed_yaml_rejected(services_root):
     (services_root / "redis").mkdir()
     (services_root / "redis" / "service.yml").write_text("this is: : not valid: yaml\n  -bad")
     with pytest.raises(ManifestLoadError):
+        load_manifests(services_root)
+
+
+def test_duplicate_yaml_keys_are_rejected_at_any_manifest_depth(services_root):
+    service_dir = services_root / "redis"
+    service_dir.mkdir()
+    (service_dir / "service.yml").write_text(
+        """
+name: redis
+label: Redis
+category: infra
+containers: [redis]
+env: []
+sources:
+  default: container
+  default: disabled
+  options:
+    - id: container
+      label: Container
+    - id: disabled
+      label: Disabled
+""".strip()
+    )
+
+    with pytest.raises(ManifestLoadError, match="duplicate key.*default"):
+        load_manifests(services_root)
+
+
+def test_manifest_allows_explicit_override_of_yaml_merge(services_root):
+    service_dir = services_root / "redis"
+    service_dir.mkdir()
+    (service_dir / "service.yml").write_text(
+        """
+name: redis
+label: Redis
+category: infra
+containers: [redis]
+capabilities:
+  - name: Synthetic service contract
+    status: supported
+    verification: tested
+    note: Merge behavior is covered.
+env:
+  - name: REDIS_SOURCE
+    default: disabled
+    description: Deployment source.
+sources:
+  <<: &defaults
+    var: REDIS_SOURCE
+    default: container
+    options:
+      - {id: container, label: Container}
+      - {id: disabled, label: Disabled}
+  default: disabled
+""".strip(),
+        encoding="utf-8",
+    )
+
+    assert load_manifests(services_root)[0].sources.default == "disabled"
+
+
+@pytest.mark.parametrize(
+    "merge_block",
+    (
+        "<<: &defaults\n    default: container\n    default: disabled",
+        "<<: &first {var: REDIS_SOURCE}\n  <<: &second {default: disabled}",
+    ),
+)
+def test_manifest_rejects_duplicates_in_yaml_merge_contracts(
+    services_root, merge_block
+):
+    service_dir = services_root / "redis"
+    service_dir.mkdir()
+    (service_dir / "service.yml").write_text(
+        "name: redis\nlabel: Redis\ncategory: infra\ncontainers: [redis]\n"
+        "env: []\nsources:\n  " + merge_block + "\n  options: []\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ManifestLoadError, match="duplicate key"):
+        load_manifests(services_root)
+
+
+def test_strict_yaml_allows_multiple_inheritance_in_one_merge_sequence():
+    from services.manifests import load_yaml_strict
+
+    document = load_yaml_strict(
+        "first: &first {one: 1}\n"
+        "second: &second {two: 2}\n"
+        "combined:\n  <<: [*first, *second]\n  three: 3\n"
+    )
+
+    assert document["combined"] == {"one": 1, "two": 2, "three": 3}
+
+
+def test_manifest_wraps_unhashable_yaml_key(services_root):
+    service_dir = services_root / "redis"
+    service_dir.mkdir()
+    (service_dir / "service.yml").write_text(
+        "? [bad, key]\n: value\n", encoding="utf-8"
+    )
+
+    with pytest.raises(ManifestLoadError, match="unhashable key"):
         load_manifests(services_root)
 
 
@@ -1113,11 +1252,12 @@ def test_comfyui_ingress_contract_matches_compose_and_kong_boundaries():
             "tei-reranker",
             "Arbitrary reranker model portability",
             "partial",
-            "documented",
+            "tested",
             (
-                "TEI_RERANKER_REVISION defaults to mutable main",
-                "pin a model commit for reproducible artifacts",
-                "future main contents",
+                "default model revision is pinned",
+                "800f24c113213a187e65bde9db00c15a2bb12738",
+                "reproducible ONNX amd64 and safetensors arm64 artifacts",
+                "Operator model or revision overrides are not pre-certified",
                 "both backends",
                 "memory limits",
             ),
@@ -1323,7 +1463,7 @@ def test_supabase_postgres_host_auth_contract_matches_compose():
         host_bind_ip.default,
         (capability.status, capability.verification),
     ) == (
-        ["${HOST_BIND_IP:-}${SUPABASE_DB_PORT}:5432"],
+        ["${HOST_BIND_IP:-127.0.0.1:}${SUPABASE_DB_PORT}:5432"],
         "trust",
         "",
         ("not-supported", "documented"),
@@ -1331,9 +1471,8 @@ def test_supabase_postgres_host_auth_contract_matches_compose():
     _assert_text_contract(capability.note, contains=(
         "host-published SUPABASE_DB_PORT",
         "POSTGRES_HOST_AUTH_METHOD=trust",
-        "HOST_BIND_IP=127.0.0.1:",
-        "firewall SUPABASE_DB_PORT",
-        "remove the supabase-db ports: publish",
+        "loopback by default",
+        "explicit HOST_BIND_IP override",
         "authenticated database policy before remote access",
     ))
 

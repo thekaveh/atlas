@@ -23,6 +23,41 @@ async def _release_fake(conn):
         await close()
 
 
+class _FakeTransaction:
+    def __init__(self, conn):
+        self.conn = conn
+
+    async def __aenter__(self):
+        return self.conn
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class _DefaultNamespaceConn:
+    async def fetch(self, _query, *_params):
+        return [{"namespace": "default"}]
+
+    async def close(self):
+        return None
+
+
+def _consolidation_fact(number, content, now, **overrides):
+    fact = {
+        "id": UUID(int=number),
+        "content": content,
+        "fact_type": "observation",
+        "confidence": 0.8,
+        "namespace": "default",
+        "created_at": now,
+        "updated_at": now,
+        "metadata": {},
+        "weaviate_id": f"vector-{number}",
+    }
+    fact.update(overrides)
+    return fact
+
+
 def _also_route_acquire(monkeypatch, module, get_conn):
     """Route the #804 SAFE pooled path (`acquire_conn`) through the SAME
     connection source as the patched `connect_postgres`.
@@ -101,6 +136,7 @@ def _service():
     svc = MemoryService.__new__(MemoryService)
     svc.enabled = True
     svc.database_url = "postgresql://example"
+    svc.namespace = "default"
     svc.store = None
     svc._initialized = True
     svc._ensure_initialized = AsyncMock()
@@ -207,6 +243,9 @@ def test_consolidate_deactivates_weaviate_before_superseding_fact(monkeypatch):
         def __init__(self):
             self.pending = []
 
+        def transaction(self):
+            return _FakeTransaction(self)
+
         async def fetchrow(self, query, *_params):
             if "vector_sync_pending = true" in query:
                 events.append("postgres")
@@ -235,7 +274,10 @@ def test_consolidate_deactivates_weaviate_before_superseding_fact(monkeypatch):
         async def close(self):
             return None
 
-    connections = iter([PendingConn(), FactsConn(), ApplyConn()])
+    connections = iter([
+        PendingConn(), _DefaultNamespaceConn(), FactsConn(), ApplyConn(),
+        ApplyConn(),
+    ])
     monkeypatch.setattr(
         memory_service,
         "connect_postgres",
@@ -345,7 +387,10 @@ def test_consolidate_deactivates_weaviate_before_retention_expiry(monkeypatch):
         async def close(self):
             return None
 
-    connections = iter([PendingConn(), FactsConn(), ApplyConn()])
+    connections = iter([
+        PendingConn(), _DefaultNamespaceConn(), FactsConn(), ApplyConn(),
+        ApplyConn(),
+    ])
     monkeypatch.setattr(
         memory_service,
         "connect_postgres",
@@ -489,10 +534,38 @@ def test_consolidation_sql_failure_has_no_vector_side_effect(monkeypatch):
             return facts
 
     class FailingApplyConn(PendingConn):
+        def __init__(self):
+            self.mutations = []
+            self.rolled_back = False
+
+        def transaction(self):
+            conn = self
+
+            class Transaction:
+                async def __aenter__(self):
+                    return conn
+
+                async def __aexit__(self, exc_type, exc, tb):
+                    if exc_type is not None:
+                        conn.mutations.clear()
+                        conn.rolled_back = True
+                    return False
+
+            return Transaction()
+
         async def fetchrow(self, _query, *_params):
+            self.mutations.append("fact deactivated")
+            return {"id": facts[0]["id"], "weaviate_id": "vector-old"}
+
+        async def execute(self, _query, *_params):
             raise RuntimeError("postgres write failed")
 
-    connections = iter([PendingConn(), FactsConn(), FailingApplyConn()])
+        async def fetchval(self, _query, *_params): return 0
+
+    apply_conn = FailingApplyConn()
+    connections = iter([
+        PendingConn(), _DefaultNamespaceConn(), FactsConn(), apply_conn, apply_conn
+    ])
     monkeypatch.setattr(
         memory_service,
         "connect_postgres",
@@ -519,6 +592,7 @@ def test_consolidation_sql_failure_has_no_vector_side_effect(monkeypatch):
         )
 
     deactivate.assert_not_awaited()
+    assert apply_conn.rolled_back is True and apply_conn.mutations == []
 
 
 def test_update_memory_retires_vector_reactivated_by_concurrent_update(
@@ -707,28 +781,14 @@ def test_consolidation_skips_fact_edited_during_llm_round_trip(monkeypatch):
 
     now = datetime.now(timezone.utc)
     facts = [
-        {
-            "id": UUID("00000000-0000-4000-8000-000000000001"),
-            "content": "older",
-            "fact_type": "observation",
-            "confidence": 0.8,
-            "namespace": "default",
-            "created_at": now,
-            "updated_at": now,
-            "metadata": {},
-            "weaviate_id": "vector-old",
-        },
-        {
-            "id": UUID("00000000-0000-4000-8000-000000000002"),
-            "content": "newer",
-            "fact_type": "observation",
-            "confidence": 0.9,
-            "namespace": "default",
-            "created_at": now,
-            "updated_at": now,
-            "metadata": {},
-            "weaviate_id": "vector-new",
-        },
+        _consolidation_fact(1, "older", now, weaviate_id="vector-old"),
+        _consolidation_fact(
+            2, "concurrently edited", now, confidence=0.9,
+            weaviate_id="vector-new",
+        ),
+        _consolidation_fact(
+            3, "keeper", now, confidence=0.95, weaviate_id="vector-keeper"
+        ),
     ]
 
     class PendingConn:
@@ -743,15 +803,40 @@ def test_consolidation_skips_fact_edited_during_llm_round_trip(monkeypatch):
             return facts
 
     class ApplyConn(PendingConn):
+        def __init__(self):
+            self.fetchrow_calls = 0
+            self.log_calls = 0
+            self.rolled_back = False
+
+        def transaction(self):
+            conn = self
+
+            class Transaction(_FakeTransaction):
+                async def __aexit__(self, exc_type, exc, tb):
+                    conn.rolled_back = exc_type is not None
+                    return False
+
+            return Transaction(self)
+
         async def fetchrow(self, query, *params):
             assert "updated_at = $3" in query
             assert params[2] == now
+            self.fetchrow_calls += 1
+            if self.fetchrow_calls == 1:
+                return {"id": facts[0]["id"], "weaviate_id": "vector-old"}
             return None
 
-        async def fetchval(self, _query, *_params):
-            return 2
+        async def execute(self, _query, *_params):
+            self.log_calls += 1
 
-    connections = iter([PendingConn(), FactsConn(), ApplyConn()])
+        async def fetchval(self, _query, *_params):
+            return 3
+
+    apply_conn = ApplyConn()
+    connections = iter([
+        PendingConn(), _DefaultNamespaceConn(), FactsConn(), apply_conn,
+        ApplyConn(),
+    ])
     monkeypatch.setattr(
         memory_service,
         "connect_postgres",
@@ -764,8 +849,8 @@ def test_consolidation_skips_fact_edited_during_llm_round_trip(monkeypatch):
     svc._get_extraction_model = AsyncMock(return_value="ollama/test")
     svc._litellm_complete = AsyncMock(
         return_value=(
-            '[{"action":"supersede","source_indices":[0,1],'
-            '"keep_index":1,"reason":"newer"}]'
+            '[{"action":"supersede","source_indices":[0,1,2],'
+            '"keep_index":2,"reason":"newer"}]'
         )
     )
 
@@ -774,6 +859,8 @@ def test_consolidation_skips_fact_edited_during_llm_round_trip(monkeypatch):
     )
 
     assert result["facts_superseded"] == 0
+    assert apply_conn.rolled_back is True
+    assert apply_conn.log_calls == 0
     svc.store.deactivate_embedding.assert_not_awaited()
 
 
@@ -1023,10 +1110,8 @@ def test_recall_and_summarize_release_db_before_llm(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_search_pgvector_scopes_query_to_user_id(monkeypatch):
-    # Recall's tenant isolation rests entirely on the vector search's user_id
-    # filter (the Postgres re-fetch has none). Lock in that _search_pgvector both
-    # filters on AND binds the caller's user_id, so a refactor can't silently
-    # drop it → cross-tenant memory leak.
+    # The vector filter is the first tenant boundary; recall's PostgreSQL
+    # re-fetch independently checks the same owner and namespace.
     import memory_store
     from memory_store import _to_uuid
 

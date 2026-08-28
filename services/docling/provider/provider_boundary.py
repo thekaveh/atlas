@@ -191,27 +191,42 @@ async def run_with_deadline(
     try:
         return await asyncio.wait_for(asyncio.shield(native_task), timeout=timeout)
     except asyncio.CancelledError as cancelled:
-        remaining = max(0.0, deadline - loop.time())
-        try:
-            await asyncio.wait_for(asyncio.shield(native_task), timeout=remaining)
-        except (asyncio.TimeoutError, TimeoutError) as exc:
-            logger.error(
-                "Cancelled provider request exceeded native deadline "
-                "(provider=%s)",
-                prefix,
-            )
-            terminate_on_cancel_timeout(FATAL_TIMEOUT_EXIT_CODE)
-            raise ProviderDeadlineExceeded from exc
-        except Exception as exc:
-            # The HTTP request was cancelled; surface the native op's failure
-            # (model crash on a specific audio shape, OOM, NaN) instead of
-            # swallowing it silently — the non-cancelled path logs the same.
-            logger.warning(
-                "Cancelled provider request native op failed (provider=%s, "
-                "error_type=%s)",
-                prefix,
-                type(exc).__name__,
-            )
+        while not native_task.done():
+            remaining = max(0.0, deadline - loop.time())
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(native_task), timeout=remaining
+                )
+            except asyncio.CancelledError:
+                # Repeated client/server cancellation must not release the
+                # admission permit while native CPU/GPU work is still alive.
+                continue
+            except (asyncio.TimeoutError, TimeoutError) as exc:
+                logger.error(
+                    "Cancelled provider request exceeded native deadline "
+                    "(provider=%s)",
+                    prefix,
+                )
+                terminate_on_cancel_timeout(FATAL_TIMEOUT_EXIT_CODE)
+                raise ProviderDeadlineExceeded from exc
+            except Exception as exc:
+                # The HTTP request was cancelled; surface the native op's failure
+                # (model crash on a specific audio shape, OOM, NaN) instead of
+                # swallowing it silently — the non-cancelled path logs the same.
+                logger.warning(
+                    "Cancelled provider request native op failed (provider=%s, "
+                    "error_type=%s)",
+                    prefix,
+                    type(exc).__name__,
+                )
+                break
+        if native_task.done() and not native_task.cancelled():
+            try:
+                native_task.result()
+            except Exception:
+                # The failure was logged in the join loop, or the task became
+                # terminal between iterations; cancellation remains the API result.
+                pass
         raise cancelled
     except (asyncio.TimeoutError, TimeoutError) as exc:
         raise ProviderDeadlineExceeded from exc

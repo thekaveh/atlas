@@ -26,7 +26,13 @@ if "ray" not in sys.modules:
     sys.modules["ray"] = _ray_stub
     sys.modules["ray.job_submission"] = _ray_job_stub
 
-from ray_client import RayClient, RayDisabledError, _ray_address
+from ray_client import (
+    RayClient,
+    RayDisabledError,
+    RayJobAlreadyExistsError,
+    RayJobSubmission,
+    _ray_address,
+)
 
 
 def test_ray_address_empty_returns_none(monkeypatch):
@@ -47,6 +53,37 @@ def test_ray_address_external_returns_https(monkeypatch):
     assert _ray_address() == "https://my-cluster.anyscale.com:8265"
 
 
+@pytest.mark.parametrize(
+    ("host", "rendered_host"),
+    (
+        ("MY-CLUSTER.ANYSCALE.COM", "MY-CLUSTER.ANYSCALE.COM"),
+        ("my-cluster.anyscale.com.", "my-cluster.anyscale.com"),
+    ),
+)
+def test_ray_address_normalizes_hosted_domain_for_tls(
+    monkeypatch, host, rendered_host
+):
+    monkeypatch.setenv("RAY_ADDRESS", f"ray://{host}:10001")
+    monkeypatch.delenv("RAY_DASHBOARD_URL", raising=False)
+
+    assert _ray_address() == f"https://{rendered_host}:8265"
+
+
+def test_ray_address_preserves_scoped_ipv6_interface_case(monkeypatch):
+    monkeypatch.setenv("RAY_ADDRESS", "ray://[fe80::1%ETH0]:10001")
+    monkeypatch.delenv("RAY_DASHBOARD_URL", raising=False)
+
+    assert _ray_address() == "http://[fe80::1%ETH0]:8265"
+
+
+@pytest.mark.parametrize("host", ("127.0.0.1", "ray-head.internal.example"))
+def test_ray_address_non_hosted_dotted_hosts_stay_http(monkeypatch, host):
+    monkeypatch.setenv("RAY_ADDRESS", f"ray://{host}:10001")
+    monkeypatch.delenv("RAY_DASHBOARD_URL", raising=False)
+
+    assert _ray_address() == f"http://{host}:8265"
+
+
 def test_ray_dashboard_url_override(monkeypatch):
     """Explicit RAY_DASHBOARD_URL wins over derivation."""
     monkeypatch.setenv("RAY_ADDRESS", "ray://ray-head:10001")
@@ -57,7 +94,7 @@ def test_ray_dashboard_url_override(monkeypatch):
 def test_submit_job_disabled(ray_disabled_env):
     client = RayClient.get()
     with pytest.raises(RayDisabledError):
-        client.submit_job(entrypoint="echo hi")
+        client.submit_job(RayJobSubmission("echo hi", "raysubmit_disabled"))
 
 
 def test_get_job_status_disabled(ray_disabled_env):
@@ -79,9 +116,42 @@ def test_submit_job_succeeds_when_enabled(ray_enabled_env, mock_job_submission_c
     mock_instance = mock_job_submission_client.return_value
     mock_instance.submit_job.return_value = "raysubmit_abc123"
     client = RayClient.get()
-    job_id = client.submit_job(entrypoint="echo hi")
+    job_id = client.submit_job(RayJobSubmission("echo hi", "raysubmit_abc123"))
     assert job_id == "raysubmit_abc123"
     mock_instance.submit_job.assert_called_once()
+
+
+def test_submit_job_forwards_stable_submission_id(
+    ray_enabled_env, mock_job_submission_client
+):
+    mock_instance = mock_job_submission_client.return_value
+    mock_instance.submit_job.return_value = "raysubmit_stable_123"
+
+    job_id = RayClient.get().submit_job(
+        RayJobSubmission("echo hi", "raysubmit_stable_123")
+    )
+    assert job_id == "raysubmit_stable_123"
+    mock_instance.submit_job.assert_called_once_with(
+        entrypoint="echo hi",
+        runtime_env={},
+        metadata={},
+        submission_id="raysubmit_stable_123",
+    )
+
+
+def test_submit_job_classifies_existing_stable_id(
+    ray_enabled_env, mock_job_submission_client
+):
+    mock_instance = mock_job_submission_client.return_value
+    mock_instance.submit_job.side_effect = RuntimeError("server returned 400")
+    mock_instance.get_job_info.return_value = object()
+
+    with pytest.raises(RayJobAlreadyExistsError) as exc_info:
+        RayClient.get().submit_job(
+            RayJobSubmission("echo hi", "raysubmit_stable_123")
+        )
+
+    assert exc_info.value.submission_id == "raysubmit_stable_123"
 
 
 def test_get_job_status_succeeds_when_enabled(ray_enabled_env, mock_job_submission_client):

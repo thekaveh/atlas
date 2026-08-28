@@ -22,6 +22,95 @@ from core import process_runner
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_run_with_deadline_closes_capture_pipes(monkeypatch):
+    real_popen = subprocess.Popen
+    launched = []
+
+    def recording_popen(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        launched.append(process)
+        return process
+
+    monkeypatch.setattr(process_runner.subprocess, "Popen", recording_popen)
+
+    result = process_runner.run_with_deadline(
+        [sys.executable, "-c", "print('closed')"]
+    )
+
+    assert result.stdout == "closed\n"
+    assert len(launched) == 1
+    assert launched[0].stdout is not None and launched[0].stdout.closed
+    assert launched[0].stderr is not None and launched[0].stderr.closed
+
+
+def _wait_for_recorded_pid(path: Path, *, timeout: float = 3.0) -> int:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            value = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            value = ""
+        if value:
+            return int(value)
+        time.sleep(0.01)
+    pytest.fail(f"child process did not record its PID in {path}")
+
+
+def _pid_lock_is_held(path: Path) -> bool:
+    import fcntl
+
+    try:
+        handle = path.open("r+", encoding="utf-8")
+    except OSError:
+        return False
+    try:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        return False
+    finally:
+        handle.close()
+
+
+def _assert_recorded_process_stopped(path: Path, *, timeout: float = 3.0) -> None:
+    pid = _wait_for_recorded_pid(path)
+    deadline = time.monotonic() + timeout
+    try:
+        while _pid_lock_is_held(path) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert not _pid_lock_is_held(path), f"process {pid} remained alive"
+    finally:
+        if _pid_lock_is_held(path):
+            os.kill(pid, signal.SIGKILL)
+
+
+def _kill_recorded_process(path: Path) -> None:
+    try:
+        pid = int(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return
+    if _pid_lock_is_held(path):
+        os.kill(pid, signal.SIGKILL)
+
+
+def _term_resistant_child(pid_file: Path, *, ready_file: Path | None = None) -> str:
+    ready = (
+        f"pathlib.Path({str(ready_file)!r}).touch(); " if ready_file is not None else ""
+    )
+    return (
+        "import fcntl,os,pathlib,signal,time; "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        f"pid_file=pathlib.Path({str(pid_file)!r}); "
+        "pid_handle=pid_file.open('w'); "
+        "fcntl.flock(pid_handle, fcntl.LOCK_EX); "
+        "pid_handle.write(str(os.getpid())); pid_handle.flush(); "
+        f"{ready}"
+        "time.sleep(10)"
+    )
+
+
 class _IntSubclass(int):
     pass
 
@@ -311,13 +400,8 @@ def test_sighup_cleanup_installs_dispatches_and_restores(monkeypatch) -> None:
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
 def test_run_with_deadline_kills_term_resistant_descendant(tmp_path: Path) -> None:
-    marker = tmp_path / "escaped-descendant"
-    descendant = (
-        "import pathlib,signal,time; "
-        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
-        "time.sleep(0.4); "
-        f"pathlib.Path({str(marker)!r}).touch()"
-    )
+    pid_file = tmp_path / "escaped-descendant.pid"
+    descendant = _term_resistant_child(pid_file)
     leader = (
         "import subprocess,sys,time; "
         "subprocess.Popen([sys.executable, '-c', sys.argv[1]], "
@@ -325,15 +409,17 @@ def test_run_with_deadline_kills_term_resistant_descendant(tmp_path: Path) -> No
         "time.sleep(10)"
     )
 
-    with pytest.raises(subprocess.TimeoutExpired):
-        process_runner.run_with_deadline(
-            [sys.executable, "-c", leader, descendant],
-            timeout_seconds=0.05,
-            termination_grace_seconds=0.05,
-        )
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            process_runner.run_with_deadline(
+                [sys.executable, "-c", leader, descendant],
+                timeout_seconds=1,
+                termination_grace_seconds=0.05,
+            )
 
-    time.sleep(0.6)
-    assert not marker.exists()
+        _assert_recorded_process_stopped(pid_file)
+    finally:
+        _kill_recorded_process(pid_file)
 
 
 def test_run_with_deadline_rejects_excessive_combined_output() -> None:
@@ -353,11 +439,12 @@ def test_run_with_deadline_rejects_excessive_combined_output() -> None:
 def test_run_with_deadline_handles_sigterm_before_popen_returns(
     monkeypatch, tmp_path: Path
 ) -> None:
-    marker = tmp_path / "launch-race-orphan"
     real_popen = subprocess.Popen
+    launched: list[subprocess.Popen] = []
 
     def interrupted_launch(*args, **kwargs):
         process = real_popen(*args, **kwargs)
+        launched.append(process)
         os.kill(os.getpid(), signal.SIGTERM)
         return process
 
@@ -365,8 +452,7 @@ def test_run_with_deadline_handles_sigterm_before_popen_returns(
     command = [
         sys.executable,
         "-c",
-        "import pathlib,time; time.sleep(0.4); "
-        f"pathlib.Path({str(marker)!r}).touch()",
+        "import time; time.sleep(10)",
     ]
 
     with pytest.raises(SystemExit) as raised:
@@ -375,8 +461,13 @@ def test_run_with_deadline_handles_sigterm_before_popen_returns(
         )
 
     assert raised.value.code == 128 + signal.SIGTERM
-    time.sleep(0.6)
-    assert not marker.exists()
+    assert len(launched) == 1
+    try:
+        assert launched[0].wait(timeout=3) == -signal.SIGTERM
+    finally:
+        if launched[0].poll() is None:
+            launched[0].kill()
+            launched[0].wait(timeout=3)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
@@ -773,16 +864,10 @@ def test_native_windows_fails_closed_before_launch(monkeypatch) -> None:
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
 def test_sigterm_cleans_process_started_from_asyncio_thread(tmp_path: Path) -> None:
     ready = tmp_path / "threaded-ready"
-    escaped = tmp_path / "threaded-descendant"
-    descendant = (
-        "import pathlib,signal,time; "
-        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
-        "time.sleep(0.4); "
-        f"pathlib.Path({str(escaped)!r}).touch()"
-    )
+    pid_file = tmp_path / "threaded-descendant.pid"
+    descendant = _term_resistant_child(pid_file, ready_file=ready)
     leader = (
-        "import pathlib,subprocess,sys,time; "
-        f"pathlib.Path({str(ready)!r}).touch(); "
+        "import subprocess,sys,time; "
         "subprocess.Popen([sys.executable, '-c', sys.argv[1]], "
         "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
         "time.sleep(10)"
@@ -798,18 +883,26 @@ def test_sigterm_cleans_process_started_from_asyncio_thread(tmp_path: Path) -> N
         "scope=cleanup_active_processes_on_sigterm(); scope.__enter__(); "
         "asyncio.run(asyncio.to_thread(work))"
     )
-    process = subprocess.Popen([sys.executable, "-c", wrapper], cwd=ROOT)
-    deadline = time.monotonic() + 3
-    while not ready.exists() and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert ready.exists()
+    process = subprocess.Popen(
+        [sys.executable, "-c", wrapper], cwd=ROOT, start_new_session=True
+    )
+    try:
+        _wait_for_recorded_pid(pid_file)
+        deadline = time.monotonic() + 3
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ready.exists()
 
-    os.kill(process.pid, signal.SIGTERM)
-    process.wait(timeout=3)
+        os.kill(process.pid, signal.SIGTERM)
+        process.wait(timeout=3)
 
-    time.sleep(0.6)
-    assert process.returncode == 128 + signal.SIGTERM
-    assert not escaped.exists()
+        assert process.returncode == 128 + signal.SIGTERM
+        _assert_recorded_process_stopped(pid_file)
+    finally:
+        _kill_recorded_process(pid_file)
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=3)
 
 
 def test_failure_log_capture_is_bounded_and_process_grouped() -> None:
@@ -1121,19 +1214,15 @@ def test_async_stop_process_tree_kills_term_resistant_descendant(
 ) -> None:
     from ui.textual.screens.wizard_screen import _stop_process_tree
 
-    marker = tmp_path / "async-escaped-descendant"
-    descendant = (
-        "import pathlib,signal,time; "
-        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
-        "time.sleep(0.4); "
-        f"pathlib.Path({str(marker)!r}).touch()"
-    )
+    pid_file = tmp_path / "async-escaped-descendant.pid"
+    descendant = _term_resistant_child(pid_file)
     leader = (
         "import subprocess,sys,time; "
         "subprocess.Popen([sys.executable, '-c', sys.argv[1]], "
         "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
         "time.sleep(10)"
     )
+    leader_pids: list[int] = []
 
     async def exercise() -> None:
         proc = await asyncio.create_subprocess_exec(
@@ -1143,11 +1232,27 @@ def test_async_stop_process_tree_kills_term_resistant_descendant(
             descendant,
             start_new_session=True,
         )
+        leader_pids.append(proc.pid)
+        deadline = asyncio.get_running_loop().time() + 3
+        while not pid_file.exists() and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.01)
+        assert pid_file.exists()
         await _stop_process_tree(proc, termination_grace_seconds=0.05)
 
-    asyncio.run(exercise())
-    time.sleep(0.6)
-    assert not marker.exists()
+    try:
+        asyncio.run(exercise())
+        _assert_recorded_process_stopped(pid_file)
+    finally:
+        _kill_recorded_process(pid_file)
+        for leader_pid in leader_pids:
+            try:
+                os.killpg(leader_pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            try:
+                os.waitpid(leader_pid, os.WNOHANG)
+            except ChildProcessError:
+                pass
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
@@ -1156,13 +1261,8 @@ def test_streamed_command_timeout_kills_term_resistant_descendant(
 ) -> None:
     from ui.textual.screens.wizard_screen import _run_streamed_command
 
-    marker = tmp_path / "streamed-timeout-descendant"
-    descendant = (
-        "import pathlib,signal,time; "
-        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
-        "time.sleep(0.4); "
-        f"pathlib.Path({str(marker)!r}).touch()"
-    )
+    pid_file = tmp_path / "streamed-timeout-descendant.pid"
+    descendant = _term_resistant_child(pid_file)
     leader = (
         "import subprocess,sys,time; "
         "subprocess.Popen([sys.executable, '-c', sys.argv[1]], "
@@ -1176,13 +1276,15 @@ def test_streamed_command_timeout_kills_term_resistant_descendant(
             cwd=tmp_path,
             env=os.environ.copy(),
             on_line=lambda _line: None,
-            timeout_seconds=0.05,
+            timeout_seconds=1,
             termination_grace_seconds=0.05,
         )
 
-    assert asyncio.run(exercise()) == 124
-    time.sleep(0.6)
-    assert not marker.exists()
+    try:
+        assert asyncio.run(exercise()) == 124
+        _assert_recorded_process_stopped(pid_file)
+    finally:
+        _kill_recorded_process(pid_file)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
@@ -1192,16 +1294,10 @@ def test_streamed_command_cancellation_kills_term_resistant_descendant(
     from ui.textual.screens.wizard_screen import _run_streamed_command
 
     ready = tmp_path / "streamed-cancel-ready"
-    marker = tmp_path / "streamed-cancel-descendant"
-    descendant = (
-        "import pathlib,signal,time; "
-        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
-        "time.sleep(0.4); "
-        f"pathlib.Path({str(marker)!r}).touch()"
-    )
+    pid_file = tmp_path / "streamed-cancel-descendant.pid"
+    descendant = _term_resistant_child(pid_file, ready_file=ready)
     leader = (
-        "import pathlib,subprocess,sys,time; "
-        f"pathlib.Path({str(ready)!r}).touch(); "
+        "import subprocess,sys,time; "
         "subprocess.Popen([sys.executable, '-c', sys.argv[1]], "
         "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
         "time.sleep(10)"
@@ -1226,9 +1322,11 @@ def test_streamed_command_cancellation_kills_term_resistant_descendant(
         with pytest.raises(asyncio.CancelledError):
             await task
 
-    asyncio.run(exercise())
-    time.sleep(0.6)
-    assert not marker.exists()
+    try:
+        asyncio.run(exercise())
+        _assert_recorded_process_stopped(pid_file)
+    finally:
+        _kill_recorded_process(pid_file)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
@@ -1237,13 +1335,8 @@ def test_streamed_command_launch_cancellation_reaps_process_group(
 ) -> None:
     from ui.textual.screens import wizard_screen
 
-    marker = tmp_path / "streamed-launch-cancel-descendant"
-    descendant = (
-        "import pathlib,signal,time; "
-        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
-        "time.sleep(0.4); "
-        f"pathlib.Path({str(marker)!r}).touch()"
-    )
+    pid_file = tmp_path / "streamed-launch-cancel-descendant.pid"
+    descendant = _term_resistant_child(pid_file)
     leader = (
         "import subprocess,sys,time; "
         "subprocess.Popen([sys.executable, '-c', sys.argv[1]], "
@@ -1255,6 +1348,10 @@ def test_streamed_command_launch_cancellation_reaps_process_group(
 
     async def delayed_create(*args, **kwargs):
         proc = await real_create(*args, **kwargs)
+        deadline = asyncio.get_running_loop().time() + 3
+        while not pid_file.exists() and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.01)
+        assert pid_file.exists()
         launch_started.set()
         await asyncio.sleep(0.1)
         return proc
@@ -1279,28 +1376,32 @@ def test_streamed_command_launch_cancellation_reaps_process_group(
         with pytest.raises(asyncio.CancelledError):
             await task
 
-    asyncio.run(exercise())
-    time.sleep(0.6)
-    assert not marker.exists()
+    try:
+        asyncio.run(exercise())
+        _assert_recorded_process_stopped(pid_file)
+    finally:
+        _kill_recorded_process(pid_file)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
 def test_streamed_command_sink_failure_reaps_process_group(tmp_path: Path) -> None:
     from ui.textual.screens.wizard_screen import _run_streamed_command
 
-    marker = tmp_path / "streamed-sink-failure-descendant"
-    descendant = (
-        "import pathlib,signal,time; "
-        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
-        "time.sleep(0.4); "
-        f"pathlib.Path({str(marker)!r}).touch()"
-    )
-    leader = (
-        "import subprocess,sys,time; "
-        "subprocess.Popen([sys.executable, '-c', sys.argv[1]], "
-        "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
-        "print('trigger', flush=True); time.sleep(1)"
-    )
+    pid_file = tmp_path / "streamed-sink-failure-descendant.pid"
+    descendant = _term_resistant_child(pid_file)
+    leader = f"""import pathlib, subprocess, sys, time
+subprocess.Popen(
+    [sys.executable, '-c', sys.argv[1]],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+)
+pid_file = pathlib.Path({str(pid_file)!r})
+deadline = time.monotonic() + 3
+while not pid_file.exists() and time.monotonic() < deadline:
+    time.sleep(0.01)
+print('trigger', flush=True)
+time.sleep(10)
+"""
 
     def fail_sink(_line: str) -> None:
         raise RuntimeError("simulated log sink failure")
@@ -1316,9 +1417,11 @@ def test_streamed_command_sink_failure_reaps_process_group(tmp_path: Path) -> No
                 termination_grace_seconds=0.05,
             )
 
-    asyncio.run(exercise())
-    time.sleep(0.6)
-    assert not marker.exists()
+    try:
+        asyncio.run(exercise())
+        _assert_recorded_process_stopped(pid_file)
+    finally:
+        _kill_recorded_process(pid_file)
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
@@ -1327,13 +1430,8 @@ def test_streamed_timeout_notice_sink_failure_reaps_process_group(
 ) -> None:
     from ui.textual.screens.wizard_screen import _run_streamed_command
 
-    marker = tmp_path / "streamed-timeout-sink-failure-descendant"
-    descendant = (
-        "import pathlib,signal,time; "
-        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
-        "time.sleep(0.4); "
-        f"pathlib.Path({str(marker)!r}).touch()"
-    )
+    pid_file = tmp_path / "streamed-timeout-sink-failure-descendant.pid"
+    descendant = _term_resistant_child(pid_file)
     leader = (
         "import subprocess,sys,time; "
         "subprocess.Popen([sys.executable, '-c', sys.argv[1]], "
@@ -1351,13 +1449,15 @@ def test_streamed_timeout_notice_sink_failure_reaps_process_group(
                 cwd=tmp_path,
                 env=os.environ.copy(),
                 on_line=fail_sink,
-                timeout_seconds=0.05,
+                timeout_seconds=1,
                 termination_grace_seconds=0.05,
             )
 
-    asyncio.run(exercise())
-    time.sleep(0.6)
-    assert not marker.exists()
+    try:
+        asyncio.run(exercise())
+        _assert_recorded_process_stopped(pid_file)
+    finally:
+        _kill_recorded_process(pid_file)
 
 
 #: Raises SIGHUP between `Popen` and the registry insert, so the guard is
@@ -1459,7 +1559,7 @@ def test_guarded_signals_survive_a_platform_without_sighup() -> None:
 
     probe = (
         "import signal, sys\n"
-        "del signal.SIGHUP\n"
+        "if hasattr(signal, 'SIGHUP'): del signal.SIGHUP\n"
         f"sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r})\n"
         "import core.process_runner as pr\n"
         "print(','.join(s.name for s in pr._GUARDED_SIGNALS))\n"
@@ -1475,8 +1575,10 @@ def test_guarded_signals_survive_a_platform_without_sighup() -> None:
     )
     assert result.stdout.strip() == "SIGTERM", result.stdout
 
-    # And both are guarded on this POSIX host.
-    assert [sig.name for sig in process_runner._GUARDED_SIGNALS] == ["SIGTERM", "SIGHUP"]
+    expected = ["SIGTERM"]
+    if hasattr(signal, "SIGHUP"):
+        expected.append("SIGHUP")
+    assert [sig.name for sig in process_runner._GUARDED_SIGNALS] == expected
 
 
 def test_a_second_distinct_signal_is_not_swallowed_in_the_launch_window() -> None:

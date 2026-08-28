@@ -48,7 +48,7 @@ def test_provider_health_endpoints_check_runtime_dependencies() -> None:
     assert "model_is_loaded()" in _text(
         "services/parakeet/provider/shared/api_server.py"
     )
-    assert "_model_startup.start()" in _text(
+    assert "model_lifespan(app, _model_startup)" in _text(
         "services/parakeet/provider/shared/api_server.py"
     )
 

@@ -34,6 +34,7 @@ elif command -v python3 >/dev/null 2>&1; then
     echo "📦 Using system Python (install uv for better dependency management)..." >&2
     BOOTSTRAPPER_VENV="${ATLAS_BOOTSTRAPPER_VENV:-$SELF_DIR/.venv}"
     VENV_PYTHON="$BOOTSTRAPPER_VENV/bin/python"
+    BOOTSTRAPPER_LOCK="$SELF_DIR/requirements-locked.txt"
     REQUIRED_IMPORTS="import click, jsonschema, PIL, requests, rich, textual, textual_image, urllib3, yaml"
 
     # Fingerprint the DEPENDENCY DECLARATION, not the module list. The guard
@@ -47,20 +48,24 @@ elif command -v python3 >/dev/null 2>&1; then
     # pyproject.toml but not to REQUIRED_IMPORTS was likewise never installed.
     DEPS_STAMP="$BOOTSTRAPPER_VENV/.atlas-deps-stamp"
     if command -v shasum >/dev/null 2>&1; then
-        WANT_STAMP="$(shasum -a 256 "$SELF_DIR/pyproject.toml" | cut -d' ' -f1)"
+        WANT_STAMP="$(shasum -a 256 "$SELF_DIR/pyproject.toml" "$BOOTSTRAPPER_LOCK" | shasum -a 256 | cut -d' ' -f1)"
     elif command -v sha256sum >/dev/null 2>&1; then
-        WANT_STAMP="$(sha256sum "$SELF_DIR/pyproject.toml" | cut -d' ' -f1)"
+        WANT_STAMP="$(sha256sum "$SELF_DIR/pyproject.toml" "$BOOTSTRAPPER_LOCK" | sha256sum | cut -d' ' -f1)"
+    elif command -v cksum >/dev/null 2>&1; then
+        # POSIX fallback: unlike the old size-only stamp, CRC+length changes
+        # for same-size edits to either locked dependency input.
+        WANT_STAMP="$(cksum "$SELF_DIR/pyproject.toml" "$BOOTSTRAPPER_LOCK" | cksum | awk '{print $1 "-" $2}')"
     else
-        # No hasher: fall back to size+mtime. Weaker, but still detects an edit.
-        WANT_STAMP="$(wc -c < "$SELF_DIR/pyproject.toml" | tr -d ' ')"
+        echo "❌ No checksum tool is available to validate the locked dependency graph." >&2
+        exit 1
     fi
     HAVE_STAMP=""
     if [ -f "$DEPS_STAMP" ]; then
         HAVE_STAMP="$(cat "$DEPS_STAMP" 2>/dev/null || true)"
     fi
 
-    # Does the venv already satisfy every import? Decides whether a failed
-    # refresh is fatal or merely a warning.
+    # Does the venv already satisfy every import? Along with the content stamp,
+    # this decides whether a locked refresh is required; failures always close.
     VENV_USABLE=0
     if [ -x "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "$REQUIRED_IMPORTS" >/dev/null 2>&1; then
         VENV_USABLE=1
@@ -97,22 +102,12 @@ elif command -v python3 >/dev/null 2>&1; then
         else
             echo "Refreshing Atlas bootstrapper dependencies (declaration changed)..." >&2
         fi
-        if "$VENV_PYTHON" -m pip install --disable-pip-version-check --upgrade "$SELF_DIR"; then
+        if "$VENV_PYTHON" -m pip install --disable-pip-version-check --upgrade --constraint "$BOOTSTRAPPER_LOCK" "$SELF_DIR"; then
             # Stamp only AFTER a successful install, so a failed run retries.
             printf '%s\n' "$WANT_STAMP" > "$DEPS_STAMP" 2>/dev/null || true
-        elif [ "$VENV_USABLE" = "1" ]; then
-            # A REFRESH failed on a venv that already imports everything we
-            # need. `uv venv` does not install pip, so `python -m pip` is
-            # simply absent on a perfectly good environment — aborting here
-            # would break a working setup in order to apply a version floor.
-            # Warn instead, and leave the stamp unwritten so the next run
-            # retries rather than silently accepting the old versions.
-            echo "⚠ Could not refresh Atlas bootstrapper dependencies (pip unavailable?)." >&2
-            echo "  Continuing with the existing environment; declared version" >&2
-            echo "  floors in bootstrapper/pyproject.toml may not be applied." >&2
-            echo "  Install uv, or run: $VENV_PYTHON -m ensurepip --upgrade" >&2
         else
-            echo "❌ Could not install Atlas bootstrapper dependencies." >&2
+            echo "❌ Could not install Atlas bootstrapper dependencies from the locked graph." >&2
+            echo "   Install uv, or run: $VENV_PYTHON -m ensurepip --upgrade" >&2
             exit 1
         fi
     fi

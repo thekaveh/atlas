@@ -12,7 +12,8 @@ Detect external changes that deterministic pull-request tests cannot see, and
 turn a failed nightly check into one actionable GitHub issue instead of an
 email-only workflow failure.
 
-The first release watches four contracts already owned by Atlas:
+The first release watched four contracts already owned by Atlas; the current
+watcher adds a fifth control for the excluded remote Graph Builder builds:
 
 1. the live `ollama.com/library` page still yields a plausible model catalog;
 2. the Ollama version pinned in `services/ollama/service.yml` still exposes the
@@ -20,7 +21,9 @@ The first release watches four contracts already owned by Atlas:
 3. every model family in `services/ollama/models.yaml` remains reachable on
    Ollama's public library;
 4. every unique manifest-owned image default in
-   `services/*/service.yml::images[].default` still resolves in its registry.
+   `services/*/service.yml::images[].default` still resolves in its registry;
+5. every literal base in the commit-pinned remote Graph Builder Dockerfiles
+   still matches its reviewed index digest in `.container-scan-exclusions.yml`.
 
 No running Atlas stack or model-weight download is required. On a fresh runner,
 the workflow makes one intentional exception for the manifest-pinned Ollama
@@ -102,6 +105,18 @@ set, or aggregate image inventory is missing or empty. A manifest may omit the
 a small fixed worker pool. This reads registry manifests only; it never pulls
 layers. Failure output is truncated to a bounded diagnostic.
 
+### 3.5. Remote build contexts and base-image digests
+
+Discover GitHub build contexts from service Compose fragments, resolve each
+`${REF}` from the matching manifest default, and require a literal 40-character
+commit SHA. Fetch each pinned Dockerfile with a bounded request, extract every
+literal `FROM` image, and compare its live `docker buildx imagetools inspect`
+index digest with the reviewed `remote_base_digests` mapping in
+`.container-scan-exclusions.yml`. Missing, extra, malformed, unreachable, or
+changed bases fail the probe. This detects upstream Dockerfile and base-index
+drift without building the excluded final images; it is not a substitute for
+final-image vulnerability scanning.
+
 ## 4. Reporting and issue lifecycle
 
 The report has a stable marker (`<!-- atlas-upstream-drift-watch -->`), a UTC
@@ -145,8 +160,12 @@ using the runner's authenticated `gh` CLI and `${{ github.token }}`.
 - empty catalog rejection, service-inventory validation, and malformed image
   rows including declared `images: null`;
 - image resolution success, failure, timeout, and diagnostic truncation;
+- remote-context discovery, commit-pin enforcement, Dockerfile/base inventory,
+  reviewed-baseline parity, digest drift, and the bounded digest command/parser
+  success, malformed, non-zero, and timeout paths;
 - aggregate execution and exact Markdown passed/failed/total summary counts;
-- CLI success/failure exit codes and report-file creation;
+- CLI success/failure exit codes, report-file creation, and the configurable
+  remote-base baseline path;
 - workflow schedule/manual triggers, permissions, concurrency, timeouts,
   manifest-derived Ollama image, bounded server-image pull, bounded
   `--pull=never` start, unconditional cleanup, and single-issue reconciliation
@@ -161,7 +180,7 @@ workflow YAML/contract tests, and the repository's required audit commands.
 | Ticket requirement | Evidence |
 |---|---|
 | Live scraper/API probes | Library and `/api/tags` probe results |
-| Image/tag drift | Manifest image resolver probe |
+| Image/tag drift | Manifest image resolver plus commit-pinned remote Dockerfile/base-index-digest probe |
 | Catalog reachability | Curated Ollama library probe |
 | Open or update one issue | Exact-marker issue lifecycle in workflow |
 | Narrow nightly scope | Dedicated workflow calls only the watcher |

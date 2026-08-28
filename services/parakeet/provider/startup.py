@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+from contextlib import asynccontextmanager, suppress
 from typing import Any, Callable
 
 
@@ -19,15 +20,20 @@ class ModelStartup:
         loader: Callable[[], Any],
         *,
         timeout_seconds: float,
+        shutdown_timeout_seconds: float = 10.0,
         terminate: Callable[[int], None] = os._exit,
     ):
         if timeout_seconds <= 0 or timeout_seconds > 3600:
             raise ValueError("startup timeout must be greater than 0 and at most 3600")
+        if shutdown_timeout_seconds <= 0 or shutdown_timeout_seconds > 60:
+            raise ValueError("shutdown timeout must be greater than 0 and at most 60")
         self._provider = provider
         self._loader = loader
         self._timeout_seconds = timeout_seconds
+        self._shutdown_timeout_seconds = shutdown_timeout_seconds
         self._terminate = terminate
         self._task = None
+        self._native_task = None
         self._model = None
         self._state = "loading"
         self._start_count = 0
@@ -52,6 +58,7 @@ class ModelStartup:
 
     async def _run(self) -> None:
         native_task = asyncio.create_task(asyncio.to_thread(self._loader))
+        self._native_task = native_task
         try:
             self._model = await asyncio.wait_for(
                 asyncio.shield(native_task),
@@ -81,3 +88,47 @@ class ModelStartup:
             self._terminate(FATAL_TIMEOUT_EXIT_CODE)
         else:
             self._state = "healthy"
+
+    async def shutdown(self) -> None:
+        """Bound shutdown even though Python cannot cancel native model loading."""
+        pending = self._native_task
+        if pending is None or pending.done():
+            pending = self._task
+        if pending is None or pending.done():
+            return
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(pending), timeout=self._shutdown_timeout_seconds
+            )
+        except asyncio.CancelledError:
+            self._terminate_stuck_shutdown("was cancelled during shutdown")
+            await self._cancel_wrapper_task()
+            raise
+        except (asyncio.TimeoutError, TimeoutError):
+            self._terminate_stuck_shutdown("did not stop before shutdown deadline")
+            await self._cancel_wrapper_task()
+
+    def _terminate_stuck_shutdown(self, reason: str) -> None:
+        self._state = "unhealthy"
+        logger.error(
+            "Provider model load %s (provider=%s)", reason, self._provider
+        )
+        self._terminate(FATAL_TIMEOUT_EXIT_CODE)
+
+    async def _cancel_wrapper_task(self) -> None:
+        """Clean up when an injected terminator returns instead of exiting."""
+        if self._task is not None and not self._task.done():
+            self._task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._task
+
+
+@asynccontextmanager
+async def model_lifespan(app: Any, startup: ModelStartup):
+    """Start model loading on mount and enforce bounded cleanup on unmount."""
+    del app
+    startup.start()
+    try:
+        yield
+    finally:
+        await startup.shutdown()

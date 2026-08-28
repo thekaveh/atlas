@@ -19,6 +19,8 @@ from pathlib import Path
 
 import yaml
 
+from services.manifests import load_yaml_strict
+
 # Canonical profile names — locked to the manifest options' `profiles:` tag
 # vocabulary (service.schema.json enum) so `option_in_profile` /
 # `validate_sources_for_profile` compose without translation.
@@ -80,8 +82,13 @@ def _parse_bundle(name: str, raw: object, *, origin: str) -> ProfileBundle:
             )
         host_bind_ip = value
 
+    sources_raw = raw.get("sources", {})
+    if not isinstance(sources_raw, dict):
+        raise ProfileConfigError(
+            f"{origin}: profile '{name}' sources must be a mapping"
+        )
     sources: dict[str, str] = {}
-    for svc, sid in (raw.get("sources") or {}).items():
+    for svc, sid in sources_raw.items():
         svc_s, sid_s = str(svc), str(sid)
         if not _SERVICE_NAME_RE.match(svc_s):
             raise ProfileConfigError(
@@ -95,8 +102,13 @@ def _parse_bundle(name: str, raw: object, *, origin: str) -> ProfileBundle:
             )
         sources[svc_s] = sid_s
 
+    env_raw = raw.get("env", {})
+    if not isinstance(env_raw, dict):
+        raise ProfileConfigError(
+            f"{origin}: profile '{name}' env must be a mapping"
+        )
     env: dict[str, str] = {}
-    for var, value in (raw.get("env") or {}).items():
+    for var, value in env_raw.items():
         var_s = str(var)
         if not _ENV_VAR_RE.match(var_s):
             raise ProfileConfigError(
@@ -119,7 +131,10 @@ def load_profile_bundles(path: Path | None = None) -> dict[str, ProfileBundle]:
         path = Path(__file__).resolve().parent.parent / "profiles.yml"
     if not path.exists():
         return {name: ProfileBundle() for name in CANONICAL_PROFILES}
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    try:
+        raw = load_yaml_strict(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise ProfileConfigError(f"{path}: invalid YAML — {exc}") from exc
     profiles_raw = raw.get("profiles")
     if not isinstance(profiles_raw, dict):
         raise ProfileConfigError(f"{path}: missing/invalid top-level 'profiles' map")

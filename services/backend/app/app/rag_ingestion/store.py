@@ -16,6 +16,7 @@ import json
 import os
 import threading
 import time
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from .models import IngestionRecord
@@ -25,6 +26,13 @@ _KEY_PREFIX = "atlas:rag:ingestions:"
 _IDX_PREFIX = "atlas:rag:idempotency:"
 _INDEX_SET = "atlas:rag:ingestion-ids"
 _LEASE_PREFIX = "atlas:rag:execution:"
+
+
+@dataclass(frozen=True)
+class ExecutionClaim:
+    owner: str
+    lease_seconds: int
+    recovery_owner: Optional[str] = None
 
 
 class IngestionStore:
@@ -54,13 +62,21 @@ class IngestionStore:
         self,
         ingestion_id: str,
         error: Dict[str, object],
-        updated_at: str,
+        update: tuple[str, Optional[str]],
     ) -> Optional[IngestionRecord]:
         raise NotImplementedError
 
-    def claim_execution(
-        self, ingestion_id: str, owner: str, lease_seconds: int
+    def claim_dispatch(
+        self, ingestion_id: str, claim: tuple[str, str, str]
     ) -> bool:
+        raise NotImplementedError
+
+    def mark_dispatched(
+        self, ingestion_id: str, dispatch: tuple[Optional[str], str], updated_at: str
+    ) -> Optional[IngestionRecord]:
+        raise NotImplementedError
+
+    def claim_execution(self, ingestion_id: str, claim: ExecutionClaim) -> bool:
         raise NotImplementedError
 
     def renew_execution(
@@ -145,23 +161,77 @@ class InMemoryIngestionStore(IngestionStore):
         self,
         ingestion_id: str,
         error: Dict[str, object],
-        updated_at: str,
+        update: tuple[str, Optional[str]],
     ) -> Optional[IngestionRecord]:
+        updated_at, owner = update
         with self._lock:
             blob = self._records.get(ingestion_id)
             if blob is None:
                 return None
             record = IngestionRecord.from_dict(json.loads(blob))
-            if record.status == "pending":
+            claim_matches = (
+                record.dispatch_state == "prepared" and owner is None
+            ) or (
+                record.dispatch_state == "dispatching"
+                and record.dispatch_owner == owner
+            )
+            if record.status == "pending" and claim_matches:
                 record.status = "failed"
                 record.updated_at = updated_at
                 record.errors.append(dict(error))
                 self._save_locked(record)
             return record
 
-    def claim_execution(
-        self, ingestion_id: str, owner: str, lease_seconds: int
+    def claim_dispatch(
+        self, ingestion_id: str, claim: tuple[str, str, str]
     ) -> bool:
+        owner, updated_at, stale_before = claim
+        with self._lock:
+            blob = self._records.get(ingestion_id)
+            if blob is None:
+                return False
+            record = IngestionRecord.from_dict(json.loads(blob))
+            reclaimable = (
+                record.dispatch_state == "dispatching"
+                and (
+                    record.dispatch_claimed_at is None
+                    or record.dispatch_claimed_at <= stale_before
+                )
+            )
+            if record.status != "pending" or not (
+                record.dispatch_state == "prepared" or reclaimable
+            ):
+                return False
+            record.dispatch_state = "dispatching"
+            record.dispatch_owner = owner
+            record.dispatch_claimed_at = updated_at
+            record.updated_at = updated_at
+            self._save_locked(record)
+            return True
+
+    def mark_dispatched(
+        self, ingestion_id: str, dispatch: tuple[Optional[str], str], updated_at: str
+    ) -> Optional[IngestionRecord]:
+        job_id, owner = dispatch
+        with self._lock:
+            blob = self._records.get(ingestion_id)
+            if blob is None:
+                return None
+            record = IngestionRecord.from_dict(json.loads(blob))
+            if (
+                record.status not in {"failed", "cancelled"}
+                and record.dispatch_state == "dispatching"
+                and record.dispatch_owner == owner
+            ):
+                record.dispatch_state = "accepted"
+                record.dispatch_job_id = job_id
+                record.dispatch_owner = None
+                record.dispatch_claimed_at = None
+                record.updated_at = updated_at
+                self._save_locked(record)
+            return record
+
+    def claim_execution(self, ingestion_id: str, claim: ExecutionClaim) -> bool:
         with self._lock:
             blob = self._records.get(ingestion_id)
             if blob is None:
@@ -172,8 +242,16 @@ class InMemoryIngestionStore(IngestionStore):
             now = time.monotonic()
             current = self._leases.get(ingestion_id)
             if current is not None and current[1] > now:
-                return False
-            self._leases[ingestion_id] = (owner, now + lease_seconds)
+                current_owner = current[0]
+                if (
+                    claim.recovery_owner != current_owner
+                    or claim.owner == current_owner
+                ):
+                    return False
+            self._leases[ingestion_id] = (
+                claim.owner,
+                now + claim.lease_seconds,
+            )
             return True
 
     def renew_execution(
@@ -289,7 +367,11 @@ return blob
 local blob = redis.call('GET', KEYS[1])
 if not blob then return false end
 local record = cjson.decode(blob)
-if record.status == 'pending' then
+if record.dispatch_state == nil then record.dispatch_state = 'prepared' end
+local owner = ARGV[4]
+local claim_matches = (record.dispatch_state == 'prepared' and owner == '')
+    or (record.dispatch_state == 'dispatching' and record.dispatch_owner == owner)
+if record.status == 'pending' and claim_matches then
     record.status = 'failed'
     record.updated_at = ARGV[2]
     table.insert(record.errors, cjson.decode(ARGV[1]))
@@ -302,6 +384,47 @@ end
 return blob
 """
 
+    _CLAIM_DISPATCH_SCRIPT = """
+local blob = redis.call('GET', KEYS[1])
+if not blob then return 0 end
+local record = cjson.decode(blob)
+if record.dispatch_state == nil then record.dispatch_state = 'prepared' end
+local reclaimable = record.dispatch_state == 'dispatching'
+    and (record.dispatch_claimed_at == nil or record.dispatch_claimed_at <= ARGV[3])
+if record.status ~= 'pending'
+   or (record.dispatch_state ~= 'prepared' and not reclaimable) then
+    return 0
+end
+record.dispatch_state = 'dispatching'
+record.dispatch_owner = ARGV[1]
+record.updated_at = ARGV[2]
+record.dispatch_claimed_at = ARGV[2]
+redis.call('SET', KEYS[1], cjson.encode(record), 'EX', ARGV[4])
+return 1
+"""
+
+    _DISPATCHED_SCRIPT = """
+local blob = redis.call('GET', KEYS[1])
+if not blob then return false end
+local record = cjson.decode(blob)
+if record.status ~= 'failed' and record.status ~= 'cancelled'
+   and record.dispatch_state == 'dispatching'
+   and record.dispatch_owner == ARGV[4] then
+    record.dispatch_state = 'accepted'
+    if ARGV[1] ~= '' then
+        record.dispatch_job_id = ARGV[1]
+    else
+        record.dispatch_job_id = cjson.null
+    end
+    record.dispatch_owner = cjson.null
+    record.dispatch_claimed_at = cjson.null
+    record.updated_at = ARGV[2]
+    blob = cjson.encode(record)
+    redis.call('SET', KEYS[1], blob, 'EX', ARGV[3])
+end
+return blob
+"""
+
     _CLAIM_EXECUTION_SCRIPT = """
 local blob = redis.call('GET', KEYS[1])
 if not blob then return 0 end
@@ -310,9 +433,16 @@ if record.status == 'completed' or record.status == 'failed'
    or record.status == 'cancelled' then
     return 0
 end
-if redis.call('GET', KEYS[2]) then return 0 end
-redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2])
-return 1
+local current = redis.call('GET', KEYS[2])
+if not current then
+    redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2])
+    return 1
+end
+if ARGV[3] ~= '' and current == ARGV[3] and ARGV[1] ~= ARGV[3] then
+    redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2])
+    return 1
+end
+return 0
 """
 
     _RENEW_EXECUTION_SCRIPT = """
@@ -415,8 +545,9 @@ return 1
         self,
         ingestion_id: str,
         error: Dict[str, object],
-        updated_at: str,
+        update: tuple[str, Optional[str]],
     ) -> Optional[IngestionRecord]:
+        updated_at, owner = update
         record = self.get(ingestion_id)
         if record is None:
             return None
@@ -428,20 +559,51 @@ return 1
             json.dumps(error),
             updated_at,
             _TTL_SECONDS,
+            owner or "",
         )
         return IngestionRecord.from_dict(json.loads(result)) if result else None
 
-    def claim_execution(
-        self, ingestion_id: str, owner: str, lease_seconds: int
+    def claim_dispatch(
+        self, ingestion_id: str, claim: tuple[str, str, str]
     ) -> bool:
+        owner, updated_at, stale_before = claim
+        return bool(
+            self._redis.eval(
+                self._CLAIM_DISPATCH_SCRIPT,
+                1,
+                _KEY_PREFIX + ingestion_id,
+                owner,
+                updated_at,
+                stale_before,
+                _TTL_SECONDS,
+            )
+        )
+
+    def mark_dispatched(
+        self, ingestion_id: str, dispatch: tuple[Optional[str], str], updated_at: str
+    ) -> Optional[IngestionRecord]:
+        job_id, owner = dispatch
+        result = self._redis.eval(
+            self._DISPATCHED_SCRIPT,
+            1,
+            _KEY_PREFIX + ingestion_id,
+            job_id or "",
+            updated_at,
+            _TTL_SECONDS,
+            owner,
+        )
+        return IngestionRecord.from_dict(json.loads(result)) if result else None
+
+    def claim_execution(self, ingestion_id: str, claim: ExecutionClaim) -> bool:
         return bool(
             self._redis.eval(
                 self._CLAIM_EXECUTION_SCRIPT,
                 2,
                 _KEY_PREFIX + ingestion_id,
                 _LEASE_PREFIX + ingestion_id,
-                owner,
-                lease_seconds,
+                claim.owner,
+                claim.lease_seconds,
+                claim.recovery_owner or "",
             )
         )
 

@@ -124,7 +124,7 @@
           },
           "default": {
             "type": "string",
-            "description": "Default image reference (e.g. 'ollama/ollama:latest')."
+            "description": "Default image reference pinned to an exact release tag or immutable sha256 digest (e.g. 'ollama/ollama:0.18.3')."
           },
           "container": {
             "type": "string",
@@ -132,6 +132,11 @@
           },
           "notes": {
             "type": "string"
+          },
+          "platform": {
+            "type": "string",
+            "pattern": "^linux/(amd64|arm64)$",
+            "description": "Optional scanner/runtime platform when the image is single-architecture. Omit only for images supported and scanned on both linux/amd64 and linux/arm64."
           }
         }
       }
@@ -399,6 +404,7 @@
               },
               "default": {
                 "type": "string",
+                "pattern": "^-?[0-9]+$",
                 "description": "Default value as a string (the wizard converts to int)."
               },
               "visible_when_source": {

@@ -107,7 +107,7 @@ from utils.atomic_write import atomic_write_text, env_lines, render_env_assignme
 from utils.banner import BannerDisplay
 from utils.hosts_manager import HostsManager
 from utils.key_generator import KeyGenerator
-from core.linear_startup import LinearStartupOptions, run_linear_startup
+from core.linear_startup import LinearStartupOptions, json_cli_guard, run_linear_startup
 from utils.localhost_validator import LocalhostValidator
 from core.config_parser import ConfigParser, DEFAULT_BASE_PORT, DEFAULT_PROJECT_NAME
 from core.docker_manager import DockerManager
@@ -2001,12 +2001,18 @@ class AtlasStarter:
                     "Checking for retired curated Ollama model references (v4) ...",
                     "info",
                 )
-                _apply_v4(env_path)
-                _stamp_v4(env_path)
-                self.banner.show_status_message(
-                    "Stale-model-reference migration complete (v4).",
-                    "success",
-                )
+                if _apply_v4(env_path):
+                    _stamp_v4(env_path)
+                    self.banner.show_status_message(
+                        "Stale-model-reference migration complete (v4).",
+                        "success",
+                    )
+                else:
+                    self.banner.show_status_message(
+                        "Could not load the curated Ollama catalog; migration v4 "
+                        "was not stamped and will retry on the next start.",
+                        "warning",
+                    )
 
     def generate_service_configuration(self) -> bool:
         """Generate and update service configuration."""
@@ -2357,12 +2363,14 @@ class AtlasStarter:
 
     def rollback_managed_host_processes(self) -> bool:
         """Stop native hosts started by this invocation, in reverse order."""
+        from services import tracked_process_may_survive
+
         remaining: list[tuple[str, object]] = []
         all_stopped = True
         for label, manager in reversed(self._managed_hosts_started_this_run):
             try:
-                stopped = manager.stop()
-                still_running = manager.status().running
+                manager.stop()
+                pid, may_survive = tracked_process_may_survive(manager)
             except Exception as exc:  # noqa: BLE001 - preserve other cleanup
                 self.banner.show_status_message(
                     f"Could not roll back managed {label} host: {exc}", "warning"
@@ -2370,14 +2378,16 @@ class AtlasStarter:
                 remaining.append((label, manager))
                 all_stopped = False
                 continue
-            if stopped or not still_running:
+            if not may_survive:
                 self.banner.show_status_message(
                     f"Rolled back managed {label} host started by this launch.",
                     "info",
                 )
             else:
+                detail = f" (pid {pid})" if pid is not None else ""
                 self.banner.show_status_message(
-                    f"Managed {label} host is still running after rollback.",
+                    f"Managed {label} host may still be running after rollback"
+                    f"{detail}; tracking evidence was preserved.",
                     "warning",
                 )
                 remaining.append((label, manager))
@@ -2387,6 +2397,10 @@ class AtlasStarter:
 
     def commit_managed_host_processes(self) -> None:
         """Release rollback ownership after the stack has converged."""
+        for _label, manager in self._managed_hosts_started_this_run:
+            commit = getattr(manager, "commit_started_process", None)
+            if callable(commit):
+                commit()
         self._managed_hosts_started_this_run.clear()
 
     def _finalize_managed_blender_mcp(self) -> bool:
@@ -2412,6 +2426,10 @@ class AtlasStarter:
             manager = manager_from_env(env)
             status, created = manager.ensure_running()
         except BlenderMcpError as exc:
+            if exc.surviving_process:
+                self._managed_hosts_started_this_run.append(
+                    ("Blender MCP", manager)
+                )
             self.banner.show_status_message(
                 f"Managed Blender MCP bridge could not start: {exc}", "error"
             )
@@ -2607,6 +2625,13 @@ class AtlasStarter:
             self._managed_hosts_started_this_run.append(("ComfyUI (MPS)", manager))
 
         health = manager.wait_healthy(timeout=60.0)
+        if not manager.confirm_started_process(status.pid):
+            self.banner.show_status_message(
+                f"Managed ComfyUI (MPS) process {status.pid} exited before "
+                "startup verification completed.",
+                "error",
+            )
+            return False
         if health.get("reachable"):
             self.banner.show_status_message(
                 f"  • Managed ComfyUI (MPS) is up on port {status.port} "
@@ -2668,6 +2693,13 @@ class AtlasStarter:
             self._managed_hosts_started_this_run.append(("vLLM (Metal)", manager))
 
         health = manager.wait_healthy(timeout=120.0)
+        if not manager.confirm_started_process(status.pid):
+            self.banner.show_status_message(
+                f"Managed vLLM (Metal) process {status.pid} exited before "
+                "startup verification completed.",
+                "error",
+            )
+            return False
         if health.get("reachable"):
             self.banner.show_status_message(
                 f"  • Managed vLLM (Metal) is up on port {status.port} "
@@ -3079,12 +3111,14 @@ class AtlasStarter:
         if not self.verify_one_shot_init_containers():
             self.rollback_managed_host_processes()
             return False
-        self._reactivate_n8n_if_needed()
+        if not self._reactivate_n8n_if_needed():
+            self.rollback_managed_host_processes()
+            return False
         self.commit_managed_host_processes()
         self.banner.show_status_message("All services started successfully", "success")
         return True
 
-    def _reactivate_n8n_if_needed(self) -> None:
+    def _reactivate_n8n_if_needed(self) -> bool:
         """Restart n8n once after seeding so a consumer's production webhook
         registers when the workflow was activated **without** an ``N8N_API_KEY``.
 
@@ -3093,23 +3127,83 @@ class AtlasStarter:
         and the webhook registers immediately (no restart). Without a key, the
         seed persists ``active=true`` via ``n8n publish:workflow`` — but the
         running server ignores that until it restarts (empirically verified on
-        n8nio/n8n:2.28.2: publish prints "restart required" and the production
-        webhook stays 404 until a restart, then 200). So Atlas performs the one
+        n8nio/n8n:2.28.2; the 2.36.7 image retains the same
+        ``publish:workflow --id`` CLI boundary). So Atlas performs the one
         restart the consumer would otherwise do by hand. No-op with a key, with
         n8n disabled, or when no active consumer workflow is declared.
         """
         try:
             consumer = self.config_parser.load_consumer_config()
             env = self.config_parser.parse_env_file()
-        except Exception:
-            return
+        except Exception as exc:
+            self.banner.show_status_message(
+                f"Could not determine whether n8n webhook reactivation is "
+                f"required: {exc}",
+                "error",
+            )
+            return False
         if not _n8n_needs_reactivation_restart(env, consumer):
-            return
+            return True
         self.banner.show_status_message(
             "Restarting n8n to register consumer webhook(s) (no N8N_API_KEY)...",
             "info",
         )
-        self.docker_manager.execute_compose_command(["restart", "n8n"])
+        try:
+            result = self.docker_manager.execute_compose_command(["restart", "n8n"])
+        except Exception as exc:  # noqa: BLE001 — launch must convert to a verdict
+            self.banner.show_status_message(
+                f"Failed to restart n8n for webhook registration: {exc}", "error"
+            )
+            return False
+        if result != 0:
+            self.banner.show_status_message(
+                "Failed to restart n8n for consumer webhook registration; "
+                f"compose returned exit code {result}.",
+                "error",
+            )
+            return False
+        return self._n8n_restart_converged()
+
+    def _n8n_restart_converged(self) -> bool:
+        services, converged, _waited, error = self._poll_until_converged(
+            grace_seconds=120.0,
+            poll_interval_seconds=2.0,
+            poll_rows=self._strict_n8n_health_rows,
+        )
+        if error is not None:
+            detail = error
+        elif not services:
+            detail = "n8n is absent from compose status"
+        elif not converged:
+            detail = "; ".join(
+                f"{entry.get('service', 'n8n')}: {entry.get('reason', 'not healthy')}"
+                for entry in services
+                if not entry.get("ok")
+            ) or "n8n did not become healthy"
+        else:
+            return True
+        self.banner.show_status_message(
+            f"n8n restart did not converge to healthy: {detail}", "error"
+        )
+        return False
+
+    def _strict_n8n_health_rows(self) -> tuple[list[dict], str | None]:
+        rows, error = self.docker_manager.compose_service_ps_json("n8n")
+        return [self._strict_n8n_health_row(row) for row in rows], error
+
+    @staticmethod
+    def _strict_n8n_health_row(row: dict) -> dict:
+        state = str(row.get("State") or "").strip().lower()
+        health = str(row.get("Health") or "").strip().lower()
+        if state == "running" and health == "healthy":
+            return row
+        strict = dict(row)
+        if state == "running" and health in {"", "starting"}:
+            strict["Health"] = "starting"
+        elif state != "running":
+            strict["ExitCode"] = "1"
+            strict["Status"] = "n8n is not running"
+        return strict
 
     def _poll_until_converged(
         self,
@@ -3819,16 +3913,17 @@ class AtlasStarter:
                 mismatches += 1
         return mismatches
                 
-    def show_container_logs(self):
+    def show_container_logs(self) -> int:
         """
         Show container logs with follow option.
         Replicates the logs display from original start.sh.
         """
         try:
-            self.docker_manager.show_container_logs(follow=True)
+            return self.docker_manager.show_container_logs(follow=True)
         except KeyboardInterrupt:
             print("\n🔄 Log viewing interrupted by user")
             print("   Use 'docker compose logs -f' to view logs again")
+            return 130
         
 
 
@@ -5325,12 +5420,78 @@ def _parse_base_port_option(ctx, param, value):
     if text == "auto":
         return "auto"
     try:
-        return int(text)
+        port = int(text)
     except (TypeError, ValueError):
         raise click.BadParameter("must be an integer or 'auto'")
+    from core.port_manager import PortManager
+    port_manager = PortManager()
+    if not port_manager.validate_base_port(port):
+        offsets = port_manager.port_offsets()
+        max_port = 65535 - (max(offsets.values()) if offsets else 0)
+        raise click.BadParameter(
+            f"must be between 1024 and {max_port}, or 'auto'"
+        )
+    return port
 
 
-@click.group(invoke_without_command=True)
+class AtlasStartGroup(click.Group):
+    """Add terminal JSON for root-command parse failures in ``--json`` mode."""
+
+    def main(self, *args, **kwargs):
+        cli_args = kwargs.get("args", args[0] if args else None)
+        standalone_mode = kwargs.get(
+            "standalone_mode", args[3] if len(args) > 3 else True
+        )
+        raw_args = list(cli_args if cli_args is not None else sys.argv[1:])
+        startup_json = "--json" in raw_args and not self._has_subcommand(raw_args)
+        if not startup_json:
+            return super().main(*args, **kwargs)
+        delegated_args = list(args)
+        delegated_kwargs = dict(kwargs)
+        if len(delegated_args) > 3:
+            delegated_args[3] = False
+        else:
+            delegated_kwargs["standalone_mode"] = False
+        try:
+            return super().main(*delegated_args, **delegated_kwargs)
+        except click.ClickException as exc:
+            exc.show(file=sys.stderr)
+            if not getattr(exc, "_atlas_json_emitted", False):
+                click.echo(
+                    json.dumps({"ok": False, "exit_code": exc.exit_code})
+                )
+            if standalone_mode:
+                raise SystemExit(exc.exit_code) from exc
+            raise
+
+    def _root_options(self) -> dict[str, click.Option]:
+        """Index root options by every accepted spelling."""
+        return {
+            opt: param
+            for param in self.params if isinstance(param, click.Option)
+            for opt in (*param.opts, *param.secondary_opts)
+        }
+
+    def _has_subcommand(self, raw_args: list[str]) -> bool:
+        """Find the first positional token while skipping root option values."""
+        options = self._root_options()
+        index = 0
+        while index < len(raw_args):
+            token = raw_args[index]
+            if token == "--":
+                return index + 1 < len(raw_args) and raw_args[index + 1] in self.commands
+            if not token.startswith("-"):
+                return token in self.commands
+            name, has_inline_value, _value = token.partition("=")
+            option = options.get(name)
+            consumes_next = (
+                option is not None and not option.is_flag and not has_inline_value
+            )
+            index += 2 if consumes_next else 1
+        return False
+
+
+@click.group(invoke_without_command=True, cls=AtlasStartGroup)
 @click.option('--project', '-p', 'project_name', type=str, default=None,
               help='Docker Compose project name — the container-family namespace '
                    '(every container/volume/network is prefixed <name>-…). Persists '
@@ -5352,7 +5513,7 @@ def _parse_base_port_option(ctx, param, value):
 @click.option('--setup-hosts', is_flag=True, help='Setup hosts file entries (requires admin/sudo)')
 @click.option('--skip-hosts', is_flag=True, help='Skip hosts file checks and setup')
 @click.option('--track', type=str, default=None,
-              help='Pre-select a wizard profile (track) — gen-ai-rag, '
+              help='Pre-select a wizard track — gen-ai-rag, '
                    'gen-ai-eng, gen-ai-creative, ml-eng, data-eng, trading, all. '
                    'Skips the wizard track-picker. In-track services are '
                    'prompted as usual; out-of-track services are disabled. '
@@ -5364,7 +5525,7 @@ def _parse_base_port_option(ctx, param, value):
               type=click.Choice(['ollama-container-cpu', 'ollama-container-gpu', 'ollama-localhost',
                                 'none'], case_sensitive=False),
               help='Override LLM_PROVIDER_SOURCE (Ollama upstream for the LiteLLM gateway). '
-                   'Use "none" for cloud-only operation.')
+                   'Use "none" for no Ollama upstream (vLLM Metal and/or cloud may remain).')
 @click.option('--cloud-openai-source',
               type=click.Choice(['enabled', 'disabled'], case_sensitive=False),
               help='Enable/disable the OpenAI cloud provider in LiteLLM (requires OPENAI_API_KEY).')
@@ -5581,8 +5742,8 @@ def _parse_base_port_option(ctx, param, value):
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override CLOUDFLARED_SOURCE — outbound Cloudflare Tunnel public edge.')
 @click.option('--no-tui', is_flag=True,
-              help='Disable the TUI (wizard + Textual log app). Falls back to the legacy '
-                   'linear flow with passthrough docker output. Useful for log capture, '
+              help='Disable the Textual wizard/launch UI; use the linear stdout flow '
+                   'with passthrough docker output. Useful for log capture, '
                    'debugging, and terminals that don\'t support the alternate screen buffer.')
 @click.option('--detach', '--no-follow', 'detach', is_flag=True, default=False,
               help='Run the start pipeline, wait for compose health gates, print a final '
@@ -5593,7 +5754,7 @@ def _parse_base_port_option(ctx, param, value):
               help='Disable the opening splash animation in the wizard.')
 @click.option('--no-port-migrate', is_flag=True, default=False,
               help='Skip the chained .env migrations (port-layout v1, URL→PORT v2, '
-                   'model-set v3) for this run. Version sentinels are NOT stamped, '
+                   'model-set v3, catalog v4) for this run. Version sentinels are NOT stamped, '
                    'so the migration re-prompts on the next run.')
 @click.option('--profile',
               type=click.Choice(['default', 'dev', 'prod'], case_sensitive=False),
@@ -5605,6 +5766,7 @@ def _parse_base_port_option(ctx, param, value):
                    'consumer manifest may name its default via `profile:`. '
                    'Does not bypass the wizard.')
 @click.pass_context
+@json_cli_guard
 def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, cold, setup_hosts, skip_hosts, llm_provider_source,
          cloud_openai_source, cloud_anthropic_source, cloud_openrouter_source,
          openai_api_key, anthropic_api_key, openrouter_api_key, fal_api_key,
@@ -5817,6 +5979,14 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
     starter = AtlasStarter()
 
     try:
+        # Explicit consumer paths are command-line input. Validate them before
+        # cold cleanup, migrations, or any .env write can mutate the checkout.
+        if consumer_manifests:
+            try:
+                starter.config_parser.load_consumer_config()
+            except Exception as exc:  # ConsumerManifestError + I/O failures
+                raise click.UsageError(f"invalid --consumer manifest: {exc}") from exc
+
         # Resolve the deployment profile: explicit --profile wins; else the
         # consumer manifest's `profile:` default (#755); else "default".
         # `dev` is an alias for `default` (services/profiles.py).
@@ -6068,6 +6238,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         )
         will_run_wizard = (
             wizard_requested
+            and not no_tui
             and sys.stdin.isatty()
         )
 
@@ -6106,16 +6277,23 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                 from tracks import load_tracks as _ld
                 from tracks import synthesize_track_source_args as _synth
                 _rg2 = _ld()
-            except Exception:  # noqa: BLE001
-                _rg2 = None
+            except Exception as exc:  # noqa: BLE001
+                raise click.ClickException(
+                    f"could not load track registry for '{track}': {exc}"
+                ) from exc
             if _rg2 is not None:
-                overridden_services |= _synth(
-                    source_args,
-                    track_key=track,
-                    registry=_rg2,
-                    force_disable=not wizard_requested,
-                    consumer_declared=consumer_declared_source_keys,
-                )
+                try:
+                    overridden_services |= _synth(
+                        source_args,
+                        track_key=track,
+                        registry=_rg2,
+                        force_disable=not will_run_wizard,
+                        consumer_declared=consumer_declared_source_keys,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    raise click.ClickException(
+                        f"track '{track}' force-disable synthesis failed: {exc}"
+                    ) from exc
         starter.active_track = track
         starter.active_track_overrides = frozenset(overridden_services)
 
@@ -6215,8 +6393,10 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
             from tracks import format_track_list as _ftl
             try:
                 _reg = _lt()
-            except Exception:  # noqa: BLE001
-                _reg = None
+            except Exception as exc:  # noqa: BLE001
+                raise click.ClickException(
+                    f"could not load track registry: {exc}"
+                ) from exc
             if track is None and _reg is not None:
                 print(_ftl(_reg), file=sys.stderr)
                 print(
@@ -6260,17 +6440,9 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                         consumer_declared=consumer_declared_source_keys,
                     )
                 except Exception as exc:  # noqa: BLE001
-                    # Synthesis is the only thing enforcing the --track
-                    # contract on this no-TUI path. If it raises, surface a
-                    # stderr warning so the user knows off-track services will
-                    # fall back to their .env defaults (i.e. --track did not
-                    # take effect) instead of silently continuing.
-                    print(
-                        f"[warn] track '{track}' force-disable synthesis failed "
-                        f"({type(exc).__name__}: {exc}); off-track services will "
-                        f"use their .env defaults. Re-run without --track or report this.",
-                        file=sys.stderr,
-                    )
+                    raise click.ClickException(
+                        f"track '{track}' force-disable synthesis failed: {exc}"
+                    ) from exc
 
         # CLI-flag mode + TUI capable: skip the wizard but still use the
         # Textual launch screen, pre-loaded with the user's CLI args.
@@ -6635,6 +6807,26 @@ def _comfyui_mps_manager():
     return manager_from_env(env)
 
 
+def _stop_managed_host_command(manager, label: str) -> None:
+    """Report manual stop truthfully, including fail-closed PID evidence."""
+    from services import tracked_process_may_survive
+
+    _before_pid, was_maybe_alive = tracked_process_may_survive(manager)
+    manager.stop()
+    pid, may_survive = tracked_process_may_survive(manager)
+    if may_survive:
+        detail = f"pid {pid}" if pid is not None else "retained PID evidence"
+        click.echo(
+            f"Could not stop {label}; tracked {detail} may still be alive.",
+            err=True,
+        )
+        raise click.exceptions.Exit(1)
+    if was_maybe_alive:
+        click.echo("Stopped.")
+    else:
+        click.echo(f"No managed {label} process was running.")
+
+
 @comfyui_mps_group.command("preflight")
 def comfyui_mps_preflight_command() -> None:
     """Run the read-only host probe (OS/arch, memory, Torch/MPS). No install."""
@@ -6680,9 +6872,7 @@ def comfyui_mps_start_command() -> None:
 @comfyui_mps_group.command("stop")
 def comfyui_mps_stop_command() -> None:
     """Stop the managed host process (SIGINT then SIGKILL)."""
-    manager = _comfyui_mps_manager()
-    stopped = manager.stop()
-    click.echo("Stopped." if stopped else "No managed ComfyUI (MPS) process was running.")
+    _stop_managed_host_command(_comfyui_mps_manager(), "ComfyUI (MPS)")
 
 
 @comfyui_mps_group.command("status")
@@ -6828,8 +7018,7 @@ def blender_mcp_start() -> None:
 
     manager = _blender_mcp_manager()
     try:
-        manager.install()
-        status = manager.start()
+        status, _created = manager.ensure_running()
     except BlenderMcpError as exc:
         print(f"start failed: {exc}")
         sys.exit(1)
@@ -6839,7 +7028,7 @@ def blender_mcp_start() -> None:
 @blender_mcp_group.command("stop")
 def blender_mcp_stop() -> None:
     """Stop the managed bridge process."""
-    print("stopped" if _blender_mcp_manager().stop() else "could not stop (see log)")
+    _stop_managed_host_command(_blender_mcp_manager(), "Blender MCP")
 
 
 @blender_mcp_group.command("status")
@@ -6935,9 +7124,7 @@ def vllm_metal_start_command() -> None:
 @vllm_metal_group.command("stop")
 def vllm_metal_stop_command() -> None:
     """Stop the managed host process (SIGINT then SIGKILL)."""
-    manager = _vllm_metal_manager()
-    stopped = manager.stop()
-    click.echo("Stopped." if stopped else "No managed vLLM (Metal) process was running.")
+    _stop_managed_host_command(_vllm_metal_manager(), "vLLM (Metal)")
 
 
 @vllm_metal_group.command("status")
@@ -7052,8 +7239,7 @@ def managed_host_start_command(name: str) -> None:
 @click.argument("name")
 def managed_host_stop_command(name: str) -> None:
     """Stop the managed process (SIGTERM, then SIGKILL after a grace window)."""
-    manager = _managed_host_manager(name)
-    click.echo("Stopped." if manager.stop() else "Could not stop the process.")
+    _stop_managed_host_command(_managed_host_manager(name), name)
 
 
 @managed_host_group.command("status")

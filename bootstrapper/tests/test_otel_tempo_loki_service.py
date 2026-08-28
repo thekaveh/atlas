@@ -238,6 +238,29 @@ def test_litellm_and_backend_receive_otel_env_only_from_atlas_vars() -> None:
     assert backend_env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "${OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT:-}"
     assert backend_env["OTEL_SERVICE_NAME"] == "backend"
 
+    celery = yaml.safe_load((SERVICES / "celery" / "compose.yml").read_text())
+    worker_env = celery["services"]["celery-worker"]["environment"]
+    assert worker_env["ATLAS_OTEL_ENABLED"] == "${ATLAS_OTEL_ENABLED:-false}"
+    assert worker_env["OTEL_EXPORTER_OTLP_ENDPOINT"] == (
+        "${OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT:-}"
+    )
+    assert worker_env["OTEL_SERVICE_NAME"] == "backend-celery-worker"
+
+
+def test_backend_installs_celery_trace_propagation() -> None:
+    requirements = (
+        SERVICES / "backend" / "app" / "app" / "requirements.txt"
+    ).read_text(encoding="utf-8")
+    assert "opentelemetry-instrumentation-celery>=0.51b0" in requirements
+
+
+def test_celery_otel_call_is_owned_by_the_manifest_and_architecture_docs() -> None:
+    assert "otel-collector" in _manifest("celery")["data_flow"]["calls"]
+    observability = (
+        REPO_ROOT / "docs" / "architecture" / "observability-flow.md"
+    ).read_text(encoding="utf-8")
+    assert "backend, Celery workers, and LiteLLM OTLP traces" in observability
+
 
 def test_grafana_provisions_tempo_and_loki_datasources() -> None:
     datasource = yaml.safe_load(

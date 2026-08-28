@@ -1,13 +1,193 @@
 from __future__ import annotations
 
 import json
+import re
+import shlex
+from copy import deepcopy
+from dataclasses import dataclass, field
+from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
+import yaml
 
 from scripts import audit_runtime_locks
 from scripts import check_runtime_locks
 from scripts import check_test_locks
 from scripts.bounded_subprocess import CommandLaunchError, CommandTimedOut
+
+
+def _inline_docker_pins(dockerfile: Path) -> set[str]:
+    text = dockerfile.read_text(encoding="utf-8").replace("\\\n", " ")
+    commands = re.findall(r"^\s*RUN\s+([^\n]*)", text, flags=re.MULTILINE)
+    install_commands = [
+        command
+        for command in commands
+        if re.search(r"\bpip\d*\s+install\b", command)
+    ]
+    pin_pattern = re.compile(
+        r"(?P<name>[A-Za-z0-9_.-]+)"
+        r"(?:\[[A-Za-z0-9_.-]+(?:,[A-Za-z0-9_.-]+)*\])?"
+        r"==(?P<version>[A-Za-z0-9](?:[A-Za-z0-9_.+-]*[A-Za-z0-9])?)"
+    )
+    return {
+        f"{match.group('name').lower()}=={match.group('version')}"
+        for command in install_commands
+        for match in pin_pattern.finditer(command)
+    }
+
+
+_PIP_OPTIONS_WITH_VALUES = {
+    "--cache-dir",
+    "--cert",
+    "--client-cert",
+    "--extra-index-url",
+    "--find-links",
+    "--index-url",
+    "--proxy",
+    "--retries",
+    "--root-user-action",
+    "--timeout",
+    "--trusted-host",
+}
+_EXACT_PIP_PIN = re.compile(
+    r"^[A-Za-z0-9_.-]+(?:\[[A-Za-z0-9_.-]+(?:,[A-Za-z0-9_.-]+)*\])?"
+    r"==[A-Za-z0-9](?:[A-Za-z0-9_.+-]*[A-Za-z0-9])?$"
+)
+
+
+def _pip_operand(
+    tokens: list[str], index: int
+) -> tuple[str, str | None, int]:
+    token = tokens[index]
+    paired = {
+        "-c": "constraint",
+        "--constraint": "constraint",
+        "-r": "requirement",
+        "--requirement": "requirement",
+        "-e": "editable",
+        "--editable": "editable",
+    }
+    if token in paired:
+        value = tokens[index + 1] if index + 1 < len(tokens) else token
+        return paired[token], value, index + 2
+    if token.startswith("--constraint=") or token.startswith("-c"):
+        return "constraint", token, index + 1
+    if token.startswith("--requirement=") or token.startswith("-r"):
+        return "requirement", token, index + 1
+    if token.startswith("--editable=") or token.startswith("-e"):
+        return "editable", token, index + 1
+    if token in _PIP_OPTIONS_WITH_VALUES:
+        return "option", None, index + 2
+    return "token", token, index + 1
+
+
+@dataclass
+class _PipInstallState:
+    requirements: list[str] = field(default_factory=list)
+    violations: set[str] = field(default_factory=set)
+    has_constraint: bool = False
+    requires_hashes: bool = False
+
+
+def _record_pip_operand(
+    state: _PipInstallState, kind: str, value: str | None
+) -> None:
+    if kind == "constraint":
+        state.has_constraint = True
+    elif kind == "requirement" and value is not None:
+        state.requirements.append(value)
+    elif kind == "editable" and value is not None:
+        state.violations.add(value)
+    elif value == "--require-hashes":
+        state.requires_hashes = True
+    elif value is not None and not value.startswith("-"):
+        if not _EXACT_PIP_PIN.fullmatch(value):
+            state.violations.add(value)
+
+
+def _pip_install_violations(tokens: list[str]) -> set[str]:
+    state = _PipInstallState()
+    index = 0
+    while index < len(tokens):
+        kind, value, index = _pip_operand(tokens, index)
+        _record_pip_operand(state, kind, value)
+    if state.requirements and not (
+        state.has_constraint or state.requires_hashes
+    ):
+        state.violations.update(state.requirements)
+    return state.violations
+
+
+def _inline_docker_install_violations(dockerfile: Path) -> set[str]:
+    """Return direct pip operands that are not lock-owned exact pins."""
+
+    text = dockerfile.read_text(encoding="utf-8").replace("\\\n", " ")
+    commands = re.findall(r"^\s*RUN\s+([^\n]*)", text, flags=re.MULTILINE)
+    violations: set[str] = set()
+    for command in commands:
+        for match in re.finditer(r"\bpip\d*\s+install\s+", command):
+            tail = re.split(r"\s*(?:&&|\|\||;)\s*", command[match.end() :], 1)[0]
+            violations.update(_pip_install_violations(shlex.split(tail)))
+    return violations
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "RUN set -eux; pip install bad==1.0\n",
+        "RUN uv pip install bad==1.0\n",
+        "RUN /usr/local/bin/pip install bad==1.0\n",
+    ],
+)
+def test_inline_docker_pin_discovery_cannot_be_bypassed_by_installer_prefixes(
+    tmp_path: Path, command: str
+) -> None:
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text(command, encoding="utf-8")
+
+    assert _inline_docker_pins(dockerfile) == {"bad==1.0"}
+
+
+def test_inline_docker_pin_discovery_normalizes_pep508_extras(tmp_path: Path) -> None:
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text(
+        "RUN python -m pip install requests[socks,security]==2.0\n",
+        encoding="utf-8",
+    )
+
+    assert _inline_docker_pins(dockerfile) == {"requests==2.0"}
+
+
+@pytest.mark.parametrize(
+    "operand",
+    [
+        "unsafe-package",
+        "unsafe-package>=1.0",
+        "https://example.invalid/unsafe.whl",
+        "git+https://example.invalid/unsafe.git",
+        "--editable=git+https://example.invalid/unsafe.git",
+        "-egit+https://example.invalid/unsafe.git",
+    ],
+)
+def test_inline_docker_installs_reject_unlocked_operands(
+    tmp_path: Path, operand: str
+) -> None:
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text(f"RUN pip install {operand}\n", encoding="utf-8")
+
+    assert _inline_docker_install_violations(dockerfile) == {operand}
+
+
+def test_inline_docker_installs_allow_constrained_requirements(tmp_path: Path) -> None:
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text(
+        "RUN pip install -r requirements.txt -c requirements-locked.txt\n",
+        encoding="utf-8",
+    )
+
+    assert _inline_docker_install_violations(dockerfile) == set()
 
 
 def test_audit_runtime_lock_accepts_exact_reviewed_advisories(
@@ -19,6 +199,7 @@ def test_audit_runtime_lock_accepts_exact_reviewed_advisories(
         str(lock),
         frozenset({"PYSEC-1"}),
         frozenset({"local-wheel==1.0+cpu"}),
+        review_by=date.today() + timedelta(days=30),
     )
     captured: dict[str, str] = {}
 
@@ -138,7 +319,9 @@ def test_audit_runtime_lock_rejects_new_and_stale_allowlist_entries(
     lock = tmp_path / "requirements-locked.txt"
     lock.write_text("package==1.0\n", encoding="utf-8")
     spec = audit_runtime_locks.AuditSpec(
-        str(lock), frozenset({"PYSEC-REVIEWED", "PYSEC-STALE"})
+        str(lock),
+        frozenset({"PYSEC-REVIEWED", "PYSEC-STALE"}),
+        review_by=date.today() + timedelta(days=30),
     )
     payload = {
         "dependencies": [
@@ -166,6 +349,50 @@ def test_audit_runtime_lock_rejects_new_and_stale_allowlist_entries(
     assert any("stale allowlist entries: PYSEC-STALE" in item for item in failures)
 
 
+def test_advisory_exceptions_require_a_current_bounded_review_deadline(
+    tmp_path: Path, monkeypatch
+) -> None:
+    lock = tmp_path / "requirements-locked.txt"
+    lock.write_text("package==1.0\n", encoding="utf-8")
+    monkeypatch.setattr(
+        audit_runtime_locks,
+        "run_bounded",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=1,
+            stdout=json.dumps(
+                {
+                    "dependencies": [
+                        {
+                            "name": "package",
+                            "version": "1.0",
+                            "vulns": [{"id": "PYSEC-REVIEWED"}],
+                        }
+                    ]
+                }
+            ),
+            stderr="",
+        ),
+    )
+    review_date = date(2026, 8, 26)
+
+    cases = (
+        (None, "lack a review deadline"),
+        (review_date, "review expired"),
+        (review_date + timedelta(days=91), "horizon exceeds 90 days"),
+    )
+    for review_by, expected in cases:
+        failures = audit_runtime_locks.audit_spec(
+            audit_runtime_locks.AuditSpec(
+                str(lock),
+                frozenset({"PYSEC-REVIEWED"}),
+                review_by=review_by,
+            ),
+            root=Path("/"),
+            today=review_date,
+        )
+        assert any(expected in failure for failure in failures)
+
+
 def test_jupyterhub_runtime_lock_is_checked_for_both_linux_architectures() -> None:
     spec = next(
         item
@@ -183,6 +410,101 @@ def test_every_runtime_dependency_manifest_is_in_the_audit_inventory() -> None:
         audit_runtime_locks.discover_runtime_manifests()
         == audit_runtime_locks.AUDITED_RUNTIME_MANIFESTS
     )
+
+
+def test_shared_init_runtime_lock_is_regenerated_audited_and_used_by_builds() -> None:
+    root = Path(audit_runtime_locks.__file__).parents[1]
+    lock = "services/requirements-init-locked.txt"
+    assert any(
+        spec.requirements == lock and spec.lock == lock
+        for spec in check_runtime_locks.RUNTIME_LOCKS
+    )
+    assert any(spec.lock == lock for spec in audit_runtime_locks.AUDIT_SPECS)
+    installed = {
+        service: _inline_docker_pins(root / f"services/{service}/init/Dockerfile")
+        for service in ("open-webui", "litellm")
+    }
+    locked = set((root / lock).read_text(encoding="utf-8").splitlines())
+
+    assert installed["open-webui"] == {
+        "certifi==2026.7.22",
+        "charset-normalizer==3.5.1",
+        "idna==3.19",
+        "psycopg2-binary==2.9.9",
+        "pyjwt==2.13.0",
+        "requests==2.33.0",
+        "urllib3==2.7.0",
+    }
+    assert installed["litellm"] == {
+        "psycopg2-binary==2.9.9",
+        "pyyaml==6.0.2",
+    }
+    assert {pin for pins in installed.values() for pin in pins} == locked
+
+
+def _assert_dependabot_pip_parity(config: dict) -> None:
+    expected = {
+        f"/{Path(spec.requirements).parent.as_posix()}"
+        for spec in check_runtime_locks.RUNTIME_LOCKS
+    } | {f"/{project}" for project in audit_runtime_locks.UV_PROJECTS}
+    pip_directories = {
+        directory
+        for update in config["updates"]
+        if update["package-ecosystem"] == "pip"
+        for directory in update.get("directories", [update.get("directory")])
+    }
+
+    assert pip_directories == expected
+
+
+def test_dependabot_exactly_covers_every_active_runtime_pip_manifest() -> None:
+    root = Path(audit_runtime_locks.__file__).parents[1]
+    config = yaml.safe_load((root / ".github/dependabot.yml").read_text(encoding="utf-8"))
+
+    _assert_dependabot_pip_parity(config)
+
+
+@pytest.mark.parametrize("mutation", ["missing", "extra"])
+def test_dependabot_runtime_pip_parity_rejects_inventory_drift(mutation: str) -> None:
+    root = Path(audit_runtime_locks.__file__).parents[1]
+    config = yaml.safe_load((root / ".github/dependabot.yml").read_text(encoding="utf-8"))
+    mutated = deepcopy(config)
+    directories = next(
+        update["directories"]
+        for update in mutated["updates"]
+        if update["package-ecosystem"] == "pip"
+    )
+    if mutation == "missing":
+        directories.remove("/bootstrapper")
+    else:
+        directories.append("/services/retired-phantom")
+
+    with pytest.raises(AssertionError):
+        _assert_dependabot_pip_parity(mutated)
+
+
+def test_inline_dockerfile_pins_are_also_owned_by_a_compiled_lock() -> None:
+    root = Path(audit_runtime_locks.__file__).parents[1]
+    for dockerfile in (root / "services").rglob("Dockerfile*"):
+        assert not _inline_docker_install_violations(dockerfile), (
+            f"{dockerfile.relative_to(root)} installs unlocked inline operands: "
+            f"{sorted(_inline_docker_install_violations(dockerfile))}"
+        )
+        inline = _inline_docker_pins(dockerfile)
+        inline = {pin for pin in inline if not pin.lower().startswith("uv==")}
+        if not inline:
+            continue
+        locked = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in dockerfile.parent.glob("requirements*-locked.txt")
+        )
+        locked += "\n" + (
+            root / "services/requirements-init-locked.txt"
+        ).read_text(encoding="utf-8")
+        assert inline <= set(locked.splitlines()), (
+            f"{dockerfile.relative_to(root)} installs unaudited inline pins: "
+            f"{sorted(inline - set(locked.splitlines()))}"
+        )
 
 
 def test_local_deep_researcher_nonstandard_runtime_graph_is_audited() -> None:
@@ -218,9 +540,7 @@ def test_local_deep_researcher_aiohttp_security_floor_is_exported() -> None:
 
 def test_all_unlocked_runtime_graphs_are_resolved_before_audit() -> None:
     paths = {spec.requirements for spec in audit_runtime_locks.SOURCE_SPECS}
-    assert paths == {
-        "services/parakeet/provider/mlx/requirements.txt",
-    }
+    assert paths == set()
     assert audit_runtime_locks.UV_PROJECTS == (
         "bootstrapper",
         "services/docling/provider/localhost",
@@ -231,12 +551,27 @@ def test_all_unlocked_runtime_graphs_are_resolved_before_audit() -> None:
     )
 
 
+def test_bootstrapper_and_parakeet_mlx_runtime_locks_are_drift_checked() -> None:
+    assert any(
+        spec.project == "bootstrapper"
+        and spec.lock == "bootstrapper/requirements-locked.txt"
+        for spec in check_runtime_locks.UV_RUNTIME_LOCKS
+    )
+    assert any(
+        spec.requirements == "services/parakeet/provider/mlx/requirements.txt"
+        and spec.lock
+        == "services/parakeet/provider/mlx/requirements-locked.txt"
+        and spec.platforms == ("aarch64-apple-darwin",)
+        for spec in check_runtime_locks.RUNTIME_LOCKS
+    )
+
+
 def test_every_networked_lock_and_audit_subprocess_has_a_deadline() -> None:
     audit_source = Path(audit_runtime_locks.__file__).read_text(encoding="utf-8")
     check_source = Path(check_runtime_locks.__file__).read_text(encoding="utf-8")
     test_check_source = Path(check_test_locks.__file__).read_text(encoding="utf-8")
     assert audit_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 4
-    assert check_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 1
+    assert check_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 2
     assert test_check_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 1
     assert audit_runtime_locks.COMMAND_TIMEOUT_SECONDS == 300
     assert check_runtime_locks.COMMAND_TIMEOUT_SECONDS == 300

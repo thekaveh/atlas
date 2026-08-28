@@ -56,6 +56,7 @@ class JobRegistry:
         self.result_ttl_seconds = result_ttl_seconds
         self.clock = clock
         self._jobs: dict[str, Job] = {}
+        self._cleanup_pending: dict[str, Job] = {}
         self._occupied = 0
         self._lock = asyncio.Lock()
 
@@ -92,6 +93,29 @@ class JobRegistry:
             job.task = asyncio.create_task(self._run(job, worker))
             return task_id
 
+    async def abandon_upload(
+        self, reservation: Reservation, *, upload_path: Path
+    ) -> None:
+        """Delete or retain a pre-start upload without releasing its bound."""
+        async with self._lock:
+            if reservation.claimed:
+                return
+            if reservation.released:
+                raise RuntimeError("cannot adopt a released adapter reservation")
+            reservation.claimed = True
+            task_id = f"cleanup-{secrets.token_urlsafe(24)}"
+            job = Job(
+                task_id=task_id,
+                upload_path=upload_path,
+                upload_name=upload_path.name,
+                status="failure",
+                completed_at=self.clock(),
+            )
+            if self._delete_job_files(job):
+                self._release_job_slot_locked(job)
+            else:
+                self._cleanup_pending[task_id] = job
+
     async def _run(
         self,
         job: Job,
@@ -125,23 +149,24 @@ class JobRegistry:
                 finally:
                     executor.shutdown(wait=False)
                 if cancelled:
-                    result_path.unlink(missing_ok=True)
+                    self._delete_path(result_path, job.task_id)
                     raise asyncio.CancelledError
             async with self._lock:
                 job.result_path = result_path
                 job.status = "success"
                 job.completed_at = self.clock()
         except asyncio.CancelledError:
-            if result_path is not None:
-                result_path.unlink(missing_ok=True)
+            job.result_path = result_path
+            cleaned = self._delete_job_files(job)
             async with self._lock:
                 job.status = "failure"
                 job.completed_at = self.clock()
-                self._release_job_slot_locked(job)
+                if cleaned:
+                    self._release_job_slot_locked(job)
             raise
         except Exception as exc:
-            if result_path is not None:
-                result_path.unlink(missing_ok=True)
+            job.result_path = result_path
+            cleaned = self._delete_job_files(job)
             logger.error(
                 "adapter job failed (task_id=%s, error_type=%s)",
                 job.task_id,
@@ -150,9 +175,11 @@ class JobRegistry:
             async with self._lock:
                 job.status = "failure"
                 job.completed_at = self.clock()
-                self._release_job_slot_locked(job)
+                if cleaned:
+                    self._release_job_slot_locked(job)
         finally:
-            job.upload_path.unlink(missing_ok=True)
+            if job.status == "success":
+                self._delete_path(job.upload_path, job.task_id)
 
     def _write_result(self, payload: bytes) -> Path:
         fd, raw_path = tempfile.mkstemp(suffix=".zip", dir=self.root)
@@ -190,14 +217,17 @@ class JobRegistry:
             job = self._jobs.pop(task_id, None)
             if job is None:
                 return
-            self._delete_job_files(job)
-            self._release_job_slot_locked(job)
+            if self._delete_job_files(job):
+                self._release_job_slot_locked(job)
+            else:
+                self._cleanup_pending[task_id] = job
 
     async def cleanup_expired(self) -> None:
         async with self._lock:
             self._cleanup_expired_locked()
 
     def _cleanup_expired_locked(self) -> None:
+        self._retry_pending_cleanup_locked()
         now = self.clock()
         expired = [
             task_id
@@ -208,8 +238,16 @@ class JobRegistry:
         ]
         for task_id in expired:
             job = self._jobs.pop(task_id)
-            self._delete_job_files(job)
-            self._release_job_slot_locked(job)
+            if self._delete_job_files(job):
+                self._release_job_slot_locked(job)
+            else:
+                self._cleanup_pending[task_id] = job
+
+    def _retry_pending_cleanup_locked(self) -> None:
+        for task_id, job in list(self._cleanup_pending.items()):
+            if self._delete_job_files(job):
+                self._release_job_slot_locked(job)
+                del self._cleanup_pending[task_id]
 
     def _release_job_slot_locked(self, job: Job) -> None:
         if job.owns_slot:
@@ -217,10 +255,23 @@ class JobRegistry:
             self._occupied -= 1
 
     @staticmethod
-    def _delete_job_files(job: Job) -> None:
-        job.upload_path.unlink(missing_ok=True)
+    def _delete_path(path: Path, task_id: str) -> bool:
+        try:
+            path.unlink(missing_ok=True)
+            return True
+        except OSError as exc:
+            logger.warning(
+                "adapter job cleanup deferred (task_id=%s, error_type=%s)",
+                task_id,
+                type(exc).__name__,
+            )
+            return False
+
+    def _delete_job_files(self, job: Job) -> bool:
+        cleaned = self._delete_path(job.upload_path, job.task_id)
         if job.result_path is not None:
-            job.result_path.unlink(missing_ok=True)
+            cleaned = self._delete_path(job.result_path, job.task_id) and cleaned
+        return cleaned
 
     async def close(self) -> None:
         async with self._lock:
@@ -235,6 +286,9 @@ class JobRegistry:
             )
         async with self._lock:
             for job in self._jobs.values():
-                self._delete_job_files(job)
                 self._release_job_slot_locked(job)
+                if not self._delete_job_files(job):
+                    self._cleanup_pending[job.task_id] = job
             self._jobs.clear()
+            self._retry_pending_cleanup_locked()
+            self._cleanup_pending.clear()

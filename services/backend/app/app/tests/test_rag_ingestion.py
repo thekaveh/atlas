@@ -9,6 +9,7 @@ tests call it via ``asyncio.run`` so no ``pytest-asyncio`` is required.
 from __future__ import annotations
 
 import asyncio
+import gc
 import json
 import threading
 from pathlib import Path
@@ -16,6 +17,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from rag_ingestion.clients import (
     CorpusFile,
@@ -33,7 +35,11 @@ from rag_ingestion.service import (
     RagIngestionService,
 )
 from rag_ingestion.models import IngestionRecord
-from rag_ingestion.store import InMemoryIngestionStore, RedisIngestionStore
+from rag_ingestion.store import (
+    ExecutionClaim,
+    InMemoryIngestionStore,
+    RedisIngestionStore,
+)
 
 
 # ── fakes ────────────────────────────────────────────────────────────
@@ -644,14 +650,40 @@ def test_execution_claim_fences_non_owner_saves_and_allows_recovery():
     )
     store.create_if_absent(record)
 
-    assert store.claim_execution(record.id, "worker-a", 60) is True
-    assert store.claim_execution(record.id, "worker-b", 60) is False
+    assert store.claim_execution(record.id, ExecutionClaim("worker-a", 60)) is True
+    assert store.claim_execution(record.id, ExecutionClaim("worker-b", 60)) is False
     claimed = store.get(record.id)
     claimed.status = "running"
     assert store.save_claimed(claimed, "worker-b") is False
     assert store.save_claimed(claimed, "worker-a") is True
     assert store.release_execution(record.id, "worker-a") is True
-    assert store.claim_execution(record.id, "worker-b", 60) is True
+    assert store.claim_execution(record.id, ExecutionClaim("worker-b", 60)) is True
+
+
+def test_execution_claim_recovery_replaces_only_exact_ambiguous_owner():
+    store = InMemoryIngestionStore()
+    record = IngestionRecord(
+        id="ingestion-recovery",
+        consumer="acme",
+        profile="default",
+        revision="1",
+        idempotency_key="key-recovery",
+    )
+    store.create_if_absent(record)
+
+    assert store.claim_execution(record.id, ExecutionClaim("old", 60)) is True
+    assert store.claim_execution(
+        record.id, ExecutionClaim("fresh-a", 60, "unrelated")
+    ) is False
+    assert store.claim_execution(
+        record.id, ExecutionClaim("fresh-a", 60, "old")
+    ) is True
+    assert store.claim_execution(
+        record.id, ExecutionClaim("fresh-b", 60, "old")
+    ) is False
+    assert store.claim_execution(
+        record.id, ExecutionClaim("fresh-a", 60, "fresh-a")
+    ) is False
 
 
 def test_run_rejects_concurrent_execution_before_side_effects(tmp_path, monkeypatch):
@@ -672,7 +704,7 @@ def test_run_rejects_concurrent_execution_before_side_effects(tmp_path, monkeypa
         profiles_path=profile_path,
     )
     record, _ = service.submit("showcase-default")
-    assert store.claim_execution(record.id, "worker-a", 60) is True
+    assert store.claim_execution(record.id, ExecutionClaim("worker-a", 60)) is True
 
     with pytest.raises(IngestionExecutionBusy):
         asyncio.run(
@@ -686,6 +718,49 @@ def test_run_rejects_concurrent_execution_before_side_effects(tmp_path, monkeypa
 
     assert embedder.available() is True
     assert store.get(record.id).status == "pending"
+
+
+def test_run_propagates_execution_recovery_claim(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+
+    class RecordingStore(InMemoryIngestionStore):
+        def __init__(self):
+            super().__init__()
+            self.claims = []
+
+        def claim_execution(self, ingestion_id, claim):
+            self.claims.append((ingestion_id, claim))
+            return super().claim_execution(ingestion_id, claim)
+
+    store = RecordingStore()
+    service = RagIngestionService(
+        store=store,
+        deps=Deps(
+            embedder=FakeEmbedder(),
+            weaviate=FakeWeaviate(),
+            lightrag=FakeLightrag(available=False),
+            poll_interval=0.01,
+        ),
+        profiles_path=profile_path,
+    )
+    record, _ = service.submit("showcase-default")
+
+    asyncio.run(
+        service.run(
+            record.id,
+            execution_owner="fresh-owner",
+            execution_recovery_owner="ambiguous-owner",
+            execution_lease_seconds=60,
+        )
+    )
+
+    assert store.claims == [
+        (
+            record.id,
+            ExecutionClaim("fresh-owner", 60, "ambiguous-owner"),
+        )
+    ]
 
 
 @pytest.mark.parametrize("lease_seconds", (True, 9, 301, 30.0, "30"))
@@ -711,7 +786,7 @@ def test_run_rejects_invalid_execution_lease_before_claim(
             service.run(record.id, execution_lease_seconds=lease_seconds)
         )
 
-    assert store.claim_execution(record.id, "worker-a", 60) is True
+    assert store.claim_execution(record.id, ExecutionClaim("worker-a", 60)) is True
 
 
 def test_missing_profile_does_not_strand_execution_claim(tmp_path):
@@ -733,7 +808,7 @@ def test_missing_profile_does_not_strand_execution_claim(tmp_path):
     with pytest.raises(ProfileNotFoundError):
         asyncio.run(service.run(record.id))
 
-    assert store.claim_execution(record.id, "worker-a", 60) is True
+    assert store.claim_execution(record.id, ExecutionClaim("worker-a", 60)) is True
 
 
 def test_run_cancels_active_phase_when_execution_lease_is_lost(
@@ -767,7 +842,7 @@ def test_run_cancels_active_phase_when_execution_lease_is_lost(
                 await asyncio.Event().wait()
             except asyncio.CancelledError:
                 self.phase_cancelled = True
-                raise
+                raise RuntimeError("phase cleanup failed")
 
     service = LeaseLosingService(
         store=store,
@@ -785,6 +860,130 @@ def test_run_cancels_active_phase_when_execution_lease_is_lost(
         )
 
     assert service.phase_cancelled is True
+
+
+def test_parent_cancellation_finishes_phase_before_releasing_execution_lease(
+    tmp_path, monkeypatch
+):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+    events: list[str] = []
+
+    class TrackingStore(InMemoryIngestionStore):
+        def release_execution(self, ingestion_id, owner):
+            events.append("lease_released")
+            return super().release_execution(ingestion_id, owner)
+
+    class BlockingService(RagIngestionService):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.phase_started = asyncio.Event()
+
+        async def _run_phase(self, *args, **kwargs):
+            self.phase_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                events.append("phase_cancelled")
+                raise
+
+    store = TrackingStore()
+    service = BlockingService(store=store, deps=Deps(), profiles_path=profile_path)
+    record, _ = service.submit("showcase-default")
+
+    async def scenario():
+        running = asyncio.create_task(service.run(record.id))
+        await service.phase_started.wait()
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running
+        survivors = [
+            task
+            for task in asyncio.all_tasks()
+            if task is not asyncio.current_task() and not task.done()
+        ]
+        assert survivors == []
+
+    asyncio.run(scenario())
+
+    assert events == ["phase_cancelled", "lease_released"]
+
+
+def test_phase_cleanup_failure_does_not_leak_lease_watcher(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+
+    class FailingCleanupService(RagIngestionService):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.phase_started = asyncio.Event()
+
+        async def _run_phase(self, *args, **kwargs):
+            self.phase_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError as exc:
+                raise RuntimeError("phase cleanup failed") from exc
+
+    service = FailingCleanupService(
+        store=InMemoryIngestionStore(), deps=Deps(), profiles_path=profile_path
+    )
+    record, _ = service.submit("showcase-default")
+
+    async def scenario():
+        running = asyncio.create_task(service.run(record.id))
+        await service.phase_started.wait()
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running
+        survivors = [
+            task
+            for task in asyncio.all_tasks()
+            if task is not asyncio.current_task() and not task.done()
+        ]
+        assert survivors == []
+
+    asyncio.run(scenario())
+
+
+def test_parent_cancel_racing_phase_failure_consumes_child_exception(
+    tmp_path, monkeypatch
+):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+
+    class RacingService(RagIngestionService):
+        parent: asyncio.Task | None = None
+
+        async def _run_phase(self, *args, **kwargs):
+            assert self.parent is not None
+            asyncio.get_running_loop().call_soon(self.parent.cancel)
+            raise RuntimeError("phase failed in completion/cancellation race")
+
+    service = RacingService(
+        store=InMemoryIngestionStore(), deps=Deps(), profiles_path=profile_path
+    )
+    record, _ = service.submit("showcase-default")
+    profile = service._resolve_profile(record.profile)
+
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        unhandled: list[dict] = []
+        previous_handler = loop.get_exception_handler()
+        loop.set_exception_handler(lambda _loop, context: unhandled.append(context))
+        try:
+            service.parent = asyncio.current_task()
+            with pytest.raises(asyncio.CancelledError):
+                await service._run_phase_with_lease(
+                    "discover", record, profile, {}, {}, asyncio.Event()
+                )
+            gc.collect()
+            await asyncio.sleep(0)
+            assert unhandled == []
+        finally:
+            loop.set_exception_handler(previous_handler)
+
+    asyncio.run(scenario())
 
 
 def test_vector_target_fail_when_weaviate_disabled(tmp_path, monkeypatch):
@@ -975,6 +1174,37 @@ def test_worker_transient_error_is_persisted_for_retry_and_reraised(
     assert completed.status == "completed"
     assert completed.phase("embed").status == "completed"
     assert completed.phase("embed").note is None
+
+
+def test_release_failure_cannot_mask_primary_transient_error(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content body"})
+    profile_path = _profiles_file(tmp_path)
+
+    class FailingReleaseStore(InMemoryIngestionStore):
+        def release_execution(self, ingestion_id, owner):
+            raise RedisConnectionError("redis unavailable during release")
+
+    class TransientEmbedder:
+        def available(self):
+            return True
+
+        async def embed(self, _texts):
+            raise httpx.ReadTimeout("primary embedding timeout")
+
+    store = FailingReleaseStore()
+    service = RagIngestionService(
+        store=store,
+        deps=Deps(embedder=TransientEmbedder(), poll_interval=0.01),
+        profiles_path=profile_path,
+    )
+    record, _ = service.submit("showcase-default")
+
+    with pytest.raises(httpx.ReadTimeout, match="primary embedding timeout"):
+        asyncio.run(service.run(record.id, retry_transient=True))
+
+    persisted = store.get(record.id)
+    assert persisted is not None
+    assert persisted.status == "pending"
 
 
 def test_worker_final_transient_attempt_records_terminal_failure(

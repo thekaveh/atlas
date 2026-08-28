@@ -37,7 +37,7 @@
     </div>
     <section class="interpretation">
       <h2>How to read this view</h2>
-      <p>Direct published ports bypass Kong deliberately, for host tools that can&#x27;t use the <code>*.localhost</code> gateway. All model traffic — local and cloud — is funneled through LiteLLM so credentials and routing live in exactly one place (see <a href="./llm-provider-flow.md">LLM provider flow</a>).</p>
+      <p>Direct published ports bypass Kong deliberately, for host tools that can&#x27;t use the <code>*.localhost</code> gateway. Atlas-managed consumers use LiteLLM as the default path for local and cloud model traffic, centralizing credentials and routing. Services with explicit native-provider role overrides, such as LightRAG, can bypass LiteLLM by design (see <a href="./llm-provider-flow.md">LLM provider flow</a>).</p>
     </section>
   </main>
 </body>

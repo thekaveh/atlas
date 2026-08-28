@@ -158,11 +158,11 @@ docker exec <project>-backend curl -s -X POST http://multi2vec-clip:8080/vectori
 
 Output vectors are 512-d for ViT-B/32. Cosine similarity between a text vector and an image vector gives the canonical CLIP score.
 
-**Restart without rebuilding.** Stateless — `docker compose restart multi2vec-clip` is safe. The model file is in the image; container restart re-mmaps the same weights from disk in <5s.
+**Restart without rebuilding.** Stateless — `docker compose restart multi2vec-clip` is safe. The model file is in the image, so restart reuses the same packaged weights without a rebuild.
 
 ## 8. Performance notes
 
-- **CPU latency.** ~50-150ms per `/vectorize` call on a modern x86 core for a single text or single image; throughput scales near-linearly with parallel HTTP calls until you hit CPU saturation.
-- **GPU latency.** The GPU variant is ~5-10× faster but the round-trip cost dominates for single-image calls; batch images (`images: [b64_1, b64_2, …]`) to amortize.
-- **Batching window.** The container processes one HTTP request at a time. Concurrent calls queue inside `uvicorn`; for high throughput, run multiple replicas (one per GPU/CPU).
+- **Measure the deployed path.** Latency and throughput vary with CPU/GPU model, image size, batch shape, host contention, and cold versus warm model state. Benchmark the exact image, model, payload, and hardware used in production before setting capacity or timeout budgets.
+- **GPU and batching.** The GPU variant can reduce compute-bound vectorization time. Batch images (`images: [b64_1, b64_2, …]`) when the caller can tolerate it, then verify the end-to-end gain rather than assuming transport and encoding overhead are negligible.
+- **Concurrency.** Increase replicas or parallel callers only after a workload-specific benchmark confirms that the model runtime, host memory, and accelerator capacity can sustain them without latency or memory regressions.
 - **Vector dimensionality is fixed by the model.** ViT-B/32 → 512. Other models (SigLIP 2 → 1152, larger CLIPs → 768/1024) require updating Weaviate's collection schema to match.

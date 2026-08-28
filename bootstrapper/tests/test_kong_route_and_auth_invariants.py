@@ -167,7 +167,7 @@ def test_the_root_dashboard_route_does_not_shadow_any_api_route(kong_config):
 
     shadowed = _shadowed_by(dash_routes, others)
     assert not shadowed, (
-        f"the root dashboard route {patterns} also matches these API paths, "
+        f"the root dashboard routes {dash_routes} also match these API paths, "
         f"and outranks them on match weight: {shadowed}"
     )
 

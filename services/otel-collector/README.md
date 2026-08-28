@@ -44,6 +44,7 @@ Trace correlation uses W3C `traceparent` first. Backend spans start or continue 
 | Service | Category |
 |---|---|
 | litellm | llm |
+| celery | agents |
 | backend | apps |
 
 ### 5.3. Architecture diagram
