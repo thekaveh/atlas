@@ -113,16 +113,19 @@ ENV PYTHONPATH=/home/jovyan
 # The kernels register themselves at /opt/conda/share/jupyter/kernels/.
 RUN cs launch --fork almond:${ALMOND_VERSION} --scala ${ALMOND_SCALA_2_VERSION} \
         --force-version com.google.protobuf:protobuf-java:3.25.5 \
+        --force-version org.lz4:lz4-java:1.8.1 \
         --force-version at.yawk.lz4:lz4-java:1.10.3 -- \
         --install --display-name "Scala 2.13" --id scala213 --force \
  && cs launch --fork almond:${ALMOND_VERSION} --scala ${ALMOND_SCALA_3_VERSION} \
         --force-version com.google.protobuf:protobuf-java:3.25.5 \
+        --force-version org.lz4:lz4-java:1.8.1 \
         --force-version at.yawk.lz4:lz4-java:1.10.3 -- \
         --install --display-name "Scala 3" --id scala3 --force \
  && find /home/jovyan/.cache/coursier -type f -name '*-sources.jar' -delete \
  && rm -rf \
         /home/jovyan/.cache/coursier/v1/https/repo1.maven.org/maven2/at/yawk/lz4/lz4-java/1.8.1 \
         /home/jovyan/.cache/coursier/v1/https/repo1.maven.org/maven2/io/airlift/aircompressor/0.27 \
+        /home/jovyan/.cache/coursier/v1/https/repo1.maven.org/maven2/org/lz4/lz4-java/1.8.0 \
         /home/jovyan/.cache/coursier/v1/https/repo1.maven.org/maven2/org/lz4/lz4-java/1.8.1 \
         /home/jovyan/.cache/coursier/v1/https/repo1.maven.org/maven2/org/codehaus/plexus/plexus-utils/4.0.1 \
         /home/jovyan/.cache/coursier/v1/https/repo1.maven.org/maven2/org/jline/jline/3.24.1 \

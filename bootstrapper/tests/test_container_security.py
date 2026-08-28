@@ -485,9 +485,10 @@ def test_jupyter_scala_kernels_pin_patched_transitive_libraries() -> None:
     )
 
     assert "com.google.protobuf:protobuf-java:3.25.5" in dockerfile
-    assert "at.yawk.lz4:lz4-java:1.10.3" in dockerfile
-    assert "org.lz4:lz4-java:1.8.1" not in dockerfile
+    assert dockerfile.count("at.yawk.lz4:lz4-java:1.10.3") == 2
+    assert dockerfile.count("org.lz4:lz4-java:1.8.1") == 2
     assert "at/yawk/lz4/lz4-java/1.8.1" in dockerfile
+    assert "org/lz4/lz4-java/1.8.0" in dockerfile
     assert "find /home/jovyan/.cache/coursier" in dockerfile
     assert "*-sources.jar" in dockerfile
 
