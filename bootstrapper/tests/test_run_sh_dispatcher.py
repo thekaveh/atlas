@@ -9,6 +9,7 @@ must go to stderr instead, leaving stdout clean.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shlex
 import shutil
@@ -21,7 +22,15 @@ import pytest
 _RUN_SH = Path(__file__).resolve().parents[1] / "_run.sh"
 
 
-def _bootstrapper_python_wrapper(tmp_path: Path) -> Path:
+def _dependency_stamp(self_dir: Path) -> str:
+    inputs = (self_dir / "pyproject.toml", self_dir / "requirements-locked.txt")
+    rows = "".join(
+        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path}\n" for path in inputs
+    )
+    return hashlib.sha256(rows.encode("utf-8")).hexdigest()
+
+
+def _bootstrapper_python_wrapper(tmp_path: Path, *, self_dir: Path) -> Path:
     venv = tmp_path / "bootstrapper-venv"
     python = venv / "bin" / "python"
     python.parent.mkdir(parents=True)
@@ -30,6 +39,9 @@ def _bootstrapper_python_wrapper(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     python.chmod(0o755)
+    (venv / ".atlas-deps-stamp").write_text(
+        _dependency_stamp(self_dir) + "\n", encoding="utf-8"
+    )
     return venv
 
 
@@ -76,12 +88,19 @@ def test_stdout_is_clean_json_through_system_python(tmp_path: Path) -> None:
     # the probe script is found next to it.
     run_sh = tmp_path / "_run.sh"
     shutil.copy(_RUN_SH, run_sh)
+    shutil.copy(_RUN_SH.parent / "pyproject.toml", tmp_path / "pyproject.toml")
+    shutil.copy(
+        _RUN_SH.parent / "requirements-locked.txt",
+        tmp_path / "requirements-locked.txt",
+    )
     (tmp_path / "probe.py").write_text('print(\'{"ok": true}\')\n', encoding="utf-8")
 
     env = {
         **os.environ,
         "PATH": _path_without_uv(tmp_path, sh, dirname),
-        "ATLAS_BOOTSTRAPPER_VENV": str(_bootstrapper_python_wrapper(tmp_path)),
+        "ATLAS_BOOTSTRAPPER_VENV": str(
+            _bootstrapper_python_wrapper(tmp_path, self_dir=tmp_path)
+        ),
     }
     result = subprocess.run(
         [sh, str(run_sh), "probe.py"],
@@ -107,7 +126,9 @@ def test_system_python_fallback_runs_real_start_help(tmp_path: Path) -> None:
     env = {
         **os.environ,
         "PATH": _path_without_uv(tmp_path, sh, dirname),
-        "ATLAS_BOOTSTRAPPER_VENV": str(_bootstrapper_python_wrapper(tmp_path)),
+        "ATLAS_BOOTSTRAPPER_VENV": str(
+            _bootstrapper_python_wrapper(tmp_path, self_dir=_RUN_SH.parent)
+        ),
     }
     result = subprocess.run(
         [sh, str(_RUN_SH), "start.py", "--help"],

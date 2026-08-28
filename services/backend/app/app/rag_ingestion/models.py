@@ -31,6 +31,9 @@ STATUS_RUNNING = "running"
 STATUS_COMPLETED = "completed"
 STATUS_FAILED = "failed"
 STATUS_CANCELLED = "cancelled"
+DISPATCH_PREPARED = "prepared"
+DISPATCH_DISPATCHING = "dispatching"
+DISPATCH_ACCEPTED = "accepted"
 _TERMINAL = frozenset({STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED})
 # A prior job with one of these statuses satisfies an idempotent re-submit (we do
 # NOT re-run it). A failed job is allowed to be retried under the same key.
@@ -79,6 +82,10 @@ class IngestionRecord:
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     cancel_requested: bool = False
+    dispatch_state: str = DISPATCH_PREPARED
+    dispatch_job_id: Optional[str] = None
+    dispatch_owner: Optional[str] = None
+    dispatch_claimed_at: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -158,3 +165,5 @@ class RagIngestionRecordResponse(BaseModel):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     cancel_requested: bool = False
+    dispatch_state: str = DISPATCH_PREPARED
+    dispatch_job_id: Optional[str] = None

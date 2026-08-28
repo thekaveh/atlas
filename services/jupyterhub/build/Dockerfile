@@ -15,6 +15,10 @@ ARG ALMOND_VERSION=0.14.5
 ARG ALMOND_SCALA_2_VERSION=2.13.16
 ARG ALMOND_SCALA_3_VERSION=3.4.3
 ARG COURSIER_SHA256=7aa975f12469726d6bb87852107afe0b8d6f3c82b12a49ef43cc6647c4e057ca
+ARG NPM_VERSION=11.19.1
+ARG JULIA_VERSION=1.12.7
+ARG JULIA_SHA256_AMD64=4e7e9e776634d24835250de67cde39b0d4af15bc432eb20697e6be6c28ea69e8
+ARG JULIA_SHA256_ARM64=9243c0b524c7f300883240a1ee5ea3916a30e070bff718acf8ccaee31a731ef2
 
 # Switch to root to install system packages
 USER root
@@ -22,13 +26,38 @@ USER root
 # Install system dependencies, including OpenJDK 17 for the Almond Scala kernel
 # (Almond runs on the JVM; JDK 17 covers Scala 2.13 + Scala 3). The headless
 # package is ~120 MB smaller than the full openjdk-17-jdk.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && \
+    apt-get upgrade --yes && \
+    apt-get install -y --no-install-recommends \
     curl \
     wget \
     git \
     vim \
     openjdk-17-jdk-headless \
     && rm -rf /var/lib/apt/lists/*
+
+# Node 22.9 in the pinned base supports npm 11. npm 11.19.1 updates the
+# vulnerable tar/glob/minimatch/sigstore dependency closure while retaining the
+# npm CLI that notebook users expect from the data-science image.
+RUN npm install --global "npm@${NPM_VERSION}" \
+ && npm cache clean --force
+
+# The base image's Julia 1.11.1 standard-library JLLs are no longer patchable
+# through Pkg. Replace only the Julia runtime with the current checksummed
+# release while retaining the upstream Python 3.11 image and notebook stack.
+RUN case "${TARGETARCH}" in \
+      amd64) julia_arch=x86_64; julia_dir=x64; julia_sha="${JULIA_SHA256_AMD64}" ;; \
+      arm64) julia_arch=aarch64; julia_dir=aarch64; julia_sha="${JULIA_SHA256_ARM64}" ;; \
+      *) echo "unsupported Julia architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+ && curl -fL \
+      "https://julialang-s3.julialang.org/bin/linux/${julia_dir}/1.12/julia-${JULIA_VERSION}-linux-${julia_arch}.tar.gz" \
+      -o /tmp/julia.tar.gz \
+ && echo "${julia_sha}  /tmp/julia.tar.gz" | sha256sum -c - \
+ && rm -rf /opt/julia-1.11.1 \
+ && tar -xzf /tmp/julia.tar.gz -C /opt \
+ && ln -sfn "/opt/julia-${JULIA_VERSION}/bin/julia" /usr/local/bin/julia \
+ && rm /tmp/julia.tar.gz
 
 # Coursier — Scala's launcher/dep-resolver. Almond's install path uses
 # `cs launch almond:<ver> --scala <ver> -- --install` to register a Jupyter
@@ -82,10 +111,44 @@ ENV PYTHONPATH=/home/jovyan
 # materialises ~150-200 MB of dependencies under ~/.cache/coursier; total
 # Scala-toolchain footprint after the apt + cs + almond steps is ~600 MB.
 # The kernels register themselves at /opt/conda/share/jupyter/kernels/.
-RUN cs launch --fork almond:${ALMOND_VERSION} --scala ${ALMOND_SCALA_2_VERSION} -- \
+RUN cs launch --fork almond:${ALMOND_VERSION} --scala ${ALMOND_SCALA_2_VERSION} \
+        --force-version com.google.protobuf:protobuf-java:3.25.5 \
+        --force-version org.lz4:lz4-java:1.8.1 \
+        --force-version at.yawk.lz4:lz4-java:1.10.3 -- \
         --install --display-name "Scala 2.13" --id scala213 --force \
- && cs launch --fork almond:${ALMOND_VERSION} --scala ${ALMOND_SCALA_3_VERSION} -- \
-        --install --display-name "Scala 3" --id scala3 --force
+ && cs launch --fork almond:${ALMOND_VERSION} --scala ${ALMOND_SCALA_3_VERSION} \
+        --force-version com.google.protobuf:protobuf-java:3.25.5 \
+        --force-version org.lz4:lz4-java:1.8.1 \
+        --force-version at.yawk.lz4:lz4-java:1.10.3 -- \
+        --install --display-name "Scala 3" --id scala3 --force \
+ && find /home/jovyan/.cache/coursier -type f -name '*-sources.jar' -delete \
+ && rm -rf \
+        /home/jovyan/.cache/coursier/v1/https/repo1.maven.org/maven2/at/yawk/lz4/lz4-java/1.8.1 \
+        /home/jovyan/.cache/coursier/v1/https/repo1.maven.org/maven2/io/airlift/aircompressor/0.27 \
+        /home/jovyan/.cache/coursier/v1/https/repo1.maven.org/maven2/org/lz4/lz4-java/1.8.0 \
+        /home/jovyan/.cache/coursier/v1/https/repo1.maven.org/maven2/org/lz4/lz4-java/1.8.1 \
+        /home/jovyan/.cache/coursier/v1/https/repo1.maven.org/maven2/org/codehaus/plexus/plexus-utils/4.0.1 \
+        /home/jovyan/.cache/coursier/v1/https/repo1.maven.org/maven2/org/jline/jline/3.24.1 \
+        /home/jovyan/.cache/coursier/v1/https/repo1.maven.org/maven2/org/jline/jline/3.27.1
+
+# Replace the stale Julia environment inherited from the upstream image with a
+# repository-owned lock. Nested Manifest.toml files belong only to Julia's
+# bundled tests/docs and otherwise produce duplicate, non-runtime findings.
+USER root
+COPY julia/Project.toml julia/Manifest.toml /opt/julia/environments/v1.12/
+# Instantiation materialises the exact packages and artifacts. Disable bulk
+# auto-precompilation here: it is redundant for image correctness and can take
+# hours under the arm64/QEMU leg of required build validation. Loading IJulia
+# below still validates and compiles the kernel's actual dependency path.
+RUN JUPYTER_DATA_DIR=/opt/conda/share/jupyter \
+    julia --project=/opt/julia/environments/v1.12 --startup-file=no -e \
+      'using Pkg; Pkg.instantiate(; allow_autoprecomp=false); using IJulia; IJulia.installkernel("Julia 1.12")' \
+ && rm -rf /opt/conda/share/jupyter/kernels/julia-1.11 \
+ && find /opt/julia -name Manifest.toml \
+      ! -path /opt/julia/environments/v1.12/Manifest.toml -delete \
+ && find "/opt/julia-${JULIA_VERSION}" -name Manifest.toml -delete \
+ && chown -R ${NB_UID}:${NB_GID} /opt/julia
+USER ${NB_UID}
 
 # Copy startup script
 COPY scripts/startup.sh /usr/local/bin/startup.sh

@@ -21,6 +21,8 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
+from services.manifests import load_yaml_strict
+
 __all__ = [
     "Track",
     "TrackRegistry",
@@ -189,7 +191,7 @@ def load_tracks(path: Path | None = None) -> TrackRegistry:
         return _REGISTRY_CACHE
     p = Path(path) if path is not None else _DEFAULT_TRACKS_PATH
     try:
-        raw = yaml.safe_load(p.read_text(encoding="utf-8"))
+        raw = load_yaml_strict(p.read_text(encoding="utf-8"))
     except yaml.YAMLError as e:
         raise TracksLoadError(f"{p}: invalid YAML — {e}") from e
 

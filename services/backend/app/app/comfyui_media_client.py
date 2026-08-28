@@ -5,7 +5,7 @@ Mirrors :class:`fal_media_client.FalClient` so the gateway can route
 behind the same submit/poll/cancel envelope as the FAL path.
 
 The transport talks to the ComfyUI HTTP API directly (``POST /prompt``,
-``GET /history/{id}``, ``GET /queue``, ``POST /queue`` + ``/interrupt``,
+``GET /history/{id}``, ``GET /queue``, ``POST /api/jobs/{id}/cancel``,
 ``POST /upload/image``, ``GET /view``) and raises on failure so the
 gateway's ``try/except`` can map errors to HTTP codes the same way the
 FAL client does. ``COMFYUI_BASE_URL`` is already plumbed into the backend
@@ -17,13 +17,19 @@ Scope (see issue context): image generation only — text2img + img2img.
 """
 from __future__ import annotations
 
-import base64
 import os
 import re
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import SplitResult, quote, urlsplit
 
 import httpx
+
+from media_input import (
+    ImageInputError,
+    parse_strict_image_data_uri,
+    validate_raster_image,
+)
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -334,11 +340,19 @@ class ComfyUIMediaClient:
         self.max_image_bytes = int(os.getenv("COMFYUI_MAX_IMAGE_BYTES", "20971520"))
         if self.max_image_bytes <= 0:
             raise ValueError("COMFYUI_MAX_IMAGE_BYTES must be positive")
+        self.trusted_image_origins = _trusted_image_origins(
+            os.getenv("COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS", "")
+        )
         # Per-HTTP-call timeouts (not the generation-poll budget, which the
         # gateway owns via request.timeout_seconds). Fail fast on a down host
         # (connect=5); keep a 60s read budget for the slowest legitimate round.
-        self.client = httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=5.0, read=60.0, write=10.0, pool=5.0)
+        timeout = httpx.Timeout(connect=5.0, read=60.0, write=10.0, pool=5.0)
+        self.client = httpx.AsyncClient(timeout=timeout, follow_redirects=False)
+        # Caller-selected remote image URLs must never inherit proxy routing
+        # or redirects. Keep this transport isolated so operator proxy/CA
+        # environment remains available to the configured ComfyUI endpoint.
+        self.image_client = httpx.AsyncClient(
+            timeout=timeout, follow_redirects=False, trust_env=False
         )
 
     async def __aenter__(self) -> "ComfyUIMediaClient":
@@ -346,6 +360,7 @@ class ComfyUIMediaClient:
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         await self.client.aclose()
+        await self.image_client.aclose()
 
     # ── submit / poll / cancel ──────────────────────────────────────
     async def submit_media_operation(
@@ -408,7 +423,7 @@ class ComfyUIMediaClient:
 
         # img2img (#453 parity): an init image under any of the accepted keys.
         init_image_name: Optional[str] = None
-        init_source = _first_present(input_payload, ("image_url", "image", "init_image"))
+        init_source = _select_init_image(input_payload)
         strength = _coerce_float(input_payload.get("strength"), default=0.75)
         if init_source:
             init_image_name = await self._upload_init_image(init_source)
@@ -501,6 +516,8 @@ class ComfyUIMediaClient:
         # polling instead of caching a succeeded-but-artifactless terminal.
         if status_str == "error":
             normalized = "failed"
+        elif status_str == "cancelled":
+            normalized = "cancelled"
         elif status_str == "success":
             normalized = "succeeded"
         else:
@@ -522,25 +539,20 @@ class ComfyUIMediaClient:
         return payload
 
     async def cancel_media_operation(self, *, operation_id: str, modality: str) -> bool:
-        """Best-effort provider cancel (#518 parity): drop the prompt from
-        the pending queue and interrupt it only if currently running.
-        Returns False on any transport failure — the gateway still marks the
-        op terminal ``cancelled`` server-side and releases the reservation."""
+        """Request atomic cancellation of exactly one ComfyUI job."""
         if modality not in self.SUPPORTED_MODALITIES:
             raise ValueError(f"Unsupported ComfyUI media modality: {modality}")
         try:
-            queue = await self._get_queue()
-            running_ids = {
-                item[1]
-                for item in queue.get("queue_running", [])
-                if isinstance(item, (list, tuple)) and len(item) > 1
-            }
-            resp = await self.client.post(f"{self.base_url}/queue", json={"delete": [operation_id]})
+            prompt_id = quote(operation_id, safe="")
+            resp = await self.client.post(
+                f"{self.base_url}/api/jobs/{prompt_id}/cancel"
+            )
             resp.raise_for_status()
-            if operation_id in running_ids:
-                resp = await self.client.post(f"{self.base_url}/interrupt")
-                resp.raise_for_status()
-            return True
+            body = resp.json()
+            if not isinstance(body, dict) or set(body) != {"cancelled"}:
+                return False
+            cancelled = body["cancelled"]
+            return cancelled if type(cancelled) is bool else False
         except Exception:  # noqa: BLE001 — best-effort by contract
             return False
 
@@ -582,45 +594,40 @@ class ComfyUIMediaClient:
 
     async def _upload_init_image(self, source: str) -> str:
         """Fetch init-image bytes (URL or data URI) and push them into
-        ComfyUI's ``input/`` dir via ``POST /upload/image``. Returns the
-        stored filename to feed ``LoadImage.inputs.image``."""
-        content = await self._fetch_image_bytes(source)
+        ComfyUI's process-cleaned temp dir via ``POST /upload/image``."""
+        content, content_type, ext = await self._fetch_image_bytes(source)
         # Derive a collision-free filename so concurrent img2img requests
         # never clobber each other (overwrite=true would race; a uuid name
-        # sidesteps it). Preserve the caller's extension when present.
-        ext = _guess_extension(source, content) or "png"
+        # sidesteps it). The verified decoder, never the URL suffix, owns ext.
         filename = f"atlas-init-{uuid.uuid4().hex}.{ext}"
-        files = {"image": (filename, content, "application/octet-stream")}
-        data = {"overwrite": "true", "type": "input"}
+        files = {"image": (filename, content, content_type)}
+        data = {"overwrite": "true", "type": "temp"}
         resp = await self.client.post(f"{self.base_url}/upload/image", files=files, data=data)
         self._raise_for_status(resp)
         body = resp.json()
         name = body.get("name") or filename
         subfolder = body.get("subfolder") or ""
-        # LoadImage expects "<subfolder>/<name>" when a subfolder is used.
-        return f"{subfolder}/{name}" if subfolder else str(name)
+        stored = f"{subfolder}/{name}" if subfolder else str(name)
+        return f"{stored} [temp]"
 
-    async def _fetch_image_bytes(self, source: str) -> bytes:
+    async def _fetch_image_bytes(self, source: str) -> Tuple[bytes, str, str]:
         source = source.strip()
         if source.lower().startswith("data:"):
-            # data URI: data:<mime>;base64,<payload>
-            try:
-                _, _, b64 = source.partition(",")
-                return base64.b64decode(b64)
-            except Exception as exc:  # noqa: BLE001
-                raise ValueError(f"Could not decode data-URI init image: {exc}") from exc
-        if not source.startswith(("http://", "https://")):
-            raise ValueError(
-                "ComfyUI init image must be an http(s) URL or a data: URI "
-                f"(got: {source[:32]}…)"
+            data, content_type = parse_strict_image_data_uri(
+                source, self.max_image_bytes
             )
+            normalized_type, extension = validate_raster_image(
+                data, content_type, self.max_image_bytes
+            )
+            return data, normalized_type, extension
+        _require_trusted_image_url(source, self.trusted_image_origins)
         try:
             # Stream with a hard byte cap so a caller-supplied URL to an
             # arbitrarily large file can't OOM the worker (mirrors
             # ComfyUIClient.get_image_data). A too-large image is a client
             # error → ValueError → gateway 400, not an HTTPError → 502.
             chunks = bytearray()
-            async with self.client.stream("GET", source) as resp:
+            async with self.image_client.stream("GET", source) as resp:
                 resp.raise_for_status()
                 declared = resp.headers.get("content-length")
                 if declared and declared.isdigit() and int(declared) > self.max_image_bytes:
@@ -629,9 +636,15 @@ class ComfyUIMediaClient:
                     if len(chunks) + len(chunk) > self.max_image_bytes:
                         raise ValueError("ComfyUI init image exceeds configured byte limit")
                     chunks.extend(chunk)
-            return bytes(chunks)
+            data = bytes(chunks)
+            normalized_type, extension = validate_raster_image(
+                data, resp.headers.get("content-type", ""), self.max_image_bytes
+            )
+            return data, normalized_type, extension
+        except ImageInputError:
+            raise
         except httpx.HTTPError as exc:
-            raise ValueError(f"Could not fetch ComfyUI init image from {source}: {exc}") from exc
+            raise ValueError("Could not fetch ComfyUI init image") from exc
 
     @staticmethod
     def _error_detail(resp: httpx.Response) -> str:
@@ -671,6 +684,13 @@ class ComfyUIMediaClient:
         for msg in status.get("messages", []) or []:
             # messages are [type, {details}]; execution_error carries the
             # exception text. Keep this tolerant of shape drift (live-verify).
+            if (
+                isinstance(msg, (list, tuple))
+                and msg
+                and msg[0] == "execution_interrupted"
+                and status_str == "error"
+            ):
+                return "cancelled", None
             if isinstance(msg, (list, tuple)) and len(msg) >= 2 and msg[0] == "execution_error":
                 details = msg[1] if isinstance(msg[1], dict) else {}
                 error_msg = str(
@@ -763,12 +783,81 @@ class ComfyUIMediaClient:
 # ────────────────────────────────────────────────────────────────────
 # Small helpers (module-level so they're unit-testable without a client)
 # ────────────────────────────────────────────────────────────────────
-def _first_present(payload: Dict[str, Any], keys: Tuple[str, ...]) -> Optional[str]:
-    for key in keys:
-        value = payload.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
+_INIT_IMAGE_KEYS = ("image_url", "image", "init_image")
+
+
+def _select_init_image(payload: Dict[str, Any]) -> Optional[str]:
+    present = [key for key in _INIT_IMAGE_KEYS if key in payload]
+    if not present:
+        return None
+    if len(present) > 1:
+        raise ValueError("ComfyUI img2img accepts only one init-image field")
+    value = payload[present[0]]
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("ComfyUI init image must be a non-empty string")
+    return value.strip()
+
+
+def _https_url_parts(value: str, error: str) -> SplitResult:
+    try:
+        parts = urlsplit(value)
+        _ = parts.port
+    except ValueError as exc:
+        raise ValueError(error) from exc
+    if (
+        parts.scheme.lower() != "https"
+        or not parts.hostname
+        or parts.username is not None
+        or parts.password is not None
+        or "*" in parts.hostname
+    ):
+        raise ValueError(error)
+    return parts
+
+
+def _canonical_https_origin(parts: SplitResult) -> str:
+    try:
+        host = (parts.hostname or "").encode("idna").decode("ascii").lower()
+    except UnicodeError as exc:
+        raise ValueError("invalid HTTPS hostname") from exc
+    rendered_host = f"[{host}]" if ":" in host else host
+    return f"https://{rendered_host}:{parts.port or 443}"
+
+
+def _trusted_image_origins(raw: str) -> frozenset[str]:
+    if not raw.strip():
+        return frozenset()
+    error = (
+        "COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS must contain exact HTTPS origins"
+    )
+    values = [value.strip() for value in raw.split(",")]
+    if any(not value for value in values):
+        raise ValueError(error)
+    origins = set()
+    for value in values:
+        parts = _https_url_parts(value, error)
+        if parts.path not in ("", "/") or parts.query or parts.fragment:
+            raise ValueError(error)
+        try:
+            origins.add(_canonical_https_origin(parts))
+        except ValueError as exc:
+            raise ValueError(error) from exc
+    return frozenset(origins)
+
+
+def _require_trusted_image_url(
+    value: str, trusted_origins: frozenset[str]
+) -> None:
+    error = "ComfyUI init image URL must use a trusted origin"
+    parts = _https_url_parts(value, error)
+    if parts.fragment:
+        raise ValueError(error)
+    try:
+        origin = _canonical_https_origin(parts)
+    except ValueError as exc:
+        raise ValueError(error) from exc
+    if origin not in trusted_origins:
+        raise ValueError(error)
 
 
 def _coerce_float(value: Any, *, default: float) -> float:
@@ -778,21 +867,6 @@ def _coerce_float(value: Any, *, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
-
-
-def _guess_extension(source: str, content: bytes) -> Optional[str]:
-    lower = source.lower().split("?", 1)[0]
-    for ext in (".png", ".jpg", ".jpeg", ".webp"):
-        if lower.endswith(ext):
-            return ext.lstrip(".")
-    # Sniff the magic bytes when the URL had no usable extension.
-    if content[:8] == b"\x89PNG\r\n\x1a\n":
-        return "png"
-    if content[:3] == b"\xff\xd8\xff":
-        return "jpg"
-    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
-        return "webp"
-    return None
 
 
 def _content_type_for(filename: str) -> str:

@@ -195,12 +195,19 @@ def test_architecture_pages_explain_the_views_without_publication_instructions()
         assert "architecture-diagram design system" not in text, page
         assert "dark slate background" not in text, page
         assert "Open the full-size diagram" in text, page
+        assert re.search(
+            rf"!\[[^]]+\]\(\.\./diagrams/img/architecture-{re.escape(page.stem)}\.png\)",
+            text,
+        ), page
         assert "interactive diagram" not in text, page
         interactive = page.with_suffix(".html").read_text(encoding="utf-8")
         assert "How to read this view" in interactive, page
         assert "architecture-diagram design system" not in interactive, page
         assert "Update trigger" not in interactive, page
 
+
+
+def test_source_model_architecture_keeps_source_choices_independent() -> None:
     source_model = (DIAGRAMS_DIR / "source-configuration-model.html").read_text(
         encoding="utf-8"
     )
@@ -208,12 +215,220 @@ def test_architecture_pages_explain_the_views_without_publication_instructions()
     assert 'data-source="SOURCE Var" data-target="localhost"' in source_model
     assert 'data-source="container" data-target="localhost"' not in source_model
 
+
+
+def test_network_architecture_keeps_gateway_and_direct_ports_distinct() -> None:
     network = (DIAGRAMS_DIR / "network-routing-topology.html").read_text(
         encoding="utf-8"
     )
     assert 'data-source="Browser" data-target="*.localhost"' in network
     assert 'data-source="Browser" data-target="Direct Ports"' in network
     assert 'data-source="Kong" data-target="Direct Ports"' not in network
+    assert ">host NAT</text>" in network
+    assert ">publishes</text>" not in network
+
+
+def test_llm_architecture_includes_managed_vllm_metal() -> None:
+    from bootstrapper.docs.sitegen.pages import (
+        ARCHITECTURE_EDGES,
+        ARCHITECTURE_LAYOUTS,
+        ARCHITECTURE_PERSPECTIVES,
+        ARCHITECTURE_SOURCE_FILES,
+        _NODE_KINDS,
+    )
+
+    assert "vLLM Metal" in ARCHITECTURE_PERSPECTIVES["source-configuration-model"][2]
+    assert ("none", "vLLM Metal", "pairs with") in ARCHITECTURE_EDGES[
+        "source-configuration-model"
+    ]
+    assert "vLLM Metal" in ARCHITECTURE_PERSPECTIVES["llm-provider-flow"][2]
+    assert ("LiteLLM", "vLLM Metal", "managed local") in ARCHITECTURE_EDGES[
+        "llm-provider-flow"
+    ]
+    for slug in ("source-configuration-model", "llm-provider-flow"):
+        assert "services/vllm-metal/service.yml" in ARCHITECTURE_SOURCE_FILES[slug]
+    llm_layout = ARCHITECTURE_LAYOUTS["llm-provider-flow"]
+    telemetry_y = llm_layout["LiteLLM"][1] + 30
+    vllm_y = llm_layout["vLLM Metal"][1]
+    assert not vllm_y <= telemetry_y <= vllm_y + 60
+    assert _NODE_KINDS.get("vLLM Metal", "generic") == "generic"
+
+
+def test_data_rag_architecture_routes_graph_writes_through_lightrag() -> None:
+    from bootstrapper.docs.sitegen.pages import ARCHITECTURE_EDGES, ARCHITECTURE_LAYOUTS
+
+    edges = ARCHITECTURE_EDGES["data-rag-flow"]
+    assert ("Doc Processing", "LightRAG", "documents") in edges
+    assert ("LightRAG", "Neo4j", "graph") in edges
+    assert ("Doc Processing", "Neo4j", "graph") not in edges
+    layout = ARCHITECTURE_LAYOUTS["data-rag-flow"]
+    assert layout["LightRAG"][1] == layout["Neo4j"][1]
+    assert layout["Weaviate"][1] < layout["Backend"][1]
+    assert layout["LightRAG"][1] < layout["Weaviate"][1]
+
+
+def test_lakehouse_architecture_includes_durable_catalog_metadata() -> None:
+    from bootstrapper.docs.sitegen.pages import (
+        ARCHITECTURE_EDGES,
+        ARCHITECTURE_PERSPECTIVES,
+        ARCHITECTURE_ROUTES,
+        ARCHITECTURE_SOURCE_FILES,
+    )
+
+    slug = "data-engineering-lakehouse-flow"
+    assert "Supabase/Postgres" in ARCHITECTURE_PERSPECTIVES[slug][2]
+    assert ("Iceberg REST", "Supabase/Postgres", "metadata") in (
+        ARCHITECTURE_EDGES[slug]
+    )
+    assert ("Iceberg REST", "MinIO", "warehouse objects") in (
+        ARCHITECTURE_EDGES[slug]
+    )
+    assert "services/supabase/service.yml" in ARCHITECTURE_SOURCE_FILES[slug]
+    assert set(ARCHITECTURE_ROUTES[slug]) == {
+        ("Spark", "MinIO"),
+        ("Trino", "Iceberg REST"),
+        ("Iceberg REST", "MinIO"),
+        ("Trino", "MinIO"),
+    }
+    assert {
+        "services/jupyterhub/service.yml",
+        "services/zeppelin/service.yml",
+        "services/airflow/service.yml",
+        "services/redpanda/service.yml",
+    } <= set(ARCHITECTURE_SOURCE_FILES[slug])
+
+
+def _orthogonal_segments(points):
+    return tuple(zip(points, points[1:]))
+
+
+def _orthogonal_segments_intersect(first, second) -> bool:
+    (ax1, ay1), (ax2, ay2) = first
+    (bx1, by1), (bx2, by2) = second
+    a_vertical = ax1 == ax2
+    b_vertical = bx1 == bx2
+    if a_vertical == b_vertical:
+        if a_vertical and ax1 == bx1:
+            return max(min(ay1, ay2), min(by1, by2)) <= min(
+                max(ay1, ay2), max(by1, by2)
+            )
+        if not a_vertical and ay1 == by1:
+            return max(min(ax1, ax2), min(bx1, bx2)) <= min(
+                max(ax1, ax2), max(bx1, bx2)
+            )
+        return False
+    vertical, horizontal = (first, second) if a_vertical else (second, first)
+    (vx, vy1), (_, vy2) = vertical
+    (hx1, hy), (hx2, _) = horizontal
+    return min(hx1, hx2) <= vx <= max(hx1, hx2) and min(vy1, vy2) <= hy <= max(
+        vy1, vy2
+    )
+
+
+def test_lakehouse_minio_routes_use_distinct_nonintersecting_anchors() -> None:
+    from bootstrapper.docs.sitegen.pages import ARCHITECTURE_ROUTES
+
+    routes = ARCHITECTURE_ROUTES["data-engineering-lakehouse-flow"]
+    minio_routes = [
+        routes[edge][0]
+        for edge in (("Spark", "MinIO"), ("Trino", "MinIO"), ("Iceberg REST", "MinIO"))
+    ]
+    assert len({route[-1] for route in minio_routes}) == len(minio_routes)
+    for index, route in enumerate(minio_routes):
+        for other in minio_routes[index + 1 :]:
+            assert not any(
+                _orthogonal_segments_intersect(left, right)
+                for left in _orthogonal_segments(route)
+                for right in _orthogonal_segments(other)
+            )
+
+
+def test_track_architecture_models_explicit_disabled_overrides() -> None:
+    from bootstrapper.docs.sitegen.pages import (
+        ARCHITECTURE_EDGES,
+        ARCHITECTURE_PERSPECTIVES,
+    )
+
+    edges = ARCHITECTURE_EDGES["track-selection-matrix"]
+    assert ("Overrides", "Selected Source", "authoritative") in edges
+    assert ("Selected Source", "Enabled", "non-disabled") in edges
+    assert ("Selected Source", "Disabled", "explicit") in edges
+    assert ("Selected Source", "Force Disabled", "disabled") not in edges
+    assert ("Overrides", "Enabled", "authoritative") not in edges
+    assert "Disabled" in ARCHITECTURE_PERSPECTIVES["track-selection-matrix"][2]
+
+
+def test_localhost_port_docs_distinguish_transport_and_route_contracts() -> None:
+    text = (ROOT / "docs/deployment/ports-and-routes.md").read_text(encoding="utf-8")
+    for expected in (
+        "TIKA_LOCALHOST_PORT",
+        "COMFYUI_MPS_LOCALHOST_PORT",
+        "VLLM_METAL_LOCALHOST_PORT",
+        "BLENDER_MCP_LOCALHOST_PORT",
+        "TCP",
+        "No Kong route",
+    ):
+        assert expected in text
+    assert "Every localhost-source service" not in text
+    assert "Hermes API and dashboard" not in text
+    assert (
+        "| Direct HTTP localhost | Hermes API | `HERMES_LOCALHOST_PORT`"
+        in text
+    )
+    assert (
+        "| HTTP + Kong | Hermes dashboard | `HERMES_LOCALHOST_DASHBOARD_PORT`"
+        in text
+    )
+
+
+def test_managed_host_docs_and_historical_reference_name_current_surfaces() -> None:
+    operations = (ROOT / "docs/operations.md").read_text(encoding="utf-8")
+    opening = operations.split("## 8. Managed Host Lifecycle", 1)[1].split("\n\n", 2)[1]
+    assert "Blender" in opening
+    changelog = (ROOT / "docs/CHANGELOG.md").read_text(encoding="utf-8")
+    assert "docs/README.md §1.7" not in changelog
+    assert "docs/README.md §1.8" in changelog
+
+
+def test_observability_architecture_names_each_trace_producer() -> None:
+    observability = (DIAGRAMS_DIR / "observability-flow.html").read_text(
+        encoding="utf-8"
+    )
+    expected = {
+        'data-source="Backend" data-target="OTel Collector"',
+        'data-source="Celery Workers" data-target="OTel Collector"',
+        'data-source="LiteLLM" data-target="OTel Collector"',
+        'data-source="LiteLLM" data-target="Langfuse"',
+        'data-source="Atlas Services" data-target="Prometheus"',
+    }
+    assert not {edge for edge in expected if edge not in observability}
+    assert 'data-source="Services" data-target="OTel Collector"' not in observability
+
+
+
+def test_security_architecture_models_route_and_application_auth_separately() -> None:
+    security = (DIAGRAMS_DIR / "security-auth-secrets-boundary.html").read_text(
+        encoding="utf-8"
+    )
+    expected = {
+        'data-source="Kong" data-target="Kong Route Policies"',
+        'data-source="Routed Services" data-target="Backend API"',
+        'data-source="Direct Clients" data-target="Backend API"',
+        'data-source="Backend API" data-target="Public APIs"',
+        'data-source="Supabase Auth" data-target="Backend Identity"',
+        'data-source="Backend Identity" data-target="Protected APIs"',
+        'data-source="Plugin Key Auth" data-target="Protected APIs"',
+    }
+    assert not {edge for edge in expected if edge not in security}
+    forbidden = {
+        'data-source="Kong" data-target="Backend Identity"',
+        'data-source="Kong" data-target="Supabase Auth"',
+    }
+    assert not {edge for edge in forbidden if edge in security}
+    security_page = (
+        DIAGRAMS_DIR / "security-auth-secrets-boundary.md"
+    ).read_text(encoding="utf-8")
+    assert "services/backend/app/app/backend_identity.py" in security_page
 
 
 def test_architecture_edge_labels_do_not_share_coordinates() -> None:
@@ -240,6 +455,127 @@ def test_architecture_edge_labels_do_not_share_coordinates() -> None:
         labels = label_pattern.findall(rendered)
         coordinates = [(x, y) for x, y, _label in labels]
         assert len(coordinates) == len(set(coordinates)), slug
+
+
+def test_top_level_architecture_long_routes_use_reviewed_gutters_and_endpoints() -> None:
+    svg = (ROOT / "docs" / "diagrams" / "architecture.svg").read_text(
+        encoding="utf-8"
+    )
+    html_master = (ROOT / "docs" / "diagrams" / "architecture.html").read_text(
+        encoding="utf-8"
+    )
+    for master in (svg, html_master):
+        for crossing in (
+            '<line x1="450" y1="360" x2="450" y2="668"',
+            '<line x1="700" y1="360" x2="700" y2="788"',
+            '<line x1="1200" y1="360" x2="1200" y2="788"',
+            '<line x1="700" y1="360" x2="700" y2="928"',
+            '<line x1="1200" y1="480" x2="1020" y2="928"',
+        ):
+            assert crossing not in master
+        assert "L 825 510" in master
+        assert "L 1325 770" in master
+        for current_media_route in (
+            "M 200 360 L 75 380 L 75 650 L 200 650 L 200 668",
+            "M 700 360 L 825 380 L 825 650 L 950 650 L 950 668",
+            "M 200 480 L 325 500 L 325 640 L 450 640 L 450 668",
+        ):
+            assert current_media_route in master
+        assert "M 450 360 L 575 380" not in master
+        assert "M 450 480 L 575 500" not in master
+
+
+def test_llm_docs_and_help_treat_none_as_no_ollama_not_cloud_only() -> None:
+    source_config = (ROOT / "docs/deployment/source-configuration.md").read_text(
+        encoding="utf-8"
+    )
+    wizard = (ROOT / "docs/quick-start/interactive-setup-wizard.md").read_text(
+        encoding="utf-8"
+    )
+    litellm = (ROOT / "services/litellm/README.md").read_text(encoding="utf-8")
+    ollama_readme = (ROOT / "services/ollama/README.md").read_text(
+        encoding="utf-8"
+    )
+    ollama_manifest = (ROOT / "services/ollama/service.yml").read_text(
+        encoding="utf-8"
+    )
+    roadmap = (ROOT / "docs/ROADMAP.md").read_text(encoding="utf-8")
+    cli = (ROOT / "bootstrapper/start.py").read_text(encoding="utf-8")
+    tui = (ROOT / "bootstrapper/ui/textual/integration.py").read_text(
+        encoding="utf-8"
+    )
+
+    for text in (source_config, wizard, litellm):
+        assert "vLLM Metal" in text
+        assert "no Ollama upstream" in text
+    assert 'Use "none" for no Ollama upstream' in cli
+    assert 'badges.append("no Ollama")' in tui
+    assert "cloud-only" not in ollama_manifest
+    assert "no local engine" not in ollama_readme
+    assert "vLLM Metal and/or enabled cloud providers" in ollama_readme
+    assert "engine=none + vLLM Metal disabled + all cloud disabled" in roadmap
+
+
+def test_llm_docs_qualify_native_bypasses_and_do_not_promise_failover() -> None:
+    source_config = (ROOT / "docs/deployment/source-configuration.md").read_text(
+        encoding="utf-8"
+    )
+    litellm = (ROOT / "services/litellm/README.md").read_text(encoding="utf-8")
+
+    assert "One URL/key for every consumer" not in source_config
+    assert "Every consumer service" not in litellm
+    assert "because every consumer reads only" not in litellm
+    for text in (source_config, litellm):
+        assert "provider failover" not in text.lower()
+        assert "native-provider" in text
+
+
+def test_vllm_metal_host_guidance_is_track_aware_and_complete() -> None:
+    source_config = (ROOT / "docs/deployment/source-configuration.md").read_text(
+        encoding="utf-8"
+    )
+    wizard = (ROOT / "docs/quick-start/interactive-setup-wizard.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "VLLM_METAL_SOURCE" in source_config
+    assert "managed-localhost" in source_config
+    assert "Generative AI · Engineering" in wizard
+    assert "All / Custom" in wizard
+    assert "profiles; tracks" not in wizard
+    assert "tracks; tracks" not in wizard
+
+
+def test_submodule_compose_and_kong_examples_respect_project_boundaries() -> None:
+    guide = (ROOT / "docs/deployment/submodule-usage.md").read_text(
+        encoding="utf-8"
+    )
+    assert "depends_on:\n      - myproject-supabase-db" not in guide
+    assert "separate Compose project" in guide
+    assert "services whose manifests declare Kong routes" in guide
+    assert "endpoints export" in guide
+
+
+def test_platform_and_jupyter_docs_do_not_overstate_integration_coverage() -> None:
+    overview = (ROOT / "docs/architecture/platform-overview.md").read_text(
+        encoding="utf-8"
+    )
+    home = (ROOT / "docs/index.md").read_text(encoding="utf-8")
+    jupyter = (ROOT / "services/jupyterhub/README.md").read_text(encoding="utf-8")
+
+    assert "All model traffic" not in overview
+    assert "LiteLLM is the single path" not in home
+    assert "access to all Atlas services" not in jupyter
+    assert "Auto-configured connections to all services" not in jupyter
+    assert "current MCP endpoint" in jupyter
+
+
+def test_canonical_home_embeds_the_committed_platform_image() -> None:
+    home = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+    assert re.search(
+        r"!\[[^]]+\]\(diagrams/img/atlas-platform\.png\)", home
+    )
+    assert "](diagrams/architecture.html)" not in home
 
 
 def test_architecture_interpretation_renders_safe_inline_markup() -> None:
@@ -338,6 +674,31 @@ def test_documentation_guidance_uses_the_single_root_safe_gate() -> None:
     assert "MkDocs" not in readme
     assert "GitHub Wiki" not in readme
     assert "thekaveh.github.io" not in readme
+
+
+def test_service_contributor_docs_describe_inventory_and_diagram_workflow() -> None:
+    text = (ROOT / "docs/CONTRIBUTING-services.md").read_text(encoding="utf-8")
+    workflow = text.split("## 12. After you save the files", 1)[1].split(
+        "## 13. Audit-script", 1
+    )[0]
+
+    assert "Representative services (not exhaustive)" in text
+    commands = (
+        "python -m bootstrapper.docs.regen qdrant",
+        "docs/diagrams/architecture.html",
+        "docs/diagrams/architecture.svg",
+        "python -m scripts.docs.render_diagrams",
+        "make docs-build",
+        "python -m tools.validate_fragments",
+        "make docs-check",
+    )
+    positions = [workflow.index(command) for command in commands]
+    assert positions == sorted(positions)
+    assert "required when the new manifest owns a same-folder README" in workflow
+    assert "docs:` field points to an aggregate/doc-only README" in workflow
+    assert "touch ONLY" not in workflow
+    assert "final check" not in workflow
+    assert "no regen step" not in text.lower()
 
 
 def test_docs_pages_workflow_is_main_only_pinned_and_uses_a_wiki_deploy_key() -> None:

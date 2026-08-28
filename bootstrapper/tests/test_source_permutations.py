@@ -38,83 +38,27 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-# (source_var_name, [valid_values])
-_PERMUTATIONS = [
-    (
-        "LLM_PROVIDER_SOURCE",
-        [
-            "ollama-container-cpu",
-            "ollama-container-gpu",
-            "ollama-localhost",
-            "none",
-        ],
-    ),
-    ("WEAVIATE_SOURCE", ["container", "localhost", "disabled"]),
-    ("NEO4J_GRAPH_DB_SOURCE", ["container", "localhost", "disabled"]),
-    ("COMFYUI_SOURCE", ["container-cpu", "container-gpu", "localhost", "managed-localhost-mps", "disabled"]),
-    # vLLM Metal is virtual (no compose fragment) — both values just toggle
-    # the litellm-init env passthrough, so each must still merge cleanly.
-    ("VLLM_METAL_SOURCE", ["managed-localhost", "disabled"]),
-    (
-        "STT_PROVIDER_SOURCE",
-        [
-            "speaches-container-cpu",
-            "speaches-container-gpu",
-            "parakeet-container-gpu",
-            "parakeet-localhost",
-            "whisper-cpp-localhost",
-            "disabled",
-        ],
-    ),
-    (
-        "TTS_PROVIDER_SOURCE",
-        [
-            "speaches-container-cpu",
-            "speaches-container-gpu",
-            "chatterbox-container-gpu",
-            "chatterbox-localhost",
-            "disabled",
-        ],
-    ),
-    ("DOC_PROCESSOR_SOURCE", ["disabled", "docling-container-gpu", "docling-localhost"]),
-    ("OPENCLAW_SOURCE", ["disabled", "container", "localhost"]),
-    ("HERMES_SOURCE", ["container", "localhost", "disabled"]),
-    ("MINIO_SOURCE", ["container", "disabled"]),
-    ("N8N_SOURCE", ["container", "disabled"]),
-    ("SEARXNG_SOURCE", ["container", "disabled"]),
-    ("TIKA_SOURCE", ["container", "tika-localhost", "disabled"]),
-    ("OPEN_WEB_UI_SOURCE", ["container", "disabled"]),
-    ("JUPYTERHUB_SOURCE", ["container", "disabled"]),
-    ("LOCAL_DEEP_RESEARCHER_SOURCE", ["container", "disabled"]),
+def _manifest_permutations() -> list[tuple[str, list[str]]]:
+    """Derive the matrix from the manifest contract so new sources cannot be omitted."""
+    from services.manifests import load_manifests
+
+    return [
+        (manifest.sources.var, [option.id for option in manifest.sources.options])
+        for manifest in load_manifests(REPO_ROOT / "services")
+        if manifest.sources is not None
+    ]
+
+
+# Cloud providers predate the single-``sources`` block: one virtual manifest
+# deliberately owns three independent toggles. Keep only this irreducible
+# multi-source exception explicit; every normal source comes from its manifest.
+_CLOUD_PROVIDER_PERMUTATIONS = [
     ("CLOUD_OPENAI_SOURCE", ["enabled", "disabled"]),
     ("CLOUD_ANTHROPIC_SOURCE", ["enabled", "disabled"]),
     ("CLOUD_OPENROUTER_SOURCE", ["enabled", "disabled"]),
-    ("FAL_SOURCE", ["enabled", "disabled"]),
-    # Ray was always Ray-disabled-by-default, but every SOURCE value must
-    # still produce a clean `docker compose config`.
-    ("RAY_SOURCE", ["ray-container-cpu", "ray-container-gpu", "disabled"]),
-    # Observability bundle (added 2026-05-31). The matrix must exercise
-    # both source values for each because PROMETHEUS_SOURCE is the gate
-    # for FIVE cross-manifest scales (prometheus / node-exporter /
-    # cadvisor / postgres-exporter / redis-exporter) and a wrong setting
-    # would silently scale half the bundle to zero with no explicit
-    # failure during compose rendering.
-    ("PROMETHEUS_SOURCE", ["container", "disabled"]),
-    ("GRAFANA_SOURCE", ["container", "disabled"]),
-    # Compute tier (added 2026-06-04). Each is single-toggle (no source
-    # variants beyond container/disabled). Spark gates Zeppelin's
-    # `_generate_zeppelin_config` — exercising ZEPPELIN_SOURCE=container
-    # here keeps SPARK_SOURCE at .env.example's default of `disabled`,
-    # which would normally raise — but ServiceConfig isn't run during
-    # `docker compose config` (it only validates compose-render syntax),
-    # so the gate is invisible to this test. The real gate is exercised
-    # by test_zeppelin_spark_gating.py.
-    ("SPARK_SOURCE", ["container", "disabled"]),
-    ("ZEPPELIN_SOURCE", ["container", "disabled"]),
-    ("AIRFLOW_SOURCE", ["container", "disabled"]),
-    ("TRINO_SOURCE", ["container", "disabled"]),
-    ("REDPANDA_SOURCE", ["container", "disabled"]),
 ]
+
+_PERMUTATIONS = _manifest_permutations() + _CLOUD_PROVIDER_PERMUTATIONS
 
 
 def _write_env_with_override(target: Path, var: str, value: str) -> None:
@@ -164,6 +108,28 @@ def test_source_value_produces_valid_compose(var: str, value: str, tmp_path: Pat
     _write_env_with_override(env_file, var, value)
     ok, stderr = _compose_config_ok(env_file)
     assert ok, f"{var}={value} produced invalid compose:\n{stderr}"
+
+
+def test_source_permutation_matrix_matches_every_manifest_option():
+    from services.manifests import load_manifests
+
+    declared = {
+        (manifest.sources.var, option.id)
+        for manifest in load_manifests(REPO_ROOT / "services")
+        if manifest.sources is not None
+        for option in manifest.sources.options
+    }
+    exercised = {
+        (source_var, value)
+        for source_var, values in _PERMUTATIONS
+        for value in values
+    }
+    cloud = {
+        (source_var, value)
+        for source_var, values in _CLOUD_PROVIDER_PERMUTATIONS
+        for value in values
+    }
+    assert exercised == declared | cloud
 
 
 # ─── Scaled-family rendering tests ──────────────────────────────────────

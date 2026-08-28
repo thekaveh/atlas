@@ -34,8 +34,8 @@ class _HttpResponse:
         self._payload = payload
         self.status = status
 
-    def read(self) -> bytes:
-        return self._payload
+    def read(self, size: int = -1) -> bytes:
+        return self._payload if size < 0 else self._payload[:size]
 
     def __enter__(self):
         return self
@@ -136,6 +136,230 @@ def test_load_manifest_image_refs_reads_literal_defaults_sorted_and_unique(tmp_p
         "  - var: B_IMAGE\n    default: alpha:2\n    container: alpha\n"
     )
     assert watch.load_manifest_image_refs(services) == ("alpha:2", "zeta:1")
+
+
+def test_load_remote_build_contexts_resolves_pinned_manifest_defaults(tmp_path):
+    service = tmp_path / "services" / "graph-builder"
+    service.mkdir(parents=True)
+    (service / "service.yml").write_text(
+        "env:\n"
+        "  - name: GRAPH_REF\n"
+        "    default: 0123456789abcdef0123456789abcdef01234567\n",
+        encoding="utf-8",
+    )
+    (service / "compose.yml").write_text(
+        "services:\n"
+        "  backend:\n"
+        "    build:\n"
+        "      context: https://github.com/example/project.git#${GRAPH_REF}:backend\n"
+        "  frontend:\n"
+        "    build:\n"
+        "      context: https://github.com/example/project.git#${GRAPH_REF}:frontend\n",
+        encoding="utf-8",
+    )
+
+    assert watch.load_remote_build_contexts(tmp_path / "services") == (
+        watch.RemoteBuildContext(
+            repository="example/project",
+            ref="0123456789abcdef0123456789abcdef01234567",
+            subdir="backend",
+            dockerfile="Dockerfile",
+        ),
+        watch.RemoteBuildContext(
+            repository="example/project",
+            ref="0123456789abcdef0123456789abcdef01234567",
+            subdir="frontend",
+            dockerfile="Dockerfile",
+        ),
+    )
+
+
+def test_load_remote_build_contexts_rejects_unpinned_manifest_default(tmp_path):
+    service = tmp_path / "services" / "graph-builder"
+    service.mkdir(parents=True)
+    (service / "service.yml").write_text(
+        "env:\n  - name: GRAPH_REF\n    default: main\n",
+        encoding="utf-8",
+    )
+    (service / "compose.yml").write_text(
+        "services:\n"
+        "  app:\n"
+        "    build:\n"
+        "      context: https://github.com/example/project.git#${GRAPH_REF}:backend\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="40-character commit SHA"):
+        watch.load_remote_build_contexts(tmp_path / "services")
+
+
+def test_resolve_image_digest_parses_index_digest_with_bounded_command(monkeypatch):
+    captured = {}
+    digest = "sha256:" + "a" * 64
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return subprocess.CompletedProcess(
+            command, 0, f"Name: node:20\nMediaType: application/json\nDigest: {digest}\n", ""
+        )
+
+    monkeypatch.setattr(watch.subprocess, "run", fake_run)
+
+    assert watch._resolve_image_digest("node:20", 7.0) == (digest, None)
+    assert captured == {
+        "command": ["docker", "buildx", "imagetools", "inspect", "node:20"],
+        "kwargs": {
+            "timeout": 7.0,
+            "check": False,
+            "capture_output": True,
+            "text": True,
+        },
+    }
+
+
+@pytest.mark.parametrize("stdout", ["Name: node:20\n", "Digest: sha256:nope\n"])
+def test_resolve_image_digest_rejects_missing_or_malformed_digest(
+    monkeypatch, stdout
+):
+    monkeypatch.setattr(
+        watch.subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(command, 0, stdout, ""),
+    )
+
+    digest, failure = watch._resolve_image_digest("node:20", 7.0)
+
+    assert digest is None
+    assert failure == "node:20 (inspect output contained no index digest)"
+
+
+def test_resolve_image_digest_reports_nonzero_and_timeout(monkeypatch):
+    monkeypatch.setattr(
+        watch.subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(
+            command, 17, "", "registry unavailable"
+        ),
+    )
+    assert watch._resolve_image_digest("node:20", 7.0) == (
+        None,
+        "node:20 (exit 17): registry unavailable",
+    )
+
+    def timeout(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(["docker"], 7.0)
+
+    monkeypatch.setattr(watch.subprocess, "run", timeout)
+    assert watch._resolve_image_digest("node:20", 7.0) == (
+        None,
+        "node:20 (timed out after 7.0s)",
+    )
+
+
+def test_probe_remote_build_contexts_fetches_pinned_dockerfiles_and_resolves_bases(monkeypatch):
+    context = watch.RemoteBuildContext(
+        repository="example/project",
+        ref="0123456789abcdef0123456789abcdef01234567",
+        subdir="frontend",
+        dockerfile="Dockerfile",
+    )
+    requested = []
+    inspected = []
+
+    def fake_urlopen(request, *, timeout):
+        requested.append((request.full_url, timeout))
+        return _HttpResponse(b"FROM node:20 AS build\nFROM nginx:alpine\n")
+
+    monkeypatch.setattr(watch.urllib.request, "urlopen", fake_urlopen)
+    digests = {
+        "nginx:alpine": "sha256:" + "a" * 64,
+        "node:20": "sha256:" + "b" * 64,
+    }
+    monkeypatch.setattr(
+        watch,
+        "_resolve_image_digest",
+        lambda reference, timeout: (
+            inspected.append((reference, timeout)) or digests[reference],
+            None,
+        ),
+    )
+
+    result = watch.probe_remote_build_contexts(
+        (context,),
+        expected_digests=digests,
+        http_timeout=2.0,
+        image_timeout=3.0,
+    )
+
+    assert result == watch.ProbeResult(
+        "remote build contexts",
+        True,
+        "validated 1 pinned Dockerfile(s) and matched 2 reviewed base-image digest(s)",
+    )
+    assert requested == [(
+        "https://raw.githubusercontent.com/example/project/"
+        "0123456789abcdef0123456789abcdef01234567/frontend/Dockerfile",
+        2.0,
+    )]
+    assert inspected == [("nginx:alpine", 3.0), ("node:20", 3.0)]
+
+
+def test_probe_remote_build_contexts_reports_mutable_base_digest_drift(monkeypatch):
+    context = watch.RemoteBuildContext(
+        repository="example/project",
+        ref="0123456789abcdef0123456789abcdef01234567",
+        subdir="backend",
+        dockerfile="Dockerfile",
+    )
+    monkeypatch.setattr(
+        watch,
+        "_load_remote_dockerfile",
+        lambda *_a, **_k: "FROM python:3.12-slim\n",
+    )
+    monkeypatch.setattr(
+        watch,
+        "_resolve_image_digest",
+        lambda *_a, **_k: ("sha256:" + "b" * 64, None),
+    )
+
+    result = watch.probe_remote_build_contexts(
+        (context,),
+        expected_digests={"python:3.12-slim": "sha256:" + "a" * 64},
+        http_timeout=2.0,
+        image_timeout=3.0,
+    )
+
+    assert result.ok is False
+    assert "python:3.12-slim digest drift" in result.detail
+
+
+def test_repository_remote_base_digest_baseline_covers_discovered_bases():
+    expected = watch.load_expected_remote_base_digests(
+        REPO_ROOT / ".container-scan-exclusions.yml"
+    )
+
+    assert set(expected) == {"python:3.12-slim", "node:20", "nginx:alpine"}
+    assert all(re.fullmatch(r"sha256:[0-9a-f]{64}", digest) for digest in expected.values())
+
+
+def test_repository_remote_context_inventory_covers_graph_builder_sources():
+    contexts = watch.load_remote_build_contexts(REPO_ROOT / "services")
+
+    assert contexts == (
+        watch.RemoteBuildContext(
+            repository="neo4j-labs/llm-graph-builder",
+            ref="4a412f4688cf4096976045c019edc0a7f6ddcb6b",
+            subdir="backend",
+            dockerfile="Dockerfile",
+        ),
+        watch.RemoteBuildContext(
+            repository="neo4j-labs/llm-graph-builder",
+            ref="4a412f4688cf4096976045c019edc0a7f6ddcb6b",
+            subdir="frontend",
+            dockerfile="Dockerfile",
+        ),
+    )
 
 
 def test_report_normalizes_timestamp_and_bounds_detail():
@@ -601,7 +825,7 @@ def test_main_reports_empty_canonical_inventories_as_aggregate_failures(monkeypa
     assert exit_code == 1
     assert "at least one curated Ollama model" in report
     assert "at least one image reference" in report
-    assert "Summary: **2 passed, 2 failed, 4 total**" in report
+    assert "Summary: **3 passed, 2 failed, 5 total**" in report
 
 
 def test_run_watch_reports_unknown_model_section_and_keeps_independent_results(monkeypatch, tmp_path):
@@ -614,6 +838,7 @@ def test_run_watch_reports_unknown_model_section_and_keeps_independent_results(m
         "  - name: must-not-be-discovered\n"
     )
     monkeypatch.setattr(watch, "load_manifest_image_refs", lambda _path: ("image:1",))
+    monkeypatch.setattr(watch, "load_remote_build_contexts", lambda _path: ())
     monkeypatch.setattr(
         watch,
         "probe_ollama_library",
@@ -634,6 +859,11 @@ def test_run_watch_reports_unknown_model_section_and_keeps_independent_results(m
         "probe_manifest_images",
         lambda *_a, **_k: watch.ProbeResult("images", True, "ok"),
     )
+    monkeypatch.setattr(
+        watch,
+        "probe_remote_build_contexts",
+        lambda *_a, **_k: watch.ProbeResult("remote", True, "ok"),
+    )
 
     results = watch.run_watch(
         ollama_tags_url="http://ollama.invalid/api/tags",
@@ -645,9 +875,9 @@ def test_run_watch_reports_unknown_model_section_and_keeps_independent_results(m
     )
     report = watch.render_report(results, datetime(2026, 8, 24, tzinfo=timezone.utc))
 
-    assert [result.ok for result in results] == [True, True, False, True]
+    assert [result.ok for result in results] == [True, True, False, True, True]
     assert "unknown top-level section: bogus" in report
-    assert "Summary: **3 passed, 1 failed, 4 total**" in report
+    assert "Summary: **4 passed, 1 failed, 5 total**" in report
 
 
 def test_main_reports_mixed_unknown_model_keys_without_traceback(monkeypatch, tmp_path):
@@ -662,6 +892,7 @@ def test_main_reports_mixed_unknown_model_keys_without_traceback(monkeypatch, tm
     report_path = tmp_path / "report.md"
     calls = []
     monkeypatch.setattr(watch, "load_manifest_image_refs", lambda _path: ("image:1",))
+    monkeypatch.setattr(watch, "load_remote_build_contexts", lambda _path: ())
     monkeypatch.setattr(
         watch,
         "probe_ollama_library",
@@ -682,6 +913,11 @@ def test_main_reports_mixed_unknown_model_keys_without_traceback(monkeypatch, tm
         "probe_manifest_images",
         lambda *_a, **_k: calls.append("images") or watch.ProbeResult("images", True, "ok"),
     )
+    monkeypatch.setattr(
+        watch,
+        "probe_remote_build_contexts",
+        lambda *_a, **_k: watch.ProbeResult("remote", True, "ok"),
+    )
 
     exit_code = watch.main(
         [
@@ -696,16 +932,18 @@ def test_main_reports_mixed_unknown_model_keys_without_traceback(monkeypatch, tm
     assert exit_code == 1
     assert sorted(calls) == ["images", "library", "tags"]
     assert "unknown top-level section: bogus, int(1)" in report
-    assert "Summary: **3 passed, 1 failed, 4 total**" in report
+    assert "Summary: **4 passed, 1 failed, 5 total**" in report
 
 
 def test_run_watch_aggregates_results_in_probe_order(monkeypatch, tmp_path):
     monkeypatch.setattr(watch, "load_curated_ollama_models", lambda _path: ("model:latest",))
     monkeypatch.setattr(watch, "load_manifest_image_refs", lambda _path: ("image:1",))
+    monkeypatch.setattr(watch, "load_remote_build_contexts", lambda _path: ())
     monkeypatch.setattr(watch, "probe_ollama_library", lambda: watch.ProbeResult("library", False, "small"))
     monkeypatch.setattr(watch, "probe_ollama_tags", lambda *_a, **_k: watch.ProbeResult("tags", True, "valid"))
     monkeypatch.setattr(watch, "probe_curated_models", lambda *_a, **_k: watch.ProbeResult("models", False, "missing"))
     monkeypatch.setattr(watch, "probe_manifest_images", lambda *_a, **_k: watch.ProbeResult("images", True, "resolved"))
+    monkeypatch.setattr(watch, "probe_remote_build_contexts", lambda *_a, **_k: watch.ProbeResult("remote", True, "validated"))
 
     results = watch.run_watch(
         ollama_tags_url="http://ollama.invalid/api/tags",
@@ -716,7 +954,8 @@ def test_run_watch_aggregates_results_in_probe_order(monkeypatch, tmp_path):
         image_workers=1,
     )
     assert [(result.name, result.ok) for result in results] == [
-        ("library", False), ("tags", True), ("models", False), ("images", True)
+        ("library", False), ("tags", True), ("models", False), ("images", True),
+        ("remote build contexts", True),
     ]
 
 

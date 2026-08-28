@@ -16,7 +16,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from backend_identity import _ct_equals
-from ray_client import RayClient, RayDisabledError
+from ray_client import (
+    RayClient,
+    RayDisabledError,
+    RayJobAlreadyExistsError,
+    RayJobSubmission,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +67,13 @@ class SubmitJobRequest(BaseModel):
         default=None,
         description="Arbitrary metadata attached to the job.",
     )
+    submission_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=128,
+        pattern=r"^raysubmit_[A-Za-z0-9_]+$",
+        description="Stable Ray-compatible identifier for safe retry reconciliation.",
+    )
 
 
 class SubmitJobResponse(BaseModel):
@@ -74,20 +86,63 @@ async def submit_job(payload: SubmitJobRequest) -> SubmitJobResponse:
     """Submit a job to the Ray cluster."""
     try:
         client = RayClient.get()
+        submission_id = payload.submission_id
+        cancellation_seen = asyncio.Event()
         # RayClient methods wrap the sync ray.job_submission SDK; run them in a
         # worker thread so this handler doesn't block the FastAPI event loop.
-        job_id = await asyncio.to_thread(
-            client.submit_job,
-            payload.entrypoint,
-            payload.runtime_env,
-            payload.metadata,
+        submission = asyncio.create_task(
+            asyncio.to_thread(
+                client.submit_job,
+                RayJobSubmission(
+                    entrypoint=payload.entrypoint,
+                    submission_id=submission_id,
+                    runtime_env=payload.runtime_env,
+                    metadata=payload.metadata,
+                ),
+            )
         )
+        try:
+            job_id = await _join_owned_task(submission, cancellation_seen)
+        except Exception:
+            if cancellation_seen.is_set():
+                raise asyncio.CancelledError()
+            raise
+        if cancellation_seen.is_set():
+            cleanup = asyncio.create_task(
+                asyncio.to_thread(client.stop_job, submission_id)
+            )
+            try:
+                await _join_owned_task(cleanup, cancellation_seen)
+            except Exception:
+                logger.exception("ray cancellation cleanup failed for %s", submission_id)
+            raise asyncio.CancelledError()
         return SubmitJobResponse(job_id=job_id)
     except RayDisabledError as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except RayJobAlreadyExistsError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Ray job {exc.submission_id!r} already exists; reconcile it "
+                "through the job status or stop endpoint"
+            ),
+        ) from exc
     except Exception:
         logger.exception("ray submit_job failed")
         raise HTTPException(status_code=500, detail="Ray job submission failed")
+
+
+async def _join_owned_task(
+    task: asyncio.Task[Any], cancellation_seen: asyncio.Event
+) -> Any:
+    """Join a thread-backed side effect despite repeated request cancellation."""
+
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancellation_seen.set()
+    return task.result()
 
 
 @router.get("/jobs/{job_id}")

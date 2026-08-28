@@ -13,7 +13,7 @@ services:
       - supabase-db-data:/var/lib/postgresql/data
       - ./db/snapshot:/snapshot
     ports:
-      - "${HOST_BIND_IP:-}${SUPABASE_DB_PORT}:5432"
+      - "${HOST_BIND_IP:-127.0.0.1:}${SUPABASE_DB_PORT}:5432"
     networks:
       - backend-network
     healthcheck:

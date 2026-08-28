@@ -29,7 +29,7 @@ from provider_boundary import (
     parse_timeout_seconds,
     run_with_deadline,
 )
-from startup import ModelStartup
+from startup import ModelStartup, model_lifespan
 
 if __package__:
     from .alignment import advanced_payload, alignment_payload, result_text
@@ -78,9 +78,8 @@ _transcription_semaphore = threading.BoundedSemaphore(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    del app
-    _model_startup.start()
-    yield
+    async with model_lifespan(app, _model_startup):
+        yield
 
 
 app = FastAPI(

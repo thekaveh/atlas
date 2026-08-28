@@ -100,7 +100,7 @@ def test_lifespan_starts_loading_without_waiting_for_it():
     source = MLX_API.read_text(encoding="utf-8")
 
     assert "async def lifespan(" in source
-    assert "_model_startup.start()" in source
+    assert "model_lifespan(app, _model_startup)" in source
     assert '"status": "healthy" if ready else _model_startup.state' in source
     assert "status_code=503" in source
 

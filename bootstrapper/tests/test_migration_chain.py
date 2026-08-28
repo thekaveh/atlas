@@ -98,6 +98,38 @@ def test_chain_is_idempotent_on_second_run(tmp_path):
     assert not (needs_v1(env) or needs_v2(env) or needs_v3(env) or needs_v4(env))
 
 
+def test_v4_catalog_failure_remains_retryable(tmp_path, monkeypatch):
+    env = tmp_path / ".env"
+    env.write_text(
+        "BOOTSTRAPPER_PORT_LAYOUT_VERSION=3\n"
+        "LITELLM_DEFAULT_MODEL=ollama/qwen3.6:latest\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".env.example").write_text("BASE_PORT=63000\n", encoding="utf-8")
+
+    from start import AtlasStarter
+    import utils.llm_catalog as llm_catalog
+
+    starter = AtlasStarter()
+    starter.config_parser.env_file_path = env
+    starter.config_parser.env_example_path = tmp_path / ".env.example"
+
+    original_loader = llm_catalog.ollama_entries
+
+    def _broken_loader():
+        raise ValueError("synthetic malformed catalog")
+
+    monkeypatch.setattr(llm_catalog, "ollama_entries", _broken_loader)
+    starter.run_port_migration(no_port_migrate=False)
+    assert needs_v4(env) is True
+    assert "qwen3.6:latest" in env.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(llm_catalog, "ollama_entries", original_loader)
+    starter.run_port_migration(no_port_migrate=False)
+    assert needs_v4(env) is False
+    assert "qwen3.8:latest" in env.read_text(encoding="utf-8")
+
+
 def test_chain_preserves_pristine_v1_backup(tmp_path):
     """Regression: in a full v1→v2→v3→v4 chain the per-step backups must
     not collide. v1 and v3 both named the backup ``.env.backup.<ts>`` at

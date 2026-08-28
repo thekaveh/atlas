@@ -8,7 +8,7 @@ capabilities:
   - name: "Local Ollama source selection"
     status: supported
     verification: tested
-    note: "Atlas resolves CPU and NVIDIA containers, an existing host daemon, or cloud-only mode behind the same LiteLLM upstream contract."
+    note: "Atlas resolves CPU and NVIDIA containers, an existing host daemon, or no Ollama upstream behind the same LiteLLM contract."
   - name: "Declared model provisioning"
     status: partial
     verification: tested
@@ -59,7 +59,7 @@ sources:
       label: "Host (existing Ollama on this machine)"
       profiles: [default]
     - id: none
-      label: "Disabled (cloud-only)"
+      label: "No Ollama upstream"
 
 env:
   - name: LLM_PROVIDER_SOURCE
@@ -70,6 +70,9 @@ env:
   - name: OLLAMA_CUSTOM_MODELS
     default: ""
     description: "Free-text extra Ollama models (consumer model_sidecars.ollama lands here). Pulled by the ollama-pull init container for container-* sources and by the bootstrapper onto the host daemon for ollama-localhost (#757)."
+  - name: OLLAMA_PULL_STALL_TIMEOUT_SECONDS
+    default: "120"
+    description: "Abort and retry an ollama-pull download only after transfer speed stays below 1 KiB/s for this many seconds; progressing large-model downloads have no artificial wall-clock cutoff."
   - name: OLLAMA_AUTO_IMPORT_LOCAL_MODELS
     default: true
     description: "When LLM_PROVIDER_SOURCE=ollama-localhost, litellm-init queries the upstream's /api/tags and auto-imports every model found, unioning with OLLAMA_USER_MODELS. Set false to keep strict wizard-only control."

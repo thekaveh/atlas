@@ -54,3 +54,15 @@ def test_index_header_matches_canonical() -> None:
     assert tagline and tagline.group(1) == CANONICAL_TAGLINE
     assert subtitle and subtitle.group(1) == CANONICAL_SUBTITLE
     assert summary and summary.group(1) == CANONICAL_SUMMARY
+
+
+def test_index_executive_lead_is_complete_but_concise() -> None:
+    text = INDEX.read_text(encoding="utf-8")
+    hero = text.split('<div class="atlas-home__actions">', 1)[0]
+    paragraphs = re.findall(r"<p(?: class=\"atlas-kicker\")?>([^<]+)</p>", hero)
+    word_count = len(" ".join(paragraphs).split())
+    assert 100 <= word_count <= 150
+    assert "always-on core" in hero
+    assert "tracks" in hero.lower()
+    assert "launch wizard" in hero.lower()
+    assert "dev or prod profiles" in hero

@@ -23,6 +23,7 @@ def _stub_required_env(monkeypatch):
 
 
 def _fresh_main(monkeypatch, *, budget_enabled, default_cap="", disabled_providers=""):
+    _CapturingFalClient.cancel_result = True
     _stub_required_env(monkeypatch)
     monkeypatch.setenv("FAL_SOURCE", "enabled")
     monkeypatch.setenv("FAL_API_KEY", "fal-key")
@@ -106,6 +107,28 @@ def _submit(client, *, consumer="acme", model="trellis"):
             "input": {"image": "https://cdn.example/sprite.png"},
             "consumer": consumer,
         },
+    )
+
+
+def _direct_http_request():
+    from starlette.requests import Request
+
+    return Request(
+        {
+            "type": "http", "method": "POST", "path": "/media/generate",
+            "headers": [], "query_string": b"", "server": ("backend", 80),
+            "client": ("127.0.0.1", 1), "scheme": "http",
+        }
+    )
+
+
+def _direct_media_request(main):
+    return main.MediaGenerateRequest(
+        modality="image_to_3d",
+        provider="fal",
+        model="trellis",
+        input={"image": "https://cdn.example/sprite.png"},
+        consumer="acme",
     )
 
 
@@ -568,6 +591,79 @@ def test_cancellation_mid_submit_persists_ambiguous_reservation(monkeypatch):
     assert operation["last_payload"]["status"] == "submission_unknown"
 
 
+def test_repeated_pre_submit_cancellation_finishes_reservation_release(monkeypatch):
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    preparation_started = asyncio.Event()
+    release_started = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    original_release = main.MEDIA_BUDGET_ENGINE.release
+
+    async def blocked_to_thread(*_args, **_kwargs):
+        preparation_started.set()
+        await asyncio.Event().wait()
+
+    async def gated_release(*args, **kwargs):
+        release_started.set()
+        await release_cleanup.wait()
+        return await original_release(*args, **kwargs)
+
+    monkeypatch.setattr(main.asyncio, "to_thread", blocked_to_thread)
+    monkeypatch.setattr(main.MEDIA_BUDGET_ENGINE, "release", gated_release)
+
+    async def scenario():
+        principal = main.BackendPrincipal(kind="service", subject="test")
+        submission = asyncio.create_task(main.submit_media_generation(
+            _direct_media_request(main), _direct_http_request(), principal
+        ))
+        await asyncio.wait_for(preparation_started.wait(), timeout=1)
+        submission.cancel()
+        await asyncio.wait_for(release_started.wait(), timeout=1)
+        submission.cancel()
+        await asyncio.sleep(0)
+        assert submission.done() is False
+        release_cleanup.set()
+        with pytest.raises(asyncio.CancelledError):
+            await submission
+
+    asyncio.run(scenario())
+    spend = asyncio.run(main.MEDIA_BUDGET_ENGINE.spend(consumer="acme"))
+    assert spend["reserved_usd"] == 0.0
+    assert spend["records"][0]["status"] == main.media_ledger.STATUS_RELEASED
+
+
+def test_pre_submit_cancellation_survives_release_failure_after_durable_intent(
+    monkeypatch,
+):
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    preparation_started = asyncio.Event()
+
+    async def blocked_to_thread(*_args, **_kwargs):
+        preparation_started.set()
+        await asyncio.Event().wait()
+
+    async def fail_release(*_args, **_kwargs):
+        raise RuntimeError("simulated ledger release failure")
+
+    monkeypatch.setattr(main.asyncio, "to_thread", blocked_to_thread)
+    monkeypatch.setattr(main.MEDIA_BUDGET_ENGINE, "release", fail_release)
+
+    async def scenario():
+        principal = main.BackendPrincipal(kind="service", subject="test")
+        submission = asyncio.create_task(main.submit_media_generation(
+            _direct_media_request(main), _direct_http_request(), principal
+        ))
+        await asyncio.wait_for(preparation_started.wait(), timeout=1)
+        submission.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await submission
+
+    asyncio.run(scenario())
+    spend = asyncio.run(main.MEDIA_BUDGET_ENGINE.spend(consumer="acme"))
+    reservation_id = spend["records"][0]["operation_id"]
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get(reservation_id))
+    assert operation["last_payload"]["provenance"]["ledger_cleanup_pending"] is True
+
+
 def test_cancellation_after_provider_acceptance_never_releases_reservation(
     monkeypatch,
 ):
@@ -619,6 +715,135 @@ def test_post_accept_cancellation_persists_provider_id_when_budget_disabled(
     assert client.get("/media/operations/fal-3d-9").status_code == 200
     record = asyncio.run(main.MEDIA_BUDGET_ENGINE.store.get("fal-3d-9"))
     assert record.reason is None
+
+
+def test_repeated_post_accept_cancellation_cannot_cancel_operation_persistence(
+    monkeypatch,
+):
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+    original_persist = main._persist_media_operation
+    persist_started = asyncio.Event()
+    release_persist = asyncio.Event()
+    persist_cancelled = False
+
+    async def gated_persist(operation):
+        nonlocal persist_cancelled
+        persist_started.set()
+        try:
+            await release_persist.wait()
+        except asyncio.CancelledError:
+            persist_cancelled = True
+            raise
+        await original_persist(operation)
+
+    monkeypatch.setattr(main, "_persist_media_operation", gated_persist)
+
+    async def scenario():
+        principal = main.BackendPrincipal(kind="service", subject="test")
+        submission = asyncio.create_task(
+            main.submit_media_generation(
+                _direct_media_request(main), _direct_http_request(), principal
+            )
+        )
+        await asyncio.wait_for(persist_started.wait(), timeout=1)
+        submission.cancel()
+        await asyncio.sleep(0)
+        submission.cancel()
+        await asyncio.sleep(0)
+        assert submission.done() is False
+        release_persist.set()
+        with pytest.raises(asyncio.CancelledError):
+            await submission
+
+    asyncio.run(scenario())
+
+    assert persist_cancelled is False
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
+    assert operation is not None
+    assert operation["operation_id"] == "fal-3d-9"
+
+
+def test_post_accept_cancellation_during_attach_protection_still_persists_operation(
+    monkeypatch,
+):
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+    protection_started = asyncio.Event()
+    release_protection = asyncio.Event()
+    original_protect = main.MEDIA_BUDGET_ENGINE.protect_attach_ids
+
+    async def fail_attach(*_args, **_kwargs):
+        raise RuntimeError("simulated attach failure")
+
+    async def gated_protect(operation_ids):
+        protection_started.set()
+        await release_protection.wait()
+        return await original_protect(operation_ids)
+
+    monkeypatch.setattr(main.MEDIA_BUDGET_ENGINE, "attach_operation", fail_attach)
+    monkeypatch.setattr(main.MEDIA_BUDGET_ENGINE, "protect_attach_ids", gated_protect)
+
+    async def scenario():
+        principal = main.BackendPrincipal(kind="service", subject="test")
+        submission = asyncio.create_task(main.submit_media_generation(
+            _direct_media_request(main), _direct_http_request(), principal
+        ))
+        await asyncio.wait_for(protection_started.wait(), timeout=1)
+        submission.cancel()
+        await asyncio.sleep(0)
+        submission.cancel()
+        assert submission.done() is False
+        release_protection.set()
+        with pytest.raises(asyncio.CancelledError):
+            await submission
+
+    asyncio.run(scenario())
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
+    assert operation is not None
+    assert operation["last_payload"]["provenance"]["ledger_attach_pending"] is True
+
+
+def test_post_accept_cancellation_during_failure_compensation_finishes_ledger(
+    monkeypatch,
+):
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+    protection_started = asyncio.Event()
+    release_protection = asyncio.Event()
+    original_protect = main.MEDIA_BUDGET_ENGINE.protect_recovery_ids
+
+    async def fail_persist(*_args, **_kwargs):
+        raise RuntimeError("simulated operation persistence failure")
+
+    async def gated_protect(operation_ids):
+        protection_started.set()
+        await release_protection.wait()
+        return await original_protect(operation_ids)
+
+    monkeypatch.setattr(main, "_persist_media_operation", fail_persist)
+    monkeypatch.setattr(
+        main.MEDIA_BUDGET_ENGINE, "protect_recovery_ids", gated_protect
+    )
+
+    async def scenario():
+        principal = main.BackendPrincipal(kind="service", subject="test")
+        submission = asyncio.create_task(main.submit_media_generation(
+            _direct_media_request(main), _direct_http_request(), principal
+        ))
+        await asyncio.wait_for(protection_started.wait(), timeout=1)
+        submission.cancel()
+        await asyncio.sleep(0)
+        submission.cancel()
+        assert submission.done() is False
+        release_protection.set()
+        with pytest.raises(asyncio.CancelledError):
+            await submission
+
+    asyncio.run(scenario())
+    record = asyncio.run(main.MEDIA_BUDGET_ENGINE.store.get("fal-3d-9"))
+    assert record is not None
+    assert record.reason == main.media_ledger.AMBIGUOUS_RECOVERY_REASON
 
 
 def test_clear_protection_race_with_terminal_poll_still_settles(monkeypatch):

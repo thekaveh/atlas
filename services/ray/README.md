@@ -17,6 +17,11 @@ Active when `RAY_SOURCE ∈ {ray-container-cpu, ray-container-gpu}`. Authenticat
 | GCS (internal cluster controller) | `localhost:${RAY_GCS_PORT}` host-side; `ray-head:6379` inside the network | Unauthenticated; host mapping is loopback only. |
 | Backend REST jobs API | `http://localhost:${BACKEND_PORT}/api/ray/jobs/submit` etc. | Bearer token from `RAY_JOB_API_TOKEN` |
 
+`POST /api/ray/jobs/submit` requires a stable `submission_id` using the
+Ray-compatible `raysubmit_` prefix and letters, digits, or underscores. Reuse
+that ID after an ambiguous response: Atlas returns `409` when it already exists,
+and the existing `GET`/`DELETE .../{job_id}` routes reconcile or stop it.
+
 ## 3. Configuration
 
 | Env var | Default | When | Description |

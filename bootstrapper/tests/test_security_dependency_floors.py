@@ -11,6 +11,7 @@ else:  # pragma: no cover - exercised by the Python 3.10 test environment
     import tomli as tomllib
 
 import yaml
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -96,6 +97,20 @@ def test_backend_fal_client_supports_cancellable_async_transport() -> None:
     requirements = _text("services/backend/app/app/requirements.txt")
 
     assert "fal-client>=1.0.0" in requirements
+
+
+def test_github_actions_are_commit_pinned() -> None:
+    workflow_dir = ROOT / ".github" / "workflows"
+    workflows = sorted(
+        [*workflow_dir.glob("*.yml"), *workflow_dir.glob("*.yaml")]
+    )
+    action_ref = re.compile(r"^\s*uses:\s*[^#\s]+@([^#\s]+)", re.MULTILINE)
+
+    for workflow in workflows:
+        for ref in action_ref.findall(workflow.read_text(encoding="utf-8")):
+            assert re.fullmatch(r"[0-9a-f]{40}", ref), (
+                f"{workflow.relative_to(ROOT)} uses mutable action ref {ref!r}"
+            )
 
 
 def test_airflow_uses_supported_core_and_unfrozen_provider_security_fixes() -> None:
@@ -498,7 +513,15 @@ def test_ray_runtime_and_clients_move_in_lockstep() -> None:
         "services/backend/app/app/requirements.txt",
         "services/jupyterhub/build/requirements.txt",
     ):
-        assert "ray[client]>=2.56.0,<2.57" in _text(relative), relative
+        assert "ray[client]==2.56.0" in _text(relative), relative
+
+    for relative in (
+        "services/backend/app/app/requirements-locked.txt",
+        "services/backend/app/app/requirements-test-locked.txt",
+        "services/jupyterhub/build/requirements-locked.txt",
+    ):
+        assert "ray==2.56.0" in _text(relative), relative
+        assert "ray==2.56.1" not in _text(relative), relative
 
     manifest = _text("services/ray/service.yml")
     compose = _text("services/ray/compose.yml")
@@ -541,3 +564,86 @@ def test_jupyterhub_external_build_artifacts_are_digest_verified() -> None:
     assert "ENV PYTHONPATH=/home/jovyan\n" in dockerfile
     assert "${PYTHONPATH}" not in dockerfile
     assert "COURSIER_SHA256=" in dockerfile
+
+
+def test_tei_default_model_revision_is_immutable() -> None:
+    manifest = yaml.safe_load(_text("services/tei-reranker/service.yml"))
+    revision = next(
+        item["default"]
+        for item in manifest["env"]
+        if item["name"] == "TEI_RERANKER_REVISION"
+    )
+    assert re.fullmatch(r"[0-9a-f]{40}", revision)
+    compose = _text("services/tei-reranker/compose.yml")
+    assert f"${{TEI_RERANKER_REVISION:-{revision}}}" in compose
+    assert "TEI_RERANKER_REVISION:-main" not in compose
+
+
+def test_parakeet_mlx_lock_is_committed() -> None:
+    lock = ROOT / "services/parakeet/provider/mlx/requirements-locked.txt"
+    assert lock.is_file()
+    assert "parakeet-mlx==0.5.2" in lock.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "services/stt-provider/README.md",
+        "services/parakeet/provider/README.md",
+        "services/parakeet/provider/mlx/README.md",
+    ),
+)
+def test_parakeet_mlx_quickstarts_use_locked_python_and_host_gateway_auth(
+    relative: str,
+) -> None:
+    guide = _text(relative)
+    required = (
+        "requirements-locked.txt",
+        "python3.12 -m venv",
+        "PARAKEET_API_TOKEN",
+        "PARAKEET_LOCALHOST_BIND_HOST=0.0.0.0",
+        "PARAKEET_LOCALHOST_PORT=63042",
+        "python -m mlx.api_server",
+    )
+    assert all(fragment in guide for fragment in required), relative
+    assert "python -m uvicorn mlx.api_server:app" not in guide, relative
+
+
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "services/stt-provider/README.md",
+        "services/parakeet/provider/README.md",
+        "services/parakeet/provider/mlx/README.md",
+    ),
+)
+def test_parakeet_guides_do_not_publish_unsupported_performance_claims(
+    relative: str,
+) -> None:
+    unsupported = ("300×", "3380×", "SOTA-quality", "fastest option", "starts instantly")
+    assert not any(claim in _text(relative) for claim in unsupported), relative
+
+
+def test_parakeet_mlx_guide_uses_the_real_entrypoint_variables() -> None:
+    mlx_guide = _text("services/parakeet/provider/mlx/README.md")
+
+    assert "100-300x real-time" not in mlx_guide
+    assert "3-hour podcast" not in mlx_guide
+    assert " and PORT (63042)" not in mlx_guide
+
+
+def test_default_speaches_quickstart_and_open_webui_wiring_are_accurate() -> None:
+    provider_guide = _text("services/parakeet/provider/README.md")
+    stt_guide = _text("services/stt-provider/README.md")
+    from services.topology import get_topology
+
+    speaches_port = get_topology(ROOT / "services").port_defaults["SPEACHES_PORT"]
+    assert f"http://localhost:{speaches_port}/health" in provider_guide
+    assert f"http://localhost:{speaches_port}/health" in stt_guide
+    assert "first transcription request pulls" not in provider_guide
+    assert "AUDIO_STT_OPENAI_API_KEY" in provider_guide
+
+
+def test_parakeet_localhost_docs_match_the_host_gateway_runtime() -> None:
+    parakeet_manifest = _text("services/parakeet/service.yml")
+    assert "host.docker.internal:${PARAKEET_LOCALHOST_PORT:-63042}" in parakeet_manifest

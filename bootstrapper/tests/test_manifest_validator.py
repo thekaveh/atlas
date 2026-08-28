@@ -259,6 +259,221 @@ def test_fragment_containers_match_passes(
     assert not any(i.kind == "fragment_container_drift" for i in issues)
 
 
+def test_top_level_compose_includes_every_non_virtual_fragment_once(
+    services_root, write_manifest, minimal_manifest_dict
+):
+    write_manifest("redis", minimal_manifest_dict("redis"))
+    (services_root / "redis" / "compose.yml").write_text(
+        "services:\n  redis:\n    image: redis:latest\n"
+    )
+    (services_root.parent / "docker-compose.yml").write_text(
+        "include:\n  - services/redis/compose.yml\nservices: {}\n"
+    )
+
+    issues = validate_manifests(
+        load_manifests(services_root), services_root=services_root
+    )
+    assert not any(issue.kind == "fragment_include_drift" for issue in issues)
+
+
+def test_top_level_compose_missing_fragment_include_is_flagged(
+    services_root, write_manifest, minimal_manifest_dict
+):
+    write_manifest("redis", minimal_manifest_dict("redis"))
+    (services_root / "redis" / "compose.yml").write_text(
+        "services:\n  redis:\n    image: redis:latest\n"
+    )
+    (services_root.parent / "docker-compose.yml").write_text(
+        "services: {}\n"
+    )
+
+    issues = validate_manifests(
+        load_manifests(services_root), services_root=services_root
+    )
+    include_issues = [
+        issue for issue in issues if issue.kind == "fragment_include_drift"
+    ]
+    assert len(include_issues) == 1
+    assert "services/redis/compose.yml" in include_issues[0].message
+
+
+def test_top_level_compose_duplicate_and_unknown_includes_are_flagged(
+    services_root, write_manifest, minimal_manifest_dict
+):
+    write_manifest("redis", minimal_manifest_dict("redis"))
+    (services_root / "redis" / "compose.yml").write_text(
+        "services:\n  redis:\n    image: redis:latest\n"
+    )
+    (services_root.parent / "docker-compose.yml").write_text(
+        "include:\n"
+        "  - services/redis/compose.yml\n"
+        "  - services/redis/compose.yml\n"
+        "  - services/ghost/compose.yml\n"
+        "services: {}\n"
+    )
+
+    issues = validate_manifests(
+        load_manifests(services_root), services_root=services_root
+    )
+    messages = [
+        issue.message for issue in issues if issue.kind == "fragment_include_drift"
+    ]
+    assert len(messages) == 2
+    assert any("duplicate" in message for message in messages)
+    assert any("unknown" in message for message in messages)
+
+
+def test_top_level_compose_missing_wrapper_is_flagged(
+    services_root, write_manifest, minimal_manifest_dict
+):
+    write_manifest("redis", minimal_manifest_dict("redis"))
+    (services_root / "redis" / "compose.yml").write_text(
+        "services:\n  redis:\n    image: redis:latest\n"
+    )
+
+    issues = validate_manifests(
+        load_manifests(services_root), services_root=services_root
+    )
+    messages = [
+        issue.message for issue in issues if issue.kind == "fragment_include_drift"
+    ]
+    assert len(messages) == 1
+    assert "docker-compose.yml is missing" in messages[0]
+
+
+def test_orphan_fragment_missing_from_wrapper_is_flagged(services_root):
+    orphan = services_root / "orphan"
+    orphan.mkdir()
+    (orphan / "compose.yml").write_text(
+        "services:\n  orphan:\n    image: orphan:latest\n"
+    )
+    (services_root.parent / "docker-compose.yml").write_text("services: {}\n")
+
+    issues = validate_manifests([], services_root=services_root)
+    messages = [
+        issue.message for issue in issues if issue.kind == "fragment_include_drift"
+    ]
+    assert len(messages) == 1
+    assert "services/orphan/compose.yml" in messages[0]
+
+
+@pytest.mark.parametrize(
+    "overrides,message_fragment",
+    [
+        ({"env_var": "UNDECLARED_COUNT"}, "not declared in env[]"),
+        ({"default": "not-a-number"}, "integer string"),
+        ({"default": "9", "number_min": 10}, "outside the inclusive range"),
+        ({"number_min": 10, "number_max": 1}, "minimum 10 exceeds maximum 1"),
+        ({"visible_when_source": ["ghost"]}, "unknown source option"),
+    ],
+)
+def test_secondary_number_cross_field_contract(overrides, message_fragment):
+    manifest = _secondary_number_manifest(config_overrides=overrides)
+
+    issues = validate_manifests([manifest])
+    matching = [issue for issue in issues if issue.kind == "invalid_secondary_number"]
+    assert any(message_fragment in issue.message for issue in matching)
+
+
+def _secondary_number_manifest(
+    *,
+    config_overrides=None,
+    row_source_var="DEMO_SOURCE",
+    with_sources=True,
+    env_default="7",
+):
+    from services.manifests import (
+        EnvVarDecl,
+        Manifest,
+        Row,
+        SecondaryNumber,
+        SourceOption,
+        SourcesBlock,
+    )
+
+    config = {
+        "env_var": "DEMO_COUNT",
+        "label": "Count",
+        "default": "7",
+        "visible_when_source": ["container"],
+        "number_min": 1,
+        "number_max": 10,
+    }
+    config.update(config_overrides or {})
+    return Manifest(
+        name="demo",
+        label="Demo",
+        category="apps",
+        env=[EnvVarDecl(name="DEMO_COUNT", default=env_default)],
+        sources=(
+            SourcesBlock(
+                var="DEMO_SOURCE",
+                default="container",
+                options=[
+                    SourceOption(id="container", label="Container"),
+                    SourceOption(id="disabled", label="Disabled"),
+                ],
+            )
+            if with_sources
+            else None
+        ),
+        rows=[
+            Row(
+                display_name="Demo",
+                source_var=row_source_var,
+                secondary_number=SecondaryNumber(**config),
+            )
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    "manifest,message_fragment",
+    [
+        (_secondary_number_manifest(row_source_var="OTHER_SOURCE"), "must match sources.var"),
+        (_secondary_number_manifest(with_sources=False), "requires a sources block"),
+        (_secondary_number_manifest(env_default="9"), "differs from env[] default"),
+    ],
+)
+def test_secondary_number_requires_renderable_source_contract(
+    manifest, message_fragment
+):
+    issues = validate_manifests([manifest])
+    matching = [issue for issue in issues if issue.kind == "invalid_secondary_number"]
+    assert any(message_fragment in issue.message for issue in matching)
+
+
+@pytest.mark.parametrize(
+    "wrapper",
+    [
+        "- not-a-mapping\n",
+        "include: not-a-list\n",
+        "include:\n  - null\n",
+        "include:\n  - project_directory: .\n",
+        "include:\n  - path:\n      - services/redis/compose.yml\n      - null\n",
+        "include:\n  - ''\n",
+        "include:\n  - path: '   '\n",
+        "include:\n  - path: []\n",
+        "include:\n  - path:\n      - services/redis/compose.yml\n      - '  '\n",
+    ],
+)
+def test_malformed_compose_include_shapes_are_reported(
+    services_root, write_manifest, minimal_manifest_dict, wrapper
+):
+    write_manifest("redis", minimal_manifest_dict("redis"))
+    (services_root / "redis" / "compose.yml").write_text(
+        "services:\n  redis:\n    image: redis:latest\n"
+    )
+    (services_root.parent / "docker-compose.yml").write_text(wrapper)
+
+    issues = validate_manifests(
+        load_manifests(services_root), services_root=services_root
+    )
+    matching = [issue for issue in issues if issue.kind == "fragment_include_drift"]
+    assert len(matching) == 1
+    assert "invalid include shape" in matching[0].message
+
+
 def test_fragment_with_extra_service_flagged(
     services_root, write_manifest, minimal_manifest_dict
 ):
@@ -274,6 +489,24 @@ def test_fragment_with_extra_service_flagged(
     drift = [i for i in issues if i.kind == "fragment_container_drift"]
     assert len(drift) == 1
     assert "redis-undeclared" in drift[0].message
+
+
+def test_included_fragment_without_service_manifest_is_flagged(services_root):
+    fragment = services_root / "orphan" / "compose.yml"
+    fragment.parent.mkdir()
+    fragment.write_text("services:\n  orphan:\n    image: alpine\n")
+    (services_root.parent / "docker-compose.yml").write_text(
+        "include:\n  - services/orphan/compose.yml\n"
+    )
+
+    issues = validate_manifests(
+        load_manifests(services_root), services_root=services_root
+    )
+
+    assert any(
+        issue.kind == "missing_fragment_manifest" and "orphan" in issue.message
+        for issue in issues
+    )
 
 
 def test_manifest_container_missing_from_fragment_flagged(

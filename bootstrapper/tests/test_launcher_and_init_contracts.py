@@ -44,12 +44,24 @@ def test_the_system_python_fallback_detects_a_stale_venv():
     # the stamp must be derived from the dependency declaration
     want = source[source.index("WANT_STAMP=") : source.index("HAVE_STAMP=")]
     assert "pyproject.toml" in want
+    assert "$BOOTSTRAPPER_LOCK" in want
+    assert 'BOOTSTRAPPER_LOCK="$SELF_DIR/requirements-locked.txt"' in source
     # the stamp is only written after a successful install, so a failure retries
     install_at = source.index("pip install")
     stamp_at = source.index("> \"$DEPS_STAMP\"")
     assert install_at < stamp_at, "the stamp is written before the install succeeds"
     # ...and the install must be able to upgrade an already-present package
     assert "--upgrade" in source
+    assert '--constraint "$BOOTSTRAPPER_LOCK"' in source
+
+
+def test_the_system_python_fallback_has_a_content_sensitive_posix_stamp():
+    source = RUN_SH.read_text(encoding="utf-8")
+    want = source[source.index("WANT_STAMP=") : source.index("HAVE_STAMP=")]
+
+    assert "command -v cksum" in source
+    assert 'cksum "$SELF_DIR/pyproject.toml" "$BOOTSTRAPPER_LOCK" | cksum' in source
+    assert "wc -c" not in want
 
 
 def test_the_fallback_does_not_regate_python_version_on_a_refresh():
@@ -97,20 +109,11 @@ def test_hermes_init_fails_when_no_default_model_resolves():
     )
 
 
-def test_a_failed_refresh_degrades_instead_of_breaking_a_working_venv():
-    """`uv venv` installs no pip, so `python -m pip` is absent on a good env.
-
-    Aborting there would break a working setup in order to apply a version
-    floor — and the existing dispatcher test encodes exactly that shape: a venv
-    that imports everything but has no pip. A refresh failure therefore warns
-    and continues, leaving the stamp unwritten so the next run retries. A venv
-    that does NOT import cleanly is still a hard failure.
-    """
+def test_a_failed_security_floor_refresh_fails_closed():
+    """A stale but importable venv must not bypass a changed locked graph."""
     source = RUN_SH.read_text(encoding="utf-8")
     assert "VENV_USABLE" in source
     tail = source[source.index("pip install --disable-pip-version-check"):]
-    warn_at = tail.index("Could not refresh Atlas bootstrapper dependencies")
     fatal_at = tail.index("Could not install Atlas bootstrapper dependencies")
-    assert warn_at < fatal_at, "the usable-venv branch must come first"
-    # the warning branch must not exit
-    assert "exit 1" not in tail[warn_at:fatal_at]
+    assert "version floors in bootstrapper/pyproject.toml may not be applied" not in tail
+    assert "exit 1" in tail[fatal_at:]

@@ -20,31 +20,28 @@ the other (e.g. cpu vs gpu), GPU wins and the bootstrapper prints a notice.
 
 ## 2. Engine comparison
 
-| | Speaches (Faster-Whisper distil-large-v3) | Parakeet-TDT v3 | whisper.cpp (large-v3) |
-|---|---|---|---|
-| English WER (LibriSpeech test-clean) | ~3.5% | ~3.0% | ~3.8% |
-| Multilingual | 99 langs | 25 EN/EU langs | 99 langs |
-| Realtime factor on Apple Silicon | ~0.3× CPU container | ~0.003× MLX | ~0.1× Metal+CoreML |
-| Realtime factor on NVIDIA | ~0.05× (RTX 4090) | ~0.0003× (A100) | ~0.05× (CUDA) |
-| Word-level timestamps | yes | yes | yes |
-| Streaming | partial (chunked) | yes (TDT) | yes |
-
-Speaches is the default because Faster-Whisper-distil-large-v3 has the best
-"works on every platform out of the box" profile. Parakeet remains the
-SOTA-quality NVIDIA choice. whisper.cpp is the best macOS-native path.
+Speaches is the portable container option, Parakeet provides NVIDIA and Apple
+Silicon implementations, and whisper.cpp provides a native Metal/Core ML path.
+Language coverage, accuracy, throughput, and memory depend on the exact model,
+audio corpus, options, and hardware. Benchmark representative inputs on the
+deployment host; Atlas does not publish a hardware-independent ranking.
 
 ## 3. Quick start
 
-The default already runs:
+The default container starts, but its model does not:
 
 ```bash
 ./start.sh
-curl -X POST http://localhost:63060/v1/audio/transcriptions \
-  -F file=@sample.wav -F model=whisper-1
-# expect: {"text":"..."}
+curl http://localhost:63060/health
 ```
 
-NVIDIA SOTA (Parakeet):
+This is a container-health check only. With the committed empty
+`PRELOAD_MODELS`, a transcription request returns `404` until the
+`whisper-1` alias target is installed or preloaded (tracked in #799). After
+that explicit setup, the direct endpoint is
+`http://localhost:63060/v1/audio/transcriptions`.
+
+NVIDIA Parakeet:
 
 ```bash
 ./start.sh --stt-provider-source parakeet-container-gpu
@@ -53,7 +50,7 @@ curl -X POST http://localhost:63055/v1/audio/transcriptions \
   -F file=@sample.wav -F model=whisper-1
 ```
 
-macOS native — fastest path for Apple Silicon:
+macOS native acceleration:
 
 ```bash
 # Option A: whisper.cpp (Metal + Core ML / ANE)
@@ -65,9 +62,14 @@ whisper-server --host 0.0.0.0 --port 63042 \
 
 ./start.sh --stt-provider-source whisper-cpp-localhost
 
-# Option B: Parakeet-MLX (highest quality on EN/EU, MLX-native)
-pip install -r services/parakeet/provider/mlx/requirements.txt
-cd services/parakeet/provider && python -m uvicorn mlx.api_server:app --host 127.0.0.1 --port 63042 &
+# Option B: Parakeet-MLX (MLX-native)
+python3.12 -m venv .venv-parakeet-mlx
+. .venv-parakeet-mlx/bin/activate
+python -m pip install -r services/parakeet/provider/mlx/requirements-locked.txt
+export PARAKEET_API_TOKEN='<same random value configured in repo-root .env>'
+export PARAKEET_LOCALHOST_BIND_HOST=0.0.0.0
+export PARAKEET_LOCALHOST_PORT=63042
+cd services/parakeet/provider && python -m mlx.api_server &
 ./start.sh --stt-provider-source parakeet-localhost
 ```
 

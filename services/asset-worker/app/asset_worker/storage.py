@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 
@@ -89,5 +90,18 @@ class ArtifactStorage:
     def _ensure_bucket(client, bucket: str) -> None:
         try:
             client.head_bucket(Bucket=bucket)
-        except Exception:
+        except Exception as exc:
+            response = getattr(exc, "response", None)
+            if not isinstance(response, Mapping):
+                raise
+            error = response.get("Error")
+            metadata = response.get("ResponseMetadata")
+            code = str(error.get("Code") or "") if isinstance(error, Mapping) else ""
+            status = (
+                metadata.get("HTTPStatusCode")
+                if isinstance(metadata, Mapping)
+                else None
+            )
+            if status != 404 and code not in {"404", "NoSuchBucket", "NotFound"}:
+                raise
             client.create_bucket(Bucket=bucket)

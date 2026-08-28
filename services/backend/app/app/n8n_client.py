@@ -33,14 +33,34 @@ class N8nClient:
         """List all workflows.
 
         n8n's public API wraps the list in a ``{"data": [...],
-        "nextCursor": ...}`` envelope — return the inner list (the raw
-        dict failed the route's List[WorkflowResponse] validation).
+        "nextCursor": ...}`` envelope. Follow the cursor until the complete
+        list is collected; reject a repeated or excessive cursor chain rather
+        than hanging on a malformed upstream response.
         """
-        response = await self._client.get(
-            f"{self.base_url}/api/v1/workflows", headers=self.headers
-        )
-        response.raise_for_status()
-        return response.json().get("data", [])
+        workflows: List[Dict[str, Any]] = []
+        cursor: Optional[str] = None
+        seen_cursors: set[str] = set()
+
+        for _page in range(100):
+            params = {"limit": 250}
+            if cursor is not None:
+                params["cursor"] = cursor
+            response = await self._client.get(
+                f"{self.base_url}/api/v1/workflows",
+                headers=self.headers,
+                params=params,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            workflows.extend(payload.get("data", []))
+            cursor = payload.get("nextCursor")
+            if not cursor:
+                return workflows
+            if cursor in seen_cursors:
+                raise RuntimeError("n8n returned a repeated cursor")
+            seen_cursors.add(cursor)
+
+        raise RuntimeError("n8n workflow pagination exceeded 100 pages")
 
     async def get_workflow(self, workflow_id: str) -> Dict[str, Any]:
         """Get a workflow by ID"""

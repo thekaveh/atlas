@@ -17,6 +17,7 @@ those modules for the consumer-side flow.
 from __future__ import annotations
 
 import json
+from collections.abc import Hashable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,77 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError as JsonSchemaError
+from yaml.nodes import MappingNode, SequenceNode
+
+
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """Safe YAML loader that rejects overwritten mapping keys."""
+
+
+def _merged_mapping_nodes(node):
+    if isinstance(node, MappingNode):
+        return (node,)
+    if isinstance(node, SequenceNode):
+        return tuple(item for item in node.value if isinstance(item, MappingNode))
+    return ()
+
+
+def _validate_unique_mapping_keys(loader, node, deep=False, seen=None):
+    if seen is None:
+        seen = set()
+    if id(node) in seen:
+        return
+    seen.add(id(node))
+    explicit_keys = set()
+    merge_seen = False
+    for key_node, value_node in node.value:
+        if key_node.tag == "tag:yaml.org,2002:merge":
+            if merge_seen:
+                raise yaml.constructor.ConstructorError(
+                    "while constructing a mapping",
+                    node.start_mark,
+                    "found duplicate key '<<'",
+                    key_node.start_mark,
+                )
+            merge_seen = True
+            for merge_node in _merged_mapping_nodes(value_node):
+                _validate_unique_mapping_keys(loader, merge_node, deep, seen)
+            continue
+        key = loader.construct_object(key_node, deep=deep)
+        if not isinstance(key, Hashable):
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                "found unhashable key",
+                key_node.start_mark,
+            )
+        if key in explicit_keys:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"found duplicate key {key!r}",
+                key_node.start_mark,
+            )
+        explicit_keys.add(key)
+
+
+def _construct_unique_mapping(loader, node, deep=False):
+    _validate_unique_mapping_keys(loader, node, deep)
+    loader.flatten_mapping(node)
+    return yaml.constructor.BaseConstructor.construct_mapping(
+        loader, node, deep=deep
+    )
+
+
+_UniqueKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_unique_mapping,
+)
+
+
+def load_yaml_strict(text: str) -> Any:
+    """Safely parse YAML while rejecting duplicate keys at every depth."""
+    return yaml.load(text, Loader=_UniqueKeyLoader)
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -58,6 +130,7 @@ class ImageRef:
     default: str
     container: str
     notes: str = ""
+    platform: str = ""
 
 
 @dataclass(frozen=True)
@@ -131,6 +204,18 @@ class Capability:
 
 
 @dataclass(frozen=True)
+class SecondaryNumber:
+    """Declarative inline numeric input attached to a manifest row."""
+
+    env_var: str
+    label: str
+    default: str
+    visible_when_source: list[str] = field(default_factory=list)
+    number_min: int = 0
+    number_max: int = 1_000_000
+
+
+@dataclass(frozen=True)
 class Row:
     """One box row a manifest renders. Replaces the legacy _SERVICES tuple
     plus several scattered constants. See spec §rows."""
@@ -150,6 +235,7 @@ class Row:
     # no localhost source variant, OR legacy services not yet migrated
     # to the LOCALHOST_PORT pattern).
     localhost_port_var: str = ""
+    secondary_number: SecondaryNumber | None = None
 
 
 @dataclass(frozen=True)
@@ -313,7 +399,7 @@ def _load_one(service_dir: Path) -> Manifest:
         )
 
     try:
-        raw = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        raw = load_yaml_strict(manifest_path.read_text(encoding="utf-8"))
     except yaml.YAMLError as e:
         raise _PerManifestError(
             f"services/{service_dir.name}/service.yml: invalid YAML — {e}"
@@ -381,6 +467,7 @@ def _to_dataclass(raw: dict[str, Any], source_path: Path) -> Manifest:
             default=i["default"],
             container=i["container"],
             notes=i.get("notes", ""),
+            platform=i.get("platform", ""),
         )
         for i in raw.get("images") or []
     ]
@@ -422,19 +509,7 @@ def _to_dataclass(raw: dict[str, Any], source_path: Path) -> Manifest:
 
     capabilities = _capabilities_from_raw(raw)
 
-    rows = [
-        Row(
-            display_name=r["display_name"],
-            source_var=r["source_var"],
-            port_var=r.get("port_var", ""),
-            scale_var=r.get("scale_var", ""),
-            alias=r.get("alias", ""),
-            description=r.get("description", ""),
-            localhost_endpoint_var=r.get("localhost_endpoint_var", ""),
-            localhost_port_var=r.get("localhost_port_var", ""),
-        )
-        for r in raw.get("rows") or []
-    ]
+    rows = [_row_from_raw(row) for row in raw.get("rows") or []]
 
     return Manifest(
         name=raw["name"],
@@ -458,6 +533,31 @@ def _to_dataclass(raw: dict[str, Any], source_path: Path) -> Manifest:
         doc_extras=dict(raw.get("doc_extras") or {}),
         data_flow=dict(raw.get("data_flow") or {}),
         source_path=source_path,
+    )
+
+
+def _row_from_raw(raw: dict[str, Any]) -> Row:
+    number_raw = raw.get("secondary_number")
+    secondary_number = None
+    if number_raw is not None:
+        secondary_number = SecondaryNumber(
+            env_var=number_raw["env_var"],
+            label=number_raw["label"],
+            default=number_raw["default"],
+            visible_when_source=list(number_raw.get("visible_when_source", [])),
+            number_min=number_raw.get("min", 0),
+            number_max=number_raw.get("max", 1_000_000),
+        )
+    return Row(
+        display_name=raw["display_name"],
+        source_var=raw["source_var"],
+        port_var=raw.get("port_var", ""),
+        scale_var=raw.get("scale_var", ""),
+        alias=raw.get("alias", ""),
+        description=raw.get("description", ""),
+        localhost_endpoint_var=raw.get("localhost_endpoint_var", ""),
+        localhost_port_var=raw.get("localhost_port_var", ""),
+        secondary_number=secondary_number,
     )
 
 

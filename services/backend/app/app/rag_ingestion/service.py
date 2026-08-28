@@ -22,10 +22,11 @@ import os
 import re
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
+from redis.exceptions import RedisError
 
 from .clients import (
     CorpusFile,
@@ -47,10 +48,49 @@ from .models import (
     IngestionRecord,
 )
 from .profiles import LoadedProfile, get_profile
-from .store import IngestionStore, default_store
+from .store import ExecutionClaim, IngestionStore, default_store
+
+
+async def _cancel_pending_task(task: asyncio.Task[Any]) -> None:
+    """Cancel if needed and always consume the child's terminal result."""
+    if not task.done():
+        task.cancel()
+    # A child may raise while unwinding its cancellation handler. Cleanup must
+    # still preserve the parent's cancellation and join the lease watcher.
+    with suppress(asyncio.CancelledError, Exception):
+        await task
 
 
 logger = logging.getLogger(__name__)
+_DISPATCH_LEASE_SECONDS = 30
+
+
+async def _join_cleanup_task(
+    task: asyncio.Task[Any], *, operation: str, ingestion_id: str
+) -> None:
+    """Join owned cleanup despite repeated cancellation; log, never replace."""
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            continue
+        except Exception:
+            break
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        logger.warning(
+            "RAG %s cleanup was cancelled for ingestion %s",
+            operation,
+            ingestion_id,
+        )
+    except Exception as exc:
+        logger.error(
+            "RAG %s cleanup failed for ingestion %s",
+            operation,
+            ingestion_id,
+            exc_info=exc,
+        )
 
 
 def weaviate_class_name(collection_prefix: str, profile_name: str) -> str:
@@ -110,6 +150,7 @@ TRANSIENT_EXCEPTIONS = (
     ConnectionError,
     httpx.TimeoutException,
     httpx.NetworkError,
+    RedisError,
 )
 
 
@@ -233,7 +274,7 @@ class RagIngestionService:
         return self.store.create_if_absent(record)
 
     def mark_dispatch_failed(
-        self, ingestion_id: str, message: str
+        self, ingestion_id: str, message: str, owner: Optional[str] = None
     ) -> Optional[IngestionRecord]:
         error = IngestionError(phase="dispatch", message=message)
         return self.store.fail_pending_dispatch(
@@ -246,8 +287,21 @@ class RagIngestionService:
                 "http_status": error.http_status,
                 "body": error.body,
             },
-            _now_iso(),
+            (_now_iso(), owner),
         )
+
+    def claim_dispatch(self, ingestion_id: str, owner: str) -> bool:
+        now = datetime.now(timezone.utc)
+        stale_before = now - timedelta(seconds=_DISPATCH_LEASE_SECONDS)
+        return self.store.claim_dispatch(
+            ingestion_id,
+            (owner, now.isoformat(), stale_before.isoformat()),
+        )
+
+    def mark_dispatched(
+        self, ingestion_id: str, job_id: Optional[str], owner: str
+    ) -> Optional[IngestionRecord]:
+        return self.store.mark_dispatched(ingestion_id, (job_id, owner), _now_iso())
 
     # ── run (orchestrate) ────────────────────────────────────────────
     async def _refresh_cancel(self, record: IngestionRecord) -> None:
@@ -323,17 +377,18 @@ class RagIngestionService:
                 return_when=asyncio.FIRST_COMPLETED,
             )
             if lease_lost.is_set():
-                phase_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await phase_task
+                await _cancel_pending_task(phase_task)
                 raise IngestionExecutionLeaseLost(
                     f"Execution lease lost for RAG ingestion {record.id}"
                 )
             await phase_task
         finally:
-            lease_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await lease_task
+            try:
+                await _cancel_pending_task(phase_task)
+            finally:
+                lease_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await lease_task
 
     async def run(
         self,
@@ -341,6 +396,7 @@ class RagIngestionService:
         *,
         retry_transient: bool = False,
         execution_owner: Optional[str] = None,
+        execution_recovery_owner: Optional[str] = None,
         execution_lease_seconds: Optional[int] = None,
     ) -> IngestionRecord:
         record = await asyncio.to_thread(self.store.get, ingestion_id)
@@ -361,8 +417,9 @@ class RagIngestionService:
             if execution_lease_seconds is None
             else _validate_execution_lease_seconds(execution_lease_seconds)
         )
+        claim = ExecutionClaim(owner, lease_seconds, execution_recovery_owner)
         claimed = await asyncio.to_thread(
-            self.store.claim_execution, ingestion_id, owner, lease_seconds
+            self.store.claim_execution, ingestion_id, claim
         )
         if not claimed:
             latest = await asyncio.to_thread(self.store.get, ingestion_id)
@@ -453,9 +510,20 @@ class RagIngestionService:
             return record
         finally:
             heartbeat_stop.set()
-            await heartbeat
-            await asyncio.to_thread(
-                self.store.release_execution, ingestion_id, owner
+            await _join_cleanup_task(
+                heartbeat,
+                operation="execution heartbeat",
+                ingestion_id=ingestion_id,
+            )
+            release = asyncio.create_task(
+                asyncio.to_thread(
+                    self.store.release_execution, ingestion_id, owner
+                )
+            )
+            await _join_cleanup_task(
+                release,
+                operation="execution lease release",
+                ingestion_id=ingestion_id,
             )
 
     async def _record_unexpected_failure(

@@ -42,6 +42,18 @@ async def test_backend_readiness_is_degraded_without_masking_probe_failure(monke
     assert "secret" not in str(result)
 
 
+@pytest.mark.asyncio
+async def test_postgres_readiness_rejects_invalid_pool_configuration(monkeypatch) -> None:
+    import db_connection
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://x:x@localhost/x")
+    monkeypatch.setattr(db_connection, "_POOL_MIN", 11)
+    monkeypatch.setattr(db_connection, "_POOL_MAX", 10)
+
+    with pytest.raises(db_connection.PoolConfigurationError):
+        await readiness._postgres_ready()
+
+
 def test_backend_ready_endpoint_uses_dependency_result(monkeypatch) -> None:
     for key, value in (
         ("KONG_URL", "http://kong-api-gateway:8000"),

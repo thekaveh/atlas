@@ -51,6 +51,14 @@ jobs:
       - name: Sync documentation dependencies
         run: uv sync --project bootstrapper --group dev --locked
 
+      - name: Cache MkDocs privacy-plugin external assets
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .cache
+          key: mkdocs-privacy-${{ hashFiles('scripts/docs/build_docs.py', 'docs/assets/stylesheets/**') }}
+          restore-keys: |
+            mkdocs-privacy-
+
       - name: Validate and build documentation surfaces
         run: make docs-check
 

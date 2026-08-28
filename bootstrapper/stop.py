@@ -22,6 +22,25 @@ from core.config_parser import ConfigParser
 from core.docker_manager import DockerManager
 
 
+def _report_managed_host_advisory(
+    banner, manager, running_message: str, unknown_message: str
+) -> None:
+    """Report owned liveness or fail-closed unverified tracking evidence."""
+    from services import tracked_process_may_survive
+
+    try:
+        running = bool(manager.status().running)
+    except Exception:  # noqa: BLE001 — advisory probes fail closed
+        running = False
+    if running:
+        banner.show_status_message(running_message, "info")
+        return
+    pid, may_survive = tracked_process_may_survive(manager)
+    if may_survive:
+        detail = f" (tracked pid {pid})" if pid is not None else ""
+        banner.show_status_message(f"{unknown_message}{detail}", "warning")
+
+
 def _run_privileged_hosts_cleanup() -> bool:
     """Elevate only the hosts-file mutation, never the repository workflow."""
     from utils.system import is_elevated
@@ -47,20 +66,24 @@ def _run_privileged_hosts_cleanup() -> bool:
         "raise SystemExit(0 if HostsManager().cleanup_hosts_entries() else 1)"
     )
     print("  • --clean-hosts needs to edit your hosts file; requesting sudo for that write only.")
-    result = subprocess.run(
-        [
-            "sudo",
-            "env",
-            f"PYTHONPATH={env['PYTHONPATH']}",
-            "PYTHONDONTWRITEBYTECODE=1",
-            sys.executable,
-            "-c",
-            helper,
-        ],
-        cwd=repo_root,
-        env=env,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "sudo",
+                "env",
+                f"PYTHONPATH={env['PYTHONPATH']}",
+                "PYTHONDONTWRITEBYTECODE=1",
+                sys.executable,
+                "-c",
+                helper,
+            ],
+            cwd=repo_root,
+            env=env,
+            check=False,
+        )
+    except OSError as exc:
+        print(f"  • Could not launch sudo for hosts cleanup: {exc}")
+        return False
     return result.returncode == 0
 
 
@@ -77,15 +100,15 @@ class AtlasStopper:
         self.config_parser = ConfigParser(str(self.root_dir))
         self.docker_manager = DockerManager(str(self.root_dir))
 
-    def persist_project_name(self, project_name: str) -> None:
+    def persist_project_name(self, project_name: str) -> bool:
         """Best-effort persist PROJECT_NAME to .env so this teardown — and the
         next bare start/stop — target the same container family. No-op if .env
         is absent (nothing to tear down anyway); the resolved name is still used
         for this invocation."""
         if not project_name or not self.config_parser.env_file_exists():
-            return
+            return True
         from utils.source_override_manager import SourceOverrideManager
-        SourceOverrideManager(self.config_parser).update_env_file(
+        return SourceOverrideManager(self.config_parser).update_env_file(
             {"PROJECT_NAME": project_name}
         )
 
@@ -112,12 +135,12 @@ Options:
   --project, -p         Compose project to tear down (defaults to PROJECT_NAME / "atlas")
   --cold                Remove volumes (data will be lost)
   --clean-hosts         Remove Atlas hosts file entries (requires sudo/admin)
-  --stop-managed-hosts  Also stop HOST-GLOBAL managed runtimes (ComfyUI-MPS / vLLM-Metal)
+  --stop-managed-hosts  Also stop HOST-GLOBAL managed runtimes (ComfyUI-MPS / vLLM-Metal / Blender MCP)
   --help-usage          Show this detailed usage message
   --help                Show the option summary
 
 Managed host runtimes:
-  Apple-Silicon/Metal ComfyUI-MPS and vLLM-Metal run as native HOST-GLOBAL
+  Apple-Silicon/Metal ComfyUI-MPS, vLLM-Metal, and Blender MCP run as native HOST-GLOBAL
   processes on fixed loopback ports, shared by every Atlas consumer on this
   machine. A project-scoped stop leaves them running by default (with an
   advisory) so it can't interrupt another consumer. Pass --stop-managed-hosts
@@ -127,7 +150,7 @@ Examples:
   ./stop.sh                        # Stop this project's containers, preserve data + managed hosts
   ./stop.sh --cold                 # Stop this project and remove its containers, orphans, and named volumes
   ./stop.sh --clean-hosts          # Stop containers and clean up hosts file
-  ./stop.sh --stop-managed-hosts   # Also stop the host-global ComfyUI-MPS / vLLM-Metal processes
+  ./stop.sh --stop-managed-hosts   # Also stop ComfyUI-MPS / vLLM-Metal / Blender MCP
 """
         print(usage_text)
         
@@ -217,9 +240,9 @@ Examples:
 
         The ``managed-localhost-mps`` source runs a native ComfyUI process on the
         host (not a container), so ``docker compose down`` never touches it — Atlas
-        must tear it down explicitly. A no-op when the source isn't selected or no
-        process is running. The current SOURCE value is intentionally ignored:
-        a prior launch may still own a process after the selection changed.
+        must tear it down explicitly. A no-op when no process is running. The
+        current SOURCE value is intentionally ignored: a prior launch may still
+        own a process after the selection changed.
         """
         try:
             env = (
@@ -233,7 +256,10 @@ Examples:
             before = manager.status()
             stopped = manager.stop()
             after = manager.status()
-            if after.running:
+            if after.running or (
+                not stopped and getattr(manager, "pid_file", None) is not None
+                and manager.pid_file.exists()
+            ):
                 self.banner.show_status_message(
                     "Managed ComfyUI (MPS) host is still running after stop.",
                     "warning",
@@ -273,7 +299,10 @@ Examples:
             before = manager.status()
             stopped = manager.stop()
             after = manager.status()
-            if after.running:
+            if after.running or (
+                not stopped and getattr(manager, "pid_file", None) is not None
+                and manager.pid_file.exists()
+            ):
                 self.banner.show_status_message(
                     "Managed Blender MCP bridge is still running after stop.",
                     "warning",
@@ -296,9 +325,9 @@ Examples:
 
         The ``managed-localhost`` source runs a native vLLM process on the host
         (not a container), so ``docker compose down`` never touches it — Atlas
-        must tear it down explicitly. A no-op when the source isn't selected or no
-        process is running. The current SOURCE value is intentionally ignored:
-        a prior launch may still own a process after the selection changed.
+        must tear it down explicitly. A no-op when no process is running. The
+        current SOURCE value is intentionally ignored: a prior launch may still
+        own a process after the selection changed.
         """
         try:
             env = (
@@ -312,7 +341,10 @@ Examples:
             before = manager.status()
             stopped = manager.stop()
             after = manager.status()
-            if after.running:
+            if after.running or (
+                not stopped and getattr(manager, "pid_file", None) is not None
+                and manager.pid_file.exists()
+            ):
                 self.banner.show_status_message(
                     "Managed vLLM (Metal) host is still running after stop.",
                     "warning",
@@ -333,7 +365,7 @@ Examples:
     def report_managed_hosts_left_running(self) -> None:
         """Advisory-only counterpart to the managed-host stop methods (#655).
 
-        A managed ComfyUI-MPS / vLLM-Metal runtime is a host-global singleton on
+        Managed ComfyUI-MPS, vLLM-Metal, and Blender MCP runtimes are host-global singletons on
         a fixed loopback port, shared by every Atlas consumer on the machine. A
         project-scoped ``./stop.sh`` must NOT terminate it just because *this*
         project stopped — another consumer may still be using it. When one is
@@ -348,36 +380,46 @@ Examples:
         try:
             from services.blender_mcp_manager import manager_from_env as _blender_mfe
 
-            if _blender_mfe(env).status().running:
-                self.banner.show_status_message(
-                    "Managed Blender MCP bridge left running (host-global, shared "
-                    "across consumers; serves execute_code on loopback). Stop it "
-                    "explicitly with `./stop.sh --stop-managed-hosts` or "
-                    "`./start.sh blender-mcp stop`.",
-                    "info",
-                )
+            _report_managed_host_advisory(
+                self.banner,
+                _blender_mfe(env),
+                "Managed Blender MCP bridge left running (host-global, shared "
+                "across consumers; serves execute_code on loopback). Stop it "
+                "explicitly with `./stop.sh --stop-managed-hosts` or "
+                "`./start.sh blender-mcp stop`.",
+                "Managed Blender MCP tracking evidence remains, but process "
+                "ownership is unknown and the bridge may still be running. "
+                "Inspect it or use `./stop.sh --stop-managed-hosts`; Atlas will "
+                "not silently adopt or signal an unverified process.",
+            )
         except Exception:  # noqa: BLE001 — advisory only
             pass
         try:
             from services.comfyui_mps_manager import manager_from_env
 
-            if manager_from_env(env).status().running:
-                self.banner.show_status_message(
-                    "Managed ComfyUI (MPS) host left running (host-global, shared "
-                    "across consumers). Run ./stop.sh --stop-managed-hosts to stop it.",
-                    "info",
-                )
+            _report_managed_host_advisory(
+                self.banner,
+                manager_from_env(env),
+                "Managed ComfyUI (MPS) host left running (host-global, shared "
+                "across consumers). Run ./stop.sh --stop-managed-hosts to stop it.",
+                "Managed ComfyUI (MPS) tracking evidence remains, but process "
+                "ownership is unknown and the host may still be running. Inspect "
+                "it or use ./stop.sh --stop-managed-hosts.",
+            )
         except Exception:  # noqa: BLE001 — advisory must never break stop
             pass
         try:
             from services.vllm_metal_manager import manager_from_env
 
-            if manager_from_env(env).status().running:
-                self.banner.show_status_message(
-                    "Managed vLLM (Metal) host left running (host-global, shared "
-                    "across consumers). Run ./stop.sh --stop-managed-hosts to stop it.",
-                    "info",
-                )
+            _report_managed_host_advisory(
+                self.banner,
+                manager_from_env(env),
+                "Managed vLLM (Metal) host left running (host-global, shared "
+                "across consumers). Run ./stop.sh --stop-managed-hosts to stop it.",
+                "Managed vLLM (Metal) tracking evidence remains, but process "
+                "ownership is unknown and the host may still be running. Inspect "
+                "it or use ./stop.sh --stop-managed-hosts.",
+            )
         except Exception:  # noqa: BLE001 — advisory must never break stop
             pass
 
@@ -392,7 +434,7 @@ Examples:
         print()
         self.banner.console.print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", style="bright_white")
 
-        if not services_ok or not managed_hosts_ok:
+        if not services_ok or not hosts_ok or not managed_hosts_ok:
             self.banner.console.print("⚠️  Atlas stop completed with errors — see messages above", style="bold bright_yellow")
         elif cold_stop:
             self.banner.console.print("🎯 Atlas stopped with complete data cleanup", style="bold bright_green")
@@ -429,6 +471,21 @@ Examples:
         self.banner.console.print("📚 For more information, check the README.md file", style="bright_white")
 
 
+def _persist_project_override(stopper: AtlasStopper, project_name: str) -> None:
+    """Best-effort persistence; the current teardown still uses the override."""
+    try:
+        if not stopper.persist_project_name(project_name):
+            click.echo(
+                "stop.sh: warning: could not persist PROJECT_NAME; "
+                "this teardown still uses the requested override",
+                err=True,
+            )
+    except Exception as exc:
+        click.echo(
+            f"stop.sh: warning: could not persist PROJECT_NAME: {exc}", err=True
+        )
+
+
 @click.command()
 @click.option('--project', '-p', 'project_name', type=str, default=None,
               help='Docker Compose project name — the container family to tear '
@@ -441,7 +498,7 @@ Examples:
 @click.option('--clean-hosts', is_flag=True, help='Remove Atlas hosts file entries (requires sudo/admin)')
 @click.option('--stop-managed-hosts', is_flag=True,
               help='Also stop host-global managed runtimes (Apple-Silicon/Metal '
-                   'ComfyUI-MPS and vLLM-Metal). These are HOST-GLOBAL processes '
+                   'ComfyUI-MPS, vLLM-Metal, and Blender MCP). These are HOST-GLOBAL processes '
                    'shared by every consumer on this machine, so a project-scoped '
                    'stop leaves them running by default; pass this to tear them '
                    'down explicitly (affects ALL consumers using them).')
@@ -465,7 +522,7 @@ def main(project_name, cold, clean_hosts, stop_managed_hosts, help_usage):
         except ValueError as exc:
             click.echo(f"stop.sh: {exc}", err=True)
             raise SystemExit(2)
-        stopper.persist_project_name(project_name)
+        _persist_project_override(stopper, project_name)
 
     # Show initial message
     stopper.banner.show_status_message("Stopping Atlas...", "info")
@@ -489,8 +546,8 @@ def main(project_name, cold, clean_hosts, stop_managed_hosts, help_usage):
             stopper.stop_services(cold, project_name) if dependencies_ok else False
         )
 
-        # Step 2b/2c: Managed host runtimes (#655). ComfyUI-MPS (#335) and
-        # vLLM-Metal (#379) are native host processes on fixed loopback ports —
+        # Step 2b/2c: Managed host runtimes (#655). ComfyUI-MPS (#335),
+        # vLLM-Metal (#379), and Blender MCP (#759) are native host processes —
         # compose `down` never touches them — but they are HOST-GLOBAL
         # singletons shared by every consumer on this machine, not
         # Compose-project resources. A project-scoped stop must NOT terminate

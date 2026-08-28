@@ -18,7 +18,7 @@ Source: `services/backend/app/`. The FastAPI app boots in `app/main.py`, mounts 
 | Chunking | `POST /api/chunk` | Chonkie-backed splitting; accepts a Supabase user JWT, the internal-service token, or the scoped notebook token. |
 | RAG evaluation | `POST /api/rag/evaluate` | Ragas-backed metrics; accepts the same stateless-route credentials as chunking. |
 | RAG ingestion | `POST /api/rag/ingestions`, `GET /api/rag/ingestions[/{id}]`, `POST /api/rag/ingestions/{id}/cancel` | Internal-service only. Generic ingestion job over a consumer `rag_ingestion_profile` with machine-readable per-phase status. |
-| Ray jobs | `POST /api/ray/jobs/submit`, `GET`/`DELETE /api/ray/jobs/{job_id}`, `/api/ray/cluster/status` | Requires `Authorization: Bearer ${RAY_JOB_API_TOKEN}` on direct and Kong access paths. |
+| Ray jobs | `POST /api/ray/jobs/submit`, `GET`/`DELETE /api/ray/jobs/{job_id}`, `/api/ray/cluster/status` | Requires `Authorization: Bearer ${RAY_JOB_API_TOKEN}` on direct and Kong access paths. Submit requires a stable `submission_id` (`raysubmit_` plus letters, digits, or underscores) so every accepted job remains reconcilable after a lost response. |
 
 Canonical port table: [Ports and Routes](../../docs/reference/ports-routes.md).
 
@@ -46,7 +46,8 @@ BACKEND_INTERNAL_API_TOKEN=       # auto-generated; full operator scope
 BACKEND_N8N_API_TOKEN=            # auto-generated; n8n workflow scope
 BACKEND_NOTEBOOK_API_TOKEN=       # auto-generated; stateless notebook routes only
 BACKEND_OPEN_WEBUI_API_TOKEN=     # auto-generated; memory/legacy ComfyUI scope
-COMFYUI_MAX_IMAGE_BYTES=20971520  # bounded ComfyUI image proxy response
+COMFYUI_MAX_IMAGE_BYTES=20971520  # bounded ComfyUI image input/output
+COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS=  # exact HTTPS origins; blank rejects remote URLs
 COMFYUI_COMPLETION_TIMEOUT_SECONDS=300  # synchronous generation deadline
 SUPABASE_JWT_SECRET=              # verifies authenticated Supabase user JWTs
 ```
@@ -92,6 +93,9 @@ curl -H "Authorization: Bearer ${RAY_JOB_API_TOKEN}" \
 
 Every `/api/ray` route requires this bearer token, including requests through
 the direct Backend port and deployments where `BACKEND_KONG_AUTH=disabled`.
+Every submission must include a validated `submission_id`; send the same value
+on each retry. A reused ID returns `409`; inspect or stop that job through the
+existing `{job_id}` routes instead of launching a second copy.
 
 LangMem long-term memory:
 
@@ -108,6 +112,15 @@ LANGMEM_EMBEDDING_MODEL=
 Extraction runs the LLM call outside the database transaction, then commits accepted facts and the completed session atomically, with a per-user lock enforcing `LANGMEM_MAX_FACTS_PER_USER` across replicas. Failed extractions record a terminal failed session rather than partial facts. The full transaction and locking sequence is documented in the LangMem extraction module's docstring.
 
 Memory writes (edits, soft deletes, consolidation, retention) mark a durable `vector_sync_pending` intent alongside the Postgres change, and a reconciliation pass syncs the corresponding Weaviate objects and clears the marker on success; failures remain retryable, and Postgres `is_active` stays the recall authority throughout. The deterministic-ID and stale-version comparison logic is documented in the vector-sync reconciliation module.
+
+Async `POST /memory/consolidate?async_job=true` accepts an optional
+`idempotency_key`. Reusing it derives and republishes the same stable Celery job
+ID, so a request lost before broker acknowledgement can be retried safely. The
+worker claims a Redis execution lease before consolidation and records the
+completed result for the Celery visibility window (one hour by default);
+concurrent duplicate deliveries wait for that lease or return the stored result
+instead of repeating consolidation. Omit the key only for fire-and-forget calls
+that will not be retried after a lost response.
 
 Graphiti temporal graph memory experiment:
 
@@ -169,7 +182,7 @@ MEDIA_INPUT_MAX_PIXELS=40000000
 MEDIA_OPERATION_TTL_SECONDS=604800
 ```
 
-When `FAL_SOURCE=enabled`, `POST /media/generate` accepts a provider-neutral request (`provider`, `modality`, `model`, `input`) and dispatches to FAL (image, image-to-3D) or the managed/localhost ComfyUI host (image); it returns `202` with an operation id, and `GET /media/operations/{operation_id}` polls normalized status/artifacts while `POST /media/operations/{operation_id}/cancel` requests cancellation without releasing the budget reservation until a terminal state is confirmed. If FAL may have accepted paid work but its response never returned a usable provider request id, Atlas returns a local `submission_unknown` id and retains the budget reservation; an operator authenticated with `BACKEND_INTERNAL_API_TOKEN` resolves it with `POST /media/operations/{operation_id}/reconcile` using `outcome=commit|release` after reviewing provider billing. The intent and recovery ledger row remain exempt from normal retention until settlement, same-outcome retries are safe after transient failures, and the spend ledger is the fallback recovery source when the operation-state write fails (`local_record_persisted=false`). If reservation attachment or cleanup fails after provider acceptance, Atlas preserves the candidate ledger ids as a non-expiring recovery intent and retries automatically every 30 seconds as well as when the operation is polled; a persistence-failure response exposes `recovery_ledger_ids` for operator recovery. `artifact_url` is provider-dependent — an absolute CDN URL for FAL, a gateway-relative backend proxy path for ComfyUI — so consumers must resolve relative URLs against their own base before fetching; the older `POST /comfyui/generate` route remains a narrower FAL-only compatibility surface. Set the request's top-level `timeout_seconds` above the provider's cold-start worst case — a cold Krea 2 BF16 load on the managed-MPS ComfyUI host is ~90–120 s before the first sampler step — or an otherwise-successful generation is timed out and cancelled mid-flight. The full field-by-field request/response contract, validation rules, and byte/pixel limits are served live at the backend's `/docs` (Swagger) endpoint.
+When `FAL_SOURCE=enabled`, `POST /media/generate` accepts a provider-neutral request (`provider`, `modality`, `model`, `input`) and dispatches to FAL (image, image-to-3D) or the managed/localhost ComfyUI host (image); it returns `202` with an operation id, and `GET /media/operations/{operation_id}` polls normalized status/artifacts while `POST /media/operations/{operation_id}/cancel` requests cancellation without releasing the budget reservation until a terminal state is confirmed. ComfyUI cancellation uses the pinned core's atomic `POST /api/jobs/{job_id}/cancel` endpoint and accepts only an exact boolean `cancelled` response; interrupted history becomes terminal `cancelled`. An ambiguous ComfyUI delivery may be retried safely, while an older localhost instance that lacks the targeted endpoint fails closed without falling back to the global `/interrupt` operation. If FAL may have accepted paid work but its response never returned a usable provider request id, Atlas returns a local `submission_unknown` id and retains the budget reservation; an operator authenticated with `BACKEND_INTERNAL_API_TOKEN` resolves it with `POST /media/operations/{operation_id}/reconcile` using `outcome=commit|release` after reviewing provider billing. The intent and recovery ledger row remain exempt from normal retention until settlement, same-outcome retries are safe after transient failures, and the spend ledger is the fallback recovery source when the operation-state write fails (`local_record_persisted=false`). If reservation attachment or cleanup fails after provider acceptance, Atlas preserves the candidate ledger ids as a non-expiring recovery intent and retries automatically every 30 seconds as well as when the operation is polled; a persistence-failure response exposes `recovery_ledger_ids` for operator recovery. `artifact_url` is provider-dependent — an absolute CDN URL for FAL, a gateway-relative backend proxy path for ComfyUI — so consumers must resolve relative URLs against their own base before fetching; the older `POST /comfyui/generate` route remains a narrower FAL-only compatibility surface. Set the request's top-level `timeout_seconds` above the provider's cold-start worst case — a cold Krea 2 BF16 load on the managed-MPS ComfyUI host is ~90–120 s before the first sampler step — or an otherwise-successful generation is timed out and cancelled mid-flight. The full field-by-field request/response contract, validation rules, and byte/pixel limits are served live at the backend's `/docs` (Swagger) endpoint.
 
 **Spend ledger & budgets (`MEDIA_BUDGET_ENABLED`, disabled by default).** When enabled, each generation reserves its estimated cost before the provider is invoked and records an immutable ledger row in `public.media_spend_ledger` (Postgres), hard-stopping over-budget or provider-disabled requests before any provider call; `GET /media/spend` returns a consumer's committed/reserved totals. Independently of enforcement, an ambiguous FAL submission creates a recovery row in the configured `MEDIA_BUDGET_STORE`; keep the default `postgres` store for recovery that survives process restarts (`memory` is intentionally ephemeral). The full ledger schema, concurrency guarantees, and reconciliation behavior are served at the backend's `/docs` (Swagger) endpoint.
 
@@ -244,7 +257,7 @@ Each Backend process admits at most `RESEARCH_MAX_CONCURRENT` research sessions 
 
 Submission snapshots the corpus and profile definition with the job so a queued worker executes what was submitted even if the registry changes before delivery, and each run reconciles Weaviate by removing prior-generation objects no longer present in the source corpus.
 
-The Backend API and Celery worker share the same Redis state, profile registry, and resource limits; a lease-renewal failure reschedules the ingestion rather than leaving it stuck, and LightRAG uploads are idempotent under retry via deterministic content-and-path identities.
+The Backend API and Celery worker share the same Redis state, profile registry, and resource limits. Every Celery delivery uses a fresh execution owner; after an ambiguous Redis response, only an exact compare-and-set against the prior owner may transfer the live claim. Redis infrastructure failures retry independently without consuming the three-retry upstream-phase budget, with jittered exponential backoff capped at 600 seconds. A lease-renewal failure carries the current owner into recovery rather than leaving the ingestion stuck. This fencing prevents concurrent workers from persisting as the same owner, but it does not promise exactly-once behavior from external services; LightRAG uploads remain safe under retry through deterministic content-and-path identities.
 
 ## 5. LightRAG integration
 

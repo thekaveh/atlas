@@ -31,6 +31,23 @@ from .storage import ArtifactStorage, ArtifactTooLargeError, CONTENT_TYPE
 logger = logging.getLogger(__name__)
 
 
+async def _join_request_task(task: asyncio.Task):
+    """Keep admitted sync work owned through repeated caller cancellation."""
+    cancelled: asyncio.CancelledError | None = None
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError as exc:
+            cancelled = exc
+    if cancelled is not None:
+        try:
+            task.result()
+        except BaseException:
+            pass
+        raise cancelled
+    return task.result()
+
+
 def create_app(*, api_token: str | None = None) -> FastAPI:
     app = FastAPI(
         title="Atlas Asset Worker",
@@ -77,16 +94,9 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
                     content={"detail": "Asset worker is busy; retry later"},
                 )
             admitted = True
+        work = asyncio.create_task(call_next(request))
         try:
-            return await call_next(request)
-        except asyncio.CancelledError:
-            active_work = getattr(request.state, "asset_work_task", None)
-            if active_work is not None and not active_work.done():
-                try:
-                    await asyncio.shield(active_work)
-                except (Exception, asyncio.CancelledError):
-                    pass
-            raise
+            return await _join_request_task(work)
         finally:
             if admitted:
                 app.state.transform_semaphore.release()

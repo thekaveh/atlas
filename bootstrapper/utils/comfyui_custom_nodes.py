@@ -9,6 +9,8 @@ from typing import Iterable, Mapping
 
 import yaml
 
+from services.manifests import load_yaml_strict
+
 try:
     from utils.comfyui_library import ComfyUILibraryEntry
 except ImportError:  # pragma: no cover - defensive loose-module fallback
@@ -203,10 +205,13 @@ def parse_custom_nodes_strict(path: str | Path) -> list[ComfyUICustomNode]:
     ``ConsumerManifestError``).
     """
     p = Path(path)
-    raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    try:
+        raw = load_yaml_strict(p.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ValueError(f"custom-nodes file {path} has invalid YAML: {exc}") from exc
     if not isinstance(raw, dict):
         raise ValueError(f"custom-nodes file {path} must have a top-level mapping")
-    raw_nodes = raw.get("custom_nodes") or []
+    raw_nodes = raw.get("custom_nodes", [])
     if not isinstance(raw_nodes, list):
         raise ValueError(f"custom-nodes file {path} has non-list custom_nodes")
     nodes: list[ComfyUICustomNode] = []
@@ -228,6 +233,9 @@ def parse_custom_nodes_strict(path: str | Path) -> list[ComfyUICustomNode]:
         unknown = set(entry) - {"name", "repo", "ref", "install_requirements", "mps_unsafe"}
         if unknown:
             raise ValueError(f"custom node {name!r} has unknown field(s): {sorted(unknown)}")
+        for flag in ("install_requirements", "mps_unsafe"):
+            if flag in entry and type(entry[flag]) is not bool:
+                raise ValueError(f"custom node {name!r} {flag} must be a boolean")
         seen.add(name)
         nodes.append(
             ComfyUICustomNode(

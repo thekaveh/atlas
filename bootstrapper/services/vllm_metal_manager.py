@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Optional
 
 from core.process_runner import CommandOutputTooLarge, run_with_deadline
+from services import tracked_process_may_survive
 
 try:  # Native Windows can import this module for a no-op disabled-source stop.
     import fcntl
@@ -423,6 +424,12 @@ class VllmMetalManager:
             return self._start_locked()
 
     def _start_locked(self) -> tuple[ProcessStatus, bool]:
+        from services import refuse_untrusted_tracked_pid
+        refuse_untrusted_tracked_pid(
+            (self._read_pid() or self._untracked_pid, self.pid_file),
+            self._managed_process_alive, self._pid_is_stranger,
+            ("vLLM Metal", VllmMetalError),
+        )
         existing = self.status()
         if existing.running:
             return existing, False  # idempotent — one process per host
@@ -462,13 +469,13 @@ class VllmMetalManager:
             # an identity to compare and a torn read cannot silently disable it.
             from services.managed_host import (
                 ManagedHostManager as _MHM,
+                compensate_failed_launch as _compensate,
+                raise_launch_recording_failure as _raise_recording_failure,
+                require_process_start_time as _require_started,
                 write_pid_file_with_identity as _write_pid,
             )
 
-            try:
-                _started = _MHM._process_start_time(proc.pid)
-            except Exception:  # noqa: BLE001 - a probe failure is not a launch failure
-                _started = None
+            _started = _require_started(proc.pid, _MHM._process_start_time)
             _write_pid(self.pid_file, proc.pid, _started)
             self._write_status(
                 installed_version=self.plugin_version,
@@ -476,20 +483,18 @@ class VllmMetalManager:
                 pid=proc.pid,
             )
         except BaseException as exc:
-            if self._terminate_pid(proc.pid):
-                self._clear_pid()
+            outcome = _compensate(
+                proc.pid, self.pid_file, lambda: self._terminate_pid(proc.pid)
+            )
+            if outcome.terminated:
                 self._untracked_pid = None
-                raise VllmMetalError(
-                    f"failed to record managed vLLM Metal pid {proc.pid}; the "
-                    "child was terminated"
-                ) from exc
-            raise VllmMetalError(
-                f"failed to record managed vLLM Metal pid {proc.pid}, and the "
-                "child could not be terminated; retry ./stop.sh or terminate "
-                "that pid",
-                surviving_process=True,
-            ) from exc
-        self._untracked_pid = None
+            _raise_recording_failure(
+                exc,
+                proc.pid,
+                outcome,
+                ("managed vLLM Metal process identity", VllmMetalError),
+            )
+        self._reject_exited_launch(proc)
         return (
             ProcessStatus(
                 running=True, pid=proc.pid, port=self.port,
@@ -499,10 +504,35 @@ class VllmMetalManager:
             True,
         )
 
+    def confirm_started_process(self, pid: int) -> bool:
+        """Verify the leader while retaining group rollback authority."""
+        return (
+            self._read_pid() == pid
+            and self._pid_alive(pid)
+            and not self._pid_is_stranger(pid)
+        )
+
+    def commit_started_process(self) -> None:
+        """Release same-run process-group ownership after stack convergence."""
+        self._untracked_pid = None
+
+    def _reject_exited_launch(self, process: subprocess.Popen) -> None:
+        poll = getattr(process, "poll", None)
+        if not callable(poll) or poll() is None:
+            return
+        terminated = self._terminate_pid(process.pid)
+        if terminated:
+            self._untracked_pid = None
+        raise VllmMetalError(
+            f"managed vLLM Metal process {process.pid} exited during startup; "
+            f"inspect {self.log_file}",
+            surviving_process=not terminated,
+        )
+
     @contextmanager
     def _launch_guard(self):
         """Serialize native installation/start decisions across launchers."""
-        self.state_dir.mkdir(parents=True, exist_ok=True)
+        self.state_dir.parent.mkdir(parents=True, exist_ok=True)
         with self.launch_lock_file.open("a+", encoding="utf-8") as lock:
             if fcntl is None:
                 yield
@@ -530,20 +560,27 @@ class VllmMetalManager:
 
     def _stop_locked(self) -> bool:
         pid = self._read_pid() or self._untracked_pid
-        if pid is None or not self._managed_process_alive(pid):
+        if pid is None:
+            _pid, evidence_may_survive = tracked_process_may_survive(self)
+            if evidence_may_survive:
+                return False
             self._clear_pid()
             self._untracked_pid = None
             return False
-        # PID-reuse guard: never SIGKILL a process the OS recycled onto our old
-        # pid. Only signal when we cannot prove the pid belongs to a stranger.
-        if self._pid_is_stranger(pid):
+        if not self._pid_alive(pid):
+            group_survives = self._process_group_alive(pid)
+            if group_survives and (
+                self._untracked_pid != pid or not self._sweep_orphaned_group(pid)
+            ):
+                return False
             self._clear_pid()
-            self._write_status(
-                installed_version=self.plugin_version,
-                installed_core_version=self.core_version,
-                pid=None,
-            )
             self._untracked_pid = None
+            return group_survives
+        # PID-reuse guard: signal only when start-time identity positively
+        # proves ownership; unknown or mismatched evidence is preserved.
+        if self._pid_is_stranger(pid):
+            # Ownership is mismatched or unknowable. Preserve tracking state
+            # for manual inspection instead of signalling or orphaning it.
             return False
         if not self._terminate_pid(pid):
             # Honest: the process outlived SIGKILL (e.g. EPERM). Keep the pidfile
@@ -589,9 +626,8 @@ class VllmMetalManager:
         pid = self._read_pid() or self._untracked_pid
         # A pidfile + kill-0 probe alone trusts a RECYCLED PID: after a reboot or
         # crash another process can inherit the number, and kill-0 then reports a
-        # dead engine as running (so start() no-ops while nothing listens). Also
-        # require that the PID is not provably a stranger — the argv/state-dir
-        # ownership check that previously only stop() consulted (#647).
+        # dead engine as running (so start() no-ops while nothing listens).
+        # Require a matching recorded start time as positive ownership proof.
         running = (
             pid is not None
             and self._managed_process_alive(pid)
@@ -636,10 +672,12 @@ class VllmMetalManager:
         """Stop the process and delete the Atlas-owned state directory."""
         with self._launch_guard():
             self._stop_locked()
-            if self.status().running:
+            pid, may_survive = tracked_process_may_survive(self)
+            if may_survive:
+                detail = f"pid {pid}" if pid is not None else "retained PID evidence"
                 raise VllmMetalError(
-                    "refusing to remove managed vLLM Metal state while its "
-                    "process is still running"
+                    "refusing to remove managed vLLM Metal state while its tracked "
+                    f"{detail} may still be alive"
                 )
             if self.state_dir.exists():
                 shutil.rmtree(self.state_dir)
@@ -730,9 +768,7 @@ class VllmMetalManager:
         except ProcessLookupError:
             return False
         except PermissionError:
-            # We can't signal it, so it is NOT our (user-owned) managed process
-            # — a foreign, likely root-owned, process recycled the PID (#647).
-            return False
+            return True  # exists, but ownership is untrusted
         return True
 
     @staticmethod
@@ -742,15 +778,21 @@ class VllmMetalManager:
         except ProcessLookupError:
             return False
         except PermissionError:
-            # Same as _pid_alive: a group we can't signal is not ours (#647).
-            return False
+            return True  # group exists, but ownership is untrusted
         return True
 
     def _managed_process_alive(self, pid: int) -> bool:
         return self._pid_alive(pid) or self._process_group_alive(pid)
 
+    @staticmethod
+    def _sweep_orphaned_group(pid: int) -> bool:
+        """Terminate a leaderless group only for a current in-memory launch."""
+        from services.managed_host import ManagedHostManager
+
+        return ManagedHostManager._sweep_orphaned_group(pid)
+
     def _pid_is_stranger(self, pid: int) -> bool:
-        """True only when we can PROVE ``pid`` is NOT the process we launched.
+        """True unless ``pid`` can be positively proven to be our process.
 
         Uses `(pid, start time)` — the identity the generic managed-host
         framework settled on — via its shared implementation.
@@ -763,41 +805,12 @@ class VllmMetalManager:
         direction too — a wrapper script, `exec`, `setproctitle` or a
         gunicorn/celery master rewrites it.
 
-        Falls back to False (proceed) when unknowable: an unknowable probe
-        must never block teardown.
+        Unknown ownership refuses teardown; a manual cleanup is safer than
+        signalling an unrelated recycled PID.
         """
-        from services.managed_host import (
-            ManagedHostManager as _MHM,
-            read_recorded_start_time,
-            pid_is_stranger,
-        )
+        from services.managed_host import ManagedHostManager as _MHM, pid_is_stranger
 
-        if read_recorded_start_time(self.pid_file):
-            # Stamped by this version: `(pid, start time)` is an identity and
-            # gives a definitive answer.
-            return pid_is_stranger(pid, self.pid_file, _MHM._process_start_time)
-        # UNSTAMPED (a pid file written before the stamp existed). The identity
-        # check degrades to "proceed", which would signal a recycled pid — so
-        # keep the old argv heuristic for that transitional window. It is weak
-        # in one direction only: generic markers make it UNDER-refuse, never
-        # over-refuse, so as a fallback it can only add protection.
-        return self._argv_is_stranger(pid)
-
-    def _argv_is_stranger(self, pid: int) -> bool:
-        """Legacy command-line heuristic. Only for pid files with no stamp."""
-        try:
-            out = subprocess.run(
-                ["ps", "-ww", "-p", str(pid), "-o", "command="],
-                capture_output=True, text=True, encoding="utf-8",
-                errors="replace", timeout=5, check=False,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return False
-        cmdline = (out.stdout or "").strip()
-        if out.returncode != 0 or not cmdline:
-            return False
-        markers = ("vllm.entrypoints", "vllm", str(self.venv_dir), str(self.state_dir))
-        return not any(marker in cmdline for marker in markers)
+        return pid_is_stranger(pid, self.pid_file, _MHM._process_start_time)
 
     def _write_status(
         self,

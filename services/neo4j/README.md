@@ -8,21 +8,26 @@ The Neo4j service provides:
 - Graph database for storing and querying relationships
 - Web-based browser interface for data visualization
 - Cypher query language support
-- Automatic backup and restore capabilities
+- Manual full-dump backups and automatic restore-from-snapshot at startup
 
-## 2. Access Information
+## 2. Source modes and access information
 
-- **Browser Interface and HTTP API**: `http://localhost:${GRAPH_DB_DASHBOARD_PORT}` (default: 63024)
-- **Bolt Protocol**: `bolt://localhost:${GRAPH_DB_PORT}` (default: 63023)
+| `NEO4J_GRAPH_DB_SOURCE` | Behavior | Browser / HTTP | Bolt |
+|---|---|---|---|
+| `container` (default) | Runs the Atlas-managed container. | `http://localhost:${GRAPH_DB_DASHBOARD_PORT}` (default `63024`) | `bolt://localhost:${GRAPH_DB_PORT}` (default `63023`) |
+| `localhost` | Uses an existing host Neo4j; Atlas does not start the container. | `http://localhost:${NEO4J_LOCALHOST_HTTP_PORT}` (default `7474`) | `bolt://localhost:${NEO4J_LOCALHOST_BOLT_PORT}` (default `7687`) |
+| `disabled` | Disables Neo4j and its routes. | unavailable | unavailable |
+
+After running `./start.sh --setup-hosts`, the Kong browser alias is `http://graph.localhost:${KONG_HTTP_PORT}` whenever the selected Neo4j source is enabled.
 
 ## 3. Default Credentials
 
 - **Username**: `${GRAPH_DB_USER}` (default: `neo4j`)
 - **Password**: `${GRAPH_DB_PASSWORD}` (from .env file)
 
-## 4. Backup and Restore
+## 4. Container-mode backup and restore
 
-The Neo4j service includes built-in backup and restore capabilities.
+These commands and paths apply only to `NEO4J_GRAPH_DB_SOURCE=container`. In `localhost` mode, use the backup and restore procedures of the host-managed Neo4j installation. The Atlas container provides a manual full-dump backup command; restore from the latest existing snapshot is automatic at container startup, but backup creation is never scheduled automatically.
 
 ### 4.1. Manual Backup
 
@@ -61,9 +66,9 @@ docker exec -it ${PROJECT_NAME}-neo4j-graph-db /usr/local/bin/restore.sh
   is stopped for the duration and restarted automatically (EXIT trap)
 - Backup files are timestamped for easy identification
 
-## 5. Data Persistence
+## 5. Container-mode data persistence
 
-Neo4j data is stored in Docker named volumes:
+With `NEO4J_GRAPH_DB_SOURCE=container`, Neo4j data is stored in Docker named volumes. In `localhost` mode, the host installation owns persistence:
 - **Volume Name**: `atlas-graph-db-data` (from `${PROJECT_NAME}-graph-db-data`)
 - **Mount Point**: `/data` (inside container)
 - **Backup Location**: `/snapshot` (mounted to host)
@@ -90,7 +95,7 @@ NEO4J_server_memory_pagecache_size=512m
 
 ## 7. Usage Examples
 
-### 7.1. Connect via Cypher Shell
+### 7.1. Connect via Cypher Shell (container mode)
 ```bash
 # Connect using Docker
 docker exec -it ${PROJECT_NAME}-neo4j-graph-db cypher-shell -u neo4j -p ${GRAPH_DB_PASSWORD}
@@ -102,10 +107,17 @@ MATCH (n) DETACH DELETE n;  // Clear all data (use with caution)
 
 ### 7.2. Connect via Python
 ```python
+import os
 from neo4j import GraphDatabase
 
+source = os.getenv("NEO4J_GRAPH_DB_SOURCE", "container")
+bolt_port = (
+    os.getenv("NEO4J_LOCALHOST_BOLT_PORT", "7687")
+    if source == "localhost"
+    else os.getenv("GRAPH_DB_PORT", "63023")
+)
 driver = GraphDatabase.driver(
-    "bolt://localhost:63023",
+    f"bolt://localhost:{bolt_port}",
     auth=("neo4j", "your_password")
 )
 

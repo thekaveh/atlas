@@ -76,6 +76,14 @@ networkx>=3.3
 # Jupyter Extensions
 ipywidgets>=8.1.0
 jupyter-server-proxy>=4.1.0
+# The pinned upstream Python 3.11 image predates fixes now required by the
+# final-image vulnerability gate. Keep these direct so the image does not
+# silently fall back to the older base-image copies.
+brotli==1.2.0
+jupyterlab==4.6.3
+jupyterlab-git==0.54.0
+notebook==7.6.2
+wheel==0.46.2
 
 # Deep Learning — PyTorch core
 torch==2.13.0
@@ -99,7 +107,7 @@ tqdm>=4.66.0
 kaleido>=0.2.1
 
 # Distributed compute
-ray[client]>=2.56.0,<2.57
+ray[client]==2.56.0  # exact match for the rayproject/ray:2.56.0 service image
 # Lightweight Spark Connect client (~1.5 MB, no JVM/Spark distro) — notebook
 # 09_spark_connect talks to the spark-connect sidecar via sc://. Pinned to the
 # server's Spark version (apache/spark:4.1.2); a mismatch breaks the gRPC handshake.

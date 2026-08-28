@@ -10,8 +10,9 @@ stack uses patch-version tags everywhere (e.g. `python:3.12.13-slim`,
 This test locks that posture in CI so a future contributor can't
 re-introduce a floating tag silently.
 
-ARG-defaulted FROMs (e.g. `FROM ${BASE_IMAGE}`) remain user-overridable, but
-their checked-in defaults are covered by a focused regression test below.
+ARG-defaulted FROMs (e.g. `FROM ${BASE_IMAGE}`) remain user-overridable; this
+gate resolves and validates every checked-in default, including nested
+`${VAR:-fallback}` expressions.
 Non-semver channel tags that cannot be replaced with a release tag are pinned
 to the registry's immutable multi-platform digest.
 """
@@ -22,6 +23,8 @@ from pathlib import Path
 
 import pytest
 
+from scripts.container_security import image_reference_is_pinned
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -29,42 +32,140 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # `mainline` / `latest-slim` should be added here too.
 FORBIDDEN_TAGS = {"latest", "slim", "stable", "edge", "bookworm", "bullseye"}
 
-# A tag is considered patch-version-pinned if its numeric prefix has
-# at least major.minor.patch (e.g. `3.12.7`, `2.5.1`, `3.2.2`,
-# `2.5.1-cuda12.4-cudnn9-runtime`). This rejects `python:3.12-slim` and
-# `python:3.12` which both track the moving latest patch.
-PATCH_VERSION_PREFIX = re.compile(r"^\d+\.\d+\.\d+")
-
-# Date / SHA / hash-style tags (RELEASE.YYYY-MM-DDTHH-MM-SS, full sha256
-# digests handled separately, hex SHAs, ...) are also acceptable. List
-# patterns we recognise as fully-qualified.
-ACCEPTABLE_NONSEMVER_PATTERNS = [
-    re.compile(r"^RELEASE\.\d{4}-\d{2}-\d{2}T"),  # MinIO style
-    re.compile(r"^v\d+\.\d+\.\d+"),                # `vMAJOR.MINOR.PATCH`
-    re.compile(r"^\d+\.\d+\.\d+"),                 # plain `MAJOR.MINOR.PATCH`
-    re.compile(r"^cpu-\d+\.\d+"),                  # TEI Reranker `cpu-1.9`
-    re.compile(r"^cpu-arm64-"),                    # TEI arm64 image suffix
-]
-
-FROM_RE = re.compile(r"^\s*FROM\s+(\S+)", re.MULTILINE)
+FROM_RE = re.compile(r"^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)")
+ARG_RE = re.compile(
+    r"^\s*ARG\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?:=(?P<default>\S+))?\s*$",
+    re.MULTILINE,
+)
+VARIABLE_RE = re.compile(
+    r"\$(?:\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)(?:(?P<operator>:-|-)(?P<fallback>[^}]*))?\}|(?P<plain>[A-Za-z_][A-Za-z0-9_]*))"
+)
 
 
 def _is_pinned_enough(tag: str) -> bool:
     """Returns True if the tag is sufficiently specific (digest or
     patch-versioned). Used to reject `:slim` / `:3.12` / `:3.12-slim` etc.
     """
-    if tag in FORBIDDEN_TAGS:
-        return False
-    if PATCH_VERSION_PREFIX.match(tag):
-        return True
-    for pat in ACCEPTABLE_NONSEMVER_PATTERNS:
-        if pat.match(tag):
-            return True
-    return False
+    return tag not in FORBIDDEN_TAGS and image_reference_is_pinned(f"image:{tag}")
+
+
+def _resolve_variables(value: str, defaults: dict[str, str | None]) -> str:
+    """Resolve checked-in ARG defaults used by a FROM reference."""
+
+    seen: set[str] = set()
+    while value not in seen:
+        seen.add(value)
+        match = VARIABLE_RE.search(value)
+        if not match:
+            return value
+        name = match.group("braced") or match.group("plain")
+        default = defaults.get(name)
+        fallback = match.group("fallback")
+        operator = match.group("operator")
+        if operator == ":-":
+            replacement = default or fallback
+        elif operator == "-":
+            replacement = default if default is not None else fallback
+        else:
+            replacement = default
+        if replacement is None:
+            raise AssertionError(f"FROM variable {name} has no checked-in default")
+        value = value[: match.start()] + replacement + value[match.end() :]
+    raise AssertionError("FROM ARG defaults contain a reference cycle")
+
+
+def _dockerfile_images(text: str) -> list[str]:
+    defaults: dict[str, str | None] = {}
+    images: list[str] = []
+    saw_from = False
+    for line in text.splitlines():
+        from_match = FROM_RE.match(line)
+        if from_match:
+            saw_from = True
+            images.append(_resolve_variables(from_match.group(1), defaults))
+            continue
+        if not saw_from:
+            arg_match = ARG_RE.fullmatch(line)
+            if arg_match:
+                defaults[arg_match.group("name")] = arg_match.group("default")
+    return images
+
+
+def _assert_pinned_images(text: str, path: Path) -> None:
+    images = _dockerfile_images(text)
+    assert images, f"{path} has no FROM directive"
+    for image in images:
+        if "@sha256:" in image:
+            assert image_reference_is_pinned(image), (
+                f"{path} FROM {image!r}: malformed sha256 digest"
+            )
+            continue
+        assert ":" in image.rsplit("/", 1)[-1], (
+            f"{path} FROM {image!r}: untagged image (rebuilds resolve to "
+            ":latest). Pin to an exact release tag."
+        )
+        tag = image.rsplit(":", 1)[1].lower()
+        assert _is_pinned_enough(tag), (
+            f"{path} FROM {image!r}: tag {tag!r} is not patch-version-pinned. "
+            "Use an exact release tag or immutable digest."
+        )
 
 
 def _discover_dockerfiles() -> list[Path]:
     return sorted(REPO_ROOT.glob("services/**/Dockerfile"))
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            "ARG BASE_IMAGE=python:3.12.13-slim\nFROM ${BASE_IMAGE}\n",
+            ["python:3.12.13-slim"],
+        ),
+        (
+            "ARG BACKEND_IMAGE\n"
+            "ARG BASE_IMAGE=${BACKEND_IMAGE:-python:3.12.13}\n"
+            "FROM ${BASE_IMAGE}\n",
+            ["python:3.12.13"],
+        ),
+        (
+            "ARG BASE_IMAGE\nFROM ${BASE_IMAGE:-python:3.12.13-slim}\n",
+            ["python:3.12.13-slim"],
+        ),
+    ],
+)
+def test_from_arg_defaults_are_resolved(source: str, expected: list[str]) -> None:
+    assert _dockerfile_images(source) == expected
+
+
+@pytest.mark.parametrize(
+    "reference",
+    ["python:latest", "python:3", "python"],
+)
+def test_from_arg_defaults_reject_floating_references(reference: str) -> None:
+    source = f"ARG BASE_IMAGE={reference}\nFROM ${{BASE_IMAGE}}\n"
+
+    with pytest.raises(AssertionError, match="not patch-version-pinned|untagged"):
+        _assert_pinned_images(source, Path("Dockerfile"))
+
+
+def test_later_stage_arg_cannot_hide_floating_global_default() -> None:
+    source = (
+        "ARG BASE_IMAGE=python:latest\n"
+        "FROM ${BASE_IMAGE} AS first\n"
+        "ARG BASE_IMAGE=python:3.12.13\n"
+        "FROM ${BASE_IMAGE}\n"
+    )
+
+    with pytest.raises(AssertionError, match="not patch-version-pinned"):
+        _assert_pinned_images(source, Path("Dockerfile"))
+
+
+def test_arg_declared_after_from_is_not_available_to_from() -> None:
+    source = "FROM ${BASE_IMAGE}\nARG BASE_IMAGE=python:3.12.13\n"
+
+    with pytest.raises(AssertionError, match="no checked-in default"):
+        _assert_pinned_images(source, Path("Dockerfile"))
 
 
 @pytest.mark.parametrize(
@@ -73,32 +174,11 @@ def _discover_dockerfiles() -> list[Path]:
     ids=lambda p: str(p.relative_to(REPO_ROOT)),
 )
 def test_dockerfile_from_is_pinned(dockerfile: Path) -> None:
-    """Every `FROM <image>:<tag>` must use a digest or a tag NOT in the
-    floating-tag denylist. `FROM ${ARG}` is exempt (ARG is compose-driven).
-    """
-    text = dockerfile.read_text(encoding="utf-8")
-    images = FROM_RE.findall(text)
-    assert images, f"{dockerfile.relative_to(REPO_ROOT)} has no FROM directive"
-    for image in images:
-        # ARG-driven references are compose-controlled; skip.
-        if image.startswith("$") or image.startswith("${"):
-            continue
-        # Digest-pinned (image@sha256:...) is acceptable.
-        if "@sha256:" in image:
-            continue
-        # Otherwise, image must be `name:tag`. Reject untagged or floating-tag.
-        assert ":" in image, (
-            f"{dockerfile.relative_to(REPO_ROOT)} FROM {image!r}: untagged "
-            f"image (rebuilds resolve to :latest). Pin to a patch-version tag."
-        )
-        tag = image.rsplit(":", 1)[1].lower()
-        if not _is_pinned_enough(tag):
-            pytest.fail(
-                f"{dockerfile.relative_to(REPO_ROOT)} FROM {image!r}: "
-                f"tag {tag!r} is not patch-version-pinned. Use "
-                f"major.minor.patch (e.g. python:3.12.7-slim, "
-                f"apache/airflow:3.3.1) or a digest (image@sha256:...)."
-            )
+    """Every literal or ARG-defaulted FROM must use an exact release or digest."""
+    _assert_pinned_images(
+        dockerfile.read_text(encoding="utf-8"),
+        dockerfile.relative_to(REPO_ROOT),
+    )
 
 
 def test_at_least_one_dockerfile_discovered() -> None:

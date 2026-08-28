@@ -95,7 +95,11 @@ def test_non_localhost_options_carry_no_secondary_number():
     steps = _wizard_steps()
     # Worker-count env vars exempt from the "localhost-only" rule.
     # Each is attached to its service's container option(s) by integration.py.
-    WORKER_COUNT_VARS = {"RAY_WORKER_COUNT", "SPARK_WORKER_COUNT"}
+    NON_LOCALHOST_NUMBER_VARS = {
+        "RAY_WORKER_COUNT",
+        "SPARK_WORKER_COUNT",
+        "PROMETHEUS_RETENTION_DAYS",
+    }
     for s in steps:
         for opt in s.options:
             if opt.value and "localhost" not in opt.value:
@@ -103,7 +107,7 @@ def test_non_localhost_options_carry_no_secondary_number():
                     # Allowed exceptions: Ray's container-cpu / container-gpu
                     # rows carry RAY_WORKER_COUNT; Spark's container row
                     # carries SPARK_WORKER_COUNT. Neither is a port.
-                    if opt.secondary_number.env_var in WORKER_COUNT_VARS:
+                    if opt.secondary_number.env_var in NON_LOCALHOST_NUMBER_VARS:
                         continue
                     assert False, (
                         f"Option {s.service_name}/{opt.value} carries a "
@@ -111,3 +115,21 @@ def test_non_localhost_options_carry_no_secondary_number():
                         f"but it's not a -localhost option. "
                         f"This widget is only for localhost ports + Ray/Spark workers."
                     )
+
+
+def test_prometheus_container_option_carries_manifest_secondary_number(tmp_path):
+    empty_env = tmp_path / ".env"
+    empty_env.write_text("")
+    steps = _wizard_steps(env_file=empty_env)
+    step = next(s for s in steps if s.service_name == "Prometheus")
+    container = next(option for option in step.options if option.value == "container")
+    disabled = next(option for option in step.options if option.value == "disabled")
+
+    assert disabled.secondary_number is None
+    config = container.secondary_number
+    assert config is not None
+    assert config.env_var == "PROMETHEUS_RETENTION_DAYS"
+    assert config.default_value == 7
+    assert config.number_min == 1
+    assert config.number_max == 365
+    assert config.unit_suffix == "Retention (days)"

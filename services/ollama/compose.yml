@@ -58,6 +58,7 @@ services:
       # Model lists sourced from env vars (not DB). See pull.sh header.
       OLLAMA_USER_MODELS: ${OLLAMA_USER_MODELS:-}
       OLLAMA_CUSTOM_MODELS: ${OLLAMA_CUSTOM_MODELS:-}
+      OLLAMA_PULL_STALL_TIMEOUT_SECONDS: ${OLLAMA_PULL_STALL_TIMEOUT_SECONDS:-120}
     volumes:
       - ./pull/scripts:/scripts:ro
     entrypoint: ["/scripts/pull.sh"]

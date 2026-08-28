@@ -2,7 +2,7 @@
 
 Generated for issue #410, "blender-mcp: container source — a drivable, in-network Blender for agentic composition in production".
 
-This is an **evaluation artifact**: it records a go/no-go decision framework and the evidence, contracts, thresholds, and threat model that a *separate future implementation ticket* must satisfy **before** a `container` source may ship. It is deliberately **not** an implementation — no `container` source is added, the virtual manifest is not converted, and `BLENDER_MCP_SOURCE` is unchanged (`localhost | disabled`, default `disabled`). It mirrors the existing Atlas evaluation deliverables [`docs/strategy/rag-evaluation-matrix-evaluation.md`](./rag-evaluation-matrix-evaluation.md), [`docs/strategy/authentik-sso-pilot-evaluation.md`](./authentik-sso-pilot-evaluation.md), and [`docs/strategy/infisical-secrets-manager-evaluation.md`](./infisical-secrets-manager-evaluation.md).
+This is an **evaluation artifact**: it records a go/no-go decision framework and the evidence, contracts, thresholds, and threat model that a *separate future implementation ticket* must satisfy **before** a `container` source may ship. It is deliberately **not** an implementation — no `container` source is added, the virtual manifest is not converted, and `BLENDER_MCP_SOURCE` remains `localhost | managed-localhost | disabled` (default `disabled`). It mirrors the existing Atlas evaluation deliverables [`docs/strategy/rag-evaluation-matrix-evaluation.md`](./rag-evaluation-matrix-evaluation.md), [`docs/strategy/authentik-sso-pilot-evaluation.md`](./authentik-sso-pilot-evaluation.md), and [`docs/strategy/infisical-secrets-manager-evaluation.md`](./infisical-secrets-manager-evaluation.md).
 
 Part of the #333 creative-media epic. It complements — and never replaces — the deterministic headless bake worker ([#407 asset-baker](https://github.com/thekaveh/atlas/blob/main/services/asset-baker/README.md)): the "two Blenders" split is a **drivable studio** (this ticket, agentic, GUI/virtual-display) versus a **headless batch worker** (asset-baker, deterministic, `blender -b`).
 
@@ -10,22 +10,22 @@ Part of the #333 creative-media epic. It complements — and never replaces — 
 
 **READY only as an isolated validation spike. A shippable `container` source is CONDITIONAL on that spike meeting the go/no-go thresholds in §7.**
 
-The agentic composition stage (compose → screenshot/render → judge → adjust) genuinely needs a *drivable* Blender the agent can see, and Atlas's `blender-mcp` service is the correct seam. But the container path crosses four unproven risks — add-on behaviour under a virtual display, GPU-less capture fidelity, in-network socket binding, and an arbitrary-code-execution security surface — that must be measured on an isolated spike before any manifest change. Until the spike passes, the production Composer has no in-network Blender and continues to depend on a human-attended host running Blender (`localhost:9876`); that is an accepted, documented gap, not a regression.
+The agentic composition stage (compose → screenshot/render → judge → adjust) genuinely needs a *drivable* Blender the agent can see, and Atlas's `blender-mcp` service is the correct seam. But the container path crosses four unproven risks — add-on behaviour under a virtual display, GPU-less capture fidelity, in-network socket binding, and an arbitrary-code-execution security surface — that must be measured on an isolated spike before any manifest change. Until the spike passes, the production Composer has no in-network Blender. Atlas can run a managed headless host bridge for scene/object/code commands, but viewport capture still requires the human-attended `localhost:9876` GUI source; that is an accepted, documented gap, not a regression.
 
 This evaluation does not itself run Blender containers or report measured benchmark numbers. It defines *what the spike measures*, *the thresholds it must clear*, and *the contracts the eventual `container` source must honour*.
 
 ## 2. Current state on `main`
 
-`services/blender-mcp/service.yml` is a **virtual manifest** (`virtual: true`, `containers: []`) that owns only the source toggle and endpoint hint:
+`services/blender-mcp/service.yml` is a **virtual manifest** (`virtual: true`, `containers: []`) that owns the source toggle, endpoint hint, and managed-host settings:
 
 | Field | Value |
 |---|---|
-| `BLENDER_MCP_SOURCE` | `localhost` (host add-on, `profiles: [default]`) \| `disabled` — **default `disabled`** |
+| `BLENDER_MCP_SOURCE` | `localhost` (operator-run GUI) \| `managed-localhost` (Atlas-managed headless host process) \| `disabled` — **default `disabled`** |
 | `BLENDER_MCP_HOST` | `localhost` |
 | `BLENDER_MCP_LOCALHOST_PORT` | `9876` — documented as "a host-tool port hint, **not** a Kong or container port" |
-| `BLENDER_MCP_ENDPOINT` (auto-managed) | `tcp://${BLENDER_MCP_HOST}:${BLENDER_MCP_LOCALHOST_PORT}` for `localhost`; blank for `disabled` |
+| `BLENDER_MCP_ENDPOINT` (auto-managed) | `tcp://${BLENDER_MCP_HOST}:${BLENDER_MCP_LOCALHOST_PORT}` for either host source; blank for `disabled` |
 
-Posture (see `services/blender-mcp/README.md` §6 "Security & Guardrails"): no container, no Kong route, no exposed stack port, disabled by default, `depends_on` empty, `data_flow.calls: []`. The service is a **development-only host bridge**: the operator runs Blender with the MCP add-on on their own machine and points a host-run MCP client at `tcp://localhost:9876`.
+Posture (see `services/blender-mcp/README.md` §6 "Security & Guardrails"): no container, no Kong route, no exposed stack port, disabled by default, `depends_on` empty, `data_flow.calls: []`. Both modes are host bridges: `localhost` uses an operator-run GUI Blender and add-on, while `managed-localhost` provisions the pinned add-on and launches an Atlas-managed headless Blender process. A host-run MCP client connects at `tcp://localhost:9876`; the headless source supports scene/object/code commands but not GUI-dependent viewport capture.
 
 The endpoint is already modelled as a **raw `tcp://` socket**, not an HTTP URL — the manifest is correct on that point and the container source must preserve it.
 
@@ -111,7 +111,7 @@ A **GO** (spike passes; a `container` source may be built by the future ticket) 
 4. **Intentional in-network binding** achieved via a *pinned, maintained* add-on config/patch — not a fork that can silently drift.
 5. **Threat-model controls (§5) are all implementable** with the chosen base image and Atlas's existing scoped-credential mechanisms.
 
-Any of the following is a **NO-GO** (keep `localhost | disabled`; do not add a container source): blank/garbage screenshots under GPU-less capture; add-on refuses to run or bind under the virtual display without an unmaintainable patch; CPU render latency incompatible with an interactive agent loop; or a threat-model control that cannot be enforced.
+Any of the following is a **NO-GO** (keep `localhost | managed-localhost | disabled`; do not add a container source): blank/garbage screenshots under GPU-less capture; add-on refuses to run or bind under the virtual display without an unmaintainable patch; CPU render latency incompatible with an interactive agent loop; or a threat-model control that cannot be enforced.
 
 ## 8. What NOT to do before a passing spike
 
@@ -125,7 +125,7 @@ Any of the following is a **NO-GO** (keep `localhost | disabled`; do not add a c
 
 When the spike returns **GO**, a follow-up implementation ticket may:
 
-- [ ] Add `container` to `BLENDER_MCP_SOURCE` (→ `container | localhost | disabled`) and convert `services/blender-mcp/` from a virtual manifest to a real container family (`compose.yml`, pinned image, `runtime_sc` for the new source), preserving the existing `localhost` behaviour byte-for-byte.
+- [ ] Add `container` to `BLENDER_MCP_SOURCE` (→ `container | localhost | managed-localhost | disabled`) and convert `services/blender-mcp/` from a virtual manifest to a real container family (`compose.yml`, pinned image, `runtime_sc` for the new source), preserving both existing host-source behaviours byte-for-byte.
 - [ ] Ship the pinned add-on config/patch that binds the `9876` socket to a container-routable interface, reachable as `blender-mcp:9876`; **no Kong route, no host-published port by default**.
 - [ ] Prove the in-network client contract: execute code, import a GLB from MinIO, take a viewport screenshot, and trigger a CPU render written to a MinIO-persisted path — with automated tests (mocked where hardware/GPU-less capture cannot run in CI; a marked, optional live test for the real round-trip).
 - [ ] Persist scene/session state across container restart via the §6 contract (no FUSE).
@@ -140,4 +140,4 @@ When the spike returns **GO**, a follow-up implementation ticket may:
 
 ## 11. Recommendation
 
-Run the §4 spike as an isolated, non-shipping harness on Linux amd64 against pinned revisions. Gate any `container` source strictly on the §7 thresholds, with **viewport screenshot correctness under GPU-less capture** as the single most decisive signal. Keep the shipped service exactly as it is today — virtual, `localhost | disabled`, default `disabled`, out of Kong — until that evidence exists. Keep the Composer agent loop consumer-side; Atlas provides the drivable-Blender substrate, not the agent.
+Run the §4 spike as an isolated, non-shipping harness on Linux amd64 against pinned revisions. Gate any `container` source strictly on the §7 thresholds, with **viewport screenshot correctness under GPU-less capture** as the single most decisive signal. Keep the shipped service exactly as it is today — virtual, `localhost | managed-localhost | disabled`, default `disabled`, out of Kong — until that evidence exists. Keep the Composer agent loop consumer-side; Atlas provides the drivable-Blender substrate, not the agent.

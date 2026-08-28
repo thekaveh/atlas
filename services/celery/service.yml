@@ -92,6 +92,7 @@ depends_on:
     - tika
     - lightrag
     - minio
+    - otel-collector
 
 rows:
   - display_name: "Celery Worker"
@@ -144,3 +145,4 @@ data_flow:
     - tika
     - lightrag
     - minio
+    - otel-collector

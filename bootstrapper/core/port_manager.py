@@ -10,12 +10,29 @@ call to ``port_defaults_for`` is effectively free after the first.
 """
 
 import os
+import errno
 import socket
+from contextlib import ExitStack, suppress
 import re
 from typing import Optional, Dict, List
 from pathlib import Path
 from core.config_parser import ConfigParser, DEFAULT_BASE_PORT
 from utils.atomic_write import atomic_write_text
+
+
+def _bind_probe(family: int, address: tuple) -> tuple[Optional[socket.socket], Exception | None]:
+    probe = None
+    try:
+        probe = socket.socket(family, socket.SOCK_STREAM)
+        if family == socket.AF_INET6:
+            probe.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+        probe.bind(address)
+        return probe, None
+    except Exception as exc:  # availability must fail closed on unknown errors
+        if probe is not None:
+            with suppress(OSError):
+                probe.close()
+        return None, exc
 
 
 def _assignment_pattern(var: str) -> str:
@@ -97,7 +114,12 @@ class PortManager:
 
     def check_port_availability(self, port: int) -> bool:
         """
-        Check if a specific port is available.
+        Check whether wildcard listeners can bind a specific port.
+
+        A connect probe is not a bindability probe: a bound-but-not-listening
+        socket refuses connections, and an IPv6-only listener is invisible to
+        an IPv4 loopback connect. Hold successful IPv4 and IPv6 wildcard binds
+        together so a later Docker/host listener can claim both families.
 
         Args:
             port: Port number to check
@@ -105,13 +127,25 @@ class PortManager:
         Returns:
             bool: True if port is available
         """
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.settimeout(1)
-                result = sock.connect_ex(('127.0.0.1', port))
-                return result != 0  # Port is available if connection fails
-        except Exception:
-            return True  # Assume available on error
+        unsupported_ipv6 = {
+            errno.EAFNOSUPPORT,
+            errno.EPROTONOSUPPORT,
+            errno.EADDRNOTAVAIL,
+        }
+        families = [(socket.AF_INET, ("0.0.0.0", port))]
+        if socket.has_ipv6:
+            families.append((socket.AF_INET6, ("::", port)))
+        with ExitStack() as cleanup:
+            for family, address in families:
+                probe, error = _bind_probe(family, address)
+                if error is not None:
+                    error_number = getattr(error, "errno", None)
+                    if family == socket.AF_INET6 and error_number in unsupported_ipv6:
+                        continue
+                    return False
+                assert probe is not None
+                cleanup.callback(probe.close)
+            return True
 
     def check_port_range_availability(self, base_port: int) -> List[int]:
         """

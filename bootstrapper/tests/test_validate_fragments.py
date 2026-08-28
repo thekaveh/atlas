@@ -53,6 +53,15 @@ def _scaffold_generated_artifacts(project: Path) -> None:
     block = generate_block(services_dir)
     readme_text = f"# Test\n\n{block}\n"
     (project / "README.md").write_text(readme_text)
+    includes = [
+        path.relative_to(project).as_posix()
+        for path in sorted(services_dir.glob("*/compose.yml"))
+    ]
+    if includes:
+        include_lines = "\n".join(f"  - {path}" for path in includes)
+        (project / "docker-compose.yml").write_text(
+            f"include:\n{include_lines}\nservices: {{}}\n"
+        )
 
 
 def test_valid_manifest_exits_clean(
@@ -135,26 +144,28 @@ def test_check_env_example_matches_committed_file(
     project = tmp_path / "project"
     project.mkdir()
     (project / "services").mkdir()
-    redis_dir = project / "services" / "redis"
-    redis_dir.mkdir()
-    (redis_dir / "service.yml").write_text(
+    demo_dir = project / "services" / "demo"
+    demo_dir.mkdir()
+    (demo_dir / "service.yml").write_text(
         yaml.safe_dump(
             {
-                "name": "redis",
-                "label": "Redis",
+                "name": "demo",
+                "label": "Demo",
                 "category": "data",
-                "containers": ["redis"],
+                "containers": ["demo"],
                 "capabilities": _synthetic_capabilities(),
-                "env": [{"name": "REDIS_PORT", "default": 6379}],
+                "env": [{"name": "DEMO_PORT", "default": 1234}],
             }
         )
     )
     # Fragment required by the fragment-containers validator rule.
-    (redis_dir / "compose.yml").write_text(
-        "services:\n  redis:\n    image: redis:latest\n"
+    (demo_dir / "compose.yml").write_text(
+        "services:\n  demo:\n    image: demo:latest\n"
     )
     manifests = load_manifests(project / "services")
-    expected = assemble_env_example(manifests)
+    expected = assemble_env_example(manifests, services_root=project / "services")
+    assert "DEMO_PORT=63010" in expected
+    assert "DEMO_PORT=1234" not in expected
     (project / ".env.example").write_text(expected)
     _scaffold_generated_artifacts(project)
 

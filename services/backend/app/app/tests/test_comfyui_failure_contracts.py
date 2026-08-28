@@ -5,6 +5,7 @@ import importlib.util
 import logging
 from pathlib import Path
 
+import httpx
 import pytest
 
 
@@ -87,6 +88,53 @@ async def test_completion_deadline_bounds_slow_history(monkeypatch):
         "success": False,
         "error": "Timeout waiting for completion",
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancelled", [True, False])
+async def test_cancel_prompt_uses_targeted_job_endpoint(cancelled):
+    import comfyui_client
+
+    calls = []
+
+    def handler(request):
+        calls.append((request.method, request.url.raw_path))
+        return httpx.Response(200, json={"cancelled": cancelled})
+
+    client = comfyui_client.ComfyUIClient()
+    await client.client.aclose()
+    client.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    assert await client.cancel_prompt("prompt/one") is cancelled
+    assert calls == [("POST", b"/api/jobs/prompt%2Fone/cancel")]
+    await client.client.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "payload"),
+    [
+        (500, {"cancelled": False}),
+        (200, None),
+        (200, {}),
+        (200, {"cancelled": 1}),
+        (200, {"cancelled": "true"}),
+    ],
+)
+async def test_cancel_prompt_rejects_failed_or_malformed_response(status, payload):
+    import comfyui_client
+
+    def handler(request):
+        if payload is None:
+            return httpx.Response(status, content=b"invalid-json")
+        return httpx.Response(status, json=payload)
+
+    client = comfyui_client.ComfyUIClient()
+    await client.client.aclose()
+    client.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    assert await client.cancel_prompt("prompt") is False
+    await client.client.aclose()
 
 
 def test_open_webui_tool_propagates_deadline_and_returns_artifact(monkeypatch):

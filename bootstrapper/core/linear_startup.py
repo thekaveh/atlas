@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+import json
+import io
+import os
 import sys
+from contextlib import contextmanager, redirect_stdout
+from contextvars import ContextVar
 from dataclasses import dataclass
+from functools import wraps
 from typing import Any
 
 from utils.submodule_pin_guard import warn_if_submodule_pin_drifted
+
+
+_JSON_CLI_PAYLOAD: ContextVar[list[str | None] | None] = ContextVar(
+    "atlas_json_cli_payload", default=None
+)
 
 
 @dataclass(frozen=True)
@@ -31,6 +42,99 @@ class LinearStartupOptions:
 
 def run_linear_startup(starter: Any, options: LinearStartupOptions) -> int:
     """Run the non-Textual startup sequence and return a process exit code."""
+    if not options.json_output:
+        return _run_linear_startup(starter, options)
+
+    outer_payload = _JSON_CLI_PAYLOAD.get()
+    if outer_payload is not None:
+        return _run_linear_startup(starter, options, summary_payload=outer_payload)
+
+    json_stdout = sys.stdout
+    summary_payload = [None]
+    with _pipeline_stdout_to_stderr():
+        code = _run_linear_startup(
+            starter,
+            options,
+            summary_payload=summary_payload,
+        )
+    if summary_payload[0] is None:
+        print(json.dumps({"ok": code == 0, "exit_code": code}), file=json_stdout)
+    else:
+        print(summary_payload[0], end="", file=json_stdout)
+    return code
+
+
+def json_cli_guard(func):
+    """Reserve stdout for one terminal JSON document for a whole CLI run."""
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        invoked_subcommand = bool(
+            args and getattr(args[0], "invoked_subcommand", None)
+        )
+        if invoked_subcommand or not kwargs.get("json_output", False):
+            return func(*args, **kwargs)
+
+        json_stdout = sys.stdout
+        payload: list[str | None] = [None]
+        token = _JSON_CLI_PAYLOAD.set(payload)
+        caught: BaseException | None = None
+        result = None
+        try:
+            with _pipeline_stdout_to_stderr():
+                try:
+                    result = func(*args, **kwargs)
+                except BaseException as exc:  # re-raised after terminal JSON
+                    caught = exc
+        finally:
+            _JSON_CLI_PAYLOAD.reset(token)
+
+        if caught is None:
+            exit_code = 0
+        elif isinstance(caught, SystemExit) and isinstance(caught.code, int):
+            exit_code = caught.code
+        else:
+            exit_code = int(getattr(caught, "exit_code", 1) or 1)
+        terminal = payload[0] or json.dumps(
+            {"ok": exit_code == 0, "exit_code": exit_code}
+        ) + "\n"
+        print(terminal, end="", file=json_stdout)
+        if caught is not None:
+            setattr(caught, "_atlas_json_emitted", True)
+            raise caught
+        return result
+
+    return wrapped
+
+
+@contextmanager
+def _pipeline_stdout_to_stderr():
+    """Route Python and inherited child-process stdout to stderr."""
+    saved_fd = None
+    stdout_fd = 1
+    try:
+        sys.stdout.flush()
+        saved_fd = os.dup(stdout_fd)
+        os.dup2(2, stdout_fd)
+    except OSError:
+        if saved_fd is not None:
+            os.close(saved_fd)
+        saved_fd = None
+    try:
+        with redirect_stdout(sys.stderr):
+            yield
+    finally:
+        if saved_fd is not None:
+            sys.stderr.flush()
+            os.dup2(saved_fd, stdout_fd)
+            os.close(saved_fd)
+
+
+def _run_linear_startup(
+    starter: Any,
+    options: LinearStartupOptions,
+    *,
+    summary_payload: list[str | None] | None = None,
+) -> int:
     starter.no_splash = options.no_splash
     starter.profile = options.profile
     starter.show_banner()
@@ -126,8 +230,12 @@ def run_linear_startup(starter: Any, options: LinearStartupOptions) -> int:
     starter.show_container_status_and_verify_ports()
     starter.check_comfyui_models()
     if options.detach:
-        return 0 if starter.show_detached_status_summary(
-            json_output=options.json_output
-        ) else 1
-    starter.show_container_logs()
-    return 0
+        if options.json_output:
+            assert summary_payload is not None
+            capture = io.StringIO()
+            with redirect_stdout(capture):
+                ok = starter.show_detached_status_summary(json_output=True)
+            summary_payload[0] = capture.getvalue()
+            return 0 if ok else 1
+        return 0 if starter.show_detached_status_summary(json_output=False) else 1
+    return starter.show_container_logs()

@@ -54,9 +54,9 @@ Throughout: `Up/Down` to move, `Enter` to confirm, `Space` to toggle multiselect
 
 ### 4.1. LLM Engine (single-select)
 
-`LLM_PROVIDER_SOURCE` choice — `ollama-container-cpu`, `ollama-container-gpu`, `ollama-localhost`, or `none` (cloud-only). LiteLLM is locked / always-on and is **not** a separate prompt — it's the mandatory front door for every LLM consumer.
+`LLM_PROVIDER_SOURCE` choice — `ollama-container-cpu`, `ollama-container-gpu`, `ollama-localhost`, or `none` (no Ollama upstream). LiteLLM is locked / always-on and is **not** a separate prompt — it is the default front door for Atlas-managed LLM consumers. vLLM Metal is configured by its own later service prompt in the **Generative AI · Engineering** and **All / Custom** tracks; selections that do not include it force-disable it without prompting.
 
-The wizard refuses to launch when **LLM Engine = `none`** **and** every cloud provider is `disabled` — that combination would leave LiteLLM with nothing to route to.
+The wizard refuses to launch when **LLM Engine = `none`**, vLLM Metal is disabled, **and** every cloud provider is disabled — that combination would leave LiteLLM with nothing to route to. A managed vLLM-Metal-only stack is valid.
 
 ### 4.2. Ollama  ·  models (multiselect)
 

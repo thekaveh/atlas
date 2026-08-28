@@ -69,6 +69,14 @@ fi
 echo "ollama-pull: Models to pull:"
 echo "$_raw_list"
 
+pull_stall_timeout="${OLLAMA_PULL_STALL_TIMEOUT_SECONDS:-120}"
+case "$pull_stall_timeout" in
+  ''|*[!0-9]*|0)
+    echo "ollama-pull: ERROR - OLLAMA_PULL_STALL_TIMEOUT_SECONDS must be a positive integer." >&2
+    exit 1
+    ;;
+esac
+
 echo "$_raw_list" | while IFS= read -r model_clean; do
   if [ -n "$model_clean" ]; then
     echo "ollama-pull: Pulling $model_clean model from $OLLAMA_HOST_URL..."
@@ -87,7 +95,9 @@ echo "$_raw_list" | while IFS= read -r model_clean; do
     pulled=0
     while [ "$attempt" -le "$max_attempts" ]; do
       curl_exit_code=0
-      curl_output=$(curl -sf -X POST "$OLLAMA_HOST_URL/api/pull" -d "$json_payload" 2>&1) || curl_exit_code=$?
+      curl_output=$(curl -sf --connect-timeout 20 \
+        --speed-time "$pull_stall_timeout" --speed-limit 1024 \
+        -X POST "$OLLAMA_HOST_URL/api/pull" -d "$json_payload" 2>&1) || curl_exit_code=$?
       echo "ollama-pull: Curl exit code: $curl_exit_code (attempt $attempt/$max_attempts)"
       echo "ollama-pull: Curl output: $curl_output"
       if [ "$curl_exit_code" -eq 0 ] && ! printf '%s' "$curl_output" | grep -q '"error"'; then

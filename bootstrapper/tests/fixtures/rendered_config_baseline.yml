@@ -430,7 +430,7 @@ services:
         required: false
       weaviate-init:
         condition: service_completed_successfully
-        required: true
+        required: false
     deploy:
       replicas: 1
     environment:
@@ -463,6 +463,7 @@ services:
       COMFYUI_BASE_URL: http://comfyui:18188
       COMFYUI_COMPLETION_TIMEOUT_SECONDS: '300'
       COMFYUI_ENABLED: 'true'
+      COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS: ''
       COMFYUI_MANIFEST_PATH: /comfyui-manifest/selected-models.yaml
       COMFYUI_MAX_IMAGE_BYTES: '20971520'
       COMFYUI_SOURCE: container-cpu
@@ -700,6 +701,7 @@ services:
     deploy:
       replicas: 0
     environment:
+      ATLAS_OTEL_ENABLED: 'false'
       CELERY_BROKER_URL: ''
       CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS: '3600'
       CELERY_QUEUE: atlas
@@ -726,6 +728,9 @@ services:
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
       MINIO_ENDPOINT: ''
       N8N_BASE_URL: http://n8n:5678
+      OTEL_EXPORTER_OTLP_ENDPOINT: ''
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: backend-celery-worker
       PROJECT_NAME: atlas
       RAG_INGESTION_CORPUS_ROOT: /app/corpus
       RAG_INGESTION_EXECUTION_LEASE_SECONDS: '30'
@@ -3076,6 +3081,7 @@ services:
     environment:
       OLLAMA_CUSTOM_MODELS: ''
       OLLAMA_HOST_URL: ''
+      OLLAMA_PULL_STALL_TIMEOUT_SECONDS: "120"
       OLLAMA_USER_MODELS: qwen3.8:latest,nomic-embed-text,qwen3-embedding:0.6b
     extra_hosts:
     - host.docker.internal=
@@ -4049,6 +4055,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 5432
       published: '63012'
       protocol: tcp
@@ -4325,7 +4332,7 @@ services:
   tei-reranker:
     command:
     - --model-id=mixedbread-ai/mxbai-rerank-base-v1
-    - --revision=main
+    - --revision=800f24c113213a187e65bde9db00c15a2bb12738
     - --max-client-batch-size=32
     - --port=80
     container_name: atlas-tei-reranker

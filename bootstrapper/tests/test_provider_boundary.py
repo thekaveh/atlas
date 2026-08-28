@@ -453,6 +453,34 @@ def test_deadline_wrapper_defers_cancellation_until_native_work_settles(monkeypa
     assert asyncio.run(scenario()) is False
 
 
+def test_deadline_wrapper_defers_repeated_cancellation_until_native_settles(
+    monkeypatch,
+):
+    boundary = _load_boundary()
+    started = threading.Event()
+    release = threading.Event()
+    monkeypatch.setattr(boundary, "parse_timeout_seconds", lambda prefix: 30)
+
+    def native_work():
+        started.set()
+        release.wait(timeout=5)
+        return "settled"
+
+    async def scenario():
+        task = asyncio.create_task(boundary.run_with_deadline("DOCLING", native_work))
+        assert await asyncio.to_thread(started.wait, 1)
+        task.cancel()
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0.02)
+        assert task.done() is False
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+
+
 def test_cancelled_native_timeout_uses_direct_process_terminator(monkeypatch):
     boundary = _load_boundary()
     started = threading.Event()

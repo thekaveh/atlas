@@ -23,21 +23,42 @@ uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu
 uv pip install torch torchvision
 ```
 
-### 1.2. Start the Server
+### 1.2. Generate the Atlas Credential
+
+From the repository root, start Atlas once so it generates and preserves
+`DOCLING_API_TOKEN` in `.env` before the provider imports its settings:
 
 ```bash
+# Terminal 1: return to the repository root after §1.1
+cd ../../../..
+./start.sh --doc-processor-source docling-localhost
+```
+
+Starting the provider first leaves the already-running process without the
+generated token; restart it after Atlas creates `.env` if you did so.
+
+### 1.3. Start the Server
+
+```bash
+# Terminal 2, opened at the repository root
+cd services/docling/provider/localhost
 uv run server.py
 ```
 
-The server will start on `http://0.0.0.0:18159` by default (reads `DOCLING_LOCALHOST_PORT` from environment).
+The server loads the repository `.env` at process import and starts on
+`http://127.0.0.1:18159` by default (using `DOCLING_LOCALHOST_PORT` and
+`DOCLING_API_TOKEN`).
 
 **First run:** Downloads AI models (~500MB - DocLayNet + TableFormer). Please be patient (5-10 minutes).
 **Subsequent runs:** Instant startup.
 
-### 1.3. Test the API
+### 1.4. Test the API
 
 ```bash
+# Terminal 3, opened at the repository root while Atlas and the provider run
+export DOCLING_API_TOKEN="$(sed -n 's/^DOCLING_API_TOKEN=//p' .env)"
 curl -X POST http://localhost:18159/v1/document/convert \
+  -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
   -F "file=@document.pdf" \
   -F "output_format=markdown" \
   -F "table_mode=accurate"
@@ -51,6 +72,12 @@ Set before running server:
 
 ```bash
 export DOCLING_LOCALHOST_PORT=18159      # Server port (default: 18159)
+export DOCLING_LOCALHOST_BIND_HOST=127.0.0.1
+export DOCLING_API_TOKEN="$(sed -n 's/^DOCLING_API_TOKEN=//p' ../../../../.env)"
+export DOCLING_AUTH_MODE=required
+export DOCLING_MAX_FILE_SIZE=52428800
+export DOCLING_UPLOAD_TIMEOUT_SECONDS=120
+export DOCLING_INFERENCE_TIMEOUT_SECONDS=900
 export DOCLING_DEVICE=cpu                # Device: cpu, cuda, mps
 export DOCLING_OUTPUT_FORMAT=markdown    # Format: markdown, html, json, doctags
 export DOCLING_USE_OCR=auto              # OCR: auto, always, never
@@ -94,10 +121,14 @@ uv run server.py
 
 ## 4. API Examples
 
+The examples below assume `DOCLING_API_TOKEN` was exported from the generated
+repository `.env` as shown in §1.4.
+
 ### 4.1. Basic Conversion
 
 ```bash
 curl -X POST http://localhost:18159/v1/document/convert \
+  -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
   -F "file=@report.pdf" \
   -F "output_format=markdown"
 ```
@@ -106,6 +137,7 @@ curl -X POST http://localhost:18159/v1/document/convert \
 
 ```bash
 curl -X POST http://localhost:18159/v1/document/convert \
+  -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
   -F "file=@scanned.pdf" \
   -F "use_ocr=always" \
   -F "table_mode=accurate"
@@ -115,6 +147,7 @@ curl -X POST http://localhost:18159/v1/document/convert \
 
 ```bash
 curl -X POST http://localhost:18159/v1/document/convert \
+  -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
   -F "file=@document.docx" \
   -F "enable_chunking=true" \
   -F "chunk_size=512" \
@@ -143,23 +176,28 @@ curl -X POST http://localhost:18159/v1/document/convert \
 ### 6.1. Method 1: Localhost Mode (Recommended)
 
 ```bash
-# Terminal 1: Start doc processor
+# Terminal 1, repository root: generate/preserve .env credentials and run Atlas
+./start.sh --doc-processor-source docling-localhost
+
+# Terminal 2, after Atlas has generated .env: start the provider
 cd services/docling/provider/localhost
 uv run server.py
-
-# Terminal 2: Start stack
-./start.sh --doc-processor-source docling-localhost
 ```
+
+Atlas remains in the foreground in Terminal 1; use the separate Terminal 2 for
+the native provider.
 
 ### 6.2. Method 2: With Custom Base Port
 
 ```bash
-# Terminal 1: Export port from .env (repo root is four levels up)
-export DOCLING_LOCALHOST_PORT=$(grep '^DOCLING_LOCALHOST_PORT' ../../../../.env | cut -d'=' -f2)
-uv run server.py
-
-# Terminal 2: Start stack with custom port
+# Terminal 1, repository root: start Atlas first
 ./start.sh --base-port 55000 --doc-processor-source docling-localhost
+
+# Terminal 2, repository root: export the generated provider settings
+export DOCLING_LOCALHOST_PORT="$(sed -n 's/^DOCLING_LOCALHOST_PORT=//p' .env)"
+export DOCLING_API_TOKEN="$(sed -n 's/^DOCLING_API_TOKEN=//p' .env)"
+cd services/docling/provider/localhost
+uv run server.py
 ```
 
 ### 6.3. Method 3: Permanent Configuration
@@ -171,7 +209,12 @@ DOC_PROCESSOR_SOURCE=docling-localhost
 
 Then start stack:
 ```bash
+# Terminal 1, repository root
 ./start.sh
+
+# Terminal 2, after Atlas has generated/preserved the credential
+cd services/docling/provider/localhost
+uv run server.py
 ```
 
 ## 7. Performance
@@ -280,10 +323,12 @@ Override with `DOCLING_DEVICE` environment variable.
 
 ```python
 import requests
+import os
 
 with open("document.pdf", "rb") as f:
     response = requests.post(
         "http://localhost:18159/v1/document/convert",
+        headers={"Authorization": f"Bearer {os.environ['DOCLING_API_TOKEN']}"},
         files={"file": f},
         data={
             "output_format": "markdown",
@@ -305,6 +350,7 @@ print(f"Found {result['metadata']['tables']} tables")
 # Process multiple files
 for file in *.pdf; do
   curl -X POST http://localhost:18159/v1/document/convert \
+    -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
     -F "file=@$file" \
     -F "output_format=markdown" \
     > "${file%.pdf}.md"

@@ -12,17 +12,28 @@
 ARG BASE_IMAGE=python:3.12.7-slim
 FROM ${BASE_IMAGE}
 
+# The pinned base predates current Debian security packages. Apply available
+# fixes at build time; the required image scan verifies the resulting runtime.
+RUN apt-get update && \
+    apt-get upgrade --yes && \
+    rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1
 
-# Pin to current stable releases so a future upstream regression doesn't
-# silently land at docker build time (open-webui-init isn't built by CI).
-# Floors verified satisfiable against PyPI on 2026-06-07.
+# Exact pins mirror the repository-owned, vulnerability-audited shared init
+# closure in services/requirements-init-locked.txt. The build context is this
+# service directory, so the repository gate verifies these inline pins against
+# that central lock instead of copying a file from outside the context.
 RUN pip install --no-cache-dir \
-    requests==2.32.3 \
+    certifi==2026.7.22 \
+    charset-normalizer==3.5.1 \
+    idna==3.19 \
     psycopg2-binary==2.9.9 \
-    PyJWT==2.10.1
+    PyJWT==2.13.0 \
+    requests==2.33.0 \
+    urllib3==2.7.0
 
 COPY scripts/ /app/scripts/
 RUN chmod +x /app/scripts/*.py

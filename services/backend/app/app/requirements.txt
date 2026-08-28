@@ -22,6 +22,7 @@ opentelemetry-sdk>=1.30.0
 opentelemetry-exporter-otlp-proto-http>=1.30.0
 opentelemetry-instrumentation-fastapi>=0.51b0
 opentelemetry-instrumentation-httpx>=0.51b0
+opentelemetry-instrumentation-celery>=0.51b0
 
 # Database
 sqlmodel>=0.0.39
@@ -94,6 +95,6 @@ requests>=2.33.0
 # Manifest reading (comfyui selected-models.yaml)
 pyyaml>=6.0
 
-# Ray (distributed compute) — pin <2.57 so client/server stay in lockstep
+# Ray (distributed compute) — exact pin keeps client/server in lockstep
 # with the rayproject/ray:2.56.0 image; bump together when the image bumps.
-ray[client]>=2.56.0,<2.57
+ray[client]==2.56.0

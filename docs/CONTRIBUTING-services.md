@@ -147,7 +147,7 @@ Three legitimate flavors of folder live under `services/`. Pick the right one be
 
 Every manifest declares one of six categories. The category drives two things: the wizard block your row renders in, and the port-slot block your service draws from.
 
-| Category | Wizard block | Services currently in this category | When to pick |
+| Category | Wizard block | Representative services (not exhaustive) | When to pick |
 |---|---|---|---|
 | `infra` | Infra | Kong, globals, Prometheus, Grafana, Ray, backup, cloudflared | Gateways, project-wide config, observability, prod-readiness |
 | `data` | Data | Supabase, Redis, MinIO, Neo4j, Weaviate (+ `multi2vec-clip` as a Weaviate sub-module), Spark | Databases, caches, object storage |
@@ -189,7 +189,7 @@ Every user-configurable service has an `<SVC>_SOURCE` env var. The wizard reads 
 - **`requires:` per option.** Use `requires: [<ENV_VAR>]` on a source option to declare prerequisite env vars (e.g. `localhost` typically requires `<SVC>_LOCALHOST_PORT`).
 - **`profiles:` per option (deployment-profile gating).** Add `profiles: [default]` to any source option that is dev-only and unreachable on a remote prod host — `localhost` variants in particular, since `host.docker.internal` doesn't point anywhere useful on a managed server. Omitting `profiles:` means "offered in every profile" (the right choice for `container` / `disabled`). The annotation drives two things: the wizard hides non-matching options under `--profile prod`, and `bootstrapper/services/source_validator.py::validate_sources_for_profile` rejects them with an explicit error. Note the manifest-validator lint only fires when a service has **no** prod-eligible option left, so a single unannotated `container` option keeps CI green — you must add `profiles: [default]` to each dev-only option yourself. The matching Python predicate is `option_in_profile` in `bootstrapper/services/manifests.py`. The profile *bundles* themselves live in `bootstrapper/profiles.yml` (#755) — platform-defined `default`/`prod` maps of `sources`/`env`/`host_bind_ip` that `apply_profile_overrides` applies declaratively at start; consumers override individual fields via `profile_overrides:` in `atlas.consumer.yml` (see [deployment/reusing-atlas.md §6.1](deployment/reusing-atlas.md)).
 - **`<SVC>_LOCALHOST_PORT` as the single source of truth.** If you offer `localhost`, declare a `<SVC>_LOCALHOST_PORT` env var (integer string, defaulting to the upstream's standard host port). The URL is then derived at compose-render time and Kong-config-generation time as `http://host.docker.internal:${<SVC>_LOCALHOST_PORT:-<default>}`. Both the in-container consumers (`runtime_sc.<svc>.localhost.environment`) AND the Kong route generator (`bootstrapper/utils/kong_config_generator.py`) MUST read the same PORT var so the two paths agree on where the localhost upstream lives. The wizard surfaces an inline integer textbox on the `localhost` row so users can override it without editing `.env`. See PR #10 + the localhost-port-override CHANGELOG entry under [Unreleased] for the design rationale; the symmetry rule is captured in [Common gotchas](#14-common-gotchas--anti-patterns) below.
-- **`runtime_sc` slice per source.** Every source variant declared in `sources.options` should have a matching `runtime_sc.<key>.<source>` slice with `scale`, `environment`, `deploy`, `extra_hosts`. The manifest validator does NOT currently check coverage — a missing slice silently scales that source to 0 — so add a slice for every option you declare.
+- **`runtime_sc` slice per source.** Every source variant declared in `sources.options` must have a matching `runtime_sc.<key>.<source>` slice with `scale`, `environment`, `deploy`, and `extra_hosts`. The manifest validator enforces this as `runtime_sc_missing_variant`, preventing a declared option from silently scaling to 0.
 - **`auto_prefer:` (opt-in `<SVC>_SOURCE: auto` support, #753).** An ordered preference list on the `sources:` block that lets consumers commit `<SVC>_SOURCE: auto` in `atlas.consumer.yml`: the resolver picks the first entry whose `requires_capability` holds on the host (`apple_silicon` / `nvidia_gpu` / `host_ollama`, probed by `bootstrapper/services/host_capabilities.py`) and whose option the active profile offers. The last entry must be unconditional (no `requires_capability`) — the terminal fallback, typically the CPU container — and every id must be one of `options[].id`; both are lint-enforced (`_check_auto_prefer_integrity`). Omit `auto_prefer` for services where `auto` makes no sense (they then resolve to `default` with a warning). See `services/comfyui/service.yml` and `services/ollama/service.yml` for the reference shapes.
 
 > **Worked example — Qdrant:** Most users won't already run Qdrant locally, so `container` is the primary path. We offer three variants — `external` is deliberately omitted per the stack-wide moratorium noted above:
@@ -502,26 +502,29 @@ uv run --project bootstrapper python -m services.env_assembler
 # 2. Regenerate README.md TOPOLOGY block (auto-includes the new row)
 uv run --project bootstrapper python -m tools.generate_readme_topology
 
-# 3. (top-level architecture diagram — hand-authored; no regen step)
-#    Update docs/diagrams/architecture.svg by hand via the
-#    architecture-diagram skill if your service materially changes the
-#    full-stack topology (new category band, new always-on tier, etc.).
-
-# 4. Lint — fails if any of steps 1-3 were skipped
-uv run --project bootstrapper python -m tools.validate_fragments
-
-# 5. (Optional, recommended for new manifests) Regen per-service README + diagram
+# 3. Generate the per-service README and diagrams
+#    (required when the new manifest owns a same-folder README)
 PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen qdrant
 # After this, services/qdrant/{README.md, architecture.svg, architecture.html} exist.
+
+# 4. Update docs/diagrams/architecture.html and docs/diagrams/architecture.svg together
+#    via the architecture-diagram skill if the full-stack topology changes.
+#    Render the committed PNG, then refresh the generated surfaces.
+uv run --project bootstrapper python -m scripts.docs.render_diagrams
+make docs-build
+
+# 5. Lint manifests and all three documentation surfaces
+uv run --project bootstrapper python -m tools.validate_fragments
+make docs-check
 ```
 
 **When to re-run each step:**
 
 - **`env_assembler`** — after any change to a manifest's `env:` block, port allocation, or source variants.
 - **`generate_readme_topology`** — after any change to a manifest's `rows:`, `display_name`, `category`, or `alias`.
-- **Top-level `docs/diagrams/architecture.svg`** — hand-authored; touch ONLY when a service is added/removed at the band-level (new category, new gateway, etc.). Routine `data_flow.calls` edits flow into per-service diagrams via `bootstrapper.docs.regen`.
-- **`validate_fragments`** — always, as the final check before committing.
-- **`docs.regen`** — only after creating a new service, or after editing `data_flow.calls` on an existing service. The drift gate in CI (`bootstrapper.docs.regen --all --check`) catches stale per-service READMEs/SVGs/HTMLs.
+- **Top-level `docs/diagrams/architecture.html` and `architecture.svg`** — hand-authored masters; update both when a service is added or removed at the band level (new category, new gateway, and similar topology changes). After either master changes, run `python -m scripts.docs.render_diagrams` as shown above before `make docs-build`. Routine `data_flow.calls` edits flow into per-service diagrams via `bootstrapper.docs.regen`.
+- **`validate_fragments`** — always, before the final `make docs-check` gate.
+- **`docs.regen`** — required after creating a new service that owns a same-folder README, or after editing `data_flow.calls` on an existing service. Manifests whose `docs:` field points to an aggregate/doc-only README are exempt from same-folder generation. The drift gate in CI (`bootstrapper.docs.regen --all --check`) catches stale existing per-service READMEs/SVGs/HTMLs.
 
 **No external prerequisites.** Graphviz used to be required for the top-level diagram regen; that step is retired now that the diagram is hand-authored via the architecture-diagram skill.
 

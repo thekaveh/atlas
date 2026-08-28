@@ -201,7 +201,7 @@ def test_llm_rules_has_no_module_scope_framework_imports():
 
     import wizard.model.llm_rules as mod
 
-    source = open(mod.__file__, encoding="utf-8").read()
+    source = Path(mod.__file__).read_text(encoding="utf-8")
     banned = re.compile(r"^\s*(?:import|from)\s+(?:vmx|textual)\b", re.MULTILINE)
     match = banned.search(source)
     assert match is None, f"found banned import line: {match.group(0)!r}"

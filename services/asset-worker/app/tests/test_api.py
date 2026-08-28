@@ -43,6 +43,82 @@ def test_metrics_are_available_without_asset_token() -> None:
     assert "http_requests_total" in response.text
 
 
+class _BucketProbeError(Exception):
+    def __init__(self, code: str, status: int) -> None:
+        super().__init__(code)
+        self.response = {
+            "Error": {"Code": code},
+            "ResponseMetadata": {"HTTPStatusCode": status},
+        }
+
+
+@pytest.mark.parametrize("code", ["404", "NoSuchBucket", "NotFound"])
+def test_bucket_probe_creates_only_when_bucket_is_missing(code) -> None:
+    from asset_worker.storage import ArtifactStorage
+
+    class Client:
+        created = []
+
+        def head_bucket(self, **_kwargs):
+            raise _BucketProbeError(code, 404)
+
+        def create_bucket(self, **kwargs):
+            self.created.append(kwargs)
+
+    client = Client()
+    ArtifactStorage._ensure_bucket(client, "artifacts")
+    assert client.created == [{"Bucket": "artifacts"}]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [_BucketProbeError("AccessDenied", 403), TimeoutError("probe timed out")],
+)
+def test_bucket_probe_propagates_non_missing_failures(error) -> None:
+    from asset_worker.storage import ArtifactStorage
+
+    class Client:
+        created = []
+
+        def head_bucket(self, **_kwargs):
+            raise error
+
+        def create_bucket(self, **kwargs):
+            self.created.append(kwargs)
+
+    client = Client()
+    with pytest.raises(type(error), match=str(error)):
+        ArtifactStorage._ensure_bucket(client, "artifacts")
+    assert client.created == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("Error", "malformed"), ("ResponseMetadata", ["malformed"])],
+)
+def test_bucket_probe_preserves_error_with_malformed_nested_response(
+    field, value
+) -> None:
+    from asset_worker.storage import ArtifactStorage
+
+    error = RuntimeError("probe failed")
+    error.response = {field: value}
+
+    class Client:
+        created = []
+
+        def head_bucket(self, **_kwargs):
+            raise error
+
+        def create_bucket(self, **kwargs):
+            self.created.append(kwargs)
+
+    client = Client()
+    with pytest.raises(RuntimeError, match="probe failed"):
+        ArtifactStorage._ensure_bucket(client, "artifacts")
+    assert client.created == []
+
+
 def test_multipart_glb_postprocess_stores_content_addressed_local_artifact(
     monkeypatch, tmp_path
 ) -> None:
@@ -355,6 +431,8 @@ def test_cancelled_request_holds_slot_until_transform_thread_exits(
                 )
             )
             assert await asyncio.to_thread(started.wait, 2)
+            first.cancel()
+            await asyncio.sleep(0)
             first.cancel()
             await asyncio.sleep(0.05)
 

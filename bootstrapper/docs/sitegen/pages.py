@@ -22,13 +22,19 @@ ARCHITECTURE_PERSPECTIVES: dict[str, tuple[str, str, list[str]]] = {
     ),
     "source-configuration-model": (
         "SOURCE Configuration Model",
-        "Container, localhost, disabled, none, cloud-provider enablement, and adaptive-service behavior.",
-        ["SOURCE Var", "container", "localhost", "disabled", "none", "cloud enabled", "adaptive apps"],
+        "Container, localhost, disabled, none, cloud-provider and managed-vLLM enablement, and adaptive-service behavior.",
+        [
+            "SOURCE Var", "container", "localhost", "disabled", "none",
+            "cloud enabled", "vLLM Metal", "adaptive apps",
+        ],
     ),
     "track-selection-matrix": (
         "Track Selection Matrix",
         "How Atlas tracks map to service families and force-disable out-of-track services.",
-        ["Tracks", "Wizard", "Service Families", "Enabled", "Force Disabled", "Overrides"],
+        [
+            "Tracks", "Wizard", "Service Families", "Enabled",
+            "Force Disabled", "Overrides", "Selected Source", "Disabled",
+        ],
     ),
     "network-routing-topology": (
         "Network And Routing Topology",
@@ -38,27 +44,41 @@ ARCHITECTURE_PERSPECTIVES: dict[str, tuple[str, str, list[str]]] = {
     "data-rag-flow": (
         "Data And RAG Flow",
         "Ingestion, document processing, object storage, vector and graph stores, backend APIs, Open WebUI, and tool/MCP-adjacent flows.",
-        ["Ingestion", "Doc Processing", "MinIO", "Weaviate", "Neo4j", "Backend", "Open WebUI"],
+        ["Ingestion", "Doc Processing", "MinIO", "Weaviate", "LightRAG", "Neo4j", "Backend", "Open WebUI"],
     ),
     "llm-provider-flow": (
         "LLM Provider Flow",
-        "Ollama, LiteLLM, cloud passthroughs, Open WebUI, backend, MCP/tool access, and trace hooks.",
-        ["Open WebUI", "Backend", "LiteLLM", "Ollama", "Cloud LLMs", "Tools", "Tracing"],
+        "Ollama, managed vLLM Metal, LiteLLM, cloud passthroughs, Open WebUI, backend, MCP/tool access, and trace hooks.",
+        [
+            "Open WebUI", "Backend", "LiteLLM", "Ollama", "vLLM Metal",
+            "Cloud LLMs", "Tools", "Tracing",
+        ],
     ),
     "data-engineering-lakehouse-flow": (
         "Data Engineering Lakehouse Flow",
-        "MinIO, Iceberg REST, Spark, JupyterHub, Zeppelin, Airflow, Trino, and Redpanda.",
-        ["MinIO", "Iceberg REST", "Spark", "JupyterHub", "Zeppelin", "Airflow", "Trino", "Redpanda"],
+        "MinIO, Iceberg REST, Supabase Postgres, Spark, JupyterHub, Zeppelin, Airflow, Trino, and Redpanda.",
+        [
+            "MinIO", "Iceberg REST", "Supabase/Postgres", "Spark",
+            "JupyterHub", "Zeppelin", "Airflow", "Trino", "Redpanda",
+        ],
     ),
     "observability-flow": (
         "Observability Flow",
         "Prometheus, Grafana, Langfuse, OpenTelemetry Collector, Tempo, Loki, and service instrumentation boundaries.",
-        ["Services", "OTel Collector", "Prometheus", "Grafana", "Langfuse", "Tempo", "Loki"],
+        [
+            "Backend", "Celery Workers", "LiteLLM", "Atlas Services",
+            "OTel Collector", "Prometheus", "Grafana", "Langfuse", "Tempo", "Loki",
+        ],
     ),
     "security-auth-secrets-boundary": (
         "Security, Auth, And Secrets Boundary",
-        "Supabase, Kong, service auth notes, API keys, local secrets, cloud keys, and intentionally unauthenticated local surfaces.",
-        ["Clients", "Kong", "Supabase Auth", "Service APIs", "Local Secrets", "Cloud Keys", "Local-only UIs"],
+        "Route-specific Kong controls, backend identity validation, application-enforced plugin keys, runtime secrets, and explicitly public or operator-trusted surfaces.",
+        [
+            "Gateway Clients", "Direct Clients", "Kong", "Kong Route Policies",
+            "Routed Services", "Backend API", "Supabase Auth", "Backend Identity",
+            "Plugin Key Auth", "Protected APIs", "Public APIs", "Runtime Secrets",
+            "Trusted UIs",
+        ],
     ),
     "service-admission-workflow": (
         "Service Admission Workflow",
@@ -80,6 +100,7 @@ ARCHITECTURE_SOURCE_FILES: dict[str, list[str]] = {
         "bootstrapper/services/manifests.py",
         "bootstrapper/tracks.yml",
         "bootstrapper/services/topology.py",
+        "services/vllm-metal/service.yml",
     ],
     "track-selection-matrix": [
         "bootstrapper/tracks.yml",
@@ -101,14 +122,23 @@ ARCHITECTURE_SOURCE_FILES: dict[str, list[str]] = {
         "services/litellm/service.yml",
         "services/litellm/models.yaml",
         "services/ollama/service.yml",
+        "services/vllm-metal/service.yml",
     ],
     "data-engineering-lakehouse-flow": [
+        "services/jupyterhub/service.yml",
+        "services/zeppelin/service.yml",
+        "services/airflow/service.yml",
+        "services/redpanda/service.yml",
         "services/minio/service.yml",
         "services/trino/service.yml",
         "services/iceberg-rest/service.yml",
         "services/spark/service.yml",
+        "services/supabase/service.yml",
     ],
     "observability-flow": [
+        "services/backend/service.yml",
+        "services/celery/service.yml",
+        "services/litellm/service.yml",
         "services/prometheus/service.yml",
         "services/grafana/service.yml",
         "services/loki/service.yml",
@@ -118,11 +148,20 @@ ARCHITECTURE_SOURCE_FILES: dict[str, list[str]] = {
     "security-auth-secrets-boundary": [
         "services/kong/service.yml",
         "services/supabase/service.yml",
+        "services/backend/service.yml",
+        "services/backend/app/app/backend_identity.py",
+        "services/backend/app/app/main.py",
         "bootstrapper/generate_supabase_keys.py",
     ],
     "service-admission-workflow": [
         "bootstrapper/services/manifest_validator.py",
         "bootstrapper/services/source_validator.py",
+        "bootstrapper/services/topology.py",
+        "bootstrapper/services/env_assembler.py",
+        "bootstrapper/docs/regen.py",
+        "bootstrapper/docs/diagram_renderer.py",
+        "bootstrapper/tools/validate_fragments.py",
+        ".github/workflows/services-lint.yml",
     ],
 }
 
@@ -152,31 +191,36 @@ ARCHITECTURE_EDGES: dict[str, list[tuple[str, str, str]]] = {
         ("SOURCE Var", "disabled", "selects"),
         ("SOURCE Var", "none", "LLM only"),
         ("none", "cloud enabled", "pairs with"),
+        ("none", "vLLM Metal", "pairs with"),
         ("container", "adaptive apps", "configures"),
         ("localhost", "adaptive apps", "configures"),
         ("disabled", "adaptive apps", "removes"),
         ("cloud enabled", "adaptive apps", "configures"),
+        ("vLLM Metal", "adaptive apps", "configures"),
     ],
     "track-selection-matrix": [
         ("Tracks", "Wizard", "narrows"),
         ("Wizard", "Service Families", "prompts"),
         ("Service Families", "Enabled", "selected"),
         ("Service Families", "Force Disabled", "out of track"),
-        ("Overrides", "Enabled", "authoritative"),
+        ("Overrides", "Selected Source", "authoritative"),
+        ("Selected Source", "Enabled", "non-disabled"),
+        ("Selected Source", "Disabled", "explicit"),
     ],
     "network-routing-topology": [
         ("Browser", "*.localhost", "hostname"),
         ("*.localhost", "Kong", "gateway"),
         ("Browser", "Direct Ports", "direct"),
         ("Kong", "Backend Network", "routes"),
-        ("Direct Ports", "Backend Network", "publishes"),
+        ("Direct Ports", "Backend Network", "host NAT"),
         ("Backend Network", "localhost mode", "host gateway"),
     ],
     "data-rag-flow": [
         ("Ingestion", "Doc Processing", "extract"),
         ("Ingestion", "MinIO", "objects"),
         ("Doc Processing", "Weaviate", "vectors"),
-        ("Doc Processing", "Neo4j", "graph"),
+        ("Doc Processing", "LightRAG", "documents"),
+        ("LightRAG", "Neo4j", "graph"),
         ("MinIO", "Backend", "artifacts"),
         ("Weaviate", "Backend", "retrieve"),
         ("Neo4j", "Backend", "relationships"),
@@ -187,6 +231,7 @@ ARCHITECTURE_EDGES: dict[str, list[tuple[str, str, str]]] = {
         ("Backend", "LiteLLM", "inference"),
         ("Tools", "LiteLLM", "inference"),
         ("LiteLLM", "Ollama", "local"),
+        ("LiteLLM", "vLLM Metal", "managed local"),
         ("LiteLLM", "Cloud LLMs", "passthrough"),
         ("LiteLLM", "Tracing", "telemetry"),
     ],
@@ -199,23 +244,35 @@ ARCHITECTURE_EDGES: dict[str, list[tuple[str, str, str]]] = {
         ("Trino", "Iceberg REST", "catalog"),
         ("Spark", "MinIO", "objects"),
         ("Trino", "MinIO", "objects"),
+        ("Iceberg REST", "Supabase/Postgres", "metadata"),
+        ("Iceberg REST", "MinIO", "warehouse objects"),
     ],
     "observability-flow": [
-        ("Services", "OTel Collector", "OTLP"),
-        ("Services", "Prometheus", "metrics"),
-        ("Services", "Langfuse", "LLM traces"),
+        ("Backend", "OTel Collector", "OTLP"),
+        ("Celery Workers", "OTel Collector", "OTLP"),
+        ("LiteLLM", "OTel Collector", "OTLP"),
+        ("Atlas Services", "Prometheus", "metrics"),
+        ("LiteLLM", "Langfuse", "LLM traces"),
         ("OTel Collector", "Tempo", "traces"),
         ("Prometheus", "Grafana", "query"),
         ("Tempo", "Grafana", "query"),
         ("Loki", "Grafana", "query"),
     ],
     "security-auth-secrets-boundary": [
-        ("Clients", "Kong", "gateway"),
-        ("Kong", "Supabase Auth", "identity"),
-        ("Kong", "Service APIs", "routes"),
-        ("Local Secrets", "Service APIs", "inject"),
-        ("Cloud Keys", "Service APIs", "provider auth"),
-        ("Clients", "Local-only UIs", "loopback"),
+        ("Gateway Clients", "Kong", "gateway"),
+        ("Kong", "Kong Route Policies", "policy"),
+        ("Kong Route Policies", "Routed Services", "forward"),
+        ("Routed Services", "Backend API", "backend"),
+        ("Routed Services", "Public APIs", "public"),
+        ("Backend API", "Public APIs", "public"),
+        ("Backend API", "Backend Identity", "identity"),
+        ("Supabase Auth", "Backend Identity", "JWT"),
+        ("Backend Identity", "Protected APIs", "authorize"),
+        ("Backend API", "Plugin Key Auth", "plugin"),
+        ("Plugin Key Auth", "Protected APIs", "key"),
+        ("Direct Clients", "Backend API", "direct port"),
+        ("Direct Clients", "Trusted UIs", "operator access"),
+        ("Runtime Secrets", "Protected APIs", "inject"),
     ],
     "service-admission-workflow": [
         ("service.yml", "Topology", "declares"),
@@ -243,13 +300,15 @@ ARCHITECTURE_LAYOUTS: dict[str, dict[str, tuple[int, int]]] = {
     "source-configuration-model": {
         "SOURCE Var": (50, 240), "container": (300, 40),
         "localhost": (300, 170), "disabled": (300, 300),
-        "none": (300, 430), "cloud enabled": (590, 430),
+        "none": (300, 430), "cloud enabled": (590, 380),
+        "vLLM Metal": (590, 480),
         "adaptive apps": (900, 240),
     },
     "track-selection-matrix": {
         "Tracks": (50, 240), "Wizard": (270, 240),
-        "Service Families": (500, 240), "Enabled": (790, 110),
-        "Force Disabled": (790, 370), "Overrides": (500, 30),
+        "Service Families": (500, 240), "Enabled": (1040, 110),
+        "Force Disabled": (1040, 370), "Overrides": (500, 30),
+        "Selected Source": (790, 30), "Disabled": (1040, 30),
     },
     "network-routing-topology": {
         "Browser": (50, 240), "*.localhost": (280, 90),
@@ -258,33 +317,39 @@ ARCHITECTURE_LAYOUTS: dict[str, dict[str, tuple[int, int]]] = {
     },
     "data-rag-flow": {
         "Ingestion": (50, 240), "Doc Processing": (280, 100),
-        "MinIO": (280, 390), "Weaviate": (550, 40),
-        "Neo4j": (550, 190), "Backend": (810, 240),
-        "Open WebUI": (1060, 240),
+        "MinIO": (280, 390), "Weaviate": (550, 190),
+        "LightRAG": (550, 40), "Neo4j": (810, 40), "Backend": (810, 300),
+        "Open WebUI": (1060, 300),
     },
     "llm-provider-flow": {
         "Open WebUI": (50, 60), "Backend": (50, 240),
         "Tools": (50, 420), "LiteLLM": (390, 240),
-        "Ollama": (700, 100), "Cloud LLMs": (700, 380),
+        "Ollama": (700, 40), "vLLM Metal": (700, 300),
+        "Cloud LLMs": (700, 400),
         "Tracing": (1000, 240),
     },
     "data-engineering-lakehouse-flow": {
         "JupyterHub": (40, 30), "Zeppelin": (40, 160),
         "Airflow": (40, 290), "Redpanda": (40, 420),
-        "Spark": (390, 210), "Trino": (390, 420),
-        "Iceberg REST": (720, 150), "MinIO": (720, 360),
+        "Spark": (390, 180), "Trino": (390, 430),
+        "Iceberg REST": (720, 100), "MinIO": (1050, 400),
+        "Supabase/Postgres": (1050, 30),
     },
     "observability-flow": {
-        "Services": (50, 240), "OTel Collector": (310, 70),
-        "Prometheus": (310, 240), "Langfuse": (310, 410),
-        "Tempo": (650, 70), "Loki": (650, 200),
-        "Grafana": (980, 240),
+        "Backend": (40, 20), "Celery Workers": (40, 130),
+        "LiteLLM": (40, 240), "Atlas Services": (40, 410),
+        "OTel Collector": (340, 120), "Langfuse": (340, 260),
+        "Prometheus": (340, 410), "Tempo": (680, 120),
+        "Loki": (680, 410), "Grafana": (1000, 260),
     },
     "security-auth-secrets-boundary": {
-        "Clients": (50, 240), "Kong": (300, 100),
-        "Local-only UIs": (300, 390), "Supabase Auth": (610, 30),
-        "Service APIs": (610, 240), "Local Secrets": (930, 100),
-        "Cloud Keys": (930, 370),
+        "Gateway Clients": (40, 80), "Kong": (230, 80),
+        "Kong Route Policies": (420, 80), "Routed Services": (610, 80),
+        "Public APIs": (990, 20), "Backend API": (800, 150),
+        "Plugin Key Auth": (990, 150), "Backend Identity": (990, 280),
+        "Protected APIs": (1180, 215), "Supabase Auth": (800, 280),
+        "Direct Clients": (40, 340), "Trusted UIs": (230, 470),
+        "Runtime Secrets": (1180, 470),
     },
     "service-admission-workflow": {
         "service.yml": (50, 100), "compose.yml": (50, 400),
@@ -294,26 +359,65 @@ ARCHITECTURE_LAYOUTS: dict[str, dict[str, tuple[int, int]]] = {
     },
 }
 
+# Full connector point lists for the few dense perspectives where straight
+# diagonals would cross and make edge ownership ambiguous. Labels are placed
+# on their dedicated gutters instead of at the bounding-box midpoint.
+ARCHITECTURE_ROUTES: dict[
+    str,
+    dict[
+        tuple[str, str],
+        tuple[list[tuple[int, int]], tuple[int, int]],
+    ],
+] = {
+    "data-engineering-lakehouse-flow": {
+        ("Spark", "MinIO"): (
+            [(530, 210), (610, 260), (940, 260), (940, 415), (1050, 415)],
+            (780, 250),
+        ),
+        ("Trino", "Iceberg REST"): (
+            [(530, 460), (610, 520), (1210, 520), (1210, 180), (790, 180), (790, 160)],
+            (1040, 510),
+        ),
+        ("Iceberg REST", "MinIO"): (
+            [(860, 130), (1020, 130), (1020, 360), (1120, 360), (1120, 400)],
+            (1010, 245),
+        ),
+        ("Trino", "MinIO"): (
+            [(530, 460), (980, 460), (980, 430), (1050, 430)],
+            (790, 450),
+        ),
+    },
+}
+
 _NODE_KINDS = {
-    "Clients": "frontend", "Browser": "frontend", "Open WebUI": "frontend",
+    "Clients": "frontend", "Gateway Clients": "frontend",
+    "Direct Clients": "frontend", "Browser": "frontend", "Open WebUI": "frontend",
     "JupyterHub": "frontend", "Zeppelin": "frontend",
     "Apps": "backend", "Agents": "backend", "Backend": "backend",
-    "Services": "backend", "Service APIs": "backend", "adaptive apps": "backend",
-    "Doc Processing": "backend", "Ingestion": "backend",
+    "Services": "backend", "Atlas Services": "backend",
+    "Celery Workers": "backend", "Service APIs": "backend", "adaptive apps": "backend",
+    "Doc Processing": "backend", "Ingestion": "backend", "LightRAG": "backend",
     "Data Stores": "data", "MinIO": "data", "Weaviate": "data",
     "Neo4j": "data", "Iceberg REST": "data", "Supabase Auth": "data",
+    "Supabase/Postgres": "data",
     "Cloud Providers": "cloud", "Cloud LLMs": "cloud", "Cloud Keys": "cloud",
     "cloud enabled": "cloud", "Kong": "security", "API Keys": "security",
-    "Local Secrets": "security", "disabled": "security", "none": "security",
-    "Local-only UIs": "security", "Redpanda": "bus",
+    "Local Secrets": "security", "Runtime Secrets": "security",
+    "Backend Identity": "security", "Plugin Key Auth": "security",
+    "Kong Route Policies": "security", "Routed Services": "backend",
+    "Backend API": "backend", "Protected APIs": "backend", "Public APIs": "backend",
+    "disabled": "security", "none": "security", "Trusted UIs": "security",
+    "Redpanda": "bus",
 }
 
 ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
     "platform-overview": (
         "Direct published ports bypass Kong deliberately, for host tools that "
-        "can't use the `*.localhost` gateway. All model traffic — local and "
-        "cloud — is funneled through LiteLLM so credentials and routing live in "
-        "exactly one place (see [LLM provider flow](./llm-provider-flow.md))."
+        "can't use the `*.localhost` gateway. Atlas-managed consumers use "
+        "LiteLLM as the default path for local and cloud model traffic, "
+        "centralizing credentials and routing. Services with explicit "
+        "native-provider role overrides, such as LightRAG, can bypass LiteLLM "
+        "by design (see [LLM provider flow](./llm-provider-flow.md))."
     ),
     "bootstrapper-lifecycle": (
         "Each stage gates the next; a failure in any stage before Compose must "
@@ -325,7 +429,8 @@ ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
         "SOURCE selects a deployment mode, not just an image variant — the same "
         "value gates Compose scale, env wiring, and Kong route generation "
         "together. `none` is unique to the LLM provider family; no other "
-        "service exposes it."
+        "service exposes it. For that LLM-only mode, LiteLLM can be backed by "
+        "enabled cloud providers, managed vLLM Metal, or both."
     ),
     "track-selection-matrix": (
         "An explicit CLI `--<svc>-source` override always wins over track "
@@ -351,7 +456,9 @@ ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
     ),
     "llm-provider-flow": (
         "Disabling a cloud provider in `.env` doesn't error — the model "
-        "resolver silently produces zero catalog entries for it. Ollama "
+        "resolver silently produces zero catalog entries for it. Managed "
+        "vLLM Metal is another local LiteLLM upstream, so "
+        "`LLM_PROVIDER_SOURCE=none` does not require a cloud provider. Ollama "
         "models get two aliases (`ollama/<name>` and the bare name); either "
         "works. Tracing observes requests out-of-band and isn't part of the "
         "inference call path, so a tracing-backend outage doesn't affect "
@@ -371,17 +478,18 @@ ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
         "Langfuse traces via its own `success_callback`, not through the "
         "Collector, because Langfuse is the LLM-behavior layer while "
         "Prometheus/Grafana stay the infrastructure-metrics layer. Only "
-        "backend and LiteLLM OTLP traces currently reach Tempo via the "
+        "backend, Celery workers, and LiteLLM OTLP traces currently reach Tempo via the "
         "Collector; Loki log export isn't wired up yet."
     ),
     "security-auth-secrets-boundary": (
-        "Not every surface sits behind Supabase auth: Backend's `/health`, "
-        "`/ready`, `/metrics`, and API-doc routes are intentionally public "
-        "(no bearer token) — don't publish them beyond the intended network "
-        "boundary. Kong's own Admin API (8001) is loopback-only, reachable "
-        "via `docker exec`, never published. JupyterHub is explicitly "
-        "operator-trusted, with direct database and service access rather "
-        "than a policy gate."
+        "Kong applies route-specific Basic, key-auth, pass-through, rate-limit, "
+        "and CORS policies; it does not provide one uniform identity layer. "
+        "Backend separately validates Supabase JWTs, scoped first-party tokens, "
+        "and operator tokens, while plugin `open|key-auth|inherit` modes are "
+        "enforced again at the application boundary. Backend `/health`, "
+        "`/ready`, `/metrics`, and API-doc routes are intentionally public, and "
+        "direct ports or operator-trusted UIs can bypass Kong, so those surfaces "
+        "must remain inside their intended network boundary."
     ),
     "service-admission-workflow": (
         "`manifest_validator.py`'s fragment check is what actually blocks a "
@@ -744,6 +852,10 @@ def _architecture_diagram_html(
     nodes: list[str],
     edges: list[tuple[str, str, str]],
     positions: dict[str, tuple[int, int]],
+    routes: dict[
+        tuple[str, str],
+        tuple[list[tuple[int, int]], tuple[int, int]],
+    ] | None = None,
 ) -> str:
     boxes = []
     arrows = []
@@ -770,6 +882,7 @@ def _architecture_diagram_html(
             f'<text x="{box_x + box_width / 2}" y="{y + 43}" fill="#94a3b8" font-size="9" text-anchor="middle">{role}</text>'
         )
     occupied_labels: list[tuple[float, float, float, float]] = []
+    routes = routes or {}
     for source, target, label in edges:
         source_x, source_y = positions[source]
         target_x, target_y = positions[target]
@@ -778,13 +891,25 @@ def _architecture_diagram_html(
         else:
             x1, x2 = source_x, target_x + box_width
         y1, y2 = source_y + 30, target_y + 30
-        label_x = (x1 + x2) / 2
-        base_label_y = (y1 + y2) / 2 - 5
-        arrows.append(
-            f'<line data-source="{html.escape(source)}" data-target="{html.escape(target)}" '
-            f'x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="#64748b" '
-            f'stroke-width="1.5" marker-end="url(#arrowhead)"/>'
-        )
+        routed = routes.get((source, target))
+        if routed:
+            points, (label_x, base_label_y) = routed
+            point_text = " ".join(f"{x},{y}" for x, y in points)
+            arrows.append(
+                f'<polyline data-source="{html.escape(source)}" '
+                f'data-target="{html.escape(target)}" points="{point_text}" '
+                f'fill="none" stroke="#64748b" stroke-width="1.5" '
+                f'marker-end="url(#arrowhead)"/>'
+            )
+        else:
+            label_x = (x1 + x2) / 2
+            base_label_y = (y1 + y2) / 2 - 5
+            arrows.append(
+                f'<line data-source="{html.escape(source)}" '
+                f'data-target="{html.escape(target)}" x1="{x1}" y1="{y1}" '
+                f'x2="{x2}" y2="{y2}" stroke="#64748b" '
+                f'stroke-width="1.5" marker-end="url(#arrowhead)"/>'
+            )
         label_width = max(40, len(label) * 5 + 12)
         label_y = base_label_y
         for offset in (0, -18, 18, -36, 36, -54, 54):
@@ -895,12 +1020,15 @@ def architecture_pages(model: DocsModel) -> dict[Path, str]:
             nodes,
             ARCHITECTURE_EDGES[slug],
             ARCHITECTURE_LAYOUTS[slug],
+            ARCHITECTURE_ROUTES.get(slug),
         )
         pages[arch / f"{slug}.md"] = f"""# {title}
 
 {description}
 
 ## 1. Diagram
+
+![{title} architecture diagram](../diagrams/img/architecture-{slug}.png)
 
 [Open the full-size diagram](./{slug}.html).
 

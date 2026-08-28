@@ -9,7 +9,9 @@ Coverage:
 
 from __future__ import annotations
 
+import asyncio
 import sys
+import threading
 import types
 
 import pytest
@@ -54,7 +56,7 @@ def test_submit_returns_503_when_ray_disabled(monkeypatch):
 
     resp = client.post(
         "/api/ray/jobs/submit",
-        json={"entrypoint": "echo hi"},
+        json={"entrypoint": "echo hi", "submission_id": "raysubmit_disabled"},
         headers=RAY_HEADERS,
     )
     assert resp.status_code == 503, resp.text
@@ -83,7 +85,10 @@ def test_submit_returns_200_when_ray_enabled(
     mock_instance.submit_job.return_value = "raysubmit_abc"
     resp = fastapi_client.post(
         "/api/ray/jobs/submit",
-        json={"entrypoint": "python -c 'print(1)'"},
+        json={
+            "entrypoint": "python -c 'print(1)'",
+            "submission_id": "raysubmit_abc",
+        },
         headers=RAY_HEADERS,
     )
     assert resp.status_code == 200, resp.text
@@ -121,3 +126,90 @@ def test_invalid_payload_returns_422(fastapi_client, monkeypatch):
     monkeypatch.setenv("RAY_JOB_API_TOKEN", "ray-test-token")
     resp = fastapi_client.post("/api/ray/jobs/submit", json={}, headers=RAY_HEADERS)
     assert resp.status_code == 422
+
+
+def test_submit_requires_reconcilable_submission_id(fastapi_client, monkeypatch):
+    monkeypatch.setenv("RAY_JOB_API_TOKEN", "ray-test-token")
+    response = fastapi_client.post(
+        "/api/ray/jobs/submit",
+        json={"entrypoint": "echo hi"},
+        headers=RAY_HEADERS,
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "submission_id",
+    ["", "../escape", "contains space", "x" * 129],
+)
+def test_submit_rejects_unsafe_submission_ids(
+    fastapi_client, monkeypatch, submission_id
+):
+    monkeypatch.setenv("RAY_JOB_API_TOKEN", "ray-test-token")
+    response = fastapi_client.post(
+        "/api/ray/jobs/submit",
+        json={"entrypoint": "echo hi", "submission_id": submission_id},
+        headers=RAY_HEADERS,
+    )
+
+    assert response.status_code == 422
+
+
+def test_cancelled_submit_waits_for_acceptance_then_stops_job(monkeypatch):
+    import ray_routes
+
+    started = threading.Event()
+    release = threading.Event()
+    order = []
+
+    class Client:
+        def submit_job(self, submission):
+            order.append("submit-start")
+            started.set()
+            assert release.wait(timeout=5)
+            order.append("submit-finish")
+            return submission.submission_id
+
+        def stop_job(self, job_id):
+            order.append(f"stop:{job_id}")
+            return True
+
+    monkeypatch.setattr(ray_routes.RayClient, "get", lambda: Client())
+
+    async def scenario():
+        payload = ray_routes.SubmitJobRequest(
+            entrypoint="echo hi", submission_id="raysubmit_stable_123"
+        )
+        submission = asyncio.create_task(ray_routes.submit_job(payload))
+        assert await asyncio.to_thread(started.wait, 5)
+        submission.cancel()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await submission
+
+    asyncio.run(scenario())
+    assert order == [
+        "submit-start",
+        "submit-finish",
+        "stop:raysubmit_stable_123",
+    ]
+
+
+def test_duplicate_submission_id_returns_reconciliation_conflict(monkeypatch):
+    import ray_routes
+
+    class Client:
+        def submit_job(self, *_args):
+            raise ray_routes.RayJobAlreadyExistsError("raysubmit_stable_123")
+
+    monkeypatch.setattr(ray_routes.RayClient, "get", lambda: Client())
+    payload = ray_routes.SubmitJobRequest(
+        entrypoint="echo hi", submission_id="raysubmit_stable_123"
+    )
+
+    with pytest.raises(ray_routes.HTTPException) as exc_info:
+        asyncio.run(ray_routes.submit_job(payload))
+
+    assert exc_info.value.status_code == 409
+    assert "status or stop endpoint" in exc_info.value.detail

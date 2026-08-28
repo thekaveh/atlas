@@ -16,7 +16,9 @@ This server wraps the pinned `parakeet-mlx==0.5.2` [aligned-result API](https://
 ### 2.1. Install Dependencies
 
 ```bash
-pip install -r requirements.txt
+python3.12 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements-locked.txt
 ```
 
 This installs:
@@ -27,12 +29,20 @@ This installs:
 ### 2.2. Run Server
 
 ```bash
-# From services/parakeet/provider directory
-python -m uvicorn mlx.api_server:app --host 0.0.0.0 --port 63042
+# Configure the same random value in repo-root .env before Atlas starts.
+export PARAKEET_API_TOKEN='<same random value configured in repo-root .env>'
+export PARAKEET_LOCALHOST_BIND_HOST=0.0.0.0
+export PARAKEET_LOCALHOST_PORT=63042
+
+# From services/parakeet/provider directory. The module entry point respects
+# PARAKEET_LOCALHOST_BIND_HOST and PARAKEET_LOCALHOST_PORT. Atlas containers
+# reach this host service through host.docker.internal, so the integration
+# quickstart uses a non-loopback bind and requires the bearer token above.
+python -m mlx.api_server
 ```
 
 **First run:** Downloads model (~1.2GB) from HuggingFace
-**Subsequent runs:** Model loaded from cache, starts instantly
+**Subsequent runs:** Reuse the cached download; model initialization still runs
 
 ### 2.3. Test
 
@@ -42,6 +52,7 @@ curl http://localhost:63042/health
 
 # Transcribe audio
 curl -X POST http://localhost:63042/v1/audio/transcriptions \
+  -H "Authorization: Bearer ${PARAKEET_API_TOKEN}" \
   -F "file=@audio.mp3" \
   -F "response_format=json"
 ```
@@ -52,6 +63,12 @@ curl -X POST http://localhost:63042/v1/audio/transcriptions \
 |----------|---------|-------------|
 | `PARAKEET_MODEL` | `mlx-community/parakeet-tdt-0.6b-v3` | HuggingFace model ID |
 | `PARAKEET_LOCALHOST_PORT` | `63042` | Host port Atlas containers use for `parakeet-localhost`. |
+| `PARAKEET_LOCALHOST_BIND_HOST` | `127.0.0.1` | Listen address; use a non-loopback bind only when required for host-gateway access and keep bearer auth enabled. |
+| `PARAKEET_API_TOKEN` | (required) | Bearer token; must match the value in Atlas `.env`. |
+
+The `0.0.0.0` integration bind is reachable from the local network as well as
+Docker's host gateway. Keep bearer authentication enabled and use the host
+firewall when the network is not trusted.
 
 ## 4. API Endpoints
 
@@ -102,14 +119,11 @@ the request flags alone.
 
 ## 5. Performance
 
-**Apple Silicon (M1/M2/M3/M4):**
-- Speed: 100-300x real-time
-- Memory: ~2GB RAM
-- Device: Metal Performance Shaders (MPS)
-
-**Example:**
-- M2 Ultra: 3-hour podcast → 1 minute transcription
-- M1: 1-hour audio → 36 seconds transcription
+Performance depends on the Apple Silicon generation, model revision, audio
+codec, duration, and timestamp options. Benchmark representative audio on the
+target host and record real-time factor plus peak resident memory before using
+the provider for capacity planning. MLX uses Apple Silicon acceleration; Atlas
+does not publish a hardware-independent throughput guarantee.
 
 ## 6. Integration with Atlas
 
@@ -137,13 +151,13 @@ export HUGGING_FACE_HUB_TOKEN=your_token_here
 ```bash
 # Ensure you're in the right directory
 cd services/parakeet/provider
-python -m uvicorn mlx.api_server:app --host 0.0.0.0 --port 63042
+python -m mlx.api_server
 ```
 
 ### 7.3. Port already in use
 ```bash
 # Use different port (if 63042 is in use)
-python -m uvicorn mlx.api_server:app --host 0.0.0.0 --port 63099
+PARAKEET_LOCALHOST_PORT=63099 python -m mlx.api_server
 
 # Update .env to match (URL is derived inline as
 # http://host.docker.internal:${PARAKEET_LOCALHOST_PORT:-63042})

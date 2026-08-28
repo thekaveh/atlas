@@ -61,7 +61,7 @@ def run(
 
     if check_env_example:
         target = env_example_path or (project_root / ".env.example")
-        expected = assemble_env_example(manifests)
+        expected = assemble_env_example(manifests, services_root=services_dir)
         actual = target.read_text(encoding="utf-8") if target.is_file() else ""
         if expected != actual:
             _err(f".env.example drift detected ({target})")

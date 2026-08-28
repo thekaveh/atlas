@@ -145,3 +145,12 @@ def test_no_tui_force_disable_runs_for_resolved_track_not_just_prompted():
         "`track is None` regresses `--no-tui --track <key>` — off-track "
         "services would not be force-disabled."
     )
+
+
+def test_no_tui_track_synthesis_failure_is_fail_closed():
+    src = (REPO_ROOT / "bootstrapper" / "start.py").read_text(encoding="utf-8")
+    marker = "track '{track}' force-disable synthesis failed"
+    start = src.index(marker)
+    block = src[start - 150:start + 500]
+    assert "raise click.ClickException" in block
+    assert "off-track services will" not in block

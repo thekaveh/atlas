@@ -32,6 +32,45 @@ CREATE TABLE IF NOT EXISTS public.media_spend_ledger (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- CREATE TABLE IF NOT EXISTS does not add new constraints to an existing
+-- volume, so migrate the authoritative ledger invariants explicitly. Adding
+-- each CHECK validates existing rows and intentionally fails initialization
+-- if durable spend data is already corrupt instead of continuing to undercount
+-- a budget.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'media_spend_ledger_status_check'
+          AND conrelid = 'public.media_spend_ledger'::regclass
+    ) THEN
+        ALTER TABLE public.media_spend_ledger
+            ADD CONSTRAINT media_spend_ledger_status_check
+            CHECK (status IN ('reserved', 'submitted', 'committed', 'released', 'denied'));
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'media_spend_ledger_estimated_cost_check'
+          AND conrelid = 'public.media_spend_ledger'::regclass
+    ) THEN
+        ALTER TABLE public.media_spend_ledger
+            ADD CONSTRAINT media_spend_ledger_estimated_cost_check
+            CHECK (estimated_cost_usd IS NULL OR estimated_cost_usd >= 0);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'media_spend_ledger_final_cost_check'
+          AND conrelid = 'public.media_spend_ledger'::regclass
+    ) THEN
+        ALTER TABLE public.media_spend_ledger
+            ADD CONSTRAINT media_spend_ledger_final_cost_check
+            CHECK (final_cost_usd IS NULL OR final_cost_usd >= 0);
+    END IF;
+END
+$$;
+
 -- One row per operation id: UNIQUE both indexes lookups and prevents a re-key
 -- collision (a reused provider request id) from creating duplicate,
 -- double-counted spend rows.

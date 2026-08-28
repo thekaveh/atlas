@@ -8,7 +8,7 @@
 
 ## 1. Overview
 
-JupyterHub provides an interactive Jupyter Lab environment pre-configured with access to all Atlas services. It's designed for data scientists and AI engineers to experiment, prototype, and develop AI applications.
+JupyterHub provides an interactive Jupyter Lab environment pre-configured for Atlas's declared notebook integrations. It's designed for data scientists and AI engineers to experiment, prototype, and develop AI applications.
 
 ## 2. Quick Start
 
@@ -39,8 +39,8 @@ JUPYTERHUB_SOURCE=disabled
 - **Financial Research Kit**: OpenBB + CCXT libraries and a guarded paper-portfolio notebook for read-only market research
 - **Sample Notebooks**: 16 ready-to-use notebooks (00-15) demonstrating service integration
 - **Persistent Storage**: All notebooks saved in Docker volumes
-- **Environment Variables**: Auto-configured connections to all services
-- **Multi-kernel runtime**: Python 3 (default) plus **Scala 2.13** and **Scala 3** kernels via Almond. Pick one from JupyterLab's launcher or VS Code's kernel picker. See §11.
+- **Environment Variables**: Auto-configured connections for the integrations declared in `services/jupyterhub/service.yml`; optional gaps such as the current MCP endpoint remain explicit
+- **Multi-kernel runtime**: Python 3 (default), R, Julia 1.12, **Scala 2.13**, and **Scala 3**. Pick one from JupyterLab's launcher or VS Code's kernel picker. See §11.
 - **VS Code-ready**: configured for remote-Jupyter access out of the box. Open local `.ipynb` files in VS Code and run them on this container as the kernel. See §10.
 
 ## 4. Configuration
@@ -200,7 +200,7 @@ VS Code's Jupyter extension can use this container as the **remote kernel** for 
    - Direct port: `http://localhost:${JUPYTERHUB_PORT}/?token=<JUPYTERHUB_TOKEN>` (default `63094`)
    - Kong-aliased (after `./start.sh --setup-hosts`): `http://jupyter.localhost:${KONG_HTTP_PORT}/?token=<JUPYTERHUB_TOKEN>` (default `63000`)
 4. When VS Code prompts to **remember the server**, give it a name (e.g. `atlas`). The server now appears in every future kernel-picker.
-5. VS Code then asks which **kernel** to use on that server. Pick **Python 3 (ipykernel)**, **Scala 2.13**, or **Scala 3** depending on the notebook.
+5. VS Code then asks which **kernel** to use on that server. Pick **Python 3 (ipykernel)**, **R**, **Julia 1.12**, **Scala 2.13**, or **Scala 3** depending on the notebook.
 
 ### 10.3. What's pre-configured on the stack side
 
@@ -223,13 +223,15 @@ The container's `ENTRYPOINT` (`services/jupyterhub/build/Dockerfile`) wraps the 
 - **Server connects but no kernels listed.** Look at the URL VS Code stored — it must include `/?token=<value>`. If you pasted the URL without the token, VS Code thinks it's connected but every kernel request 403s. `Jupyter: Specify Jupyter Server for Connections` → re-enter the URL with the token suffix.
 - **Cell output appears in the wrong notebook.** VS Code occasionally caches a stale kernel binding when you switch between two notebooks on the same server. Right-click the notebook tab → `Restart Kernel` resets the binding.
 
-## 11. Multi-kernel runtime (Python + Scala)
+## 11. Multi-kernel runtime (Python + R + Julia + Scala)
 
-This container ships **three kernels**:
+This container ships **five kernels**:
 
 | Kernel ID | Display name | Versions | Source |
 |---|---|---|---|
 | `python3` | Python 3 (ipykernel) | matches the `JUPYTERHUB_IMAGE` (currently 3.11) | upstream `jupyter/datascience-notebook` |
+| `ir` | R | matches the R runtime in `JUPYTERHUB_IMAGE` | upstream `jupyter/datascience-notebook` |
+| `julia-1.12` | Julia 1.12 | Julia `1.12.7`, repository-locked packages | installed at image build time from the checksummed official Julia release |
 | `scala213` | Scala 2.13 | Scala `2.13.16`, Almond `0.14.5` | installed at image build time via Coursier |
 | `scala3` | Scala 3 | Scala `3.4.3`, Almond `0.14.5` | installed at image build time via Coursier |
 
@@ -244,7 +246,7 @@ This container ships **three kernels**:
 docker exec ${PROJECT_NAME}-jupyterhub jupyter kernelspec list
 ```
 
-You should see `scala213` and `scala3` alongside `python3` (and `ir`, `julia-1.9` from the upstream image). If only `ir` / `julia-1.9` / `python3` appear, the container was built before the Scala layer was added — rebuild with the args at the top of the Dockerfile baked in:
+You should see `python3`, `ir`, `julia-1.12`, `scala213`, and `scala3`. If `julia-1.11` appears instead, or either Scala kernel is absent, rebuild with the args at the top of the Dockerfile baked in:
 
 ```bash
 docker compose up jupyterhub --build --no-deps -d

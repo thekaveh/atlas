@@ -32,7 +32,7 @@ class MemoryExtractRequest(BaseModel):
         max_length=100,
         description="Conversation messages in [{role, content}] format"
     )
-    namespace: str = Field(default="default", min_length=1, max_length=128)
+    namespace: Optional[str] = Field(default=None, min_length=1, max_length=128)
     conversation_id: Optional[str] = None
 
     @field_validator("user_id")
@@ -52,7 +52,7 @@ class MemoryRecallRequest(BaseModel):
     """Request to recall relevant memories for a query."""
     user_id: str
     query: str = Field(min_length=1, max_length=4000)
-    namespace: str = Field(default="default", min_length=1, max_length=128)
+    namespace: Optional[str] = Field(default=None, min_length=1, max_length=128)
     limit: int = Field(default=10, ge=1, le=100)
     min_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
 
@@ -68,6 +68,13 @@ class MemoryConsolidateRequest(BaseModel):
         default=None,
         description="User ID to consolidate. If None, consolidates all users."
     )
+    idempotency_key: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=96,
+        pattern=r"^[A-Za-z0-9_-]+$",
+        description="Stable retry key for asynchronous consolidation dispatch.",
+    )
 
     @field_validator("user_id")
     @classmethod
@@ -80,7 +87,7 @@ class MemoryConsolidateRequest(BaseModel):
 class MemorySummarizeRequest(BaseModel):
     """Request to generate a user memory profile summary."""
     user_id: str
-    namespace: str = Field(default="default", min_length=1, max_length=128)
+    namespace: Optional[str] = Field(default=None, min_length=1, max_length=128)
 
     @field_validator("user_id")
     @classmethod

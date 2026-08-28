@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -34,6 +35,23 @@ from .storage import ArtifactStorage, ArtifactTooLargeError
 logger = logging.getLogger(__name__)
 
 
+async def _join_request_task(task: asyncio.Task):
+    """Keep admitted sync work owned through repeated caller cancellation."""
+    cancelled: asyncio.CancelledError | None = None
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError as exc:
+            cancelled = exc
+    if cancelled is not None:
+        try:
+            task.result()
+        except BaseException:
+            pass
+        raise cancelled
+    return task.result()
+
+
 def create_app(*, api_token: str | None = None) -> FastAPI:
     app = FastAPI(
         title="Atlas Asset Baker",
@@ -49,7 +67,7 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
     )
 
     @app.middleware("http")
-    async def require_api_token(request: Request, call_next):
+    async def require_api_token_and_admit(request: Request, call_next):
         if request.url.path in {"/health", "/metrics"}:
             return await call_next(request)
         if not expected_token:
@@ -67,7 +85,24 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
                 status_code=401,
                 content={"detail": "Invalid Asset Baker bearer token"},
             )
-        return await call_next(request)
+        admitted = False
+        if request.method == "POST" and request.url.path in {
+            "/assets/bake",
+            "/assets/bake/ref",
+        }:
+            admitted = app.state.bake_semaphore.acquire(blocking=False)
+            if not admitted:
+                logger.info("asset_bake_rejected reason=busy")
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Bake worker is busy; retry later"},
+                )
+        work = asyncio.create_task(call_next(request))
+        try:
+            return await _join_request_task(work)
+        finally:
+            if admitted:
+                app.state.bake_semaphore.release()
 
     # Bounded worker: a single Cycles bake saturates CPU, so concurrent bakes are
     # net-negative. Reject (429) rather than queue unboundedly when saturated.
@@ -115,9 +150,7 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
         with tempfile.TemporaryDirectory(prefix="asset-baker-upload-") as tmp:
             input_path = Path(tmp) / "input.glb"
             _copy_upload_to_path(file.file, input_path)
-            return _process_path(
-                input_path, params, semaphore=app.state.bake_semaphore
-            )
+            return _process_path(input_path, params)
 
     @app.post("/assets/bake/ref", response_model=BakeResponse)
     def bake_ref(
@@ -129,9 +162,7 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
             data = storage.fetch(request.input.bucket, request.input.key)
         except ArtifactTooLargeError as exc:
             raise HTTPException(status_code=413, detail=str(exc)) from exc
-        return _process_bytes(
-            data, request.params, storage=storage, semaphore=app.state.bake_semaphore
-        )
+        return _process_bytes(data, request.params, storage=storage)
 
     @app.get("/assets/artifacts/{sha256}.{ext}")
     def get_local_artifact(
@@ -158,54 +189,44 @@ def _process_bytes(
     params: BakeParams,
     *,
     storage: ArtifactStorage | None = None,
-    semaphore: threading.Semaphore,
 ) -> BakeResponse:
     _enforce_size(data)
     with tempfile.TemporaryDirectory(prefix="asset-baker-") as tmp:
         input_path = Path(tmp) / "input.glb"
         input_path.write_bytes(data)
-        return _process_path(
-            input_path, params, storage=storage, semaphore=semaphore
-        )
+        return _process_path(input_path, params, storage=storage)
 
 
 def _process_path(
     input_path: Path,
     params: BakeParams,
     *,
-    semaphore: threading.Semaphore,
     storage: ArtifactStorage | None = None,
 ) -> BakeResponse:
     _enforce_input_size(input_path.stat().st_size)
     resolved = resolve_params(params)
     storage = storage or ArtifactStorage()
 
-    if not semaphore.acquire(blocking=False):
-        logger.info("asset_bake_rejected reason=busy")
-        raise HTTPException(status_code=429, detail="Bake worker is busy; retry later")
     started_at = time.monotonic()
     logger.info("asset_bake_started")
-    try:
-        with tempfile.TemporaryDirectory(prefix="asset-baker-") as tmp:
-            out_dir = Path(tmp) / "out"
-            try:
-                artifacts = run_bake(input_path, out_dir, resolved)
-            except BakeError as exc:
-                logger.warning("asset_bake_failed kind=%s", exc.kind)
-                status = 504 if exc.kind == "timeout" else 422
-                raise HTTPException(status_code=status, detail=str(exc)) from exc
-            glb_bytes = artifacts.glb_path.read_bytes()
-            texture_bytes = [
-                (role, path.read_bytes())
-                for role, path in (
-                    ("basecolor", artifacts.basecolor_path),
-                    ("normal", artifacts.normal_path),
-                )
-                if path is not None
-            ]
-            record = artifacts.summary
-    finally:
-        semaphore.release()
+    with tempfile.TemporaryDirectory(prefix="asset-baker-") as tmp:
+        out_dir = Path(tmp) / "out"
+        try:
+            artifacts = run_bake(input_path, out_dir, resolved)
+        except BakeError as exc:
+            logger.warning("asset_bake_failed kind=%s", exc.kind)
+            status = 504 if exc.kind == "timeout" else 422
+            raise HTTPException(status_code=status, detail=str(exc)) from exc
+        glb_bytes = artifacts.glb_path.read_bytes()
+        texture_bytes = [
+            (role, path.read_bytes())
+            for role, path in (
+                ("basecolor", artifacts.basecolor_path),
+                ("normal", artifacts.normal_path),
+            )
+            if path is not None
+        ]
+        record = artifacts.summary
     logger.info(
         "asset_bake_completed duration_seconds=%.3f",
         time.monotonic() - started_at,

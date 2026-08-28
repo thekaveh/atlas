@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import threading
 
+import httpx2 as httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -37,6 +40,82 @@ def test_metrics_are_available_without_asset_token() -> None:
 
     assert response.status_code == 200
     assert "http_requests_total" in response.text
+
+
+class _BucketProbeError(Exception):
+    def __init__(self, code: str, status: int) -> None:
+        super().__init__(code)
+        self.response = {
+            "Error": {"Code": code},
+            "ResponseMetadata": {"HTTPStatusCode": status},
+        }
+
+
+@pytest.mark.parametrize("code", ["404", "NoSuchBucket", "NotFound"])
+def test_bucket_probe_creates_only_when_bucket_is_missing(code) -> None:
+    from asset_baker.storage import ArtifactStorage
+
+    class Client:
+        created = []
+
+        def head_bucket(self, **_kwargs):
+            raise _BucketProbeError(code, 404)
+
+        def create_bucket(self, **kwargs):
+            self.created.append(kwargs)
+
+    client = Client()
+    ArtifactStorage._ensure_bucket(client, "artifacts")
+    assert client.created == [{"Bucket": "artifacts"}]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [_BucketProbeError("AccessDenied", 403), TimeoutError("probe timed out")],
+)
+def test_bucket_probe_propagates_non_missing_failures(error) -> None:
+    from asset_baker.storage import ArtifactStorage
+
+    class Client:
+        created = []
+
+        def head_bucket(self, **_kwargs):
+            raise error
+
+        def create_bucket(self, **kwargs):
+            self.created.append(kwargs)
+
+    client = Client()
+    with pytest.raises(type(error), match=str(error)):
+        ArtifactStorage._ensure_bucket(client, "artifacts")
+    assert client.created == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("Error", "malformed"), ("ResponseMetadata", ["malformed"])],
+)
+def test_bucket_probe_preserves_error_with_malformed_nested_response(
+    field, value
+) -> None:
+    from asset_baker.storage import ArtifactStorage
+
+    error = RuntimeError("probe failed")
+    error.response = {field: value}
+
+    class Client:
+        created = []
+
+        def head_bucket(self, **_kwargs):
+            raise error
+
+        def create_bucket(self, **kwargs):
+            self.created.append(kwargs)
+
+    client = Client()
+    with pytest.raises(RuntimeError, match="probe failed"):
+        ArtifactStorage._ensure_bucket(client, "artifacts")
+    assert client.created == []
 
 
 def _fake_artifacts(out_dir, *, with_textures=True, color_mean=0.42, mode="bake"):
@@ -326,7 +405,11 @@ def test_worker_busy_returns_429(monkeypatch, tmp_path):
         def release(self):
             pass
 
-    monkeypatch.setattr(api, "run_bake", lambda *a, **k: None)
+    monkeypatch.setattr(
+        api,
+        "_copy_upload_to_path",
+        lambda *_args: pytest.fail("busy upload must not be spooled"),
+    )
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
 
     app = api.create_app(api_token=_TOKEN)
@@ -334,6 +417,82 @@ def test_worker_busy_returns_429(monkeypatch, tmp_path):
     client = TestClient(app, headers={"Authorization": f"Bearer {_TOKEN}"})
     response = client.post("/assets/bake", files={"file": ("m.glb", b"raw", "model/gltf-binary")})
     assert response.status_code == 429
+
+
+def test_worker_busy_ref_does_not_fetch_storage(monkeypatch, tmp_path):
+    from asset_baker import api
+
+    class BusySemaphore:
+        def acquire(self, blocking=True):
+            return False
+
+        def release(self):
+            pytest.fail("a rejected request must not release an unowned slot")
+
+    monkeypatch.setattr(
+        api.ArtifactStorage,
+        "fetch",
+        lambda *_args: pytest.fail("busy reference must not fetch storage"),
+    )
+    monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
+    app = api.create_app(api_token=_TOKEN)
+    app.state.bake_semaphore = BusySemaphore()
+    client = TestClient(app, headers={"Authorization": f"Bearer {_TOKEN}"})
+
+    response = client.post(
+        "/assets/bake/ref",
+        json={
+            "input": {"bucket": "raw-assets", "key": "model.glb"},
+            "params": {},
+        },
+    )
+
+    assert response.status_code == 429
+
+
+def test_cancelled_request_holds_slot_until_bake_thread_exits(
+    monkeypatch, tmp_path
+) -> None:
+    from asset_baker import api
+
+    started = threading.Event()
+    release = threading.Event()
+    calls = 0
+
+    def blocking_process(_data, _params, *, storage=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            started.set()
+            assert release.wait(timeout=5)
+        raise api.HTTPException(status_code=418, detail="probe complete")
+
+    monkeypatch.setattr(api.ArtifactStorage, "fetch", lambda *_args: b"raw")
+    monkeypatch.setattr(api, "_process_bytes", blocking_process)
+    monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
+    app = api.create_app(api_token=_TOKEN)
+
+    async def scenario() -> int:
+        transport = httpx.ASGITransport(app=app)
+        headers = {"Authorization": f"Bearer {_TOKEN}"}
+        payload = {"input": {"bucket": "raw-assets", "key": "mesh.glb"}, "params": {}}
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://asset-baker.test",
+            headers=headers,
+        ) as client:
+            first = asyncio.create_task(client.post("/assets/bake/ref", json=payload))
+            assert await asyncio.to_thread(started.wait, 2)
+            first.cancel()
+            await asyncio.sleep(0.05)
+            second = await client.post("/assets/bake/ref", json=payload)
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await first
+            return second.status_code
+
+    assert asyncio.run(scenario()) == 429
+    assert calls == 1
 
 
 def test_bake_upload_invalid_form_param_returns_422() -> None:

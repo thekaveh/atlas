@@ -158,7 +158,7 @@
       <!-- Inline SVG master -->
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1240" preserveAspectRatio="xMidYMid meet" font-family="'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace">
         <title>Atlas — Architecture</title>
-        <desc>Topologically-ordered architecture diagram of Atlas: external clients enter via Kong, the gateway routes to Apps and Agents, which call the LLM Core (LiteLLM to Ollama + cloud + TEI Reranker) and the Media + Data layers; Ray + Spark supply distributed compute; Prometheus + Grafana provide observability.</desc>
+        <desc>Topologically-ordered architecture diagram of Atlas: external clients enter via Kong, the gateway routes to Apps and Agents, which call the LLM Core (LiteLLM to Ollama, vLLM Metal, and cloud providers, plus TEI Reranker) and the Media + Data layers; Ray + Spark supply distributed compute; Prometheus + Grafana provide observability.</desc>
 
         <defs>
           <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -227,35 +227,38 @@
         <line x1="700" y1="360" x2="700" y2="428" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.55"/>
 
         <!-- Apps to LLM (Open WebUI + Backend to LiteLLM) -->
-        <line x1="200" y1="360" x2="200" y2="548" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.6"/>
+        <line data-source="Open WebUI" data-target="LiteLLM Gateway" x1="200" y1="360" x2="200" y2="548" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.6"/>
+        <path data-source="Backend API" data-target="LiteLLM Gateway" d="M 700 360 L 825 360 L 825 505 L 280 505 L 280 548" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.6"/>
 
-        <!-- Agents to LLM (Hermes, n8n, LightRAG, Airflow to LiteLLM) -->
+        <!-- Selected agents to LLM (Hermes and n8n to LiteLLM) -->
         <line x1="200" y1="480" x2="200" y2="548" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.65"/>
-        <line x1="700" y1="480" x2="700" y2="548" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.6"/>
+        <path data-source="n8n + Workers" data-target="LiteLLM Gateway" d="M 700 480 L 700 488 L 260 488 L 260 548" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.6"/>
 
-        <!-- LiteLLM to Ollama + Cloud + TEI Reranker (within LLM band) -->
-        <line x1="375" y1="574" x2="405" y2="574" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
-        <line x1="685" y1="574" x2="715" y2="574" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+        <!-- LiteLLM routing to Ollama, vLLM Metal, and cloud upstreams -->
+        <line x1="305" y1="574" x2="325" y2="574" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+        <path d="M 305 574 C 390 525, 490 525, 575 574" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)" opacity="0.8"/>
+        <path d="M 305 574 C 485 610, 690 610, 825 574" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)" opacity="0.8"/>
 
-        <!-- Apps to Media (Open WebUI tools, Backend RAG) -->
-        <line x1="450" y1="360" x2="450" y2="668" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.5"/>
+        <!-- Selected current media calls: Open WebUI to STT; Backend to ComfyUI -->
+        <path d="M 200 360 L 75 380 L 75 650 L 200 650 L 200 668" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.5"/>
+        <path d="M 700 360 L 825 380 L 825 650 L 950 650 L 950 668" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.5"/>
 
-        <!-- Agents to Media (Hermes media skills + n8n actions + LightRAG ingest pipeline) -->
-        <line x1="450" y1="480" x2="450" y2="668" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.5"/>
+        <!-- Selected current agent media call: Hermes to TTS -->
+        <path d="M 200 480 L 325 500 L 325 640 L 450 640 L 450 668" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.5"/>
 
         <!-- Apps to Data (Backend writes to data tier; Zeppelin reads via JDBC/S3A) -->
-        <line x1="700" y1="360" x2="700" y2="788" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.45"/>
-        <line x1="1200" y1="360" x2="1200" y2="788" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.4"/>
+        <path d="M 700 360 L 825 380 L 825 510 L 700 510 L 700 620 L 825 620 L 825 770 L 700 770 L 700 788" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.45"/>
+        <path d="M 1200 360 L 1325 380 L 1325 770 L 1200 770 L 1200 788" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.4"/>
 
         <!-- Agents to Data (n8n / LightRAG / Airflow writes) -->
-        <line x1="950" y1="480" x2="950" y2="788" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.45"/>
+        <path d="M 950 480 L 1075 500 L 1075 510 L 1005 510 L 1005 620 L 1075 620 L 1075 770 L 950 770 L 950 788" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.45"/>
 
         <!-- Apps to Compute (Backend to Ray; Zeppelin to Spark Connect) -->
-        <line x1="700" y1="360" x2="700" y2="928" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.35"/>
-        <line x1="1200" y1="360" x2="1020" y2="928" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.35"/>
+        <path d="M 700 360 L 825 380 L 825 510 L 700 510 L 700 620 L 825 620 L 825 760 L 885 760 L 885 900 L 600 900 L 600 928" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.35"/>
+        <path d="M 1200 360 L 1325 380 L 1325 900 L 1020 900 L 1020 928" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.35"/>
 
         <!-- Agents to Compute (Airflow to Spark) -->
-        <line x1="1200" y1="480" x2="1020" y2="928" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.35"/>
+        <path d="M 1200 480 L 1325 500 L 1325 900 L 1020 900 L 1020 928" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.35"/>
 
         <!-- Prometheus scrape indicator: dashed slate line across the stack -->
         <line x1="60" y1="985" x2="1340" y2="985" stroke="#64748b" stroke-width="1" stroke-dasharray="2,3" opacity="0.4"/>
@@ -289,7 +292,7 @@
           <rect x="400" y="208" width="600" height="50" rx="6" fill="#0f172a"/>
           <rect x="400" y="208" width="600" height="50" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
           <text x="700" y="227" fill="#fecdd3" font-size="13" font-weight="700" text-anchor="middle">Kong API Gateway</text>
-          <text x="700" y="244" fill="#fda4af" font-size="9" text-anchor="middle">dynamic routes • *.localhost aliases • basic-auth + ACLs</text>
+          <text x="700" y="244" fill="#fda4af" font-size="9" text-anchor="middle">dynamic routes • *.localhost aliases • route-specific auth + traffic policies</text>
         </g>
 
         <!-- ─────────────────  APPS & UIs  ───────────────── -->
@@ -359,25 +362,30 @@
           <rect x="60" y="520" width="1280" height="92" rx="10" fill="none" stroke="#fbbf24" stroke-width="1" stroke-dasharray="6,4" opacity="0.5"/>
           <text x="76" y="538" fill="#fbbf24" font-size="10" font-weight="600" letter-spacing="2">LLM CORE</text>
 
-          <rect x="95" y="548" width="280" height="52" rx="6" fill="#0f172a"/>
-          <rect x="95" y="548" width="280" height="52" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-          <text x="235" y="568" fill="#fde68a" font-size="12" font-weight="600" text-anchor="middle">LiteLLM Gateway</text>
-          <text x="235" y="586" fill="#fcd34d" font-size="9" text-anchor="middle">OpenAI-compatible router with YAML catalog</text>
+          <rect x="75" y="548" width="230" height="52" rx="6" fill="#0f172a"/>
+          <rect x="75" y="548" width="230" height="52" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="190" y="568" fill="#fde68a" font-size="12" font-weight="600" text-anchor="middle">LiteLLM Gateway</text>
+          <text x="190" y="586" fill="#fcd34d" font-size="9" text-anchor="middle">OpenAI-compatible router</text>
 
-          <rect x="405" y="548" width="280" height="52" rx="6" fill="#0f172a"/>
-          <rect x="405" y="548" width="280" height="52" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-          <text x="545" y="568" fill="#fde68a" font-size="12" font-weight="600" text-anchor="middle">Ollama</text>
-          <text x="545" y="586" fill="#fcd34d" font-size="9" text-anchor="middle">local engine: qwen3 / nomic-embed</text>
+          <rect x="325" y="548" width="230" height="52" rx="6" fill="#0f172a"/>
+          <rect x="325" y="548" width="230" height="52" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="440" y="568" fill="#fde68a" font-size="12" font-weight="600" text-anchor="middle">Ollama</text>
+          <text x="440" y="586" fill="#fcd34d" font-size="9" text-anchor="middle">container or host upstream</text>
 
-          <rect x="715" y="548" width="280" height="52" rx="6" fill="#0f172a"/>
-          <rect x="715" y="548" width="280" height="52" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="3,3"/>
-          <text x="855" y="568" fill="#fde68a" font-size="12" font-weight="600" text-anchor="middle">Cloud Providers</text>
-          <text x="855" y="586" fill="#fcd34d" font-size="9" text-anchor="middle">OpenAI · Anthropic · OpenRouter</text>
+          <rect x="575" y="548" width="230" height="52" rx="6" fill="#0f172a"/>
+          <rect x="575" y="548" width="230" height="52" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="690" y="568" fill="#fde68a" font-size="12" font-weight="600" text-anchor="middle">vLLM Metal</text>
+          <text x="690" y="586" fill="#fcd34d" font-size="9" text-anchor="middle">managed Apple-silicon host</text>
 
-          <rect x="1025" y="548" width="280" height="52" rx="6" fill="#0f172a"/>
-          <rect x="1025" y="548" width="280" height="52" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-          <text x="1165" y="568" fill="#fde68a" font-size="12" font-weight="600" text-anchor="middle">TEI Reranker</text>
-          <text x="1165" y="586" fill="#fcd34d" font-size="9" text-anchor="middle">HF text-embeddings-inference</text>
+          <rect x="825" y="548" width="230" height="52" rx="6" fill="#0f172a"/>
+          <rect x="825" y="548" width="230" height="52" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="3,3"/>
+          <text x="940" y="568" fill="#fde68a" font-size="12" font-weight="600" text-anchor="middle">Cloud Providers</text>
+          <text x="940" y="586" fill="#fcd34d" font-size="9" text-anchor="middle">OpenAI · Anthropic · OpenRouter</text>
+
+          <rect x="1075" y="548" width="230" height="52" rx="6" fill="#0f172a"/>
+          <rect x="1075" y="548" width="230" height="52" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="1190" y="568" fill="#fde68a" font-size="12" font-weight="600" text-anchor="middle">TEI Reranker</text>
+          <text x="1190" y="586" fill="#fcd34d" font-size="9" text-anchor="middle">HF cross-encoder reranking</text>
         </g>
 
         <!-- ─────────────────  MEDIA  ───────────────── -->
@@ -545,7 +553,7 @@
         </div>
         <ul>
           <li>LiteLLM exposes one OpenAI-compatible <code>/v1</code> surface</li>
-          <li>Routes by model name to Ollama (local) or cloud providers</li>
+          <li>Routes by model name to Ollama, managed vLLM Metal, or cloud providers</li>
           <li>TEI Reranker adds a cross-encoder rerank stage for RAG</li>
           <li>YAML model catalogs (<code>services/ollama/models.yaml</code>, <code>services/litellm/models.yaml</code>) are the model catalog source of truth</li>
         </ul>
@@ -593,7 +601,7 @@
     </div>
 
     <footer class="page-footer">
-      Source diagram: <code>docs/diagrams/architecture.svg</code> · Hand-authored via the <code>architecture-diagram</code> skill · Edges show runtime / request-path calls only.
+      Scope: runtime / request-path calls only; init-time bootstrap and provisioning flows are intentionally omitted.
     </footer>
   </div>
 </body>

@@ -30,6 +30,7 @@ images:
   - var: COMFYUI_IMAGE
     default: "ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7"
     container: comfyui
+    platform: "linux/amd64"
     notes: "AI-Dock base image; COMFYUI_AUTO_UPDATE + COMFYUI_REF pin the upstream ComfyUI core at startup."
   - var: COMFYUI_INIT_IMAGE
     default: "alpine:3.24.1"

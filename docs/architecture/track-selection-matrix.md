@@ -4,6 +4,8 @@ How Atlas tracks map to service families and force-disable out-of-track services
 
 ## 1. Diagram
 
+![Track Selection Matrix architecture diagram](../diagrams/img/architecture-track-selection-matrix.png)
+
 [Open the full-size diagram](./track-selection-matrix.html).
 
 ## 2. Notes

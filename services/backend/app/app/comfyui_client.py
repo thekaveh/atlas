@@ -8,6 +8,7 @@ import uuid
 from typing import Dict, Any, Optional, List
 import os
 import logging
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
@@ -154,29 +155,18 @@ class ComfyUIClient:
             return {}
     
     async def cancel_prompt(self, prompt_id: str) -> bool:
-        """Cancel a prompt: drop it from the pending queue, and interrupt
-        execution only when it is the currently-running prompt.
-
-        ComfyUI's /interrupt ignores any request body and aborts whatever
-        is running — POSTing {"delete": [...]} there cancelled the wrong
-        job for queued prompts. Queue removal is POST /queue.
-        """
+        """Request atomic cancellation of exactly one ComfyUI job."""
         try:
-            queue = await self.get_queue_status()
-            running_ids = {
-                item[1]
-                for item in queue.get("queue_running", [])
-                if isinstance(item, (list, tuple)) and len(item) > 1
-            }
+            job_id = quote(prompt_id, safe="")
             response = await self.client.post(
-                f"{self.base_url}/queue",
-                json={"delete": [prompt_id]}
+                f"{self.base_url}/api/jobs/{job_id}/cancel"
             )
             response.raise_for_status()
-            if prompt_id in running_ids:
-                response = await self.client.post(f"{self.base_url}/interrupt")
-                response.raise_for_status()
-            return True
+            body = response.json()
+            if not isinstance(body, dict) or set(body) != {"cancelled"}:
+                return False
+            cancelled = body["cancelled"]
+            return cancelled if type(cancelled) is bool else False
             
         except Exception as exc:
             logger.error("Failed to cancel prompt (error_type=%s)", type(exc).__name__)

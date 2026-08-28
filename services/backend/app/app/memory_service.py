@@ -21,6 +21,10 @@ from memory_store import MemoryStore, _to_uuid
 logger = logging.getLogger("memory_service")
 
 
+class _StaleConsolidationAction(Exception):
+    """A fact changed after the LLM snapshot; roll back the whole action."""
+
+
 #: Exceptions that mean the SYNC TARGET is unhealthy, as opposed to this one
 #: row being bad. Only these count toward the halt streak.
 _TARGET_TRANSIENT = (
@@ -61,6 +65,48 @@ def _is_target_health_signal(exc: BaseException) -> bool:
             return False
         return status >= 500 or status in _TARGET_HEALTH_STATUSES
     return False
+
+
+def _is_valid_consolidation_index(index: Any, fact_count: int) -> bool:
+    return type(index) is int and 0 <= index < fact_count
+
+
+def _validated_consolidation_indices(
+    source_indices: Any, keep_index: Any, fact_count: int
+) -> Optional[tuple[List[int], int]]:
+    if not isinstance(source_indices, list) or len(source_indices) < 2:
+        return None
+    if not all(
+        _is_valid_consolidation_index(index, fact_count)
+        for index in source_indices
+    ):
+        return None
+    if len(set(source_indices)) != len(source_indices):
+        return None
+    if not _is_valid_consolidation_index(keep_index, fact_count):
+        return None
+    if keep_index not in source_indices:
+        return None
+    return source_indices, keep_index
+
+
+def _validate_consolidation_action(
+    action_data: Any, fact_count: int
+) -> Optional[tuple[str, List[int], int, str]]:
+    """Return a safe consolidation action or reject untrusted LLM output."""
+    if not isinstance(action_data, dict):
+        return None
+    action = action_data.get("action")
+    reason = action_data.get("reason", "")
+    if action not in {"merge", "supersede"} or not isinstance(reason, str):
+        return None
+    indices = _validated_consolidation_indices(
+        action_data.get("source_indices"), action_data.get("keep_index"), fact_count
+    )
+    if indices is None:
+        return None
+    source_indices, keep_index = indices
+    return action, source_indices, keep_index, reason
 
 
 #: How many TARGET-HEALTH failures since the last successful row mean the
@@ -137,6 +183,10 @@ class MemoryService:
         """Raise if the service is disabled."""
         if not self.enabled:
             raise RuntimeError("LangMem memory service is disabled")
+
+    def _resolve_namespace(self, namespace: Optional[str]) -> str:
+        """Use the operator-configured namespace only when none was supplied."""
+        return self.namespace if namespace is None else namespace
 
     async def _get_extraction_model(self) -> str:
         """Get the model identifier (LiteLLM-prefixed) for fact extraction.
@@ -219,28 +269,44 @@ class MemoryService:
         self,
         user_id: str,
         messages: List[Dict[str, str]],
-        namespace: str = "default",
+        namespace: Optional[str] = None,
         conversation_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Extract facts from conversation messages using the LiteLLM gateway."""
         self._check_enabled()
         await self._ensure_initialized()
+        namespace = self._resolve_namespace(namespace)
 
         session_uuid = uuid4()
         session_id = str(session_uuid)
         user_uuid = _to_uuid(user_id)
         conv_uuid = _to_uuid(conversation_id)
-        async with self._acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO public.memory_sessions
-                    (id, user_id, conversation_id, status, processing_started_at)
-                VALUES ($1, $2, $3, 'running', now())
-                """,
-                session_uuid,
-                user_uuid,
-                conv_uuid,
-            )
+        try:
+            async with self._acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO public.memory_sessions
+                        (id, user_id, conversation_id, status,
+                         processing_started_at)
+                    VALUES ($1, $2, $3, 'running', now())
+                    """,
+                    session_uuid,
+                    user_uuid,
+                    conv_uuid,
+                )
+        except asyncio.CancelledError as exc:
+            # The INSERT may have committed server-side even when cancellation
+            # arrived before the driver returned. A guarded terminal UPDATE is
+            # harmless if no row exists and prevents a visible row remaining
+            # permanently "running".
+            await self._mark_extraction_failed_durably(session_uuid, exc)
+            raise
+        except Exception as exc:
+            # Driver errors after an INSERT are commit-ambiguous. Attempt a
+            # guarded terminal update through a fresh acquisition, then keep
+            # the original database error as the caller-visible outcome.
+            await self._mark_extraction_failed(session_uuid, exc)
+            raise
 
         conversation_text = "\n".join(
             f"{msg.get('role', 'user')}: {msg.get('content', '')}"
@@ -277,6 +343,9 @@ Extract the facts as JSON:"""
             ):
                 raise ValueError("fact extraction response must be a JSON array of objects")
             extracted_facts = parsed
+        except asyncio.CancelledError as exc:
+            await self._mark_extraction_failed_durably(session_uuid, exc)
+            raise
         except Exception as exc:
             logger.error(
                 "Fact extraction LLM call failed (error_type=%s)",
@@ -372,6 +441,9 @@ Extract the facts as JSON:"""
                         len(stored_facts),
                         session_uuid,
                     )
+        except asyncio.CancelledError as exc:
+            await self._mark_extraction_failed_durably(session_uuid, exc)
+            raise
         except Exception as exc:
             await self._mark_extraction_failed(session_uuid, exc)
             return {
@@ -426,7 +498,32 @@ Extract the facts as JSON:"""
             "facts": stored_facts,
         }
 
-    async def _mark_extraction_failed(self, session_uuid: Any, exc: Exception) -> None:
+    async def _mark_extraction_failed_durably(
+        self, session_uuid: Any, exc: BaseException
+    ) -> None:
+        """Finish the terminal session write despite repeated caller cancellation."""
+        task = asyncio.create_task(
+            self._retry_extraction_failure_write(session_uuid, exc)
+        )
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                continue
+        task.result()
+
+    async def _retry_extraction_failure_write(
+        self, session_uuid: Any, exc: BaseException
+    ) -> None:
+        for _attempt in range(3):
+            if await self._mark_extraction_failed(session_uuid, exc):
+                return
+            await asyncio.sleep(0)
+        raise RuntimeError("memory extraction failure could not be persisted")
+
+    async def _mark_extraction_failed(
+        self, session_uuid: Any, exc: BaseException
+    ) -> bool:
         try:
             async with self._acquire() as conn:
                 await conn.execute(
@@ -439,6 +536,7 @@ Extract the facts as JSON:"""
                     "Memory extraction failed",
                     session_uuid,
                 )
+            return True
         except Exception as persist_error:
             logger.error(
                 "Memory extraction failure could not be persisted "
@@ -446,18 +544,20 @@ Extract the facts as JSON:"""
                 session_uuid,
                 type(persist_error).__name__,
             )
+            return False
 
     async def recall(
         self,
         user_id: str,
         query: str,
-        namespace: str = "default",
+        namespace: Optional[str] = None,
         limit: int = 10,
         min_confidence: float = 0.5,
     ) -> Dict[str, Any]:
         """Recall relevant memories for a query."""
         self._check_enabled()
         await self._ensure_initialized()
+        namespace = self._resolve_namespace(namespace)
         await self._reconcile_pending_vectors()
 
         # Search vector store for semantically similar memories
@@ -479,9 +579,12 @@ Extract the facts as JSON:"""
                            is_active, created_at, updated_at, metadata
                     FROM public.memory_facts
                     WHERE id = $1 AND is_active = true AND confidence >= $2
+                      AND user_id = $3 AND namespace = $4
                     """,
                     _to_uuid(pg_id),
                     min_confidence,
+                    _to_uuid(user_id),
+                    namespace,
                 )
                 if row:
                     memories.append(
@@ -654,6 +757,53 @@ Extract the facts as JSON:"""
                 await conn.close()
         return reconciled
 
+    async def _expire_excess_facts(
+        self, user_uuid: Any, retry_transient: bool
+    ) -> int:
+        """Apply the per-user retention limit across every namespace."""
+        conn = await connect_postgres(self.database_url)
+        expired_count = 0
+        try:
+            active_count = await conn.fetchval(
+                """
+                SELECT COUNT(*) FROM public.memory_facts
+                WHERE user_id = $1 AND is_active = true
+                """,
+                user_uuid,
+            )
+            if active_count <= self.max_facts:
+                return 0
+            expired_rows = await conn.fetch(
+                """
+                SELECT id, updated_at FROM public.memory_facts
+                WHERE user_id = $1 AND is_active = true
+                ORDER BY updated_at ASC
+                LIMIT $2
+                """,
+                user_uuid,
+                active_count - self.max_facts,
+            )
+            for row in expired_rows:
+                expired = await conn.fetchrow(
+                    """
+                    UPDATE public.memory_facts
+                    SET is_active = false, expires_at = now(),
+                        vector_sync_pending = true, updated_at = now()
+                    WHERE id = $1 AND is_active = true
+                      AND updated_at = $2
+                    RETURNING id, weaviate_id
+                    """,
+                    row["id"],
+                    row["updated_at"],
+                )
+                expired_count += int(expired is not None)
+            await self._reconcile_pending_vectors(
+                conn, retry_transient=retry_transient
+            )
+            return expired_count
+        finally:
+            await conn.close()
+
     async def consolidate(
         self,
         user_id: Optional[str] = None,
@@ -678,25 +828,40 @@ Extract the facts as JSON:"""
         # preserved because asyncpg Records are detached and `facts` is
         # indexed by integer position.
 
-        # Resolve user list under a brief connection.
-        if user_id:
-            user_ids = [_to_uuid(user_id)]
-        else:
-            async with self._acquire() as conn:
+        # Resolve namespace-isolated work groups under a brief connection.
+        # Namespace is an access boundary for recall/list/summarize and must be
+        # the same boundary for LLM-driven consolidation.
+        async with self._acquire() as conn:
+            if user_id:
+                uid = _to_uuid(user_id)
                 rows = await conn.fetch(
                     """
-                    SELECT DISTINCT user_id FROM public.memory_facts
+                    SELECT DISTINCT namespace FROM public.memory_facts
+                    WHERE user_id = $1 AND is_active = true
+                    ORDER BY namespace
+                    """,
+                    uid,
+                )
+                groups = [(uid, row["namespace"]) for row in rows]
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT DISTINCT user_id, namespace
+                    FROM public.memory_facts
                     WHERE is_active = true
+                    ORDER BY user_id, namespace
                     """
                 )
-                user_ids = [row["user_id"] for row in rows]
+                groups = [
+                    (row["user_id"], row["namespace"]) for row in rows
+                ]
 
         total_reviewed = 0
         total_merged = 0
         total_superseded = 0
         total_expired = 0
 
-        for uid in user_ids:
+        for uid, group_namespace in groups:
             # Fetch facts under a brief connection; release before the
             # LLM call so the connection slot is free during the round-
             # trip (up to 60s per user).
@@ -706,10 +871,12 @@ Extract the facts as JSON:"""
                     SELECT id, content, fact_type, confidence, namespace,
                            created_at, updated_at, metadata, weaviate_id
                     FROM public.memory_facts
-                    WHERE user_id = $1 AND is_active = true
+                    WHERE user_id = $1 AND namespace = $2
+                      AND is_active = true
                     ORDER BY created_at
                     """,
                     uid,
+                    group_namespace,
                 )
 
             total_reviewed += len(facts)
@@ -775,28 +942,12 @@ Extract the facts as JSON:"""
             conn = await connect_postgres(self.database_url)  # HOLD
             try:
                 for action_data in actions:
-                    action = action_data.get("action", "")
-                    source_indices = action_data.get("source_indices", [])
-                    keep_index = action_data.get("keep_index")
-                    reason = action_data.get("reason", "")
-
-                    if not source_indices or keep_index is None:
+                    validated = _validate_consolidation_action(
+                        action_data, len(facts)
+                    )
+                    if validated is None:
                         continue
-
-                    # Coerce LLM-returned indices to int — they may arrive as
-                    # floats (e.g. 0.0), which would TypeError on list indexing
-                    # and abort this and every subsequent user's consolidation.
-                    try:
-                        source_indices = [int(i) for i in source_indices]
-                        keep_index = int(keep_index)
-                    except (TypeError, ValueError):
-                        continue
-
-                    # Validate indices
-                    if any(
-                        i < 0 or i >= len(facts) for i in source_indices
-                    ) or keep_index < 0 or keep_index >= len(facts):
-                        continue
+                    action, source_indices, keep_index, reason = validated
 
                     keep_fact = facts[keep_index]
                     source_facts = [
@@ -806,54 +957,60 @@ Extract the facts as JSON:"""
                     if not source_facts:
                         continue
 
-                    # Deactivate superseded facts
                     source_fact_uuids = []
-                    for source_fact in source_facts:
-                        sfid = source_fact["id"]
-                        deactivated = await conn.fetchrow(
-                            """
-                            UPDATE public.memory_facts
-                            SET is_active = false, superseded_by = $1,
-                                vector_sync_pending = true, updated_at = now()
-                            WHERE id = $2 AND is_active = true
-                              AND updated_at = $3
-                              AND EXISTS (
-                                  SELECT 1 FROM public.memory_facts keeper
-                                  WHERE keeper.id = $1
-                                    AND keeper.is_active = true
-                                    AND keeper.updated_at = $4
-                              )
-                            RETURNING id, weaviate_id
-                            """,
-                            keep_fact["id"],  # Already UUID from asyncpg
-                            sfid,
-                            source_fact["updated_at"],
-                            keep_fact["updated_at"],
-                        )
-                        if deactivated:
-                            source_fact_uuids.append(deactivated["id"])
+                    try:
+                        async with conn.transaction():
+                            # Deactivate every source and write its audit record
+                            # as one unit. A failed/stale later UPDATE must roll
+                            # back every earlier source in the same LLM action.
+                            for source_fact in source_facts:
+                                sfid = source_fact["id"]
+                                deactivated = await conn.fetchrow(
+                                    """
+                                    UPDATE public.memory_facts
+                                    SET is_active = false, superseded_by = $1,
+                                        vector_sync_pending = true,
+                                        updated_at = now()
+                                    WHERE id = $2 AND is_active = true
+                                      AND updated_at = $3
+                                      AND namespace = $5
+                                      AND EXISTS (
+                                          SELECT 1
+                                          FROM public.memory_facts keeper
+                                          WHERE keeper.id = $1
+                                            AND keeper.is_active = true
+                                            AND keeper.updated_at = $4
+                                            AND keeper.namespace = $5
+                                      )
+                                    RETURNING id, weaviate_id
+                                    """,
+                                    keep_fact["id"],
+                                    sfid,
+                                    source_fact["updated_at"],
+                                    keep_fact["updated_at"],
+                                    group_namespace,
+                                )
+                                if not deactivated:
+                                    raise _StaleConsolidationAction
+                                source_fact_uuids.append(deactivated["id"])
 
-                    if not source_fact_uuids:
+                            await conn.execute(
+                                """
+                                INSERT INTO public.memory_consolidation_log
+                                    (user_id, action, source_fact_ids,
+                                     result_fact_id, reason)
+                                VALUES ($1, $2, $3, $4, $5)
+                                """,
+                                uid,
+                                {"merge": "merged", "supersede": "superseded"}[
+                                    action
+                                ],
+                                source_fact_uuids,
+                                keep_fact["id"],
+                                reason,
+                            )
+                    except _StaleConsolidationAction:
                         continue
-                    # Log the consolidation
-                    await conn.execute(
-                        """
-                        INSERT INTO public.memory_consolidation_log
-                            (user_id, action, source_fact_ids, result_fact_id, reason)
-                        VALUES ($1, $2, $3, $4, $5)
-                        """,
-                        uid,
-                        # The LLM contract (above) emits present-tense
-                        # "merge"/"supersede"; the log table stores past
-                        # tense. The old guard compared against past-tense
-                        # values, so every merge was logged "superseded".
-                        {"merge": "merged", "merged": "merged",
-                         "supersede": "superseded",
-                         "superseded": "superseded"}.get(action, "superseded"),
-                        source_fact_uuids,
-                        keep_fact["id"],  # Already UUID from asyncpg
-                        reason,
-                    )
 
                     if action == "merge":
                         total_merged += len(source_fact_uuids)
@@ -863,45 +1020,13 @@ Extract the facts as JSON:"""
                         conn, retry_transient=retry_transient
                     )
 
-                # Expire old facts beyond the limit
-                excess = await conn.fetchval(
-                    """
-                    SELECT COUNT(*) FROM public.memory_facts
-                    WHERE user_id = $1 AND is_active = true
-                    """,
-                    uid,
-                )
-                if excess > self.max_facts:
-                    expired_rows = await conn.fetch(
-                        """
-                        SELECT id, updated_at FROM public.memory_facts
-                        WHERE user_id = $1 AND is_active = true
-                        ORDER BY updated_at ASC
-                        LIMIT $2
-                        """,
-                        uid,
-                        excess - self.max_facts,
-                    )
-                    for row in expired_rows:
-                        expired = await conn.fetchrow(
-                            """
-                            UPDATE public.memory_facts
-                            SET is_active = false, expires_at = now(),
-                                vector_sync_pending = true, updated_at = now()
-                            WHERE id = $1 AND is_active = true
-                              AND updated_at = $2
-                            RETURNING id, weaviate_id
-                            """,
-                            row["id"],  # Already UUID from asyncpg
-                            row["updated_at"],
-                        )
-                        if expired:
-                            total_expired += 1
-                    await self._reconcile_pending_vectors(
-                        conn, retry_transient=retry_transient
-                    )
             finally:
                 await conn.close()  # HOLD (see above)
+
+        for uid in dict.fromkeys(group_uid for group_uid, _namespace in groups):
+            total_expired += await self._expire_excess_facts(
+                uid, retry_transient
+            )
 
         return {
             "user_id": user_id,
@@ -912,11 +1037,12 @@ Extract the facts as JSON:"""
         }
 
     async def summarize(
-        self, user_id: str, namespace: str = "default"
+        self, user_id: str, namespace: Optional[str] = None
     ) -> Dict[str, Any]:
         """Generate a natural-language user memory profile."""
         self._check_enabled()
         await self._ensure_initialized()
+        namespace = self._resolve_namespace(namespace)
         user_uuid = _to_uuid(user_id)
 
         async with self._acquire() as conn:
@@ -980,12 +1106,13 @@ Extract the facts as JSON:"""
     async def list_memories(
         self,
         user_id: str,
-        namespace: str = "default",
+        namespace: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> Dict[str, Any]:
         """List all memories for a user."""
         self._check_enabled()
+        namespace = self._resolve_namespace(namespace)
         user_uuid = _to_uuid(user_id)
 
         async with self._acquire() as conn:

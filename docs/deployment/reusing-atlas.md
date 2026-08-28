@@ -87,7 +87,7 @@ Within `${PROJECT_NAME}-network`, reach each service by its **compose service na
 | **LiteLLM** (LLM gateway, OpenAI-compatible) | `litellm:4000` | `POST http://litellm:4000/v1/chat/completions`; auth with `LITELLM_MASTER_KEY` |
 | **Weaviate** (vector DB) | `weaviate:8080` (gRPC `weaviate:50051`) | |
 | **Neo4j** (graph DB) | `neo4j-graph-db:7687` (Bolt), `:7474` (HTTP) | auth from `GRAPH_DB_AUTH` |
-| **Supabase Postgres** | `supabase-db:5432` | REST/Auth/Storage are exposed via Kong — see [submodule-usage.md §6.2](submodule-usage.md#62-pattern-2-kong-gateway-as-single-entry-point) |
+| **Supabase Postgres** | `supabase-db:5432` | REST/Auth/Storage are exposed via Kong — see [submodule-usage.md §6.2](submodule-usage.md#62-pattern-2-kong-gateway-for-routed-services) |
 | **MinIO** (S3-compatible) | `minio:9000` (console `:9001`) | creds `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` |
 | **Redis** | `redis:6379` | auth `REDIS_PASSWORD` |
 | **n8n** (workflows) | `n8n:5678` | |
@@ -98,7 +98,7 @@ The authoritative, always-current port list (host-published ports + Kong hostnam
 
 ### 3.4. Going through Kong instead (single entry point)
 
-If you'd rather not depend on individual service hostnames, route through Kong — Atlas's gateway — at `kong-api-gateway:8000`. Supabase REST is path-routed (`/rest/v1/...`); browser-facing services are host-routed (`<service>.localhost`). The Kong patterns, including the auth headers, are documented in [submodule-usage.md §6.2](submodule-usage.md#62-pattern-2-kong-gateway-as-single-entry-point).
+If you'd rather not depend on individual service hostnames, route Kong-enabled services through Atlas's gateway at `kong-api-gateway:8000`. Supabase REST is path-routed (`/rest/v1/...`); browser-facing services with declared routes are host-routed (`<service>.localhost`). Direct TCP services still use their exported endpoint contracts. The Kong patterns, including the auth headers, are documented in [submodule-usage.md §6.2](submodule-usage.md#62-pattern-2-kong-gateway-for-routed-services).
 
 ---
 
@@ -465,7 +465,10 @@ registered consumers in the launch overview. Multiple manifests may be supplied
 by repeating `--consumer` or by setting `ATLAS_CONSUMER_MANIFEST` with
 `os.pathsep`-separated paths. List-valued model declarations merge by ordered
 union; scalar conflicts such as different `PROJECT_NAME` values fail during
-validation instead of silently last-wins.
+validation instead of silently last-wins. Duplicate YAML mapping keys at any
+depth are invalid and fail with their key name rather than being silently
+overwritten. Standard YAML merge inheritance remains supported, including an
+explicit key overriding a merged default.
 
 An `env.values` entry may be **key-gated** instead of a plain scalar, so a
 consumer can enable a paid provider only when its key is present — declaratively,
@@ -687,8 +690,9 @@ start.
 
 **Shared managed-host runtimes and teardown.** Some sources run a **native
 host-global process** rather than a container: Apple-Silicon/Metal ComfyUI
-(`COMFYUI_SOURCE=managed-localhost-mps`) and vLLM Metal
-(`VLLM_METAL_SOURCE=managed-localhost`). These listen on a fixed loopback port
+(`COMFYUI_SOURCE=managed-localhost-mps`), vLLM Metal
+(`VLLM_METAL_SOURCE=managed-localhost`), and headless Blender MCP
+(`BLENDER_MCP_SOURCE=managed-localhost`). These listen on fixed loopback ports
 and are shared by **every** Atlas consumer on the machine — they are not
 Compose-project resources, so `docker compose down` never touches them. Because
 multiple concurrent consumers (disjoint project names + base-port ranges) can
@@ -700,11 +704,11 @@ share one such runtime, a project-scoped stop leaves it running by default:
 
 If a managed host process is detected running, `stop.sh` prints an advisory
 naming the explicit opt-in. To deliberately tear the host-global runtimes down
-(ComfyUI-MPS **and** vLLM-Metal), pass `--stop-managed-hosts` — this affects
+(ComfyUI-MPS, vLLM-Metal, **and** Blender MCP), pass `--stop-managed-hosts` — this affects
 **all** consumers using them and is reported as such:
 
 ```bash
-./stop.sh --stop-managed-hosts        # also stop the host-global ComfyUI-MPS / vLLM-Metal processes
+./stop.sh --stop-managed-hosts        # also stop ComfyUI-MPS / vLLM-Metal / Blender MCP
 ```
 
 Standard and `--cold` stops follow the same rule. This makes unattended
