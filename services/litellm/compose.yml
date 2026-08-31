@@ -5,15 +5,15 @@ services:
     container_name: ${PROJECT_NAME}-litellm-init
     restart: "no"
     depends_on:
-      supabase-db:
-        condition: service_healthy
+      supabase-db-init:
+        condition: service_completed_successfully
     deploy:
       replicas: ${LITELLM_INIT_SCALE:-1}
     environment:
       PGHOST: supabase-db
       PGPORT: 5432
-      PGUSER: ${SUPABASE_DB_USER}
-      PGPASSWORD: ${SUPABASE_DB_PASSWORD}
+      PGUSER: ${LITELLM_DB_USER:?LITELLM_DB_USER is required}
+      PGPASSWORD: ${LITELLM_DB_PASSWORD:?LITELLM_DB_PASSWORD is required}
       LITELLM_DB_NAME: ${LITELLM_DB_NAME:-litellm}
       # ``${VAR-default}`` (no colon) — fall back to default ONLY when
       # LITELLM_OLLAMA_UPSTREAM is unset. An empty value means "no
@@ -133,7 +133,7 @@ services:
       - "${HOST_BIND_IP:-}${LITELLM_PORT:-63040}:4000"
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
-      DATABASE_URL: postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/${LITELLM_DB_NAME:-litellm}
+      DATABASE_URL: postgresql://${LITELLM_DB_USER_URI:?LITELLM_DB_USER_URI is required}:${LITELLM_DB_PASSWORD_URI:?LITELLM_DB_PASSWORD_URI is required}@supabase-db:5432/${LITELLM_DB_NAME_URI:?LITELLM_DB_NAME_URI is required}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}

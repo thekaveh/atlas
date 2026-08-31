@@ -32,7 +32,7 @@ images:
     default: "ghcr.io/hkuds/lightrag:v1.5.4"
     container: lightrag
   - var: LIGHTRAG_INIT_IMAGE
-    default: "alpine:3.24.1"
+    default: "alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"
     container: lightrag-init
 
 sources:
@@ -48,6 +48,20 @@ sources:
       label: "Disabled"
 
 env:
+  - name: LIGHTRAG_DB_USER
+    default: atlas_lightrag
+    description: "Scoped PostgreSQL owner for LightRAG PGVectorStorage relations."
+  - name: LIGHTRAG_DB_PASSWORD
+    default: atlas-db-password
+    secret: true
+    description: "Auto-generated password for the scoped LightRAG database role."
+  - name: LIGHTRAG_DB_USER_URI
+    default: atlas_lightrag
+    description: "Bootstrapper-synchronized percent-encoded LIGHTRAG_DB_USER for DSN userinfo."
+  - name: LIGHTRAG_DB_PASSWORD_URI
+    default: atlas-db-password
+    secret: true
+    description: "Bootstrapper-synchronized percent-encoded LIGHTRAG_DB_PASSWORD for DSN userinfo."
   - name: LIGHTRAG_SOURCE
     default: disabled
   - name: LIGHTRAG_API_PORT
@@ -259,7 +273,7 @@ runtime_adaptive:
       # endpoint expects `{query, texts}`. Keep this blank until Atlas ships
       # an adapter or a compatible rerank binding.
       LIGHTRAG_RERANK_BINDING_HOST: ""
-      LIGHTRAG_PG_URI: "postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/${SUPABASE_DB_NAME}"
+      LIGHTRAG_PG_URI: "postgresql://${LIGHTRAG_DB_USER_URI}:${LIGHTRAG_DB_PASSWORD_URI}@supabase-db:5432/${SUPABASE_DB_NAME_URI}"
       # Neo4j compose service id is `neo4j-graph-db`, not `neo4j` (memory:
       # reference_kong_compose_service_id documents the same pattern for Kong).
       LIGHTRAG_NEO4J_URI: "bolt://neo4j-graph-db:7687"

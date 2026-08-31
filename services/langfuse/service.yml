@@ -32,10 +32,10 @@ images:
     default: "langfuse/langfuse-worker:3.115.0"
     container: langfuse-worker
   - var: LANGFUSE_CLICKHOUSE_IMAGE
-    default: "clickhouse/clickhouse-server:25.8.12"
+    default: "clickhouse/clickhouse-server:25.8.33.6"
     container: langfuse-clickhouse
   - var: LANGFUSE_INIT_IMAGE
-    default: "alpine:3.22.1"
+    default: "alpine:3.24.1"
     container: langfuse-init
 
 sources:
@@ -65,6 +65,22 @@ env:
     auto_managed: true
   - name: LANGFUSE_DB_NAME
     default: langfuse
+  - name: LANGFUSE_DB_NAME_URI
+    default: langfuse
+    description: "Bootstrapper-synchronized percent-encoded LANGFUSE_DB_NAME for DSN path components."
+  - name: LANGFUSE_DB_USER
+    default: langfuse
+  - name: LANGFUSE_DB_PASSWORD
+    default: atlas-db-password
+    secret: true
+    description: "Auto-generated password for the owner of Langfuse's dedicated database."
+  - name: LANGFUSE_DB_USER_URI
+    default: langfuse
+    description: "Bootstrapper-synchronized percent-encoded LANGFUSE_DB_USER for DSN userinfo."
+  - name: LANGFUSE_DB_PASSWORD_URI
+    default: atlas-db-password
+    secret: true
+    description: "Bootstrapper-synchronized percent-encoded LANGFUSE_DB_PASSWORD for DSN userinfo."
   - name: LANGFUSE_SALT
     default: ""
     secret: true

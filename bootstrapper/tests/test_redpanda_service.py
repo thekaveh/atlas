@@ -266,6 +266,7 @@ def test_redpanda_kong_route_and_docs_contract() -> None:
         "docker.redpanda.com/redpandadata/console:v3.8.0",
         "Kafka Connect",
         "Debezium",
+        "org.apache.kafka:kafka-clients:3.9.2",
     ):
         assert expected in readme
 
@@ -276,12 +277,12 @@ def test_spark_image_bakes_kafka_connector_jars_with_sha512() -> None:
     expected = {
         "SPARK_SQL_KAFKA_VERSION": "4.1.2",
         "SPARK_SQL_KAFKA_ARTIFACT": "spark-sql-kafka-0-10_2.13",
-        "SPARK_KAFKA_TOKEN_PROVIDER_ARTIFACT": "spark-token-provider-kafka-0-10_2.13",
-        "KAFKA_CLIENTS_VERSION": "3.9.1",
+        "SPARK_KAFKA_CONNECTOR_ARTIFACT": "spark-token-provider-kafka-0-10_2.13",
+        "KAFKA_CLIENTS_VERSION": "3.9.2",
         "COMMONS_POOL2_VERSION": "2.12.1",
         "SPARK_SQL_KAFKA_SHA512": "57212eeb69ec417a2ab84dcf9de882fea95eb5554bd9adf10698fb5621fe0127283fd3bad4bb19897598673d06fa087de9fdf0f9614ec4004248e56e8a80ba94",
-        "SPARK_KAFKA_TOKEN_PROVIDER_SHA512": "68a83987ad79923effa7b0e1657a8eb987857714502fffc59326a2784312b15bf943fbc88b257215869f68853be79322687c443806f9f78e15a6cae2ceffbe5c",
-        "KAFKA_CLIENTS_SHA512": "0b95bb53006888a5409f6fced2d0e03875a4ce19dcccb8b635ba3a67482475236cf8a33c40709641222dd7556fc0ebbff682a046929134383b1a064e78ab12eb",
+        "SPARK_KAFKA_CONNECTOR_SHA512": "68a83987ad79923effa7b0e1657a8eb987857714502fffc59326a2784312b15bf943fbc88b257215869f68853be79322687c443806f9f78e15a6cae2ceffbe5c",
+        "KAFKA_CLIENTS_SHA512": "dd824c9a31f38a5a6d2b2c7ac03e9f31d8c5a7f1d8a6baefbe7d55552f4ab961ec831f040bb87a3c52dab6d464ee0954c31d256c1ea323140139465697806369",
         "COMMONS_POOL2_SHA512": "186dabefa07a38cc106e5aca3fcec6d2d8c79fc2787d448632c24a61cad3574c53809895f85181ba097012b60a86116eec22ae3ab4c6e47ac7dddac00a0b71a7",
     }
     for key, value in expected.items():

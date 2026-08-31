@@ -104,12 +104,13 @@ REQUIRED_DEPENDS_ON = {
     # - Spark workers + history must wait on the master being healthy +
     #   the spark-init bucket-bootstrap respectively.
     # - Zeppelin is gated on Spark — its Spark interpreter is the whole point.
-    # - Airflow's init container migrates the metadata DB on supabase-db;
-    #   webserver + scheduler depend on the init container completing.
+    # - Airflow's init container waits for central scoped-role/database
+    #   provisioning before migrating its metadata DB; webserver + scheduler
+    #   depend on the init container completing.
     ("spark-worker", "spark-master"),
     ("spark-history", "spark-init"),
     ("zeppelin", "spark-master"),
-    ("airflow-init", "supabase-db"),
+    ("airflow-init", "supabase-db-init"),
     ("airflow-webserver", "airflow-init"),
     ("airflow-scheduler", "airflow-init"),
     # Airflow 3.x dag-processor — required as a standalone service (the

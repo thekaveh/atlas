@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -116,7 +117,7 @@ async def test_memory_health_returns_stable_public_error(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_deactivate_embedding_patches_weaviate_active_flag(monkeypatch):
+async def test_pgvector_deactivation_does_not_let_unselected_weaviate_veto(monkeypatch):
     import memory_store
 
     calls = []
@@ -141,20 +142,15 @@ async def test_deactivate_embedding_patches_weaviate_active_flag(monkeypatch):
     store = memory_store.MemoryStore(
         "postgresql://atlas", weaviate_url="http://weaviate"
     )
-    # Existing Weaviate IDs must be retired even while new writes have
-    # temporarily fallen back to pgvector.
+    # PostgreSQL is authoritative while selected. Explicit failback performs a
+    # full rebuild (including retirements) before Weaviate searches resume.
     store.backend = "pgvector"
     store._initialized = True
     monkeypatch.setattr(memory_store.httpx, "AsyncClient", lambda **_kwargs: Client())
 
     await store.deactivate_embedding("fact-1", "vector-1")
 
-    assert calls == [
-        (
-            "http://weaviate/v1/objects/Memory/vector-1",
-            {"class": "Memory", "properties": {"isActive": False}},
-        )
-    ]
+    assert calls == []
 
 
 @pytest.mark.asyncio
@@ -186,6 +182,8 @@ async def test_store_embedding_uses_fact_uuid_as_deterministic_weaviate_id(
     store.backend = "weaviate"
     store._initialized = True
     monkeypatch.setattr(memory_store.httpx, "AsyncClient", lambda **_kwargs: Client())
+    shadow = AsyncMock()
+    monkeypatch.setattr(store, "_store_pgvector", shadow)
 
     object_id = await store.store_embedding(
         fact_id="00000000-0000-4000-8000-000000000001",
@@ -199,6 +197,7 @@ async def test_store_embedding_uses_fact_uuid_as_deterministic_weaviate_id(
 
     assert object_id == "00000000-0000-4000-8000-000000000001"
     assert payloads[0][1]["id"] == object_id
+    shadow.assert_awaited_once_with(object_id, "fact", mark_dirty=False)
 
 
 @pytest.mark.asyncio
@@ -287,6 +286,65 @@ class _FakeExtractionConnection:
         return None
 
 
+class _InterleavingExtractionConnection(_FakeExtractionConnection):
+    """Models a canonical-row mutation between embedding and acknowledgement."""
+
+    def __init__(self, executed, state, writeback_results):
+        super().__init__(executed)
+        self._state = state
+        self._writeback_results = writeback_results
+
+    async def fetchrow(self, query, *args):
+        if "INSERT INTO public.memory_facts" in query:
+            inserted_at = self._state["updated_at"]
+            self._state.update(
+                content=args[3],
+                fact_type=args[4],
+                confidence=args[5],
+                updated_at=inserted_at,
+                vector_sync_pending=True,
+            )
+            return {"created_at": inserted_at, "updated_at": inserted_at}
+        return await super().fetchrow(query, *args)
+
+    @staticmethod
+    def _has_owner_cas(query):
+        return all(
+            (
+                "embedding_owner AS MATERIALIZED" in query,
+                "content = $3 AND fact_type = $4" in query,
+                "confidence = $5 AND is_active = true" in query,
+                query.count("vector_sync_pending = true") == 2,
+                "fact.updated_at = embedding_owner.updated_at" in query,
+            )
+        )
+
+    def _owns_current_version(self, args):
+        return all(
+            (
+                self._state["vector_sync_pending"] is True,
+                self._state["content"] == args[2],
+                self._state["fact_type"] == args[3],
+                self._state["confidence"] == args[4],
+                self._state["is_active"] is True,
+            )
+        )
+
+    async def execute(self, query, *args):
+        self._executed.append((query, *args))
+        if "vector_sync_pending = false" not in query:
+            return None
+        has_owner_cas = self._has_owner_cas(query)
+        owns_current_version = has_owner_cas and self._owns_current_version(args)
+        result = "UPDATE 1" if owns_current_version else "UPDATE 0"
+        if not has_owner_cas:
+            result = "UPDATE 1"  # Proves the regression red without the CAS.
+        if result == "UPDATE 1":
+            self._state["vector_sync_pending"] = False
+        self._writeback_results.append(result)
+        return result
+
+
 def _extraction_service(monkeypatch, executed, *, store_embedding):
     import memory_service
 
@@ -319,7 +377,9 @@ def _pending_updates(executed):
     return [
         args
         for args in executed
-        if args and isinstance(args[0], str) and "vector_sync_pending = true" in args[0]
+        if args
+        and isinstance(args[0], str)
+        and "SET vector_sync_pending = true" in args[0]
     ]
 
 
@@ -356,6 +416,88 @@ async def test_extract_facts_flags_vector_sync_pending_on_embedding_failure(monk
 
 
 @pytest.mark.asyncio
+async def test_extract_facts_does_not_clear_pending_after_superseded_shadow(monkeypatch):
+    import memory_store
+
+    executed: list = []
+    service = _extraction_service(
+        monkeypatch,
+        executed,
+        store_embedding=AsyncMock(
+            side_effect=memory_store.MemoryEmbeddingWriteSuperseded(
+                "canonical content changed"
+            )
+        ),
+    )
+
+    result = await service.extract_facts(
+        user_id="00000000-0000-4000-8000-000000000002",
+        messages=[{"role": "user", "content": "I like tea"}],
+        conversation_id="00000000-0000-4000-8000-000000000003",
+    )
+
+    assert result["status"] == "completed"
+    assert _pending_updates(executed)
+    assert not _weaviate_id_updates(executed)
+
+
+@pytest.mark.asyncio
+async def test_extract_facts_writeback_preserves_newer_canonical_pending_intent(
+    monkeypatch,
+):
+    """A successful old embedding cannot acknowledge a newer row version."""
+    import memory_service
+
+    inserted_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    embedded_at = inserted_at + timedelta(seconds=1)
+    mutated_at = embedded_at + timedelta(seconds=1)
+    state = {
+        "content": None,
+        "fact_type": None,
+        "confidence": None,
+        "is_active": True,
+        "updated_at": inserted_at,
+        "vector_sync_pending": True,
+        "embedded_content": None,
+    }
+    executed: list = []
+    writeback_results: list[str] = []
+
+    async def store_old_embedding_then_mutate(**kwargs):
+        state["embedded_content"] = kwargs["content"]
+        state["updated_at"] = embedded_at
+        # A concurrent update/delete/consolidation advances canonical state and
+        # leaves its own durable reconciliation intent after the old write won.
+        state["content"] = "user now likes coffee"
+        state["updated_at"] = mutated_at
+        state["vector_sync_pending"] = True
+        return None  # successful pgvector-authoritative write
+
+    service = _extraction_service(
+        monkeypatch,
+        executed,
+        store_embedding=AsyncMock(side_effect=store_old_embedding_then_mutate),
+    )
+    _also_route_acquire(
+        monkeypatch,
+        memory_service,
+        lambda: _InterleavingExtractionConnection(executed, state, writeback_results),
+    )
+
+    result = await service.extract_facts(
+        user_id="00000000-0000-4000-8000-000000000002",
+        messages=[{"role": "user", "content": "I like tea"}],
+        conversation_id="00000000-0000-4000-8000-000000000003",
+    )
+
+    assert result["status"] == "completed"
+    assert state["embedded_content"] == "user likes tea"
+    assert state["content"] == "user now likes coffee"
+    assert writeback_results == ["UPDATE 0"]
+    assert state["vector_sync_pending"] is True
+
+
+@pytest.mark.asyncio
 async def test_extract_facts_sets_weaviate_id_on_embedding_success(monkeypatch):
     """On successful embedding the fact records its weaviate_id and is NOT flagged
     pending (the reconciler must not re-process an already-synced fact)."""
@@ -374,6 +516,30 @@ async def test_extract_facts_sets_weaviate_id_on_embedding_success(monkeypatch):
 
     assert result["status"] == "completed"
     assert _weaviate_id_updates(executed), "successful embedding must persist weaviate_id"
+    assert not _pending_updates(executed)
+
+
+@pytest.mark.asyncio
+async def test_extract_facts_clears_pending_on_authoritative_pgvector_success(
+    monkeypatch,
+):
+    executed: list = []
+    service = _extraction_service(
+        monkeypatch,
+        executed,
+        store_embedding=AsyncMock(return_value=None),
+    )
+
+    result = await service.extract_facts(
+        user_id="00000000-0000-4000-8000-000000000002",
+        messages=[{"role": "user", "content": "I like tea"}],
+        conversation_id="00000000-0000-4000-8000-000000000003",
+    )
+
+    assert result["status"] == "completed"
+    clears = _weaviate_id_updates(executed)
+    assert clears, "successful pgvector write must clear the primary pending intent"
+    assert clears[-1][1] is None
     assert not _pending_updates(executed)
 
 
@@ -536,13 +702,19 @@ async def test_pgvector_write_casts_bind_param_to_vector(monkeypatch):
     executed = []
 
     class Conn:
+        @asynccontextmanager
+        async def transaction(self):
+            yield
+
         async def execute(self, query, *params):
             executed.append((query, params))
 
         async def close(self):
             pass
 
-    store = memory_store.MemoryStore("postgresql://atlas")
+    store = memory_store.MemoryStore(
+        "postgresql://atlas", embedding_dimension=3
+    )
     monkeypatch.setattr(
         store, "_generate_embedding", AsyncMock(return_value=[0.1, 0.2, 0.3])
     )
@@ -554,6 +726,7 @@ async def test_pgvector_write_casts_bind_param_to_vector(monkeypatch):
     assert executed, "pgvector write must execute an UPDATE"
     query, _params = executed[0]
     assert "SET embedding = $1::vector" in query
+    assert "WHERE id = $2 AND content = $3" in query
 
 
 def _always_failing_store(counter: dict):
@@ -588,6 +761,43 @@ def _pending_rows(count: int) -> list[dict]:
         }
         for i in range(count)
     ]
+
+
+@pytest.mark.asyncio
+async def test_shadow_failure_keeps_pending_until_both_vector_targets_succeed():
+    import memory_store
+    import memory_service
+
+    row = _pending_rows(1)[0]
+    clears = []
+
+    class Conn:
+        async def fetch(self, *_args):
+            return [row]
+
+        async def execute(self, query, *_args):
+            if "vector_sync_pending = false" in query:
+                clears.append(query)
+
+    service = memory_service.MemoryService.__new__(memory_service.MemoryService)
+    service.database_url = "postgresql://atlas"
+    service.store = SimpleNamespace(
+        update_embedding=AsyncMock(
+            side_effect=[
+                memory_store.MemoryEmbeddingWriteSuperseded(
+                    "canonical content changed"
+                ),
+                "fact-0",
+            ]
+        ),
+        deactivate_embedding=AsyncMock(),
+    )
+
+    assert await service._reconcile_pending_vectors(conn=Conn()) == 0
+    assert clears == []
+
+    assert await service._reconcile_pending_vectors(conn=Conn()) == 1
+    assert len(clears) == 1
 
 
 @pytest.mark.asyncio

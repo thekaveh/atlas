@@ -48,6 +48,8 @@ _HEADER = """\
 #
 # Variables flagged `auto-managed` are computed at runtime by the bootstrapper
 # from SOURCE values and are intentionally emitted without a default here.
+# Security upgrade: existing .env files with HOST_BIND_IP= are upgraded by
+# ./start.sh's blank-value backfill to the manifest-owned loopback default.
 # ============================================================================
 """
 

@@ -52,8 +52,8 @@ Required Postgres/Redis env (built from the upstream services' creds):
 DB_TYPE=postgresdb
 DB_POSTGRESDB_HOST=supabase-db
 DB_POSTGRESDB_DATABASE=postgres
-DB_POSTGRESDB_USER=supabase_admin
-DB_POSTGRESDB_PASSWORD=${SUPABASE_DB_PASSWORD}
+DB_POSTGRESDB_USER=${N8N_DB_USER}
+DB_POSTGRESDB_PASSWORD=${N8N_DB_PASSWORD}
 QUEUE_BULL_REDIS_HOST=redis
 QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
 BACKEND_N8N_API_TOKEN=            # auto-generated workflow-scoped bearer

@@ -1,6 +1,8 @@
 # Default mirrors JUPYTERHUB_IMAGE in service.yml — compose overrides via
 # build.args; CI build-validation builds with this default, so keep in sync.
-ARG BASE_IMAGE=quay.io/jupyter/datascience-notebook:python-3.11.10
+ARG BASE_IMAGE=quay.io/jupyter/datascience-notebook:2026-08-24@sha256:e5029672ab8a861345f117dc466a4dab91ad7c299f3c7c853b9b193860b16aaf
+ARG NODE_IMAGE=node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
+FROM ${NODE_IMAGE} AS node-runtime
 FROM ${BASE_IMAGE}
 
 # Auto-populated by buildx (and `docker build` since v20.10) with the
@@ -16,6 +18,8 @@ ARG ALMOND_SCALA_2_VERSION=2.13.16
 ARG ALMOND_SCALA_3_VERSION=3.4.3
 ARG COURSIER_SHA256=7aa975f12469726d6bb87852107afe0b8d6f3c82b12a49ef43cc6647c4e057ca
 ARG NPM_VERSION=11.19.1
+ARG UNDERSCORE_VERSION=1.13.8
+ARG UNDERSCORE_SHA256=6547214df2878ae60cc552422ef14af38b8d4e3aa613be5bfe9c52b775d96f7a
 ARG JULIA_VERSION=1.12.7
 ARG JULIA_SHA256_AMD64=4e7e9e776634d24835250de67cde39b0d4af15bc432eb20697e6be6c28ea69e8
 ARG JULIA_SHA256_ARM64=9243c0b524c7f300883240a1ee5ea3916a30e070bff718acf8ccaee31a731ef2
@@ -27,7 +31,6 @@ USER root
 # (Almond runs on the JVM; JDK 17 covers Scala 2.13 + Scala 3). The headless
 # package is ~120 MB smaller than the full openjdk-17-jdk.
 RUN apt-get update && \
-    apt-get upgrade --yes && \
     apt-get install -y --no-install-recommends \
     curl \
     wget \
@@ -36,15 +39,20 @@ RUN apt-get update && \
     openjdk-17-jdk-headless \
     && rm -rf /var/lib/apt/lists/*
 
-# Node 22.9 in the pinned base supports npm 11. npm 11.19.1 updates the
-# vulnerable tar/glob/minimatch/sigstore dependency closure while retaining the
-# npm CLI that notebook users expect from the data-science image.
-RUN npm install --global "npm@${NPM_VERSION}" \
+# The refreshed upstream no longer bundles Node. Restore the same Node 22
+# architecture from the digest-pinned official multi-arch image before
+# updating npm's vulnerable tar/glob/minimatch/sigstore dependency closure.
+COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-runtime /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+ && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+ && node --version \
+ && npm install --global "npm@${NPM_VERSION}" \
  && npm cache clean --force
 
 # The base image's Julia 1.11.1 standard-library JLLs are no longer patchable
 # through Pkg. Replace only the Julia runtime with the current checksummed
-# release while retaining the upstream Python 3.11 image and notebook stack.
+# release while retaining the upstream Python 3.13 image and notebook stack.
 RUN case "${TARGETARCH}" in \
       amd64) julia_arch=x86_64; julia_dir=x64; julia_sha="${JULIA_SHA256_AMD64}" ;; \
       arm64) julia_arch=aarch64; julia_dir=aarch64; julia_sha="${JULIA_SHA256_ARM64}" ;; \
@@ -93,6 +101,35 @@ RUN pip install --no-cache-dir \
       --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir \
       -r /tmp/requirements.txt -c /tmp/requirements-locked.txt
+
+# The newest official Jupyter base is immutable but contains three fixable
+# findings in upstream-bundled tooling. Refresh nbclassic's exact Underscore
+# asset from its checksummed official tarball; refresh pip's private msgpack
+# from the repository-locked 1.2.1 installation and keep both wheel RECORD and
+# CycloneDX inventory accurate. py-rattler 0.25.0 has no fixed release for its
+# Rust dependency findings, so remove that optional solver plugin while
+# retaining and validating the base image's default conda/libmamba toolchain.
+COPY --chown=${NB_UID}:${NB_GID} refresh_pip_vendor.py /tmp/refresh_pip_vendor.py
+RUN curl -fL \
+      "https://registry.npmjs.org/underscore/-/underscore-${UNDERSCORE_VERSION}.tgz" \
+      -o /tmp/underscore.tgz \
+ && echo "${UNDERSCORE_SHA256}  /tmp/underscore.tgz" | sha256sum -c - \
+ && mkdir /tmp/underscore \
+ && tar -xzf /tmp/underscore.tgz --strip-components=1 -C /tmp/underscore \
+ && python /tmp/refresh_pip_vendor.py \
+      --vendor /opt/conda/lib/python3.13/site-packages/pip/_vendor \
+      --msgpack-source /opt/conda/lib/python3.13/site-packages/msgpack \
+      --pip-record /opt/conda/lib/python3.13/site-packages/pip-26.2.1.dist-info/RECORD \
+      --underscore-component /opt/conda/lib/python3.13/site-packages/nbclassic/static/components/underscore \
+      --underscore-source /tmp/underscore \
+      --nbclassic-record /opt/conda/lib/python3.13/site-packages/nbclassic-1.3.3.dist-info/RECORD \
+ && python -c 'from pip._vendor import msgpack; assert msgpack.version == (1, 2, 1), msgpack.version; payload = {"atlas": 9}; assert msgpack.unpackb(msgpack.packb(payload)) == payload' \
+ && python -m pip uninstall -y conda-rattler-solver py-rattler \
+ && python -c 'from pathlib import Path; patterns = ("conda-rattler-solver-0.1.1-*.json", "py-rattler-0.25.0-*.json"); records = [matches for pattern in patterns if len(matches := list(Path("/opt/conda/conda-meta").glob(pattern))) != 1]; assert not records, records; [path.unlink() for pattern in patterns for path in Path("/opt/conda/conda-meta").glob(pattern)]' \
+ && conda --version \
+ && mamba --version \
+ && python -m pip check \
+ && rm -rf /tmp/underscore /tmp/underscore.tgz /tmp/refresh_pip_vendor.py
 
 # ml-eng-lab NLP-task assets: the spaCy wheel and VADER ZIP are exact,
 # hash-required projections of the parent repository's current contract.

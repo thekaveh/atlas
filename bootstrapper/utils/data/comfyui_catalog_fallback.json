@@ -232,18 +232,6 @@
       "popularity": 70
     },
     {
-      "name": "audioldm-text-to-audio",
-      "family": "AudioLDM",
-      "category": "audio_model",
-      "size_gb": 1.50,
-      "url": "https://huggingface.co/cvssp/audioldm/resolve/main/pytorch_model.bin",
-      "target_dir": "audio",
-      "min_vram_gb": 6.0,
-      "cpu_supported": false,
-      "requires_custom_node": [],
-      "popularity": 50
-    },
-    {
       "name": "xtts-v2",
       "family": "XTTS",
       "category": "voice_model",

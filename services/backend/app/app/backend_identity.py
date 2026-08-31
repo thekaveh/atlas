@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import secrets
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 import jwt
@@ -140,6 +140,12 @@ async def require_backend_principal(
     credentials: HTTPAuthorizationCredentials | None = Depends(_BEARER),
 ) -> BackendPrincipal:
     """Authenticate a trusted service token or a Supabase user JWT."""
+    return _authenticate_backend_principal(credentials)
+
+
+async def authenticate_backend_scope(scope: dict[str, Any]) -> BackendPrincipal:
+    """Authenticate an ASGI scope from headers without reading its body."""
+    credentials = await _BEARER(HTTPConnection(scope))  # type: ignore[arg-type]
     return _authenticate_backend_principal(credentials)
 
 

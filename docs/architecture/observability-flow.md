@@ -10,7 +10,7 @@ Prometheus, Grafana, Langfuse, OpenTelemetry Collector, Tempo, Loki, and service
 
 ## 2. Notes
 
-Langfuse is deliberately outside the OTel path: LiteLLM emits Langfuse traces via its own `success_callback`, not through the Collector, because Langfuse is the LLM-behavior layer while Prometheus/Grafana stay the infrastructure-metrics layer. Only backend, Celery workers, and LiteLLM OTLP traces currently reach Tempo via the Collector; Loki log export isn't wired up yet.
+Langfuse is deliberately outside the OTel path: LiteLLM emits Langfuse traces via its own `success_callback`, not through the Collector, because Langfuse is the LLM-behavior layer while Prometheus/Grafana stay the infrastructure-metrics layer. Backend, Celery workers, and LiteLLM OTLP traces reach Tempo through the Collector. Applications that emit OTLP logs use the same receiver; the Collector redacts a documented field allowlist and persists accepted logs in Loki with trace/span structured metadata.
 
 ## 3. Source Files
 

@@ -1,20 +1,25 @@
-# On-demand backup runner. Never long-running (replicas 0); invoke with:
-#   docker compose run --rm backup
+# On-demand backup runner. Never long-running (replicas 0); invoke the
+# consistency-safe host boundary with:
+#   services/backup/run-consistent-backup.sh
+# Direct container execution is supported only with BACKUP_DATABASES=false.
 #
-# mc validation note: Alpine's minio-client package installs the binary as
-# `mcli`, not `mc`. The shared entrypoint (init/scripts/entrypoint.sh) installs
-# minio-client and symlinks mcli -> mc, then execs the requested script. Living
-# in the entrypoint (not `command`) means the bootstrap also runs when the
+# mc validation note: the shared entrypoint downloads the exact official
+# RELEASE.2025-08-13T08-35-41Z binary for amd64/arm64, verifies the committed
+# release checksum and version, and atomically installs it as `mc`. Living in
+# the entrypoint (not `command`) means the bootstrap also runs when the
 # command is overridden for a restore, e.g.
 #   docker compose run --rm backup /scripts/restore-postgres.sh
 #
-# Cross-fragment volumes: supabase-storage-data, graph-db-data, and
-# weaviate-data are owned by their respective fragments. Redeclared here
-# (matching name + driver) so Compose merges them rather than errors.
-# Volumes must already exist (owning services started at least once).
+# Cross-fragment volumes are owned by their respective fragments. The runner
+# receives the live Supabase Storage volume read-only and only the completed
+# Neo4j/Weaviate snapshot volumes; it never mounts either live database volume.
 services:
   backup:
-    image: ${BACKUP_IMAGE:-postgres:17.10-alpine}
+    build:
+      context: init
+      args:
+        BASE_IMAGE: ${BACKUP_IMAGE:-postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193}
+    image: ${PROJECT_NAME}-backup:local
     container_name: ${PROJECT_NAME}-backup
     restart: "no"
     deploy:
@@ -26,16 +31,35 @@ services:
       SUPABASE_DB_USER: ${SUPABASE_DB_USER}
       SUPABASE_DB_PASSWORD: ${SUPABASE_DB_PASSWORD}
       SUPABASE_DB_NAME: ${SUPABASE_DB_NAME}
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-}
       BACKUP_BUCKET: ${BACKUP_BUCKET}
-      BACKUP_S3_ALIAS_URL: ${BACKUP_S3_ALIAS_URL}
+      BACKUP_S3_MODE: ${BACKUP_S3_MODE:-local}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-http://minio:9000}
+      BACKUP_S3_ACCESS_KEY: ${BACKUP_S3_ACCESS_KEY:-}
+      BACKUP_S3_SECRET_KEY: ${BACKUP_S3_SECRET_KEY:-}
+      BACKUP_S3_REGION: ${BACKUP_S3_REGION:-us-east-1}
+      BACKUP_S3_SESSION_TOKEN: ${BACKUP_S3_SESSION_TOKEN:-}
+      BACKUP_S3_TLS_VERIFY: ${BACKUP_S3_TLS_VERIFY:-true}
+      BACKUP_S3_ALIAS_URL: ${BACKUP_S3_ALIAS_URL:-}
       BACKUP_COMMAND_TIMEOUT_SECONDS: ${BACKUP_COMMAND_TIMEOUT_SECONDS:-900}
+      BACKUP_RESTORE_GLOBAL_TIMEOUT_SECONDS: ${BACKUP_RESTORE_GLOBAL_TIMEOUT_SECONDS:-28800}
+      BACKUP_MANIFEST_HMAC_KEY: ${BACKUP_MANIFEST_HMAC_KEY}
+      BACKUP_DEPLOYMENT_ID: ${BACKUP_DEPLOYMENT_ID}
+      BACKUP_MAX_POSTGRES_DUMP_BYTES: ${BACKUP_MAX_POSTGRES_DUMP_BYTES:-10737418240}
+      BACKUP_RESTORE_MAX_CANDIDATES: ${BACKUP_RESTORE_MAX_CANDIDATES:-100}
+      BACKUP_DATABASES: ${BACKUP_DATABASES:-true}
+      BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS: ${BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS:-120}
+      BACKUP_MAX_DATABASE_ARCHIVE_BYTES: ${BACKUP_MAX_DATABASE_ARCHIVE_BYTES:-53687091200}
+      BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT: ${BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT:-3}
+      BACKUP_NEO4J_SOURCE: ${NEO4J_GRAPH_DB_SOURCE:-container}
+      BACKUP_WEAVIATE_SOURCE: ${WEAVIATE_SOURCE:-container}
+      WEAVIATE_URL: http://weaviate:8080
     volumes:
       - ./init/scripts:/scripts:ro
       - supabase-storage-data:/volumes/supabase-storage:ro
-      - graph-db-data:/volumes/graph-db:ro
-      - weaviate-data:/volumes/weaviate:ro
+      - neo4j-backups:/database-snapshots/neo4j
+      - weaviate-backups:/database-snapshots/weaviate
     networks:
       - backend-network
 
@@ -43,9 +67,9 @@ volumes:
   supabase-storage-data:
     name: ${PROJECT_NAME}-supabase-storage-data
     driver: local
-  graph-db-data:
-    name: ${PROJECT_NAME}-graph-db-data
+  neo4j-backups:
+    name: ${PROJECT_NAME}-neo4j-backups
     driver: local
-  weaviate-data:
-    name: ${PROJECT_NAME}-weaviate-data
+  weaviate-backups:
+    name: ${PROJECT_NAME}-weaviate-backups
     driver: local

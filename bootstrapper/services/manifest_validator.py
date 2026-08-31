@@ -20,8 +20,11 @@ Design notes:
 from __future__ import annotations
 
 from dataclasses import dataclass
+import ipaddress
 from pathlib import Path
-from typing import Iterable
+import re
+from typing import Callable, Iterable
+import unicodedata
 
 import yaml
 
@@ -41,25 +44,16 @@ class ValidationIssue:
     manifest: str
     message: str
 
-    # `kind` values currently in use (kept here for grep-ability):
-    #   duplicate_env_var          — same env var declared by ≥2 manifests
-    #   duplicate_container        — same container name in ≥2 manifests
-    #   duplicate_capability       — same capability name repeated within one manifest
-    #   unknown_dependency         — depends_on.required/optional → unknown manifest
-    #   undeclared_export          — exports[].name not in env[] and not produced by runtime_sc environment
-    #   undeclared_source_var      — sources.var not declared in env[]
-    #   unknown_consumer           — exports[].consumers entry → unknown manifest
-    #   fragment_container_drift   — manifest containers[] ≠ compose.yml services keys
-    #   missing_fragment           — non-virtual manifest has no compose.yml
-    #   unexpected_fragment        — virtual: true manifest has a compose.yml
-    #   undeclared_tier_member     — runtime_dependency_tiers entry not a known container
-    #   topology_cycle             — depends_on graph contains a cycle
-    #   duplicate_alias            — rows[].alias value claimed by more than one manifest
-    #   category_overflow          — *_PORT count in a category exceeds that category's block size
-    #   engine_orphan              — engine-only manifest (no rows, not virtual) unreferenced by any source variant id
-    #   runtime_sc_missing_variant — a main runtime_sc slice lacks an entry for a declared source option
-    #   no_prod_option             — every source option in the manifest is annotated profiles=[default], leaving nothing selectable under prod
-    #   fragment_include_drift     — top-level Compose include list differs from non-virtual fragments
+
+@dataclass(frozen=True)
+class ValidatorRule:
+    """One executable validator rule and its public diagnostic contract."""
+
+    name: str
+    diagnostics: tuple[str, ...]
+    description: str
+    check: Callable[..., list[ValidationIssue]]
+    needs_services_root: bool = False
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -84,26 +78,20 @@ def validate_manifests(
     """
     manifests = list(manifests)
     issues: list[ValidationIssue] = []
-
-    issues.extend(_check_unique_env_vars(manifests))
-    issues.extend(_check_unique_containers(manifests))
-    issues.extend(_check_unique_capabilities(manifests))
-    issues.extend(_check_data_flow_targets(manifests))
-    issues.extend(_check_dependency_closure(manifests))
-    issues.extend(_check_export_consumer_closure(manifests))
-    issues.extend(_check_per_manifest_contract(manifests))
-    issues.extend(_check_tier_members(manifests))
-    issues.extend(_check_topology_cycle(manifests))
-    issues.extend(_check_alias_uniqueness(manifests))
-    issues.extend(_check_category_overflow(manifests))
-    issues.extend(_check_engine_orphans(manifests))
-    issues.extend(_check_runtime_sc_source_coverage(manifests))
-    issues.extend(_check_prod_option_availability(manifests))
-    issues.extend(_check_secondary_numbers(manifests))
-    issues.extend(_check_auto_prefer_integrity(manifests))
-    if services_root is not None:
-        issues.extend(_check_fragment_containers(manifests, services_root))
-        issues.extend(_check_fragment_includes(manifests, services_root))
+    for rule in VALIDATOR_RULES:
+        if rule.needs_services_root:
+            if services_root is None:
+                continue
+            produced = rule.check(manifests, services_root)
+        else:
+            produced = rule.check(manifests)
+        unexpected = sorted({issue.kind for issue in produced} - set(rule.diagnostics))
+        if unexpected:
+            raise RuntimeError(
+                f"validator rule '{rule.name}' emitted unregistered diagnostics: "
+                f"{unexpected}"
+            )
+        issues.extend(produced)
 
     issues.sort(key=lambda i: (i.kind, i.manifest, i.message))
     return issues
@@ -505,6 +493,433 @@ def _check_fragment_includes(
             )
         ]
     return manifest_issues + _fragment_include_drift_issues(expected, includes)
+
+
+_GENERIC_DOCUMENTATION_EXCEPTIONS = frozenset(
+    {
+        "n a",
+        "none",
+        "no docs",
+        "no docs needed",
+        "not applicable",
+        "not needed",
+        "documentation not required",
+        "todo document later",
+        "tbd",
+    }
+)
+_DOCUMENTATION_EXCEPTION_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "applicable",
+        "are",
+        "as",
+        "at",
+        "be",
+        "because",
+        "been",
+        "being",
+        "by",
+        "docs",
+        "document",
+        "documentation",
+        "documented",
+        "exception",
+        "for",
+        "from",
+        "has",
+        "have",
+        "internal",
+        "is",
+        "it",
+        "its",
+        "link",
+        "manifest",
+        "manifests",
+        "need",
+        "needed",
+        "no",
+        "not",
+        "of",
+        "on",
+        "only",
+        "operator",
+        "operators",
+        "or",
+        "rationale",
+        "reason",
+        "required",
+        "see",
+        "service",
+        "services",
+        "that",
+        "the",
+        "their",
+        "them",
+        "this",
+        "to",
+        "tracking",
+        "url",
+        "use",
+        "used",
+        "using",
+        "with",
+        "without",
+    }
+)
+_ALPHABETIC_TOKEN = re.compile(r"[^\W\d_]+", re.UNICODE)
+_MARKDOWN_INLINE_LINK = re.compile(r"\[[^\]\r\n]*\]\([^\)\r\n]*\)")
+_MARKDOWN_REFERENCE_LINK = re.compile(r"\[[^\]\r\n]*\]\s*\[[^\]\r\n]*\]")
+_MARKDOWN_LABEL = re.compile(r"\[(?P<label>[^\]\r\n]*)\]")
+_ANGLE_AUTOLINK = re.compile(r"<[^>\r\n]+>")
+_RFC_URI_TOKEN = re.compile(
+    r"(?<![\w.])(?P<scheme>[a-z][a-z0-9+.-]*):"
+    r"(?P<payload>[^\s<>\[\]]+)",
+    re.IGNORECASE,
+)
+_EMAIL_LIKE = re.compile(
+    r"(?<![\w.@])"
+    r"(?:\"(?:\\.|[^\"\\\r\n])*\"|[^\s<>()\[\],;:@\"\\]+)@"
+    r"(?:\[(?:IPv6:)?[^\]\r\n]+\]|"
+    r"[^\s<>()\[\],;:@\"\\]+(?:\.[^\s<>()\[\],;:@\"\\]+)+)"
+    r"(?![\w@])",
+    re.IGNORECASE,
+)
+_HOST_CANDIDATE = re.compile(
+    r"(?<![\w@])"
+    r"(?P<host>(?:[^\s<>()[\]{}/:?#@,;\"']+\.)+"
+    r"[^\s<>()[\]{}/:?#@,;\"']+)"
+    r"(?P<suffix>(?::\d{1,5}|[/#?])[^\s<>\[\]]*)?",
+)
+_IPV4_CANDIDATE = re.compile(
+    r"(?<![\w.])(?P<ip>(?:\d{1,3}\.){3}\d{1,3})"
+    r"(?P<suffix>(?::\d{1,5}|[/#?])[^\s<>\[\]]*)?(?![\w.])"
+)
+_IPV6_CANDIDATE = re.compile(
+    r"\[(?P<ip>(?:IPv6:)?[0-9a-f:.]+(?:%(?:25)?[A-Za-z0-9._~-]+)?)\]"
+    r"(?P<suffix>(?::\d{1,5}|[/#?])[^\s<>\[\]]*)?",
+    re.IGNORECASE,
+)
+_MALFORMED_BRACKETED_ADDRESS_LINK = re.compile(
+    r"\[(?=[^\]\r\n]*:)[^\]\r\n]*\]"
+    r"(?::\d{1,5}|[/#?])[^\s<>\[\]]*"
+)
+_KNOWN_URI_SCHEMES = frozenset(
+    {
+        "data",
+        "file",
+        "ftp",
+        "geo",
+        "git",
+        "http",
+        "https",
+        "mailto",
+        "news",
+        "s3",
+        "sms",
+        "ssh",
+        "tel",
+        "urn",
+        "ws",
+        "wss",
+    }
+)
+_HOST_PORT_PAYLOAD = re.compile(r"\d{1,5}(?:[/#?][^\s<>\[\]()]*)?")
+_HOST_LIKE_SCHEME = re.compile(
+    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+    r"(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*",
+    re.IGNORECASE,
+)
+
+
+def _nfkc_exception_text(value: str) -> str:
+    return unicodedata.normalize("NFKC", value)
+
+
+def _normalized_exception_text(value: str) -> str:
+    return _nfkc_exception_text(value).casefold()
+
+
+def _normalized_reason(value: str) -> str:
+    lowered = "".join(
+        character if character.isalnum() else " "
+        for character in _normalized_exception_text(value)
+    )
+    return " ".join(lowered.split())
+
+
+def _is_generic_documentation_exception(reason: str) -> bool:
+    normalized = _normalized_reason(reason)
+    return (
+        ("://" in reason and not any(character.isspace() for character in reason))
+        or normalized in _GENERIC_DOCUMENTATION_EXCEPTIONS
+        or normalized.startswith(
+            (
+                "todo ",
+                "tbd ",
+                "no docs ",
+                "documentation is not required ",
+                "documentation not required ",
+            )
+        )
+    )
+
+
+def _contains_mixed_script_token(value: str) -> bool:
+    """Detect confusable Latin/Greek/Cyrillic mixing within one word."""
+    for token in _ALPHABETIC_TOKEN.findall(value):
+        scripts = {
+            name.split(" ", 1)[0]
+            for character in token
+            if (name := unicodedata.name(character, ""))
+            and name.split(" ", 1)[0] in {"LATIN", "GREEK", "CYRILLIC"}
+        }
+        if len(scripts) > 1:
+            return True
+    return False
+
+
+def _validated_ip(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    candidate = value[5:] if value[:5].casefold() == "ipv6:" else value
+    try:
+        return ipaddress.ip_address(candidate)
+    except ValueError:
+        return None
+
+
+def _strip_ip_link(match: re.Match[str]) -> str:
+    if _validated_ip(match.group("ip")) is not None and match.group("suffix"):
+        return " "
+    return match.group(0)
+
+
+def _strip_markdown_label(match: re.Match[str]) -> str:
+    if _validated_ip(match.group("label")) is not None:
+        return match.group(0)
+    return " "
+
+
+def _idna_host(value: str) -> str | None:
+    try:
+        labels = [label.encode("idna").decode("ascii") for label in value.split(".")]
+    except UnicodeError:
+        return None
+    if not labels or any(
+        not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label, re.I)
+        for label in labels
+    ):
+        return None
+    return ".".join(labels).casefold()
+
+
+def _is_numeric_host(ascii_host: str) -> bool:
+    labels = ascii_host.split(".")
+    return all(label.isdigit() for label in labels)
+
+
+def _is_reserved_host(ascii_host: str) -> bool:
+    return ascii_host.rsplit(".", 1)[-1] in {"internal", "local", "localhost"}
+
+
+def _bare_host_is_link_like(host: str, ascii_host: str) -> bool:
+    if ascii_host.startswith("www."):
+        return True
+    if host != host.lower() and host.isascii():
+        return False
+    tld = ascii_host.rsplit(".", 1)[-1]
+    return bool(re.fullmatch(r"[a-z]{2,63}", tld) or tld.startswith("xn--"))
+
+
+def _strip_host_candidate(match: re.Match[str]) -> str:
+    host = match.group("host")
+    ascii_host = _idna_host(host)
+    if ascii_host is None or _is_numeric_host(ascii_host):
+        return match.group(0)
+    if match.group("suffix"):
+        return " "
+    if _is_reserved_host(ascii_host):
+        return match.group(0)
+    if ascii_host.startswith("www."):
+        return " "
+    return " " if _bare_host_is_link_like(host, ascii_host) else match.group(0)
+
+
+def _nonspace_token(match: re.Match[str]) -> str:
+    source = match.string
+    start = match.start()
+    end = match.end()
+    while start and not source[start - 1].isspace():
+        start -= 1
+    while end < len(source) and not source[end].isspace():
+        end += 1
+    return source[start:end].strip("<>[](),;.!?")
+
+
+def _strip_rfc_uri(match: re.Match[str]) -> str:
+    scheme = match.group("scheme")
+    payload = match.group("payload")
+    if _validated_ip(_nonspace_token(match)) is not None:
+        return match.group(0)
+    if (
+        scheme.casefold() not in _KNOWN_URI_SCHEMES
+        and _HOST_LIKE_SCHEME.fullmatch(scheme)
+        and _HOST_PORT_PAYLOAD.fullmatch(payload)
+    ):
+        return match.group(0)
+    return " "
+
+
+def _strip_link_like_text(value: str) -> str:
+    """Remove bounded single-line link forms before rationale scoring."""
+    stripped = _MARKDOWN_INLINE_LINK.sub(" ", value)
+    stripped = _MARKDOWN_REFERENCE_LINK.sub(" ", stripped)
+    stripped = _ANGLE_AUTOLINK.sub(" ", stripped)
+    stripped = _EMAIL_LIKE.sub(" ", stripped)
+    stripped = _IPV6_CANDIDATE.sub(_strip_ip_link, stripped)
+    stripped = _MALFORMED_BRACKETED_ADDRESS_LINK.sub(" ", stripped)
+    stripped = _IPV4_CANDIDATE.sub(_strip_ip_link, stripped)
+    stripped = _MARKDOWN_LABEL.sub(_strip_markdown_label, stripped)
+    stripped = _RFC_URI_TOKEN.sub(_strip_rfc_uri, stripped)
+    return _HOST_CANDIDATE.sub(_strip_host_candidate, stripped)
+
+
+def _is_specific_documentation_exception(reason: str) -> bool:
+    """Require a printable, concrete rationale rather than blacklist evasion."""
+    nfkc = _nfkc_exception_text(reason)
+    normalized = _normalized_exception_text(reason)
+    if any(
+        unicodedata.category(character).startswith("C")
+        for character in reason + normalized
+    ):
+        return False
+    if _contains_mixed_script_token(normalized):
+        return False
+    if _is_generic_documentation_exception(normalized):
+        return False
+    without_links = _strip_link_like_text(nfkc).casefold()
+    because = re.search(r"\bbecause\b(?P<rationale>.*)$", without_links)
+    if because is None:
+        return False
+    rationale = because.group("rationale")
+    content = [
+        token
+        for token in _ALPHABETIC_TOKEN.findall(rationale)
+        if len(token) >= 3 and token not in _DOCUMENTATION_EXCEPTION_STOPWORDS
+    ]
+    return len(content) >= 4 and len(set(content)) >= 3
+
+
+def _safe_documentation_file(repo_root: Path, relative: Path) -> bool:
+    """Accept only regular, non-symlinked Markdown below ``repo_root``."""
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        return False
+    if relative.suffix != ".md":
+        return False
+    resolved_root = repo_root.resolve()
+    current = repo_root
+    for part in relative.parts:
+        current /= part
+        if current.is_symlink():
+            return False
+    try:
+        current.resolve().relative_to(resolved_root)
+    except (OSError, ValueError):
+        return False
+    return current.is_file()
+
+
+def _check_manifest_documentation(
+    manifests: list[Manifest], services_root: Path
+) -> list[ValidationIssue]:
+    """Every manifest must own safe Markdown or a specific documented exception."""
+    repo_root = services_root.parent
+    return [
+        issue
+        for manifest in manifests
+        for issue in _manifest_documentation_issues(manifest, repo_root)
+    ]
+
+
+def _manifest_documentation_issues(
+    manifest: Manifest, repo_root: Path
+) -> list[ValidationIssue]:
+    declared = Path(manifest.docs) if manifest.docs else None
+    declared_is_valid = bool(
+        declared is not None and _safe_documentation_file(repo_root, declared)
+    )
+    sibling = Path("services") / manifest.name / "README.md"
+    sibling_is_valid = _safe_documentation_file(repo_root, sibling)
+    issues = _declared_documentation_issues(manifest, declared, declared_is_valid)
+
+    exception = manifest.docs_exception.strip()
+    if exception:
+        return issues + _documentation_exception_issues(
+            manifest, exception, declared is not None, sibling_is_valid
+        )
+    if not declared_is_valid and not sibling_is_valid:
+        issues.append(
+            ValidationIssue(
+                kind="missing_documentation",
+                manifest=manifest.name,
+                message=(
+                    "manifest has no safe documentation; add docs, a sibling "
+                    "README.md, or a specific docs_exception"
+                ),
+            )
+        )
+    return issues
+
+
+def _declared_documentation_issues(
+    manifest: Manifest, declared: Path | None, declared_is_valid: bool
+) -> list[ValidationIssue]:
+    if declared is None or declared_is_valid:
+        return []
+    return [
+        ValidationIssue(
+            kind="invalid_documentation",
+            manifest=manifest.name,
+            message=(
+                f"docs='{manifest.docs}' must name an existing, regular, "
+                "non-symlinked repository-relative Markdown file"
+            ),
+        )
+    ]
+
+
+def _documentation_exception_issues(
+    manifest: Manifest,
+    exception: str,
+    has_declared_documentation: bool,
+    sibling_is_valid: bool,
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    if not _is_specific_documentation_exception(exception):
+        issues.append(
+            ValidationIssue(
+                kind="invalid_documentation_exception",
+                manifest=manifest.name,
+                message=(
+                    "docs_exception must give a printable, specific 'because' "
+                    "rationale with at least four substantive words and three "
+                    "distinct terms"
+                ),
+            )
+        )
+    if has_declared_documentation or sibling_is_valid:
+        issues.append(
+            ValidationIssue(
+                kind="documentation_exception_conflict",
+                manifest=manifest.name,
+                message=(
+                    "docs_exception is only allowed when neither docs nor a "
+                    "sibling README.md is available"
+                ),
+            )
+        )
+    return issues
 
 
 def _check_per_manifest_contract(manifests: list[Manifest]) -> list[ValidationIssue]:
@@ -937,3 +1352,137 @@ def _check_auto_prefer_integrity(manifests: list[Manifest]) -> list[ValidationIs
         if fallback_issue is not None:
             issues.append(fallback_issue)
     return issues
+
+
+# This ordered registry is both the execution plan and the documentation source.
+# A rule that emits a diagnostic not declared here fails closed in
+# ``validate_manifests`` instead of letting the public catalog drift silently.
+VALIDATOR_RULES: tuple[ValidatorRule, ...] = (
+    ValidatorRule(
+        "unique_env_vars",
+        ("duplicate_env_var",),
+        "Each environment variable has exactly one owning manifest.",
+        _check_unique_env_vars,
+    ),
+    ValidatorRule(
+        "unique_containers",
+        ("duplicate_container",),
+        "Each Compose container name has exactly one owning manifest.",
+        _check_unique_containers,
+    ),
+    ValidatorRule(
+        "unique_capabilities",
+        ("duplicate_capability",),
+        "Capability names are unique within each manifest.",
+        _check_unique_capabilities,
+    ),
+    ValidatorRule(
+        "data_flow_targets",
+        ("data_flow_unknown_target",),
+        "Every runtime data-flow target names a manifest or approved aggregate documentation folder.",
+        _check_data_flow_targets,
+    ),
+    ValidatorRule(
+        "dependency_closure",
+        ("unknown_dependency",),
+        "Required and optional dependencies name existing manifests.",
+        _check_dependency_closure,
+    ),
+    ValidatorRule(
+        "export_consumer_closure",
+        ("unknown_consumer",),
+        "Every exported-variable consumer names an existing manifest.",
+        _check_export_consumer_closure,
+    ),
+    ValidatorRule(
+        "per_manifest_contract",
+        ("undeclared_source_var", "undeclared_export"),
+        "Source variables and exported values are declared or produced by their owning manifest.",
+        _check_per_manifest_contract,
+    ),
+    ValidatorRule(
+        "dependency_tier_members",
+        ("undeclared_tier_member",),
+        "Every runtime dependency-tier member names a declared container.",
+        _check_tier_members,
+    ),
+    ValidatorRule(
+        "topology_acyclic",
+        ("topology_cycle",),
+        "The combined required-dependency graph is acyclic.",
+        _check_topology_cycle,
+    ),
+    ValidatorRule(
+        "alias_uniqueness",
+        ("duplicate_alias",),
+        "Kong row aliases are unique across manifests.",
+        _check_alias_uniqueness,
+    ),
+    ValidatorRule(
+        "category_capacity",
+        ("category_overflow",),
+        "Port-owning variables fit within their category's allocated slot block.",
+        _check_category_overflow,
+    ),
+    ValidatorRule(
+        "engine_reachability",
+        ("engine_orphan",),
+        "Engine-only manifests are reachable from a parent source option.",
+        _check_engine_orphans,
+    ),
+    ValidatorRule(
+        "runtime_source_coverage",
+        ("runtime_sc_unknown_variant", "runtime_sc_missing_variant"),
+        "Main runtime slices match the manifest's declared source variants exactly.",
+        _check_runtime_sc_source_coverage,
+    ),
+    ValidatorRule(
+        "production_source_availability",
+        ("no_prod_option",),
+        "Every source-configurable service retains an option available in the production profile.",
+        _check_prod_option_availability,
+    ),
+    ValidatorRule(
+        "secondary_number_inputs",
+        ("invalid_secondary_number",),
+        "Manifest-driven numeric inputs have valid bounds, defaults, sources, and owned environment variables.",
+        _check_secondary_numbers,
+    ),
+    ValidatorRule(
+        "automatic_source_preferences",
+        (
+            "auto_prefer_unknown_option",
+            "auto_prefer_unknown_capability",
+            "auto_prefer_no_fallback",
+            "auto_prefer_fallback_not_terminal",
+        ),
+        "Automatic source preferences use known options and capabilities with a terminal fallback.",
+        _check_auto_prefer_integrity,
+    ),
+    ValidatorRule(
+        "fragment_container_contract",
+        ("fragment_container_drift", "missing_fragment", "unexpected_fragment"),
+        "Non-virtual manifests match a sibling Compose fragment; virtual manifests have none.",
+        _check_fragment_containers,
+        needs_services_root=True,
+    ),
+    ValidatorRule(
+        "fragment_include_contract",
+        ("missing_fragment_manifest", "fragment_include_drift"),
+        "Every on-disk Compose fragment has a manifest and appears exactly once in the root include list.",
+        _check_fragment_includes,
+        needs_services_root=True,
+    ),
+    ValidatorRule(
+        "manifest_documentation",
+        (
+            "missing_documentation",
+            "invalid_documentation",
+            "invalid_documentation_exception",
+            "documentation_exception_conflict",
+        ),
+        "Every manifest has safe Markdown documentation or a specific validated exception.",
+        _check_manifest_documentation,
+        needs_services_root=True,
+    ),
+)

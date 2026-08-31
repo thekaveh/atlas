@@ -2,7 +2,16 @@
 -- Idempotent pgvector schema setup for LightRAG.
 
 CREATE EXTENSION IF NOT EXISTS vector;
-CREATE SCHEMA IF NOT EXISTS lightrag;
+-- PostgreSQL checks database-level CREATE even when CREATE SCHEMA IF NOT EXISTS
+-- would ultimately no-op. Atlas pre-provisions and owns this schema for the
+-- scoped LightRAG role, which intentionally has no ability to create arbitrary
+-- sibling schemas. Only attempt CREATE for external databases where it is
+-- genuinely absent (and where the operator granted the needed capability).
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'lightrag') THEN
+        CREATE SCHEMA lightrag;
+    END IF;
+END $$;
 
 -- Chunks vector table. The actual dimension is configured by LightRAG at
 -- runtime via PGVectorStorage; we provision a generic placeholder that the

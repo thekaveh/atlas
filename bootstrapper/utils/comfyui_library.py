@@ -37,12 +37,19 @@ from __future__ import annotations
 
 import json as _json
 import os as _os
+import re as _re
 import sys as _sys
 from dataclasses import dataclass
 from pathlib import Path as _Path
 
 import requests as _requests
 import yaml as _yaml
+
+
+_CURATED_SHA256_RE = _re.compile(r"^[0-9a-f]{64}$")
+_CURATED_HF_URL_RE = _re.compile(
+    r"^https://huggingface\.co/[^/]+/[^/]+/resolve/[0-9a-f]{40}/.+$"
+)
 
 
 # ── Category enum ──────────────────────────────────────────────────────
@@ -105,6 +112,9 @@ class ComfyUIModelFile:
     size_bytes: int | None = None
     precision: str | None = None
     variant: str | None = None
+    # None inherits the logical entry's policy. Explicit false makes this
+    # selected artifact advisory rather than readiness-blocking.
+    provisioning_required: bool | None = None
 
     def __post_init__(self) -> None:
         if self.category not in VALID_CATEGORIES:
@@ -150,6 +160,9 @@ class ComfyUILibraryEntry:
     license_name: str | None = None
     license_url: str | None = None
     license_restrictions: tuple[str, ...] = ()
+    # Selected assets are readiness-blocking unless an operator deliberately
+    # marks the catalog/sidecar row optional.
+    provisioning_required: bool = True
 
 
 # ── HF + civitai response parsers ──────────────────────────────────────
@@ -347,13 +360,33 @@ def _parse_civitai_response(
         size_kb = primary_file.get("sizeKB") or 0
         size_gb = round(size_kb / (1024 * 1024), 2) if size_kb else 0.0
         stats = item.get("stats") or {}
+        hashes = primary_file.get("hashes") or {}
+        if not isinstance(hashes, dict):
+            print(
+                "WARNING: Civitai supplied malformed hash metadata for model file "
+                f"{primary_file.get('name', '<unknown>')!r}; skipping item.",
+                file=_sys.stderr,
+            )
+            continue
+        sha256 = hashes.get("SHA256")
+        if sha256 is not None:
+            if not isinstance(sha256, str) or not _re.fullmatch(
+                r"[0-9A-Fa-f]{64}", sha256
+            ):
+                print(
+                    "WARNING: Civitai supplied a malformed SHA256 for model file "
+                    f"{primary_file.get('name', '<unknown>')!r}; skipping item.",
+                    file=_sys.stderr,
+                )
+                continue
+            sha256 = sha256.lower()
         out.append(ComfyUILibraryEntry(
             name=f"civitai-{item.get('id', 'unknown')}",
             family=str(item.get("name", "Unknown"))[:40],
             category=category,
             size_gb=size_gb,
             url=url,
-            sha256=(primary_file.get("hashes") or {}).get("SHA256"),
+            sha256=sha256,
             target_dir=target_dir,
             min_vram_gb=None,
             cpu_supported=False,
@@ -436,6 +469,12 @@ def _dict_to_model_file(d: dict) -> ComfyUIModelFile:
     url = d["url"]
     if not isinstance(url, str) or not url.startswith(("http://", "https://")):
         raise ValueError(f"bundle file {d.get('role', '<unknown>')!r} has non-http(s) url")
+    if "provisioning_required" in d:
+        file_policy = d["provisioning_required"]
+        if type(file_policy) is not bool:
+            raise ValueError("bundle file provisioning_required must be a boolean")
+    else:
+        file_policy = None
     return ComfyUIModelFile(
         role=d["role"],
         category=d["category"],
@@ -447,6 +486,7 @@ def _dict_to_model_file(d: dict) -> ComfyUIModelFile:
         size_bytes=d.get("size_bytes"),
         precision=d.get("precision"),
         variant=d.get("variant"),
+        provisioning_required=file_policy,
     )
 
 
@@ -462,6 +502,9 @@ def _dict_to_entry(d: dict, source: str) -> ComfyUILibraryEntry:
     (pulled is computed at wizard time, never from input).
     """
     cat = d["category"]
+    provisioning_required = d.get("provisioning_required", True)
+    if type(provisioning_required) is not bool:
+        raise ValueError("provisioning_required must be a boolean")
     files = tuple(_dict_to_model_file(f) for f in (d.get("files") or ()))
     url = d.get("url") or (files[0].url if files else None)
     if not url:
@@ -493,7 +536,45 @@ def _dict_to_entry(d: dict, source: str) -> ComfyUILibraryEntry:
         license_name=d.get("license_name"),
         license_url=d.get("license_url"),
         license_restrictions=tuple(d.get("license_restrictions") or ()),
+        provisioning_required=provisioning_required,
     )
+
+
+def _curated_artifact_metadata(
+    model: dict, artifact: dict
+) -> tuple[tuple[str, str], tuple[str, str, str]]:
+    model_name = str(model.get("name") or "<unknown>")
+    url = artifact.get("url")
+    sha256 = artifact.get("sha256")
+    if not isinstance(url, str) or not _CURATED_HF_URL_RE.fullmatch(url):
+        raise RuntimeError(
+            f"ComfyUI curated artifact {model_name!r} must use an immutable "
+            "40-hex Hugging Face revision URL."
+        )
+    if not isinstance(sha256, str) or not _CURATED_SHA256_RE.fullmatch(sha256):
+        raise RuntimeError(
+            f"ComfyUI curated artifact {model_name!r} must declare an exact "
+            "lowercase SHA-256."
+        )
+    category = artifact.get("category", model.get("category"))
+    target_dir = artifact.get("target_dir") or CATEGORY_TARGET_DIR.get(category, "")
+    filename = artifact.get("filename") or url.rsplit("/", 1)[-1]
+    return (str(target_dir), str(filename)), (url, sha256, str(category))
+
+
+def _validate_curated_downloads(models: list[dict]) -> None:
+    """Reject mutable, unhashed, or target-conflicting curated artifacts."""
+    seen_targets: dict[tuple[str, str], tuple[str, str, str]] = {}
+    for model in models:
+        for artifact in model.get("files") or (model,):
+            target, metadata = _curated_artifact_metadata(model, artifact)
+            previous = seen_targets.get(target)
+            if previous is not None and previous != metadata:
+                raise RuntimeError(
+                    "Conflicting ComfyUI curated metadata for target "
+                    f"{target[0]}/{target[1]}."
+                )
+            seen_targets[target] = metadata
 
 
 def list_curated() -> list[ComfyUILibraryEntry]:
@@ -526,7 +607,9 @@ def list_curated() -> list[ComfyUILibraryEntry]:
             f"ComfyUI curated catalog YAML at {yaml_path} must have a top-level "
             f"'models:' mapping; got {type(raw).__name__}."
         )
-    return [_dict_to_entry(d, "curated") for d in (raw.get("models") or [])]
+    models = raw.get("models") or []
+    _validate_curated_downloads(models)
+    return [_dict_to_entry(d, "curated") for d in models]
 
 
 # ── Bundled fallback snapshot ──────────────────────────────────────────
@@ -737,7 +820,7 @@ def assemble_wizard_catalog(
         hf_ok = False
     try:
         civ_entries = list_civitai_loras()
-    except (_requests.RequestException, ConnectionError) as exc:
+    except (_requests.RequestException, ConnectionError, ValueError) as exc:
         print(f"WARNING: civitai catalog fetch failed: {exc}", file=_sys.stderr)
         civ_ok = False
 

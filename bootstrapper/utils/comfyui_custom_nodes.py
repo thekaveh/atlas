@@ -1,6 +1,7 @@
 """Pinned ComfyUI custom-node allowlist and active install-plan builder."""
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 from dataclasses import dataclass
@@ -28,6 +29,8 @@ class ComfyUICustomNode:
     repo: str
     ref: str
     install_requirements: bool = False
+    requirements_lock: Path | None = None
+    requirements_lock_sha256: str | None = None
     # Pre-skip this node on managed-localhost-mps (e.g. CUDA-only native deps).
     # Naming mirrors ``_MPS_UNSAFE_PRECISIONS`` in comfyui_mps_manager.
     mps_unsafe: bool = False
@@ -37,6 +40,7 @@ class ComfyUICustomNode:
     # are workflow nodes the consumer wires directly — e.g. comfyui-krea2edit is
     # not referenced by any catalog model (krea2-turbo-bf16 has requires_custom_node=[]).
     from_consumer: bool = False
+    provisioning_required: bool = True
 
 
 def _host_repo_custom_nodes() -> Path | None:
@@ -94,6 +98,42 @@ def _is_full_git_sha(ref: str) -> bool:
     return len(ref) == 40 and all(ch in "0123456789abcdefABCDEF" for ch in ref)
 
 
+def _dependency_lock_fields(
+    raw: Mapping[str, object], *, name: str, source: Path
+) -> tuple[Path | None, str | None]:
+    """Resolve and verify one repository-owned dependency lock.
+
+    Lock paths are relative to the declaring YAML and may not escape its
+    directory. The catalog digest protects the runtime plan from a swapped or
+    partially-regenerated lock.
+    """
+    if not bool(raw.get("install_requirements", False)):
+        return None, None
+    relative = raw.get("requirements_lock")
+    digest = str(raw.get("requirements_lock_sha256") or "").strip().lower()
+    if not isinstance(relative, str) or not relative.strip():
+        raise ValueError(f"custom node {name!r} requires requirements_lock")
+    if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+        raise ValueError(f"custom node {name!r} requires an exact requirements_lock_sha256")
+    base = source.resolve().parent
+    lock_path = (base / relative).resolve()
+    try:
+        lock_path.relative_to(base)
+    except ValueError as exc:
+        raise ValueError(
+            f"custom node {name!r} requirements_lock must stay under {base}"
+        ) from exc
+    if not lock_path.is_file():
+        raise ValueError(f"custom node {name!r} requirements_lock does not exist: {relative}")
+    actual = hashlib.sha256(lock_path.read_bytes()).hexdigest()
+    if actual != digest:
+        raise ValueError(
+            f"custom node {name!r} requirements_lock digest mismatch: "
+            f"expected {digest}, got {actual}"
+        )
+    return lock_path, digest
+
+
 def _node_from_mapping(
     raw: object, idx: int, path: str, *, from_consumer: bool = False
 ) -> ComfyUICustomNode | None:
@@ -108,6 +148,14 @@ def _node_from_mapping(
     ref = str(raw.get("ref") or "").strip()
     install_requirements = bool(raw.get("install_requirements", False))
     mps_unsafe = bool(raw.get("mps_unsafe", False))
+    raw_provisioning_required = raw.get("provisioning_required", True)
+    if type(raw_provisioning_required) is not bool:
+        print(
+            f"WARNING: custom node {name!r} provisioning_required must be a boolean; skipping.",
+            file=sys.stderr,
+        )
+        return None
+    provisioning_required = raw_provisioning_required
 
     if not name or "/" in name or "\\" in name or name in {".", ".."}:
         print(f"WARNING: custom-nodes entry #{idx} has an unsafe name; skipping.", file=sys.stderr)
@@ -124,13 +172,23 @@ def _node_from_mapping(
             file=sys.stderr,
         )
         return None
+    try:
+        requirements_lock, requirements_lock_sha256 = _dependency_lock_fields(
+            raw, name=name, source=Path(path)
+        )
+    except ValueError as exc:
+        print(f"WARNING: {exc}; skipping.", file=sys.stderr)
+        return None
     return ComfyUICustomNode(
         name=name,
         repo=repo,
         ref=ref.lower(),
         install_requirements=install_requirements,
+        requirements_lock=requirements_lock,
+        requirements_lock_sha256=requirements_lock_sha256,
         mps_unsafe=mps_unsafe,
         from_consumer=from_consumer,
+        provisioning_required=provisioning_required,
     )
 
 
@@ -230,12 +288,24 @@ def parse_custom_nodes_strict(path: str | Path) -> list[ComfyUICustomNode]:
             raise ValueError(f"custom node {name!r} ref must be a full 40-character SHA")
         if name in seen:
             raise ValueError(f"custom node {name!r} declared twice in {path}")
-        unknown = set(entry) - {"name", "repo", "ref", "install_requirements", "mps_unsafe"}
+        unknown = set(entry) - {
+            "name",
+            "repo",
+            "ref",
+            "install_requirements",
+            "requirements_lock",
+            "requirements_lock_sha256",
+            "mps_unsafe",
+            "provisioning_required",
+        }
         if unknown:
             raise ValueError(f"custom node {name!r} has unknown field(s): {sorted(unknown)}")
-        for flag in ("install_requirements", "mps_unsafe"):
+        for flag in ("install_requirements", "mps_unsafe", "provisioning_required"):
             if flag in entry and type(entry[flag]) is not bool:
                 raise ValueError(f"custom node {name!r} {flag} must be a boolean")
+        requirements_lock, requirements_lock_sha256 = _dependency_lock_fields(
+            entry, name=name, source=p
+        )
         seen.add(name)
         nodes.append(
             ComfyUICustomNode(
@@ -243,8 +313,11 @@ def parse_custom_nodes_strict(path: str | Path) -> list[ComfyUICustomNode]:
                 repo=repo,
                 ref=ref.lower(),
                 install_requirements=bool(entry.get("install_requirements", False)),
+                requirements_lock=requirements_lock,
+                requirements_lock_sha256=requirements_lock_sha256,
                 mps_unsafe=bool(entry.get("mps_unsafe", False)),
                 from_consumer=True,
+                provisioning_required=bool(entry.get("provisioning_required", True)),
             )
         )
     return nodes

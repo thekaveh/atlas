@@ -1,12 +1,13 @@
-"""End-to-end .env migration chain (v0 -> v1 -> v2 -> v3 -> v4).
+"""End-to-end .env migration chain (v0 -> v1 -> v2 -> v3 -> v4 -> v5).
 
 Each migration step is unit-tested in isolation (test_port_migration,
-test_migration_v2, test_migration_v3, test_migration_v4), but their
+test_migration_v2, test_migration_v3, test_migration_v4,
+test_migration_v5), but their
 *composition* on a single legacy v0 .env -- the exact upgrade path for
 a user on an old checkout who hasn't run the bootstrapper since the
-topology refactor -- was not. ``run_port_migration`` chains the four
-steps behind sequential ``_needs_vN`` gates; this test feeds one legacy
-file through a single call and asserts all four sentinels advance and
+topology refactor -- was not. ``run_port_migration`` chains the steps
+behind sequential ``_needs_vN`` gates; this test feeds one legacy file
+through a single call and asserts every migration gate advances and
 every schema rewrite lands.
 """
 
@@ -19,6 +20,7 @@ from services.migrations.migration_v1 import needs_migration as needs_v1
 from services.migrations.migration_v2 import needs_migration as needs_v2
 from services.migrations.migration_v3 import needs_migration as needs_v3
 from services.migrations.migration_v4 import needs_migration as needs_v4
+from services.migrations.migration_v5 import needs_migration as needs_v5
 
 
 def _legacy_v0_env(tmp_path: Path) -> Path:
@@ -48,8 +50,14 @@ def test_v0_env_migrates_through_the_full_chain(tmp_path):
     (tmp_path / ".env.example").write_text("BASE_PORT=63000\n", encoding="utf-8")
     (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
 
-    # Sanity: a true v0 file needs all four migrations before we start.
-    assert needs_v1(env) and needs_v2(env) and needs_v3(env) and needs_v4(env)
+    # Sanity: a true v0 file needs every migration before we start.
+    assert (
+        needs_v1(env)
+        and needs_v2(env)
+        and needs_v3(env)
+        and needs_v4(env)
+        and needs_v5(env)
+    )
 
     from start import AtlasStarter
 
@@ -65,6 +73,7 @@ def test_v0_env_migrates_through_the_full_chain(tmp_path):
     assert not needs_v2(env)
     assert not needs_v3(env)
     assert not needs_v4(env)
+    assert not needs_v5(env)
 
     text = env.read_text(encoding="utf-8")
     # v2: URL schema rewritten to the PORT schema.
@@ -74,6 +83,7 @@ def test_v0_env_migrates_through_the_full_chain(tmp_path):
     assert "COMFYUI_USER_MODELS" in text
     # v4: retired curated Ollama model reference rewritten.
     assert "LITELLM_DEFAULT_MODEL=ollama/qwen3.8:latest" in text
+    assert "WEAVIATE_ENABLE_MODULES=backup-filesystem" in text
 
 
 def test_chain_is_idempotent_on_second_run(tmp_path):
@@ -95,7 +105,7 @@ def test_chain_is_idempotent_on_second_run(tmp_path):
     second = env.read_text(encoding="utf-8")
 
     assert first == second
-    assert not (needs_v1(env) or needs_v2(env) or needs_v3(env) or needs_v4(env))
+    assert not (needs_v1(env) or needs_v2(env) or needs_v3(env) or needs_v4(env) or needs_v5(env))
 
 
 def test_v4_catalog_failure_remains_retryable(tmp_path, monkeypatch):

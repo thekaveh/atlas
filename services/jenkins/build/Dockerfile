@@ -11,6 +11,7 @@ ARG TARGETARCH
 
 RUN set -eux; \
     apt-get update; \
+    DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends; \
     apt-get install -y --no-install-recommends ca-certificates curl maven; \
     rm -rf /var/lib/apt/lists/*; \
     arch="${TARGETARCH:-amd64}"; \

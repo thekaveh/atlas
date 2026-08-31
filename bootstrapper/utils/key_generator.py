@@ -9,6 +9,7 @@ import secrets
 import re
 from pathlib import Path
 from typing import Optional, Dict
+from urllib.parse import quote
 
 from core.config_parser import ConfigParser
 from utils.atomic_write import atomic_write_text, create_private_backup
@@ -57,6 +58,69 @@ class KeyGenerator:
         "ASSET_BAKER",
     )
 
+    # Login secrets consumed by the idempotent PostgreSQL role provisioner.
+    # Keep them independent even when two services currently share a database;
+    # a compromised consumer must not inherit a sibling's identity.
+    SCOPED_DATABASE_PASSWORD_VARS = (
+        "SUPABASE_AUTH_DB_PASSWORD",
+        "SUPABASE_STORAGE_DB_PASSWORD",
+        "SUPABASE_API_DB_PASSWORD",
+        "SUPABASE_REALTIME_DB_PASSWORD",
+        "SUPABASE_META_DB_PASSWORD",
+        "POSTGRES_EXPORTER_DB_PASSWORD",
+        "SUPAVISOR_DB_ADMIN_PASSWORD",
+        "BACKEND_DB_PASSWORD",
+        "N8N_DB_PASSWORD",
+        "OPEN_WEBUI_DB_PASSWORD",
+        "LIGHTRAG_DB_PASSWORD",
+        "LITELLM_DB_PASSWORD",
+        "AIRFLOW_DB_PASSWORD",
+        "AIRFLOW_ATLAS_DB_PASSWORD",
+        "LANGFUSE_DB_PASSWORD",
+        "MLFLOW_DB_PASSWORD",
+        "LABEL_STUDIO_DB_PASSWORD",
+        "ICEBERG_DB_PASSWORD",
+        "MCP_POSTGRES_DB_PASSWORD",
+        "JUPYTER_DB_PASSWORD",
+        "ZEPPELIN_DB_PASSWORD",
+    )
+
+    # Database names appear in URI path components. Compose interpolation
+    # cannot encode them, so keep synchronized percent-encoded twins alongside
+    # the raw values retained for psql and discrete driver parameters.
+    SCOPED_DATABASE_NAME_VARS = (
+        "SUPABASE_DB_NAME",
+        "LITELLM_DB_NAME",
+        "LANGFUSE_DB_NAME",
+        "MLFLOW_DB_NAME",
+        "LABEL_STUDIO_DB_NAME",
+    )
+
+    SCOPED_DATABASE_CREDENTIAL_VARS = (
+        ("SUPABASE_AUTH_DB_USER", "SUPABASE_AUTH_DB_PASSWORD"),
+        ("SUPABASE_STORAGE_DB_USER", "SUPABASE_STORAGE_DB_PASSWORD"),
+        ("SUPABASE_API_DB_USER", "SUPABASE_API_DB_PASSWORD"),
+        ("SUPABASE_REALTIME_DB_USER", "SUPABASE_REALTIME_DB_PASSWORD"),
+        ("SUPABASE_META_DB_USER", "SUPABASE_META_DB_PASSWORD"),
+        ("SUPABASE_STUDIO_DB_USER", "SUPABASE_META_DB_PASSWORD"),
+        ("POSTGRES_EXPORTER_DB_USER", "POSTGRES_EXPORTER_DB_PASSWORD"),
+        ("SUPAVISOR_DB_ADMIN_USER", "SUPAVISOR_DB_ADMIN_PASSWORD"),
+        ("BACKEND_DB_USER", "BACKEND_DB_PASSWORD"),
+        ("N8N_DB_USER", "N8N_DB_PASSWORD"),
+        ("OPEN_WEBUI_DB_USER", "OPEN_WEBUI_DB_PASSWORD"),
+        ("LIGHTRAG_DB_USER", "LIGHTRAG_DB_PASSWORD"),
+        ("LITELLM_DB_USER", "LITELLM_DB_PASSWORD"),
+        ("AIRFLOW_DB_USER", "AIRFLOW_DB_PASSWORD"),
+        ("AIRFLOW_ATLAS_DB_USER", "AIRFLOW_ATLAS_DB_PASSWORD"),
+        ("LANGFUSE_DB_USER", "LANGFUSE_DB_PASSWORD"),
+        ("MLFLOW_DB_USER", "MLFLOW_DB_PASSWORD"),
+        ("LABEL_STUDIO_DB_USER", "LABEL_STUDIO_DB_PASSWORD"),
+        ("ICEBERG_DB_USER", "ICEBERG_DB_PASSWORD"),
+        ("MCP_POSTGRES_DB_USER", "MCP_POSTGRES_DB_PASSWORD"),
+        ("JUPYTER_DB_USER", "JUPYTER_DB_PASSWORD"),
+        ("ZEPPELIN_DB_USER", "ZEPPELIN_DB_PASSWORD"),
+    )
+
     # `.env.example` ships placeholders for credential vars whose canonical
     # generators rotate-when-absent only. Treating these literal placeholders
     # as "absent" so the rotator runs on first ./start.sh stops the stack
@@ -77,6 +141,15 @@ class KeyGenerator:
         "OPEN_WEB_UI_ADMIN_PASSWORD": "admin",
         "OPEN_WEB_UI_SECRET_KEY": "secret",
     }
+    PLACEHOLDER_DEFAULTS.update(
+        dict.fromkeys(SCOPED_DATABASE_PASSWORD_VARS, "atlas-db-password")
+    )
+    PLACEHOLDER_DEFAULTS.update(
+        dict.fromkeys(
+            (f"{password_var}_URI" for password_var in SCOPED_DATABASE_PASSWORD_VARS),
+            "atlas-db-password",
+        )
+    )
 
     def _read_env_values(self) -> dict:
         """Return a dict of all KEY=VALUE pairs from the active .env file.
@@ -762,8 +835,7 @@ class KeyGenerator:
         generator,
         force: bool = False,
     ) -> bool:
-        current = self.get_current_env_value(var_name)
-        if not force and current:
+        if not force and not self._is_placeholder_or_empty(var_name):
             return True
         return self.update_env_key(var_name, generator())
 
@@ -1044,6 +1116,43 @@ class KeyGenerator:
             dict: Dictionary with key names and success status
         """
         results = {}
+
+        # Database role passwords are generated before rendering Compose and
+        # never rotate implicitly.  This also backfills an existing .env on
+        # upgrade, before the db-init fail-fast checks run.
+        results.update(
+            {
+                name: self._generate_and_update_when_absent(
+                    name, lambda: _cli_safe_token_urlsafe(24), force=False
+                )
+                for name in self.SCOPED_DATABASE_PASSWORD_VARS
+            }
+        )
+
+        # Compose cannot percent-encode URI userinfo. Keep the operator's raw
+        # credentials for drivers with discrete user/password parameters and
+        # synchronise deterministic encoded twins for every DSN consumer on
+        # every launch. This is intentionally not rotate-when-absent: changing
+        # a custom raw value must never leave a stale derived URI component.
+        for user_var, password_var in self.SCOPED_DATABASE_CREDENTIAL_VARS:
+            user = self.get_current_env_value(user_var)
+            password = self.get_current_env_value(password_var)
+            for raw_var, raw_value in ((user_var, user), (password_var, password)):
+                if raw_value is None:
+                    continue
+                uri_var = f"{raw_var}_URI"
+                results[uri_var] = self.update_env_key(
+                    uri_var, quote(raw_value, safe="")
+                )
+
+        for database_var in self.SCOPED_DATABASE_NAME_VARS:
+            database_name = self.get_current_env_value(database_var)
+            if database_name is None:
+                continue
+            uri_var = f"{database_var}_URI"
+            results[uri_var] = self.update_env_key(
+                uri_var, quote(database_name, safe="")
+            )
 
         # Generate N8N encryption key
         results['N8N_ENCRYPTION_KEY'] = self.generate_and_update_n8n_key(force=force_regenerate)

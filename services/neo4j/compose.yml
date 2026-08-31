@@ -24,7 +24,7 @@ services:
       - "${HOST_BIND_IP:-}${GRAPH_DB_DASHBOARD_PORT}:7474"
     volumes:
       - ./build/scripts:/scripts
-      - ./build/snapshot:/snapshot
+      - neo4j-backups:/snapshot
       - graph-db-data:/data
     healthcheck:
       test:
@@ -45,4 +45,7 @@ services:
 volumes:
   graph-db-data:
     name: ${PROJECT_NAME}-graph-db-data
+    driver: local
+  neo4j-backups:
+    name: ${PROJECT_NAME}-neo4j-backups
     driver: local

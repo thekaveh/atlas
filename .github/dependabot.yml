@@ -21,6 +21,7 @@ updates:
       - "/services/docling/provider/gpu"
       - "/services/docling/provider/adapter"
       - "/services/jupyterhub/build"
+      - "/services/mlflow/build"
       - "/services/backend/app/app"
       - "/services/parakeet/provider/gpu"
       - "/services/parakeet/provider/mlx"
@@ -42,16 +43,14 @@ updates:
         applies-to: security-updates
         patterns: ["*"]
     ignore:
-      # torch + PyG family is coupled to the `--find-links` wheel-index URL
-      # in services/jupyterhub/build/requirements.txt (currently
-      # `https://data.pyg.org/whl/torch-2.13.0+cpu.html`). Each torch
-      # minor/major bump requires (a) a matching PyG wheel-index URL change
-      # AND (b) compatible pyg_lib / torch-scatter / torch-sparse /
-      # torch-cluster / torch_geometric versions from the new index.
-      # Auto-bumping torch leaves these stranded — PR #39 (2026-06-05)
-      # bumped torch 2.4 -> 2.12 against a 2.4-only wheel index. Manual
-      # coordination required; surface the bump from `pip list --outdated`
-      # when ready to migrate the whole family in one PR.
+      # torch + PyG family moves as one unit in services/jupyterhub/build/
+      # requirements.txt. Each torch minor/major bump requires a compatible
+      # torch_geometric release; auto-bumping torch alone leaves it stranded
+      # — PR #39 (2026-06-05) bumped torch 2.4 -> 2.12 against a 2.4-only
+      # wheel index. The retired extension names stay listed so a
+      # reintroduction cannot be auto-bumped either. Manual coordination
+      # required; surface the bump from `pip list --outdated` when ready to
+      # migrate the whole family in one PR.
       - dependency-name: "torch"
       - dependency-name: "torchvision"
       - dependency-name: "torch-scatter"

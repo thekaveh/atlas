@@ -106,8 +106,8 @@ def test_langfuse_topology_alias_and_env_example_contract() -> None:
         "LANGFUSE_SOURCE=disabled",
         "LANGFUSE_IMAGE=langfuse/langfuse:3.115.0",
         "LANGFUSE_WORKER_IMAGE=langfuse/langfuse-worker:3.115.0",
-        "LANGFUSE_CLICKHOUSE_IMAGE=clickhouse/clickhouse-server:25.8.12",
-        "LANGFUSE_INIT_IMAGE=alpine:3.22.1",
+        "LANGFUSE_CLICKHOUSE_IMAGE=clickhouse/clickhouse-server:25.8.33.6",
+        "LANGFUSE_INIT_IMAGE=alpine:3.24.1",
         "LANGFUSE_PORT=",
         "LANGFUSE_ENDPOINT=",
         "LANGFUSE_WEB_SCALE=",
@@ -199,17 +199,17 @@ def test_langfuse_compose_contract() -> None:
 
     assert web["image"] == "${LANGFUSE_IMAGE:-langfuse/langfuse:3.115.0}"
     assert worker["image"] == "${LANGFUSE_WORKER_IMAGE:-langfuse/langfuse-worker:3.115.0}"
-    assert clickhouse["image"] == "${LANGFUSE_CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:25.8.12}"
+    assert clickhouse["image"] == "${LANGFUSE_CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:25.8.33.6}"
     assert web["ports"] == ["${HOST_BIND_IP:-}${LANGFUSE_PORT}:3000"]
     assert "ports" not in clickhouse
     assert web["environment"]["LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT"] == "http://minio:9000"
     assert web["environment"]["LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT"] == "http://minio:9000"
     assert web["environment"]["DATABASE_URL"] == (
-        "postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/${LANGFUSE_DB_NAME:-langfuse}"
+        "postgresql://${LANGFUSE_DB_USER_URI:?LANGFUSE_DB_USER_URI is required}:${LANGFUSE_DB_PASSWORD_URI:?LANGFUSE_DB_PASSWORD_URI is required}@supabase-db:5432/${LANGFUSE_DB_NAME_URI:?LANGFUSE_DB_NAME_URI is required}"
     )
     assert web["depends_on"]["langfuse-init"]["condition"] == "service_completed_successfully"
     assert worker["depends_on"]["langfuse-init"]["condition"] == "service_completed_successfully"
-    assert init["depends_on"]["supabase-db"]["condition"] == "service_healthy"
+    assert init["depends_on"]["supabase-db-init"]["condition"] == "service_completed_successfully"
     assert init["depends_on"]["minio-init"]["condition"] == "service_completed_successfully"
     assert not {
         "MINIO_ROOT_USER",

@@ -107,11 +107,12 @@ LANGMEM_CONSOLIDATION_INTERVAL=86400
 LANGMEM_MAX_FACTS_PER_USER=1000
 LANGMEM_EXTRACTION_MODEL=          # empty = LITELLM_DEFAULT_MODEL (resolved by litellm-init from YAML catalogs + env)
 LANGMEM_EMBEDDING_MODEL=
+LANGMEM_EMBEDDING_DIM=768
 ```
 
 Extraction runs the LLM call outside the database transaction, then commits accepted facts and the completed session atomically, with a per-user lock enforcing `LANGMEM_MAX_FACTS_PER_USER` across replicas. Failed extractions record a terminal failed session rather than partial facts. The full transaction and locking sequence is documented in the LangMem extraction module's docstring.
 
-Memory writes (edits, soft deletes, consolidation, retention) mark a durable `vector_sync_pending` intent alongside the Postgres change, and a reconciliation pass syncs the corresponding Weaviate objects and clears the marker on success; failures remain retryable, and Postgres `is_active` stays the recall authority throughout. The deterministic-ID and stale-version comparison logic is documented in the vector-sync reconciliation module.
+Memory writes (edits, soft deletes, consolidation, retention) mark a durable `vector_sync_pending` intent alongside the Postgres change. The selected backend is latched: while Weaviate serves recall, each successful store/update also maintains a pgvector shadow without advancing the dirty generation; pending clears only after both writes are durable. Successful pgvector-authoritative writes advance the dirty generation atomically with the vector update when Weaviate is unavailable. Weaviate failback occurs only through `POST /memory/vector-store/probe`; the probe verifies the configured model/dimension and collection module identity, then rebuilds active objects and retirements from authoritative Postgres before switching searches. Failback may clear its monotonic generation only through a matching model/dimension compare-and-set after every pending retirement is drained. Sustained write churn leaves pgvector latched with an observable reason instead of looping indefinitely. Weaviate recall and mutations check the generation before and after external I/O; a change discards the result or preserves pgvector authority, so no stale result or lost write crosses the transition. Runtime Weaviate outages latch pgvector without per-request readiness probes. `LANGMEM_EMBEDDING_DIM` is validated against a real LiteLLM embedding before Backend startup; the database migration preserves existing vectors, re-embeds through short optimistic transactions that release database connections during LiteLLM calls, and contracts only after every existing row matches the selected dimension.
 
 Async `POST /memory/consolidate?async_job=true` accepts an optional
 `idempotency_key`. Reusing it derives and republishes the same stable Celery job
@@ -158,6 +159,7 @@ CELERY_SOURCE=disabled
 CELERY_BROKER_URL=                 # auto-managed when CELERY_SOURCE=container
 CELERY_RESULT_BACKEND=             # auto-managed when CELERY_SOURCE=container
 RAG_INGESTION_EXECUTION_LEASE_SECONDS=30
+BACKEND_STATE_STORE_MODE=redis       # memory is explicit single-process/ephemeral mode
 ```
 
 Adaptive listing comes from `runtime_adaptive.backend.adapts_to` in `services/backend/service.yml`.
@@ -180,6 +182,8 @@ MEDIA_REQUEST_MAX_BYTES=41943040
 MEDIA_INPUT_MAX_BYTES=26214400
 MEDIA_INPUT_MAX_PIXELS=40000000
 MEDIA_OPERATION_TTL_SECONDS=604800
+MEDIA_LEDGER_RECOVERY_BATCH_SIZE=100
+MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 ```
 
 When `FAL_SOURCE=enabled`, `POST /media/generate` accepts a provider-neutral request (`provider`, `modality`, `model`, `input`) and dispatches to FAL (image, image-to-3D) or the managed/localhost ComfyUI host (image); it returns `202` with an operation id, and `GET /media/operations/{operation_id}` polls normalized status/artifacts while `POST /media/operations/{operation_id}/cancel` requests cancellation without releasing the budget reservation until a terminal state is confirmed. ComfyUI cancellation uses the pinned core's atomic `POST /api/jobs/{job_id}/cancel` endpoint and accepts only an exact boolean `cancelled` response; interrupted history becomes terminal `cancelled`. An ambiguous ComfyUI delivery may be retried safely, while an older localhost instance that lacks the targeted endpoint fails closed without falling back to the global `/interrupt` operation. If FAL may have accepted paid work but its response never returned a usable provider request id, Atlas returns a local `submission_unknown` id and retains the budget reservation; an operator authenticated with `BACKEND_INTERNAL_API_TOKEN` resolves it with `POST /media/operations/{operation_id}/reconcile` using `outcome=commit|release` after reviewing provider billing. The intent and recovery ledger row remain exempt from normal retention until settlement, same-outcome retries are safe after transient failures, and the spend ledger is the fallback recovery source when the operation-state write fails (`local_record_persisted=false`). If reservation attachment or cleanup fails after provider acceptance, Atlas preserves the candidate ledger ids as a non-expiring recovery intent and retries automatically every 30 seconds as well as when the operation is polled; a persistence-failure response exposes `recovery_ledger_ids` for operator recovery. `artifact_url` is provider-dependent — an absolute CDN URL for FAL, a gateway-relative backend proxy path for ComfyUI — so consumers must resolve relative URLs against their own base before fetching; the older `POST /comfyui/generate` route remains a narrower FAL-only compatibility surface. Set the request's top-level `timeout_seconds` above the provider's cold-start worst case — a cold Krea 2 BF16 load on the managed-MPS ComfyUI host is ~90–120 s before the first sampler step — or an otherwise-successful generation is timed out and cancelled mid-flight. The full field-by-field request/response contract, validation rules, and byte/pixel limits are served live at the backend's `/docs` (Swagger) endpoint.
@@ -190,11 +194,18 @@ Chonkie chunking surface:
 
 ```bash
 CHONKIE_SEMANTIC_EMBEDDING_MODEL=minishlab/potion-base-32M
+LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS=30
+RAG_INGESTION_TTL_SECONDS=604800
 ```
 
-`CHONKIE_SEMANTIC_EMBEDDING_MODEL` is an optional environment override read at
-runtime; it is not surfaced in `.env.example` and defaults to
-`minishlab/potion-base-32M` in code.
+These non-secret controls are declared in `.env.example` and injected into both
+the Backend and Celery worker. A blank Chonkie model reference uses
+`minishlab/potion-base-32M`. The LightRAG pipeline-status timeout must be finite,
+greater than zero, and no greater than 3,600 seconds. RAG ingestion state is
+retained in Redis for 60 through 31,536,000 seconds (one year). Invalid timeout
+or TTL values fall back to 30 seconds or seven days, respectively, so malformed
+operator values cannot remove the request deadline, retain control-plane records
+indefinitely, or crash module import.
 
 `POST /api/chunk` splits text using Chonkie's `recursive` (default), `token`, or
 `semantic` strategy, returning stable offsets and chunk indexes; only token
@@ -253,7 +264,11 @@ Each Backend process admits at most `RESEARCH_MAX_CONCURRENT` research sessions 
 
 **RAG chunking gateway:** `POST /api/chunk` centralizes Chonkie text splitting in the Backend. n8n workflows, notebooks, and future ingestion routes should call this endpoint so chunking defaults, offsets, overlap behavior, and semantic model selection stay consistent across Atlas. JupyterHub also installs Chonkie for exploratory notebook work, but the Backend endpoint is the canonical runtime API.
 
-**RAG ingestion job engine (`rag_ingestion/`, #413):** `POST /api/rag/ingestions` runs a generic, idempotent ingestion lifecycle (discover → parse → chunk → embed → vector-store write → LightRAG upload → drain → finalize) over a consumer-declared `rag_ingestion_profile`, executing through the Celery tier when enabled or synchronously otherwise. Each phase is protected by an owner-fenced execution lease (`RAG_INGESTION_EXECUTION_LEASE_SECONDS`) and reports per-phase status, counts, and actionable errors; corpus inputs are bounded by `RAG_INGESTION_MAX_FILE_BYTES` / `RAG_INGESTION_MAX_CORPUS_BYTES` / `RAG_INGESTION_MAX_FILES`. Consumer-side walkthrough: [reusing-atlas.md §6.3.4](../../docs/deployment/reusing-atlas.md#634-declaring-rag-ingestion-profiles-with-rag_ingestion_profiles). Covered by `app/app/tests/test_rag_ingestion.py` + `test_rag_ingestion_api.py`.
+**RAG ingestion job engine (`rag_ingestion/`, #413):** `POST /api/rag/ingestions` runs a generic, idempotent ingestion lifecycle (discover → parse → chunk → embed → vector-store write → LightRAG upload → drain → finalize) over a consumer-declared `rag_ingestion_profile`, executing through the Celery tier when enabled or synchronously otherwise. Each phase is protected by an owner-fenced execution lease (`RAG_INGESTION_EXECUTION_LEASE_SECONDS`) and reports per-phase status, counts, and actionable errors; corpus inputs are bounded by `RAG_INGESTION_MAX_FILE_BYTES` / `RAG_INGESTION_MAX_CORPUS_BYTES` / `RAG_INGESTION_MAX_FILES`. `GET /api/rag/ingestions` retains its list response body but returns at most 100 jobs by default (maximum 200); pass `cursor` from `X-Atlas-Next-Cursor` and inspect `X-Atlas-Page-Limit` to traverse bounded pages. Consumer-side walkthrough: [reusing-atlas.md §6.3.4](../../docs/deployment/reusing-atlas.md#634-declaring-rag-ingestion-profiles-with-rag_ingestion_profiles). Covered by `app/app/tests/test_rag_ingestion.py` + `test_rag_ingestion_api.py`.
+
+Shared RAG and hosted-media state defaults to Redis (`BACKEND_STATE_STORE_MODE=redis`). An unavailable Redis returns the typed `state_store_unavailable` HTTP 503 contract rather than switching to process-local state. `BACKEND_STATE_STORE_MODE=memory` is an explicit single-process, non-durable mode for unit tests and ephemeral development only; RAG submissions run synchronously in this mode even when the Celery tier is enabled, so an ingestion identifier is never sent to a worker-local store. Do not combine memory mode with multiple Backend replicas. Media ledger recovery reads at most `MEDIA_LEDGER_RECOVERY_BATCH_SIZE` intents per page and processes at most `MEDIA_LEDGER_RECOVERY_MAX_CYCLES` pages per poll, resuming the monotonic cursor on the next cycle.
+
+Rolling upgrades retain the legacy Redis SET indexes for old replicas and migrate membership non-destructively into versioned sorted indexes. Migration persists an `SSCAN` cursor across calls; Redis defines `COUNT` as a work hint rather than a strict scan-result cap, while returned API/recovery pages and their `MGET` calls remain hard-capped by the configured page size.
 
 Submission snapshots the corpus and profile definition with the job so a queued worker executes what was submitted even if the registry changes before delivery, and each run reconciles Weaviate by removing prior-generation objects no longer present in the source corpus.
 

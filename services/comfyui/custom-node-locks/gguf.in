@@ -1,0 +1,5 @@
+# Mirrored from ComfyUI-GGUF requirements.txt at
+# 6ea2651e7df66d7585f6ffee804b20e92fb38b8a.
+gguf>=0.13.0
+sentencepiece
+protobuf

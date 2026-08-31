@@ -132,7 +132,11 @@ Key modules:
 - `services/sc_synthesizer.py` — concatenates per-manifest `runtime_sc:` slices into the legacy service-config dict shape (source_configurable, adaptive_services, dependencies, service_dependencies).
 - `services/env_assembler.py` — generates `.env.example` from manifests' env-var declarations + topology port defaults.
 - `services/source_validator.py` — SOURCE validation
-- `services/migrations/` — chained env-file migrations (`migration_v1.py` port-layout, `migration_v2.py` URL→PORT, `migration_v3.py` COMFYUI model-set schema; each gated by its own sentinel).
+- `services/migrations/` — frozen, ordered env-file migrations. The chain
+  currently runs v1 through v5; [`start.py::run_port_migration`](bootstrapper/start.py)
+  is the source of truth for the complete sequence, gates, and current purpose
+  of each version. Add a new versioned module instead of editing a migration
+  that existing `.env` files may already have stamped.
 - `ui/textual/integration.py` — public entry points `run_setup_flow` (interactive wizard + pipeline + log streaming, all in one Textual app) and `run_launch_flow` (CLI-flag mode: skip the wizard, jump to the launch screen with the user's overrides applied)
 - `ui/textual/screens/wizard_screen.py` — `WizardScreen` hosts the wizard prompts, then transitions in-place to the launch phase (service-table + log pane + filter chips)
 - `ui/textual/widgets/` — Textual widgets composed by `WizardScreen` (prompt panel, service table, info / brand panels, log pane + filter chips, command summary, footer bar)
@@ -195,11 +199,22 @@ Dependencies are managed via `uv` (with a pip fallback) and declared in `bootstr
 
 **Brand customization.** The wizard's brand panel and info box (brand name, tagline, version, author, author email, license, repo URL) is configurable via `BRAND_*` env vars in `.env`. Defaults are Atlas; forks can rebrand by setting these. See the `BRAND_*` block in `.env.example`.
 
-### Backend (`/backend/`)
+### Backend (`services/backend/app/app/`)
 
-FastAPI service at `services/backend/app/app/main.py`. Orchestrates AI services and connects to PostgreSQL (Supabase), Weaviate, n8n, ComfyUI, LiteLLM (which fronts Ollama), and Ray. Dependencies in `services/backend/app/app/requirements.txt`, uses `uv pip install` in Docker.
+FastAPI service at [`services/backend/app/app/main.py`](services/backend/app/app/main.py).
+Its runtime integrations are declared by the Backend manifest's
+[`data_flow.calls`](services/backend/service.yml), rather than duplicated here.
+Runtime dependencies live in
+[`requirements.txt`](services/backend/app/app/requirements.txt); the image uses
+the adjacent locked requirements file through
+[`services/backend/app/Dockerfile`](services/backend/app/Dockerfile).
 
-No standalone dev mode — backend runs only inside Docker because it depends on its upstream services being up. For local iteration, edit and rebuild the `backend` service via compose. A small pytest suite lives at `services/backend/app/app/tests/` (Ray client/routes); it needs the backend's own dependencies and is not part of the bootstrapper suite.
+There is no supported standalone Backend server mode; run the service through
+Compose. The unit suite at
+[`services/backend/app/app/tests/`](services/backend/app/app/tests/) runs locally
+without a live Atlas stack by using test doubles. Its explicitly opt-in live
+smokes self-skip unless their `ATLAS_*` endpoint variables are set. The Backend
+suite is separate from the bootstrapper suite.
 
 ### Docker Compose (`docker-compose.yml`)
 
@@ -218,7 +233,11 @@ Each service family owns one manifest with:
 - `category:` — one of `infra | data | llm | media | agents | apps` (drives wizard ordering + UI color)
 - `depends_on:` — soft (display order) and required (startup ordering)
 - `runtime_sc:` — per-source scale/environment/deploy/extra_hosts slice consumed by `sc_synthesizer.py`
-- `runtime_adaptive:` — adaptive-service behavior (backend, open-webui)
+- `runtime_adaptive:` — per-container environment and host adaptation owned by
+  service manifests and synthesized by `services/sc_synthesizer.py`; current
+  multi-upstream examples are [`backend`](services/backend/service.yml) and
+  [`jupyterhub`](services/jupyterhub/service.yml). Inspect manifests for the
+  complete current owner set instead of maintaining a parallel list here.
 - `runtime_deps:` — cross-family dependency hints
 - `data_flow.calls:` — runtime call graph (drives the architecture diagram + Dependencies & Integrations block)
 
@@ -255,16 +274,34 @@ All ports are calculated as offsets from `BASE_PORT` (default 63000). Service po
 
 ## Testing
 
-`bootstrapper/tests/` holds 3,600+ pytest tests covering manifest validation, env-example consistency, the docs-drift gate, the diagram renderer, the deps section writer, Kong config generation, and bootstrapper-internal data flow. Run from the repo root:
+`bootstrapper/tests/` holds 6,000+ pytest tests covering manifest validation, env-example consistency, the docs-drift gate, the diagram renderer, the deps section writer, Kong config generation, and bootstrapper-internal data flow. Many of the backup, restore, and database-role suites drive real containers, so a full pass needs a working Docker daemon and dominates the runtime. Run from the repo root:
 
 ```bash
-uv run --project bootstrapper pytest bootstrapper/tests -q                          # full suite (~6-7 min)
+uv run --project bootstrapper pytest bootstrapper/tests -q                          # full suite (~40 min)
 uv run --project bootstrapper pytest bootstrapper/tests/test_docs_drift.py          # drift gate alone
 uv run --project bootstrapper pytest bootstrapper/tests/test_manifests.py -v        # single file, verbose
 uv run --project bootstrapper pytest bootstrapper/tests -k weaviate                 # filter by name
 ```
 
-The Backend's runtime dependencies are declared in `services/backend/app/app/requirements.txt`, while pytest and its plugins (including `pytest-asyncio`) are declared in `requirements-dev.txt`. Run that suite under Python 3.12 with both files installed; it is not collected by the bootstrapper suite.
+The Backend's runtime and test dependencies are separate. Run its default,
+non-live suite under Python 3.12 with both requirement sets and the tested lock
+constraint:
+
+```bash
+cd services/backend/app/app
+BACKEND_TEST_ROOT="$(mktemp -d)"
+trap 'rm -rf "$BACKEND_TEST_ROOT"' EXIT
+BACKEND_TEST_VENV="$BACKEND_TEST_ROOT/venv"
+uv venv --python 3.12 "$BACKEND_TEST_VENV"
+VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
+  -r requirements.txt -r requirements-dev.txt -c requirements-test-locked.txt
+env -u ATLAS_TEST_REDIS_URL -u ATLAS_COMFYUI_LIVE_ENDPOINT \
+  -u ATLAS_TEI_RERANKER_LIVE_ENDPOINT \
+  "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error
+```
+
+This suite is not collected by the bootstrapper tests. Opt-in live smokes remain
+skipped unless their documented `ATLAS_*` endpoint variables are configured.
 
 ### Audit scripts (`scripts/`)
 

@@ -90,6 +90,18 @@ def test_run_bounded_stops_descendant_after_successful_leader_exits(tmp_path):
     assert not marker.exists()
 
 
+def test_run_bounded_publishes_ready_after_signal_guard_installation(tmp_path: Path):
+    ready_file = tmp_path / "registered.ready"
+
+    result = bounded_subprocess.run_bounded(
+        [sys.executable, "-c", "print('started')"],
+        ready_file=ready_file,
+    )
+
+    assert result.stdout == "started\n"
+    assert ready_file.read_text(encoding="ascii") == "ready\n"
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signal contract")
 def test_run_bounded_handles_sigterm_before_popen_returns(monkeypatch, tmp_path):
     marker = tmp_path / "launch-race-orphan-ran"

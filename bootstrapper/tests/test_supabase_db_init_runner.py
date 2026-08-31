@@ -53,6 +53,10 @@ def _run_runner(
     atlas_dir.mkdir()
     for name, body in atlas_scripts.items():
         (atlas_dir / name).write_text(body, encoding="utf-8")
+    (atlas_dir / "05-scoped-roles.sh").write_text(
+        '#!/bin/sh\necho "ROLE_PROVISIONER" >> "$PSQL_LOG"\n',
+        encoding="utf-8",
+    )
 
     user_dir = tmp_path / "user-scripts"
     if user_scripts is not None:
@@ -103,6 +107,7 @@ def test_db_init_runner_runs_atlas_only_when_user_slot_missing(tmp_path: Path) -
     assert _psql_log(log_path) == [
         str(atlas_dir / "01-atlas.sql"),
         str(atlas_dir / "02-atlas.sql"),
+        "ROLE_PROVISIONER",
     ]
     assert "No user SQL directory found" in result.stdout
 
@@ -124,6 +129,7 @@ def test_db_init_runner_runs_user_sql_after_all_atlas_sql(tmp_path: Path) -> Non
     assert _psql_log(log_path) == [
         str(atlas_dir / "10-atlas.sql"),
         str(atlas_dir / "20-atlas.sql"),
+        "ROLE_PROVISIONER",
         str(user_dir / "00-user.sql"),
         str(user_dir / "99-user.sql"),
     ]
@@ -143,6 +149,7 @@ def test_db_init_runner_surfaces_user_sql_failures(tmp_path: Path) -> None:
     assert result.returncode == 17
     assert _psql_log(log_path) == [
         str(atlas_dir / "01-atlas.sql"),
+        "ROLE_PROVISIONER",
         str(user_dir / "01-user.sql"),
         str(user_dir / "02-fail.sql"),
     ]

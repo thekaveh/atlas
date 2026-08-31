@@ -1233,6 +1233,13 @@ class WizardScreen(Screen):
         ) = _restored_primary_defaults(
             original, self._selections
         )
+        if (
+            original.title not in self._selections
+            and original.default_value_provider is not None
+        ):
+            live_default_value = original.default_value_provider(
+                dict(self._selections)
+            )
         live_options = _restored_secondary_options(live_options, self._selections)
         # ``dataclasses.replace`` carries every field on the dataclass
         # forward by default — new fields added to PromptStep show up
@@ -1408,6 +1415,10 @@ class WizardScreen(Screen):
         opt = self._prompt.selected_option
         if opt is None:
             return
+        previous_value = self._selections.get(step.title)
+        if previous_value is not None and previous_value != opt.value:
+            for dependent_title in step.invalidates_on_change:
+                self._selections.pop(dependent_title, None)
         self._selections[step.title] = opt.value
         # Inline secondary integer inputs (kind="options" + per-option
         # secondary_number): capture each visible eligible input's value
@@ -2636,6 +2647,7 @@ class WizardScreen(Screen):
                 self._starter.docker_manager.enabled_service_targets
             )
 
+            build_args = self._starter.docker_manager.prepare_build_args(cold, targets)
             if cold:
                 self._write_status("📦 Building images (cold start)…",
                                    style="bold cyan", source="pipeline")
@@ -2653,7 +2665,7 @@ class WizardScreen(Screen):
             # `source_build_args()` is empty when the source commit is unchanged.
             # Kept on one line — the pipeline-step guards locate this call by the
             # literal `self._run_compose(["up"` substring.
-            rc = await self._run_compose(["up", "-d", "--force-recreate", *self._starter.docker_manager.source_build_args(), *(targets or [])])
+            rc = await self._run_compose(["up", "-d", "--force-recreate", *build_args, *(targets or [])])
             if rc != 0:
                 self._write_status("❌ Start failed — capturing per-service logs to launch log",
                                    style="bold red", source="pipeline")
@@ -2665,7 +2677,7 @@ class WizardScreen(Screen):
                 )
                 self._mark_launch_failed()
                 return
-            self._starter.docker_manager.mark_source_built()
+            self._starter.docker_manager.mark_source_built(targets)
             ok = await asyncio.to_thread(
                 starter.verify_one_shot_init_containers,
                 lambda msg, level="info": self._safe_log(

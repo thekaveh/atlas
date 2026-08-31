@@ -21,7 +21,7 @@ capabilities:
   - name: "Authenticated Prometheus and exporter access"
     status: not-supported
     verification: tested
-    note: "The direct PROMETHEUS_PORT, NODE_EXPORTER_PORT, and CADVISOR_PORT publishes have no authentication, the CORS-only Kong prometheus.localhost route has no authentication, --web.enable-lifecycle is enabled, and the default empty HOST_BIND_IP binds direct ports on all interfaces; set HOST_BIND_IP=127.0.0.1:, firewall or remove the direct ports, and use an authentication proxy or remove the Prometheus Kong route before exposure beyond a trusted host."
+    note: "The direct PROMETHEUS_PORT, NODE_EXPORTER_PORT, and CADVISOR_PORT publishes have no authentication, the CORS-only Kong prometheus.localhost route has no authentication, --web.enable-lifecycle is enabled, and default HOST_BIND_IP=127.0.0.1: keeps direct ports loopback-bound; set another value only for deliberate remote access, firewall or remove the direct ports, and use an authentication proxy or remove the Prometheus Kong route before exposure beyond a trusted host."
 
 containers:
   - prometheus

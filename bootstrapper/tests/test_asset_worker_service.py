@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import subprocess
 
 import yaml
 
@@ -15,6 +17,7 @@ SERVICES = ROOT / "services"
 MANIFEST = SERVICES / "asset-worker" / "service.yml"
 README = SERVICES / "asset-worker" / "README.md"
 COMPOSE = SERVICES / "asset-worker" / "compose.yml"
+DOCKERFILE = SERVICES / "asset-worker" / "app" / "Dockerfile"
 
 
 def _manifest() -> dict:
@@ -35,6 +38,77 @@ def test_asset_worker_healthcheck_is_dependency_free() -> None:
     )
     assert "python" in test, f"expected a dependency-free python probe: {test}"
     assert "8095/health" in joined, "probe must hit the app's /health endpoint"
+
+
+def _run_asset_worker_version_guard(
+    tmp_path: Path, *, expected: str, locked: str
+) -> tuple[subprocess.CompletedProcess[str], Path, Path]:
+    lines = DOCKERFILE.read_text(encoding="utf-8").splitlines()
+    start = next(
+        index
+        for index, line in enumerate(lines)
+        if line.startswith("RUN locked_version=")
+    )
+    command_lines: list[str] = []
+    for line in lines[start:]:
+        command_lines.append(line.removeprefix("RUN ").rstrip("\\").strip())
+        if not line.rstrip().endswith("\\"):
+            break
+    command = " ".join(command_lines)
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    node = bin_dir / "node"
+    node.write_text(
+        f"#!/bin/sh\ntouch \"$NODE_MARKER\"\nprintf '%s\\n' '{locked}'\n",
+        encoding="utf-8",
+    )
+    node.chmod(0o755)
+    npm = bin_dir / "npm"
+    npm.write_text("#!/bin/sh\ntouch \"$NPM_MARKER\"\n", encoding="utf-8")
+    npm.chmod(0o755)
+    marker = tmp_path / "npm-ran"
+    node_marker = tmp_path / "node-ran"
+    env = os.environ | {
+        "GLTF_TRANSFORM_VERSION": expected,
+        "NPM_MARKER": str(marker),
+        "NODE_MARKER": str(node_marker),
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+    }
+
+    result: subprocess.CompletedProcess[str] = subprocess.run(
+        ["/bin/sh", "-c", command],
+        cwd=DOCKERFILE.parent,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result, marker, node_marker
+
+
+def test_asset_worker_gltf_version_guard_is_valid_shell(tmp_path: Path) -> None:
+    result, marker, node_marker = _run_asset_worker_version_guard(
+        tmp_path, expected="4.4.1", locked="4.4.1"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert node_marker.is_file(), "the guard must read the package version"
+    assert marker.is_file(), "the valid version guard must continue to npm ci"
+
+
+def test_asset_worker_gltf_version_guard_explains_lock_mismatch(
+    tmp_path: Path,
+) -> None:
+    result, marker, node_marker = _run_asset_worker_version_guard(
+        tmp_path, expected="9.9.9", locked="4.4.1"
+    )
+
+    assert result.returncode != 0
+    assert node_marker.is_file(), "the guard must read the package version"
+    assert "glTF version mismatch" in result.stderr
+    assert "update package.json and package-lock.json together" in result.stderr
+    assert not marker.exists(), "a mismatched lock guard must stop before npm ci"
 
 
 def test_asset_worker_manifest_contract() -> None:

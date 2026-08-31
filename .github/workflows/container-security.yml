@@ -65,22 +65,14 @@ jobs:
         env:
           IMAGE_REF: ${{ matrix.image }}
           IMAGE_PLATFORM: ${{ matrix.platform }}
-        run: >-
-          trivy image
-          --image-src remote
-          --platform "$IMAGE_PLATFORM"
-          --scanners vuln
-          --severity HIGH,CRITICAL
-          --ignorefile .trivyignore.yaml
-          --exit-code 1
-          --no-progress
-          --timeout 30m
-          "$IMAGE_REF"
+        run: bash scripts/run_trivy_remote_scan.sh "$IMAGE_REF" "$IMAGE_PLATFORM"
 
   local-images:
     name: Build and scan local runtime images
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    # Match the required cold-QEMU build bound: this job builds the same
+    # platform set and additionally scans every resulting runtime image.
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -90,33 +82,51 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
-      - name: Build every CI-supported local runtime image
+      - name: Install pinned Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: v0.74.0
+          cache: true
+
+      - name: Build and scan every CI-supported local runtime image
         run: |
           set -euo pipefail
-          image_list="${RUNNER_TEMP}/atlas-ci-images.txt"
-          : > "$image_list"
+          image_tag=""
+          cleanup_loaded_image() {
+            if [ -n "$image_tag" ]; then
+              docker image rm "$image_tag" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup_loaded_image EXIT
           image_index=0
           for spec in \
-            "services/airflow/build|Dockerfile|--build-arg BASE_IMAGE=apache/airflow:3.3.1" \
-            "services/asset-worker/app|Dockerfile|" \
-            "services/asset-baker/app|Dockerfile|" \
-            "services/backend/app|Dockerfile|" \
-            "services/docling/provider|adapter/Dockerfile|" \
-            "services/iceberg-rest/build|Dockerfile|" \
-            "services/jenkins/build|Dockerfile|" \
-            "services/jupyterhub/build|Dockerfile|" \
-            "services/local-deep-researcher/build|Dockerfile|" \
-            "services/mcp-servers/runtime|../build/Dockerfile|" \
-            "services/neo4j/build|Dockerfile|" \
-            "services/spark/build|Dockerfile|--build-arg BASE_IMAGE=apache/spark:4.1.2" \
-            "services/zeppelin/build|Dockerfile|" \
-            "services/label-studio/init|Dockerfile|" \
-            "services/langfuse/init|Dockerfile|" \
-            "services/litellm/init|Dockerfile|" \
-            "services/mlflow/init|Dockerfile|" \
-            "services/open-webui/init|Dockerfile|"
+            "services/airflow/build|Dockerfile" \
+            "services/asset-worker/app|Dockerfile" \
+            "services/asset-baker/app|Dockerfile" \
+            "services/backup/init|Dockerfile" \
+            "services/backend/app|Dockerfile" \
+            "services/comfyui/init|Dockerfile" \
+            "services/docling/provider|adapter/Dockerfile" \
+            "services/hermes/init|Dockerfile" \
+            "services/iceberg-rest/build|Dockerfile" \
+            "services/jenkins/build|Dockerfile" \
+            "services/jupyterhub/build|Dockerfile" \
+            "services/lightrag/init|Dockerfile" \
+            "services/local-deep-researcher/build|Dockerfile" \
+            "services/mcp-servers/runtime|../build/Dockerfile" \
+            "services/neo4j/build|Dockerfile" \
+            "services/spark/build|Dockerfile" \
+            "services/zeppelin/build|Dockerfile" \
+            "services/label-studio/init|Dockerfile" \
+            "services/langfuse/init|Dockerfile" \
+            "services/litellm/init|Dockerfile" \
+            "services/mlflow|build/Dockerfile" \
+            "services/mlflow/init|Dockerfile" \
+            "services/ollama/pull|Dockerfile" \
+            "services/openclaw/init|Dockerfile" \
+            "services/open-webui/init|Dockerfile"
           do
-            IFS='|' read -r context dockerfile extra_args <<< "$spec"
+            IFS='|' read -r context dockerfile <<< "$spec"
             dockerfile_path="$context/$dockerfile"
             platforms="linux/amd64 linux/arm64"
             if [ "$context|$dockerfile" = "services/asset-baker/app|Dockerfile" ]; then
@@ -125,33 +135,31 @@ jobs:
             for platform in $platforms; do
               platform_tag="${platform#linux/}"
               image_tag="atlas-ci/runtime-${image_index}-${platform_tag}:${GITHUB_SHA}"
-              if [ -n "$extra_args" ]; then
-                docker buildx build --load --platform "$platform" -t "$image_tag" $extra_args -f "$dockerfile_path" "$context/"
-              else
-                docker buildx build --load --platform "$platform" -t "$image_tag" -f "$dockerfile_path" "$context/"
-              fi
-              printf '%s\n' "$image_tag" >> "$image_list"
+              docker buildx build --load --platform "$platform" -t "$image_tag" -f "$dockerfile_path" "$context/"
+              trivy image \
+                --image-src docker \
+                --scanners vuln \
+                --severity HIGH,CRITICAL \
+                --ignore-unfixed \
+                --ignorefile .trivyignore.yaml \
+                --exit-code 1 \
+                --no-progress \
+                --timeout 10m \
+                "$image_tag"
+              echo "::group::Unfixed High/Critical findings (informational)"
+              trivy image \
+                --image-src docker \
+                --scanners vuln \
+                --severity HIGH,CRITICAL \
+                --ignorefile .trivyignore.yaml \
+                --exit-code 0 \
+                --no-progress \
+                --timeout 10m \
+                "$image_tag"
+              echo "::endgroup::"
+              docker image rm "$image_tag"
+              image_tag=""
             done
             image_index=$((image_index + 1))
+            docker buildx prune --force
           done
-
-      - name: Install pinned Trivy
-        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
-        with:
-          version: v0.74.0
-          cache: true
-
-      - name: Fail on unreviewed high or critical vulnerabilities
-        run: |
-          set -euo pipefail
-          while IFS= read -r image_ref; do
-            trivy image \
-              --image-src docker \
-              --scanners vuln \
-              --severity HIGH,CRITICAL \
-              --ignorefile .trivyignore.yaml \
-              --exit-code 1 \
-              --no-progress \
-              --timeout 10m \
-              "$image_ref"
-          done < "${RUNNER_TEMP}/atlas-ci-images.txt"

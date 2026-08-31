@@ -29,6 +29,7 @@ def _repo(tmp_path: Path) -> Path:
         """
 surfaces: [repo, site, wiki]
 numbering: baked
+index: overview
 sections:
   - {id: overview, number: "1", title: Overview, source: docs/index.md, diagrams: [overview]}
   - {id: guide, number: "2", title: Guide, source: docs/guide.md}

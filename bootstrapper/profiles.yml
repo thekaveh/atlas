@@ -3,16 +3,15 @@
 #
 # This file expresses EXACTLY the behavior `apply_profile_overrides` used to
 # hard-code, so a repo that never touches profiles behaves identically:
-#   prod    → bind ports to loopback, observability ON (unless an explicit
-#             --prometheus-source/--grafana-source flag was passed this run),
-#             log-rotation defaults (unless operator-set).
-#   default → clear the prod-managed bind sentinel; select nothing else.
+#   prod    → retain the loopback host-port default, observability ON (unless
+#             an explicit --prometheus-source/--grafana-source flag was passed
+#             this run), and log-rotation defaults (unless operator-set).
+#   default → retain the loopback host-port default; select nothing else.
 #
 # Field semantics (enforced by AtlasStarter.apply_profile_overrides):
-#   host_bind_ip  Non-empty → asserted on every start of this profile (the
-#                 defining property). Empty → cleared only when the current
-#                 value equals another profile's non-empty bind (sentinel
-#                 discipline — an operator's custom bind is never touched).
+#   host_bind_ip  Non-empty → fills a blank value and replaces only a bind
+#                 asserted by the prior profile during a profile switch. An
+#                 operator's non-empty bind is never touched.
 #   sources       {<service-name>: <option-id> | auto}. Asserted on every
 #                 start of this profile unless that service's source was set
 #                 by an explicit CLI flag this run (operator wins). `auto`
@@ -33,7 +32,7 @@
 version: 1
 profiles:
   default:
-    host_bind_ip: ""
+    host_bind_ip: "127.0.0.1:"
     sources: {}
     env: {}
   prod:

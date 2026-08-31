@@ -46,8 +46,8 @@ images:
     # Pinned to the patch version the litellm/init Dockerfile pins, so the
     # real compose build path stays reproducible. Compose passes this value
     # as BASE_IMAGE, so a floating 3.12-slim here would defeat the
-    # Dockerfile's 3.12.7 pin.
-    default: "python:3.12.7-slim"
+    # Dockerfile's reviewed patch-and-digest pin.
+    default: "python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579"
     container: open-webui-init
 
 sources:
@@ -62,6 +62,20 @@ sources:
 env:
   - name: OPEN_WEB_UI_SOURCE
     default: container
+  - name: OPEN_WEBUI_DB_USER
+    default: atlas_open_webui
+    description: "Scoped PostgreSQL owner for Open WebUI migration objects."
+  - name: OPEN_WEBUI_DB_PASSWORD
+    default: atlas-db-password
+    secret: true
+    description: "Auto-generated password for the scoped Open WebUI database role."
+  - name: OPEN_WEBUI_DB_USER_URI
+    default: atlas_open_webui
+    description: "Bootstrapper-synchronized percent-encoded OPEN_WEBUI_DB_USER for DSN userinfo."
+  - name: OPEN_WEBUI_DB_PASSWORD_URI
+    default: atlas-db-password
+    secret: true
+    description: "Bootstrapper-synchronized percent-encoded OPEN_WEBUI_DB_PASSWORD for DSN userinfo."
   - name: OPEN_WEB_UI_STT_API_KEY
     auto_managed: true
     secret: true

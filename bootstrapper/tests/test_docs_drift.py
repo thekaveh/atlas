@@ -77,11 +77,18 @@ _REVIEWED_README_CONTRACTS = {
     },
     "jupyterhub": {
         "contains": (
-            "MCP_SERVERS_URL` is not injected by Compose",
-            "reports the MCP service as disabled",
+            "MCP_SERVERS_URL` only when `MCP_SERVERS_SOURCE=container`",
+            "leaves it empty when the curated package is disabled",
+            "including `MCP_SERVERS_URL`",
+            "bypasses Kong authentication",
             "receives high-privilege database and service credentials",
         ),
-        "excludes": ("receives powerful database and service credentials",),
+        "excludes": (
+            "receives powerful database and service credentials",
+            "MCP_SERVERS_URL` is not injected by Compose",
+            "reports the MCP service as disabled",
+            "optional gaps such as the current MCP endpoint remain explicit",
+        ),
     },
 }
 

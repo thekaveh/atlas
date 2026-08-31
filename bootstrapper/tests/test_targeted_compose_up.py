@@ -106,7 +106,8 @@ def test_start_services_fails_open_when_projection_unavailable(monkeypatch):
     assert manager.start_services(detached=True) == 0
     up_cmd = next(c for c in calls if "up" in c)
     # no service names appended — full graph
-    assert up_cmd[-1] == "--force-recreate"
+    assert up_cmd[-1] in {"--force-recreate", "--build"}
+    assert not set(_PROJECTION["services"]).intersection(up_cmd)
 
 
 def test_build_services_targets_enabled_set(monkeypatch):
@@ -153,14 +154,17 @@ def test_warm_up_sites_thread_source_build_args():
     A regression at either site reintroduces the stale-image bug (backend runs
     old code after a submodule pin bump)."""
     dm_src = (REPO_ROOT / "bootstrapper" / "core" / "docker_manager.py").read_text()
+    start_src = (REPO_ROOT / "bootstrapper" / "start.py").read_text()
     wizard_src = (
         REPO_ROOT / "bootstrapper" / "ui" / "textual" / "screens" / "wizard_screen.py"
     ).read_text()
     assert "def source_build_args" in dm_src
     assert "def mark_source_built" in dm_src
     # start_services (canonical warm path) consults the drift gate + records.
-    assert "self.source_build_args()" in dm_src
-    assert "self.mark_source_built()" in dm_src
+    assert "self.source_build_args(targets)" in dm_src
+    assert "self.mark_source_built(targets)" in dm_src
+    assert "capture_build_state(targets)" in start_src
     # TUI warm launch consults the drift gate + records.
-    assert "source_build_args()" in wizard_src
-    assert "mark_source_built()" in wizard_src
+    assert "prepare_build_args(cold, targets)" in wizard_src
+    assert "mark_source_built(targets)" in wizard_src
+    assert "def prepare_build_args" in dm_src

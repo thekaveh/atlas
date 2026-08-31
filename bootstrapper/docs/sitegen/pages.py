@@ -254,6 +254,7 @@ ARCHITECTURE_EDGES: dict[str, list[tuple[str, str, str]]] = {
         ("Atlas Services", "Prometheus", "metrics"),
         ("LiteLLM", "Langfuse", "LLM traces"),
         ("OTel Collector", "Tempo", "traces"),
+        ("OTel Collector", "Loki", "redacted logs"),
         ("Prometheus", "Grafana", "query"),
         ("Tempo", "Grafana", "query"),
         ("Loki", "Grafana", "query"),
@@ -369,6 +370,12 @@ ARCHITECTURE_ROUTES: dict[
         tuple[list[tuple[int, int]], tuple[int, int]],
     ],
 ] = {
+    "observability-flow": {
+        ("OTel Collector", "Loki"): (
+            [(480, 150), (580, 150), (580, 440), (680, 440)],
+            (580, 300),
+        ),
+    },
     "data-engineering-lakehouse-flow": {
         ("Spark", "MinIO"): (
             [(530, 210), (610, 260), (940, 260), (940, 415), (1050, 415)],
@@ -477,9 +484,11 @@ ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
         "Langfuse is deliberately outside the OTel path: LiteLLM emits "
         "Langfuse traces via its own `success_callback`, not through the "
         "Collector, because Langfuse is the LLM-behavior layer while "
-        "Prometheus/Grafana stay the infrastructure-metrics layer. Only "
-        "backend, Celery workers, and LiteLLM OTLP traces currently reach Tempo via the "
-        "Collector; Loki log export isn't wired up yet."
+        "Prometheus/Grafana stay the infrastructure-metrics layer. Backend, "
+        "Celery workers, and LiteLLM OTLP traces reach Tempo through the "
+        "Collector. Applications that emit OTLP logs use the same receiver; "
+        "the Collector redacts a documented field allowlist and persists "
+        "accepted logs in Loki with trace/span structured metadata."
     ),
     "security-auth-secrets-boundary": (
         "Kong applies route-specific Basic, key-auth, pass-through, rate-limit, "
@@ -1118,6 +1127,14 @@ def reference_pages(model: DocsModel) -> dict[Path, str]:
                 ["env", "Environment variables owned by the manifest"],
                 ["sources", "SOURCE var, default, and allowed values"],
                 ["category", "Topology category and wizard grouping"],
+                ["docs", "Repository-relative operator documentation path"],
+                [
+                    "docs_exception",
+                    (
+                        "Printable reason with an explicit `because` clause, four "
+                        "substantive words, and three distinct terms"
+                    ),
+                ],
                 ["depends_on", "Required and optional logical dependencies"],
                 ["runtime_sc", "Per-source runtime scale/env/deploy slices"],
                 ["data_flow.calls", "Runtime call graph used by docs and diagrams"],

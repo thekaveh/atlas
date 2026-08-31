@@ -3,8 +3,8 @@ set -euo pipefail
 
 # This script creates a backup of Neo4j database
 
-# /snapshot is the bind-mount target declared in services/neo4j/compose.yml
-# (./build/snapshot:/snapshot). Earlier revisions derived the path from
+# /snapshot is the named-volume target declared in services/neo4j/compose.yml.
+# Earlier revisions derived the path from
 # $SCRIPT_DIR, which resolved to /usr/local/snapshot (an unmounted
 # directory inside the container) and silently lost every backup on
 # container restart. Hardcoding the mount target is the simplest guard.

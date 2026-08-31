@@ -2,57 +2,20 @@
 # init-airflow.sh — one-shot init container for Airflow.
 #
 # Responsibilities (idempotent — re-runs are no-ops):
-# 1. Create the `airflow` database in Supabase Postgres if missing.
-# 2. Create the `${AIRFLOW_DB_USER}` Postgres role if missing.
-# 3. Run `airflow db migrate`.
-# 4. Create the admin user.
-# 5. Seed Connection objects for every sibling service whose source is
+# 1. Verify the centrally provisioned scoped database identity.
+# 2. Run `airflow db migrate`.
+# 3. Create the admin user.
+# 4. Seed Connection objects for every sibling service whose source is
 #    not 'disabled'.
 set -euo pipefail
 
-echo "==> airflow-init: ensuring airflow database exists"
-# Use Supabase admin creds to CREATE DATABASE if absent. supabase-db
-# entrypoint runs as 'postgres' superuser; we connect via the
-# Supabase-managed db with the configured admin user.
-export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
-psql -h supabase-db -U "${SUPABASE_DB_USER}" -d "${SUPABASE_DB_NAME}" -tAc \
-     "SELECT 1 FROM pg_database WHERE datname='airflow'" | grep -q 1 \
-  || psql -h supabase-db -U "${SUPABASE_DB_USER}" -d "${SUPABASE_DB_NAME}" \
-       -c "CREATE DATABASE airflow"
-
-echo "==> airflow-init: ensuring airflow role exists"
-# psql :'var' interpolation quotes the password server-side, avoiding
-# SQL breakage on quoted passwords — but it only works in SCRIPT input
-# (stdin / -f), NOT inside -c strings, so the statements are piped in.
-printf "SELECT 1 FROM pg_roles WHERE rolname = :'role';\n" \
-  | psql -h supabase-db -U "${SUPABASE_DB_USER}" -d postgres \
-         -v role="${AIRFLOW_DB_USER}" -v ON_ERROR_STOP=1 -tA | grep -q 1 \
-  || printf "CREATE ROLE :\"role\" WITH LOGIN PASSWORD :'pw';\n" \
-       | psql -h supabase-db -U "${SUPABASE_DB_USER}" -d postgres \
-              -v role="${AIRFLOW_DB_USER}" -v pw="${AIRFLOW_DB_PASSWORD}" \
-              -v ON_ERROR_STOP=1
-# Re-apply the password every run so that AIRFLOW_DB_PASSWORD rotations
-# in .env are picked up — CREATE ROLE only runs the first time.
-# Idempotent: setting the role's password to its current value is a no-op.
-printf "ALTER ROLE :\"role\" WITH PASSWORD :'pw';\n" \
-  | psql -h supabase-db -U "${SUPABASE_DB_USER}" -d postgres \
-         -v role="${AIRFLOW_DB_USER}" -v pw="${AIRFLOW_DB_PASSWORD}" \
-         -v ON_ERROR_STOP=1
-printf "GRANT ALL PRIVILEGES ON DATABASE airflow TO :\"role\";\n" \
-  | psql -h supabase-db -U "${SUPABASE_DB_USER}" -d postgres \
-         -v role="${AIRFLOW_DB_USER}" -v ON_ERROR_STOP=1
-# Postgres 15+ (the stack ships supabase/postgres:17.x) tightened the
-# public-schema default: ALL PRIVILEGES on the database does NOT include
-# CREATE on `public` — only the database OWNER has that, via the magic
-# pg_database_owner role. CREATE DATABASE made supabase_admin the owner,
-# so airflow's `db migrate` would fail with "permission denied for schema
-# public" on every cold start. Re-owning the database to airflow flips
-# pg_database_owner over (idempotent — `ALTER ... OWNER TO already_owner`
-# is a no-op).
-printf "ALTER DATABASE airflow OWNER TO :\"role\";\n" \
-  | psql -h supabase-db -U "${SUPABASE_DB_USER}" -d postgres \
-         -v role="${AIRFLOW_DB_USER}" -v ON_ERROR_STOP=1
-unset PGPASSWORD
+echo "==> airflow-init: verifying scoped airflow database"
+: "${AIRFLOW_DB_USER:?AIRFLOW_DB_USER is required}"
+: "${AIRFLOW_DB_PASSWORD:?AIRFLOW_DB_PASSWORD is required}"
+: "${AIRFLOW_ATLAS_DB_USER:?AIRFLOW_ATLAS_DB_USER is required}"
+: "${AIRFLOW_ATLAS_DB_PASSWORD:?AIRFLOW_ATLAS_DB_PASSWORD is required}"
+PGPASSWORD="${AIRFLOW_DB_PASSWORD}" psql -X -w -h supabase-db \
+  -U "${AIRFLOW_DB_USER}" -d airflow -v ON_ERROR_STOP=1 -Atqc 'SELECT 1' >/dev/null
 
 echo "==> airflow-init: running airflow db migrate"
 airflow db migrate
@@ -155,19 +118,11 @@ add_conn litellm_default \
   --conn-host http://litellm:4000/v1 \
   --conn-password="${LITELLM_MASTER_KEY}"
 
-# NOTE: postgres_supabase intentionally uses the SUPABASE_DB_USER (admin)
-# credentials today. The .env declares SUPABASE_DB_APP_USER / _PASSWORD
-# for a least-privilege application-tier user, but supabase-db-init's
-# scripts do not actually CREATE that role yet — switching this seed to
-# app_user without first creating the role would break every DAG that
-# uses postgres_supabase. Tracked as a known follow-up in CHANGELOG —
-# the safer migration is: (1) wire app_user creation into supabase-db-init,
-# (2) flip this seed + add an Airflow Variable for the admin escape hatch.
 add_conn postgres_supabase \
   --conn-type postgres --conn-host supabase-db --conn-port 5432 \
   --conn-schema "${SUPABASE_DB_NAME}" \
-  --conn-login="${SUPABASE_DB_USER}" \
-  --conn-password="${SUPABASE_DB_PASSWORD}"
+  --conn-login="${AIRFLOW_ATLAS_DB_USER}" \
+  --conn-password="${AIRFLOW_ATLAS_DB_PASSWORD}"
 
 if [ "${WEAVIATE_SOURCE}" = "container" ]; then
   # WeaviateHook.get_conn() passes conn.host straight into weaviate-client's

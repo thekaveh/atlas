@@ -10,9 +10,9 @@ capabilities:
     verification: tested
     note: "Atlas accepts internal OTLP over gRPC and HTTP, batches traces, and exports them to the required Tempo service."
   - name: "Log export to Loki"
-    status: stubbed
-    verification: documented
-    note: "The logs pipeline terminates at the debug exporter; Loki may be enabled as an optional sibling but is not an OpenTelemetry log destination."
+    status: supported
+    verification: tested
+    note: "Atlas redacts a documented top-level credential-key allowlist, sends OTLP logs through a bounded live retry queue, and persists accepted logs in the required local Loki service."
   - name: "Public telemetry ingestion"
     status: not-supported
     verification: tested
@@ -56,14 +56,14 @@ env:
 depends_on:
   required:
     - tempo
-  optional:
     - loki
+  optional: []
 
 rows:
   - display_name: "OpenTelemetry Collector"
     source_var: OTEL_COLLECTOR_SOURCE
     scale_var: OTEL_COLLECTOR_SCALE
-    description: "Vendor-neutral telemetry ingest for traces now and logs later."
+    description: "Vendor-neutral telemetry ingest for Tempo traces and Loki logs."
 
 runtime_sc:
   otel-collector:
@@ -89,3 +89,4 @@ runtime_sc:
 data_flow:
   calls:
     - tempo
+    - loki

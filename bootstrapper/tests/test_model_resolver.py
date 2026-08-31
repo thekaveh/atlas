@@ -434,14 +434,11 @@ class TestEmbeddingCarveOut:
 # ── 10. Embedding dimension safety ───────────────────────────────────────────
 
 class TestEmbeddingDimensionSafety:
-    """best('embeddings') must resolve to the 768-dim model, and
-    embedding_dim_warning() must flag non-768 picks (pgvector(768) contract)."""
+    """Embedding metadata and the selected dimension contract must agree."""
 
     def test_best_embeddings_is_768_dim_safe_default(self):
         # services/ollama/models.yaml lists nomic-embed-text (768-dim) FIRST,
-        # so the catalog's "best" embedding model matches the memory_facts
-        # vector(768) column. A regression here (e.g. re-ranking the 1536-dim
-        # qwen3-embedding first) would silently break memory writes.
+        # so existing deployments retain their compatible default.
         assert best("embeddings", {}) == "ollama/nomic-embed-text"
 
     def test_warning_none_for_768_models(self):
@@ -459,6 +456,10 @@ class TestEmbeddingDimensionSafety:
             assert msg is not None
             assert "1536" in msg
             assert str(MEMORY_FACTS_EMBEDDING_DIM) in msg
+
+    def test_warning_accepts_wide_model_with_matching_contract(self):
+        assert embedding_dim_warning("ollama/qwen3-embedding:0.6b", 1536) is None
+        assert embedding_dim_warning("text-embedding-3-large", 3072) is None
 
     def test_warning_flags_3072_dim_openai(self):
         # canonical (bare) and provider-prefixed forms both resolve
@@ -484,6 +485,41 @@ class TestEmbeddingDimensionSafety:
 
     def test_warning_tolerates_surrounding_whitespace(self):
         assert embedding_dim_warning("  ollama/qwen3-embedding:0.6b  ") is not None
+
+    @pytest.mark.parametrize(
+        ("model", "expected"),
+        [
+            ("ollama/nomic-embed-text", 768),
+            ("ollama/qwen3-embedding:0.6b", 1536),
+            ("text-embedding-3-large", 3072),
+        ],
+    )
+    def test_selected_model_derives_one_embedding_dimension_contract(
+        self, model, expected
+    ):
+        from utils.model_resolver import embedding_dimension_contract
+
+        assert embedding_dimension_contract(model, None) == expected
+        assert embedding_dimension_contract(model, str(expected)) == expected
+
+    @pytest.mark.parametrize("configured", ["", "0", "-1", "not-an-int", "4001"])
+    def test_embedding_dimension_contract_rejects_invalid_values(self, configured):
+        from utils.model_resolver import embedding_dimension_contract
+
+        with pytest.raises(ValueError, match="LANGMEM_EMBEDDING_DIM"):
+            embedding_dimension_contract("ollama/nomic-embed-text", configured)
+
+    def test_embedding_dimension_contract_rejects_catalog_mismatch(self):
+        from utils.model_resolver import embedding_dimension_contract
+
+        with pytest.raises(ValueError, match="produces 1536.*configured.*768"):
+            embedding_dimension_contract("ollama/qwen3-embedding:0.6b", "768")
+
+    def test_unknown_model_requires_explicit_dimension_declaration(self):
+        from utils.model_resolver import embedding_dimension_contract
+
+        with pytest.raises(ValueError, match="custom.*LANGMEM_EMBEDDING_DIM"):
+            embedding_dimension_contract("custom/acme-embedder", None)
 
 
 # ── Embedding-name classification (non-catalog models) ───────────────────────

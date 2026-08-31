@@ -56,14 +56,14 @@
 
 | Service | Title | Tracks | SOURCE | Default | Values | Dependencies |
 | --- | --- | --- | --- | --- | --- | --- |
-| [backup](../services/backup/README.md) | Backup / restore (Postgres + volumes -> S3) | all, data-eng, ml-eng, trading | BACKUP_SOURCE | disabled | container, disabled | supabase, minio |
+| [backup](../services/backup/README.md) | Backup / restore (Postgres + consistent database snapshots -> S3) | all, data-eng, ml-eng, trading | BACKUP_SOURCE | disabled | container, disabled | supabase |
 | [cloudflared](../services/cloudflared/README.md) | Cloudflare Tunnel (public edge) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | CLOUDFLARED_SOURCE | disabled | container, disabled | kong |
 | [globals](../services/globals/README.md) | Globals (project + branding) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | - | - | - | - |
 | [grafana](../services/grafana/README.md) | Grafana (observability UI + alerting) | all | GRAFANA_SOURCE | disabled | container, disabled | prometheus, supabase, kong, ray |
 | [kong](../services/kong/README.md) | Kong (API gateway) | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | KONG_API_GATEWAY_SOURCE | container | container | supabase, redis |
 | [langfuse](../services/langfuse/README.md) | Langfuse (LLM traces + evals) | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | LANGFUSE_SOURCE | disabled | container, disabled | supabase, redis, minio, litellm, kong, ray |
 | [loki](../services/loki/README.md) | Loki (queryable log store) | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng | LOKI_SOURCE | disabled | container, disabled | kong, ray |
-| [otel-collector](../services/otel-collector/README.md) | OpenTelemetry Collector (telemetry ingest) | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng | OTEL_COLLECTOR_SOURCE | disabled | container, disabled | tempo |
+| [otel-collector](../services/otel-collector/README.md) | OpenTelemetry Collector (telemetry ingest) | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng | OTEL_COLLECTOR_SOURCE | disabled | container, disabled | tempo, loki |
 | [prometheus](../services/prometheus/README.md) | Prometheus (metrics scraper + TSDB) | all | PROMETHEUS_SOURCE | disabled | container, disabled | supabase, redis, kong, ray |
 | [ray](../services/ray/README.md) | Ray (distributed compute substrate) | all, ml-eng | RAY_SOURCE | disabled | ray-container-cpu, ray-container-gpu, disabled | supabase, redis |
 | [tempo](../services/tempo/README.md) | Tempo (distributed trace store) | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng | TEMPO_SOURCE | disabled | container, disabled | kong, ray |
