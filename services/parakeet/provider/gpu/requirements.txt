@@ -21,7 +21,7 @@ huggingface_hub>=0.20.0
 # advisories are not reachable from transcription requests: Atlas loads only
 # the operator-configured PARAKEET_MODEL at process startup. Revisit when NeMo
 # supports Transformers 5.3+.
-transformers>=4.57.0,<4.58
+transformers>=5.10.1,<5.11
 # NeMo's older transitive floors contain patched model-file traversal and
 # protobuf recursion issues, so keep the runtime on the secure compatible set.
 onnx>=1.22.0

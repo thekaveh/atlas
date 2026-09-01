@@ -176,7 +176,7 @@ torch==2.13.0
 torchmetrics==1.9.0
 tqdm==4.70.0
 traitlets==5.16.0
-transformers==4.57.6
+transformers==5.10.1
 triton==3.7.1
 typeguard==4.6.0
 typing-extensions==4.16.0
