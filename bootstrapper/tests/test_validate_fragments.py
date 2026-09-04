@@ -50,6 +50,10 @@ def _scaffold_generated_artifacts(project: Path) -> None:
     from tools.generate_readme_topology import generate_block
 
     services_dir = project / "services"
+    for manifest_path in services_dir.glob("*/service.yml"):
+        readme = manifest_path.parent / "README.md"
+        if not readme.exists():
+            readme.write_text(f"# {manifest_path.parent.name}\n", encoding="utf-8")
     block = generate_block(services_dir)
     readme_text = f"# Test\n\n{block}\n"
     (project / "README.md").write_text(readme_text)

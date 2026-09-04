@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -44,6 +45,8 @@ def _entry(
     essential: bool = False,
     filename: str | None = None,
     requires_custom_node: tuple[str, ...] = (),
+    source: str = "custom",
+    provisioning_required: bool = True,
 ) -> ComfyUILibraryEntry:
     return ComfyUILibraryEntry(
         name=name,
@@ -57,11 +60,12 @@ def _entry(
         cpu_supported=True,
         requires_custom_node=requires_custom_node,
         popularity=0,
-        source="curated",
+        source=source,
         pulled=False,
         essential=essential,
         notes=None,
         filename=filename,
+        provisioning_required=provisioning_required,
     )
 
 
@@ -123,6 +127,9 @@ def _validate_manifest(data: dict) -> None:
 
 
 def _custom_nodes_manifest(path: Path) -> Path:
+    lock = path.with_name("requirements-lock.txt")
+    lock.write_text("example==1.0 --hash=sha256:" + "a" * 64 + "\n", encoding="utf-8")
+    lock_sha = hashlib.sha256(lock.read_bytes()).hexdigest()
     path.write_text(
         "\n".join([
             "custom_nodes:",
@@ -130,10 +137,14 @@ def _custom_nodes_manifest(path: Path) -> Path:
             "    repo: https://github.com/city96/ComfyUI-GGUF.git",
             "    ref: 6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
             "    install_requirements: true",
+            f"    requirements_lock: {lock.name}",
+            f"    requirements_lock_sha256: {lock_sha}",
             "  - name: ComfyUI_IPAdapter_plus",
             "    repo: https://github.com/cubiq/ComfyUI_IPAdapter_plus.git",
             "    ref: a0f451a5113cf9becb0847b92884cb10cbdec0ef",
             "    install_requirements: true",
+            f"    requirements_lock: {lock.name}",
+            f"    requirements_lock_sha256: {lock_sha}",
             "",
         ]),
         encoding="utf-8",
@@ -155,6 +166,9 @@ def _write_nodes_yaml(path: Path, nodes: list[dict]) -> Path:
     files stay in sync on the wire format. Each node dict needs name/repo/ref;
     install_requirements and mps_unsafe default to false when omitted.
     """
+    lock = path.with_name(path.stem + "-requirements.txt")
+    lock.write_text("example==1.0 --hash=sha256:" + "a" * 64 + "\n", encoding="utf-8")
+    lock_sha = hashlib.sha256(lock.read_bytes()).hexdigest()
     lines = ["custom_nodes:"]
     for n in nodes:
         lines.append(f"  - name: {n['name']}")
@@ -162,6 +176,8 @@ def _write_nodes_yaml(path: Path, nodes: list[dict]) -> Path:
         lines.append(f"    ref: {n['ref']}")
         if n.get("install_requirements"):
             lines.append("    install_requirements: true")
+            lines.append(f"    requirements_lock: {lock.name}")
+            lines.append(f"    requirements_lock_sha256: {lock_sha}")
         if n.get("mps_unsafe"):
             lines.append("    mps_unsafe: true")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -178,7 +194,7 @@ class TestGeneratorWritesFiles:
     def test_yaml_manifest_valid(self, tmp_path, monkeypatch):
         """YAML manifest validates against comfyui-manifest.schema.json."""
         catalog = [
-            _entry("ModelA", sha256="abc123"),
+            _entry("ModelA", sha256="a" * 64),
             _entry("ModelB", category="vae"),
         ]
         env = {"COMFYUI_SOURCE": "container", "COMFYUI_USER_MODELS": "ModelA,ModelB"}
@@ -203,9 +219,9 @@ class TestGeneratorWritesFiles:
         assert names == {"ModelA", "ModelB"}
 
     def test_tsv_columns_and_null_sha256(self, tmp_path, monkeypatch):
-        """TSV has 6 tab-separated columns; null sha256 → empty string."""
+        """TSV identifies custom trust scope; custom SHA remains optional."""
         catalog = [
-            _entry("ModelA", filename="model-a.safetensors", sha256="deadbeef"),
+            _entry("ModelA", filename="model-a.safetensors", sha256="d" * 64),
             _entry("ModelB", filename="model-b.safetensors", sha256=None),
         ]
         env = {"COMFYUI_SOURCE": "container", "COMFYUI_USER_MODELS": "ModelA,ModelB"}
@@ -225,22 +241,79 @@ class TestGeneratorWritesFiles:
         lines = [l for l in tsv_path.read_text().splitlines() if l]
         assert len(lines) == 2, f"Expected 2 rows, got: {lines}"
 
-        # Each row must have exactly 6 tab-separated columns.
+        # Each row has an explicit provisioning criticality column.
         for line in lines:
             cols = line.split("\t")
-            assert len(cols) == 6, f"Expected 6 columns, got {len(cols)}: {line!r}"
+            assert len(cols) == 8, f"Expected 8 columns, got {len(cols)}: {line!r}"
 
-        # name / type / filename / download_url / sha256 / target_dir
-        row_a = dict(zip(["name","type","filename","download_url","sha256","target_dir"],
+        # name / type / filename / download_url / sha256 / target_dir / source
+        row_a = dict(zip(["name","type","filename","download_url","sha256","target_dir","source","provisioning"],
                          lines[0].split("\t")))
-        row_b = dict(zip(["name","type","filename","download_url","sha256","target_dir"],
+        row_b = dict(zip(["name","type","filename","download_url","sha256","target_dir","source","provisioning"],
                          lines[1].split("\t")))
 
         assert row_a["name"] == "ModelA"
-        assert row_a["sha256"] == "deadbeef"
+        assert row_a["sha256"] == "d" * 64
         assert row_a["target_dir"] == "checkpoints"
         assert row_b["name"] == "ModelB"
         assert row_b["sha256"] == "", "null sha256 must be empty string in TSV"
+        assert row_a["source"] == row_b["source"] == "custom"
+        assert row_a["provisioning"] == row_b["provisioning"] == "required"
+
+    def test_optional_model_is_explicit_in_yaml_and_download_plan(self, tmp_path, monkeypatch):
+        catalog = [_entry("Optional", sha256="d" * 64, provisioning_required=False)]
+        import utils.comfyui_resolver as resolver
+        monkeypatch.setattr(resolver, "active_comfyui_models", lambda e, **kw: catalog)
+
+        ComfyUIManifestGenerator({"COMFYUI_SOURCE": "container"}).write(tmp_path)
+
+        manifest_row = yaml.safe_load(
+            (tmp_path / "selected-models.yaml").read_text(encoding="utf-8")
+        )["models"][0]
+        assert manifest_row["provisioning_required"] is False
+        assert (tmp_path / "active-models.tsv").read_text().rstrip().split("\t")[-1] == "optional"
+
+    def test_shared_physical_asset_is_required_if_any_selected_bundle_requires_it(
+        self, tmp_path, monkeypatch
+    ):
+        optional = _entry(
+            "OptionalBundle",
+            filename="shared.bin",
+            sha256="d" * 64,
+            provisioning_required=False,
+        )
+        required = _entry(
+            "RequiredBundle",
+            filename="shared.bin",
+            sha256="d" * 64,
+            provisioning_required=True,
+        )
+        import utils.comfyui_resolver as resolver
+        monkeypatch.setattr(
+            resolver, "active_comfyui_models", lambda e, **kw: [optional, required]
+        )
+
+        ComfyUIManifestGenerator({"COMFYUI_SOURCE": "container"}).write(tmp_path)
+
+        rows = (tmp_path / "active-models.tsv").read_text().splitlines()
+        assert len(rows) == 1
+        assert rows[0].split("\t")[-1] == "required"
+
+    def test_tsv_rejects_unverified_curated_rows(self, tmp_path, monkeypatch):
+        catalog = [_entry("Curated", sha256=None, source="curated")]
+        import utils.comfyui_resolver as resolver
+        monkeypatch.setattr(resolver, "active_comfyui_models", lambda e, **kw: catalog)
+
+        with pytest.raises(ValueError, match="curated.*sha256"):
+            ComfyUIManifestGenerator({"COMFYUI_SOURCE": "container"}).write(tmp_path)
+
+    def test_tsv_rejects_invalid_hash_before_writing_download_plan(self, tmp_path, monkeypatch):
+        catalog = [_entry("Custom", sha256="ABC", source="custom")]
+        import utils.comfyui_resolver as resolver
+        monkeypatch.setattr(resolver, "active_comfyui_models", lambda e, **kw: catalog)
+
+        with pytest.raises(ValueError, match="lowercase SHA-256"):
+            ComfyUIManifestGenerator({"COMFYUI_SOURCE": "container"}).write(tmp_path)
 
     def test_tsv_url_matches_entry(self, tmp_path, monkeypatch):
         """TSV download_url column matches the entry's URL."""
@@ -335,10 +408,15 @@ class TestGeneratorWritesFiles:
         custom_nodes_tsv = tmp_path / "active-custom-nodes.tsv"
         assert custom_nodes_tsv.exists(), "active-custom-nodes.tsv not written"
         lines = custom_nodes_tsv.read_text(encoding="utf-8").splitlines()
+        lock_sha = hashlib.sha256((tmp_path / "requirements-lock.txt").read_bytes()).hexdigest()
+        runtime_lock = f"/comfyui-manifest/custom-node-locks/{lock_sha}.txt"
         assert lines == [
-            "ComfyUI-GGUF\thttps://github.com/city96/ComfyUI-GGUF.git\t6ea2651e7df66d7585f6ffee804b20e92fb38b8a\ttrue",
-            "ComfyUI_IPAdapter_plus\thttps://github.com/cubiq/ComfyUI_IPAdapter_plus.git\ta0f451a5113cf9becb0847b92884cb10cbdec0ef\ttrue",
+            f"ComfyUI-GGUF\thttps://github.com/city96/ComfyUI-GGUF.git\t6ea2651e7df66d7585f6ffee804b20e92fb38b8a\ttrue\t{runtime_lock}\t{lock_sha}\trequired",
+            f"ComfyUI_IPAdapter_plus\thttps://github.com/cubiq/ComfyUI_IPAdapter_plus.git\ta0f451a5113cf9becb0847b92884cb10cbdec0ef\ttrue\t{runtime_lock}\t{lock_sha}\trequired",
         ]
+        assert (tmp_path / "custom-node-locks" / f"{lock_sha}.txt").read_bytes() == (
+            tmp_path / "requirements-lock.txt"
+        ).read_bytes()
 
     def test_no_required_custom_nodes_writes_empty_install_tsv(self, tmp_path, monkeypatch):
         """No node requirements still creates an empty TSV for deterministic init behavior."""
@@ -395,6 +473,8 @@ class TestGeneratorWritesFiles:
             "https://huggingface.co/example/krea/resolve/main/krea.safetensors",
             "a" * 64,
             "diffusion_models",
+            "curated",
+            "required",
         ]
 
     def test_mesh_model_can_route_file_to_checkpoint_dir(self, tmp_path, monkeypatch):
@@ -422,6 +502,7 @@ class TestGeneratorWritesFiles:
                         target_dir="checkpoints",
                         url="https://huggingface.co/example/hunyuan/resolve/main/model.safetensors",
                         filename="hunyuan3d.safetensors",
+                        sha256="e" * 64,
                     ),
                 ),
             )
@@ -440,7 +521,8 @@ class TestGeneratorWritesFiles:
         assert row["type"] == "checkpoint"
         assert row["bundle_id"] == "Hunyuan3DSynthetic"
         assert row["target_dir"] == "checkpoints"
-        assert (tmp_path / "active-models.tsv").read_text().split("\t")[-1].strip() == "checkpoints"
+        columns = (tmp_path / "active-models.tsv").read_text().strip().split("\t")
+        assert columns[-3:] == ["checkpoints", "curated", "required"]
 
 
 # ---------------------------------------------------------------------------

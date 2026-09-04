@@ -179,6 +179,9 @@ class MemoryHealthResponse(BaseModel):
     """Response from memory health check."""
     status: str
     vector_backend: str
+    vector_backend_reason: Optional[str] = None
+    weaviate_state: Optional[str] = None
+    embedding_dimension: Optional[int] = None
     facts_count: int
     enabled: bool
     error: Optional[str] = None

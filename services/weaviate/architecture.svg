@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 358" font-family="'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 384" font-family="'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace">
 <defs>
   <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
     <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
@@ -16,16 +16,16 @@
     </feMerge>
   </filter>
 </defs>
-<rect width="1040" height="358" fill="#020617"/>
-<rect width="1040" height="358" fill="url(#grid)"/>
+<rect width="1040" height="384" fill="#020617"/>
+<rect width="1040" height="384" fill="url(#grid)"/>
 <text x="240" y="36" fill="#94a3b8" font-size="10" font-weight="600" text-anchor="middle" letter-spacing="0.08em">Upstream (calls)</text>
 <text x="520" y="36" fill="#94a3b8" font-size="10" font-weight="600" text-anchor="middle" letter-spacing="0.08em">Focus</text>
 <text x="800" y="36" fill="#94a3b8" font-size="10" font-weight="600" text-anchor="middle" letter-spacing="0.08em">Downstream (consumers)</text>
-<line x1="360" y1="80" x2="420" y2="187" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<line x1="360" y1="148" x2="420" y2="187" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<line x1="620" y1="187" x2="680" y2="80" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<line x1="620" y1="187" x2="680" y2="148" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<line x1="620" y1="187" x2="680" y2="242" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<line x1="360" y1="80" x2="420" y2="200" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<line x1="360" y1="148" x2="420" y2="200" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<line x1="620" y1="200" x2="680" y2="80" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<line x1="620" y1="200" x2="680" y2="174" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<line x1="620" y1="200" x2="680" y2="268" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <g>
 <g class="cluster">
   <rect x="120" y="64" width="240" height="58" rx="8"
@@ -52,57 +52,58 @@
 </g>
 <g>
 <g class="cluster">
-  <rect x="680" y="64" width="240" height="58" rx="8"
+  <rect x="680" y="64" width="240" height="84" rx="8"
         fill="rgba(30,41,59,0.35)"
         stroke="#fb7185" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.4"/>
   <text x="690" y="78" fill="#fb7185" font-size="9" font-weight="700"
         text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">infra</text>
   <text x="910" y="78" fill="#fb7185" font-size="9" font-weight="600"
-        text-anchor="end">2</text>
+        text-anchor="end">3</text>
 </g>
 
-<g><rect x="688" y="88" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="88" width="108" height="22" rx="4" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/><text x="742" y="103" fill="white" font-size="10" text-anchor="middle">kong</text></g>
-<g><rect x="800" y="88" width="108" height="22" rx="4" fill="#0f172a"/><rect x="800" y="88" width="108" height="22" rx="4" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/><text x="854" y="103" fill="white" font-size="10" text-anchor="middle">prometheus</text></g>
+<g><rect x="688" y="88" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="88" width="108" height="22" rx="4" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/><text x="742" y="103" fill="white" font-size="10" text-anchor="middle">backup</text></g>
+<g><rect x="800" y="88" width="108" height="22" rx="4" fill="#0f172a"/><rect x="800" y="88" width="108" height="22" rx="4" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/><text x="854" y="103" fill="white" font-size="10" text-anchor="middle">kong</text></g>
+<g><rect x="688" y="114" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="114" width="108" height="22" rx="4" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/><text x="742" y="129" fill="white" font-size="10" text-anchor="middle">prometheus</text></g>
 <g class="cluster">
-  <rect x="680" y="132" width="240" height="84" rx="8"
+  <rect x="680" y="158" width="240" height="84" rx="8"
         fill="rgba(30,41,59,0.35)"
         stroke="#34d399" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.4"/>
-  <text x="690" y="146" fill="#34d399" font-size="9" font-weight="700"
+  <text x="690" y="172" fill="#34d399" font-size="9" font-weight="700"
         text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">agents</text>
-  <text x="910" y="146" fill="#34d399" font-size="9" font-weight="600"
+  <text x="910" y="172" fill="#34d399" font-size="9" font-weight="600"
         text-anchor="end">3</text>
 </g>
 
-<g><rect x="688" y="156" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="156" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="742" y="171" fill="white" font-size="10" text-anchor="middle">airflow</text></g>
-<g><rect x="800" y="156" width="108" height="22" rx="4" fill="#0f172a"/><rect x="800" y="156" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="854" y="171" fill="white" font-size="10" text-anchor="middle">celery</text></g>
-<g><rect x="688" y="182" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="182" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="742" y="197" fill="white" font-size="10" text-anchor="middle">n8n</text></g>
+<g><rect x="688" y="182" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="182" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="742" y="197" fill="white" font-size="10" text-anchor="middle">airflow</text></g>
+<g><rect x="800" y="182" width="108" height="22" rx="4" fill="#0f172a"/><rect x="800" y="182" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="854" y="197" fill="white" font-size="10" text-anchor="middle">celery</text></g>
+<g><rect x="688" y="208" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="208" width="108" height="22" rx="4" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="742" y="223" fill="white" font-size="10" text-anchor="middle">n8n</text></g>
 <g class="cluster">
-  <rect x="680" y="226" width="240" height="84" rx="8"
+  <rect x="680" y="252" width="240" height="84" rx="8"
         fill="rgba(30,41,59,0.35)"
         stroke="#22d3ee" stroke-width="1" stroke-dasharray="4,4" stroke-opacity="0.4"/>
-  <text x="690" y="240" fill="#22d3ee" font-size="9" font-weight="700"
+  <text x="690" y="266" fill="#22d3ee" font-size="9" font-weight="700"
         text-anchor="start" style="letter-spacing:0.06em;text-transform:uppercase;">apps</text>
-  <text x="910" y="240" fill="#22d3ee" font-size="9" font-weight="600"
+  <text x="910" y="266" fill="#22d3ee" font-size="9" font-weight="600"
         text-anchor="end">3</text>
 </g>
 
-<g><rect x="688" y="250" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="250" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="742" y="265" fill="white" font-size="10" text-anchor="middle">backend</text></g>
-<g><rect x="800" y="250" width="108" height="22" rx="4" fill="#0f172a"/><rect x="800" y="250" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="854" y="265" fill="white" font-size="10" text-anchor="middle">jupyterhub</text></g>
-<g><rect x="688" y="276" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="276" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="742" y="291" fill="white" font-size="10" text-anchor="middle">verba</text></g>
+<g><rect x="688" y="276" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="276" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="742" y="291" fill="white" font-size="10" text-anchor="middle">backend</text></g>
+<g><rect x="800" y="276" width="108" height="22" rx="4" fill="#0f172a"/><rect x="800" y="276" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="854" y="291" fill="white" font-size="10" text-anchor="middle">jupyterhub</text></g>
+<g><rect x="688" y="302" width="108" height="22" rx="4" fill="#0f172a"/><rect x="688" y="302" width="108" height="22" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="742" y="317" fill="white" font-size="10" text-anchor="middle">verba</text></g>
 </g>
-<g class="focus" filter="url(#focus-glow)">  <rect x="420" y="152" width="200" height="70" rx="8" fill="#0f172a"/>  <rect x="420" y="152" width="200" height="70" rx="8"         fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>  <text x="520" y="180" fill="white" font-size="15" font-weight="700"         text-anchor="middle">WEAVIATE</text>  <text x="520" y="200" fill="#94a3b8" font-size="10"         text-anchor="middle">data · container</text></g>
-<g class="legend"><line x1="220" y1="316" x2="820" y2="316" stroke="#1e293b" stroke-width="1"/>
-<circle cx="286" cy="328" r="4" fill="#fb7185"/>
-<text x="296" y="331" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">infra</text>
-<circle cx="366" cy="328" r="4" fill="#a78bfa"/>
-<text x="376" y="331" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">data</text>
-<circle cx="446" cy="328" r="4" fill="#fbbf24"/>
-<text x="456" y="331" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">llm</text>
-<circle cx="526" cy="328" r="4" fill="#fb923c"/>
-<text x="536" y="331" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">media</text>
-<circle cx="606" cy="328" r="4" fill="#34d399"/>
-<text x="616" y="331" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">agents</text>
-<circle cx="686" cy="328" r="4" fill="#22d3ee"/>
-<text x="696" y="331" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">apps</text>
+<g class="focus" filter="url(#focus-glow)">  <rect x="420" y="165" width="200" height="70" rx="8" fill="#0f172a"/>  <rect x="420" y="165" width="200" height="70" rx="8"         fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>  <text x="520" y="193" fill="white" font-size="15" font-weight="700"         text-anchor="middle">WEAVIATE</text>  <text x="520" y="213" fill="#94a3b8" font-size="10"         text-anchor="middle">data · container</text></g>
+<g class="legend"><line x1="220" y1="342" x2="820" y2="342" stroke="#1e293b" stroke-width="1"/>
+<circle cx="286" cy="354" r="4" fill="#fb7185"/>
+<text x="296" y="357" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">infra</text>
+<circle cx="366" cy="354" r="4" fill="#a78bfa"/>
+<text x="376" y="357" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">data</text>
+<circle cx="446" cy="354" r="4" fill="#fbbf24"/>
+<text x="456" y="357" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">llm</text>
+<circle cx="526" cy="354" r="4" fill="#fb923c"/>
+<text x="536" y="357" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">media</text>
+<circle cx="606" cy="354" r="4" fill="#34d399"/>
+<text x="616" y="357" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">agents</text>
+<circle cx="686" cy="354" r="4" fill="#22d3ee"/>
+<text x="696" y="357" fill="#94a3b8" font-size="9" font-weight="400" text-anchor="start">apps</text>
 </g>
 </svg>

@@ -59,6 +59,13 @@ sources:
 env:
   - name: N8N_SOURCE
     default: container
+  - name: N8N_DB_USER
+    default: atlas_n8n
+    description: "Owner of the isolated n8n schema in Supabase PostgreSQL."
+  - name: N8N_DB_PASSWORD
+    default: atlas-db-password
+    secret: true
+    description: "Auto-generated password for the scoped n8n database role."
   - name: N8N_PORT
     # default removed — computed by services/topology.py slot allocator
   - name: N8N_ENCRYPTION_KEY

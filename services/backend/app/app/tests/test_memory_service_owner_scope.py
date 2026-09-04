@@ -1125,7 +1125,9 @@ async def test_search_pgvector_scopes_query_to_user_id(monkeypatch):
         async def close(self):
             pass
 
-    store = memory_store.MemoryStore("postgresql://atlas")
+    store = memory_store.MemoryStore(
+        "postgresql://atlas", embedding_dimension=3
+    )
     monkeypatch.setattr(
         store, "_generate_embedding", AsyncMock(return_value=[0.1, 0.2, 0.3])
     )

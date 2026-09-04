@@ -270,10 +270,10 @@ def test_full_stack_networks_match():
     assert rendered.get("networks", {}) == baseline.get("networks", {})
 
 
-def test_supabase_database_remote_bind_requires_an_explicit_override() -> None:
+def test_published_ports_default_to_loopback_and_allow_explicit_remote_bind() -> None:
     env_file = _build_test_env()
 
-    def render_host_ip(path: Path) -> str:
+    def render_host_ips(path: Path) -> dict[str, list[str]]:
         result = subprocess.run(
             [
                 "docker", "compose", "--env-file", str(path), "-p", "atlas",
@@ -285,14 +285,21 @@ def test_supabase_database_remote_bind_requires_an_explicit_override() -> None:
         )
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
-        return payload["services"]["supabase-db"]["ports"][0]["host_ip"]
+        return {
+            name: [port.get("host_ip", "0.0.0.0") for port in service.get("ports", [])]
+            for name, service in payload["services"].items()
+        }
 
-    assert render_host_ip(env_file) == "127.0.0.1"
+    default_host_ips = [
+        host_ip for host_ips in render_host_ips(env_file).values() for host_ip in host_ips
+    ]
+    assert default_host_ips
+    assert set(default_host_ips) == {"127.0.0.1"}
     remote_env = env_file.with_name(f"{env_file.name}-remote")
     remote_env.write_text(
         env_file.read_text(encoding="utf-8").replace(
-            "HOST_BIND_IP=\n", "HOST_BIND_IP=0.0.0.0:\n", 1
+            "HOST_BIND_IP=127.0.0.1:\n", "HOST_BIND_IP=0.0.0.0:\n", 1
         ),
         encoding="utf-8",
     )
-    assert render_host_ip(remote_env) == "0.0.0.0"
+    assert set(render_host_ips(remote_env)["supabase-db"]) == {"0.0.0.0"}

@@ -9,8 +9,14 @@ and runs only where the mcp-servers runtime deps are present.
 """
 from __future__ import annotations
 
+import ast
 import asyncio
+from contextlib import asynccontextmanager
 import importlib.util
+import inspect
+import json
+import os
+import socket
 import sys
 from pathlib import Path
 
@@ -23,6 +29,14 @@ from fastmcp.exceptions import ToolError  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = REPO_ROOT / "services" / "mcp-servers" / "runtime" / "atlas_mcp_server.py"
+NOTEBOOK = (
+    REPO_ROOT
+    / "services"
+    / "jupyterhub"
+    / "build"
+    / "notebooks"
+    / "15_mcp_clients.ipynb"
+)
 
 
 def _runtime_module():
@@ -122,6 +136,9 @@ def test_postgres_tool_runs_read_only_bounded_transaction(monkeypatch) -> None:
     srv = _runtime_module()
     import psycopg
 
+    monkeypatch.setenv("MCP_POSTGRES_DB_USER", "atlas_mcp_test")
+    monkeypatch.setenv("MCP_POSTGRES_DB_PASSWORD", "fixture-password")
+
     class _Cursor:
         def __init__(self) -> None:
             self.executed: list = []
@@ -156,7 +173,7 @@ def test_postgres_tool_runs_read_only_bounded_transaction(monkeypatch) -> None:
     cursor = _Cursor()
     connect_kwargs: dict = {}
 
-    def _fake_connect(dsn, **kwargs):
+    def _fake_connect(**kwargs):
         connect_kwargs.update(kwargs)
         return _Conn(cursor)
 
@@ -184,6 +201,11 @@ def test_postgres_tool_runs_read_only_bounded_transaction(monkeypatch) -> None:
     # the read-only transaction (psycopg3's default would emit its own BEGIN
     # first, making READ ONLY a silent no-op that leaves the session READ WRITE).
     assert connect_kwargs.get("autocommit") is True
+    assert connect_kwargs["user"] == "atlas_mcp_test"
+    assert connect_kwargs["password"] == "fixture-password"
+    assert connect_kwargs["host"] == "supabase-db"
+    assert connect_kwargs["port"] == "5432"
+    assert connect_kwargs["dbname"] == "postgres"
 
 
 def test_neo4j_tool_uses_read_routing_and_bounded_cypher(monkeypatch) -> None:
@@ -264,14 +286,302 @@ def test_tools_reject_writes_and_empty_inputs_with_sanitized_errors() -> None:
 
 # ── Streamable HTTP transport + Host/Origin guard ───────────────────────────
 
-def _http_app(srv):
-    return srv.build_server().http_app(
+def _http_app(srv, mcp=None):
+    return (mcp or srv.build_server()).http_app(
         path=srv._HTTP_PATH,
         stateless_http=True,
         json_response=True,
         host_origin_protection=True,
         allowed_hosts=list(srv._ALLOWED_HOSTS),
     )
+
+
+@asynccontextmanager
+async def _serve_on_prebound_loopback(app, *, socket_factory=socket.socket):
+    """Serve ``app`` on an owned ephemeral socket without a port race."""
+    import uvicorn
+
+    sock = socket_factory(socket.AF_INET, socket.SOCK_STREAM)
+    task = None
+    server = None
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(128)
+        port = sock.getsockname()[1]
+        server = uvicorn.Server(
+            uvicorn.Config(
+                app,
+                log_level="error",
+                access_log=False,
+                lifespan="on",
+            )
+        )
+        server.install_signal_handlers = lambda: None
+        task = asyncio.create_task(server.serve(sockets=[sock]))
+        deadline = asyncio.get_running_loop().time() + 10
+        while not server.started:
+            if task.done():
+                task.result()
+                raise AssertionError("Uvicorn stopped before reporting startup")
+            if asyncio.get_running_loop().time() >= deadline:
+                raise AssertionError("Uvicorn did not report startup within 10 seconds")
+            await asyncio.sleep(0.01)
+        yield f"http://127.0.0.1:{port}/mcp"
+    finally:
+        if server is not None:
+            server.should_exit = True
+        try:
+            if task is not None:
+                await asyncio.wait_for(task, timeout=10)
+        finally:
+            sock.close()
+
+
+async def _execute_curated_mcp_notebook(endpoint: str) -> dict[str, object]:
+    notebook = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
+    namespace: dict[str, object] = {"__name__": "__atlas_notebook_smoke__"}
+    old_endpoint = os.environ.get("MCP_SERVERS_URL")
+    os.environ["MCP_SERVERS_URL"] = endpoint
+    try:
+        for index, cell in enumerate(notebook["cells"]):
+            if cell["cell_type"] != "code":
+                continue
+            code = compile(
+                "".join(cell["source"]),
+                f"{NOTEBOOK.name}:cell-{index}",
+                "exec",
+                flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+            )
+            result = eval(code, namespace)
+            if inspect.isawaitable(result):
+                await result
+    finally:
+        if old_endpoint is None:
+            os.environ.pop("MCP_SERVERS_URL", None)
+        else:
+            os.environ["MCP_SERVERS_URL"] = old_endpoint
+    return namespace
+
+
+def test_prebound_server_surfaces_task_failure_and_releases_resources(
+    monkeypatch,
+) -> None:
+    import gc
+    import uvicorn
+
+    class _BrokenServer:
+        def __init__(self, _config) -> None:
+            self.started = False
+            self.should_exit = False
+
+        async def serve(self, *, sockets) -> None:
+            assert sockets and sockets[0].getsockname()[0] == "127.0.0.1"
+            raise RuntimeError("fixture server task failed")
+
+    monkeypatch.setattr(uvicorn, "Server", _BrokenServer)
+    created_sockets = []
+
+    def tracking_socket(*args, **kwargs):
+        tracked = socket.socket(*args, **kwargs)
+        created_sockets.append(tracked)
+        return tracked
+
+    async def go() -> None:
+        with pytest.raises(RuntimeError, match="fixture server task failed"):
+            async with _serve_on_prebound_loopback(
+                object(), socket_factory=tracking_socket
+            ):
+                raise AssertionError("broken server must never yield")
+
+    _run(go())
+    assert len(created_sockets) == 1
+    assert created_sockets[0].fileno() == -1
+    # The lane runs with -W error. Force finalization here so an unclosed task
+    # or socket is reported by this test rather than after pytest unconfigures.
+    gc.collect()
+
+
+def test_curated_notebook_executes_every_cell_over_real_streamable_http(
+    monkeypatch, capsys
+) -> None:
+    srv = _runtime_module()
+    import requests
+
+    captured: dict[str, object] = {}
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self):
+            return {"results": [{"title": "bounded fixture"}]}
+
+    def fake_get(url, params=None, timeout=None):
+        captured.update(url=url, params=params, timeout=timeout)
+        return _Response()
+
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    async def go():
+        async with _serve_on_prebound_loopback(_http_app(srv)) as endpoint:
+            return await _execute_curated_mcp_notebook(endpoint)
+
+    namespace = _run(go())
+    output = capsys.readouterr().out
+    assert "postgres_query: Run a bounded, read-only SQL query" in output
+    assert "searxng_web_search" in output
+    assert "Caught expected missing-tool error" in output
+    assert "Hello, Atlas!" in output
+    assert captured["params"] == {"q": "Atlas", "format": "json"}
+    assert captured["timeout"] == 15
+    search_tool = namespace["MCP_TOOLS"]["searxng_web_search"]
+    assert search_tool.name == "searxng_web_search"
+    assert search_tool.inputSchema["properties"]["query"]["type"] == "string"
+    assert search_tool.inputSchema["properties"]["limit"]["default"] is None
+    assert search_tool.inputSchema["required"] == ["query"]
+
+
+def test_curated_notebook_disabled_mode_executes_every_cell_without_network(
+    monkeypatch, capsys
+) -> None:
+    actual_client = Client
+
+    def local_only_client(target, *args, **kwargs):
+        if isinstance(target, str):
+            raise AssertionError("disabled notebook must not create an HTTP client")
+        return actual_client(target, *args, **kwargs)
+
+    monkeypatch.setattr(fastmcp, "Client", local_only_client)
+    namespace = _run(_execute_curated_mcp_notebook(""))
+    output = capsys.readouterr().out
+    assert "MCP_SERVERS_URL is not set" in output
+    assert "MCP disabled — skipping discovery" in output
+    assert "MCP disabled — skipping invocation" in output
+    assert "MCP disabled — skipping error handling" in output
+    assert "Hello, Atlas!" in output
+    assert namespace["MCP_TOOLS"] is None
+
+
+class _DiscoveryFailureContext:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    async def __aenter__(self):
+        raise self.error
+
+    async def __aexit__(self, *_exc_info) -> None:
+        return None
+
+
+def _with_cause(outer: Exception, cause: Exception) -> Exception:
+    outer.__cause__ = cause
+    return outer
+
+
+def _fixture_text(*parts: str) -> str:
+    return "".join(parts)
+
+
+def _basic_auth_url(host: str, *credential_parts: str) -> str:
+    return "".join(
+        ("https://", "atlas", ":", _fixture_text(*credential_parts), "@", host, "/mcp")
+    )
+
+
+@pytest.mark.parametrize(
+    ("error", "category"),
+    (
+        (ConnectionError("connection refused"), "unreachable"),
+        (TimeoutError("request timed out"), "timeout"),
+        (
+            _with_cause(
+                RuntimeError("wrapped client failure"),
+                RuntimeError(
+                    "HTTP 401 Unauthorized at "
+                    f"{_basic_auth_url('example.invalid', 'super', 'secret')}"
+                    f"?token={_fixture_text('top', 'secret')}"
+                ),
+            ),
+            "authentication",
+        ),
+        (RuntimeError("HTTP 503 Service Unavailable"), "server"),
+        (RuntimeError("record 401 failed validation"), "client/server"),
+    ),
+)
+def test_curated_notebook_categorizes_discovery_failures_and_continues(
+    monkeypatch, capsys, error: Exception, category: str
+) -> None:
+    actual_client = Client
+
+    def routed_client(target, *args, **kwargs):
+        if isinstance(target, str):
+            return _DiscoveryFailureContext(error)
+        return actual_client(target, *args, **kwargs)
+
+    monkeypatch.setattr(fastmcp, "Client", routed_client)
+    namespace = _run(
+        _execute_curated_mcp_notebook(
+            _basic_auth_url("failure.invalid", "endpoint", "secret")
+        )
+    )
+    output = capsys.readouterr().out
+    assert f"MCP discovery failed ({category})" in output
+    assert "invocation skipped — discovery did not complete" in output
+    assert "error-handling probe skipped — discovery did not complete" in output
+    assert "Hello, Atlas!" in output
+    assert namespace["MCP_TOOLS"] is None
+    assert _fixture_text("super", "secret") not in output
+    assert _fixture_text("top", "secret") not in output
+    assert _fixture_text("endpoint", "secret") not in output
+
+
+def test_curated_notebook_reports_missing_target_tool_separately_and_continues(
+    capsys,
+) -> None:
+    srv = _runtime_module()
+    mcp = fastmcp.FastMCP("missing-target")
+
+    @mcp.tool()
+    def identify(name: str) -> str:
+        return f"identified:{name}"
+
+    async def go():
+        async with _serve_on_prebound_loopback(_http_app(srv, mcp)) as endpoint:
+            return await _execute_curated_mcp_notebook(endpoint)
+
+    namespace = _run(go())
+    output = capsys.readouterr().out
+    assert "MCP target tool missing: searxng_web_search" in output
+    assert "MCP tool invocation failed" not in output
+    assert "Hello, Atlas!" in output
+    assert set(namespace["MCP_TOOLS"]) == {"identify"}
+
+
+def test_curated_notebook_reports_actual_tool_failure_and_continues(
+    monkeypatch, capsys
+) -> None:
+    srv = _runtime_module()
+    import requests
+
+    monkeypatch.setattr(
+        requests,
+        "get",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            requests.Timeout("fixture timed out")
+        ),
+    )
+
+    async def go():
+        async with _serve_on_prebound_loopback(_http_app(srv)) as endpoint:
+            return await _execute_curated_mcp_notebook(endpoint)
+
+    _run(go())
+    output = capsys.readouterr().out
+    assert "MCP tool invocation failed (timeout)" in output
+    assert "MCP target tool missing" not in output
+    assert "Caught expected missing-tool error" in output
+    assert "Hello, Atlas!" in output
 
 
 def _parse_jsonrpc(response):

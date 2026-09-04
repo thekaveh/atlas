@@ -153,6 +153,29 @@ def _resolve_auto_base_port(fallback: int) -> int:
     return resolved if resolved else fallback
 
 
+def _embedding_model_selections(
+    selections: dict,
+    env_vars: dict,
+    model_title: str,
+    dimension_title: str,
+) -> dict[str, str]:
+    """Return explicit memory-model selections from the wizard answers."""
+    selected: dict[str, str] = {}
+    model = selections.get(model_title)
+    if model not in (None, SECRET_KEEP) and model != "":
+        selected["LITELLM_EMBEDDING_MODEL"] = model
+        if (env_vars.get("LANGMEM_EMBEDDING_MODEL", "") or "").strip():
+            # The picker displays the effective memory override. An explicit
+            # confirmation therefore aligns both model variables atomically;
+            # leaving the override untouched would pair it with B's dimension.
+            selected["LANGMEM_EMBEDDING_MODEL"] = model
+
+    dimension = selections.get(dimension_title)
+    if dimension not in (None, SECRET_KEEP) and dimension != "":
+        selected["LANGMEM_EMBEDDING_DIM"] = dimension
+    return selected
+
+
 def _resolve_track_display_name(track: str | None) -> str | None:
     """Look up a track's display_name from the registry; None if no
     track set or lookup fails. Used by both run_setup_flow and
@@ -941,6 +964,7 @@ def _selections_to_args(
         OLLAMA_CUSTOM_TITLE,
         OLLAMA_MODELS_TITLE,
         LLM_DEFAULT_CONTENT_TITLE,
+        LLM_DEFAULT_EMBED_DIM_TITLE,
         LLM_DEFAULT_EMBED_TITLE,
         LLM_DEFAULT_VISION_TITLE,
         cloud_models_title,
@@ -1196,9 +1220,14 @@ def _selections_to_args(
     content_v = selections.get(LLM_DEFAULT_CONTENT_TITLE)
     if content_v not in (None, SECRET_KEEP) and content_v != "":
         default_model_selections["LITELLM_DEFAULT_MODEL"] = content_v
-    embed_v = selections.get(LLM_DEFAULT_EMBED_TITLE)
-    if embed_v not in (None, SECRET_KEEP) and embed_v != "":
-        default_model_selections["LITELLM_EMBEDDING_MODEL"] = embed_v
+    default_model_selections.update(
+        _embedding_model_selections(
+            selections,
+            env_vars,
+            LLM_DEFAULT_EMBED_TITLE,
+            LLM_DEFAULT_EMBED_DIM_TITLE,
+        )
+    )
     vision_v = selections.get(LLM_DEFAULT_VISION_TITLE)
     if vision_v not in (None, SECRET_KEEP):       # "" (skip) is a valid explicit answer
         default_model_selections["LITELLM_VISION_MODEL"] = vision_v

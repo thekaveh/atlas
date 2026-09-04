@@ -1,36 +1,40 @@
 # services/backup/service.yml
 #
-# On-demand backup runner: Postgres dump + named-volume tarballs -> S3.
-# Never long-running (BACKUP_SCALE=0). Invoke with:
-#   docker compose run --rm backup /scripts/backup-all.sh
+# On-demand backup runner: PostgreSQL dump + consistency-safe snapshots -> S3.
+# Never long-running (BACKUP_SCALE=0). Invoke through the host quiesce boundary:
+#   services/backup/run-consistent-backup.sh
 
 name: backup
-label: "Backup / restore (Postgres + volumes -> S3)"
+label: "Backup / restore (Postgres + consistent database snapshots -> S3)"
 category: infra
 docs: services/backup/README.md
 
 capabilities:
-  - name: "On-demand Postgres and volume backup export"
+  - name: "On-demand Postgres and consistency-safe snapshot export"
     status: supported
     verification: documented
-    note: "The one-shot runner creates a PostgreSQL custom-format dump plus read-only Supabase Storage, Neo4j, and Weaviate archives and uploads them to the configured S3 bucket."
+    note: "The orchestrated runner creates a snapshot-consistent PostgreSQL custom-format dump, an offline Neo4j Community dump, and a native online Weaviate snapshot with deployment-key-authenticated manifests, plus a read-only Supabase Storage archive, then uploads them to constrained on-stack MinIO or external S3."
   - name: "Postgres restore workflow"
     status: partial
     verification: tested
-    note: "The tested restore script orchestrates S3 retrieval and pg_restore, but volume archives have no restore workflow and PostgreSQL restore has no preflight validation or atomicity guarantee."
-  - name: "Scheduled retention and backup verification"
-    status: not-supported
+    note: "The tested PostgreSQL workflow fail-closes on missing, unauthenticated, or mismatched deployment/identity/integrity inventories, preserves target database attributes, ACLs, and settings, restores and validates a temporary database, then performs a recoverable maintenance-mode cutover while retaining the original; Supabase Storage volume archives still have no restore workflow."
+  - name: "Consistent Neo4j and Weaviate backup/restore"
+    status: supported
+    verification: tested
+    note: "The host orchestrator captures Neo4j Community 5.26.27 offline, restores both databases into a disposable exact-version stage, and uses Weaviate 1.38.13's native online backup plus an isolated exact-version restore stage. Live cutover is quiesced, copy-based, query-validated, and protected by retained rollback volumes."
+  - name: "Scheduled and remote retention"
+    status: partial
     verification: documented
-    note: "Atlas ships no scheduler, retention pruning, or post-upload restore verification; operators must provide those controls externally."
+    note: "Atlas has no scheduler and does not delete S3 objects. Bounded local native-snapshot and rollback-volume retention runs only after successful publication or cutover. Operators provide scheduling and an S3 lifecycle."
 
 containers:
   - backup
 
 images:
   - var: BACKUP_IMAGE
-    default: "postgres:17.10-alpine"
+    default: "postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193"
     container: backup
-    notes: "Provides pg_dump/pg_restore; the major version must be >= the supabase-db server (17.x) or pg_dump aborts on a server-version mismatch. Alpine minio-client (mcli) is installed inline via apk; entrypoint symlinks mcli -> mc so the backup scripts work unchanged."
+    notes: "Digest-pinned build base providing pg_dump/pg_restore; the major version must be >= the supabase-db server (17.x) or pg_dump aborts on a server-version mismatch. The service-owned image bakes exact OpenSSL and downloads the exact checksum-verified MinIO mc RELEASE.2025-08-13T08-35-41Z binary for amd64/arm64 at entrypoint startup."
 
 sources:
   var: BACKUP_SOURCE
@@ -48,12 +52,67 @@ env:
   - name: BACKUP_BUCKET
     default: "atlas-backups"
     description: "Target bucket for backups."
-  - name: BACKUP_S3_ALIAS_URL
+  - name: BACKUP_S3_MODE
+    default: local
+    description: "Credential/dependency mode: local uses on-stack MinIO and permits the documented MINIO_ROOT_* upgrade fallback; external requires dedicated BACKUP_S3_* credentials and has no MinIO runtime dependency."
+  - name: BACKUP_S3_ENDPOINT
     default: "http://minio:9000"
-    description: "S3 endpoint. Default = on-box MinIO; set to an external S3 URL for offsite."
+    description: "S3 endpoint as a strict HTTP(S) origin: canonical DNS/IPv4 or bracketed IPv6, optional canonical port, and no userinfo/path/query/fragment. The default is on-stack MinIO."
+  - name: BACKUP_S3_ACCESS_KEY
+    default: ""
+    secret: true
+    description: "Dedicated S3 access key. Required for external endpoints; local MinIO may fall back to MINIO_ROOT_USER for upgrade compatibility."
+  - name: BACKUP_S3_SECRET_KEY
+    default: ""
+    secret: true
+    description: "Dedicated S3 secret key. Required for external endpoints; local MinIO may fall back to MINIO_ROOT_PASSWORD for upgrade compatibility."
+  - name: BACKUP_S3_REGION
+    default: us-east-1
+    description: "S3 signing and bucket-creation region."
+  - name: BACKUP_S3_SESSION_TOKEN
+    default: ""
+    secret: true
+    description: "Optional S3 security token for temporary credentials."
+  - name: BACKUP_S3_TLS_VERIFY
+    default: true
+    description: "Verify HTTPS certificates. false is valid only with an https endpoint and explicitly enables the MinIO client's insecure certificate mode."
+  - name: BACKUP_S3_ALIAS_URL
+    default: ""
+    description: "Deprecated pre-M11 endpoint variable accepted only as a migration fallback when BACKUP_S3_ENDPOINT remains at its local default."
   - name: BACKUP_COMMAND_TIMEOUT_SECONDS
     default: 900
     description: "Positive per-command deadline in seconds for package install, database, archive, and S3 operations."
+  - name: BACKUP_RESTORE_GLOBAL_TIMEOUT_SECONDS
+    default: 28800
+    description: "Finite active-restore deadline; must exceed BACKUP_COMMAND_TIMEOUT_SECONDS. Hard-kill grace covers three bounded commands plus 60 seconds for compensation and exact lock cleanup."
+  - name: BACKUP_MANIFEST_HMAC_KEY
+    default: ""
+    secret: true
+    description: "Required operator-supplied 64-hex HMAC-SHA-256 key for trusted backup manifests; preserve it outside the backup bucket for disaster recovery."
+  - name: BACKUP_DEPLOYMENT_ID
+    default: ""
+    description: "Required stable operator-supplied deployment identity bound into every trusted backup manifest."
+  - name: BACKUP_MAX_POSTGRES_DUMP_BYTES
+    default: 10737418240
+    description: "Finite maximum PostgreSQL dump size accepted by both backup production and bounded restore download."
+  - name: BACKUP_RESTORE_MAX_CANDIDATES
+    default: 100
+    description: "Maximum newest completion markers inspected by latest restore; use an exact BACKUP_TIMESTAMP for older backups."
+  - name: BACKUP_DATABASES
+    default: true
+    description: "Capture Neo4j and Weaviate using their consistency-safe contracts. Run through services/backup/run-consistent-backup.sh so Neo4j is quiesced first."
+  - name: BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS
+    default: 120
+    description: "Bounded host-side stop, start, and database snapshot status deadline."
+  - name: BACKUP_MAX_DATABASE_ARCHIVE_BYTES
+    default: 53687091200
+    description: "Maximum bytes accepted for each Neo4j or Weaviate snapshot archive during backup and restore."
+  - name: BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT
+    default: 3
+    description: "Completed local Neo4j/Weaviate native snapshot sets retained after authenticated publication (1-100); pruning runs only while the database services are quiesced."
+  - name: BACKUP_LOCAL_ROLLBACK_RETENTION_COUNT
+    default: 1
+    description: "Validated offline rollback volumes retained per database after a successful restore cutover (1-20)."
   - name: BACKUP_SCALE
     auto_managed: true
     description: "0 (never long-running); the runner is invoked on demand via docker compose run."
@@ -61,8 +120,8 @@ env:
 depends_on:
   required:
     - supabase
+  optional:
     - minio
-  optional: []
 
 rows:
   - display_name: "Backup / restore"
@@ -84,7 +143,22 @@ runtime_sc:
       deploy: {}
       extra_hosts: []
 
+runtime_deps:
+  backup:
+    conditional_requires:
+      - when:
+          BACKUP_SOURCE: container
+          BACKUP_S3_MODE: local
+        when_defaults:
+          BACKUP_S3_MODE: local
+        requires:
+          - minio
+        auto_resolve: false
+        error_message: "Backup local S3 mode requires MINIO_SOURCE to be enabled; select BACKUP_S3_MODE=external before disabling MinIO."
+
 data_flow:
   calls:
     - supabase
     - minio
+    - neo4j
+    - weaviate

@@ -10,9 +10,9 @@ capabilities:
     verification: tested
     note: "Atlas supports a persistent Neo4j container or an operator-run localhost endpoint and wires Bolt consumers through the selected source."
   - name: "Snapshot backup and restore"
-    status: partial
-    verification: documented
-    note: "Atlas can create full database dumps and restore the latest snapshot, but backup stops Neo4j and automatic restore can replace live volume contents at startup."
+    status: supported
+    verification: tested
+    note: "The backup orchestrator records whether Neo4j Community 5.26.27 is running, stops it for bounded system and neo4j database dumps, restores the prior running state on success or failure, and provides an authenticated offline load path."
   - name: "Production access isolation"
     status: partial
     verification: documented

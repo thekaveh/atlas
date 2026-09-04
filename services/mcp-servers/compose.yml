@@ -19,11 +19,11 @@ services:
       searxng:
         condition: service_started
     environment:
-      SUPABASE_DB_HOST: supabase-db
-      SUPABASE_DB_PORT: "5432"
-      SUPABASE_DB_NAME: ${SUPABASE_DB_NAME:-postgres}
-      SUPABASE_DB_USER: ${SUPABASE_DB_USER}
-      SUPABASE_DB_PASSWORD: ${SUPABASE_DB_PASSWORD}
+      MCP_POSTGRES_DB_HOST: supabase-db
+      MCP_POSTGRES_DB_PORT: "5432"
+      MCP_POSTGRES_DB_NAME: ${SUPABASE_DB_NAME:-postgres}
+      MCP_POSTGRES_DB_USER: ${MCP_POSTGRES_DB_USER:?MCP_POSTGRES_DB_USER is required}
+      MCP_POSTGRES_DB_PASSWORD: ${MCP_POSTGRES_DB_PASSWORD:?MCP_POSTGRES_DB_PASSWORD is required}
       NEO4J_URI: ${NEO4J_URI:-bolt://neo4j-graph-db:7687}
       GRAPH_DB_USER: ${GRAPH_DB_USER:-neo4j}
       GRAPH_DB_PASSWORD: ${GRAPH_DB_PASSWORD}

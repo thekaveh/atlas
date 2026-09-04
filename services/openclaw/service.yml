@@ -20,7 +20,7 @@ capabilities:
   - name: "OpenClaw gateway authentication"
     status: partial
     verification: tested
-    note: "OPENCLAW_GATEWAY_TOKEN can protect the gateway, but it defaults empty and both all-interface direct publishes plus the CORS-only Kong route otherwise add no Atlas authentication."
+    note: "OPENCLAW_GATEWAY_TOKEN can protect the gateway, but it defaults empty and the CORS-only Kong route adds no Atlas authentication. Direct gateway ports are loopback-only by default; an operator who deliberately publishes them remotely must secure that exposure separately."
   - name: "Agent configuration and workspace persistence"
     status: partial
     verification: tested
@@ -43,7 +43,7 @@ images:
     default: "ghcr.io/openclaw/openclaw:2026.6.10"
     container: openclaw-gateway
   - var: OPENCLAW_INIT_IMAGE
-    default: "alpine:3.24.1"
+    default: "alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"
     container: openclaw-init
 
 sources:

@@ -54,7 +54,7 @@ def test_docker_start_services_can_wait_for_health(monkeypatch) -> None:
     # #506: neutralize source-drift so the argv is deterministic regardless of
     # this checkout's git HEAD / .atlas-build-state marker (the --build gate is
     # covered by test_source_drift_rebuild.py).
-    monkeypatch.setattr(manager, "source_build_args", lambda: [])
+    monkeypatch.setattr(manager, "source_build_args", lambda _targets=None: [])
 
     assert manager.start_services(detached=True, wait=True, wait_timeout_seconds=123) == 0
     assert captured == [

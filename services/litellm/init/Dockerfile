@@ -3,13 +3,11 @@
 # psycopg2-binary wheel is glibc-only (incompatible with musl/alpine),
 # and pinning matters because the script's SQL/YAML output is consumed by
 # litellm's runtime config. Python-slim avoids the apk + build-deps gymnastics.
-FROM python:3.12.7-slim
+FROM python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579
 
-# The pinned base predates current Debian security packages. Apply available
-# fixes at build time; the required image scan verifies the resulting runtime.
-RUN apt-get update && \
-    apt-get upgrade --yes && \
-    rm -rf /var/lib/apt/lists/*
+# Debian fixes arrive by deliberately refreshing this pinned base digest. A
+# mutable full-distribution upgrade would make the same source non-reproducible;
+# the required final-image scan gates reviewed base refreshes.
 
 # psycopg2-binary keeps the image small (no system libpq build chain), while
 # PyYAML renders config.yaml. These exact pins mirror the repository-owned,

@@ -1,5 +1,12 @@
 # Parakeet MLX - Official package for Apple Silicon STT
 parakeet-mlx==0.5.2
+# PYSEC-2025-138/PYSEC-2025-139 are fixed in mlx 0.29.4, but its Python 3.12
+# arm64 wheels require macOS 14/15. The aarch64-apple-darwin lock must preserve
+# the supported generic target and therefore resolves mlx==0.29.3. Atlas calls
+# only parakeet_mlx.from_pretrained at api_server.py:64 during startup with the
+# operator-configured model; that path downloads config.json + model.safetensors
+# and never calls the vulnerable mlx.core.load (.npy) or load_gguf paths. The
+# audio-only request path cannot select a model or submit .npy/.gguf files.
 
 # API Server dependencies
 fastapi>=0.104.0

@@ -1,7 +1,11 @@
 # services/comfyui/compose.yml — ComfyUI + init pipeline
 services:
   comfyui-init:
-    image: ${COMFYUI_INIT_IMAGE}
+    build:
+      context: init
+      args:
+        BASE_IMAGE: ${COMFYUI_INIT_IMAGE}
+    image: ${PROJECT_NAME}-comfyui-init:local
     container_name: ${PROJECT_NAME}-comfyui-init
     restart: "no"
     depends_on:
@@ -35,15 +39,9 @@ services:
     platform: ${COMFYUI_PLATFORM:-linux/amd64}
     container_name: ${PROJECT_NAME}-comfyui
     restart: unless-stopped
-    # NOTE: comfyui does NOT depend_on comfyui-init here — the
-    # bootstrapper's byte-equivalence test (tests/test_fragment_equivalence.py)
-    # locks this fragment to the pre-refactor monolithic shape. ComfyUI
-    # tolerates an empty /opt/ComfyUI/models on first boot (it serves the
-    # UI but workflows fail until models arrive), and the model-staging
-    # init runs in parallel anyway. Adding the gate is a real improvement
-    # but belongs in a separate ticket that intentionally rebaselines
-    # the equivalence fixture — see audit finding M-4.
     depends_on:
+      comfyui-init:
+        condition: service_completed_successfully
       supabase-db-init:
         condition: service_completed_successfully
       supabase-storage:
@@ -55,6 +53,7 @@ services:
       - AUTO_UPDATE=${COMFYUI_AUTO_UPDATE:-true}
       - COMFYUI_REF=${COMFYUI_REF:-v0.27.0}
       - COMFYUI_CUSTOM_NODES_TSV=/comfyui-manifest/active-custom-nodes.tsv
+      - COMFYUI_MANIFEST_ROOT=/comfyui-manifest
       - COMFYUI_CUSTOM_NODES_PATH=/opt/ComfyUI/custom_nodes
       - COMFYUI_PORT_HOST=8188
       - WEB_ENABLE_AUTH=false
@@ -75,6 +74,7 @@ services:
       - ${COMFYUI_LOCAL_MODELS_PATH:-./empty}:/host_models
       - ../../volumes/comfyui:/comfyui-manifest:ro
       - ./provisioning/provision_custom_nodes.sh:/opt/ai-dock/bin/provisioning.sh:ro
+      - ./provisioning/healthcheck.sh:/opt/ai-dock/bin/atlas-comfyui-healthcheck.sh:ro
     deploy:
       replicas: ${COMFYUI_SCALE:-1}
       resources:
@@ -84,7 +84,7 @@ services:
     networks:
       - backend-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:18188/system_stats"]
+      test: ["CMD", "/opt/ai-dock/bin/atlas-comfyui-healthcheck.sh"]
       interval: 30s
       timeout: 10s
       retries: 5

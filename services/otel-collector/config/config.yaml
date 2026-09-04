@@ -3,21 +3,47 @@ receivers:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 4
       http:
         endpoint: 0.0.0.0:4318
+        max_request_body_size: 4194304
 
 processors:
   batch: {}
+  batch/logs:
+    timeout: 5s
+    send_batch_size: 512
+    send_batch_max_size: 1024
   memory_limiter:
     check_interval: 5s
     limit_mib: 256
     spike_limit_mib: 64
+  transform/logs:
+    error_mode: propagate
+    log_statements:
+      - context: log
+        statements:
+          - 'delete_matching_keys(log.attributes, "(?i)^(authorization|proxy-authorization|http[.]request[.]header[.](authorization|proxy-authorization|x-api-key)|x-api-key|api[_-]key|token|access[_-]token|refresh[_-]token|client[_-]secret|password|secret)$")'
+          - 'delete_matching_keys(resource.attributes, "(?i)^(authorization|proxy-authorization|http[.]request[.]header[.](authorization|proxy-authorization|x-api-key)|x-api-key|api[_-]key|token|access[_-]token|refresh[_-]token|client[_-]secret|password|secret)$")'
+          - 'replace_pattern(log.body, "(?i)(^|[\\s{\\[,?&;])([\\\"'']?(?:authorization|proxy-authorization)[\\\"'']?\\s*[:=]\\s*[\\\"'']?(?:bearer|basic)\\s+)[^\\s,;\\\"''}\\]&]+", "$$1$$2[REDACTED]") where IsString(log.body)'
+          - 'replace_pattern(log.body, "(?i)(^|[\\s{\\[,?&;])([\\\"'']?(?:api[_-]key|x-api-key|token|access[_-]token|refresh[_-]token|client[_-]secret|password|secret)[\\\"'']?\\s*[:=]\\s*[\\\"'']?)[^\\s,;\\\"''}\\]&]+", "$$1$$2[REDACTED]") where IsString(log.body)'
 
 exporters:
-  otlphttp/tempo:
+  otlp_http/tempo:
     endpoint: http://tempo:4318
-  debug:
-    verbosity: basic
+  otlp_http/loki:
+    endpoint: http://loki:3100/otlp
+    sending_queue:
+      enabled: true
+      sizer: requests
+      num_consumers: 2
+      queue_size: 512
+      block_on_overflow: true
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 0s
 
 extensions:
   health_check:
@@ -29,8 +55,8 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlphttp/tempo]
+      exporters: [otlp_http/tempo]
     logs:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
-      exporters: [debug]
+      processors: [memory_limiter, transform/logs, batch/logs]
+      exporters: [otlp_http/loki]

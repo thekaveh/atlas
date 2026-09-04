@@ -511,3 +511,26 @@ def test_comfyui_workflows_preserve_fal_artifact_urls() -> None:
     assert simple_result["generated_images"][0]["url"] == (
         "https://cdn.example/fal.png"
     )
+
+
+def test_advanced_comfyui_workflow_accepts_only_ready_or_configured_fal_health() -> None:
+    workflow = _load(
+        ROOT / "services/n8n/workflows-stage/workflows/comfyui-image-generation.json"
+    )
+    branch = next(
+        node for node in workflow["nodes"] if node["name"] == "Health Check Branch"
+    )
+    conditions = branch["parameters"]["conditions"]
+
+    assert conditions["combinator"] == "and"
+    assert conditions["conditions"] == [
+        {
+            "id": "healthcheck-condition",
+            "leftValue": (
+                "={{ $json.status === 'healthy' || "
+                "($json.service === 'fal' && $json.status === 'configured') }}"
+            ),
+            "rightValue": True,
+            "operator": {"type": "boolean", "operation": "equals"},
+        }
+    ]

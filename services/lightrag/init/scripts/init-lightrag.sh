@@ -1,12 +1,11 @@
 #!/bin/sh
 # shellcheck shell=bash
 # LightRAG init container.
-# Pattern: alpine + inline apk add (memory: project_init_container_pattern).
+# Required tools are baked into the service-owned init image.
 # Bash re-exec with sentinel to avoid loop.
 set -e
 
 if [ "${INIT_BOOTSTRAPPED:-}" != "1" ]; then
-  apk add --no-cache bash curl jq postgresql-client ca-certificates python3 >/dev/null
   export INIT_BOOTSTRAPPED=1
   exec bash -- "$0" "$@"
 fi

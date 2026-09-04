@@ -5,6 +5,7 @@ Compose execution layer (start.sh/stop.sh are now thin wrappers that
 delegate here).
 """
 
+import hashlib
 import os
 import json
 import re
@@ -18,6 +19,22 @@ from core.process_runner import run_with_deadline
 
 
 _COMPOSE_PROBE_TIMEOUT_SECONDS = 60.0
+
+
+def _local_build_projection(services: dict) -> dict[str, dict]:
+    """Return only image-build inputs and the graph that selects dependencies."""
+    return {
+        "local_builds": {
+            name: {"build": spec["build"], "image": spec.get("image")}
+            for name, spec in services.items()
+            if isinstance(spec, dict) and spec.get("build") is not None
+        },
+        "dependency_graph": {
+            name: spec.get("depends_on")
+            for name, spec in services.items()
+            if isinstance(spec, dict) and spec.get("depends_on") is not None
+        },
+    }
 
 
 class DockerManager:
@@ -39,6 +56,8 @@ class DockerManager:
         self.config_parser = ConfigParser(str(self.root_dir))
         self._compose_cmd = None
         self.project_name_override: Optional[str] = None
+        self._build_state_to_mark: Optional[dict[str, object]] = None
+        self._build_state_capture_attempted = False
 
         # Callback for the "Command: docker compose …" echo. Defaults to
         # builtin print so the legacy linear flow is unchanged. The Live
@@ -445,30 +464,27 @@ class DockerManager:
         # This ensures containers are recreated with updated port settings
         args.append('--force-recreate')
 
-        # #506: rebuild stale local-build images after an in-place source
-        # upgrade. `--force-recreate` recreates containers but reuses the
-        # existing locally-built image even when its Dockerfile/context changed
-        # with a submodule pin bump — so the backend can run old code (e.g. a
-        # pre-Celery image → ModuleNotFoundError). Gate `--build` on the source
-        # commit having changed since images were last built here, so ordinary
-        # restarts stay fast and only an actual upgrade triggers a rebuild.
-        build_args = self.source_build_args()
+        targets = services if services is not None else self.enabled_service_targets()
+
+        # #506: rebuild stale local-build images after source or resolved build
+        # configuration changes. `--force-recreate` recreates containers but
+        # reuses locally-built images, including when a build arg changed.
+        build_args = self.source_build_args(targets)
         args.extend(build_args)
 
         if wait:
             args.extend(['--wait', '--wait-timeout', str(wait_timeout_seconds)])
 
-        targets = services if services is not None else self.enabled_service_targets()
         if targets:
             args.extend(targets)
 
         rc = self.execute_compose_command(args)
         if rc == 0 and build_args:
-            self.mark_source_built()
+            self.mark_source_built(targets)
         return rc
 
     # ------------------------------------------------------------------ #
-    # Source-drift image freshness (#506)
+    # Local-build image freshness (#506)
     # ------------------------------------------------------------------ #
     SOURCE_BUILD_MARKER = ".atlas-build-state"
 
@@ -495,47 +511,114 @@ class DockerManager:
     def _source_marker_path(self) -> Path:
         return self.root_dir / self.SOURCE_BUILD_MARKER
 
-    def pending_source_rebuild(self) -> bool:
-        """True when local-build images are stale relative to the selected Atlas
-        source commit: the commit changed since images were last built here, or
-        they were never built at this checkout. False when unchanged, or when
-        the commit is indeterminate (not a git checkout) — the latter keeps
-        non-git deployments on the prior behavior instead of rebuilding every
-        start."""
-        current = self._current_source_commit()
-        if current is None:
-            return False
-        try:
-            recorded = self._source_marker_path().read_text(encoding='utf-8').strip()
-        except OSError:
-            recorded = ''
-        return recorded != current
+    def _current_build_config_digest(self) -> Optional[str]:
+        """Hash the resolved local-build inputs without persisting their values.
 
-    def source_build_args(self) -> list[str]:
-        """``['--build']`` when the source drifted since the last build here,
-        else ``[]``. Threaded into every WARM ``up`` call site (#506) so a
-        normal start after an in-place upgrade rebuilds stale local images
-        before recreating containers. buildkit's content-addressed cache keeps
-        this cheap — only contexts that actually changed rebuild; unchanged
-        ones cache-hit."""
-        if self.pending_source_rebuild():
+        Compose itself resolves its complete interpolation grammar before Atlas
+        extracts and hashes only local ``build`` and image fields. This catches
+        same-commit changes such as ``MLFLOW_IMAGE`` without reimplementing
+        Compose expansion or persisting build arguments. Runtime-only
+        environment is excluded because it does not change image content.
+        """
+        try:
+            cmd = self._build_compose_command(['config', '--format', 'json'])
+            result = run_with_deadline(
+                cmd,
+                cwd=str(self.root_dir),
+                timeout_seconds=_COMPOSE_PROBE_TIMEOUT_SECONDS,
+            )
+            if result.returncode != 0:
+                return None
+            services = (json.loads(result.stdout) or {}).get("services") or {}
+            payload = json.dumps(
+                _local_build_projection(services),
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            return hashlib.sha256(payload).hexdigest()
+        except Exception:  # noqa: BLE001 — indeterminate means rebuild fail-safe
+            return None
+
+    @staticmethod
+    def _normalized_build_targets(targets: Optional[list[str]]) -> Optional[list[str]]:
+        """Canonicalize the Compose target set; ``None`` means full graph."""
+        return sorted(set(targets)) if targets else None
+
+    def _current_build_state(
+        self, targets: Optional[list[str]] = None
+    ) -> Optional[dict[str, object]]:
+        build_digest = self._current_build_config_digest()
+        if build_digest is None:
+            return None
+        return {
+            "version": 2,
+            "source_commit": self._current_source_commit(),
+            "build_config_sha256": build_digest,
+            "targets": self._normalized_build_targets(targets),
+        }
+
+    def capture_build_state(
+        self, targets: Optional[list[str]] = None
+    ) -> Optional[dict[str, object]]:
+        """Capture the exact inputs immediately before a tracked build."""
+        self._build_state_capture_attempted = True
+        self._build_state_to_mark = self._current_build_state(targets)
+        return self._build_state_to_mark
+
+    def pending_source_rebuild(self, targets: Optional[list[str]] = None) -> bool:
+        """True when source, build inputs, or the actual target set is stale."""
+        expected = self.capture_build_state(targets)
+        if expected is None:
+            return True
+        # Preserve the exact pre-build inputs. Re-rendering after a long build
+        # is slower and could incorrectly mark a value changed mid-build as
+        # already built.
+        self._build_state_to_mark = expected
+        try:
+            recorded = json.loads(
+                self._source_marker_path().read_text(encoding='utf-8')
+            )
+        except (OSError, json.JSONDecodeError, TypeError):
+            return True
+        return recorded != expected
+
+    def source_build_args(self, targets: Optional[list[str]] = None) -> list[str]:
+        """Return ``['--build']`` when local-build image inputs are stale."""
+        if self.pending_source_rebuild(targets):
             self._on_command(
-                "      Atlas source changed since local images were last built "
-                "— rebuilding stale local images (--build)."
+                "      Atlas source or local build configuration changed since "
+                "images were last built — rebuilding stale images (--build)."
             )
             return ['--build']
         return []
 
-    def mark_source_built(self) -> None:
-        """Record the current source commit as the point at which local images
-        were last built, so the next warm start skips the rebuild when nothing
-        changed. Best-effort: a missing/unwritable marker just triggers one
-        extra (cache-hit) rebuild next start, never incorrect behavior."""
-        current = self._current_source_commit()
-        if current is None:
+    def prepare_build_args(
+        self, cold: bool, targets: Optional[list[str]] = None
+    ) -> list[str]:
+        """Capture cold-build inputs or return freshness args for a warm build."""
+        if cold:
+            self.capture_build_state(targets)
+            return []
+        return self.source_build_args(targets)
+
+    def mark_source_built(self, targets: Optional[list[str]] = None) -> None:
+        """Record source and resolved build inputs after a successful build."""
+        state = self._build_state_to_mark
+        captured = self._build_state_capture_attempted
+        self._build_state_to_mark = None
+        self._build_state_capture_attempted = False
+        normalized_targets = self._normalized_build_targets(targets)
+        if captured:
+            if state is None or state.get("targets") != normalized_targets:
+                return
+        else:
+            state = self._current_build_state(targets)
+        if state is None:
             return
         try:
-            self._source_marker_path().write_text(current + '\n', encoding='utf-8')
+            self._source_marker_path().write_text(
+                json.dumps(state, sort_keys=True) + '\n', encoding='utf-8'
+            )
         except OSError:
             pass
 

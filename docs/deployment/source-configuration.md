@@ -946,7 +946,7 @@ The deployment profile is now a **declarative bundle** defined in `bootstrapper/
 
 - **`sources`** — per-service source selections, each either a concrete option id (e.g. `prod` selects `prometheus: container` + `grafana: container`) or the host-adaptive `auto` sentinel (#753).
 - **`env`** — profile-managed values (e.g. `prod`'s `LOG_MAX_SIZE=10m` / `LOG_MAX_FILE=3`), applied only when the variable is unset or empty — an operator-set value is kept.
-- **`host_bind_ip`** — the published-port interface prefix: `prod` asserts `127.0.0.1:` (ports reachable only from the host, with the public edge fronting Kong); `default` leaves ports on `0.0.0.0`.
+- **`host_bind_ip`** — the published-port interface prefix: both shipped profiles declare `127.0.0.1:`, so fresh and legacy-blank launches keep ports reachable only from the host (with the public edge fronting Kong). A non-empty operator-set value, including `0.0.0.0:`, is preserved for deliberate remote access.
 
 `./start.sh --profile prod` (or the wizard's profile step) applies the bundle. The active profile is tracked via the `ATLAS_PROFILE_APPLIED` marker, and a profile **switch** first resets the prior profile's asserted sources to their service defaults, so transitions leave no source residue. An explicit `--<svc>-source` CLI flag passed on the current run always wins over the profile's selection. Consumers may pin `profile:` and override individual fields via `profile_overrides:` in `atlas.consumer.yml` — see [reusing-atlas.md](reusing-atlas.md) §6.1 for the consumer view. Per-service resource limits (`*_MEMORY_LIMIT` / `*_CPU_LIMIT`) remain always-on `.env` defaults, independent of the profile.
 

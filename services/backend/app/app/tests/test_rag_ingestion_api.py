@@ -36,6 +36,12 @@ def _reload_main(monkeypatch):
     return main
 
 
+def _enable_shared_celery(main, monkeypatch):
+    """Exercise worker delivery only with process-shared state configured."""
+    monkeypatch.setenv("BACKEND_STATE_STORE_MODE", "redis")
+    monkeypatch.setattr(main, "celery_is_enabled", lambda: True)
+
+
 class _FakeEmbedder:
     def available(self):
         return True
@@ -153,7 +159,7 @@ def test_async_dispatch_queues_celery_task(tmp_path, monkeypatch):
 
     service = _fake_service(tmp_path, monkeypatch)
     monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
-    monkeypatch.setattr(main, "celery_is_enabled", lambda: True)
+    _enable_shared_celery(main, monkeypatch)
 
     class FakeAsyncResult:
         id = "celery-rag-1"
@@ -189,7 +195,7 @@ def test_async_dispatch_failure_releases_idempotency_key_for_retry(
 
     service = _fake_service(tmp_path, monkeypatch)
     monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
-    monkeypatch.setattr(main, "celery_is_enabled", lambda: True)
+    _enable_shared_celery(main, monkeypatch)
 
     def fail_dispatch(*, kwargs, task_id):
         raise RuntimeError("broker unavailable")
@@ -207,6 +213,7 @@ def test_async_dispatch_failure_releases_idempotency_key_for_retry(
     )
 
     assert failed.status_code == 503
+    assert failed.json()["detail"] == "Failed to queue RAG ingestion"
     failed_record = service.store.list()[0]
     assert failed_record.status == "failed"
     assert failed_record.errors[-1]["phase"] == "dispatch"
@@ -227,7 +234,7 @@ def test_dispatch_cleanup_failure_leaves_pending_job_retryable(
     main = _reload_main(monkeypatch)
     service = _fake_service(tmp_path, monkeypatch)
     monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
-    monkeypatch.setattr(main, "celery_is_enabled", lambda: True)
+    _enable_shared_celery(main, monkeypatch)
     dispatches = []
 
     def dispatch(*, kwargs, task_id):
@@ -274,7 +281,7 @@ def test_existing_accepted_pending_async_job_is_not_redispatched(
     assert service.claim_dispatch(record.id, "owner") is True
     service.mark_dispatched(record.id, "celery-existing", "owner")
     monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
-    monkeypatch.setattr(main, "celery_is_enabled", lambda: True)
+    _enable_shared_celery(main, monkeypatch)
     monkeypatch.setattr(
         main.rag_ingestion_task,
         "apply_async",
@@ -386,7 +393,7 @@ def test_broker_acceptance_is_not_reclassified_when_dispatch_state_write_fails(
     main = _reload_main(monkeypatch)
     service = _fake_service(tmp_path, monkeypatch)
     monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
-    monkeypatch.setattr(main, "celery_is_enabled", lambda: True)
+    _enable_shared_celery(main, monkeypatch)
     monkeypatch.setattr(
         main.rag_ingestion_task,
         "apply_async",
@@ -412,6 +419,10 @@ def test_broker_acceptance_is_not_reclassified_when_dispatch_state_write_fails(
         )
 
     assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == {
+        "code": "state_store_unavailable",
+        "message": "Shared state store is unavailable",
+    }
     assert cleanup_calls == []
     record = service.store.list()[0]
     assert record.status == "pending"
@@ -429,7 +440,7 @@ def test_cancelled_submit_releases_new_idempotency_record(tmp_path, monkeypatch)
     main = _reload_main(monkeypatch)
     service = _fake_service(tmp_path, monkeypatch)
     monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
-    monkeypatch.setattr(main, "celery_is_enabled", lambda: True)
+    _enable_shared_celery(main, monkeypatch)
     started = threading.Event()
     release = threading.Event()
     original_submit = service.submit
@@ -466,7 +477,7 @@ def test_cancelled_dispatch_waits_for_broker_acceptance(tmp_path, monkeypatch):
     main = _reload_main(monkeypatch)
     service = _fake_service(tmp_path, monkeypatch)
     monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
-    monkeypatch.setattr(main, "celery_is_enabled", lambda: True)
+    _enable_shared_celery(main, monkeypatch)
     started = threading.Event()
     release = threading.Event()
     calls = []
@@ -514,7 +525,7 @@ def test_cancelled_dispatch_claim_is_reconciled_before_broker_publish(
     main = _reload_main(monkeypatch)
     service = _fake_service(tmp_path, monkeypatch)
     monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
-    monkeypatch.setattr(main, "celery_is_enabled", lambda: True)
+    _enable_shared_celery(main, monkeypatch)
     started = threading.Event()
     release = threading.Event()
     original_claim = service.claim_dispatch
@@ -554,7 +565,7 @@ def test_concurrent_identical_async_submissions_publish_once(tmp_path, monkeypat
     main = _reload_main(monkeypatch)
     service = _fake_service(tmp_path, monkeypatch)
     monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
-    monkeypatch.setattr(main, "celery_is_enabled", lambda: True)
+    _enable_shared_celery(main, monkeypatch)
     dispatches = []
     started = threading.Event()
     release = threading.Event()
@@ -647,6 +658,193 @@ def test_list_and_cancel(tmp_path, monkeypatch):
     assert missing.status_code == 404
 
 
+def test_list_is_bounded_and_exposes_cursor_without_changing_body_shape(
+    tmp_path, monkeypatch
+):
+    main = _reload_main(monkeypatch)
+    from fastapi.testclient import TestClient
+    from rag_ingestion.models import IngestionRecord
+    from rag_ingestion.service import Deps, RagIngestionService
+    from rag_ingestion.store import InMemoryIngestionStore
+
+    store = InMemoryIngestionStore()
+    for index in range(205):
+        record = IngestionRecord(
+            id=f"ing-{index:04d}",
+            consumer="acme",
+            profile="default",
+            revision="1",
+            idempotency_key=f"key-{index}",
+        )
+        store.create_if_absent(record)
+    service = RagIngestionService(store=store, deps=Deps(), profiles_path="unused")
+    monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
+    client = TestClient(main.app)
+
+    first = client.get(
+        "/api/rag/ingestions",
+        params={"limit": 100},
+        headers={"Origin": "https://client.example"},
+    )
+
+    assert first.status_code == 200
+    assert isinstance(first.json(), list)
+    assert len(first.json()) == 100
+    assert first.headers["X-Atlas-Page-Limit"] == "100"
+    exposed = {
+        value.strip().lower()
+        for value in first.headers["Access-Control-Expose-Headers"].split(",")
+    }
+    assert exposed >= {"x-atlas-next-cursor", "x-atlas-page-limit"}
+    cursor = first.headers["X-Atlas-Next-Cursor"]
+    assert cursor
+
+    second = client.get(
+        "/api/rag/ingestions", params={"limit": 100, "cursor": cursor}
+    )
+    assert second.status_code == 200
+    assert len(second.json()) == 100
+    assert {row["id"] for row in first.json()}.isdisjoint(
+        row["id"] for row in second.json()
+    )
+    third = client.get(
+        "/api/rag/ingestions",
+        params={"limit": 100, "cursor": second.headers["X-Atlas-Next-Cursor"]},
+    )
+    all_ids = [
+        row["id"]
+        for response in (first, second, third)
+        for row in response.json()
+    ]
+    assert len(third.json()) == 5
+    assert third.headers["X-Atlas-Next-Cursor"] == ""
+    assert len(all_ids) == len(set(all_ids)) == 205
+
+
+@pytest.mark.parametrize(
+    "cursor",
+    ["abc", "-1", str(2**53 + 1), "1.0", "01", "+1", " 1 "],
+)
+def test_list_rejects_invalid_cursor_before_store_access(
+    tmp_path, monkeypatch, cursor
+):
+    main = _reload_main(monkeypatch)
+    from fastapi.testclient import TestClient
+
+    service = _fake_service(tmp_path, monkeypatch)
+    service.store.list_page = lambda *_args, **_kwargs: pytest.fail(
+        "invalid cursor must be rejected before store access"
+    )
+    monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
+    response = TestClient(main.app).get(
+        "/api/rag/ingestions", params={"cursor": cursor}
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("cursor", ["0", "1", str(2**53 - 1)])
+def test_list_accepts_canonical_cursor_tokens(tmp_path, monkeypatch, cursor):
+    main = _reload_main(monkeypatch)
+    from fastapi.testclient import TestClient
+
+    service = _fake_service(tmp_path, monkeypatch)
+    monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
+
+    response = TestClient(main.app).get(
+        "/api/rag/ingestions", params={"cursor": cursor}
+    )
+
+    assert response.status_code == 200
+
+
+def test_unreachable_redis_list_returns_typed_503(tmp_path, monkeypatch):
+    main = _reload_main(monkeypatch)
+    from fastapi.testclient import TestClient
+    from rag_ingestion.service import Deps, RagIngestionService
+    from rag_ingestion.store import RedisIngestionStore
+
+    service = RagIngestionService(
+        store=RedisIngestionStore("redis://127.0.0.1:1/0"),
+        deps=Deps(),
+        profiles_path="unused",
+    )
+    monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
+
+    response = TestClient(main.app).get("/api/rag/ingestions")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == {
+        "code": "state_store_unavailable",
+        "message": "Shared state store is unavailable",
+    }
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "json_body"),
+    [
+        ("post", "/api/rag/ingestions?async_job=false", {"profile": "showcase-default"}),
+        ("get", "/api/rag/ingestions/unknown", None),
+        ("post", "/api/rag/ingestions/unknown/cancel", None),
+    ],
+)
+def test_every_rag_state_route_maps_redis_outage_to_typed_503(
+    tmp_path, monkeypatch, method, path, json_body
+):
+    main = _reload_main(monkeypatch)
+    from fastapi.testclient import TestClient
+    from rag_ingestion.store import RedisIngestionStore
+
+    service = _fake_service(tmp_path, monkeypatch)
+    service.store = RedisIngestionStore("redis://127.0.0.1:1/0")
+    monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
+    response = TestClient(main.app).request(method.upper(), path, json=json_body)
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == {
+        "code": "state_store_unavailable",
+        "message": "Shared state store is unavailable",
+    }
+
+
+def test_missing_redis_url_is_typed_503_without_import_failure(monkeypatch):
+    main = _reload_main(monkeypatch)
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("BACKEND_STATE_STORE_MODE", "redis")
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.delenv("CELERY_BROKER_URL", raising=False)
+    main._rag_ingestion_service = None
+
+    response = TestClient(main.app).get("/api/rag/ingestions")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "state_store_unavailable"
+
+
+def test_memory_state_mode_forces_sync_instead_of_queueing(tmp_path, monkeypatch):
+    main = _reload_main(monkeypatch)
+    from fastapi.testclient import TestClient
+
+    service = _fake_service(tmp_path, monkeypatch)
+    monkeypatch.setenv("BACKEND_STATE_STORE_MODE", "memory")
+    monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
+    monkeypatch.setattr(main, "celery_is_enabled", lambda: True)
+
+    def forbidden_queue(*_args, **_kwargs):
+        raise AssertionError("memory-mode RAG state must never cross a worker boundary")
+
+    monkeypatch.setattr(main.rag_ingestion_task, "apply_async", forbidden_queue)
+
+    response = TestClient(main.app).post(
+        "/api/rag/ingestions", json={"profile": "showcase-default"}
+    )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "completed"
+    assert response.json()["job_id"] is None
+
+
 def test_rag_store_calls_are_offloaded_from_async_routes(tmp_path, monkeypatch):
     main = _reload_main(monkeypatch)
     from fastapi.testclient import TestClient
@@ -665,7 +863,7 @@ def test_rag_store_calls_are_offloaded_from_async_routes(tmp_path, monkeypatch):
     response = TestClient(main.app).get("/api/rag/ingestions")
 
     assert response.status_code == 200
-    assert "list" in offloaded
+    assert "list_page" in offloaded
 
 
 def test_get_unknown_ingestion_returns_404(tmp_path, monkeypatch):

@@ -31,7 +31,7 @@ services:
       # JUPYTER_ALLOW_ORIGIN for forward-compat with image versions that
       # honor that env name; the CLI flags below are the authoritative knob.
       JUPYTER_ALLOW_ORIGIN: ${JUPYTER_ALLOW_ORIGIN:-*}
-      DATABASE_URL: postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/${SUPABASE_DB_NAME}
+      DATABASE_URL: postgresql://${JUPYTER_DB_USER_URI:?JUPYTER_DB_USER_URI is required}:${JUPYTER_DB_PASSWORD_URI:?JUPYTER_DB_PASSWORD_URI is required}@supabase-db:5432/${SUPABASE_DB_NAME_URI:?SUPABASE_DB_NAME_URI is required}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/3
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
@@ -60,6 +60,9 @@ services:
       LABEL_STUDIO_URL: ${LABEL_STUDIO_ENDPOINT:-}
       LABEL_STUDIO_API_URL: ${LABEL_STUDIO_API_URL:-}
       LABEL_STUDIO_API_KEY: ${LABEL_STUDIO_USER_TOKEN:-}
+      # Curated MCP uses the in-stack Streamable HTTP endpoint when its
+      # container source is enabled; the bootstrapper emits blank otherwise.
+      MCP_SERVERS_URL: ${MCP_SERVERS_URL:-}
       # Lakehouse clients. The packages are installed in the image, and these
       # env vars let notebooks use MinIO + Iceberg REST without local config.
       # Catalog smoke tests require ICEBERG_REST_SOURCE=container; imports and

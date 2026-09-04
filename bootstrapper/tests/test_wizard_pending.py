@@ -203,6 +203,94 @@ def test_back_then_enter_reconfirms_the_pending_session_value(kind, typed, expec
     assert reconfirmed == expected
 
 
+@pytest.mark.parametrize(
+    ("change_model", "expected_value", "dimension_is_preserved"),
+    [(False, "2048", True), (True, "", False)],
+)
+def test_custom_embedding_dimension_answer_is_bound_to_selected_model(
+    change_model, expected_value, dimension_is_preserved,
+):
+    from dataclasses import replace
+
+    from wizard.llm_steps import (
+        LLM_DEFAULT_EMBED_DIM_TITLE,
+        LLM_DEFAULT_EMBED_TITLE,
+        build_default_model_steps,
+    )
+
+    env = {
+        "LLM_PROVIDER_SOURCE": "ollama-container-cpu",
+        "OLLAMA_USER_MODELS": "custom-a,custom-b",
+        "LITELLM_EMBEDDING_MODEL": "custom/provider-a",
+        "LANGMEM_EMBEDDING_DIM": "2048",
+        "CLOUD_OPENAI_SOURCE": "disabled",
+        "CLOUD_ANTHROPIC_SOURCE": "disabled",
+        "CLOUD_OPENROUTER_SOURCE": "disabled",
+    }
+    built = build_default_model_steps(env)
+    embed = next(step for step in built if step.title == LLM_DEFAULT_EMBED_TITLE)
+    dimension = next(
+        step for step in built if step.title == LLM_DEFAULT_EMBED_DIM_TITLE
+    )
+    embed = replace(
+        embed,
+        options=[
+            PromptOption("custom/provider-a", "Custom A"),
+            PromptOption("custom/provider-b", "Custom B"),
+        ],
+        options_provider=None,
+        skip_if_prev=None,
+    )
+    next_step = PromptStep(
+        title="Next", step_index=3, step_total=3, heading="Next",
+        options=[PromptOption("next", "Next")], default_value="next",
+    )
+    screen = WizardScreen(
+        steps=[embed, dimension, next_step], services=[], no_splash=True,
+    )
+    launch_log_path = screen._launch_log_path
+
+    async def scenario():
+        async with _WizardApp(screen).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            assert screen._prompt.selected_option.value == "custom/provider-a"
+            screen.action_confirm()
+            await pilot.pause()
+            screen._prompt._number_input.value = "2048"
+            screen.action_confirm()
+            await pilot.pause()
+            screen.action_back()
+            await pilot.pause()
+            screen.action_back()
+            await pilot.pause()
+            assert screen._prompt.selected_option.value == "custom/provider-a"
+            if change_model:
+                screen._prompt.move(1)
+            expected_model = (
+                "custom/provider-b" if change_model else "custom/provider-a"
+            )
+            assert screen._prompt.selected_option.value == expected_model
+            screen.action_confirm()
+            await pilot.pause()
+            return (
+                screen._prompt._number_input.value,
+                dict(screen._selections),
+            )
+
+    try:
+        rendered_value, selections = asyncio.run(scenario())
+    finally:
+        screen._close_launch_log_tee()
+        if launch_log_path is not None:
+            launch_log_path.unlink(missing_ok=True)
+
+    assert rendered_value == expected_value
+    assert selections[LLM_DEFAULT_EMBED_TITLE] == (
+        "custom/provider-b" if change_model else "custom/provider-a"
+    )
+    assert (LLM_DEFAULT_EMBED_DIM_TITLE in selections) is dimension_is_preserved
+
+
 @pytest.mark.parametrize("typed", ["pending-new-key", "clear"])
 def test_clearing_a_restored_secret_returns_to_persisted_keep_semantics(typed):
     target = PromptStep(

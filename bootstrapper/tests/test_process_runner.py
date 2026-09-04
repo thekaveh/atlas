@@ -119,6 +119,74 @@ class _FloatSubclass(float):
     pass
 
 
+class _ReadyPublicationInterleaving:
+    def __init__(self, ready_file: Path) -> None:
+        self.ready_file = ready_file
+        self.real_write_text = Path.write_text
+        self.first_started = threading.Event()
+        self.release_first = threading.Event()
+        self.first_finished_write = threading.Event()
+        self.second_written = threading.Event()
+        self.release_second = threading.Event()
+        self.pending_paths: list[Path] = []
+        self.call_lock = threading.Lock()
+        self.result: list[subprocess.CompletedProcess[str]] = []
+        self.errors: list[BaseException] = []
+
+    def write_text(self, path: Path, *args, **kwargs):
+        with self.call_lock:
+            self.pending_paths.append(path)
+            generation = len(self.pending_paths)
+        if generation == 1:
+            self.first_started.set()
+            assert self.release_first.wait(timeout=2)
+            result = self.real_write_text(path, *args, **kwargs)
+            self.first_finished_write.set()
+            return result
+        assert generation == 2
+        result = self.real_write_text(path, *args, **kwargs)
+        self.second_written.set()
+        assert self.release_second.wait(timeout=2)
+        return result
+
+    def run_second_generation(self) -> None:
+        try:
+            self.result.append(
+                process_runner.run_with_deadline(
+                    [sys.executable, "-c", "print('second')"],
+                    timeout_seconds=1,
+                    ready_file=self.ready_file,
+                )
+            )
+        except BaseException as exc:
+            self.errors.append(exc)
+
+
+def _release_stale_ready_writer(
+    interleaving: _ReadyPublicationInterleaving,
+) -> None:
+    interleaving.release_first.set()
+    assert interleaving.first_finished_write.wait(timeout=2)
+    deadline = time.monotonic() + 2
+    while interleaving.pending_paths[0].exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not interleaving.pending_paths[0].exists()
+    assert interleaving.pending_paths[1].exists()
+
+
+def _assert_ready_generation_result(
+    interleaving: _ReadyPublicationInterleaving,
+    second: threading.Thread,
+    ready_file: Path,
+    tmp_path: Path,
+) -> None:
+    assert not second.is_alive()
+    assert not interleaving.errors
+    assert interleaving.result[0].stdout == "second\n"
+    assert ready_file.read_text(encoding="ascii") == "ready\n"
+    assert not list(tmp_path.glob(".*.pending"))
+
+
 def test_run_with_deadline_starts_isolated_session(monkeypatch) -> None:
     real_popen = subprocess.Popen
     popen_kwargs: dict[str, object] = {}
@@ -134,6 +202,84 @@ def test_run_with_deadline_starts_isolated_session(monkeypatch) -> None:
 
     assert popen_kwargs["start_new_session"] is True
     assert result.stdout == "ok\n"
+
+
+def test_ready_file_is_published_under_guard_before_child_launch(
+    tmp_path: Path,
+) -> None:
+    ready_file = tmp_path / "runner.ready"
+    result = process_runner.run_with_deadline(
+        [
+            sys.executable,
+            "-c",
+            "import pathlib; "
+            f"assert pathlib.Path({str(ready_file)!r}).read_text() == 'ready\\n'; "
+            "print('started')",
+        ],
+        ready_file=ready_file,
+    )
+
+    assert result.stdout == "started\n"
+
+
+def test_hung_ready_publication_obeys_deadline_before_launch(
+    monkeypatch, tmp_path: Path
+) -> None:
+    launched = False
+    ready_file = tmp_path / "hung.ready"
+    real_write_text = Path.write_text
+
+    def slow_write(path: Path, *args, **kwargs):
+        time.sleep(0.2)
+        return real_write_text(path, *args, **kwargs)
+
+    def unexpected_launch(*_args, **_kwargs):
+        nonlocal launched
+        launched = True
+        raise AssertionError("child launched before readiness")
+
+    monkeypatch.setattr(Path, "write_text", slow_write)
+    monkeypatch.setattr(process_runner.subprocess, "Popen", unexpected_launch)
+    started = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        process_runner.run_with_deadline(
+            ["unused"],
+            timeout_seconds=0.05,
+            ready_file=ready_file,
+        )
+
+    assert time.monotonic() - started < 0.5
+    assert not launched
+    time.sleep(0.3)
+    assert not ready_file.exists()
+    assert not list(tmp_path.glob(".*.pending"))
+
+
+def test_stale_ready_writer_cannot_collide_with_new_generation(
+    monkeypatch, tmp_path: Path
+) -> None:
+    ready_file = tmp_path / "shared.ready"
+    interleaving = _ReadyPublicationInterleaving(ready_file)
+    monkeypatch.setattr(
+        Path,
+        "write_text",
+        lambda path, *args, **kwargs: interleaving.write_text(path, *args, **kwargs),
+    )
+    with pytest.raises(subprocess.TimeoutExpired):
+        process_runner.run_with_deadline(
+            ["unused"], timeout_seconds=0.05, ready_file=ready_file
+        )
+    assert interleaving.first_started.is_set()
+
+    second = threading.Thread(target=interleaving.run_second_generation)
+    second.start()
+    assert interleaving.second_written.wait(timeout=2)
+    assert interleaving.pending_paths[0] != interleaving.pending_paths[1]
+
+    _release_stale_ready_writer(interleaving)
+    interleaving.release_second.set()
+    second.join(timeout=2)
+    _assert_ready_generation_result(interleaving, second, ready_file, tmp_path)
 
 
 def test_run_with_deadline_rejects_unbounded_timeout() -> None:

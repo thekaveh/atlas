@@ -23,6 +23,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
+# Unit tests deliberately opt into process-local state. Production defaults to
+# Redis; tests must not receive memory state through an implicit fallback.
+os.environ.setdefault("BACKEND_STATE_STORE_MODE", "memory")
+
 # Ensure ``app/`` is on sys.path so bare imports like ``import ray_client``
 # and ``from main import app`` resolve correctly regardless of where pytest
 # is invoked from.

@@ -59,7 +59,7 @@ env:
     description: "Optional comma- or space-separated reference-route bucket allowlist; blank follows MINIO_BUCKET_ASSET_INPUTS."
   - name: ASSET_WORKER_GLTF_TRANSFORM_VERSION
     default: "4.4.1"
-    description: "Pinned @gltf-transform/cli version installed in the asset-worker image."
+    description: "Expected pinned @gltf-transform/cli lock version; overrides must match package.json and package-lock.json."
   - name: ASSET_WORKER_MAX_UPLOAD_MB
     default: "200"
     description: "Maximum GLB upload or MinIO reference size in MiB. Input is streamed and rejected before transformation when this limit is exceeded."

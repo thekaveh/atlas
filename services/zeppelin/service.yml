@@ -51,6 +51,13 @@ sources:
       label: "Disabled"
 
 env:
+  - name: ZEPPELIN_DB_USER
+    default: atlas_zeppelin
+    description: "Read-only PostgreSQL login exposed to Zeppelin's JDBC interpreter."
+  - name: ZEPPELIN_DB_PASSWORD
+    default: atlas-db-password
+    secret: true
+    description: "Auto-generated password for Zeppelin's read-only database role."
   - name: ZEPPELIN_SOURCE
     default: disabled
   - name: ZEPPELIN_PORT
@@ -140,9 +147,9 @@ runtime_sc:
           --conf spark.sql.catalog.lakehouse.client.region=${MINIO_REGION:-us-east-1}
           --conf spark.eventLog.enabled=true
           --conf spark.eventLog.dir=s3a://${MINIO_BUCKET_SPARK_HISTORY:-spark-history}/
-        ZEPPELIN_JDBC_POSTGRES_URL: "jdbc:postgresql://supabase-db:5432/${SUPABASE_DB_NAME}"
-        ZEPPELIN_JDBC_POSTGRES_USER: "${SUPABASE_DB_USER}"
-        ZEPPELIN_JDBC_POSTGRES_PASSWORD: "${SUPABASE_DB_PASSWORD}"
+        ZEPPELIN_JDBC_POSTGRES_URL: "jdbc:postgresql://supabase-db:5432/${SUPABASE_DB_NAME_URI}"
+        ZEPPELIN_JDBC_POSTGRES_USER: "${ZEPPELIN_DB_USER}"
+        ZEPPELIN_JDBC_POSTGRES_PASSWORD: "${ZEPPELIN_DB_PASSWORD}"
       deploy: {}
       extra_hosts: []
     disabled:

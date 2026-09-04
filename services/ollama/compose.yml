@@ -41,7 +41,11 @@ services:
       - backend-network
 
   ollama-pull:
-    image: ${OLLAMA_PULL_IMAGE}
+    build:
+      context: pull
+      args:
+        BASE_IMAGE: ${OLLAMA_PULL_IMAGE}
+    image: ${PROJECT_NAME}-ollama-pull:local
     container_name: ${PROJECT_NAME}-ollama-pull
     restart: "no"
     depends_on:

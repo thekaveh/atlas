@@ -39,10 +39,24 @@ containers:
 
 images:
   - var: BACKEND_IMAGE
-    default: "python:3.12.13"
+    default: "python:3.12.14-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970"
     container: backend
 
 env:
+  - name: BACKEND_DB_USER
+    default: atlas_backend
+    description: "Scoped PostgreSQL login for Backend and its Celery worker."
+  - name: BACKEND_DB_PASSWORD
+    default: atlas-db-password
+    secret: true
+    description: "Auto-generated password for the scoped Backend database role."
+  - name: BACKEND_DB_USER_URI
+    default: atlas_backend
+    description: "Bootstrapper-synchronized percent-encoded BACKEND_DB_USER for DSN userinfo."
+  - name: BACKEND_DB_PASSWORD_URI
+    default: atlas-db-password
+    secret: true
+    description: "Bootstrapper-synchronized percent-encoded BACKEND_DB_PASSWORD for DSN userinfo."
   - name: BACKEND_SOURCE
     default: container
     description: "Adaptive core service; always container. Single-option."
@@ -75,9 +89,21 @@ env:
   - name: RAG_INGESTION_CORPUS_ROOT
     default: /app/corpus
     description: "Container path under which operator-provided read-only RAG corpus mounts are resolved. Mount the same path into Backend and Celery worker when asynchronous ingestion is enabled."
+  - name: CHONKIE_SEMANTIC_EMBEDDING_MODEL
+    default: minishlab/potion-base-32M
+    description: "Non-empty Chonkie embedding model reference used by semantic chunking. Blank values use the bundled default. Shared by Backend and Celery ingestion workers."
+  - name: LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS
+    default: 30
+    description: "Finite per-request timeout in seconds for LightRAG pipeline-status polling. Values must be greater than 0 and no greater than 3600; invalid values use 30 seconds. Shared by Backend and Celery ingestion workers."
+  - name: RAG_INGESTION_TTL_SECONDS
+    default: 604800
+    description: "Redis retention in seconds for RAG ingestion records and idempotency keys. Values must be from 60 through 31536000 (one year); invalid values use the seven-day default. Shared by Backend and Celery ingestion workers."
   - name: RAG_INGESTION_EXECUTION_LEASE_SECONDS
     default: 30
     description: "Renewable execution-ownership lease for RAG ingestion workers. Must be an integer from 10 through 300; duplicate deliveries retry until the active owner completes, an exact-owner recovery claim succeeds, or the lease expires."
+  - name: BACKEND_STATE_STORE_MODE
+    default: redis
+    description: "Shared operation-state mode: 'redis' (durable, multi-process default) or 'memory' (explicit single-process testing/ephemeral mode). Redis outages fail stateful routes with HTTP 503; they never trigger an in-memory fallback."
   - name: RESEARCH_SESSION_LEASE_SECONDS
     default: 300
     description: "Maximum age in seconds for pending research work or a running session heartbeat before the Backend atomically marks the abandoned session failed."
@@ -135,6 +161,12 @@ env:
   - name: MEDIA_OPERATION_TTL_SECONDS
     default: 604800
     description: "Redis retention in seconds for hosted media operation state. The default keeps terminal results available for seven days across Backend replicas and restarts."
+  - name: MEDIA_LEDGER_RECOVERY_BATCH_SIZE
+    default: 100
+    description: "Maximum media ledger intents loaded in one bounded Redis recovery page. Must be an integer from 1 through 500."
+  - name: MEDIA_LEDGER_RECOVERY_MAX_CYCLES
+    default: 4
+    description: "Maximum bounded media ledger pages processed per 30-second recovery poll. Must be an integer from 1 through 50; the cursor resumes on the next poll."
   - name: BACKEND_CORS_ORIGINS
     default: "*"
     description: "Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness."
@@ -198,6 +230,10 @@ env:
     description: "LiteLLM model id (empty = highest-priority active content model resolved by model_resolver from YAML catalogs + env)."
   - name: LANGMEM_EMBEDDING_MODEL
     default: ""
+    description: "Optional LiteLLM embedding model id. Empty falls back to LITELLM_EMBEDDING_MODEL."
+  - name: LANGMEM_EMBEDDING_DIM
+    default: 768
+    description: "Validated output dimension shared by the selected LangMem embedding model, Backend pgvector queries, and the Supabase memory schema migration. Curated wizard selections derive this from services/*/models.yaml; custom models must declare it explicitly (1..4000, the pgvector halfvec HNSW limit)."
   - name: GRAPHITI_ENABLED
     default: false
     description: "Disabled-by-default backend-only Graphiti temporal graph memory experiment. Does not expose Graphiti to agents or run a Graphiti service."

@@ -310,11 +310,15 @@ def test_lifespan_closes_n8n_client(monkeypatch):
     async def fake_research_close():
         closed["research"] = True
 
+    async def fake_memory_init():
+        return None
+
     monkeypatch.setattr(main.n8n_client, "aclose", fake_aclose)
     monkeypatch.setattr(
         main.research_service, "start_maintenance", fake_research_start
     )
     monkeypatch.setattr(main.research_service, "aclose", fake_research_close)
+    monkeypatch.setattr(main.memory_service, "_ensure_initialized", fake_memory_init)
     # Entering and exiting the context manager runs lifespan startup +
     # shutdown.
     with TestClient(main.app):
@@ -346,11 +350,15 @@ def test_lifespan_closes_remaining_resources_after_one_closer_fails(monkeypatch)
     async def close_operations():
         closed.append("operations")
 
+    async def fake_memory_init():
+        return None
+
     monkeypatch.setattr(main.research_service, "start_maintenance", fake_start)
     monkeypatch.setattr(main.research_service, "aclose", fail_research_close)
     monkeypatch.setattr(db_connection, "close_pg_pools", close_pg)
     monkeypatch.setattr(main.n8n_client, "aclose", close_n8n)
     monkeypatch.setattr(main.MEDIA_OPERATION_STORE, "aclose", close_operations)
+    monkeypatch.setattr(main.memory_service, "_ensure_initialized", fake_memory_init)
 
     with pytest.raises(RuntimeError, match="research close failed"):
         with TestClient(main.app):
@@ -370,3 +378,39 @@ def test_lifespan_rejects_invalid_postgres_pool_configuration(monkeypatch):
     with pytest.raises(db_connection.PoolConfigurationError):
         with TestClient(main.app):
             pass
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("MEDIA_LEDGER_RECOVERY_BATCH_SIZE", "0"),
+        ("MEDIA_LEDGER_RECOVERY_BATCH_SIZE", "not-an-integer"),
+        ("MEDIA_LEDGER_RECOVERY_MAX_CYCLES", "0"),
+        ("MEDIA_LEDGER_RECOVERY_MAX_CYCLES", "not-an-integer"),
+    ],
+)
+def test_lifespan_rejects_invalid_media_recovery_config_before_task_start(
+    monkeypatch, name, value
+):
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    import main
+
+    monkeypatch.setenv(name, value)
+    started = False
+
+    async def forbidden_loop():
+        nonlocal started
+        started = True
+
+    async def no_op():
+        return None
+
+    monkeypatch.setattr(main, "_media_ledger_intent_loop", forbidden_loop)
+    monkeypatch.setattr(main.research_service, "start_maintenance", no_op)
+    monkeypatch.setattr(main.memory_service, "_ensure_initialized", no_op)
+
+    with pytest.raises(ValueError, match=name):
+        with TestClient(main.app):
+            pass
+    assert started is False

@@ -5,11 +5,11 @@ backend's own dependencies installed — the backend's `tests/` directory is not
 collected here, and installing FastAPI plus Ray to assert a structural property
 would be the wrong trade.
 
-Why it exists: the backend's per-route dependencies are the only access control
-in the DEFAULT profile. `BACKEND_KONG_AUTH` defaults to `disabled`, and the
-backend port publishes on `0.0.0.0` unless `--profile prod` sets `HOST_BIND_IP`.
-A route added without a dependency is therefore LAN-reachable with no gate at
-all, and nothing in the suite noticed. Coverage was complete when this was
+Why it exists: the backend's per-route dependencies remain the route-level
+access control. `BACKEND_KONG_AUTH` defaults to `disabled`; the direct backend
+port is loopback-bound by default, but an operator can deliberately publish it
+remotely with `HOST_BIND_IP`. A route added without a dependency would then be
+reachable without a route-level gate. Coverage was complete when this was
 written; this keeps it that way.
 """
 
@@ -164,6 +164,58 @@ def test_the_ray_job_surface_is_gated_at_the_router():
     routers = _router_level_auth(tree)
     assert routers, "no APIRouter found in ray_routes.py"
     assert all(routers.values()), f"ray router has no dependencies: {routers}"
+
+
+def test_media_request_limit_is_wired_to_header_authentication():
+    """The media auth gate must sit outside request-parsing instrumentation."""
+    tree = ast.parse((BACKEND_APP / "main.py").read_text(encoding="utf-8"))
+    registrations = []
+    cors_registrations = []
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add_middleware"
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+        ):
+            continue
+        if node.args[0].id == "MediaRequestLimitMiddleware":
+            registrations.append(node)
+        elif node.args[0].id == "CORSMiddleware":
+            cors_registrations.append(node)
+
+    assert len(registrations) == 1, (
+        "expected exactly one MediaRequestLimitMiddleware registration"
+    )
+    authenticate = next(
+        (
+            keyword.value
+            for keyword in registrations[0].keywords
+            if keyword.arg == "authenticate"
+        ),
+        None,
+    )
+    assert isinstance(authenticate, ast.Name)
+    assert authenticate.id == "authenticate_backend_scope"
+
+    prometheus_instrument = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "instrument"
+        and len(node.args) == 1
+        and isinstance(node.args[0], ast.Name)
+        and node.args[0].id == "app"
+    ]
+    assert len(prometheus_instrument) == 1
+    assert len(cors_registrations) == 1
+    assert (
+        prometheus_instrument[0].lineno
+        < registrations[0].lineno
+        < cors_registrations[0].lineno
+    ), "registration order must build CORS -> Media -> Prometheus"
 
 
 @pytest.mark.parametrize("public", sorted(_PUBLIC_ROUTES))

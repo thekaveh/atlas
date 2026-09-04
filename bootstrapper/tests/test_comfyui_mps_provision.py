@@ -344,6 +344,15 @@ def _node_dict(name="my-node", *, ref=None, **overrides) -> dict:
     return node
 
 
+def _lock_kwargs(tmp_path: Path, content: str = "numpy==2.0 --hash=sha256:" + "a" * 64 + "\n") -> dict:
+    lock = tmp_path / "node-requirements.txt"
+    lock.write_text(content, encoding="utf-8")
+    return {
+        "requirements_lock": lock,
+        "requirements_lock_sha256": hashlib.sha256(lock.read_bytes()).hexdigest(),
+    }
+
+
 def _simulate_clone(cmd: list[str]) -> None:
     """Fake ``git clone <repo> <tmp>``: materialize the tmp target + .git marker
     so the production ``tmp.rename(dest)`` succeeds without a real subprocess."""
@@ -400,6 +409,26 @@ def test_provision_custom_node_idempotent_skip(tmp_path):
     assert captures == [["git", "-C", str(dest), "rev-parse", "HEAD"]]
 
 
+def test_provision_cached_custom_node_still_applies_verified_lock(tmp_path):
+    m = _node_manager(tmp_path)
+    ref = "b" * 40
+    dest = m.repo_dir / "custom_nodes" / "my-node"
+    dest.mkdir(parents=True)
+    (dest / ".git").mkdir()
+    lock = _lock_kwargs(tmp_path)
+    runs: list[list[str]] = []
+    m._run = lambda cmd: runs.append(list(cmd))
+    m._run_capture = lambda cmd: ref
+    m._pip_freeze = lambda: {}
+
+    result = m.provision_custom_nodes(
+        [_node_dict("my-node", ref=ref, install_requirements=True, **lock)]
+    )
+
+    assert result.ok and result.skipped == ["my-node"]
+    assert any("--require-hashes" in command for command in runs)
+
+
 def test_provision_custom_node_head_drift_updates(tmp_path):
     """dest/.git present but rev-parse HEAD != ref -> fetch + checkout --detach."""
     m = _node_manager(tmp_path)
@@ -421,7 +450,7 @@ def test_provision_custom_node_head_drift_updates(tmp_path):
 
 
 def test_provision_custom_node_pip_install_no_torch_drift(tmp_path):
-    """install_requirements=True + requirements.txt present -> pip install -r issued;
+    """install_requirements=True + verified lock -> hash-checked pip install;
     equal torch triple before/after -> NO drift warning."""
     m = _node_manager(tmp_path)
     ref = "d" * 40
@@ -443,13 +472,18 @@ def test_provision_custom_node_pip_install_no_torch_drift(tmp_path):
     m._pip_freeze = fake_freeze
 
     logs: list[str] = []
+    lock = _lock_kwargs(tmp_path)
     r = m.provision_custom_nodes(
-        [_node_dict("my-node", ref=ref, install_requirements=True)], log=logs.append,
+        [_node_dict("my-node", ref=ref, install_requirements=True, **lock)], log=logs.append,
     )
 
     assert r.ok
     # a 'pip install -r <requirements>' command was issued through _run
     assert any("pip" in c and "install" in c and "-r" in c for c in runs)
+    pip_command = next(c for c in runs if "pip" in c and "install" in c)
+    assert "--no-deps" in pip_command and "--require-hashes" in pip_command
+    assert str(lock["requirements_lock"]) in pip_command
+    assert str(dest / "requirements.txt") not in pip_command
     assert len(freeze_calls) == 2  # before + after
     assert not any("install --update" in line for line in logs)  # no torch drift
     assert r.warnings == []
@@ -484,7 +518,15 @@ def test_provision_custom_node_pip_install_torch_drift_warns(tmp_path):
 
     logs: list[str] = []
     r = m.provision_custom_nodes(
-        [_node_dict("my-node", ref=ref, install_requirements=True)], log=logs.append,
+        [
+            _node_dict(
+                "my-node",
+                ref=ref,
+                install_requirements=True,
+                **_lock_kwargs(tmp_path, "torch==2.9.0 --hash=sha256:" + "b" * 64 + "\n"),
+            )
+        ],
+        log=logs.append,
     )
 
     assert r.ok  # torch drift is a warning, never a failure
@@ -493,7 +535,7 @@ def test_provision_custom_node_pip_install_torch_drift_warns(tmp_path):
 
 
 def test_provision_custom_node_deps_free_issues_no_pip(tmp_path):
-    """A node with no requirements.txt issues NO pip install command
+    """A node explicitly marked deps-free issues NO pip install command
     (the comfyui-krea2edit case — deps-free node)."""
     m = _node_manager(tmp_path)
     ref = "1" * 40
@@ -507,12 +549,29 @@ def test_provision_custom_node_deps_free_issues_no_pip(tmp_path):
     m._run_capture = lambda cmd: "0" * 40  # drift -> update path, exercises req check
 
     r = m.provision_custom_nodes(
-        [_node_dict("comfyui-krea2edit", ref=ref, install_requirements=True)],
+        [_node_dict("comfyui-krea2edit", ref=ref, install_requirements=False)],
     )
 
     assert r.ok
     # no pip command of any kind was issued (only git fetch/checkout ran)
     assert not any("pip" in c for c in runs)
+
+
+def test_provision_custom_node_rejects_dependency_lock_digest_mismatch(tmp_path):
+    m = _node_manager(tmp_path)
+    lock = _lock_kwargs(tmp_path)
+    lock["requirements_lock_sha256"] = "0" * 64
+    runs: list[list[str]] = []
+    m._run = lambda cmd: runs.append(list(cmd))
+    m._run_capture = lambda cmd: "0" * 40
+
+    result = m.provision_custom_nodes(
+        [_node_dict("my-node", install_requirements=True, **lock)]
+    )
+
+    assert not result.ok
+    assert any("digest mismatch" in failure for failure in result.failed)
+    assert runs == []
 
 
 def test_provision_custom_node_mps_unsafe_skipped_no_git(tmp_path):

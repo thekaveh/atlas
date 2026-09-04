@@ -87,8 +87,8 @@ services:
       # enough. Pass the components separately when supabase is enabled.
       POSTGRES_HOST: ${LIGHTRAG_PG_URI:+supabase-db}
       POSTGRES_PORT: ${LIGHTRAG_PG_URI:+5432}
-      POSTGRES_USER: ${LIGHTRAG_PG_URI:+${SUPABASE_DB_USER}}
-      POSTGRES_PASSWORD: ${LIGHTRAG_PG_URI:+${SUPABASE_DB_PASSWORD}}
+      POSTGRES_USER: ${LIGHTRAG_PG_URI:+${LIGHTRAG_DB_USER:?LIGHTRAG_DB_USER is required when LightRAG PostgreSQL is enabled}}
+      POSTGRES_PASSWORD: ${LIGHTRAG_PG_URI:+${LIGHTRAG_DB_PASSWORD:?LIGHTRAG_DB_PASSWORD is required when LightRAG PostgreSQL is enabled}}
       POSTGRES_DATABASE: ${LIGHTRAG_PG_URI:+${SUPABASE_DB_NAME}}
       POSTGRES_WORKSPACE: lightrag
       NEO4J_URI: ${LIGHTRAG_NEO4J_URI}
@@ -138,7 +138,11 @@ services:
     restart: unless-stopped
 
   lightrag-init:
-    image: ${LIGHTRAG_INIT_IMAGE:-alpine:3.24.1}
+    build:
+      context: init
+      args:
+        BASE_IMAGE: ${LIGHTRAG_INIT_IMAGE:-alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b}
+    image: ${PROJECT_NAME}-lightrag-init:local
     container_name: ${PROJECT_NAME}-lightrag-init
     deploy:
       replicas: ${LIGHTRAG_INIT_SCALE:-0}

@@ -11,8 +11,7 @@ services:
       tempo:
         condition: service_healthy
       loki:
-        condition: service_started
-        required: false
+        condition: service_healthy
     volumes:
       - ./config/config.yaml:/etc/otelcol/config.yaml:ro
     # The upstream image is distroless, so it has no curl/wget shell client.

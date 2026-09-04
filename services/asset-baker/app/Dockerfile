@@ -11,7 +11,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     ASSET_BAKER_BLENDER_BIN=/opt/blender/blender
 
 # Runtime libs a headless Blender still loads even under -b, plus download tools.
+# The pinned base lags Debian security updates, so the final-image gate sees
+# fixable findings the pin alone cannot clear. Take the published updates the
+# same way services/spark and services/airflow do; this trades byte-for-byte
+# base reproducibility for a patched runtime.
 RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends \
         ca-certificates curl xz-utils \
         libx11-6 libxi6 libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 \

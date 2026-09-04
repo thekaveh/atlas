@@ -1,5 +1,5 @@
-"""Tests for build_default_model_steps (B3) — the three final wizard steps
-that let the user choose the default chat/embedding/vision model.
+"""Tests for build_default_model_steps (B3) — the final wizard steps that
+choose default chat/embedding/vision models and custom embedding dimensions.
 
 All tests use plain dicts for selections/env_vars — no Textual app needed.
 The steps' options_provider callables are invoked directly.
@@ -36,23 +36,178 @@ def _ollama_selections(models: str = "qwen3.8:latest,nomic-embed-text") -> dict:
     }
 
 
-# ── test 1: build_default_model_steps returns 3 steps with correct titles ────
+# ── test 1: build_default_model_steps returns four steps with correct titles ─
 
-def test_returns_three_steps_with_correct_titles_and_kind():
+def test_returns_four_steps_with_explicit_embedding_dimension_input():
     from wizard.llm_steps import (
         build_default_model_steps,
         LLM_DEFAULT_CONTENT_TITLE,
+        LLM_DEFAULT_EMBED_DIM_TITLE,
         LLM_DEFAULT_EMBED_TITLE,
         LLM_DEFAULT_VISION_TITLE,
     )
     steps = build_default_model_steps(_default_env())
-    assert len(steps) == 3, f"Expected 3 steps, got {len(steps)}"
+    assert len(steps) == 4, f"Expected 4 steps, got {len(steps)}"
     titles = [s.title for s in steps]
     assert LLM_DEFAULT_CONTENT_TITLE in titles
     assert LLM_DEFAULT_EMBED_TITLE in titles
+    assert LLM_DEFAULT_EMBED_DIM_TITLE in titles
     assert LLM_DEFAULT_VISION_TITLE in titles
-    for s in steps:
-        assert s.kind == "options", f"Step {s.title!r} has kind={s.kind!r}; expected 'options'"
+    dimension = next(s for s in steps if s.title == LLM_DEFAULT_EMBED_DIM_TITLE)
+    assert dimension.kind == "text"
+    assert all(s.kind == "options" for s in steps if s is not dimension)
+
+
+def test_custom_embedding_dimension_is_visible_and_fresh_default_is_not_inherited():
+    from wizard.llm_steps import (
+        LLM_DEFAULT_EMBED_DIM_TITLE,
+        LLM_DEFAULT_EMBED_TITLE,
+        build_default_model_steps,
+    )
+
+    env = _default_env()
+    env["LANGMEM_EMBEDDING_DIM"] = "768"  # generic manifest default
+    dimension = next(
+        step for step in build_default_model_steps(env)
+        if step.title == LLM_DEFAULT_EMBED_DIM_TITLE
+    )
+    selections = {
+        **_ollama_selections("custom-embed-1024"),
+        LLM_DEFAULT_EMBED_TITLE: "ollama/custom-embed-1024",
+    }
+
+    assert not dimension.skip_if_prev(selections)
+    assert dimension.default_value == ""
+
+
+def test_curated_embedding_dimension_is_derived_and_input_step_is_skipped():
+    from wizard.llm_steps import (
+        LLM_DEFAULT_EMBED_DIM_TITLE,
+        LLM_DEFAULT_EMBED_TITLE,
+        build_default_model_steps,
+    )
+
+    dimension = next(
+        step for step in build_default_model_steps(_default_env())
+        if step.title == LLM_DEFAULT_EMBED_DIM_TITLE
+    )
+    assert dimension.skip_if_prev(
+        {LLM_DEFAULT_EMBED_TITLE: "ollama/nomic-embed-text"}
+    )
+
+
+def test_existing_custom_embedding_dimension_is_prefilled_for_same_model():
+    from wizard.llm_steps import (
+        LLM_DEFAULT_EMBED_DIM_TITLE,
+        LLM_DEFAULT_EMBED_TITLE,
+        build_default_model_steps,
+    )
+
+    env = _default_env()
+    env["LITELLM_EMBEDDING_MODEL"] = "custom/acme-embedder"
+    env["LANGMEM_EMBEDDING_DIM"] = "2048"
+    dimension = next(
+        step for step in build_default_model_steps(env)
+        if step.title == LLM_DEFAULT_EMBED_DIM_TITLE
+    )
+
+    same = {LLM_DEFAULT_EMBED_TITLE: "custom/acme-embedder"}
+    assert dimension.default_value_provider(same) == "2048"
+    assert not dimension.skip_if_prev(same)
+
+
+def test_embedding_picker_defaults_to_effective_langmem_override():
+    from wizard.llm_steps import LLM_DEFAULT_EMBED_TITLE, build_default_model_steps
+
+    env = _default_env()
+    env["LITELLM_EMBEDDING_MODEL"] = "custom/global-default"
+    env["LANGMEM_EMBEDDING_MODEL"] = "custom/memory-override"
+
+    embed = next(
+        step for step in build_default_model_steps(env)
+        if step.title == LLM_DEFAULT_EMBED_TITLE
+    )
+    assert embed.default_value == "custom/memory-override"
+
+
+def test_saved_effective_embedding_missing_from_current_options_remains_visible():
+    from wizard.llm_steps import LLM_DEFAULT_EMBED_TITLE, build_default_model_steps
+
+    env = _default_env()
+    env["LANGMEM_EMBEDDING_MODEL"] = "custom/memory-override"
+    embed = next(
+        step for step in build_default_model_steps(env)
+        if step.title == LLM_DEFAULT_EMBED_TITLE
+    )
+    selections = _ollama_selections("qwen3-embedding:0.6b")
+    options = embed.options_provider(selections)
+    saved = next(
+        option for option in options
+        if option.value == "custom/memory-override"
+    )
+
+    assert "saved" in saved.badges
+    assert "not in current model selections" in saved.hint
+    assert not embed.skip_if_prev(selections)
+
+
+def test_different_custom_model_does_not_inherit_saved_custom_dimension():
+    from wizard.llm_steps import (
+        LLM_DEFAULT_EMBED_DIM_TITLE,
+        LLM_DEFAULT_EMBED_TITLE,
+        build_default_model_steps,
+    )
+
+    env = _default_env()
+    env["LITELLM_EMBEDDING_MODEL"] = "custom/provider-a"
+    env["LANGMEM_EMBEDDING_DIM"] = "2048"
+    dimension = next(
+        step for step in build_default_model_steps(env)
+        if step.title == LLM_DEFAULT_EMBED_DIM_TITLE
+    )
+
+    assert dimension.default_value_provider(
+        {LLM_DEFAULT_EMBED_TITLE: "custom/provider-b"}
+    ) == ""
+
+
+def test_dimension_default_is_resolved_from_current_selection_at_render_time():
+    from ui.textual.screens.wizard_screen import WizardScreen
+    from wizard.llm_steps import (
+        LLM_DEFAULT_EMBED_DIM_TITLE,
+        LLM_DEFAULT_EMBED_TITLE,
+        build_default_model_steps,
+    )
+
+    env = _default_env()
+    env["LITELLM_EMBEDDING_MODEL"] = "custom/provider-a"
+    env["LANGMEM_EMBEDDING_DIM"] = "2048"
+    dimension = next(
+        step for step in build_default_model_steps(env)
+        if step.title == LLM_DEFAULT_EMBED_DIM_TITLE
+    )
+
+    class Prompt:
+        loaded = None
+
+        def load_step(self, step):
+            self.loaded = step
+
+        def clear_conflict(self):
+            return None
+
+    class Screen:
+        _step_index = 0
+        _steps = [dimension]
+        _selections = {LLM_DEFAULT_EMBED_TITLE: "custom/provider-b"}
+        _prompt = Prompt()
+        _services = []
+        _service_table = type("Table", (), {"set_cursor": lambda *_args: None})()
+
+    screen = Screen()
+    WizardScreen._render_step(screen, dimension)
+
+    assert screen._prompt.loaded.default_value == ""
 
 
 # ── test 2: default config — content options include qwen3.8:latest ───────────
@@ -130,7 +285,7 @@ def test_embed_step_default_value_and_caveat():
     )
     # heading and subtitle must mention the dimension caveat
     combined_text = (embed_step.heading or "") + " " + (embed_step.subtitle or "")
-    caveat_keywords = ["768", "pgvector"]
+    caveat_keywords = ["dimension", "pgvector"]
     for kw in caveat_keywords:
         assert kw in combined_text, (
             f"Embedding caveat keyword {kw!r} not found in heading/subtitle. "
@@ -249,7 +404,7 @@ def test_litellm_id_cloud():
 # ── test 7: _selections_to_args drains answers into default_model_selections ──
 
 def test_selections_to_args_default_model_selections():
-    """_selections_to_args must drain the three default-model answers into
+    """_selections_to_args must drain the default-model answers into
     stack_options['default_model_selections'] with correct sentinel semantics."""
     import sys
     import os
@@ -260,6 +415,7 @@ def test_selections_to_args_default_model_selections():
     from ui.textual.widgets.prompt_panel import SECRET_KEEP
     from wizard.llm_steps import (
         LLM_DEFAULT_CONTENT_TITLE,
+        LLM_DEFAULT_EMBED_DIM_TITLE,
         LLM_DEFAULT_EMBED_TITLE,
         LLM_DEFAULT_VISION_TITLE,
     )
@@ -274,7 +430,8 @@ def test_selections_to_args_default_model_selections():
 
     selections = {
         LLM_DEFAULT_CONTENT_TITLE: "ollama/qwen3.8:latest",
-        LLM_DEFAULT_EMBED_TITLE: "ollama/nomic-embed-text",
+        LLM_DEFAULT_EMBED_TITLE: "custom/acme-embedder",
+        LLM_DEFAULT_EMBED_DIM_TITLE: "1024",
         LLM_DEFAULT_VISION_TITLE: "",   # explicit skip
         "Base port  ·  range": "",
         "Cold start  ·  rebuild": "no",
@@ -286,10 +443,56 @@ def test_selections_to_args_default_model_selections():
     )
     dms = stack_options["default_model_selections"]
     assert dms.get("LITELLM_DEFAULT_MODEL") == "ollama/qwen3.8:latest"
-    assert dms.get("LITELLM_EMBEDDING_MODEL") == "ollama/nomic-embed-text"
+    assert dms.get("LITELLM_EMBEDDING_MODEL") == "custom/acme-embedder"
+    assert dms.get("LANGMEM_EMBEDDING_DIM") == "1024"
     # vision "" is a valid explicit skip — must be persisted
     assert "LITELLM_VISION_MODEL" in dms
     assert dms["LITELLM_VISION_MODEL"] == ""
+
+
+def test_embedding_selection_explicitly_aligns_existing_langmem_override():
+    from ui.textual.integration import _selections_to_args
+    from wizard.llm_steps import (
+        LLM_DEFAULT_EMBED_DIM_TITLE,
+        LLM_DEFAULT_EMBED_TITLE,
+    )
+
+    selections = {
+        LLM_DEFAULT_EMBED_TITLE: "custom/provider-b",
+        LLM_DEFAULT_EMBED_DIM_TITLE: "1024",
+        "Base port  ·  range": "",
+        "Cold start  ·  rebuild": "no",
+        "Hosts setup  ·  /etc/hosts": "default",
+        "Confirm  ·  launch the stack": "no",
+    }
+    _, stack_options = _selections_to_args(
+        selections,
+        [],
+        current_base_port=63000,
+        env_vars={"LANGMEM_EMBEDDING_MODEL": "custom/provider-a"},
+    )
+
+    contract = stack_options["default_model_selections"]
+    assert contract["LITELLM_EMBEDDING_MODEL"] == "custom/provider-b"
+    assert contract["LANGMEM_EMBEDDING_MODEL"] == "custom/provider-b"
+    assert contract["LANGMEM_EMBEDDING_DIM"] == "1024"
+
+
+def test_embedding_dimension_text_is_restored_after_back_navigation():
+    from ui.textual.screens.wizard_screen import _restored_primary_defaults
+    from wizard.llm_steps import LLM_DEFAULT_EMBED_DIM_TITLE, build_default_model_steps
+
+    step = next(
+        item for item in build_default_model_steps(_default_env())
+        if item.title == LLM_DEFAULT_EMBED_DIM_TITLE
+    )
+    default, values, restored = _restored_primary_defaults(
+        step, {LLM_DEFAULT_EMBED_DIM_TITLE: "1024"}
+    )
+
+    assert default == ""
+    assert values == []
+    assert restored == "1024"
 
 
 def test_selections_to_args_secret_keep_content_omitted():
@@ -327,7 +530,7 @@ def test_selections_to_args_secret_keep_content_omitted():
 
 def test_selections_to_args_none_steps_omitted():
     """When the default-model steps were never visited (None in selections),
-    none of the three keys should appear in default_model_selections."""
+    no model-contract keys should appear in default_model_selections."""
     from ui.textual.integration import _selections_to_args
 
     selections = {
@@ -342,6 +545,7 @@ def test_selections_to_args_none_steps_omitted():
     dms = stack_options["default_model_selections"]
     assert "LITELLM_DEFAULT_MODEL" not in dms
     assert "LITELLM_EMBEDDING_MODEL" not in dms
+    assert "LANGMEM_EMBEDDING_DIM" not in dms
     assert "LITELLM_VISION_MODEL" not in dms
 
 

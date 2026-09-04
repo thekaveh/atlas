@@ -112,3 +112,16 @@ def test_semantic_chunking_uses_injected_embeddings_without_model_download():
     assert response.metadata["semantic_threshold"] == 0.4
     assert [chunk.index for chunk in response.chunks] == list(range(response.chunk_count))
     assert all(chunk.start_char < chunk.end_char for chunk in response.chunks)
+
+
+def test_semantic_embedding_model_env_uses_safe_default_for_blank(monkeypatch):
+    from chunking_service import _semantic_embedding_model_override
+
+    monkeypatch.delenv("CHONKIE_SEMANTIC_EMBEDDING_MODEL", raising=False)
+    assert _semantic_embedding_model_override(None) == "minishlab/potion-base-32M"
+
+    monkeypatch.setenv("CHONKIE_SEMANTIC_EMBEDDING_MODEL", "  custom/model  ")
+    assert _semantic_embedding_model_override(None) == "custom/model"
+
+    monkeypatch.setenv("CHONKIE_SEMANTIC_EMBEDDING_MODEL", "   ")
+    assert _semantic_embedding_model_override(None) == "minishlab/potion-base-32M"

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import posixpath
 import re
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
+
+import yaml
 
 from scripts.bounded_subprocess import (
     CommandLaunchError,
@@ -15,7 +19,7 @@ from scripts.bounded_subprocess import (
 
 from .build_docs import build
 from .canonical_references import sync_canonical_references
-from .links import find_links, is_forbidden
+from .links import find_links, is_forbidden, navigable_link_targets
 from .manifest import Manifest, load_manifest
 
 
@@ -111,6 +115,132 @@ def check_wiki_links(repo_root: Path, wiki_root: Path) -> list[Finding]:
                         surface="wiki",
                     )
                 )
+    return findings
+
+
+def _canonical_page_target(
+    source: str,
+    raw_target: str,
+    known_sources: set[str],
+) -> str | None:
+    """Resolve one local Markdown link to a manifest-owned canonical source."""
+    target = unquote(raw_target.strip("<>").partition("#")[0]).partition("?")[0]
+    if (
+        not target
+        or _SCHEME_RE.match(target)
+        or target.startswith(("/", "//"))
+    ):
+        return None
+    candidate = posixpath.normpath(posixpath.join(posixpath.dirname(source), target))
+    if candidate == ".." or candidate.startswith("../"):
+        return None
+    candidates = (candidate, f"{candidate}.md", f"{candidate}/index.md")
+    return next((item for item in candidates if item in known_sources), None)
+
+
+def _nav_targets(value: object) -> set[str]:
+    if isinstance(value, str):
+        return {value}
+    if isinstance(value, list):
+        children = value
+    elif isinstance(value, dict):
+        children = value.values()
+    else:
+        children = ()
+    targets: set[str] = set()
+    for child in children:
+        targets.update(_nav_targets(child))
+    return targets
+
+
+def _is_safe_file(root: Path, relative: Path) -> bool:
+    if relative.is_absolute() or ".." in relative.parts or root.is_symlink():
+        return False
+    current = root
+    for part in relative.parts:
+        current /= part
+        if current.is_symlink():
+            return False
+    try:
+        current.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return current.is_file()
+
+
+def check_manifest_reachability(
+    manifest: Manifest,
+    repo_root: Path,
+    generated_root: Path,
+) -> list[Finding]:
+    """Require every manifest page to be discoverable on all three surfaces."""
+    pages_by_id = {page.id: page for page in manifest.pages}
+    pages_by_source = {page.source: page for page in manifest.pages}
+    known_sources = set(pages_by_source)
+    root_page = pages_by_id[manifest.index_id]
+    reachable = {root_page.source}
+    pending = deque([root_page.source])
+    while pending:
+        source = pending.popleft()
+        markdown = (repo_root / source).read_text(encoding="utf-8")
+        for raw_target in navigable_link_targets(markdown):
+            target = _canonical_page_target(
+                source, raw_target, known_sources
+            )
+            if target is not None and target not in reachable:
+                reachable.add(target)
+                pending.append(target)
+
+    findings = [
+        Finding(
+            "error",
+            page.source,
+            f"manifest page is not reachable from {root_page.source}",
+            "repo",
+        )
+        for page in manifest.pages
+        if page.source not in reachable
+    ]
+
+    mkdocs_path = repo_root / "mkdocs.yml"
+    site_nav: set[str] = set()
+    if _is_safe_file(repo_root, Path("mkdocs.yml")):
+        config = yaml.safe_load(mkdocs_path.read_text(encoding="utf-8"))
+        if isinstance(config, dict):
+            site_nav = _nav_targets(config.get("nav", []))
+    site_root = generated_root / "site"
+    for page in manifest.pages:
+        output = page.site_path.as_posix()
+        if output not in site_nav or not _is_safe_file(site_root, Path(page.site_path)):
+            findings.append(
+                Finding(
+                    "error",
+                    (Path("generated/site") / page.site_path).as_posix(),
+                    "manifest page is missing from the generated site navigation",
+                    "site",
+                )
+            )
+
+    wiki_root = generated_root / "wiki"
+    sidebar_path = wiki_root / "_Sidebar.md"
+    wiki_routes: set[str] = set()
+    if _is_safe_file(wiki_root, Path("_Sidebar.md")):
+        wiki_routes = {
+            link.target.strip("<>").partition("#")[0].removesuffix(".md")
+            for link in find_links(sidebar_path.read_text(encoding="utf-8"))
+            if not link.is_image
+        }
+    for page in manifest.pages:
+        route = page.wiki_path.stem
+        if route not in wiki_routes or not _is_safe_file(wiki_root, Path(page.wiki_path)):
+            findings.append(
+                Finding(
+                    "error",
+                    (Path("generated/wiki") / page.wiki_path).as_posix(),
+                    "manifest page is missing from the generated wiki sidebar",
+                    "wiki",
+                )
+            )
     return findings
 
 
@@ -233,6 +363,7 @@ def check(repo_root: Path, manifest_path: Path) -> list[Finding]:
     surface_findings = [
         *check_self_containment(repo_root, rendered),
         *check_wiki_links(repo_root, rendered / "wiki"),
+        *check_manifest_reachability(manifest, repo_root, rendered),
     ]
 
     return [

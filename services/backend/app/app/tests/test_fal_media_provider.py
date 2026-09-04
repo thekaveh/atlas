@@ -226,7 +226,7 @@ def test_fal_disabled_preserves_comfyui_generation_without_key(monkeypatch):
     assert 0 < calls["completion"]["timeout"] < 42
 
 
-def test_comfyui_submission_consumes_the_same_request_deadline(monkeypatch):
+def test_comfyui_submission_timeout_returns_truthful_503_within_deadline(monkeypatch):
     main = _fresh_main(monkeypatch, fal_source="disabled", fal_api_key="")
 
     class SlowComfyUIClient:
@@ -254,15 +254,8 @@ def test_comfyui_submission_consumes_the_same_request_deadline(monkeypatch):
     )
     elapsed = time.monotonic() - started
 
-    assert response.status_code == 200
-    assert response.json() == {
-        "success": False,
-        "prompt_id": None,
-        "client_id": None,
-        "message": None,
-        "data": None,
-        "error": "Image generation timed out",
-    }
+    assert response.status_code == 503
+    assert response.json() == {"detail": "ComfyUI is unavailable"}
     assert elapsed < 1.5
 
 

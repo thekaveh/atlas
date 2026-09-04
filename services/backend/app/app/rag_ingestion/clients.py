@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -632,24 +633,44 @@ class WeaviateClient:
 # ─── graph RAG (LightRAG) ────────────────────────────────────────────
 
 _DEFAULT_PIPELINE_STATUS_TIMEOUT = 30.0
+_MAX_PIPELINE_STATUS_TIMEOUT = 3600.0
 
 
-def _resolve_pipeline_status_timeout(explicit: Optional[float]) -> float:
+def _validated_pipeline_status_timeout(value: object) -> Optional[float]:
+    """Return a supported finite duration, or ``None`` for invalid input."""
+    if isinstance(value, bool):
+        return None
+    try:
+        converted = float(value)
+    except Exception:
+        # Custom numeric objects can raise arbitrary ordinary exceptions from
+        # __float__. Keep the guard scoped to coercion; BaseException-derived
+        # process-control signals still propagate.
+        return None
+    if math.isfinite(converted) and 0 < converted <= _MAX_PIPELINE_STATUS_TIMEOUT:
+        return converted
+    return None
+
+
+def _resolve_pipeline_status_timeout(explicit: object | None) -> float:
     """Per-request `pipeline_status` timeout: explicit arg > env > default.
 
-    ``LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS`` is the operator knob; a
-    missing/blank/non-positive value falls back to the 30 s default so a bad
-    override can never disable the timeout (which would hang a drain poll).
+    ``LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS`` is the operator knob. A
+    missing, blank, malformed, non-finite, non-positive, or over-limit value
+    falls back to the 30 s default so a bad override can never disable the
+    timeout (which would hang a drain poll).
+
+    Numeric strings remain accepted for compatibility with environment-style
+    callers. Booleans and values that cannot be safely coerced are invalid.
     """
-    if explicit is not None and explicit > 0:
-        return float(explicit)
+    if explicit is not None:
+        value = _validated_pipeline_status_timeout(explicit)
+        if value is not None:
+            return value
     raw = os.getenv("LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS", "").strip()
     if raw:
-        try:
-            value = float(raw)
-        except ValueError:
-            value = 0.0
-        if value > 0:
+        value = _validated_pipeline_status_timeout(raw)
+        if value is not None:
             return value
     return _DEFAULT_PIPELINE_STATUS_TIMEOUT
 

@@ -132,7 +132,7 @@ Live fetches run in the background so the wizard stays responsive; a `Fetching <
 After the cloud key/model pairs, the wizard asks you to pick the **default model per role** from everything you just selected (Ollama + cloud). Three consecutive `options` steps, each pre-highlighting the current `.env` value:
 
 1. **Chat / content** → `LITELLM_DEFAULT_MODEL`. The fallback the backend and Open WebUI use when no model is named. Pre-selected to the highest-priority content-capable model in your selection.
-2. **Embedding** → `LITELLM_EMBEDDING_MODEL`. **Dimension requirement:** the backend's `memory_facts` table is a pgvector `vector(768)` column. The picker **auto-matches**: it pre-selects whichever curated embedding model's declared `dim:` (in `services/*/models.yaml`) equals that required 768 — `ollama/nomic-embed-text` by default — so correctness comes from the declared dimension, not list order. Choosing a different-dimension model — e.g. the 1536-dim `qwen3-embedding:0.6b`, or OpenAI's 1536/3072-dim embedders — breaks memory writes unless you migrate that column; the bootstrapper prints a warning at write time when it detects a non-768-dim pick.
+2. **Embedding** → `LITELLM_EMBEDDING_MODEL` and its derived `LANGMEM_EMBEDDING_DIM`. The picker reads the curated model's declared `dim:` from `services/*/models.yaml` and persists the same dimension contract for Backend and the Supabase memory migration. Existing 768-dimensional deployments remain compatible; selecting a 1536- or 3072-dimensional model triggers a lossless expand/re-embed/validate rollout on the next start. Backend verifies the effective model output before accepting traffic. Custom embedding models must declare `LANGMEM_EMBEDDING_DIM` explicitly; indexed dimensions are limited to 1–4,000 by pgvector's halfvec HNSW contract.
 3. **Vision** → `LITELLM_VISION_MODEL`. The first option is **— none / skip —**; vision routing is optional, and the step is skipped entirely when no vision-capable model is selected.
 
 All three persist to `.env` and are consumed by `litellm-init` (via `model_resolver`) on the next `docker compose up`. The whole trio is skipped when no LLM provider is active.
@@ -163,8 +163,14 @@ Each row carries:
   if the model requires a ComfyUI custom node. For container sources,
   the bootstrapper maps those node names through
   `services/comfyui/custom-nodes.yaml` and writes a pinned
-  `active-custom-nodes.tsv` install plan; unknown or unallowlisted
-  nodes warn and are not cloned automatically.
+  `active-custom-nodes.tsv` install plan. Dependency-bearing nodes must carry
+  a compiled lock plus its SHA-256; Atlas verifies the copied lock and installs
+  with hash checking instead of using the cloned node's `requirements.txt`.
+  Unknown, unallowlisted, or unconstrained nodes are not cloned automatically.
+  This currently includes 3D-Pack: its secure `rembg` floor requires Python
+  3.11 while the configured AI-Dock runtime uses Python 3.10, and BasicSR has
+  no fixed release. Atlas leaves those catalog rows available for externally
+  managed nodes but refuses automatic provisioning.
 
 **Filter chips** below the search box: `Filter  [ALL]  image  image-edit  video  audio  3d`.
 Press **`f`** to cycle the chips from the keyboard (or click). The

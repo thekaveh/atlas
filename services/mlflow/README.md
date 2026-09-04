@@ -11,7 +11,7 @@ This first slice is intentionally narrow: notebooks can log experiments and arti
 | Surface | URL | Notes |
 | --- | --- | --- |
 | Kong | `http://mlflow.localhost:${KONG_HTTP_PORT}` | Routed only when `MLFLOW_SOURCE=container`. |
-| Direct | `http://localhost:${MLFLOW_PORT}` | Bound through `HOST_BIND_IP`; production profile keeps it local. |
+| Direct | `http://localhost:${MLFLOW_PORT}` | Bound through `HOST_BIND_IP`; the default is loopback-only, while an explicit non-empty value enables deliberate remote access. |
 | In-network | `http://mlflow:5000` | Used by JupyterHub and future service consumers. |
 
 ## 3. Configuration
@@ -31,7 +31,7 @@ MINIO_BUCKET_MLFLOW=mlflow
 
 ## 4. Architecture & Wiring
 
-When enabled, `mlflow-init` creates the dedicated Postgres database and role after `minio-init` provisions the MLflow bucket and scoped service account. The `mlflow` container starts `mlflow server` with:
+When enabled, `mlflow-init` creates the dedicated Postgres database and role after `minio-init` provisions the MLflow bucket and scoped service account. Atlas builds the exact reviewed MLflow base with pinned PostgreSQL and S3 drivers, then starts the guarded server with:
 
 - a Postgres backend store at `supabase-db:5432/${MLFLOW_DB_NAME}`;
 - proxied artifacts under `s3://${MINIO_BUCKET_MLFLOW}`;
@@ -92,6 +92,8 @@ MLflow model serving, deployment plugins, and promotion workflows are intentiona
 - **No tracking URI in notebooks:** confirm `MLFLOW_SOURCE=container` and restart after the bootstrapper regenerates `.env`.
 - **Artifacts fail to upload:** keep `MINIO_SOURCE=container`; MLflow requires MinIO-backed artifact storage in this Atlas slice.
 - **Database errors on first boot:** check `mlflow-init` logs. It creates the `mlflow` database/role idempotently before the tracking server starts.
+- **AI Gateway endpoints return 404:** this is intentional while CVE-2026-71211 has no upstream fix. Atlas supports MLflow tracking, registry metadata, and artifact APIs; it disables the native, REST, and AJAX AI Gateway route families at the outer ASGI boundary, including when `_MLFLOW_STATIC_PREFIX` is configured.
+- **A custom `MLFLOW_IMAGE` exits at startup:** Atlas currently accepts exactly MLflow 3.15.1. Any version change must be reviewed with the route guard, private server environment, dependency image, and required multi-architecture smoke before the allowlist is updated.
 
 ## 7. Capabilities & limitations
 
@@ -99,6 +101,7 @@ MLflow model serving, deployment plugins, and promotion workflows are intentiona
 |---|---|---|---|
 | Experiment and run tracking | supported | tested | Atlas runs an MLflow tracking server with a dedicated Postgres database and injects its tracking URI plus client into JupyterHub. |
 | Scoped MinIO artifact storage | supported | tested | MLflow proxies artifacts to a dedicated MinIO bucket with generated service credentials and refuses Atlas enablement when MinIO is unavailable. |
-| MLflow ingress authentication | partial | tested | mlflow.localhost is protected by Kong dashboard Basic Auth and ACL, but the host-published direct UI/API has no MLflow application authentication. |
+| MLflow ingress authentication | partial | tested | mlflow.localhost is protected by Kong dashboard Basic Auth and ACL, but the host-published direct tracking UI/API has no MLflow application authentication. |
+| MLflow AI Gateway SSRF containment | supported | tested | Atlas accepts exactly reviewed MLflow 3.15.1 to close CVE-2026-64849, disables every prefixed and unprefixed AI Gateway route family at its ASGI boundary until CVE-2026-71211 has an upstream fix, and runs the built image through a required multi-architecture smoke. |
 | Model registry deployment automation | not-supported | documented | The first Atlas slice stores tracking and registry metadata only; it ships no model serving, promotion, deployment plugin, or Backend/n8n automation. |
 | Tracking service high availability | not-supported | documented | Postgres and MinIO persist state, but Atlas runs one MLflow server without replicas, failover routing, or a tested backup-and-restore workflow for the combined stores. |

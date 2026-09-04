@@ -95,7 +95,12 @@ class Tools:
                 return "❌ ComfyUI service is not available. Please check if ComfyUI is running."
 
             health_data = health_resp.json()
-            if health_data.get("status") != "healthy":
+            health_status = health_data.get("status")
+            fal_configured = (
+                health_data.get("service") == "fal"
+                and health_status == "configured"
+            )
+            if health_status != "healthy" and not fal_configured:
                 return "❌ ComfyUI service is unavailable. Please try again later."
 
             # Prepare generation request

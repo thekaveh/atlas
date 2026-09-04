@@ -93,7 +93,16 @@
     },
     "docs": {
       "type": "string",
-      "description": "Optional pointer to the service's docs, e.g. services/<name>/README.md."
+      "minLength": 1,
+      "pattern": "^(?!.*[\\r\\n\\u000B\\u000C\\u0085\\u2028\\u2029])(?=.*\\S).+$",
+      "description": "Optional repository-relative pointer to the service's Markdown documentation, e.g. services/<name>/README.md. The cross-manifest validator requires this path or a sibling README.md to exist safely unless docs_exception is present."
+    },
+    "docs_exception": {
+      "type": "string",
+      "minLength": 30,
+      "maxLength": 500,
+      "pattern": "^(?!.*[\\u0000-\\u001F\\u007F-\\u009F\\u2028\\u2029])(?=.*\\S).+$",
+      "description": "Exceptional reason this manifest has no operator-facing documentation. Use only when neither docs nor a sibling README.md exists. Must be a printable single line with an explicit 'because' clause and at least four substantive rationale words, including at least three distinct terms; Unicode controls and generic or link-only placeholders are rejected."
     },
     "extra_kong_aliases": {
       "type": "array",
@@ -329,6 +338,37 @@
       "description": "Slice of the legacy service-configs.yml `service_dependencies:` block.",
       "additionalProperties": {
         "type": "object",
+        "properties": {
+          "conditional_requires": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["when", "requires"],
+              "properties": {
+                "when": {
+                  "type": "object",
+                  "minProperties": 1,
+                  "propertyNames": {"pattern": "^[A-Z][A-Z0-9_]*$"},
+                  "additionalProperties": {"type": "string"}
+                },
+                "when_defaults": {
+                  "type": "object",
+                  "propertyNames": {"pattern": "^[A-Z][A-Z0-9_]*$"},
+                  "additionalProperties": {"type": "string"}
+                },
+                "requires": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {"type": "string", "minLength": 1}
+                },
+                "auto_resolve": {"type": "boolean"},
+                "error_message": {"type": "string", "minLength": 1}
+              }
+            }
+          }
+        },
         "additionalProperties": true
       }
     },

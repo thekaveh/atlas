@@ -183,9 +183,15 @@ def _manifest_row_for_entry(
     if file is not None:
         precision = file.precision or entry.precision
         variant = file.variant or entry.variant
+        provisioning_required = (
+            entry.provisioning_required
+            if file.provisioning_required is None
+            else file.provisioning_required
+        )
     else:
         precision = entry.precision
         variant = entry.variant
+        provisioning_required = entry.provisioning_required
 
     row = {
         "name":                 entry.name,
@@ -212,6 +218,7 @@ def _manifest_row_for_entry(
         "license_name":         entry.license_name,
         "license_url":          entry.license_url,
         "license_restrictions": list(entry.license_restrictions),
+        "provisioning_required": bool(provisioning_required),
     }
     if file is not None:
         row["bundle_id"] = entry.name

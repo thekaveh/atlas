@@ -32,7 +32,7 @@ def test_observability_tracing_manifests_are_disabled_by_default() -> None:
             "containers": ["otel-collector"],
             "scales": ["OTEL_COLLECTOR_SCALE"],
             "endpoint": "OTEL_COLLECTOR_ENDPOINT",
-            "calls": ["tempo"],
+            "calls": ["tempo", "loki"],
         },
         "tempo": {
             "source": "TEMPO_SOURCE",
@@ -191,6 +191,17 @@ def test_observability_tracing_scale_generation_and_dependency_gate() -> None:
     with pytest.raises(ValueError, match="OTel Collector requires Tempo"):
         sc._generate_otel_tempo_loki_config()
 
+    sc.service_sources = {
+        "OTEL_COLLECTOR_SOURCE": "container",
+        "TEMPO_SOURCE": "container",
+        "LOKI_SOURCE": "disabled",
+    }
+    with pytest.raises(ValueError, match="OTel Collector requires Loki") as exc:
+        sc._generate_otel_tempo_loki_config()
+    message = str(exc.value)
+    assert "--loki-source container" in message
+    assert "--otel-collector-source disabled" in message
+
 
 def test_observability_tracing_compose_contract() -> None:
     otel = _compose("otel-collector")["services"]["otel-collector"]
@@ -203,6 +214,7 @@ def test_observability_tracing_compose_contract() -> None:
     assert otel["volumes"] == ["./config/config.yaml:/etc/otelcol/config.yaml:ro"]
     assert otel["command"] == ["--config=/etc/otelcol/config.yaml"]
     assert otel["depends_on"]["tempo"]["condition"] == "service_healthy"
+    assert otel["depends_on"]["loki"]["condition"] == "service_healthy"
     healthcheck = otel["healthcheck"]
     assert healthcheck["test"] == [
         "CMD",
@@ -259,7 +271,8 @@ def test_celery_otel_call_is_owned_by_the_manifest_and_architecture_docs() -> No
     observability = (
         REPO_ROOT / "docs" / "architecture" / "observability-flow.md"
     ).read_text(encoding="utf-8")
-    assert "backend, Celery workers, and LiteLLM OTLP traces" in observability
+    assert "Backend, Celery workers, and LiteLLM OTLP traces" in observability
+    assert "persists accepted logs in Loki" in observability
 
 
 def test_grafana_provisions_tempo_and_loki_datasources() -> None:

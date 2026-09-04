@@ -36,6 +36,20 @@ sources:
       label: "Disabled"
 
 env:
+  - name: SUPAVISOR_DB_ADMIN_USER
+    default: atlas_supavisor
+    description: "Scoped owner for Supavisor's dedicated management database."
+  - name: SUPAVISOR_DB_ADMIN_PASSWORD
+    default: atlas-db-password
+    secret: true
+    description: "Auto-generated password for Supavisor management migrations and auth lookup."
+  - name: SUPAVISOR_DB_ADMIN_USER_URI
+    default: atlas_supavisor
+    description: "Bootstrapper-synchronized percent-encoded SUPAVISOR_DB_ADMIN_USER for DSN userinfo."
+  - name: SUPAVISOR_DB_ADMIN_PASSWORD_URI
+    default: atlas-db-password
+    secret: true
+    description: "Bootstrapper-synchronized percent-encoded SUPAVISOR_DB_ADMIN_PASSWORD for DSN userinfo."
   - name: SUPAVISOR_SOURCE
     default: disabled
     description: "Deployment mode: container (transaction pooler) or disabled/direct Postgres."
@@ -44,7 +58,7 @@ env:
     description: "1 when SUPAVISOR_SOURCE=container, otherwise 0."
   - name: SUPAVISOR_TENANT_ID
     default: atlas
-    description: "Supavisor tenant suffix. Clients connect as <db_user>.<tenant>."
+    description: "Supavisor tenant suffix. Clients connect as <db_user>.<tenant>; only ASCII letters, digits, underscores, and hyphens are accepted because dot is the upstream user/tenant delimiter."
   - name: SUPAVISOR_DEFAULT_POOL_SIZE
     default: 20
     description: "Default upstream Postgres pool size for the Atlas tenant."

@@ -4,15 +4,18 @@ A default-active model (e.g. `qwen3-embedding:0.6b`) that hits a transient
 registry/network blip must not be left unpulled after a single attempt.
 `services/ollama/pull/scripts/pull.sh` wraps each model pull in a bounded retry
 loop and only logs the terminal ERROR after all attempts fail — staying
-non-fatal so the rest of the set still pulls. Shell scripts are not executed in
-this suite, so this guards the retry structure by content (same approach as the
-lightrag-init readiness guard).
+non-fatal so the rest of the set still pulls. The suite combines structural
+assertions with a fake-command behavioral run that verifies the configured
+stall bound and retry count.
 """
 from __future__ import annotations
 
 import os
 from pathlib import Path
-import subprocess
+
+import pytest
+
+from core.process_runner import run_with_deadline
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PULL_SH = REPO_ROOT / "services" / "ollama" / "pull" / "scripts" / "pull.sh"
@@ -49,7 +52,8 @@ def test_pull_failure_is_non_fatal_after_retries():
     assert "Finished model pulling process" in src
 
 
-def test_stalled_pull_attempt_is_bounded_and_retried(tmp_path):
+@pytest.mark.parametrize("stall_timeout", ["7", "13"])
+def test_stalled_pull_attempt_is_bounded_and_retried(tmp_path, stall_timeout):
     attempts = tmp_path / "attempts"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -61,8 +65,9 @@ def test_stalled_pull_attempt_is_bounded_and_retried(tmp_path):
         "  *\"/api/pull\"*)\n"
         f"    printf 'attempt\\n' >> {str(attempts)!r}\n"
         "    case \" $* \" in\n"
-        "      *\" --connect-timeout \"*\" --speed-time \"*\" --speed-limit \"*) exit 28 ;;\n"
-        "      *) /bin/sleep 10 ;;\n"
+        f"      *\" --connect-timeout 20 --speed-time {stall_timeout} "
+        "--speed-limit 1024 \"*) exit 28 ;;\n"
+        "      *) /bin/sleep 30 ;;\n"
         "    esac ;;\n"
         "  *) exit 0 ;;\n"
         "esac\n",
@@ -76,16 +81,13 @@ def test_stalled_pull_attempt_is_bounded_and_retried(tmp_path):
         "OLLAMA_HOST_URL": "http://ollama:11434",
         "OLLAMA_USER_MODELS": "example:latest",
         "OLLAMA_CUSTOM_MODELS": "",
-        "OLLAMA_PULL_STALL_TIMEOUT_SECONDS": "1",
+        "OLLAMA_PULL_STALL_TIMEOUT_SECONDS": stall_timeout,
     }
 
-    completed = subprocess.run(
+    completed = run_with_deadline(
         ["sh", str(PULL_SH)],
         env=env,
-        capture_output=True,
-        text=True,
-        timeout=3,
-        check=False,
+        timeout_seconds=10,
     )
 
     assert completed.returncode == 0
@@ -100,6 +102,6 @@ def test_progressing_large_pull_has_no_artificial_wall_clock_cutoff():
 
     pull_command = src.split("curl_output=$(curl", 1)[1].split("2>&1)", 1)[0]
     assert "--connect-timeout" in pull_command
-    assert "--speed-time" in pull_command
+    assert '--speed-time "$pull_stall_timeout"' in pull_command
     assert "--speed-limit" in pull_command
     assert "--max-time" not in pull_command

@@ -143,6 +143,7 @@ class MemoryService:
         self.max_facts = int(os.getenv("LANGMEM_MAX_FACTS_PER_USER", "1000"))
         self.extraction_model = os.getenv("LANGMEM_EXTRACTION_MODEL", "")
         self.embedding_model = os.getenv("LANGMEM_EMBEDDING_MODEL", "")
+        self.embedding_dimension = os.getenv("LANGMEM_EMBEDDING_DIM", "768")
 
         self.store: Optional[MemoryStore] = None
         self._initialized = False
@@ -172,6 +173,8 @@ class MemoryService:
             litellm_url=self.litellm_url,
             litellm_api_key=self.litellm_api_key,
             embedding_model=self.embedding_model or None,
+            embedding_dimension=self.embedding_dimension,
+            manage_schema=True,
         )
         await self.store.initialize()
         self._initialized = True
@@ -455,6 +458,7 @@ Extract the facts as JSON:"""
 
         for fact_uuid, fact in embedding_inputs:
             weaviate_id = None
+            embedding_stored = False
             try:
                 weaviate_id = await self.store.store_embedding(
                     fact_id=fact["id"],
@@ -465,6 +469,7 @@ Extract the facts as JSON:"""
                     confidence=fact["confidence"],
                     metadata={},
                 )
+                embedding_stored = True
             except Exception as exc:
                 logger.warning(
                     "Failed to store embedding for fact %s (error_type=%s)",
@@ -472,16 +477,35 @@ Extract the facts as JSON:"""
                     type(exc).__name__,
                 )
             async with self._acquire() as conn:
-                if weaviate_id:
+                if embedding_stored:
+                    # The embedding belongs to this exact canonical vector state.
+                    # A concurrent update/delete/consolidation advances updated_at
+                    # and keeps its newer pending intent for the reconciler.
                     await conn.execute(
-                        "UPDATE public.memory_facts SET weaviate_id = $1, "
-                        "vector_sync_pending = false WHERE id = $2",
+                        """
+                        WITH embedding_owner AS MATERIALIZED (
+                            SELECT updated_at
+                            FROM public.memory_facts
+                            WHERE id = $2 AND vector_sync_pending = true
+                              AND content = $3 AND fact_type = $4
+                              AND confidence = $5 AND is_active = true
+                        )
+                        UPDATE public.memory_facts AS fact
+                        SET weaviate_id = $1, vector_sync_pending = false
+                        FROM embedding_owner
+                        WHERE fact.id = $2 AND fact.vector_sync_pending = true
+                          AND fact.updated_at = embedding_owner.updated_at
+                        """,
                         weaviate_id,
                         fact_uuid,
+                        fact["content"],
+                        fact["fact_type"],
+                        fact["confidence"],
                     )
                 else:
-                    # Embedding was not durably stored (store_embedding raised or
-                    # returned no id). Flag the fact so _reconcile_pending_vectors
+                    # Embedding was not durably stored (store_embedding raised).
+                    # A None id is a successful pgvector-authoritative write, not
+                    # a failure. Flag only exceptions so _reconcile_pending_vectors
                     # — which only selects vector_sync_pending = true — retries it
                     # on a later recall/consolidate. Without this the fact would
                     # keep weaviate_id=NULL with vector_sync_pending=false and stay
@@ -1286,9 +1310,15 @@ Extract the facts as JSON:"""
                     "SELECT COUNT(*) FROM public.memory_facts WHERE is_active = true"
                 )
 
+            vector_state = (
+                self.store.vector_backend_state() if self.store else {}
+            )
             return {
                 "status": "healthy",
                 "vector_backend": self.store.backend if self.store else "unknown",
+                "vector_backend_reason": vector_state.get("reason"),
+                "weaviate_state": vector_state.get("weaviate_state"),
+                "embedding_dimension": vector_state.get("embedding_dimension"),
                 "facts_count": count,
                 "enabled": True,
             }
@@ -1304,3 +1334,11 @@ Extract the facts as JSON:"""
                 "enabled": True,
                 "error": "Memory service is unavailable",
             }
+
+    async def probe_weaviate(self) -> Dict[str, Any]:
+        """Explicitly probe Weaviate and expose the resulting latch state."""
+        self._check_enabled()
+        await self._ensure_initialized()
+        assert self.store is not None
+        await self.store.probe_weaviate()
+        return self.store.vector_backend_state()

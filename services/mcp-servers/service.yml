@@ -14,9 +14,9 @@ capabilities:
     verification: tested
     note: "Regex filters, Postgres read-only transactions, Neo4j READ_ACCESS, and row/time caps block common direct mutation syntax but do not prevent privileged function or procedure side effects under administrator credentials."
   - name: "Tenant-scoped Postgres reads"
-    status: not-supported
+    status: partial
     verification: tested
-    note: "MCP uses the shared supabase_admin owner, bypasses RLS, and permits bounded SELECT/WITH/SHOW/EXPLAIN with no schema, table, or column allowlist or redaction; trusted operators only until a separate least-privilege views or role design lands."
+    note: "MCP uses a dedicated read-only login without object ownership or BYPASSRLS and permits bounded SELECT/WITH/SHOW/EXPLAIN; it still has broad pg_read_all_data access with no schema, table, or column allowlist or redaction, so access remains operator-scoped rather than tenant-scoped."
   - name: "MCP ingress authentication"
     status: partial
     verification: tested
@@ -49,6 +49,13 @@ sources:
       label: "Disabled"
 
 env:
+  - name: MCP_POSTGRES_DB_USER
+    default: atlas_mcp
+    description: "Read-only PostgreSQL login for the curated MCP query tool."
+  - name: MCP_POSTGRES_DB_PASSWORD
+    default: atlas-db-password
+    secret: true
+    description: "Auto-generated password for the MCP read-only database role."
   - name: MCP_SERVERS_SOURCE
     default: disabled
     description: "Curated MCP package source. Disabled by default because MCP tools can reach stack internals."

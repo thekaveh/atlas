@@ -21,7 +21,7 @@ Key variables:
 | Variable | Purpose |
 | --- | --- |
 | `SUPAVISOR_SOURCE` | `disabled` or `container`. |
-| `SUPAVISOR_TENANT_ID` | Tenant suffix appended to the Postgres user. Default: `atlas`. |
+| `SUPAVISOR_TENANT_ID` | Tenant suffix appended to the Postgres user. Default: `atlas`; must match `[A-Za-z0-9_-]+` with no surrounding whitespace. |
 | `SUPAVISOR_DEFAULT_POOL_SIZE` | Per-user upstream pool size. Default: `20`. |
 | `SUPAVISOR_MAX_CLIENT_CONN` | Maximum accepted client connections. Default: `100`. |
 | `SUPAVISOR_DB_POOL_SIZE` | Supavisor metadata DB pool size. Default: `5`. |
@@ -31,14 +31,14 @@ Generated client variables:
 
 | Variable | Enabled value | Disabled rollback value |
 | --- | --- | --- |
-| `SUPAVISOR_DATABASE_URL` | `postgresql://${SUPABASE_DB_USER}.${SUPAVISOR_TENANT_ID}:...@supavisor:6543/${SUPABASE_DB_NAME}` | Direct `supabase-db:5432` URL |
+| `SUPAVISOR_DATABASE_URL` | `postgresql://${BACKEND_DB_USER_URI}.${SUPAVISOR_TENANT_ID}:...@supavisor:6543/${SUPABASE_DB_NAME_URI}` | Scoped Backend direct URL |
 | `SUPAVISOR_DB_HOST` | `supavisor` | `supabase-db` |
 | `SUPAVISOR_DB_PORT_VALUE` | `6543` | `5432` |
-| `SUPAVISOR_DB_USER` | `${SUPABASE_DB_USER}.${SUPAVISOR_TENANT_ID}` | `${SUPABASE_DB_USER}` |
+| `SUPAVISOR_DB_USER` | `${N8N_DB_USER}.${SUPAVISOR_TENANT_ID}` | `${N8N_DB_USER}` |
 
 ## 4. Architecture & wiring
 
-Supavisor depends on `supabase-db-init`, runs `/app/bin/migrate`, evaluates `pooler/pooler.exs`, then starts the pooler server. The `pooler.exs` tenant bootstrap creates the Atlas tenant and maps the configured Supabase DB user to transaction mode.
+Supavisor depends on `supabase-db-init`, uses its dedicated management login for migrations and authentication lookup, evaluates `pooler/pooler.exs`, then starts the pooler server. Pooled clients retain their own PostgreSQL role and password.
 
 Pooled consumers in this slice:
 
@@ -99,7 +99,7 @@ Set `SUPAVISOR_SOURCE=disabled` and rerun `./start.sh`. The bootstrapper regener
 
 ## 7. Troubleshooting
 
-- `FATAL: Tenant or user not found`: confirm the client username includes the tenant suffix, for example `${SUPABASE_DB_USER}.${SUPAVISOR_TENANT_ID}`.
+- `FATAL: Tenant or user not found`: confirm the client username includes the tenant suffix, for example `${BACKEND_DB_USER}.${SUPAVISOR_TENANT_ID}`.
 - `VAULT_ENC_KEY` errors: make sure `SUPAVISOR_VAULT_ENC_KEY` is exactly 32 bytes. The bootstrapper generates this when the value is blank.
 - Backend or n8n auth failures after enabling: set `SUPAVISOR_SOURCE=disabled` to roll back, then inspect Supavisor tenant bootstrap logs.
 - No Kong alias or host port is expected. v1 consumers connect over the Compose network at `supavisor:6543`.

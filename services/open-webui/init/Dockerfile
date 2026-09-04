@@ -3,20 +3,18 @@
 # wheels (musl/alpine incompatible). Python-slim avoids the apk + build-deps
 # gymnastics. Override via OPEN_WEB_UI_INIT_IMAGE in .env if needed.
 #
-# Pin matches the python:3.12.7-slim already used by litellm/init. The
+# Pin matches the reviewed Python base used by litellm/init. The
 # previous default was `python:3.12-slim` — a floating patch tag that
 # silently rolled forward, leaving the two
 # init containers out of step (litellm/init explicitly pinned 3.12.7
 # for the same reproducibility reason). psycopg2-binary 2.9.9 ships
 # cp312 wheels so the original 3.11 pin was no longer load-bearing.
-ARG BASE_IMAGE=python:3.12.7-slim
+ARG BASE_IMAGE=python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579
 FROM ${BASE_IMAGE}
 
-# The pinned base predates current Debian security packages. Apply available
-# fixes at build time; the required image scan verifies the resulting runtime.
-RUN apt-get update && \
-    apt-get upgrade --yes && \
-    rm -rf /var/lib/apt/lists/*
+# Debian fixes arrive by deliberately refreshing BASE_IMAGE. A mutable full
+# upgrade would make the same source non-reproducible; the required final-image
+# scan gates each reviewed base refresh.
 
 WORKDIR /app
 

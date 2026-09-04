@@ -35,6 +35,7 @@ USER root
 
 RUN set -eux; \
     apt-get update; \
+    DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends; \
     apt-get install -y --no-install-recommends openjdk-17-jre-headless ca-certificates; \
     rm -rf /var/lib/apt/lists/*; \
     mkdir -p /opt/java; \

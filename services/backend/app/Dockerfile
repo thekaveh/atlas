@@ -1,16 +1,13 @@
 # Fallback mirrors BACKEND_IMAGE in service.yml — compose overrides via
 # build.args; CI build-validation builds with this default, so keep in sync.
-ARG BASE_IMAGE=${BACKEND_IMAGE:-python:3.12.13}
+ARG BASE_IMAGE=${BACKEND_IMAGE:-python:3.12.14-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970}
 FROM ${BASE_IMAGE}
 
 WORKDIR /app
 
-# Apply published Debian security fixes that postdate the pinned Python image.
-# Unfixed upstream findings remain visible in the scheduled full-image scan;
-# the required PR gate blocks on vulnerabilities that have a remediation.
-RUN apt-get update && \
-    apt-get upgrade --yes && \
-    rm -rf /var/lib/apt/lists/*
+# Debian security fixes arrive through a reviewed BASE_IMAGE refresh. Running a
+# mutable full-distribution upgrade here would make identical source revisions
+# produce different images; the required final-image scan gates every refresh.
 
 # Copy requirements first for better layer caching
 COPY ./app/requirements.txt ./app/requirements-locked.txt ./

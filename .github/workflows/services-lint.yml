@@ -28,9 +28,16 @@ jobs:
   lint:
     name: Manifest lint + unit tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # Runs the full bootstrapper suite twice (Python 3.12 then 3.10). The
+    # container-backed backup/restore integration tests put a single pass near
+    # 40 minutes, so the two passes plus setup need well over the former hour.
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Depth zero fetches all history and tags. `fetch-tags` is only
+          # needed to add tags to a positive-depth checkout.
+          fetch-depth: 0
 
       - name: Install Cairo
         run: sudo apt-get update && sudo apt-get install -y libcairo2
@@ -66,8 +73,33 @@ jobs:
       - name: Lint tracked shell scripts
         run: git ls-files -z '*.sh' | xargs -0 shellcheck -x
 
+      - name: Pull exact backup integration images
+        run: |
+          timeout 5m docker pull postgres:17.10-alpine
+          timeout 5m docker pull minio/minio:RELEASE.2025-09-07T16-13-09Z
+          timeout 5m docker pull minio/mc:RELEASE.2025-08-13T08-35-41Z
+          timeout 5m docker pull neo4j:5.26.27
+          timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.13
+          timeout 5m docker pull alpine:3.24.1
+          timeout 5m docker pull supabase/postgres:17.6.1.139
+          timeout 5m docker pull postgres:15.18-alpine
+          timeout 5m docker pull supabase/realtime:v2.112.0
+          timeout 5m docker pull supabase/storage-api:v1.61.5
+          timeout 5m docker pull supabase/supavisor:2.9.5
+          timeout 5m docker pull redis:7.2.14-alpine
+          timeout 5m docker pull otel/opentelemetry-collector-contrib:0.154.0
+          timeout 5m docker pull grafana/loki:3.7.0
+          timeout 5m docker pull grafana/grafana:11.4.3
+          timeout 10m docker build --pull \
+            --tag atlas-backup:local \
+            services/backup/init
+
       - name: Run unit tests (loader, validator, assembler, hooks, CLI)
         working-directory: bootstrapper
+        env:
+          ATLAS_BACKUP_PRODUCTION_IMAGE_INTEGRATION: "1"
+          ATLAS_DATABASE_BACKUP_LIVE_INTEGRATION: "1"
+          ATLAS_RUN_DOCKER_OTEL_SMOKE: "1"
         run: >-
           uv run pytest tests/ -q
           --ignore=tests/test_fragment_equivalence.py
@@ -83,6 +115,27 @@ jobs:
         working-directory: services/backend/app/app
         run: |
           BACKEND_TEST_VENV="${RUNNER_TEMP:-$PWD}/backend-ci-venv"
+          REDIS_CONTAINER="atlas-backend-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup_backend_redis() {
+            docker rm -f "$REDIS_CONTAINER" >/dev/null 2>&1 || true
+          }
+          trap cleanup_backend_redis EXIT
+          docker run -d --pull=never --name "$REDIS_CONTAINER" \
+            -p 127.0.0.1::6379 redis:7.2.14-alpine \
+            redis-server --save '' --appendonly no
+          for attempt in $(seq 1 40); do
+            if docker exec "$REDIS_CONTAINER" redis-cli ping | grep -qx PONG; then
+              break
+            fi
+            if [ "$attempt" -eq 40 ]; then
+              echo "Backend test Redis did not become ready" >&2
+              exit 1
+            fi
+            sleep 0.25
+          done
+          REDIS_ENDPOINT=$(docker port "$REDIS_CONTAINER" 6379/tcp)
+          REDIS_PORT=${REDIS_ENDPOINT##*:}
+          export ATLAS_TEST_REDIS_URL="redis://127.0.0.1:${REDIS_PORT}/15"
           uv venv --python 3.12 "$BACKEND_TEST_VENV"
           # Runtime and test requirements jointly own the tested import
           # closure. Both are repository-managed; no inline CI subset may
@@ -277,6 +330,12 @@ jobs:
       - name: Compiled service runtime lock checks
         run: uv run --project bootstrapper python -m scripts.check_runtime_locks
 
+      - name: ComfyUI custom-node dependency lock check
+        run: uv run --project bootstrapper python scripts/compile_comfyui_custom_node_locks.py --check
+
+      - name: ComfyUI custom-node runtime overlay compatibility
+        run: uv run --project bootstrapper python scripts/check_comfyui_custom_node_overlays.py
+
       - name: Container image inventory + exception-policy check
         run: uv run --project bootstrapper python -m scripts.container_security
 
@@ -334,75 +393,122 @@ jobs:
           version: v0.74.0
           cache: true
 
+      - name: Validate pinned remote build contexts
+        run: >-
+          uv run --project bootstrapper python -m scripts.upstream_drift_watch
+          --remote-contexts-only
+          --report-file "${RUNNER_TEMP}/atlas-remote-context-report.md"
+
       - name: Scan changed manifest-owned remote images
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          # cr.weaviate.io delegates auth to Docker Hub's realm
+          # (service=registry.docker.io), so a Hub token lifts these pulls off
+          # the anonymous per-IP quota that shared runners exhaust. Empty when
+          # the secrets are unset; the scan script unsets them in that case and
+          # falls back to anonymous pulls.
+          TRIVY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          TRIVY_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # `remote_base_digests` records the reviewed indexes for the two remote
+          # build contexts and is refreshed whenever a floating upstream tag moves.
+          # Feeding that churn into the changed-image set re-scanned all 69
+          # manifest-owned image/platform pairs for an edit that changes no image
+          # Atlas ships, so the baseline is filtered out here. Every service
+          # manifest, compose fragment, and Dockerfile still triggers a scan, and
+          # the `builds:` exclusions remain gated by container_security's own
+          # schema, expiry, and horizon checks.
           git diff --unified=0 --no-color "$BASE_SHA" "$GITHUB_SHA" -- \
             'services/*/service.yml' 'services/*/compose.yml' \
+            'services/**/Dockerfile' \
             | uv run --project bootstrapper python -m scripts.container_security \
                 --changed-diff-stdin --images-json \
             | jq -r '.[] | [.image, .platform] | @tsv' \
             | while IFS=$'\t' read -r image_ref image_platform; do
-                trivy image \
-                  --image-src remote \
-                  --platform "$image_platform" \
-                  --scanners vuln \
-                  --severity HIGH,CRITICAL \
-                  --ignorefile .trivyignore.yaml \
-                  --exit-code 1 \
-                  --no-progress \
-                  --timeout 30m \
-                  "$image_ref"
+                bash scripts/run_trivy_remote_scan.sh "$image_ref" "$image_platform"
               done
 
-      - name: Build local Compose and init images
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+  final-image-scan:
+    name: Final-image scan (local Compose and init images)
+    runs-on: ubuntu-24.04
+    # Not a required check yet. It builds and scans every touched local
+    # context, and the fleet still carries pre-existing findings tracked in
+    # #996 and #997 — gating on them would block every pull request on debt
+    # it did not introduce. Promote this to a required context once those
+    # land; the gate itself is unchanged and reports on every run.
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: "0.11.19"
+
+      - name: Sync inventory dependencies
+        run: uv sync --project bootstrapper --group dev --locked
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Install pinned Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: v0.74.0
+          cache: true
+
+      - name: Build and scan local Compose and init images
         run: |
           set -euo pipefail
-          scan_image_list="${RUNNER_TEMP}/atlas-ci-scan-images.txt"
-          : > "$scan_image_list"
+          image_tag=""
+          cleanup_loaded_image() {
+            if [ -n "$image_tag" ]; then
+              docker image rm "$image_tag" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup_loaded_image EXIT
           image_index=0
           for spec in \
-            "services/airflow/build|Dockerfile|--build-arg BASE_IMAGE=apache/airflow:3.3.1" \
-            "services/asset-worker/app|Dockerfile|" \
-            "services/asset-baker/app|Dockerfile|" \
-            "services/backend/app|Dockerfile|" \
-            "services/docling/provider|adapter/Dockerfile|" \
-            "services/iceberg-rest/build|Dockerfile|" \
-            "services/jenkins/build|Dockerfile|" \
-            "services/jupyterhub/build|Dockerfile|" \
-            "services/local-deep-researcher/build|Dockerfile|" \
-            "services/mcp-servers/runtime|../build/Dockerfile|" \
-            "services/neo4j/build|Dockerfile|" \
-            "services/spark/build|Dockerfile|--build-arg BASE_IMAGE=apache/spark:4.1.2" \
-            "services/zeppelin/build|Dockerfile|" \
-            "services/label-studio/init|Dockerfile|" \
-            "services/langfuse/init|Dockerfile|" \
-            "services/litellm/init|Dockerfile|" \
-            "services/mlflow/init|Dockerfile|" \
-            "services/open-webui/init|Dockerfile|"
+            "services/airflow/build|Dockerfile" \
+            "services/asset-worker/app|Dockerfile" \
+            "services/asset-baker/app|Dockerfile" \
+            "services/backup/init|Dockerfile" \
+            "services/backend/app|Dockerfile" \
+            "services/comfyui/init|Dockerfile" \
+            "services/docling/provider|adapter/Dockerfile" \
+            "services/hermes/init|Dockerfile" \
+            "services/iceberg-rest/build|Dockerfile" \
+            "services/jenkins/build|Dockerfile" \
+            "services/jupyterhub/build|Dockerfile" \
+            "services/lightrag/init|Dockerfile" \
+            "services/local-deep-researcher/build|Dockerfile" \
+            "services/mcp-servers/runtime|../build/Dockerfile" \
+            "services/neo4j/build|Dockerfile" \
+            "services/spark/build|Dockerfile" \
+            "services/zeppelin/build|Dockerfile" \
+            "services/label-studio/init|Dockerfile" \
+            "services/langfuse/init|Dockerfile" \
+            "services/litellm/init|Dockerfile" \
+            "services/mlflow|build/Dockerfile" \
+            "services/mlflow/init|Dockerfile" \
+            "services/ollama/pull|Dockerfile" \
+            "services/openclaw/init|Dockerfile" \
+            "services/open-webui/init|Dockerfile"
           do
-            IFS='|' read -r context dockerfile extra_args <<< "$spec"
+            IFS='|' read -r context dockerfile <<< "$spec"
             dockerfile_path="$(cd "$context" && realpath "$dockerfile")"
             dockerfile_path="${dockerfile_path#"$GITHUB_WORKSPACE"/}"
-            scan_image=false
-            if ! git diff --quiet "$BASE_SHA" "$GITHUB_SHA" -- \
-              "$dockerfile_path" \
-              ":(glob)$context/**/requirements*.txt" \
-              ":(glob)$context/**/constraints*.txt" \
-              ":(glob)$context/**/pyproject.toml" \
-              ":(glob)$context/**/uv.lock" \
-              ":(glob)$context/**/package.json" \
-              ":(glob)$context/**/package-lock.json" \
-              ":(glob)$context/**/pom.xml" \
-              ":(glob)$context/**/*.gradle" \
-              ":(glob)$context/**/gradle.lockfile"
-            then
-              scan_image=true
-            fi
             platforms="linux/amd64 linux/arm64"
             if [ "$context|$dockerfile" = "services/asset-baker/app|Dockerfile" ]; then
               platforms="linux/amd64"
@@ -410,36 +516,29 @@ jobs:
             for platform in $platforms; do
               platform_tag="${platform#linux/}"
               image_tag="atlas-ci/runtime-${image_index}-${platform_tag}:${GITHUB_SHA}"
-              if [ -n "$extra_args" ]; then
-                docker buildx build --load --platform "$platform" -t "$image_tag" $extra_args -f "$dockerfile_path" "$context/"
-              else
-                docker buildx build --load --platform "$platform" -t "$image_tag" -f "$dockerfile_path" "$context/"
+              docker buildx build --load --platform "$platform" -t "$image_tag" -f "$dockerfile_path" "$context/"
+              if [ "$context|$dockerfile" = "services/spark/build|Dockerfile" ]; then
+                scripts/smoke_spark_s3a.sh "$image_tag"
               fi
-              if [ "$scan_image" = true ]; then
-                printf '%s\n' "$image_tag" >> "$scan_image_list"
-              else
-                docker image rm "$image_tag"
+              if [ "$context|$dockerfile" = "services/mlflow|build/Dockerfile" ]; then
+                uv run --project bootstrapper python scripts/smoke_mlflow_gateway_guard.py \
+                  --image "$image_tag"
               fi
+              trivy image \
+                --image-src docker \
+                --scanners vuln \
+                --severity HIGH,CRITICAL \
+                --ignore-unfixed \
+                --ignorefile .trivyignore.yaml \
+                --exit-code 1 \
+                --no-progress \
+                --timeout 10m \
+                "$image_tag"
+              docker image rm "$image_tag"
+              image_tag=""
             done
             image_index=$((image_index + 1))
+            # Loaded targets are removed immediately; discard the duplicate
+            # BuildKit cache after each context to bound runner disk usage.
+            docker buildx prune --force
           done
-          # The GitHub runner has limited disk. Loaded scan targets remain in
-          # Docker; the duplicate BuildKit cache is no longer needed.
-          docker buildx prune --force
-
-      - name: Scan built final runtime images
-        run: |
-          set -euo pipefail
-          while IFS= read -r image_ref; do
-            trivy image \
-              --image-src docker \
-              --scanners vuln \
-              --severity HIGH,CRITICAL \
-              --ignore-unfixed \
-              --ignorefile .trivyignore.yaml \
-              --exit-code 1 \
-              --no-progress \
-              --timeout 10m \
-              "$image_ref"
-            docker image rm "$image_ref"
-          done < "${RUNNER_TEMP}/atlas-ci-scan-images.txt"

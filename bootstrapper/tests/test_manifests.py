@@ -349,6 +349,28 @@ def test_manifest_without_capabilities_is_rejected(
         load_manifests(services_root)
 
 
+@pytest.mark.parametrize(
+    "conditional_requires",
+    [
+        "not-a-list",
+        [{"when": "not-a-map", "requires": ["minio"]}],
+        [{"when": {"BACKUP_S3_MODE": "local"}, "requires": []}],
+        [{"when": {"bad-name": "local"}, "requires": ["minio"]}],
+    ],
+)
+def test_conditional_runtime_dependency_shape_is_schema_validated(
+    services_root, write_manifest, minimal_manifest_dict, conditional_requires,
+):
+    manifest = minimal_manifest_dict("backup")
+    manifest["runtime_deps"] = {
+        "backup": {"conditional_requires": conditional_requires}
+    }
+    write_manifest("backup", manifest)
+
+    with pytest.raises(ManifestLoadError, match="conditional_requires"):
+        load_manifests(services_root)
+
+
 def test_missing_required_field_rejected(services_root, write_manifest):
     write_manifest("redis", {"name": "redis", "label": "x", "category": "data"})
     # missing containers + env
@@ -1013,7 +1035,7 @@ def test_airflow_manifest_loads():
                     "Workflow and model provisioning",
                     "partial",
                     "tested",
-                    "Atlas stages selected catalog models and pinned custom nodes, but arbitrary workflow dependencies and readiness remain operator-managed.",
+                        "Atlas stages selected catalog models and pinned custom nodes and gates container readiness on their exact required plan; arbitrary third-party workflow dependencies remain operator-managed.",
                 ),
                     (
                         "Supabase output upload",
@@ -1298,15 +1320,19 @@ def test_task4_reviewed_rows_keep_status_and_verification_orthogonal(
 
 
 @pytest.mark.parametrize(
-    ("service", "capability_name"),
+    ("service", "capability_name", "expected_verification"),
     [
-        ("backup", "On-demand Postgres and volume backup export"),
-        ("loki", "Automatic Atlas application log collection"),
-        ("otel-collector", "Log export to Loki"),
+        (
+            "backup",
+            "On-demand Postgres and consistency-safe snapshot export",
+            "documented",
+        ),
+        ("loki", "Automatic Atlas application log collection", "tested"),
+        ("otel-collector", "Log export to Loki", "tested"),
     ],
 )
 def test_reviewed_capability_verification_matches_direct_coverage(
-    service, capability_name
+    service, capability_name, expected_verification
 ):
     from pathlib import Path
 
@@ -1316,7 +1342,7 @@ def test_reviewed_capability_verification_matches_direct_coverage(
     )
     capability = next(cap for cap in manifest.capabilities if cap.name == capability_name)
 
-    assert capability.verification == "documented"
+    assert capability.verification == expected_verification
 
 
 def test_supabase_app_role_capability_names_manifest_owned_variables():
@@ -1332,10 +1358,12 @@ def test_supabase_app_role_capability_names_manifest_owned_variables():
         if cap.name == "Least-privilege application database role"
     )
 
-    assert "SUPABASE_DB_APP_USER" in capability.note
-    assert "SUPABASE_DB_APP_PASSWORD" in capability.note
-    assert "SUPABASE_APP_USER" not in capability.note
-    assert "SUPABASE_APP_PASSWORD" not in capability.note
+    assert (capability.status, capability.verification) == ("supported", "tested")
+    _assert_text_contract(capability.note, contains=(
+        "idempotent per-service logins",
+        "dedicated database/schema ownership or read grants",
+        "do not receive the Supabase owner credential",
+    ))
 
 
 def test_supabase_pg_meta_contract_matches_compose_and_kong_boundaries():
@@ -1375,7 +1403,7 @@ def test_supabase_pg_meta_contract_matches_compose_and_kong_boundaries():
         "capability": (capability.status, capability.verification),
     } == {
         "ports": ["${HOST_BIND_IP:-}${SUPABASE_META_PORT}:8080"],
-        "db_user": "${SUPABASE_DB_USER}",
+        "db_user": "${SUPABASE_META_DB_USER:?SUPABASE_META_DB_USER is required}",
         "dashboard_env": set(),
         "route_paths": ["/pg/"],
         "required_plugins": True,
@@ -1386,7 +1414,7 @@ def test_supabase_pg_meta_contract_matches_compose_and_kong_boundaries():
         "Kong /pg/ route uses Basic authentication and the dashboard_user ACL",
         "direct host-published SUPABASE_META_PORT",
         "no application authentication",
-        "supabase_admin",
+        "dedicated dashboard_user member",
     ))
 
 
@@ -1464,16 +1492,16 @@ def test_supabase_postgres_host_auth_contract_matches_compose():
         (capability.status, capability.verification),
     ) == (
         ["${HOST_BIND_IP:-127.0.0.1:}${SUPABASE_DB_PORT}:5432"],
-        "trust",
-        "",
-        ("not-supported", "documented"),
+        "scram-sha-256",
+        "127.0.0.1:",
+        ("supported", "tested"),
     )
     _assert_text_contract(capability.note, contains=(
-        "host-published SUPABASE_DB_PORT",
-        "POSTGRES_HOST_AUTH_METHOD=trust",
+        "SCRAM-SHA-256",
+        "generated scoped passwords",
+        "upgrade-time HBA rewrite for legacy volumes",
         "loopback by default",
-        "explicit HOST_BIND_IP override",
-        "authenticated database policy before remote access",
+        "firewall and TLS planning",
     ))
 
 
@@ -1576,33 +1604,18 @@ def test_redpanda_access_contract_matches_compose_and_kong_boundaries():
     ))
 
 
-def test_backup_restore_contract_matches_non_atomic_orchestration():
+def test_backup_restore_contract_matches_failure_atomic_orchestration():
     from pathlib import Path
-    import shlex
+    import subprocess
 
     repo_root = Path(__file__).resolve().parent.parent.parent
-    restore_script = (
-        repo_root / "services/backup/init/scripts/restore-postgres.sh"
-    ).read_text(encoding="utf-8")
-    restore_tokens = next(
-        tokens
-        for line in restore_script.splitlines()
-        if not line.lstrip().startswith("#")
-        for tokens in (shlex.split(line),)
-        if "pg_restore" in tokens
+    restore_script = repo_root / "services/backup/init/scripts/restore-postgres.sh"
+    syntax_check = subprocess.run(
+        ["sh", "-n", str(restore_script)],
+        capture_output=True,
+        check=False,
+        text=True,
     )
-
-    def uses_option(long_name: str, short_name: str) -> bool:
-        return any(
-            token == long_name
-            or token == short_name
-            or (
-                token.startswith("-")
-                and not token.startswith("--")
-                and short_name.removeprefix("-") in token.removeprefix("-")
-            )
-            for token in restore_tokens
-        )
 
     manifest = next(
         m for m in load_manifests(repo_root / "services") if m.name == "backup"
@@ -1610,17 +1623,16 @@ def test_backup_restore_contract_matches_non_atomic_orchestration():
     capability = next(
         cap for cap in manifest.capabilities if cap.name == "Postgres restore workflow"
     )
-    assert (
-        "pg_restore" in restore_tokens,
-        uses_option("--list", "-l"),
-        uses_option("--single-transaction", "-1"),
-        (capability.status, capability.verification),
-    ) == (True, False, False, ("partial", "tested"))
+    assert syntax_check.returncode == 0, syntax_check.stderr
+    assert (capability.status, capability.verification) == ("partial", "tested")
     _assert_text_contract(capability.note, contains=(
-        "orchestrates S3 retrieval and pg_restore",
-        "volume archives have no restore workflow",
-        "no preflight validation or atomicity guarantee",
-    ), excludes=("validates and restores",))
+        "unauthenticated",
+        "deployment/identity/integrity inventories",
+        "preserves target database attributes, ACLs, and settings",
+        "restores and validates a temporary database",
+        "recoverable maintenance-mode cutover",
+        "volume archives still have no restore workflow",
+    ), excludes=("no preflight validation", "no atomicity guarantee"))
 
 
 def test_ray_worker_count_capability_does_not_claim_a_global_upper_bound():
@@ -1680,7 +1692,7 @@ def test_prometheus_access_contract_matches_compose_and_kong_surfaces():
         "node_exporter_ports": ["${HOST_BIND_IP:-}${NODE_EXPORTER_PORT}:9100"],
         "cadvisor_ports": ["${HOST_BIND_IP:-}${CADVISOR_PORT}:8080"],
         "lifecycle_enabled": True,
-        "host_bind_ip": "",
+        "host_bind_ip": "127.0.0.1:",
         "route_hosts": ["prometheus.localhost"],
         "plugins": {"cors"},
         "capability": ("not-supported", "tested"),
@@ -1689,7 +1701,7 @@ def test_prometheus_access_contract_matches_compose_and_kong_surfaces():
         "direct PROMETHEUS_PORT, NODE_EXPORTER_PORT, and CADVISOR_PORT publishes have no authentication",
         "CORS-only Kong prometheus.localhost route has no authentication",
         "--web.enable-lifecycle is enabled",
-        "default empty HOST_BIND_IP binds direct ports on all interfaces",
+        "default HOST_BIND_IP=127.0.0.1: keeps direct ports loopback-bound",
         "HOST_BIND_IP=127.0.0.1:",
         "firewall or remove the direct ports",
         "authentication proxy or remove the Prometheus Kong route",
@@ -1733,7 +1745,7 @@ def test_spark_web_access_contract_matches_compose_and_kong_surfaces():
     } == {
         "master_ports": ["${HOST_BIND_IP:-}${SPARK_MASTER_UI_PORT}:8080"],
         "history_ports": ["${HOST_BIND_IP:-}${SPARK_HISTORY_PORT}:18080"],
-        "host_bind_ip": "",
+        "host_bind_ip": "127.0.0.1:",
         "master_hosts": ["spark.localhost"],
         "history_hosts": ["spark-history.localhost"],
         "master_plugins": {"cors"},
@@ -1743,7 +1755,7 @@ def test_spark_web_access_contract_matches_compose_and_kong_surfaces():
     _assert_text_contract(capability.note, contains=(
         "direct SPARK_MASTER_UI_PORT and SPARK_HISTORY_PORT publishes are unauthenticated",
         "CORS-only Kong Spark routes are unauthenticated",
-        "default empty HOST_BIND_IP binds direct ports on all interfaces",
+        "default HOST_BIND_IP=127.0.0.1: keeps direct ports loopback-bound",
         "HOST_BIND_IP=127.0.0.1:",
         "firewall or remove the direct ports",
         "authentication proxy or remove both Spark Kong routes",

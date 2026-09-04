@@ -67,6 +67,22 @@ env:
     description: "Key prefix for LiteLLM's Redis response cache. Redis db 0 is shared with n8n's BullMQ queue, Kong's rate-limit counters, Langfuse's queue and the backend's media store, so a namespace keeps gateway cache keys scannable and separately droppable."
   - name: LITELLM_DB_NAME
     default: litellm
+  - name: LITELLM_DB_NAME_URI
+    default: litellm
+    description: "Bootstrapper-synchronized percent-encoded LITELLM_DB_NAME for DSN path components."
+  - name: LITELLM_DB_USER
+    default: litellm
+  - name: LITELLM_DB_PASSWORD
+    default: atlas-db-password
+    secret: true
+    description: "Auto-generated password for the owner of LiteLLM's dedicated database."
+  - name: LITELLM_DB_USER_URI
+    default: litellm
+    description: "Bootstrapper-synchronized percent-encoded LITELLM_DB_USER for DSN userinfo."
+  - name: LITELLM_DB_PASSWORD_URI
+    default: atlas-db-password
+    secret: true
+    description: "Bootstrapper-synchronized percent-encoded LITELLM_DB_PASSWORD for DSN userinfo."
   - name: LITELLM_EMBEDDING_MODEL
     default: "ollama/nomic-embed-text"
     description: "Default embedding model used by weaviate-init when computing collection vectorizers."

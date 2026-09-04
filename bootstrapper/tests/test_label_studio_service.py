@@ -161,11 +161,11 @@ def test_label_studio_compose_contract() -> None:
     service = compose["label-studio"]
 
     assert init["build"]["context"] == "./init"
-    assert init["depends_on"]["supabase-db"]["condition"] == "service_healthy"
+    assert init["depends_on"]["supabase-db-init"]["condition"] == "service_completed_successfully"
     assert init["depends_on"]["minio-init"]["condition"] == "service_completed_successfully"
     assert init["environment"]["LABEL_STUDIO_DB_NAME"] == "${LABEL_STUDIO_DB_NAME:-label_studio}"
-    assert init["environment"]["LABEL_STUDIO_DB_USER"] == "${LABEL_STUDIO_DB_USER:-label_studio}"
-    assert init["environment"]["LABEL_STUDIO_DB_PASSWORD"] == "${LABEL_STUDIO_DB_PASSWORD}"
+    assert init["environment"]["LABEL_STUDIO_DB_USER"] == "${LABEL_STUDIO_DB_USER:?LABEL_STUDIO_DB_USER is required}"
+    assert init["environment"]["LABEL_STUDIO_DB_PASSWORD"] == "${LABEL_STUDIO_DB_PASSWORD:?LABEL_STUDIO_DB_PASSWORD is required}"
 
     assert service["image"] == f"${{LABEL_STUDIO_IMAGE:-{IMAGE}}}"
     assert service["ports"] == ["${HOST_BIND_IP:-}${LABEL_STUDIO_PORT}:8080"]
@@ -174,8 +174,8 @@ def test_label_studio_compose_contract() -> None:
     env = service["environment"]
     assert env["DJANGO_DB"] == "default"
     assert env["POSTGRE_NAME"] == "${LABEL_STUDIO_DB_NAME:-label_studio}"
-    assert env["POSTGRE_USER"] == "${LABEL_STUDIO_DB_USER:-label_studio}"
-    assert env["POSTGRE_PASSWORD"] == "${LABEL_STUDIO_DB_PASSWORD}"
+    assert env["POSTGRE_USER"] == "${LABEL_STUDIO_DB_USER:?LABEL_STUDIO_DB_USER is required}"
+    assert env["POSTGRE_PASSWORD"] == "${LABEL_STUDIO_DB_PASSWORD:?LABEL_STUDIO_DB_PASSWORD is required}"
     assert env["POSTGRE_HOST"] == "supabase-db"
     assert env["POSTGRE_PORT"] == "5432"
     assert env["LABEL_STUDIO_HOST"] == "http://label-studio.localhost:${KONG_HTTP_PORT:-63000}"

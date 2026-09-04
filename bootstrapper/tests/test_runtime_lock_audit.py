@@ -393,12 +393,298 @@ def test_advisory_exceptions_require_a_current_bounded_review_deadline(
         assert any(expected in failure for failure in failures)
 
 
+def _runtime_audit_spec(lock: str) -> audit_runtime_locks.AuditSpec:
+    return next(spec for spec in audit_runtime_locks.AUDIT_SPECS if spec.lock == lock)
+
+
+@pytest.mark.parametrize(
+    ("lock_path", "advisory", "installed_pin"),
+    (
+        (
+            "services/jupyterhub/build/requirements-locked.txt",
+            "PYSEC-2026-3552",
+            "cryptography==49.0.0",
+        ),
+        (
+            "services/jupyterhub/build/requirements-locked.txt",
+            "PYSEC-2026-2447",
+            "diskcache==5.6.3",
+        ),
+        (
+            "services/jupyterhub/build/requirements-locked.txt",
+            "PYSEC-2026-3046",
+            "ragas==0.4.3",
+        ),
+        (
+            "services/jupyterhub/build/requirements-locked.txt",
+            "CVE-2026-71211",
+            "mlflow==3.15.1",
+        ),
+        (
+            "services/parakeet/provider/gpu/requirements-locked.txt",
+            "CVE-2026-68508",
+            "hydra-core==1.3.2",
+        ),
+        (
+            "services/parakeet/provider/gpu/requirements-locked.txt",
+            "PYSEC-2026-3624",
+            "lightning==2.4.0",
+        ),
+        (
+            "services/parakeet/provider/mlx/requirements-locked.txt",
+            "PYSEC-2025-138",
+            "mlx==0.29.3",
+        ),
+        (
+            "services/parakeet/provider/mlx/requirements-locked.txt",
+            "PYSEC-2025-139",
+            "mlx==0.29.3",
+        ),
+    ),
+)
+def test_each_current_reviewed_advisory_names_its_exact_installed_version(
+    lock_path: str, advisory: str, installed_pin: str
+) -> None:
+    root = Path(audit_runtime_locks.__file__).parents[1]
+    spec = _runtime_audit_spec(lock_path)
+
+    assert advisory in spec.reviewed_advisories
+    assert spec.review_by == date(2026, 11, 27)
+    assert installed_pin in (root / lock_path).read_text(encoding="utf-8")
+
+
+def test_jupyterhub_advisory_review_records_current_unreachable_paths() -> None:
+    root = Path(audit_runtime_locks.__file__).parents[1]
+    lock_path = "services/jupyterhub/build/requirements-locked.txt"
+    spec = _runtime_audit_spec(lock_path)
+    requirements = (root / "services/jupyterhub/build/requirements.txt").read_text(
+        encoding="utf-8"
+    )
+    notebook = (
+        root / "services/jupyterhub/build/notebooks/14_ragas_evaluation.ipynb"
+    ).read_text(encoding="utf-8")
+    mlflow_notebook = (
+        root / "services/jupyterhub/build/notebooks/11_financial_research_kit.ipynb"
+    ).read_text(encoding="utf-8")
+    dockerfile = (root / "services/jupyterhub/build/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    startup = (root / "services/jupyterhub/build/scripts/startup.sh").read_text(
+        encoding="utf-8"
+    )
+    compose = (root / "services/jupyterhub/compose.yml").read_text(encoding="utf-8")
+    lock = (root / lock_path).read_text(encoding="utf-8")
+
+    assert spec.reviewed_advisories == frozenset(
+        {
+            "PYSEC-2026-3552",
+            "PYSEC-2026-2447",
+            "PYSEC-2026-3046",
+            "CVE-2026-71211",
+            "PYSEC-2026-3740",
+        }
+    )
+    assert spec.review_by == date(2026, 11, 27)
+    for pin in (
+        "cryptography==49.0.0",
+        "diskcache==5.6.3",
+        "ragas==0.4.3",
+        "mlflow==3.15.1",
+    ):
+        assert pin in lock
+        assert pin in requirements
+    # nltk is carried as a floor, not an exact pin: the advisory has no fix, so
+    # the lock must sit at the last affected release and may not drift below it.
+    assert "nltk==3.10.3" in lock
+    assert "nltk>=3.10.3" in requirements
+    for evidence in (
+        "MLflow 3.15.1",
+        "MLflow 3.15.2",
+        "cryptography<50",
+        "PKCS#7",
+        "14_ragas_evaluation.ipynb",
+        "multimodalfaithfulness",
+        "Atlas never imports diskcache",
+        "does not pass",
+        "cache=",
+        "DiskCacheBackend",
+        "CVE-2026-71211",
+        "AI Gateway",
+        "11_financial_research_kit.ipynb",
+        "tracking client",
+        "no fixed release",
+        "PYSEC-2026-3740",
+        "install_nlp_assets.py",
+        "nlp-assets.toml",
+        "caller-controlled model path",
+    ):
+        assert evidence in requirements
+    assert "multimodalfaithfulness" not in notebook
+    assert "DiskCacheBackend" not in notebook
+    assert "cache=" not in notebook
+    for tracking_api in (
+        "mlflow.set_tracking_uri",
+        "mlflow.set_experiment",
+        "mlflow.start_run",
+        "mlflow.log_param",
+        "mlflow.log_metric",
+    ):
+        assert tracking_api in mlflow_notebook
+    for gateway_api in ("create_gateway", "CreateGatewaySecret", "auth_config"):
+        assert gateway_api not in mlflow_notebook
+    assert "mlflow server" not in dockerfile
+    assert "mlflow server" not in startup
+    assert "mlflow server" not in compose
+    assert 'ENTRYPOINT ["/usr/local/bin/startup.sh"]' in dockerfile
+    assert 'CMD ["start-notebook.sh"]' in dockerfile
+    assert "      - start-notebook.sh" in compose
+
+
+def test_parakeet_gpu_advisory_review_retains_only_unfixed_constraints() -> None:
+    root = Path(audit_runtime_locks.__file__).parents[1]
+    lock_path = "services/parakeet/provider/gpu/requirements-locked.txt"
+    spec = _runtime_audit_spec(lock_path)
+    requirements = (root / "services/parakeet/provider/gpu/requirements.txt").read_text(
+        encoding="utf-8"
+    )
+    provider = (root / "services/parakeet/provider/gpu/transcribe.py").read_text(
+        encoding="utf-8"
+    )
+    lock = (root / lock_path).read_text(encoding="utf-8")
+
+    assert spec.reviewed_advisories == frozenset(
+        {
+            "PYSEC-2026-3624",
+            "CVE-2026-68508",
+        }
+    )
+    assert spec.review_by == date(2026, 11, 27)
+    for pin in (
+        "hydra-core==1.3.2",
+        "lightning==2.4.0",
+        "nemo-toolkit==3.0.0",
+        "transformers==5.16.1",
+    ):
+        assert pin in lock
+        assert pin in requirements
+    for evidence in (
+        "nemo-toolkit==3.0.0",
+        "hydra-core<=1.3.2",
+        "lightning<=2.4.0",
+        "leaves Transformers unconstrained",
+        "transcribe.py:37",
+        "ASRModel.from_pretrained",
+        "load_from_checkpoint",
+        "hydra.utils.instantiate",
+        "Serialization.from_config_dict",
+        "safe_instantiate",
+        "recursively validates",
+    ):
+        assert evidence in requirements
+    assert "ASRModel.from_pretrained" in provider
+    assert provider.splitlines()[36].strip() == (
+        "model = nemo_asr.models.ASRModel.from_pretrained(model_name)"
+    )
+    for unreachable in (
+        "load_from_checkpoint",
+        "hydra.utils.instantiate",
+    ):
+        assert unreachable not in provider
+
+
+def test_parakeet_gpu_transformers_advisories_are_fixed_not_reviewed() -> None:
+    root = Path(audit_runtime_locks.__file__).parents[1]
+    lock_path = "services/parakeet/provider/gpu/requirements-locked.txt"
+    spec = _runtime_audit_spec(lock_path)
+    requirements = (root / "services/parakeet/provider/gpu/requirements.txt").read_text(
+        encoding="utf-8"
+    )
+    lock = (root / lock_path).read_text(encoding="utf-8")
+    fixed_ids = {
+        "PYSEC-2025-217",
+        "PYSEC-2026-2288",
+        "PYSEC-2026-2289",
+        "PYSEC-2026-2290",
+    }
+
+    assert fixed_ids.isdisjoint(spec.reviewed_advisories)
+    assert "nemo_toolkit[asr]>=3.0.0,<4.0" in requirements
+    assert "transformers>=5.5.0,<6" in requirements
+    assert "nemo-toolkit==3.0.0" in lock
+    assert "transformers==5.16.1" in lock
+    assert "torch==2.13.0" in lock
+    assert "cuda-toolkit==13.0.3.0" in lock
+
+
+def test_parakeet_mlx_advisory_review_records_incompatible_fixed_wheel() -> None:
+    root = Path(audit_runtime_locks.__file__).parents[1]
+    lock_path = "services/parakeet/provider/mlx/requirements-locked.txt"
+    spec = _runtime_audit_spec(lock_path)
+    requirements = (root / "services/parakeet/provider/mlx/requirements.txt").read_text(
+        encoding="utf-8"
+    )
+    provider = (root / "services/parakeet/provider/mlx/api_server.py").read_text(
+        encoding="utf-8"
+    )
+    lock = (root / lock_path).read_text(encoding="utf-8")
+
+    assert spec.reviewed_advisories == frozenset(
+        {"PYSEC-2025-138", "PYSEC-2025-139"}
+    )
+    assert spec.review_by == date(2026, 11, 27)
+    assert "mlx==0.29.3" in lock
+    for evidence in (
+        "mlx==0.29.3",
+        "mlx 0.29.4",
+        "macOS 14/15",
+        "aarch64-apple-darwin",
+        "api_server.py:64",
+        "parakeet_mlx.from_pretrained",
+        "model.safetensors",
+        "mlx.core.load (.npy)",
+        "load_gguf",
+        "audio-only request path",
+    ):
+        assert evidence in requirements
+    assert "model = from_pretrained(model_name)" in provider
+    assert provider.splitlines()[63].strip() == "model = from_pretrained(model_name)"
+
+
 def test_jupyterhub_runtime_lock_is_checked_for_both_linux_architectures() -> None:
     spec = next(
         item
         for item in check_runtime_locks.RUNTIME_LOCKS
         if "jupyterhub" in item.requirements
     )
+    assert spec.platforms == (
+        "x86_64-manylinux_2_28",
+        "aarch64-manylinux_2_28",
+    )
+
+
+def test_jupyterhub_runtime_lock_matches_the_base_python() -> None:
+    spec = next(
+        item
+        for item in check_runtime_locks.RUNTIME_LOCKS
+        if "jupyterhub" in item.requirements
+    )
+    dockerfile = (
+        Path(check_runtime_locks.__file__).parents[1]
+        / "services/jupyterhub/build/Dockerfile"
+    ).read_text(encoding="utf-8")
+
+    assert spec.python_version == "3.13"
+    assert f"/opt/conda/lib/python{spec.python_version}/site-packages" in dockerfile
+
+
+def test_airflow_runtime_lock_matches_the_base_python_on_both_architectures() -> None:
+    spec = next(
+        item
+        for item in check_runtime_locks.RUNTIME_LOCKS
+        if "airflow" in item.requirements
+    )
+
+    assert spec.python_version == "3.13"
     assert spec.platforms == (
         "x86_64-manylinux_2_28",
         "aarch64-manylinux_2_28",
@@ -570,7 +856,12 @@ def test_every_networked_lock_and_audit_subprocess_has_a_deadline() -> None:
     audit_source = Path(audit_runtime_locks.__file__).read_text(encoding="utf-8")
     check_source = Path(check_runtime_locks.__file__).read_text(encoding="utf-8")
     test_check_source = Path(check_test_locks.__file__).read_text(encoding="utf-8")
-    assert audit_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 4
+    assert audit_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 3
+    # npm audit resolves the whole dependency graph against the registry and
+    # runs just over four minutes for services/asset-worker/app, so it carries
+    # its own longer deadline rather than sitting on the edge of the shared one.
+    assert audit_source.count("timeout_seconds=NPM_AUDIT_TIMEOUT_SECONDS") == 1
+    assert audit_runtime_locks.NPM_AUDIT_TIMEOUT_SECONDS == 900
     assert check_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 2
     assert test_check_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 1
     assert audit_runtime_locks.COMMAND_TIMEOUT_SECONDS == 300
@@ -593,6 +884,8 @@ def test_every_networked_lock_and_audit_subprocess_has_a_deadline() -> None:
 def test_npm_audit_rejects_registry_error_json(
     tmp_path: Path, monkeypatch
 ) -> None:
+    # The registry-error path retries with backoff; keep the suite fast.
+    monkeypatch.setattr(audit_runtime_locks.time, "sleep", lambda _seconds: None)
     project = tmp_path / "n8n"
     project.mkdir()
     monkeypatch.setattr(

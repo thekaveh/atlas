@@ -39,7 +39,7 @@ JUPYTERHUB_SOURCE=disabled
 - **Financial Research Kit**: OpenBB + CCXT libraries and a guarded paper-portfolio notebook for read-only market research
 - **Sample Notebooks**: 16 ready-to-use notebooks (00-15) demonstrating service integration
 - **Persistent Storage**: All notebooks saved in Docker volumes
-- **Environment Variables**: Auto-configured connections for the integrations declared in `services/jupyterhub/service.yml`; optional gaps such as the current MCP endpoint remain explicit
+- **Environment Variables**: Auto-configured connections for the integrations declared in `services/jupyterhub/service.yml`; optional endpoints, including `MCP_SERVERS_URL`, remain empty when their source is disabled
 - **Multi-kernel runtime**: Python 3 (default), R, Julia 1.12, **Scala 2.13**, and **Scala 3**. Pick one from JupyterLab's launcher or VS Code's kernel picker. See §11.
 - **VS Code-ready**: configured for remote-Jupyter access out of the box. Open local `.ipynb` files in VS Code and run them on this container as the kernel. See §10.
 
@@ -49,8 +49,8 @@ JUPYTERHUB_SOURCE=disabled
 
 ```bash
 JUPYTERHUB_SOURCE=container     # Options: container, disabled
-# Maintained quay.io home of the Jupyter Docker Stacks, pinned to python-3.11.10.
-JUPYTERHUB_IMAGE=quay.io/jupyter/datascience-notebook:python-3.11.10
+# Maintained quay.io home of the Jupyter Docker Stacks, pinned to a reviewed release digest.
+JUPYTERHUB_IMAGE=quay.io/jupyter/datascience-notebook:2026-08-24@sha256:e5029672ab8a861345f117dc466a4dab91ad7c299f3c7c853b9b193860b16aaf
 JUPYTERHUB_PORT=63094
 JUPYTERHUB_TOKEN=               # Optional: authentication token
 BACKEND_NOTEBOOK_API_TOKEN=     # Auto-generated; scoped Backend bearer
@@ -58,7 +58,7 @@ DOCLING_API_TOKEN=              # Auto-generated Docling bearer; server-side onl
 PARAKEET_API_TOKEN=             # Auto-generated Parakeet bearer; server-side only
 ```
 
-> **Performance Tip**: The pinned `python-3.11.10` tag keeps Docker layer caching stable (5-10 s rebuilds); a moving `:latest` tag would force a full 8-10 min rebuild on every start.
+> **Performance Tip**: The pinned release digest keeps Docker layer caching stable (5-10 s rebuilds); a moving `:latest` tag would force a full 8-10 min rebuild on every start.
 
 ### 4.2. Authentication
 
@@ -98,7 +98,7 @@ Direct notebook calls to Docling and Atlas-managed Parakeet must attach the matc
 | `12_iceberg_advanced_sql.ipynb` | Spark Connect advanced Iceberg smoke: `MERGE INTO`, `VERSION AS OF`, branch/WAP, schema evolution, nested JSON, Structured Streaming, and table maintenance. |
 | `13_chonkie_chunking.ipynb` | Compare Chonkie token, recursive, and optional semantic chunking, then call the Backend `/api/chunk` runtime endpoint. |
 | `14_ragas_evaluation.ipynb` | Evaluate RAG answers with Ragas metrics and the Backend `/api/rag/evaluate` runtime endpoint. |
-| `15_mcp_clients.ipynb` | Exercises the FastMCP 3 client shape and error handling, but `MCP_SERVERS_URL` is not injected by Compose, so the bundled notebook reports the MCP service as disabled even when its source is enabled (#600). |
+| `15_mcp_clients.ipynb` | Discovers and invokes Curated MCP tools through FastMCP 3, exercises error handling, and prototypes an in-process tool. The bootstrapper injects `MCP_SERVERS_URL` only when `MCP_SERVERS_SOURCE=container` and leaves it empty when the curated package is disabled. |
 
 The repository gate keeps this inventory synchronized with the image welcome
 page and environment-check notebook, compiles every Python code cell, and
@@ -229,7 +229,7 @@ This container ships **five kernels**:
 
 | Kernel ID | Display name | Versions | Source |
 |---|---|---|---|
-| `python3` | Python 3 (ipykernel) | matches the `JUPYTERHUB_IMAGE` (currently 3.11) | upstream `jupyter/datascience-notebook` |
+| `python3` | Python 3 (ipykernel) | matches the `JUPYTERHUB_IMAGE` (currently 3.13) | upstream `jupyter/datascience-notebook` |
 | `ir` | R | matches the R runtime in `JUPYTERHUB_IMAGE` | upstream `jupyter/datascience-notebook` |
 | `julia-1.12` | Julia 1.12 | Julia `1.12.7`, repository-locked packages | installed at image build time from the checksummed official Julia release |
 | `scala213` | Scala 2.13 | Scala `2.13.16`, Almond `0.14.5` | installed at image build time via Coursier |
@@ -394,5 +394,5 @@ Increase Docker memory:
 | Token-authenticated notebook access | partial | tested | The direct and CORS-only jupyter.localhost paths require one Jupyter token, while wildcard browser origins remain the local default and must be narrowed for shared deployments. |
 | Operator-trusted credential environment | partial | documented | The server receives high-privilege database and service credentials and grants sudo inside its container, so it is an engineering workspace rather than a hostile multi-tenant sandbox. |
 | Notebook workspace persistence | supported | tested | User work persists in jupyterhub-data and bundled notebooks mount read-only, but cold volume removal still deletes the writable workspace. |
-| Curated MCP notebook endpoint | stubbed | documented | The manifest and notebook declare MCP_SERVERS_URL, but compose does not inject it into JupyterHub, so the bundled MCP notebook reports the service disabled even when enabled. |
+| Curated MCP notebook endpoint | supported | tested | The bootstrapper injects MCP_SERVERS_URL only when MCP_SERVERS_SOURCE=container and leaves it empty when disabled; the bundled notebook exercises discovery, invocation, and error handling against that endpoint. The direct backend-network URL bypasses Kong authentication and is appropriate only for this operator-trusted notebook environment. |
 | Multi-user JupyterHub isolation and HA | not-supported | documented | Despite the service name, Atlas runs one start-notebook JupyterLab process with one token, not a Hub spawner, per-user servers, replicated state, or an HA control plane. |

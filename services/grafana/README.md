@@ -15,6 +15,8 @@ Unified alerting is enabled. No alert rules or contact points ship pre-provision
 - `alerting/` — alert rules / contact points (currently just the placeholder)
 - `plugins/` — app-plugin provisioning (currently empty, kept via `.gitkeep`)
 
+The Loki datasource includes a derived `TraceID` field that reads the native OTLP `trace_id` structured-metadata label and opens that trace in the provisioned Tempo datasource. Native OTLP trace and span identifiers remain Loki structured metadata, so correlated logs can also be filtered directly with LogQL; applications do not need to repeat the trace ID in the log body.
+
 ## 2. Access
 
 | Surface | URL | Auth |

@@ -1,11 +1,14 @@
 from pathlib import Path
 
+import pytest
+
 from scripts.docs.check_docs import (
     check_completeness,
     check_placeholders,
     check_self_containment,
     check_wiki_links,
 )
+from scripts.docs import check_docs as docs_checks
 from scripts.docs.manifest import load_manifest
 from bootstrapper.tests import three_surface_test_utils
 
@@ -18,6 +21,7 @@ def _manifest(tmp_path: Path):
         """
 surfaces: [repo, site, wiki]
 numbering: baked
+index: overview
 sections:
   - {id: overview, number: "1", title: Overview, source: docs/index.md}
 diagrams: []
@@ -205,3 +209,185 @@ def test_generated_doc_helper_never_rasterizes_committed_pngs(monkeypatch) -> No
         three_surface_test_utils.PROJECTION_ROOT in path.parents
         for _name, path in calls
     )
+
+
+def test_manifest_reachability_checks_repo_site_and_wiki_routes(tmp_path: Path) -> None:
+    checker = getattr(docs_checks, "check_manifest_reachability", None)
+    assert checker is not None
+    docs = tmp_path / "docs"
+    guide = docs / "guide"
+    guide.mkdir(parents=True)
+    (docs / "index.md").write_text(
+        "# 1. Overview\n\n[escape](../../docs/guide/)\n", encoding="utf-8"
+    )
+    (guide / "index.md").write_text(
+        "# 2. Guide\n\n[cycle](../guide/)\n", encoding="utf-8"
+    )
+    manifest_path = docs / "manifest.yaml"
+    manifest_path.write_text(
+        """
+surfaces: [repo, site, wiki]
+numbering: baked
+index: overview
+sections:
+  - {id: overview, number: "1", title: Overview, source: docs/index.md}
+  - {id: guide, number: "2", title: Guide, source: docs/guide/index.md}
+diagrams: []
+""",
+        encoding="utf-8",
+    )
+    site = tmp_path / "generated" / "site"
+    wiki = tmp_path / "generated" / "wiki"
+    site.mkdir(parents=True)
+    wiki.mkdir(parents=True)
+    (site / "index.md").write_text("# 1. Overview\n", encoding="utf-8")
+    (wiki / "Home.md").write_text("# 1. Overview\n", encoding="utf-8")
+    (wiki / "2-Guide.md").write_text("# 2. Guide\n", encoding="utf-8")
+    (wiki / "_Sidebar.md").write_text("- [Overview](Home)\n", encoding="utf-8")
+    (tmp_path / "mkdocs.yml").write_text(
+        "nav:\n  - Overview: index.md\n", encoding="utf-8"
+    )
+    manifest = load_manifest(manifest_path, tmp_path)
+
+    findings = checker(manifest, tmp_path, tmp_path / "generated")
+
+    assert [(item.surface, item.path) for item in findings] == [
+        ("repo", "docs/guide/index.md"),
+        ("site", "generated/site/guide/index.md"),
+        ("wiki", "generated/wiki/2-Guide.md"),
+    ]
+
+    (docs / "index.md").write_text(
+        "# 1. Overview\n\n[Guide](guide/)\n", encoding="utf-8"
+    )
+    (site / "guide").mkdir()
+    (site / "guide" / "index.md").write_text("# 2. Guide\n", encoding="utf-8")
+    (wiki / "_Sidebar.md").write_text(
+        "- [Overview](Home)\n- [Guide](2-Guide)\n", encoding="utf-8"
+    )
+    (tmp_path / "mkdocs.yml").write_text(
+        "nav:\n  - Overview: index.md\n  - Guide: guide/index.md\n",
+        encoding="utf-8",
+    )
+
+    assert checker(manifest, tmp_path, tmp_path / "generated") == []
+
+    (site / "guide" / "index.md").unlink()
+    (site / "guide" / "index.md").symlink_to(docs / "guide" / "index.md")
+    (wiki / "2-Guide.md").unlink()
+    (wiki / "2-Guide.md").symlink_to(docs / "guide" / "index.md")
+
+    assert [(item.surface, item.path) for item in checker(
+        manifest, tmp_path, tmp_path / "generated"
+    )] == [
+        ("site", "generated/site/guide/index.md"),
+        ("wiki", "generated/wiki/2-Guide.md"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("edge", "reaches_guide"),
+    [
+        ("<!-- [Guide](guide.md) -->", False),
+        ('<!-- <a href="guide.md">Guide</a> -->', False),
+        ("`[Guide](guide.md)`", False),
+        ("    [Guide](guide.md)", False),
+        ("```text\n[Guide](guide.md)\n```", False),
+        ("~~~text\n[Guide](guide.md)\n~~~", False),
+        ("[Guide][guide]\n\n[guide]: guide.md", True),
+        ("[Guide][]\n\n[guide]: guide.md", True),
+        ("[Guide]\n\n[guide]: guide.md", True),
+        ("[Guide][guide]\n\n<!-- [guide]: guide.md -->", False),
+        ("[Guide][guide]\n\n`[guide]: guide.md`", False),
+        ("[Guide][guide]\n\n```text\n[guide]: guide.md\n```", False),
+        ("[Guide][guide]\n\n~~~text\n[guide]: guide.md\n~~~", False),
+        ("[Guide][guide]\n\n[guide]: guide.md\n[guide]: missing.md", True),
+        ("[Guide][guide]\n\n[guide]: missing.md\n[guide]: guide.md", False),
+        ("[Guide](guide.md)", True),
+        (r"\[Guide](guide.md)", False),
+        ("[Guide](guide.md?mode=full#usage)", True),
+        ("[Fragment](#usage)", False),
+        ("[Escape](..%2F..%2Fdocs%2Fguide.md)", False),
+        ('<a href="guide.md">Guide</a>', True),
+        ('<a href="guide.md?mode=full#usage">Guide</a>', True),
+        ('<a href="guide.md?one=1&amp;two=2#usage">Guide</a>', True),
+        ('<script><a href="guide.md">Guide</a></script>', False),
+        ("![Guide](guide.md)", False),
+        ('<img src="guide.md" alt="Guide">', False),
+        ("<https://github.com/thekaveh/atlas/blob/main/docs/guide.md>", False),
+    ],
+    ids=[
+        "html-comment",
+        "html-comment-anchor",
+        "inline-code",
+        "indented-code",
+        "backtick-fence",
+        "tilde-fence",
+        "reference-link",
+        "collapsed-reference-link",
+        "shortcut-reference-link",
+        "comment-reference-definition",
+        "inline-code-reference-definition",
+        "backtick-fence-reference-definition",
+        "tilde-fence-reference-definition",
+        "duplicate-reference-first-valid",
+        "duplicate-reference-first-missing",
+        "inline-link",
+        "escaped-inline-link",
+        "inline-link-query-fragment",
+        "fragment-only",
+        "encoded-path-escape",
+        "html-anchor",
+        "html-anchor-query-fragment",
+        "html-anchor-entity-decoding",
+        "script-anchor",
+        "image",
+        "html-image",
+        "external-autolink",
+    ],
+)
+def test_manifest_reachability_uses_rendered_link_semantics(
+    tmp_path: Path,
+    edge: str,
+    reaches_guide: bool,
+) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text(f"# 1. Overview\n\n{edge}\n", encoding="utf-8")
+    (docs / "guide.md").write_text("# 2. Guide\n", encoding="utf-8")
+    manifest_path = docs / "manifest.yaml"
+    manifest_path.write_text(
+        """
+surfaces: [repo, site, wiki]
+numbering: baked
+index: overview
+sections:
+  - {id: overview, number: "1", title: Overview, source: docs/index.md}
+  - {id: guide, number: "2", title: Guide, source: docs/guide.md}
+diagrams: []
+""",
+        encoding="utf-8",
+    )
+    site = tmp_path / "generated" / "site"
+    wiki = tmp_path / "generated" / "wiki"
+    site.mkdir(parents=True)
+    wiki.mkdir(parents=True)
+    (site / "index.md").write_text("# 1. Overview\n", encoding="utf-8")
+    (site / "guide.md").write_text("# 2. Guide\n", encoding="utf-8")
+    (wiki / "Home.md").write_text("# 1. Overview\n", encoding="utf-8")
+    (wiki / "2-Guide.md").write_text("# 2. Guide\n", encoding="utf-8")
+    (wiki / "_Sidebar.md").write_text(
+        "- [Overview](Home)\n- [Guide](2-Guide)\n", encoding="utf-8"
+    )
+    (tmp_path / "mkdocs.yml").write_text(
+        "nav:\n  - Overview: index.md\n  - Guide: guide.md\n",
+        encoding="utf-8",
+    )
+    manifest = load_manifest(manifest_path, tmp_path)
+
+    findings = docs_checks.check_manifest_reachability(
+        manifest, tmp_path, tmp_path / "generated"
+    )
+    repo_orphans = [item.path for item in findings if item.surface == "repo"]
+
+    assert repo_orphans == ([] if reaches_guide else ["docs/guide.md"])

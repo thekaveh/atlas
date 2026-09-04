@@ -278,6 +278,14 @@ class PromptStep:
     subtitle: str = ""
     options: list[PromptOption] = field(default_factory=list)
     default_value: str | None = None
+    # Optional display-time default derived from earlier answers. Unlike an
+    # options_provider this does no I/O; it lets a dependent text input reuse a
+    # saved value only when the current selection still owns that value.
+    default_value_provider: "Callable[[dict], str | None] | None" = None
+    # Answers owned by this step's value and no longer valid when that value
+    # changes. WizardScreen removes these before rendering the next step, so
+    # dependent inputs resolve their defaults from the newly selected owner.
+    invalidates_on_change: tuple[str, ...] = ()
     # A value committed during this wizard session and restored after Back.
     # Unlike ``default_value`` (persisted state), this is preloaded into the
     # active input so pressing Enter reconfirms it instead of emitting KEEP.

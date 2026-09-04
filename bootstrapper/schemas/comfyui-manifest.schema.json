@@ -115,6 +115,10 @@
           "type": "boolean",
           "description": "Whether this is an essential model (activated even with empty COMFYUI_USER_MODELS). Always false in manifest rows — essential is a catalog attribute, not a manifest attribute. Written as false by manifest_dict()."
         },
+        "provisioning_required": {
+          "type": "boolean",
+          "description": "Whether failure to provision this selected physical artifact blocks readiness."
+        },
         "description": {
           "type": ["string", "null"],
           "description": "Human-readable notes. Mapped from ComfyUILibraryEntry.notes (notes→description). Returned in the backend GET /comfyui/db/models JSON row."
