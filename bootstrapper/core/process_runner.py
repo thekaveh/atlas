@@ -9,6 +9,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -589,9 +590,9 @@ def _wait_for_completion(
     capture: _Capture,
     guard: _SigtermGuard,
     command: Sequence[str],
+    deadline: float,
     timeout_seconds: float,
 ) -> None:
-    deadline = time.monotonic() + timeout_seconds
     while process.poll() is None or any(reader.is_alive() for reader in capture.readers):
         guard.raise_if_pending()
         capture.raise_if_failed()
@@ -634,6 +635,52 @@ def _require_positive_finite_real(name: str, value: object) -> None:
         )
 
 
+def _publish_ready_file(
+    ready_file: Path | None,
+    guard: _SigtermGuard,
+    deadline: float,
+    timeout_info: tuple[Sequence[str], float],
+) -> None:
+    """Bound readiness I/O while the signal guard is active and no child exists."""
+    if ready_file is None:
+        return
+    pending_file = ready_file.with_name(
+        f".{ready_file.name}.{os.getpid()}.{uuid.uuid4().hex}.pending"
+    )
+    cancelled = threading.Event()
+    errors: list[BaseException] = []
+    finished = threading.Event()
+
+    def publish() -> None:
+        try:
+            pending_file.write_text("ready\n", encoding="ascii")
+            if cancelled.is_set():
+                pending_file.unlink(missing_ok=True)
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            finished.set()
+
+    threading.Thread(target=publish, daemon=True).start()
+    published = False
+    try:
+        while not finished.wait(timeout=0.01):
+            guard.raise_if_pending()
+            if time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired(*timeout_info)
+        guard.raise_if_pending()
+        if time.monotonic() >= deadline:
+            raise subprocess.TimeoutExpired(*timeout_info)
+        if errors:
+            raise errors[0]
+        pending_file.replace(ready_file)
+        published = True
+    finally:
+        if not published:
+            cancelled.set()
+            pending_file.unlink(missing_ok=True)
+
+
 def run_with_deadline(
     command: Sequence[str],
     *,
@@ -642,14 +689,17 @@ def run_with_deadline(
     timeout_seconds: float = DEFAULT_COMMAND_TIMEOUT_SECONDS,
     max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
     termination_grace_seconds: float = TERMINATION_GRACE_SECONDS,
+    ready_file: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Capture a command with finite time/output bounds and no escaped children."""
     _validate_bounds(timeout_seconds, max_output_bytes, termination_grace_seconds)
     process: subprocess.Popen[bytes] | None = None
     capture = _Capture()
+    deadline = time.monotonic() + timeout_seconds
     with _SigtermGuard() as guard:
         try:
             try:
+                _publish_ready_file(ready_file, guard, deadline, (command, timeout_seconds))
                 guard.raise_if_pending()
                 try:
                     process = _launch_registered(
@@ -663,7 +713,7 @@ def run_with_deadline(
                     raise
                 guard.raise_if_pending()
                 capture.start(process, max_output_bytes)
-                _wait_for_completion(process, capture, guard, command, timeout_seconds)
+                _wait_for_completion(process, capture, guard, command, deadline, timeout_seconds)
                 _signal_process_tree(process, signal.SIGKILL)
                 guard.raise_if_pending()
             except BaseException as primary_error:

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, status, UploadFile, File, Query, Request, Depends
+from fastapi import FastAPI, HTTPException, status, UploadFile, File, Query, Request, Depends, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -24,7 +24,13 @@ from decimal import Decimal
 
 from n8n_client import N8nClient
 from research_service import ResearchCapacityError, ResearchService
-from comfyui_client import ComfyUIClient
+from comfyui_client import (
+    ComfyUIClient,
+    ComfyUIImageTooLargeError,
+    ComfyUIResponseError,
+    ComfyUIUpstreamError,
+    ComfyUIUnavailableError,
+)
 from comfyui_media_client import ComfyUIMediaClient
 from fal_media_client import (
     FalClient,
@@ -50,6 +56,14 @@ from media_operation_store import (
     MediaOperationCollisionError,
     TERMINAL_MEDIA_STATUSES,
     build_media_operation_store,
+    media_ledger_recovery_batch_size,
+    media_ledger_recovery_max_cycles,
+)
+from redis.exceptions import RedisError
+from shared_state import (
+    StateStoreUnavailable,
+    backend_state_store_mode,
+    state_store_detail,
 )
 from media_ledger import (
     BudgetExceeded,
@@ -81,6 +95,7 @@ from rag_ingestion import (
     RagIngestionRequest,
     RagIngestionService,
 )
+from rag_ingestion.store import validate_page_cursor
 from graphiti_experiment import GraphitiExperimentConfig
 from document_extraction import (
     DocumentExtractionError,
@@ -114,6 +129,7 @@ from lightrag_rerank_adapter import (
 from backend_identity import (
     BackendPrincipal,
     _ct_equals,
+    authenticate_backend_scope,
     authorize_media_scope,
     authorize_user_id,
     principal_scope_key,
@@ -149,6 +165,20 @@ def _unexpected_error(operation: str, exc: Exception, *, status_code: int = 500)
         stack,
     )
     return HTTPException(status_code=status_code, detail=f"{operation} failed")
+
+
+def _comfyui_gateway_error(exc: Exception) -> HTTPException:
+    """Map typed ComfyUI failures without exposing upstream response data."""
+    logger.error("ComfyUI request failed (error_type=%s)", type(exc).__name__)
+    if isinstance(exc, ComfyUIUnavailableError):
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ComfyUI is unavailable",
+        )
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail="ComfyUI returned an invalid response",
+    )
 
 
 def _fal_source_enabled() -> bool:
@@ -263,6 +293,7 @@ _MEDIA_BUDGET_PRUNE_INTERVAL_SECONDS = 3600
 _MEDIA_LEDGER_INTENT_INTERVAL_SECONDS = 30
 _media_budget_prune_task: Optional[asyncio.Task] = None
 _media_ledger_intent_task: Optional[asyncio.Task] = None
+_media_ledger_intent_cursor: Optional[str] = None
 
 
 async def _media_budget_prune_loop() -> None:
@@ -283,36 +314,67 @@ async def _media_budget_prune_loop() -> None:
 
 async def _media_ledger_intent_loop() -> None:
     """Drain durable attach/cleanup intents even when their owner never polls."""
+    global _media_ledger_intent_cursor
     while True:
         await asyncio.sleep(_MEDIA_LEDGER_INTENT_INTERVAL_SECONDS)
-        try:
-            operations = await MEDIA_OPERATION_STORE.pending_ledger_intents()
-        except Exception as exc:
-            logger.warning(
-                "media ledger intent scan failed (error_type=%s)",
-                type(exc).__name__,
-            )
-            continue
-        for operation in operations:
-            operation_id = str(operation.get("operation_id") or "")
-            if not operation_id:
-                continue
+        for _cycle in range(media_ledger_recovery_max_cycles()):
             try:
-                recovered = await _maybe_recover_media_ledger_intent(
-                    operation_id, operation
+                page = await MEDIA_OPERATION_STORE.pending_ledger_intent_page(
+                    cursor=_media_ledger_intent_cursor,
+                    limit=media_ledger_recovery_batch_size(),
                 )
-                await _maybe_reconcile_ledger(operation_id, recovered)
             except Exception as exc:
                 logger.warning(
-                    "media ledger intent recovery failed for %s (error_type=%s)",
-                    operation_id,
+                    "media ledger intent scan failed (error_type=%s)",
                     type(exc).__name__,
                 )
+                break
+            deferral_failed = False
+            for operation in page.records:
+                operation_id = str(operation.get("operation_id") or "")
+                if not operation_id:
+                    continue
+                try:
+                    recovered = await _maybe_recover_media_ledger_intent(
+                        operation_id, operation
+                    )
+                    await _maybe_reconcile_ledger(operation_id, recovered)
+                except Exception as exc:
+                    logger.warning(
+                        "media ledger intent recovery failed for %s (error_type=%s)",
+                        operation_id,
+                        type(exc).__name__,
+                    )
+                    try:
+                        await MEDIA_OPERATION_STORE.defer_pending_ledger_intent(
+                            operation_id
+                        )
+                    except Exception as defer_exc:
+                        # The failed intent may still be at or behind the page
+                        # cursor. Restart from the head rather than losing it.
+                        _media_ledger_intent_cursor = None
+                        deferral_failed = True
+                        logger.warning(
+                            "media ledger intent deferral failed for %s "
+                            "(error_type=%s)",
+                            operation_id,
+                            type(defer_exc).__name__,
+                        )
+                        break
+            if deferral_failed:
+                break
+            _media_ledger_intent_cursor = page.next_cursor
+            if page.next_cursor is None:
+                break
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     global _media_budget_prune_task, _media_ledger_intent_task
+    # Validate recovery bounds before starting maintenance or creating the
+    # background task; a bad deployment value must fail startup synchronously.
+    media_ledger_recovery_batch_size()
+    media_ledger_recovery_max_cycles()
     # #804: pre-warm the shared asyncpg pool at startup, best-effort — if the DB
     # is not reachable yet, the pool is created lazily on first use rather than
     # failing app startup (keeps the TestClient/unit path working too).
@@ -325,6 +387,11 @@ async def _lifespan(app: FastAPI):
             raise
         except Exception:  # noqa: BLE001 — startup must not hard-fail on DB warmup
             logger.warning("PG pool pre-warm failed; will create lazily on first use")
+    # LangMem's dimension migration is not best-effort: accepting traffic while
+    # its schema target disagrees with the selected model would make fallback
+    # writes fail or silently leave existing memories unreachable.
+    if memory_service.enabled:
+        await memory_service._ensure_initialized()
     await research_service.start_maintenance()
     if MEDIA_BUDGET_ENGINE.config.retention_days:
         _media_budget_prune_task = asyncio.create_task(_media_budget_prune_loop())
@@ -366,14 +433,28 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
+
+@app.exception_handler(RedisError)
+async def _redis_state_unavailable(_request: Request, _exc: RedisError):
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": state_store_detail()},
+    )
+
+
+@app.exception_handler(StateStoreUnavailable)
+async def _configured_state_unavailable(
+    _request: Request, _exc: StateStoreUnavailable
+):
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": state_store_detail()},
+    )
+
 validate_media_input_config()
 validate_fal_config()
 validate_rerank_adapter_config()
 ingestion_execution_lease_seconds()
-app.add_middleware(
-    MediaRequestLimitMiddleware,
-    max_bytes=media_request_max_bytes_from_env(),
-)
 
 from observability import configure_otel  # noqa: E402
 configure_otel(app)
@@ -392,6 +473,15 @@ Instrumentator(
     should_group_status_codes=True,
 ).instrument(app).expose(app, endpoint="/metrics")
 
+# Starlette inserts the last-added middleware outermost. Register here so the
+# effective user stack is CORS -> Media -> Prometheus; optional OTel tracing
+# wraps the completed stack separately.
+app.add_middleware(
+    MediaRequestLimitMiddleware,
+    max_bytes=media_request_max_bytes_from_env(),
+    authenticate=authenticate_backend_scope,
+)
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -405,6 +495,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Atlas-Next-Cursor", "X-Atlas-Page-Limit"],
 )
 
 # Get environment variables
@@ -869,9 +960,9 @@ async def lightrag_rerank(request: RerankAdapterRequest):
 # ─── RAG ingestion job contract (#413) ───────────────────────────────
 # Atlas owns the repeatable ingestion lifecycle; a consumer declares a
 # rag_ingestion_profile and submits jobs headlessly. A single process-wide
-# service holds the store (Redis when configured, else in-memory) so the submit
-# endpoint and the synchronous fallback share state; the Celery worker rebuilds
-# its own service against the same Redis when the async path is used.
+# service holds the explicitly selected store. Production defaults to Redis;
+# process-local memory state requires BACKEND_STATE_STORE_MODE=memory. The
+# Celery worker rebuilds its service against the same Redis.
 _rag_ingestion_service: Optional[RagIngestionService] = None
 
 
@@ -1019,7 +1110,11 @@ async def _queue_rag_ingestion(
             service, record.id, (task.id, owner), cancellation_seen
         )
     except Exception as exc:  # noqa: BLE001 - broker unreachable
-        logger.exception("Queue RAG ingestion failed")
+        logger.exception(
+            "Persist RAG dispatch acceptance failed"
+            if task is not None
+            else "Queue RAG ingestion failed"
+        )
         if task is None:
             await _mark_rag_dispatch_failed(
                 service,
@@ -1030,7 +1125,11 @@ async def _queue_rag_ingestion(
         _raise_if_cancelled(cancellation_seen)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Failed to queue RAG ingestion",
+            detail=(
+                state_store_detail()
+                if task is not None
+                else "Failed to queue RAG ingestion"
+            ),
         ) from exc
     _raise_if_cancelled(cancellation_seen)
     return RagIngestionQueuedResponse(
@@ -1072,7 +1171,13 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
     await _reconcile_cancelled_rag_submit(
         service, record, created, cancellation_seen
     )
-    use_celery = async_job and celery_is_enabled()
+    # Memory state is process-local by definition; never hand an ingestion id
+    # to a worker that cannot observe the Backend process's record.
+    use_celery = (
+        async_job
+        and celery_is_enabled()
+        and backend_state_store_mode() != "memory"
+    )
     existing = _existing_rag_response(record, created, use_celery)
     if existing is not None:
         return existing
@@ -1108,11 +1213,25 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
     response_model=List[RagIngestionRecordResponse],
     dependencies=[Depends(require_service_principal)],
 )
-async def list_rag_ingestions():
-    """List RAG ingestion jobs (machine-readable)."""
+async def list_rag_ingestions(
+    response: Response,
+    cursor: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=200),
+):
+    """List one bounded page while preserving the historical list body."""
+    try:
+        cursor_value = validate_page_cursor(cursor)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     service = get_rag_ingestion_service()
-    records = await asyncio.to_thread(service.store.list)
-    return [RagIngestionRecordResponse(**r.to_dict()) for r in records]
+    page = await asyncio.to_thread(
+        service.store.list_page,
+        None if cursor is None else cursor_value,
+        limit,
+    )
+    response.headers["X-Atlas-Page-Limit"] = str(limit)
+    response.headers["X-Atlas-Next-Cursor"] = page.next_cursor or ""
+    return [RagIngestionRecordResponse(**r.to_dict()) for r in page.records]
 
 
 @app.get(
@@ -1367,13 +1486,24 @@ async def research_health_check():
     """Health check for research service"""
     try:
         health = await research_service.health_check()
+        required_components = ("database", "research_client")
         return {
             "service": "research",
-            "status": "healthy" if health["database"] == "healthy" else "degraded",
+            "status": (
+                "healthy"
+                if all(
+                    health.get(component) == "healthy"
+                    for component in required_components
+                )
+                else "degraded"
+            ),
             "details": health
         }
-    except Exception:
-        logger.exception("Research health check failed")
+    except Exception as exc:
+        logger.error(
+            "Research health check failed (error_type=%s)",
+            type(exc).__name__,
+        )
         return {
             "service": "research",
             "status": "unhealthy",
@@ -1401,13 +1531,13 @@ def _remaining_comfyui_timeout(deadline: float) -> float:
 class ComfyUIGenerateRequest(BaseModel):
     """Request model for ComfyUI image generation"""
     prompt: str = Field(min_length=1, max_length=4000)
-    negative_prompt: Optional[str] = Field(default="", max_length=4000)
+    negative_prompt: str = Field(default="", max_length=4000)
     width: int = Field(default=512, ge=64, le=4096)
     height: int = Field(default=512, ge=64, le=4096)
     steps: int = Field(default=20, ge=1, le=150)
     cfg: float = Field(default=7.0, ge=0.0, le=30.0)
     seed: Optional[int] = None
-    checkpoint: Optional[str] = Field(default="v1-5-pruned-emaonly.safetensors", max_length=255)
+    checkpoint: str = Field(default="v1-5-pruned-emaonly.safetensors", max_length=255)
     wait_for_completion: bool = True
     timeout_seconds: int = Field(
         default=_COMFYUI_COMPLETION_TIMEOUT_SECONDS, ge=1, le=3600
@@ -1532,7 +1662,7 @@ async def _require_media_operation_store() -> None:
         logger.warning("Media operation state store preflight failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Media operation state store is unavailable",
+            detail=state_store_detail("Media operation state store is unavailable"),
         ) from exc
 
 
@@ -1552,7 +1682,9 @@ async def _transition_media_payload_or_503(
         logger.warning("Media operation transition failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Media operation state store is unavailable; retry",
+            detail=state_store_detail(
+                "Media operation state store is unavailable; retry"
+            ),
         ) from exc
 
 
@@ -1684,7 +1816,7 @@ async def _maybe_reconcile_ledger(
             except Exception as exc:
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Media operation state store is unavailable",
+                    detail=state_store_detail("Media operation state store is unavailable"),
                 ) from exc
             if not repaired:
                 raise HTTPException(
@@ -1767,7 +1899,7 @@ async def _maybe_reconcile_ledger(
                 except Exception as exc:
                     raise HTTPException(
                         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail="Media operation state store is unavailable",
+                        detail=state_store_detail("Media operation state store is unavailable"),
                     ) from exc
                 if not finalized or not marked:
                     raise HTTPException(
@@ -1845,7 +1977,7 @@ async def _maybe_reconcile_ledger(
                 except Exception as exc:
                     raise HTTPException(
                         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail="Media operation state store is unavailable",
+                        detail=state_store_detail("Media operation state store is unavailable"),
                     ) from exc
                 if not repaired:
                     raise HTTPException(
@@ -1857,7 +1989,7 @@ async def _maybe_reconcile_ledger(
                 except Exception as exc:
                     raise HTTPException(
                         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail="Media operation state store is unavailable",
+                        detail=state_store_detail("Media operation state store is unavailable"),
                     ) from exc
                 if not marked:
                     raise HTTPException(
@@ -1894,7 +2026,7 @@ async def _maybe_reconcile_ledger(
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Media operation state store is unavailable",
+                detail=state_store_detail("Media operation state store is unavailable"),
             ) from exc
         if not finalized:
             raise HTTPException(
@@ -1906,7 +2038,7 @@ async def _maybe_reconcile_ledger(
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Media operation state store is unavailable",
+            detail=state_store_detail("Media operation state store is unavailable"),
         ) from exc
     if not marked:
         raise HTTPException(
@@ -1995,7 +2127,7 @@ async def _maybe_recover_media_ledger_intent(
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Media operation state store is unavailable; retry",
+                detail=state_store_detail("Media operation state store is unavailable; retry"),
             ) from exc
         if persisted is None:
             raise HTTPException(
@@ -2198,16 +2330,24 @@ async def comfyui_health_check():
         if _fal_api_key():
             return {
                 "service": "fal",
-                "status": "healthy",
+                "status": "configured",
                 "details": {
                     "provider": "fal",
                     "model": os.getenv("FAL_MODEL", "fal-ai/flux/dev"),
+                    "provider_status": "unknown",
                 },
             }
         return {
             "service": "fal",
             "status": "unhealthy",
             "error": "FAL_SOURCE=enabled requires FAL_API_KEY",
+        }
+
+    if not _comfyui_media_enabled():
+        return {
+            "service": "media",
+            "status": "disabled",
+            "details": {"provider": "none"},
         }
 
     try:
@@ -2218,8 +2358,11 @@ async def comfyui_health_check():
                 "status": health.get("status", "unknown"),
                 "details": health
             }
-    except Exception:
-        logger.exception("ComfyUI health check failed")
+    except Exception as exc:
+        logger.error(
+            "ComfyUI health check failed (error_type=%s)",
+            type(exc).__name__,
+        )
         return {
             "service": "comfyui",
             "status": "unhealthy",
@@ -2240,6 +2383,8 @@ async def get_comfyui_models():
                 "success": True,
                 "models": models
             }
+    except ComfyUIUpstreamError as exc:
+        raise _comfyui_gateway_error(exc) from exc
     except Exception as exc:
         raise _unexpected_error("Get ComfyUI models", exc)
 
@@ -2861,7 +3006,7 @@ async def get_media_operation(
         logger.warning("Media operation lookup failed for %s: %s", operation_id, exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Media operation state store is unavailable",
+            detail=state_store_detail("Media operation state store is unavailable"),
         ) from exc
     if not operation:
         raise HTTPException(
@@ -2893,7 +3038,7 @@ async def get_media_operation(
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Media operation state store is unavailable; retry",
+                detail=state_store_detail("Media operation state store is unavailable; retry"),
             ) from exc
         return _media_response(dict((refreshed or operation)["last_payload"]))
     elapsed = time.time() - float(operation["created_at_epoch"])
@@ -3021,7 +3166,7 @@ async def cancel_media_operation(
         logger.warning("Media operation lookup failed for %s: %s", operation_id, exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Media operation state store is unavailable",
+            detail=state_store_detail("Media operation state store is unavailable"),
         ) from exc
     if not operation:
         raise HTTPException(
@@ -3175,7 +3320,7 @@ async def reconcile_unknown_media_submission(
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Media operation state store is unavailable; retry",
+                detail=state_store_detail("Media operation state store is unavailable; retry"),
             ) from exc
 
     operation_store_unavailable = False
@@ -3206,7 +3351,7 @@ async def reconcile_unknown_media_submission(
             if operation_store_unavailable:
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Media operation state store is unavailable; retry",
+                    detail=state_store_detail("Media operation state store is unavailable; retry"),
                 )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -3389,7 +3534,7 @@ async def reconcile_unknown_media_submission(
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Media operation state store is unavailable; retry",
+            detail=state_store_detail("Media operation state store is unavailable; retry"),
         ) from exc
     if persisted is None:
         raise HTTPException(
@@ -3588,10 +3733,12 @@ async def generate_image(request: ComfyUIGenerateRequest):
                 
     except HTTPException:
         raise
+    except ComfyUIUpstreamError as exc:
+        raise _comfyui_gateway_error(exc) from exc
     except asyncio.TimeoutError:
-        return ComfyUIResponse(
-            success=False,
-            error="Image generation timed out",
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ComfyUI is unavailable",
         )
     except Exception as exc:
         raise _unexpected_error("Generate image", exc)
@@ -3650,11 +3797,13 @@ async def execute_comfyui_workflow(request: ComfyUIWorkflowRequest):
                     message="Workflow queued"
                 )
                 
-    except asyncio.TimeoutError:
-        return ComfyUIResponse(
-            success=False,
-            error="Workflow execution timed out",
-        )
+    except ComfyUIUpstreamError as exc:
+        raise _comfyui_gateway_error(exc) from exc
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ComfyUI is unavailable",
+        ) from exc
     except Exception as exc:
         raise _unexpected_error("Execute ComfyUI workflow", exc)
 
@@ -3672,6 +3821,8 @@ async def get_generation_history(prompt_id: str):
                 "success": True,
                 "history": history
             }
+    except ComfyUIUpstreamError as exc:
+        raise _comfyui_gateway_error(exc) from exc
     except Exception as exc:
         raise _unexpected_error("Get ComfyUI history", exc)
 
@@ -3689,6 +3840,8 @@ async def get_queue_status():
                 "success": True,
                 "queue": queue
             }
+    except ComfyUIUpstreamError as exc:
+        raise _comfyui_gateway_error(exc) from exc
     except Exception as exc:
         raise _unexpected_error("Get ComfyUI queue status", exc)
 
@@ -3706,6 +3859,8 @@ async def cancel_generation(prompt_id: str):
                 "success": success,
                 "message": "Generation cancelled" if success else "Failed to cancel generation"
             }
+    except ComfyUIUpstreamError as exc:
+        raise _comfyui_gateway_error(exc) from exc
     except Exception as exc:
         raise _unexpected_error("Cancel ComfyUI generation", exc)
 
@@ -3802,7 +3957,20 @@ async def get_generated_image(filename: str, subfolder: str = "", folder_type: s
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Image {filename} not found",
             )
-        raise _unexpected_error("Get ComfyUI image", exc)
+        upstream_error = ComfyUIResponseError(
+            "ComfyUI returned an invalid response"
+        )
+        raise _comfyui_gateway_error(upstream_error) from exc
+    except httpx.TransportError as exc:
+        unavailable = ComfyUIUnavailableError("ComfyUI is unavailable")
+        raise _comfyui_gateway_error(unavailable) from exc
+    except ComfyUIImageTooLargeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ComfyUI image exceeds configured byte limit",
+        ) from exc
+    except ComfyUIUpstreamError as exc:
+        raise _comfyui_gateway_error(exc) from exc
     except Exception as exc:
         raise _unexpected_error("Get ComfyUI image", exc)
 
@@ -4085,6 +4253,21 @@ async def memory_health_check():
     """Health check for the LangMem memory service."""
     result = await memory_service.health_check()
     return MemoryHealthResponse(**result)
+
+
+@app.post(
+    "/memory/vector-store/probe",
+    response_model=Dict[str, Any],
+    dependencies=[Depends(require_memory_automation_principal)],
+)
+async def memory_vector_store_probe():
+    """Explicitly probe Weaviate and fail back only when readiness succeeds."""
+    try:
+        return await memory_service.probe_weaviate()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
 
 
 @app.get(

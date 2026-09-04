@@ -2,7 +2,16 @@
 # breaking minor releases, but we don't snapshot exact pins here because
 # the GPU image base (PARAKEET_GPU_IMAGE) already pins the Python + CUDA
 # stack; we let Dependabot propose minor bumps inside that compatible range.
-nemo_toolkit[asr]>=2.7.3,<3.0
+# The lock's nemo-toolkit==3.0.0 installs hydra-core==1.3.2 and
+# lightning==2.4.0. Its upstream constraints are hydra-core<=1.3.2 and
+# lightning<=2.4.0, below the available advisory fixes. NeMo 3.0.0 leaves Transformers unconstrained.
+# The lock therefore resolves transformers==5.16.1.
+# Atlas' only NeMo load path is ASRModel.from_pretrained at transcribe.py:37
+# using operator-configured PARAKEET_MODEL. NeMo restores .nemo archives through
+# Serialization.from_config_dict -> safe_instantiate, which recursively validates
+# every _target_ before hydra.utils.instantiate. This path does not call
+# LightningModule.load_from_checkpoint.
+nemo_toolkit[asr]>=3.0.0,<4.0
 
 # Audio processing
 soundfile>=0.12.0
@@ -17,11 +26,9 @@ python-multipart>=0.0.31
 
 # HuggingFace Hub
 huggingface_hub>=0.20.0
-# NeMo 2.7.x requires Transformers 4.57.x. Its remaining model-loading
-# advisories are not reachable from transcription requests: Atlas loads only
-# the operator-configured PARAKEET_MODEL at process startup. Revisit when NeMo
-# supports Transformers 5.3+.
-transformers>=4.57.0,<4.58
+# NeMo 3.0.0 declares Transformers without a version bound. Keep Atlas on the
+# patched 5.x line while preserving NeMo's ASRModel.from_pretrained contract.
+transformers>=5.5.0,<6
 # NeMo's older transitive floors contain patched model-file traversal and
 # protobuf recursion issues, so keep the runtime on the secure compatible set.
 onnx>=1.22.0

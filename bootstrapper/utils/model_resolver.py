@@ -66,13 +66,9 @@ EMBEDDING CARVE-OUT
 wizard step and B4's model picker). However, ``resolved_defaults()`` deliberately
 EXCLUDES ``LITELLM_EMBEDDING_MODEL`` from its return value.
 
-Rationale: ``LITELLM_EMBEDDING_MODEL`` defaults to ``ollama/nomic-embed-text``
-(768-dim), which matches the ``public.memory_facts.embedding vector(768)``
-pgvector column used by the backend's memory fallback. Switching to a
-different-dimension embedding model (e.g. qwen3-embedding:0.6b at 1536 dims)
-would silently break all existing embedding storage. Therefore that var stays
-an explicit static default in ``services/litellm/service.yml``; the resolver
-never overrides it.
+Rationale: the embedding picker owns ``LITELLM_EMBEDDING_MODEL`` together with
+its derived ``LANGMEM_EMBEDDING_DIM`` contract. ``resolved_defaults()`` must not
+silently replace either half of that operator-visible selection.
 """
 
 from __future__ import annotations
@@ -266,11 +262,9 @@ def resolved_defaults(
       • ``LITELLM_DEFAULT_MODEL``  — best content-capable active model
       • ``LITELLM_VISION_MODEL``   — best vision-capable active model
 
-    NOTE: ``LITELLM_EMBEDDING_MODEL`` is deliberately EXCLUDED.  Changing
-    the embedding model changes the vector dimension, which would silently
-    break the ``public.memory_facts.embedding vector(768)`` pgvector column
-    in supabase-db.  That var stays a static explicit default in
-    ``services/litellm/service.yml``.
+    NOTE: ``LITELLM_EMBEDDING_MODEL`` is deliberately EXCLUDED. The embedding
+    picker owns it together with ``LANGMEM_EMBEDDING_DIM`` so the model and
+    database migration always receive one validated contract.
 
     Args:
         env: Env var mapping.  Pass ``{}`` (empty dict) to get the
@@ -292,18 +286,12 @@ def resolved_defaults(
 # Embedding dimension safety
 # ---------------------------------------------------------------------------
 
-#: The dimension the stack REQUIRES of its embedding model.  This is imposed by
-#: the consumer, NOT the model: the backend ``public.memory_facts.embedding``
-#: column is declared ``vector(768)`` in
-#: ``services/supabase/db/scripts/14-backend-memory.sql``.  An embedding model
-#: of any other dimension fails the memory INSERT at runtime inside Postgres
-#: with a dimension-mismatch error and no traceback to the model choice.
-#:
-#: SINGLE SOURCE: this constant mirrors that DDL literal.  If the column width
-#: ever changes, update both in lockstep.  Per-model output dimensions are NOT
-#: hardcoded here — they live in the YAML catalogs' ``dim:`` field and are read
-#: via :func:`dim_for_model_id`.
+#: Backward-compatible default for existing 768-dimensional deployments.
+#: Selected dimensions are resolved from catalog ``dim:`` metadata or an
+#: explicit ``LANGMEM_EMBEDDING_DIM`` and are no longer fixed in table DDL.
 MEMORY_FACTS_EMBEDDING_DIM = 768
+
+MAX_PGVECTOR_DIMENSION = 4000
 
 
 def dim_for_model_id(model_id: str | None) -> Optional[int]:
@@ -332,30 +320,59 @@ def dim_for_model_id(model_id: str | None) -> Optional[int]:
     return None
 
 
-def embedding_dim_warning(model: str | None) -> Optional[str]:
-    """Return a human-readable warning when ``model``'s declared embedding
-    dimension is not :data:`MEMORY_FACTS_EMBEDDING_DIM` (768).
+def embedding_dimension_contract(
+    model: str | None, configured_dimension: str | int | None
+) -> int:
+    """Resolve and validate the one memory embedding-dimension contract.
 
-    The wizard writes ``LITELLM_EMBEDDING_MODEL`` from the user's pick; a
-    non-768-dim choice silently breaks the backend ``memory_facts vector(768)``
-    pgvector inserts.  Callers surface this string as a non-fatal warning at
-    ``.env``-write time (we warn rather than block — an operator who migrated
-    the column may legitimately want a wider model).
+    Catalog ``dim:`` metadata remains the source for curated models.  The
+    explicit value exists so custom OpenAI-compatible models and the database
+    initializer can share the same schema contract; when the catalog knows the
+    model, the two values must agree.
+    """
+    catalog_dimension = dim_for_model_id(model)
+    if configured_dimension is None:
+        if catalog_dimension is not None:
+            return catalog_dimension
+        raise ValueError(
+            "A custom embedding model must declare LANGMEM_EMBEDDING_DIM explicitly"
+        )
+    try:
+        dimension = int(configured_dimension)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "LANGMEM_EMBEDDING_DIM must be an integer from 1 through 4000"
+        ) from exc
+    if not 1 <= dimension <= MAX_PGVECTOR_DIMENSION:
+        raise ValueError(
+            "LANGMEM_EMBEDDING_DIM must be an integer from 1 through 4000"
+        )
+    if catalog_dimension is not None and dimension != catalog_dimension:
+        raise ValueError(
+            f"{model} produces {catalog_dimension}-dim embeddings, but the "
+            f"configured LANGMEM_EMBEDDING_DIM is {dimension}"
+        )
+    return dimension
+
+
+def embedding_dim_warning(
+    model: str | None,
+    configured_dimension: int = MEMORY_FACTS_EMBEDDING_DIM,
+) -> Optional[str]:
+    """Warn when catalog metadata disagrees with the configured contract.
 
     The dimension is read from the YAML catalog (:func:`dim_for_model_id`), so
     declaring ``dim:`` on a new embedding entry is all it takes to extend this
-    guard.  Returns ``None`` for 768-dim models, empty/None input, and models
-    whose dimension the catalog does not declare.
+    guard. Returns ``None`` for matching, unknown, or empty model ids.
     """
     if not model:
         return None
     dim = dim_for_model_id(model)
-    if dim is not None and dim != MEMORY_FACTS_EMBEDDING_DIM:
+    if dim is not None and dim != configured_dimension:
         return (
             f"LITELLM_EMBEDDING_MODEL='{model}' produces {dim}-dim embeddings, but the "
-            f"backend memory_facts column is vector({MEMORY_FACTS_EMBEDDING_DIM}). "
-            f"Memory writes will fail unless you migrate that column or choose a "
-            f"{MEMORY_FACTS_EMBEDDING_DIM}-dim model (e.g. ollama/nomic-embed-text)."
+            f"configured LANGMEM_EMBEDDING_DIM is {configured_dimension}. "
+            f"Select a matching contract before startup."
         )
     return None
 

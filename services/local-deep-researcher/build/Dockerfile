@@ -5,7 +5,13 @@ FROM ${BASE_IMAGE}
 WORKDIR /app
 
 # Install system dependencies (LDR is DB-free — no postgresql-client/psql).
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# The pinned base lags Debian security updates, so the final-image gate sees
+# fixable findings the pin alone cannot clear. Take the published updates the
+# same way services/spark and services/airflow do; this trades byte-for-byte
+# base reproducibility for a patched runtime.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
     git \
     curl \
     && rm -rf /var/lib/apt/lists/*

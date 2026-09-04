@@ -139,10 +139,10 @@ def test_supavisor_generates_pooler_and_rollback_envs() -> None:
         "SUPAVISOR_SCALE": "0",
         "SUPAVISOR_DB_HOST": "supabase-db",
         "SUPAVISOR_DB_PORT_VALUE": "5432",
-        "SUPAVISOR_DB_USER": "${SUPABASE_DB_USER}",
+        "SUPAVISOR_DB_USER": "${N8N_DB_USER}",
         "SUPAVISOR_DATABASE_URL": (
-            "postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}"
-            "@supabase-db:5432/${SUPABASE_DB_NAME}"
+            "postgresql://${BACKEND_DB_USER_URI}:${BACKEND_DB_PASSWORD_URI}"
+                "@supabase-db:5432/${SUPABASE_DB_NAME_URI}"
         ),
     }
 
@@ -151,10 +151,10 @@ def test_supavisor_generates_pooler_and_rollback_envs() -> None:
         "SUPAVISOR_SCALE": "1",
         "SUPAVISOR_DB_HOST": "supavisor",
         "SUPAVISOR_DB_PORT_VALUE": "6543",
-        "SUPAVISOR_DB_USER": "${SUPABASE_DB_USER}.${SUPAVISOR_TENANT_ID}",
+        "SUPAVISOR_DB_USER": "${N8N_DB_USER}.${SUPAVISOR_TENANT_ID}",
         "SUPAVISOR_DATABASE_URL": (
-            "postgresql://${SUPABASE_DB_USER}.${SUPAVISOR_TENANT_ID}:"
-            "${SUPABASE_DB_PASSWORD}@supavisor:6543/${SUPABASE_DB_NAME}"
+            "postgresql://${BACKEND_DB_USER_URI}.${SUPAVISOR_TENANT_ID}:"
+            "${BACKEND_DB_PASSWORD_URI}@supavisor:6543/${SUPABASE_DB_NAME_URI}"
         ),
     }
 
@@ -171,7 +171,7 @@ def test_supavisor_compose_contract() -> None:
     assert service["environment"]["POOLER_POOL_MODE"] == "transaction"
     assert service["environment"]["POOLER_TENANT_ID"] == "${SUPAVISOR_TENANT_ID:-atlas}"
     assert service["environment"]["DATABASE_URL"].startswith(
-        "ecto://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/"
+        "ecto://${SUPAVISOR_DB_ADMIN_USER_URI:?SUPAVISOR_DB_ADMIN_USER_URI is required}:${SUPAVISOR_DB_ADMIN_PASSWORD_URI:?SUPAVISOR_DB_ADMIN_PASSWORD_URI is required}@supabase-db:5432/"
     )
     assert "http://127.0.0.1:4000/api/health" in "\n".join(service["healthcheck"]["test"])
     assert "/app/bin/migrate" in " ".join(service["command"])
@@ -220,16 +220,17 @@ def test_pooler_consumers_use_generated_envs_and_supabase_internals_stay_direct(
     assert "supavisor" in n8n_manifest["data_flow"]["calls"]
 
     assert backend["services"]["backend"]["environment"]["DATABASE_URL"] == (
-        "${SUPAVISOR_DATABASE_URL:-postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/${SUPABASE_DB_NAME}}"
+        "${SUPAVISOR_DATABASE_URL:-postgresql://${BACKEND_DB_USER_URI:?BACKEND_DB_USER_URI is required}:${BACKEND_DB_PASSWORD_URI:?BACKEND_DB_PASSWORD_URI is required}@supabase-db:5432/${SUPABASE_DB_NAME_URI:?SUPABASE_DB_NAME_URI is required}}"
     )
     assert celery["services"]["celery-worker"]["environment"]["DATABASE_URL"] == (
-        "${SUPAVISOR_DATABASE_URL:-postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/${SUPABASE_DB_NAME}}"
+        "${SUPAVISOR_DATABASE_URL:-postgresql://${BACKEND_DB_USER_URI:?BACKEND_DB_USER_URI is required}:${BACKEND_DB_PASSWORD_URI:?BACKEND_DB_PASSWORD_URI is required}@supabase-db:5432/${SUPABASE_DB_NAME_URI:?SUPABASE_DB_NAME_URI is required}}"
     )
     for service_name in ("n8n", "n8n-worker"):
         env = n8n["services"][service_name]["environment"]
         assert env["DB_POSTGRESDB_HOST"] == "${SUPAVISOR_DB_HOST:-supabase-db}"
         assert env["DB_POSTGRESDB_PORT"] == "${SUPAVISOR_DB_PORT_VALUE:-5432}"
-        assert env["DB_POSTGRESDB_USER"] == "${SUPAVISOR_DB_USER:-${SUPABASE_DB_USER}}"
+        assert env["DB_POSTGRESDB_USER"] == "${SUPAVISOR_DB_USER:-${N8N_DB_USER:?N8N_DB_USER is required}}"
+        assert env["DB_POSTGRESDB_PASSWORD"] == "${N8N_DB_PASSWORD:?N8N_DB_PASSWORD is required}"
 
     for services, service_name in (
         (backend["services"], "backend"),

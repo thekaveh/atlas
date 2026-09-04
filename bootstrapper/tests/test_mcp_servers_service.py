@@ -216,12 +216,9 @@ def test_mcp_runtime_guards_reject_write_and_unbounded_inputs() -> None:
     assert runtime.clamp_limit("abc", default=5, maximum=20) == 5
 
 
-def test_mcp_postgres_capability_discloses_owner_rls_bypass_and_read_scope() -> None:
+def test_mcp_postgres_capability_discloses_scoped_read_role_limits() -> None:
     compose_env = _compose()["services"]["mcp-servers"]["environment"]
-    supabase = yaml.safe_load(SUPABASE_MANIFEST.read_text())
-    supabase_env = {entry["name"]: entry for entry in supabase["env"]}
     runtime = _runtime_module()
-    rls_sql = MEMORY_RLS_SQL.read_text()
 
     capability = next(
         row
@@ -229,28 +226,24 @@ def test_mcp_postgres_capability_discloses_owner_rls_bypass_and_read_scope() -> 
         if row["name"] == "Tenant-scoped Postgres reads"
     )
     assert (
-        compose_env["SUPABASE_DB_USER"],
-        supabase_env["SUPABASE_DB_USER"]["default"],
+        compose_env["MCP_POSTGRES_DB_USER"],
         runtime.is_safe_postgres_read(
             "SELECT email, encrypted_password FROM auth.users"
         ),
-        "supabase_admin connection bypasses RLS (owner)" in rls_sql,
         (capability["status"], capability["verification"]),
     ) == (
-        "${SUPABASE_DB_USER}",
-        "supabase_admin",
+        "${MCP_POSTGRES_DB_USER:?MCP_POSTGRES_DB_USER is required}",
         True,
-        True,
-        ("not-supported", "tested"),
+        ("partial", "tested"),
     )
     note = capability["note"]
     _assert_contains(note, (
-        "shared supabase_admin owner",
-        "bypasses RLS",
+        "dedicated read-only login",
+        "without object ownership or BYPASSRLS",
         "SELECT/WITH/SHOW/EXPLAIN",
         "no schema, table, or column allowlist or redaction",
-        "trusted operators",
-        "least-privilege views or role",
+        "pg_read_all_data",
+        "operator-scoped rather than tenant-scoped",
     ))
 
 

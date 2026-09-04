@@ -45,6 +45,7 @@ def run_bounded(
     env: Mapping[str, str] | None = None,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
+    ready_file: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run an audit command through the repository's bounded process policy."""
     try:
@@ -55,6 +56,7 @@ def run_bounded(
             timeout_seconds=timeout_seconds,
             max_output_bytes=max_output_bytes,
             termination_grace_seconds=TERMINATION_GRACE_SECONDS,
+            ready_file=ready_file,
         )
     except subprocess.TimeoutExpired:
         raise CommandTimedOut from None
@@ -86,6 +88,7 @@ def main() -> int:
     parser.add_argument(
         "--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS
     )
+    parser.add_argument("--ready-file", type=Path)
     parser.add_argument(
         "--forward-stderr",
         action="store_true",
@@ -104,6 +107,7 @@ def main() -> int:
             command,
             cwd=args.cwd,
             timeout_seconds=args.timeout_seconds,
+            ready_file=args.ready_file,
         )
     except CommandTimedOut:
         print(f"{args.label} timed out after {args.timeout_seconds} seconds")

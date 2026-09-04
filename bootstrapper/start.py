@@ -38,6 +38,11 @@ from services.migrations.migration_v4 import (
     needs_migration as _needs_v4,
     stamp_version as _stamp_v4,
 )
+from services.migrations.migration_v5 import (
+    apply as _apply_v5,
+    needs_migration as _needs_v5,
+    stamp_version as _stamp_v5,
+)
 
 
 def _format_today() -> str:
@@ -51,6 +56,48 @@ def _format_today() -> str:
 def _write_private_text(path: Path, text: str) -> None:
     """Atomically replace *path* with an owner-readable text file."""
     atomic_write_text(path, text, mode=0o600)
+
+
+def _other_profile_binds(active: str, bundles: dict) -> set[str]:
+    return {
+        candidate.host_bind_ip
+        for name, candidate in bundles.items()
+        if name != active and candidate.host_bind_ip
+    }
+
+
+def _profile_owned_bind(
+    current_bind: str,
+    switching: bool,
+    other_binds: set[str],
+) -> bool:
+    return switching and current_bind in other_binds
+
+
+def _profile_host_bind_overrides(
+    active: str,
+    bundle,
+    bundles: dict,
+    env_vars: dict[str, str],
+) -> tuple[dict[str, str], str, bool]:
+    """Resolve profile-owned host binding without clobbering operator input."""
+    prior_applied = (env_vars.get("ATLAS_PROFILE_APPLIED", "") or "").strip()
+    switching = prior_applied not in ("", active)
+    other_binds = _other_profile_binds(active, bundles)
+    declared_bind = bundle.host_bind_ip
+    current_bind = env_vars.get("HOST_BIND_IP", "")
+    if declared_bind:
+        if not current_bind:
+            return {"HOST_BIND_IP": declared_bind}, prior_applied, switching
+        if _profile_owned_bind(current_bind, switching, other_binds):
+            if current_bind != declared_bind:
+                return {"HOST_BIND_IP": declared_bind}, prior_applied, switching
+    elif _profile_owned_bind(current_bind, switching, other_binds):
+        print(
+            f"profile={active}: cleared HOST_BIND_IP (ports return to all-interfaces)"
+        )
+        return {"HOST_BIND_IP": ""}, prior_applied, switching
+    return {}, prior_applied, switching
 
 
 def _run_privileged_hosts_setup() -> bool:
@@ -384,8 +431,12 @@ class AtlasStarter:
         manifests = load_manifests(self.root_dir / "services")
         by_name = {m.name: m for m in manifests if m.sources is not None}
         env_vars = self.config_parser.parse_env_file()
-        prior_applied = (env_vars.get("ATLAS_PROFILE_APPLIED", "") or "").strip()
-        switching = bool(prior_applied) and prior_applied != active
+        overrides, prior_applied, switching = _profile_host_bind_overrides(
+            active,
+            bundle,
+            bundles,
+            env_vars,
+        )
 
         explicit_vars = set(getattr(self, "_explicit_source_vars", set()) or set())
         for legacy_service, legacy_value in (
@@ -394,24 +445,6 @@ class AtlasStarter:
         ):
             if legacy_value is not None and legacy_service in by_name:
                 explicit_vars.add(by_name[legacy_service].sources.var)
-
-        overrides: Dict[str, str] = {}
-
-        # ── host_bind_ip ─────────────────────────────────────────────
-        other_binds = {
-            b.host_bind_ip
-            for name, b in bundles.items()
-            if name != active and b.host_bind_ip
-        }
-        declared_bind = bundle.host_bind_ip
-        current_bind = env_vars.get("HOST_BIND_IP", "")
-        if declared_bind:
-            overrides["HOST_BIND_IP"] = declared_bind
-        elif current_bind and current_bind in other_binds:
-            print(
-                f"profile={active}: cleared HOST_BIND_IP (ports return to all-interfaces)"
-            )
-            overrides["HOST_BIND_IP"] = ""
 
         # ── sources: undo the prior profile's asserts on a SWITCH ────
         auto_vars: list[str] = []
@@ -554,16 +587,53 @@ class AtlasStarter:
         """
         if not selections:
             return True
-        # Dimension-safety guard (warn, don't block): the wizard may carry a
-        # LITELLM_EMBEDDING_MODEL pick in `selections`. A non-768-dim embedding
-        # model breaks the backend memory_facts vector(768) pgvector inserts at
-        # runtime with no obvious cause, so surface it here at write time.
+        # Persist one model/dimension contract. Curated models derive their
+        # dimension from catalog metadata; custom models must carry a selected
+        # dimension or preserve an explicit value already present in .env.
         embed = (selections.get("LITELLM_EMBEDDING_MODEL", "") or "").strip()
         if embed:
-            from utils.model_resolver import embedding_dim_warning  # noqa: PLC0415
-            warning = embedding_dim_warning(embed)
-            if warning:
-                self.banner.console.print(f"[bright_yellow]⚠ {warning}[/bright_yellow]")
+            from utils.model_resolver import (  # noqa: PLC0415
+                dim_for_model_id,
+                embedding_dimension_contract,
+            )
+            selections = dict(selections)
+            parser = getattr(self, "config_parser", None)
+            current = parser.parse_env_file() if parser is not None else {}
+            current_override = (
+                current.get("LANGMEM_EMBEDDING_MODEL", "") or ""
+            ).strip()
+            explicit_override = (
+                selections.get("LANGMEM_EMBEDDING_MODEL", "") or ""
+            ).strip()
+            if explicit_override and explicit_override != embed:
+                raise ValueError(
+                    "LITELLM_EMBEDDING_MODEL and LANGMEM_EMBEDDING_MODEL "
+                    "must select the same embedding contract"
+                )
+            if current_override and not explicit_override and current_override != embed:
+                raise ValueError(
+                    "LANGMEM_EMBEDDING_MODEL override must be explicitly aligned "
+                    "with the selected LITELLM_EMBEDDING_MODEL"
+                )
+            effective_embed = explicit_override or embed
+            configured_dimension = selections.get("LANGMEM_EMBEDDING_DIM")
+            if (
+                configured_dimension is None
+                and dim_for_model_id(effective_embed) is None
+            ):
+                current_model = (
+                    current.get("LANGMEM_EMBEDDING_MODEL")
+                    or current.get("LITELLM_EMBEDDING_MODEL")
+                    or "ollama/nomic-embed-text"
+                )
+                # Preserve an existing explicit custom contract only when it
+                # belongs to the same effective model. A generic fresh 768
+                # must never silently declare a newly selected custom model.
+                if str(current_model).strip() == effective_embed:
+                    configured_dimension = current.get("LANGMEM_EMBEDDING_DIM")
+            selections["LANGMEM_EMBEDDING_DIM"] = str(
+                embedding_dimension_contract(effective_embed, configured_dimension)
+            )
         return self.source_override_manager.update_env_file(selections)
 
     def validate_source_configurations(self) -> bool:
@@ -1867,7 +1937,8 @@ class AtlasStarter:
     def run_port_migration(self, no_port_migrate: bool) -> None:
         """Chained .env migrations: v0 → v1 (port-layout), v1 → v2 (URL→PORT),
         v2 → v3 (COMFYUI_MODEL_SET → COMFYUI_USER_MODELS schema), v3 → v4
-        (stale curated Ollama model reference cleanup).
+        (stale curated Ollama model reference cleanup), v4 → v5
+        (enable Weaviate's native filesystem backup module).
 
         Idempotent. Each step is gated by its own ``_needs_*`` predicate
         so re-running is safe and stamping is independent. Reads
@@ -1893,7 +1964,11 @@ class AtlasStarter:
         model retired from ``services/ollama/models.yaml`` (e.g.
         ``qwen3.6`` → ``qwen3.8``) to the current catalog equivalent.
 
-        When ``no_port_migrate`` is True we skip all four migrations AND skip
+        v5: appends ``backup-filesystem`` to a persisted
+        ``WEAVIATE_ENABLE_MODULES`` list without changing operator-selected
+        modules, so upgrades receive the executable backup contract.
+
+        When ``no_port_migrate`` is True we skip all five migrations AND skip
         the sentinel stamps so the next run re-prompts — matches the
         user intent "skip this run, ask next time."
 
@@ -2013,6 +2088,23 @@ class AtlasStarter:
                         "was not stamped and will retry on the next start.",
                         "warning",
                     )
+
+        # v4 → v5: retain custom modules and add the native backup provider.
+        # Never leapfrog a retryable v4 failure by stamping the shared
+        # migration sentinel directly to 5.
+        if not _needs_v4(env_path) and _needs_v5(env_path):
+            if no_port_migrate:
+                self.banner.console.print(
+                    "[dim]Skipping Weaviate backup-module migration "
+                    "(--no-port-migrate); will re-prompt next run.[/dim]"
+                )
+            else:
+                _apply_v5(env_path)
+                _stamp_v5(env_path)
+                self.banner.show_status_message(
+                    "Weaviate backup-module migration complete (v5).",
+                    "success",
+                )
 
     def generate_service_configuration(self) -> bool:
         """Generate and update service configuration."""
@@ -3065,6 +3157,7 @@ class AtlasStarter:
             # abort the cold start. None (projection failure) falls back to
             # the historical full-graph build/up.
             targets = self.docker_manager.enabled_service_targets()
+            self.docker_manager.capture_build_state(targets)
 
             # Build images without cache (matching original Bash script behavior)
             print("    - Building images without cache...")
@@ -3080,7 +3173,7 @@ class AtlasStarter:
             # Cold start just built every enabled local image fresh — record the
             # source commit so the next warm start (#506) doesn't rebuild them
             # again until the source actually changes.
-            self.docker_manager.mark_source_built()
+            self.docker_manager.mark_source_built(targets)
 
             print("    - Starting containers...")
             # Start with force recreate for cold start

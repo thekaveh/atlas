@@ -35,7 +35,7 @@ images:
     default: "heartexlabs/label-studio:1.23.0"
     container: label-studio
   - var: LABEL_STUDIO_INIT_IMAGE
-    default: "alpine:3.22.1"
+    default: "alpine:3.24.1"
     container: label-studio-init
 
 sources:
@@ -64,10 +64,13 @@ env:
     auto_managed: true
   - name: LABEL_STUDIO_DB_NAME
     default: label_studio
+  - name: LABEL_STUDIO_DB_NAME_URI
+    default: label_studio
+    description: "Bootstrapper-synchronized percent-encoded LABEL_STUDIO_DB_NAME for DSN path components."
   - name: LABEL_STUDIO_DB_USER
     default: label_studio
   - name: LABEL_STUDIO_DB_PASSWORD
-    default: ""
+    default: atlas-db-password
     secret: true
     description: "Auto-generated Postgres password for the dedicated Label Studio database role."
   - name: LABEL_STUDIO_USERNAME

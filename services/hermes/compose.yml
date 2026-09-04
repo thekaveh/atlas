@@ -9,7 +9,11 @@ services:
   # skill at our internal ComfyUI service. Runs once per `docker compose up`;
   # exits 0.
   hermes-init:
-    image: ${HERMES_INIT_IMAGE:-alpine:3.24.1}
+    build:
+      context: init
+      args:
+        BASE_IMAGE: ${HERMES_INIT_IMAGE:-alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b}
+    image: ${PROJECT_NAME}-hermes-init:local
     container_name: ${PROJECT_NAME}-hermes-init
     restart: "no"
     deploy:

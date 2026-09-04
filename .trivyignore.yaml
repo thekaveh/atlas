@@ -2,6 +2,524 @@
 # carry a concrete risk statement, and expire; scripts.container_security rejects
 # broad, undocumented, duplicate, or stale entries before a scan can run.
 vulnerabilities:
+  - id: CVE-2026-43871
+    purls:
+      - "pkg:maven/org.apache.thrift/libthrift@0.16.0"
+    expired_at: 2026-11-30
+    statement: >-
+      libthrift 0.16.0 ships inside pyspark 4.1.2's bundled jars
+      (pyspark/jars/libthrift-0.16.0.jar) in the Airflow image. The fix is
+      0.24.0, which is unreachable without moving the whole pinned Spark family
+      together: the pyspark pin must match the apache/spark:4.1.2 cluster image
+      and iceberg-spark-runtime-4.1, and a previous uncoordinated move produced
+      a pip file collision that hard-failed the image build. The advisory is a
+      denial of service via infinite loop in Thrift protocol parsing; Atlas
+      drives Spark through operator-authored DAGs against the internal cluster
+      rather than exposing a Thrift endpoint to untrusted callers. Tracked for
+      the coordinated upgrade; remove this exception when the Spark family
+      moves.
+  - id: CVE-2026-56854
+    paths:
+      - "bin/weaviate"
+    expired_at: 2026-11-30
+    statement: >-
+      golang.org/x/crypto v0.53.0 is vendored into the Weaviate binary. The
+      advisory (GHSA-gjhq-gjfw-99mq, rated high by GitHub though Trivy reports
+      the vendor CRITICAL score) concerns the SSH server: source-address
+      critical options were not enforced for the PasswordCallback,
+      KeyboardInteractiveCallback, NoClientAuthCallback, and GSSAPI login
+      paths. Weaviate exposes HTTP and gRPC only and runs no SSH server, so the
+      package is present but the affected entry points are never reached. The
+      fix needs x/crypto 0.55.0; 1.38.13 is the newest Weaviate release and
+      still ships 0.53.0. Remove this exception once Weaviate rebuilds.
+  - id: CVE-2026-84304
+    paths:
+      - "bin/weaviate"
+    expired_at: 2026-11-30
+    statement: >-
+      google.golang.org/grpc v1.82.1 is vendored into the Weaviate binary.
+      Fragmented HTTP/2 DATA frames can exhaust heap memory, and an
+      unauthenticated remote caller can trigger it. Atlas publishes the gRPC
+      port through HOST_BIND_IP, which defaults to 127.0.0.1:, so port 50051 is
+      loopback-bound unless an operator deliberately widens it; this is a
+      deployment mitigation rather than a code fix, and any operator who
+      exposes the port must firewall it. The fix needs grpc 1.83.1; 1.38.13 is
+      the newest Weaviate release and still ships 1.82.1. Remove this exception
+      once Weaviate rebuilds.
+  - id: GHSA-443w-3rq3-5m5h
+    purls:
+      - "pkg:maven/software.amazon.awssdk/cloudfront@2.29.52"
+    expired_at: 2026-09-30
+    statement: >-
+      Hadoop 3.4.2 qualifies AWS SDK 2.29.52 for third-party S3 stores and
+      breaks against newer SDK releases. Atlas uses only the S3A client against
+      private MinIO; CloudFront is neither configured nor reachable through this
+      path, and a live MinIO write/read smoke test gates both image architectures.
+      Remove this exception when Hadoop qualifies a patched compatible SDK.
+  - id: CVE-2022-46337
+    purls:
+      - "pkg:maven/org.apache.derby/derby@10.16.1.1"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2025-12183
+    purls:
+      - "pkg:maven/org.lz4/lz4-java@1.8.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2025-24970
+    purls:
+      - "pkg:maven/io.netty/netty-handler@4.1.115.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2025-52999
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.12.7"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2025-55163
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http2@4.1.115.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-10050
+    purls:
+      - "pkg:maven/org.eclipse.jetty/jetty-security@11.0.26"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-2332
+    purls:
+      - "pkg:maven/org.eclipse.jetty/jetty-http@11.0.26"
+      - "pkg:maven/org.eclipse.jetty/jetty-http@9.4.57.v20241219"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-24281
+    purls:
+      - "pkg:maven/org.apache.zookeeper/zookeeper@3.9.4"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-24308
+    purls:
+      - "pkg:maven/org.apache.zookeeper/zookeeper@3.9.4"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-33870
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http@4.1.115.Final"
+      - "pkg:maven/io.netty/netty-codec-http@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-33871
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http2@4.1.115.Final"
+      - "pkg:maven/io.netty/netty-codec-http2@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-42577
+    purls:
+      - "pkg:maven/io.netty/netty-transport-classes-epoll@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-42579
+    purls:
+      - "pkg:maven/io.netty/netty-codec-dns@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-42582
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http3@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-42583
+    purls:
+      - "pkg:maven/io.netty/netty-codec-compression@4.2.7.Final"
+      - "pkg:maven/io.netty/netty-codec@4.1.115.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-42584
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http@4.1.115.Final"
+      - "pkg:maven/io.netty/netty-codec-http@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-42587
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http2@4.1.115.Final"
+      - "pkg:maven/io.netty/netty-codec-http2@4.2.7.Final"
+      - "pkg:maven/io.netty/netty-codec-http@4.1.115.Final"
+      - "pkg:maven/io.netty/netty-codec-http@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-43869
+    purls:
+      - "pkg:maven/org.apache.thrift/libthrift@0.16.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-44249
+    purls:
+      - "pkg:maven/io.netty/netty-handler@4.1.115.Final"
+      - "pkg:maven/io.netty/netty-handler@4.2.13.Final"
+      - "pkg:maven/io.netty/netty-handler@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-44892
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http3@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-44894
+    purls:
+      - "pkg:maven/io.netty/netty-codec-classes-quic@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-45416
+    purls:
+      - "pkg:maven/io.netty/netty-handler@4.1.115.Final"
+      - "pkg:maven/io.netty/netty-handler@4.2.13.Final"
+      - "pkg:maven/io.netty/netty-handler@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-45674
+    purls:
+      - "pkg:maven/io.netty/netty-resolver-dns@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-47691
+    purls:
+      - "pkg:maven/io.netty/netty-resolver-dns@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-48748
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http3@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-50010
+    purls:
+      - "pkg:maven/io.netty/netty-handler@4.1.115.Final"
+      - "pkg:maven/io.netty/netty-handler@4.2.13.Final"
+      - "pkg:maven/io.netty/netty-handler@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-54399
+    purls:
+      - "pkg:maven/org.apache.httpcomponents.core5/httpcore5@5.4"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-54428
+    purls:
+      - "pkg:maven/org.apache.httpcomponents.core5/httpcore5-h2@5.4"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-54512
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.12.7.1"
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.15.2"
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.19.2"
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.21.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-54513
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.12.7.1"
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.15.2"
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.19.2"
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.21.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-55831
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http@4.1.115.Final"
+      - "pkg:maven/io.netty/netty-codec-http@4.2.13.Final"
+      - "pkg:maven/io.netty/netty-codec-http@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-55833
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http@4.1.115.Final"
+      - "pkg:maven/io.netty/netty-codec-http@4.2.13.Final"
+      - "pkg:maven/io.netty/netty-codec-http@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-56740
+    purls:
+      - "pkg:maven/org.jline/jline-remote-telnet@3.29.0"
+      - "pkg:maven/org.jline/jline-remote-telnet@3.9.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-56741
+    purls:
+      - "pkg:maven/org.jline/jline-remote-telnet@3.29.0"
+      - "pkg:maven/org.jline/jline-remote-telnet@3.9.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-56745
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http@4.1.115.Final"
+      - "pkg:maven/io.netty/netty-codec-http@4.2.13.Final"
+      - "pkg:maven/io.netty/netty-codec-http@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-56816
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http3@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-56819
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http2@4.1.115.Final"
+      - "pkg:maven/io.netty/netty-codec-http2@4.2.13.Final"
+      - "pkg:maven/io.netty/netty-codec-http2@4.2.7.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: CVE-2026-59901
+    purls:
+      - "pkg:maven/io.netty/netty-codec-compression@4.2.13.Final"
+      - "pkg:maven/io.netty/netty-codec-compression@4.2.7.Final"
+      - "pkg:maven/io.netty/netty-codec@4.1.115.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
+  - id: GHSA-r7wm-3cxj-wff9
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.12.7"
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.15.2"
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.19.2"
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.21.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
+      are Atlas's tested lakehouse family and bundle this exact component; replacing
+      individual shaded or distribution JARs would create an unsupported binary mix.
+      The Spark control plane is private to the backend network and accepts only
+      trusted operator-authored jobs. Remove this exception when a compatible
+      upstream Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2025-9086
     purls:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
@@ -470,3 +988,1747 @@ vulnerabilities:
       The Ray cluster is isolated on the private Compose network and accepts
       runtime environments only from trusted backend and notebook clients;
       remove this exception with the next compatible Ray release.
+  - id: CVE-2015-2080
+    purls:
+      - "pkg:maven/org.eclipse.jetty/jetty-server@8.2.0.v20160908"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2015-3250
+    purls:
+      - "pkg:maven/org.apache.directory.api/api-ldap-model@1.0.0-M20"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2017-18640
+    purls:
+      - "pkg:maven/org.yaml/snakeyaml@1.15"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2017-7656
+    purls:
+      - "pkg:maven/org.eclipse.jetty/jetty-server@8.2.0.v20160908"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2017-7657
+    purls:
+      - "pkg:maven/org.eclipse.jetty/jetty-server@8.2.0.v20160908"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2017-7658
+    purls:
+      - "pkg:maven/org.eclipse.jetty/jetty-server@8.2.0.v20160908"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2017-9735
+    purls:
+      - "pkg:maven/org.eclipse.jetty/jetty-server@8.2.0.v20160908"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2019-0231
+    purls:
+      - "pkg:maven/org.apache.mina/mina-core@2.0.7"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2019-12086
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2019-12402
+    purls:
+      - "pkg:maven/org.apache.commons/commons-compress@1.18"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2019-14379
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2019-14439
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2019-14540
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2019-14892
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2019-14893
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2019-16335
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2019-16942
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2019-16943
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2019-17267
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2019-17531
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2019-20330
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2019-20444
+    purls:
+      - "pkg:maven/io.netty/netty@3.10.6.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2019-7611
+    purls:
+      - "pkg:maven/org.elasticsearch/elasticsearch@2.4.3"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-10650
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-10672
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-10673
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-10968
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-10969
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-11111
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-11112
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-11113
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-11619
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-11620
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-13949
+    purls:
+      - "pkg:maven/org.apache.thrift/libthrift@0.13.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-14060
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-14061
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-14062
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-14195
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-24616
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-24750
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-25649
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-35490
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-35491
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-35728
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-36179
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-36180
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-36181
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-36182
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-36183
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-36184
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-36185
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-36186
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-36187
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-36188
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-36189
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-36518
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-7692
+    purls:
+      - "pkg:maven/com.google.oauth-client/google-oauth-client@1.23.0"
+      - "pkg:maven/com.google.oauth-client/google-oauth-client@1.30.5"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-8840
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-9546
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-9547
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2020-9548
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2021-0341
+    purls:
+      - "pkg:maven/com.squareup.okhttp3/okhttp@3.12.12"
+      - "pkg:maven/com.squareup.okhttp3/okhttp@3.13.1"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2021-20190
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2021-22573
+    purls:
+      - "pkg:maven/com.google.oauth-client/google-oauth-client@1.23.0"
+      - "pkg:maven/com.google.oauth-client/google-oauth-client@1.30.5"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2021-28165
+    purls:
+      - "pkg:maven/org.eclipse.jetty/jetty-server@8.2.0.v20160908"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2021-35515
+    purls:
+      - "pkg:maven/org.apache.commons/commons-compress@1.18"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2021-35516
+    purls:
+      - "pkg:maven/org.apache.commons/commons-compress@1.18"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2021-35517
+    purls:
+      - "pkg:maven/org.apache.commons/commons-compress@1.18"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2021-36090
+    purls:
+      - "pkg:maven/org.apache.commons/commons-compress@1.18"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2021-37136
+    purls:
+      - "pkg:maven/io.netty/netty-codec@4.1.51.Final"
+      - "pkg:maven/io.netty/netty@3.10.6.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2021-37137
+    purls:
+      - "pkg:maven/io.netty/netty-codec@4.1.51.Final"
+      - "pkg:maven/io.netty/netty@3.10.6.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2021-37714
+    purls:
+      - "pkg:maven/org.jsoup/jsoup@1.10.3"
+      - "pkg:maven/org.jsoup/jsoup@1.11.3"
+      - "pkg:maven/org.jsoup/jsoup@1.8.1"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2021-39239
+    purls:
+      - "pkg:maven/org.apache.jena/jena-core@3.12.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2022-1471
+    purls:
+      - "pkg:maven/org.yaml/snakeyaml@1.15"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2022-25857
+    purls:
+      - "pkg:maven/org.yaml/snakeyaml@1.15"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2022-39286
+    purls:
+      - "pkg:pypi/jupyter-core@4.11.1"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2022-40897
+    purls:
+      - "pkg:pypi/setuptools@59.8.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2022-42003
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2022-42004
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2022-45199
+    purls:
+      - "pkg:pypi/pillow@9.2.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2023-26464
+    purls:
+      - "pkg:maven/log4j/log4j@1.2.17"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2023-31418
+    purls:
+      - "pkg:maven/org.elasticsearch/elasticsearch@2.4.3"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2023-33953
+    purls:
+      - "pkg:pypi/grpcio@1.47.1"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2023-39410
+    purls:
+      - "pkg:maven/org.apache.avro/avro@1.11.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2023-44271
+    purls:
+      - "pkg:pypi/pillow@9.2.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2023-44981
+    purls:
+      - "pkg:maven/org.apache.zookeeper/zookeeper@3.5.5"
+      - "pkg:maven/org.apache.zookeeper/zookeeper@3.6.3"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2023-45139
+    purls:
+      - "pkg:pypi/fonttools@4.38.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2023-47248
+    purls:
+      - "pkg:pypi/pyarrow@9.0.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2023-4759
+    purls:
+      - "pkg:maven/org.eclipse.jgit/org.eclipse.jgit@4.5.4.201711221230-r"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2023-4863
+    purls:
+      - "pkg:pypi/pillow@9.2.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2023-50447
+    purls:
+      - "pkg:pypi/pillow@9.2.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2024-13009
+    purls:
+      - "pkg:maven/org.eclipse.jetty/jetty-server@9.4.54.v20240208"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2024-21634
+    purls:
+      - "pkg:maven/software.amazon.ion/ion-java@1.0.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2024-26130
+    purls:
+      - "pkg:pypi/cryptography@42.0.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2024-28219
+    purls:
+      - "pkg:pypi/pillow@9.2.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2024-47561
+    purls:
+      - "pkg:maven/org.apache.avro/avro@1.11.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2024-52046
+    purls:
+      - "pkg:maven/org.apache.mina/mina-core@2.0.7"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2024-52804
+    purls:
+      - "pkg:pypi/tornado@6.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2024-6345
+    purls:
+      - "pkg:pypi/setuptools@59.8.0"
+      - "pkg:pypi/setuptools@68.2.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2024-7254
+    purls:
+      - "pkg:maven/com.google.protobuf/protobuf-java@3.21.7"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2025-12383
+    purls:
+      - "pkg:maven/org.glassfish.jersey.core/jersey-client@3.1.9"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2025-30167
+    purls:
+      - "pkg:pypi/jupyter-core@4.11.1"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2025-4565
+    purls:
+      - "pkg:pypi/protobuf@4.21.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2025-47273
+    purls:
+      - "pkg:pypi/setuptools@59.8.0"
+      - "pkg:pypi/setuptools@68.2.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2025-47287
+    purls:
+      - "pkg:pypi/tornado@6.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2025-52999
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2025-54920
+    purls:
+      - "pkg:maven/org.apache.spark/spark-core_2.12@3.5.3"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2025-55163
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http2@4.1.87.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2025-6176
+    purls:
+      - "pkg:pypi/brotli@1.0.9"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2025-66418
+    purls:
+      - "pkg:pypi/urllib3@2.1.0"
+      - "pkg:pypi/urllib3@2.2.1"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2025-66471
+    purls:
+      - "pkg:pypi/urllib3@2.1.0"
+      - "pkg:pypi/urllib3@2.2.1"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2025-67030
+    purls:
+      - "pkg:maven/org.codehaus.plexus/plexus-utils@3.2.1"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2025-67725
+    purls:
+      - "pkg:pypi/tornado@6.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2025-67726
+    purls:
+      - "pkg:pypi/tornado@6.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-0994
+    purls:
+      - "pkg:pypi/protobuf@4.21.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-10050
+    purls:
+      - "pkg:maven/org.eclipse.jetty/jetty-security@11.0.24"
+      - "pkg:maven/org.eclipse.jetty/jetty-security@9.4.54.v20240208"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-21441
+    purls:
+      - "pkg:pypi/urllib3@2.1.0"
+      - "pkg:pypi/urllib3@2.2.1"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-2332
+    purls:
+      - "pkg:maven/org.eclipse.jetty/jetty-http@11.0.24"
+      - "pkg:maven/org.eclipse.jetty/jetty-http@9.4.54.v20240208"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-24049
+    purls:
+      - "pkg:pypi/wheel@0.41.2"
+      - "pkg:pypi/wheel@0.42.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-25526
+    purls:
+      - "pkg:maven/com.hubspot.jinjava/jinjava@2.4.0"
+      - "pkg:maven/com.hubspot.jinjava/jinjava@2.5.4"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-26007
+    purls:
+      - "pkg:pypi/cryptography@42.0.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-27727
+    purls:
+      - "pkg:maven/com.mchange/mchange-commons-java@0.2.15"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-27830
+    purls:
+      - "pkg:maven/com.mchange/c3p0@0.9.5.4"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-31958
+    purls:
+      - "pkg:pypi/tornado@6.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-33870
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http@4.1.87.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-33871
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http2@4.1.87.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-35536
+    purls:
+      - "pkg:pypi/tornado@6.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-40984
+    purls:
+      - "pkg:maven/io.micrometer/micrometer-core@1.14.2"
+      - "pkg:maven/io.micrometer/micrometer-jetty11@1.14.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-41409
+    purls:
+      - "pkg:maven/org.apache.mina/mina-core@2.0.7"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-41635
+    purls:
+      - "pkg:maven/org.apache.mina/mina-core@2.0.7"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-42583
+    purls:
+      - "pkg:maven/io.netty/netty-codec@4.1.51.Final"
+      - "pkg:maven/io.netty/netty-codec@4.1.75.Final"
+      - "pkg:maven/io.netty/netty-codec@4.1.87.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-42584
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http@4.1.87.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-42587
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http2@4.1.87.Final"
+      - "pkg:maven/io.netty/netty-codec-http@4.1.87.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-43869
+    purls:
+      - "pkg:maven/org.apache.thrift/libthrift@0.13.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-44249
+    purls:
+      - "pkg:maven/io.netty/netty-handler@4.1.51.Final"
+      - "pkg:maven/io.netty/netty-handler@4.1.75.Final"
+      - "pkg:maven/io.netty/netty-handler@4.1.87.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-44431
+    purls:
+      - "pkg:pypi/urllib3@2.1.0"
+      - "pkg:pypi/urllib3@2.2.1"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-45416
+    purls:
+      - "pkg:maven/io.netty/netty-handler@4.1.51.Final"
+      - "pkg:maven/io.netty/netty-handler@4.1.75.Final"
+      - "pkg:maven/io.netty/netty-handler@4.1.87.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-47065
+    purls:
+      - "pkg:maven/org.apache.mina/mina-core@2.0.7"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-49268
+    purls:
+      - "pkg:maven/org.apache.shiro/shiro-core@1.13.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-49853
+    purls:
+      - "pkg:pypi/tornado@6.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-49855
+    purls:
+      - "pkg:pypi/tornado@6.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-50010
+    purls:
+      - "pkg:maven/io.netty/netty-handler@4.1.51.Final"
+      - "pkg:maven/io.netty/netty-handler@4.1.75.Final"
+      - "pkg:maven/io.netty/netty-handler@4.1.87.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-54058
+    purls:
+      - "pkg:pypi/pillow@9.2.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-54059
+    purls:
+      - "pkg:pypi/pillow@9.2.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-54060
+    purls:
+      - "pkg:pypi/pillow@9.2.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-54512
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.18.3"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-54513
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.18.3"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-55153
+    purls:
+      - "pkg:maven/com.mchange/mchange-commons-java@0.2.15"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-55379
+    purls:
+      - "pkg:pypi/pillow@9.2.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-55380
+    purls:
+      - "pkg:pypi/pillow@9.2.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-55831
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http@4.1.87.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-55833
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http@4.1.87.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-56740
+    purls:
+      - "pkg:maven/org.jline/jline-remote-telnet@3.16.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-56741
+    purls:
+      - "pkg:maven/org.jline/jline-remote-telnet@3.16.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-56745
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http@4.1.87.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-56819
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http2@4.1.87.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-59197
+    purls:
+      - "pkg:pypi/pillow@9.2.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-59199
+    purls:
+      - "pkg:pypi/pillow@9.2.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-59200
+    purls:
+      - "pkg:pypi/pillow@9.2.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-59204
+    purls:
+      - "pkg:pypi/pillow@9.2.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-59205
+    purls:
+      - "pkg:pypi/pillow@9.2.0"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-59901
+    purls:
+      - "pkg:maven/io.netty/netty-codec@4.1.51.Final"
+      - "pkg:maven/io.netty/netty-codec@4.1.75.Final"
+      - "pkg:maven/io.netty/netty-codec@4.1.87.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-63337
+    purls:
+      - "pkg:maven/com.rabbitmq/amqp-client@5.5.3"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-69219
+    purls:
+      - "pkg:maven/com.rabbitmq/amqp-client@5.5.3"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-69220
+    purls:
+      - "pkg:maven/com.rabbitmq/amqp-client@5.5.3"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-69249
+    purls:
+      - "pkg:pypi/cryptography@42.0.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: GHSA-537c-gmf6-5ccf
+    purls:
+      - "pkg:pypi/cryptography@42.0.2"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: GHSA-6v7p-g79w-8964
+    purls:
+      - "pkg:pypi/msgpack@1.0.4"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: GHSA-r7wm-3cxj-wff9
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.18.3"
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.9.8"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: GHSA-xpw8-rcwv-8f8p
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http2@4.1.87.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
+      interpreter/runtime distribution; replacing individual transitive packages or
+      shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
+      to a fixed loopback port with no Kong route, limiting access to local operators
+      or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-71211
+    purls:
+      - "pkg:pypi/mlflow@3.15.1"
+    expired_at: 2026-09-30
+    statement: >-
+      MLflow has no fixed release for this AI Gateway SSRF. Atlas upgrades the
+      server to 3.15.1 to close CVE-2026-64849, then starts it only through
+      services/mlflow/atlas_server.py, whose outer ASGI guard returns 404 for
+      every prefixed or unprefixed native, REST, and AJAX AI Gateway route family
+      while preserving tracking and artifact APIs. Unit coverage and a required
+      pinned-image HTTP smoke exercise both blocked and allowed paths. Jupyter's
+      separately scanned copy is client-only, and a fail-closed source scan covers
+      every shipped executable surface. Remove this exception when upstream ships a fix.

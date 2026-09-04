@@ -31,7 +31,7 @@ services:
       OPENAI_API_KEYS: ${LITELLM_MASTER_KEY}
       ENABLE_OPENAI_API: "true"
       ENABLE_OLLAMA_API: "false"
-      DATABASE_URL: postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/${SUPABASE_DB_NAME}
+      DATABASE_URL: postgresql://${OPEN_WEBUI_DB_USER_URI:?OPEN_WEBUI_DB_USER_URI is required}:${OPEN_WEBUI_DB_PASSWORD_URI:?OPEN_WEBUI_DB_PASSWORD_URI is required}@supabase-db:5432/${SUPABASE_DB_NAME_URI:?SUPABASE_DB_NAME_URI is required}
       WEBUI_SECRET_KEY: ${OPEN_WEB_UI_SECRET_KEY}
       # (no WEBUI_ADMIN_* here: Open WebUI has no such config vars —
       # the admin account is created by open-webui-init via the
@@ -86,7 +86,7 @@ services:
     build:
       context: ./init
       args:
-        BASE_IMAGE: ${OPEN_WEB_UI_INIT_IMAGE:-python:3.12.7-slim}
+        BASE_IMAGE: ${OPEN_WEB_UI_INIT_IMAGE:-python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579}
     container_name: ${PROJECT_NAME}-open-webui-init
     restart: "no"
     deploy:
@@ -99,7 +99,7 @@ services:
     environment:
       WEBUI_URL: http://open-web-ui:8080
       WEBUI_SECRET_KEY: ${OPEN_WEB_UI_SECRET_KEY}
-      DATABASE_URL: postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/${SUPABASE_DB_NAME}
+      DATABASE_URL: postgresql://${OPEN_WEBUI_DB_USER_URI:?OPEN_WEBUI_DB_USER_URI is required}:${OPEN_WEBUI_DB_PASSWORD_URI:?OPEN_WEBUI_DB_PASSWORD_URI is required}@supabase-db:5432/${SUPABASE_DB_NAME_URI:?SUPABASE_DB_NAME_URI is required}
       ADMIN_EMAIL: ${OPEN_WEB_UI_ADMIN_EMAIL:-admin@localhost}
       ADMIN_PASSWORD: ${OPEN_WEB_UI_ADMIN_PASSWORD:-admin}
       ADMIN_NAME: ${OPEN_WEB_UI_ADMIN_NAME:-Admin}

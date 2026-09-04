@@ -74,7 +74,7 @@ def test_mlflow_topology_alias_and_env_example_contract() -> None:
     env_example = (REPO_ROOT / ".env.example").read_text()
     for expected in (
         "MLFLOW_SOURCE=disabled",
-        "MLFLOW_IMAGE=ghcr.io/mlflow/mlflow:v3.14.0",
+        "MLFLOW_IMAGE=ghcr.io/mlflow/mlflow:v3.15.1",
         "MLFLOW_PORT=",
         "MLFLOW_ENDPOINT=",
         "MLFLOW_SCALE=",
@@ -147,24 +147,33 @@ def test_mlflow_compose_contract() -> None:
     service = compose["mlflow"]
 
     assert init["build"]["context"] == "./init"
-    assert init["depends_on"]["supabase-db"]["condition"] == "service_healthy"
+    assert init["depends_on"]["supabase-db-init"]["condition"] == "service_completed_successfully"
     assert init["depends_on"]["minio-init"]["condition"] == "service_completed_successfully"
     assert init["environment"]["MLFLOW_DB_NAME"] == "${MLFLOW_DB_NAME:-mlflow}"
     assert "MINIO_ROOT_USER" not in init["environment"]
 
-    assert service["image"] == "${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.14.0}"
+    assert service["image"] == "${PROJECT_NAME}-mlflow:local"
+    assert service["build"] == {
+        "context": ".",
+        "dockerfile": "build/Dockerfile",
+        "args": {"BASE_IMAGE": "${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.15.1}"},
+    }
     assert service["ports"] == ["${HOST_BIND_IP:-}${MLFLOW_PORT}:5000"]
     assert service["depends_on"]["mlflow-init"]["condition"] == "service_completed_successfully"
     assert service["environment"]["MLFLOW_S3_ENDPOINT_URL"] == "http://minio:9000"
     assert service["environment"]["AWS_ACCESS_KEY_ID"] == "${MINIO_MLFLOW_ACCESS_KEY}"
     assert service["environment"]["AWS_SECRET_ACCESS_KEY"] == "${MINIO_MLFLOW_SECRET_KEY}"
-    command = "\n".join(service["command"])
-    assert "--backend-store-uri" in command
-    assert "postgresql://${MLFLOW_DB_USER}:${MLFLOW_DB_PASSWORD}@supabase-db:5432/${MLFLOW_DB_NAME:-mlflow}" in command
-    assert "--artifacts-destination" in command
-    assert "s3://${MINIO_BUCKET_MLFLOW:-mlflow}" in command
-    assert "--host" in command and "0.0.0.0" in command
-    assert "--port" in command and "5000" in command
+    assert service["command"] == ["python", "atlas_server.py"]
+    assert service["working_dir"] == "/opt/atlas"
+    assert "volumes" not in service
+    environment = service["environment"]
+    database_uri = "postgresql://${MLFLOW_DB_USER_URI:?MLFLOW_DB_USER_URI is required}:${MLFLOW_DB_PASSWORD_URI:?MLFLOW_DB_PASSWORD_URI is required}@supabase-db:5432/${MLFLOW_DB_NAME_URI:?MLFLOW_DB_NAME_URI is required}"
+    assert environment["_MLFLOW_SERVER_FILE_STORE"] == database_uri
+    assert environment["_MLFLOW_SERVER_REGISTRY_STORE"] == database_uri
+    assert environment["_MLFLOW_SERVER_ARTIFACT_ROOT"] == "mlflow-artifacts:/"
+    assert environment["_MLFLOW_SERVER_ARTIFACT_DESTINATION"] == "s3://${MINIO_BUCKET_MLFLOW:-mlflow}"
+    assert environment["_MLFLOW_SERVER_SERVE_ARTIFACTS"] == "true"
+    assert "localhost:5000" in environment["MLFLOW_SERVER_ALLOWED_HOSTS"].split(",")
 
 
 def test_minio_provisions_mlflow_bucket_and_scoped_credentials() -> None:

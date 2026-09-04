@@ -14,7 +14,6 @@ still succeeds.
 from __future__ import annotations
 
 import subprocess
-import time
 import uuid
 
 import pytest
@@ -34,6 +33,7 @@ def _psql(name: str, sql: str) -> subprocess.CompletedProcess:
          "-v", "ON_ERROR_STOP=1", "-U", seed_harness.DB_USER,
          "-d", seed_harness.DB_NAME, "-f", "-"],
         input=sql, text=True, capture_output=True,
+        timeout=seed_harness.COMMAND_TIMEOUT,
     )
 
 
@@ -44,6 +44,7 @@ def _run_script_14(name: str) -> subprocess.CompletedProcess:
              "-v", "ON_ERROR_STOP=1", "-U", seed_harness.DB_USER,
              "-d", seed_harness.DB_NAME, "-f", "-"],
             stdin=fh, text=True, capture_output=True,
+            timeout=seed_harness.COMMAND_TIMEOUT,
         )
 
 
@@ -55,41 +56,46 @@ def _col_type(name: str) -> str:
          "table_schema='public' AND table_name='memory_facts' AND "
          "column_name='user_id'"],
         text=True, capture_output=True, check=True,
+        timeout=seed_harness.COMMAND_TIMEOUT,
     )
     return r.stdout.strip()
 
 
 def _boot_and_init():
     """Boot the pinned image and apply every seed script (fresh full init)."""
-    name = f"atlas-legacy-uidtest-{uuid.uuid4().hex[:8]}"
-    subprocess.run(
-        ["docker", "run", "-d", "--name", name,
-         "-e", f"POSTGRES_USER={seed_harness.DB_USER}",
-         "-e", "POSTGRES_PASSWORD=postgres",
-         "-e", f"POSTGRES_DB={seed_harness.DB_NAME}",
-         "-e", "POSTGRES_HOST_AUTH_METHOD=trust",
-         seed_harness.DB_IMAGE],
-        check=True, capture_output=True,
-    )
-    for _ in range(180):
-        if subprocess.run(
-            ["docker", "exec", name, "pg_isready", "-h", "127.0.0.1",
-             "-U", seed_harness.DB_USER, "-d", seed_harness.DB_NAME, "-q"]
-        ).returncode == 0:
-            break
-        time.sleep(1)
-    else:
-        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
-        raise RuntimeError("postgres did not become ready in 180s")
-    for sql in sorted(seed_harness.SCRIPTS_DIR.glob("*.sql")):
-        with sql.open("rb") as fh:
-            subprocess.run(
-                ["docker", "exec", "-i", name, "psql", "-h", "127.0.0.1",
-                 "-v", "ON_ERROR_STOP=1", "-U", seed_harness.DB_USER,
-                 "-d", seed_harness.DB_NAME, "-f", "-"],
-                stdin=fh, check=True, capture_output=True,
-            )
-    return name
+    token = uuid.uuid4().hex
+    name = f"atlas-legacy-uidtest-{token[:12]}"
+    try:
+        subprocess.run(
+            ["docker", "run", "-d", "--pull=never", "--name", name,
+             "--label", f"{seed_harness.SEED_OWNER_LABEL}={token}",
+             "--tmpfs", "/var/lib/postgresql/data:rw,noexec,nosuid,size=1536m",
+             "-e", f"POSTGRES_USER={seed_harness.DB_USER}",
+             "-e", f"POSTGRES_PASSWORD={seed_harness.DB_PASSWORD}",
+             "-e", f"POSTGRES_DB={seed_harness.DB_NAME}",
+             "-e", "POSTGRES_HOST_AUTH_METHOD=trust",
+             seed_harness.DB_IMAGE],
+            check=True, capture_output=True,
+            timeout=seed_harness.COMMAND_TIMEOUT,
+        )
+        seed_harness.wait_for_postgres(
+            name, timeout_seconds=45, poll_interval=0.25
+        )
+        for sql in sorted(seed_harness.SCRIPTS_DIR.glob("*.sql")):
+            with sql.open("rb") as fh:
+                subprocess.run(
+                    ["docker", "exec", "-i", name, "psql", "-h", "127.0.0.1",
+                     "-v", "ON_ERROR_STOP=1", "-U", seed_harness.DB_USER,
+                     "-d", seed_harness.DB_NAME, "-f", "-"],
+                    stdin=fh, check=True, capture_output=True,
+                    timeout=seed_harness.COMMAND_TIMEOUT,
+                )
+        return name, token
+    except BaseException as exc:
+        seed_harness.remove_seed_container(
+            name, token, primary_error=exc, uncertain=True
+        )
+        raise
 
 
 # Revert memory_facts to the legacy VARCHAR(255) user_id shape (drop the uuid
@@ -101,8 +107,8 @@ ALTER TABLE public.memory_facts ALTER COLUMN user_id TYPE varchar(255);
 
 
 def test_legacy_non_uuid_user_id_does_not_abort_init():
-    name = _boot_and_init()
-    try:
+    name, token = _boot_and_init()
+    with seed_harness.seed_container_cleanup(name, token):
         # Legacy shape + a NON-UUID value → the pre-#800 abort trigger.
         assert _psql(name, _TO_LEGACY).returncode == 0
         assert _psql(
@@ -122,15 +128,13 @@ def test_legacy_non_uuid_user_id_does_not_abort_init():
         # with a WARNING — not migrated, not init-breaking.
         assert _col_type(name) == "character varying"
         assert "skipped" in proc.stderr.lower() or "WARNING" in proc.stderr
-    finally:
-        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
 
 
 def test_legacy_valid_uuid_user_id_still_migrates():
     """The guard must not break the happy path: a legacy VARCHAR user_id holding
     a valid UUID string still converts to uuid."""
-    name = _boot_and_init()
-    try:
+    name, token = _boot_and_init()
+    with seed_harness.seed_container_cleanup(name, token):
         assert _psql(name, _TO_LEGACY).returncode == 0
         good = str(uuid.UUID(int=0x1234567890abcdef1234567890abcdef))
         assert _psql(
@@ -148,5 +152,3 @@ def test_legacy_valid_uuid_user_id_still_migrates():
 
         assert proc.returncode == 0, proc.stderr
         assert _col_type(name) == "uuid"
-    finally:
-        subprocess.run(["docker", "rm", "-f", name], capture_output=True)

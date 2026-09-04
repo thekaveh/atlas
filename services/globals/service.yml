@@ -34,13 +34,14 @@ env:
     default: 63000
     description: "Base port. Every service's *_PORT derives from this + a fixed offset."
   - name: HOST_BIND_IP
-    default: ""
+    default: "127.0.0.1:"
     description: |
-      Host interface prefix for ALL published service ports. Empty (default)
-      => Docker binds 0.0.0.0 (dev). `--profile prod` sets this to
-      "127.0.0.1:" so service ports are reachable only from the host (the
+      Host interface prefix for ALL published service ports. Default
+      "127.0.0.1:" keeps service ports reachable only from the host (the
       public edge — Cloudflare Tunnel or Caddy — reaches Kong locally).
-      Must include the trailing colon when set, e.g. "127.0.0.1:".
+      Existing .env files with HOST_BIND_IP= are upgraded by ./start.sh's
+      blank-value backfill. Set "0.0.0.0:" only for deliberate remote access.
+      Values must include the trailing colon.
   - name: HOST_GATEWAY_IP
     auto_managed: true
     default: host-gateway
@@ -117,9 +118,9 @@ env:
 
   # Migration sentinels
   - name: BOOTSTRAPPER_PORT_LAYOUT_VERSION
-    default: 4
+    default: 5
     auto_managed: false
-    description: "Sentinel updated by bootstrapper/services/migrations. Missing or <N triggers the chained env migrations up to N (v1 port-layout, v2 URL>PORT, v3 COMFYUI model-set, v4 stale curated Ollama model reference cleanup). Fresh .env files are already v4-shaped."
+    description: "Sentinel updated by bootstrapper/services/migrations. Missing or <N triggers the chained env migrations up to N (v1 port-layout, v2 URL>PORT, v3 COMFYUI model-set, v4 stale curated Ollama model cleanup, v5 Weaviate backup-filesystem enablement). Fresh .env files are already v5-shaped."
 
 depends_on:
   required: []

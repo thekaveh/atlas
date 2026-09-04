@@ -5,8 +5,14 @@ USER root
 
 RUN set -eux; \
     apt-get update; \
+    # The pinned Airflow base lags Debian security updates, so the final-image
+    # gate sees fixable findings the pin cannot clear (CVE-2026-56408 in
+    # libexpat1). Take the published updates the same way services/spark does;
+    # this trades byte-for-byte base reproducibility for a patched runtime.
+    DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends; \
     apt-get install -y --no-install-recommends ca-certificates curl openjdk-17-jdk-headless; \
     rm -rf /var/lib/apt/lists/*; \
+    rm -f /usr/bin/docker /home/airflow/.local/bin/uv /home/airflow/.local/bin/uvx; \
     java_home="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"; \
     mkdir -p /opt/java; \
     ln -sfn "${java_home}" /opt/java/openjdk
@@ -31,8 +37,9 @@ COPY requirements-locked.txt /tmp/airflow-providers.lock
 # Upstream explicitly limits those constraints to the core install; reapplying
 # them here blocks PySpark 4.1.2's pandas floor and freezes provider transitives
 # below later security fixes.
-RUN pip install --no-cache-dir \
-      -r /tmp/airflow-providers.txt -c /tmp/airflow-providers.lock
+RUN python -m pip install --no-cache-dir \
+      -r /tmp/airflow-providers.txt -c /tmp/airflow-providers.lock \
+    && python -m pip check
 
 # SparkSubmitOperator shells out to spark-submit. The PySpark wheel provides
 # the script and Spark distribution, but the Airflow image needs a stable

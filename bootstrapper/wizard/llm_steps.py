@@ -69,6 +69,7 @@ from wizard.model.llm_rules import (
 # LLM_ENGINE_TITLE` call sites.
 LLM_DEFAULT_CONTENT_TITLE = "LLM defaults  ·  chat model"
 LLM_DEFAULT_EMBED_TITLE   = "LLM defaults  ·  embedding model"
+LLM_DEFAULT_EMBED_DIM_TITLE = "LLM defaults  ·  embedding dimension"
 LLM_DEFAULT_VISION_TITLE  = "LLM defaults  ·  vision model"
 # Single unified Ollama models step. Replaces the previous pulled+library
 # split, which produced two near-duplicate pages for localhost/external
@@ -835,21 +836,21 @@ def build_default_model_steps(
     env_vars: Dict[str, str],
     warn: Callable[[str], None] | None = None,
 ) -> List[PromptStep]:
-    """Build the three final wizard steps that let the user choose the default
-    chat (content), embedding, and vision models across all enabled providers.
+    """Build the final wizard steps for default chat, embedding, and vision.
 
     The selections write ``LITELLM_DEFAULT_MODEL``, ``LITELLM_EMBEDDING_MODEL``,
-    and ``LITELLM_VISION_MODEL`` to ``.env`` via the wizard's
-    ``apply_user_model_selections`` pipeline.
+    ``LANGMEM_EMBEDDING_DIM`` (for custom models), and
+    ``LITELLM_VISION_MODEL`` to ``.env`` via the wizard's shared model-contract
+    pipeline.
 
     Convention pre-selection
     ------------------------
     * **Chat / content:** pre-selects the first content-capable model in
       catalog-priority order among the user's current selections.
     * **Embedding:** pre-selects the current ``LITELLM_EMBEDDING_MODEL`` value
-      from ``.env``, falling back to ``ollama/nomic-embed-text`` (the 768-dim
-      safe default).  A visible warning in the heading/subtitle reminds the
-      user that changing this can break the backend's pgvector fallback.
+      from ``.env``, falling back to ``ollama/nomic-embed-text``. Curated
+      models derive their dimension from catalog metadata; a custom model
+      opens a required, visible dimension step.
     * **Vision:** pre-selects the first vision-capable model in priority order,
       or ``""`` (none / skip) when no vision model is selected.
 
@@ -860,14 +861,12 @@ def build_default_model_steps(
     SECRET_KEEP-with-existing-key).  The vision step is also skipped when no
     vision-capable model is among the user's selections.
 
-    Embedding-dimension caveat
-    --------------------------
-    The backend's ``public.memory_facts.embedding vector(768)`` pgvector column
-    is sized for nomic-embed-text (768 dims).  If the user picks a
-    different-dimension model, that column and all embedding storage will break.
-    The warning is surfaced in the embedding step's heading and subtitle; the
-    default is deliberately NOT changed — users who understand the risk can
-    still override it with eyes open.
+    Embedding-dimension contract
+    ----------------------------
+    Atlas migrates and re-embeds pgvector data to the selected model contract.
+    Unknown/custom models therefore must declare a dimension from 1 through
+    4000; the generic manifest default is never silently reused for a newly
+    selected custom model.
     """
 
     def _no_llm_active(selections: dict) -> bool:
@@ -1017,7 +1016,14 @@ def build_default_model_steps(
         return opts
 
     def _default_for_embeddings(env_vars: Dict[str, str]) -> str:
-        saved = (env_vars.get("LITELLM_EMBEDDING_MODEL", "") or "").strip()
+        # Memory's explicit override is the effective runtime model and must be
+        # what the wizard displays; otherwise the selected model and shared
+        # dimension can silently describe different semantic spaces.
+        saved = (
+            env_vars.get("LANGMEM_EMBEDDING_MODEL")
+            or env_vars.get("LITELLM_EMBEDDING_MODEL")
+            or ""
+        ).strip()
         return saved if saved else "ollama/nomic-embed-text"
 
     def _has_vision_models(selections: dict) -> bool:
@@ -1035,6 +1041,12 @@ def build_default_model_steps(
         return _no_llm_active(selections) or not _content_options(selections)
 
     _embedding_default = _default_for_embeddings(env_vars)
+    _saved_embedding = (
+        env_vars.get("LANGMEM_EMBEDDING_MODEL")
+        or env_vars.get("LITELLM_EMBEDDING_MODEL")
+        or ""
+    ).strip()
+    _saved_dimension = (env_vars.get("LANGMEM_EMBEDDING_DIM", "") or "").strip()
 
     # ── Step 2: default embedding model ──────────────────────────────
     def _embed_options(selections: dict) -> List[PromptOption]:
@@ -1044,6 +1056,21 @@ def build_default_model_steps(
         # order is preserved as the tiebreaker within each dim group, and models
         # with no declared dim sort after the matching ones.
         opts = _build_options_for_category(selections, "embeddings")
+        if _saved_embedding and all(
+            option.value != _saved_embedding for option in opts
+        ):
+            # Never let PromptPanel silently fall back to index 0 when the
+            # effective saved model is absent from this run's model lists.
+            # Keep it visible/selectable with an explicit provenance badge;
+            # the user can then intentionally keep it or choose a replacement.
+            opts.append(
+                PromptOption(
+                    value=_saved_embedding,
+                    label=_saved_embedding,
+                    hint="saved effective model; not in current model selections",
+                    badges=["saved"],
+                )
+            )
         return sorted(
             opts,
             key=lambda o: 0 if dim_for_model_id(o.value) == MEMORY_FACTS_EMBEDDING_DIM else 1,
@@ -1056,7 +1083,30 @@ def build_default_model_steps(
         # LITELLM_EMBEDDING_MODEL keeps its existing value.
         return _no_llm_active(selections) or not _embed_options(selections)
 
-    # ── Step 3: default vision model ─────────────────────────────────
+    # ── Step 3: explicit dimension for an unknown/custom embedding model ─
+    def _selected_embedding_model(selections: dict) -> str:
+        selected = selections.get(LLM_DEFAULT_EMBED_TITLE)
+        if selected in (None, "", SECRET_KEEP):
+            return _embedding_default
+        return str(selected).strip()
+
+    def _skip_known_embedding_dimension(selections: dict) -> bool:
+        if _skip_no_llm_or_no_embed(selections):
+            return True
+        selected = _selected_embedding_model(selections)
+        return not selected or dim_for_model_id(selected) is not None
+
+    def _saved_dimension_for_selected_model(selections: dict) -> str:
+        selected = _selected_embedding_model(selections)
+        if (
+            selected == _saved_embedding
+            and selected
+            and dim_for_model_id(selected) is None
+        ):
+            return _saved_dimension
+        return ""
+
+    # ── Step 4: default vision model ─────────────────────────────────
     def _vision_options(selections: dict) -> List[PromptOption]:
         none_opt = PromptOption(value="", label="— none / skip —")
         capable = _build_options_for_category(selections, "vision")
@@ -1100,19 +1150,38 @@ def build_default_model_steps(
         PromptStep(
             title=LLM_DEFAULT_EMBED_TITLE,
             step_index=0, step_total=0,
-            heading="Which model should be used for embeddings?  ⚠ Dimension-sensitive",
+            heading="Which model should be used for embeddings?",
             subtitle=(
                 "This sets LITELLM_EMBEDDING_MODEL. "
-                "Most stacks should keep the 768-dim default (nomic-embed-text); "
-                "a different-dimension model can break the backend's pgvector fallback. "
-                "Pre-selected to the current saved value (or the 768-dim safe default)."
+                "Atlas derives dimensions for curated models and safely migrates the "
+                "pgvector contract when the model changes. A custom model will ask "
+                "for its declared output dimension next. If a memory-specific "
+                "LANGMEM_EMBEDDING_MODEL override exists, confirming a different "
+                "choice updates that override too so model and dimension stay aligned."
             ),
             options=[],
             default_value=_embedding_default,
+            invalidates_on_change=(LLM_DEFAULT_EMBED_DIM_TITLE,),
             service_name="",
             kind="options",
             skip_if_prev=_skip_no_llm_or_no_embed,
             options_provider=_embed_options,
+        ),
+        PromptStep(
+            title=LLM_DEFAULT_EMBED_DIM_TITLE,
+            step_index=0, step_total=0,
+            heading="What vector dimension does this custom embedding model return?",
+            subtitle=(
+                "Required for custom models. Enter the provider's exact output "
+                "dimension from 1 through 4000; Atlas validates it before startup "
+                "and re-embeds existing memory rows to this contract."
+            ),
+            options=[],
+            default_value="",
+            default_value_provider=_saved_dimension_for_selected_model,
+            service_name="",
+            kind="text",
+            skip_if_prev=_skip_known_embedding_dimension,
         ),
         PromptStep(
             title=LLM_DEFAULT_VISION_TITLE,

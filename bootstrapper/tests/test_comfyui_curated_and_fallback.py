@@ -21,8 +21,10 @@ _FALLBACK_PATH = Path(__file__).parent.parent / "utils" / "data" / "comfyui_cata
 def test_curated_covers_noisy_categories():
     """Categories where HF search is noisy must have curated entries."""
     entries = list_curated()
+    # Audio is intentionally absent: the former AudioLDM root artifact never
+    # existed upstream and Atlas has no canonical multi-file audio-node contract.
     noisy = {"vae", "ipadapter", "instantid", "upscaler",
-             "embedding", "clip", "motion_lora", "audio_model"}
+             "embedding", "clip", "motion_lora"}
     by_category: dict[str, list[ComfyUILibraryEntry]] = {}
     for e in entries:
         by_category.setdefault(e.category, []).append(e)

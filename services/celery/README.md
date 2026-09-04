@@ -33,9 +33,18 @@ CELERY_TASK_SOFT_TIME_LIMIT_SECONDS=840
 CELERY_TASK_TIME_LIMIT_SECONDS=900
 CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS=3600
 RAG_INGESTION_EXECUTION_LEASE_SECONDS=30
+CHONKIE_SEMANTIC_EMBEDDING_MODEL=minishlab/potion-base-32M
+LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS=30
+RAG_INGESTION_TTL_SECONDS=604800
 ```
 
 All Celery numeric controls must be positive integers. The soft limit must be less than the hard limit, and the Redis visibility timeout must be greater than the hard limit; malformed or contradictory values fail worker and Backend startup rather than falling back to defaults. The RAG execution lease must be an integer from 10 through 300 seconds.
+
+The Backend and worker receive identical semantic-chunking and RAG lifecycle
+controls. A blank Chonkie model uses `minishlab/potion-base-32M`; the LightRAG
+pipeline-status timeout accepts finite values greater than zero through 3,600
+seconds; and the ingestion-state TTL accepts 60 through 31,536,000 seconds.
+Invalid timeout or TTL values use the safe 30-second and seven-day defaults.
 
 The bootstrapper computes these when enabled:
 

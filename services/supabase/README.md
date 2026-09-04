@@ -30,6 +30,8 @@ The database initialization follows a staged process managed by Docker Compose d
 
 **IMPORTANT**: The `SUPABASE_DB_USER` in your `.env` file must be set to `supabase_admin`. This is required by the base image's internal scripts.
 
+Host connections require SCRAM passwords. On upgrade, the database startup wrapper rewrites legacy `trust`, `md5`, or `password` host rules to `scram-sha-256` before PostgreSQL starts; local socket rules and explicit rejects are preserved. Application containers use dedicated generated roles, while only database initialization and backup/restore retain `SUPABASE_DB_USER`.
+
 **Password is baked at initdb (`password authentication failed for user "supabase_admin"`).** The `supabase_admin` role's password is set **once**, when the `supabase-db-data` volume is first created, and is never re-synced afterward. `SUPABASE_DB_PASSWORD` ships as the placeholder `password` and is auto-rotated to a random value on the first `./start.sh`. If the data volume later persists across a `.env` password change (e.g. `.env` regenerated from `.env.example` against a retained volume — `./stop.sh` without `--cold` keeps volumes), clients authenticate with the new value while the role still holds the old one → `password authentication failed`. The bootstrapper now **skips** rotation and warns when it detects an existing `<project>_supabase-db-data` volume, so it won't silently rotate `.env` out of sync. To recover a drifted stack, either set `SUPABASE_DB_PASSWORD` back to the volume's original value, or run `./stop.sh --cold` (removes volumes) then `./start.sh` to reinitialize the role and `.env` together.
 
 ### 2.2. Custom Post-Initialization (`supabase-db-init` service)
@@ -52,7 +54,7 @@ The seeding layout follows a two-tier convention: core scaffolding lives in the 
   - **`10-users.sql`** — `public.users` table (shared user identity, referenced by downstream slices)
   - **`12-comfyui.sql`** — `public.comfyui_workflows` and `public.comfyui_generations` tables (runtime app state), their indexes, and the default workflow seed rows. `public.comfyui_models` was decommissioned — its DDL was removed from this file and a guarded DROP lives in `16-decommission-comfyui-models.sql`.
   - **`13-backend-research.sql`** — `research` schema and research tables (`public.research_sessions`, `public.research_results`, `public.research_sources`, `public.research_logs`) (owned by backend / local-deep-researcher)
-  - **`14-backend-memory.sql`** — LangMem memory tables (`public.memory_facts`, `public.memory_sessions`, `public.memory_consolidation_log`) plus their idempotent column migrations and durable Weaviate reconciliation marker (owned by backend / LangMem). The legacy `user_id` VARCHAR→UUID migration is guarded per-table (nested `BEGIN/EXCEPTION`): a pre-existing volume holding a non-UUID `user_id` leaves that table in its legacy shape with a `WARNING` rather than aborting DB init (#800)
+  - **`14-backend-memory.sql`** — LangMem memory tables (`public.memory_facts`, `public.memory_sessions`, `public.memory_consolidation_log`), the embedding-schema state, dimension-specific HNSW index, guarded contract function, and monotonic Weaviate dirty/synchronized generations (owned by Backend / LangMem). Existing `vector(768)` values expand losslessly to full-precision `vector`; Backend re-embeds every NULL or mismatched row before the migration validates the selected-dimension constraint. Dimensions through 2,000 use a `vector` HNSW key; wider dimensions through 4,000 retain full-precision storage and use a matching `halfvec` expression index. Weaviate rebuild completion uses a generation compare-and-set and refuses to clear while any durable `vector_sync_pending` intent remains. The legacy `user_id` VARCHAR→UUID migration is guarded per-table (nested `BEGIN/EXCEPTION`): a pre-existing volume holding a non-UUID `user_id` leaves that table in its legacy shape with a `WARNING` rather than aborting DB init (#800)
   - **`15-decommission-llms.sql`** — decommission migration: drops the former `public.llms` catalog table on pre-existing volumes (idempotent `DROP TABLE IF EXISTS`). Fresh installs never create `public.llms` (the former `11-litellm.sql` was removed). The LLM model source-of-truth now lives in `services/ollama/models.yaml` and `services/litellm/models.yaml`, resolved by `bootstrapper/utils/model_resolver.py`.
   - **`16-decommission-comfyui-models.sql`** — decommission migration: drops the former `public.comfyui_models` catalog table on pre-existing volumes (idempotent `DROP TABLE IF EXISTS`). Fresh installs never create `public.comfyui_models` (its DDL left `12-comfyui.sql`). The ComfyUI model source-of-truth now lives in `services/comfyui/models.yaml` (and the `custom-models.yaml` sidecar), resolved by `bootstrapper/utils/comfyui_resolver.py` into a manifest at start. `public.comfyui_workflows` and `public.comfyui_generations` are RUNTIME app state and are NOT affected.
 
@@ -203,7 +205,7 @@ execute privilege is revoked from public API roles despite its required
 **Image**: `prometheuscommunity/postgres-exporter:v0.19.1`
 **Access**: `http://localhost:${POSTGRES_EXPORTER_PORT}/metrics` (in-container `9187`)
 **Purpose**: Prometheus exporter exposing `pg_stat_*` views as a `/metrics` endpoint for the observability bundle.
-**Configuration**: connects to `supabase-db:5432` using `${SUPABASE_DB_USER}`/`${SUPABASE_DB_PASSWORD}` with `PG_EXPORTER_AUTO_DISCOVER_DATABASES=true` so every database on the cluster is scraped (including the `litellm` database).
+**Configuration**: connects to `supabase-db:5432` using the dedicated `${POSTGRES_EXPORTER_DB_USER}`/`${POSTGRES_EXPORTER_DB_PASSWORD}` login with `pg_monitor`; it does not receive the database-owner credential.
 **Lifecycle**: scales **1↔0 with `PROMETHEUS_SOURCE`** — the bootstrapper's `_generate_prometheus_config()` hook writes `POSTGRES_EXPORTER_SCALE` from this single switch, so the sidecar is dormant when Prometheus is off. The `Postgres + Redis` Grafana dashboard renders connections, query rate, and table sizes from its output.
 
 ## 5. Environment Variables
@@ -216,6 +218,9 @@ POSTGRES_DB=postgres
 SUPABASE_DB_USER=supabase_admin
 SUPABASE_DB_PASSWORD=your_password
 SUPABASE_DB_PORT=63012
+SUPABASE_AUTH_DB_PASSWORD=atlas-db-password       # rotated on first start
+SUPABASE_STORAGE_DB_PASSWORD=atlas-db-password    # rotated on first start
+SUPABASE_API_DB_PASSWORD=atlas-db-password        # rotated on first start
 
 # Authentication
 SUPABASE_JWT_SECRET=your_jwt_secret
@@ -357,8 +362,8 @@ For more troubleshooting help, see [../quick-start/troubleshooting.md](../../doc
 |---|---|---|---|
 | Integrated Postgres application platform | supported | tested | Atlas runs PostgreSQL with Auth, PostgREST, Storage, Realtime, Meta, Studio, database initialization, and optional metrics export as one required family. |
 | Idempotent schema and RLS initialization | supported | tested | Ordered Atlas and downstream SQL runners initialize extensions, service schemas, grants, identity synchronization, and row-level-security policies with failure gating. |
-| Least-privilege application database role | stubbed | documented | SUPABASE_DB_APP_USER and SUPABASE_DB_APP_PASSWORD are reserved variables, but Atlas does not create or grant that role and core consumers continue using administrative credentials. |
+| Least-privilege application database role | supported | tested | Atlas creates idempotent per-service logins and dedicated database/schema ownership or read grants; application containers do not receive the Supabase owner credential. |
 | Production email authentication | partial | documented | GoTrue issues and validates JWTs, but the stock local-development defaults auto-confirm email and point SMTP at localhost rather than a configured delivery service. |
-| pg-meta administrative access control | partial | documented | The Kong /pg/ route uses Basic authentication and the dashboard_user ACL, while the direct host-published SUPABASE_META_PORT has no application authentication and executes as supabase_admin; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_META_PORT, or remove the supabase-meta ports: publish on shared networks. |
+| pg-meta administrative access control | partial | documented | The Kong /pg/ route uses Basic authentication and the dashboard_user ACL, while the direct host-published SUPABASE_META_PORT has no application authentication and executes as a dedicated dashboard_user member; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_META_PORT, or remove the supabase-meta ports: publish on shared networks. |
 | Supabase Studio access control | partial | documented | The Kong route uses Basic authentication and the dashboard_user ACL, but the host-published SUPABASE_STUDIO_PORT bypasses that gate because Studio has no application authentication; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_STUDIO_PORT, or remove its ports: publish. |
-| Authenticated remote PostgreSQL access | not-supported | documented | The host-published SUPABASE_DB_PORT uses POSTGRES_HOST_AUTH_METHOD=trust and is loopback by default; any explicit HOST_BIND_IP override that exposes it remotely requires an authenticated database policy before remote access. |
+| Authenticated remote PostgreSQL access | supported | tested | Host TCP uses SCRAM-SHA-256 with generated scoped passwords, including an upgrade-time HBA rewrite for legacy volumes; publication remains loopback by default and explicit remote exposure still requires firewall and TLS planning. |

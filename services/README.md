@@ -19,7 +19,7 @@ services/
 ├── supabase/
 │   ├── service.yml              # manifest: env vars, sources, deps, image refs
 │   ├── compose.yml              # Docker Compose fragment for the family's containers
-│   ├── README.md                # service family overview (recommended)
+│   ├── README.md                # service family overview (required by policy)
 │   └── db/scripts/              # SQL init scripts (bind-mounted into supabase-db-init)
 ├── redis/
 │   ├── service.yml
@@ -28,9 +28,9 @@ services/
 ```
 
 A virtual service (e.g. `cloud-providers/`, `tts-provider/`, `globals/`) has
-only `service.yml` — no compose fragment because the service has no
-containers of its own; it owns env vars and source toggles that other
-services consume.
+no compose fragment because it owns no containers. It still ships
+`service.yml` plus operator-facing documentation because it owns environment
+variables and source toggles that other services consume.
 
 Current service-family and SOURCE-surface counts are generated from the
 manifests into the documentation home and service catalog; this file does not
@@ -74,11 +74,16 @@ duplicate those changing totals.
 
 ## 4. Per-service `README.md`
 
-Every non-virtual service family should ship a `README.md` describing the
+Every service family, including virtual manifests, ships documentation
+describing its contract. A sibling `README.md` normally describes the
 containers it owns, the role of any `init/`, `build/`, `provider/`,
 `extras/`, or `db/` subdirectories, and any non-obvious operational gotchas.
-Virtual services (no containers) don't need one — their `service.yml`
-header comments cover the same ground.
+The manifest's `docs:` value may point to another canonical Markdown page
+when an aggregate guide is authoritative. A service with no appropriate page
+must carry a schema-validated `docs_exception` with an explicit `because`
+clause, at least four substantive words, and at least three distinct terms.
+Generic reasons and exceptions on already-documented services fail manifest
+validation.
 
 ## 5. Subfolder convention
 

@@ -38,7 +38,7 @@ The default stack keeps the multimodal CLIP vectorizer enabled:
 
 ```bash
 MULTI2VEC_CLIP_SOURCE=container-cpu
-WEAVIATE_ENABLE_MODULES=text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama
+WEAVIATE_ENABLE_MODULES=text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem
 CLIP_INFERENCE_API=http://multi2vec-clip:8080
 MULTI2VEC_CLIP_SIGLIP2_IMAGE=semitechnologies/multi2vec-clip:google-siglip2-so400m-patch16-512-1.5.1
 ```
@@ -47,7 +47,7 @@ If you disable the CLIP provider, remove `multi2vec-clip` from `WEAVIATE_ENABLE_
 
 ```bash
 MULTI2VEC_CLIP_SOURCE=disabled
-WEAVIATE_ENABLE_MODULES=text2vec-openai,generative-openai
+WEAVIATE_ENABLE_MODULES=text2vec-openai,generative-openai,backup-filesystem
 CLIP_INFERENCE_API=
 ```
 
@@ -72,6 +72,7 @@ Optional consumers should use `WEAVIATE_URL` and perform feature-level readiness
 
 | Service | Category |
 |---|---|
+| backup | infra |
 | kong | infra |
 | prometheus | infra |
 | airflow | agents |
@@ -89,7 +90,6 @@ Optional consumers should use `WEAVIATE_URL` and perform feature-level readiness
 
 ### 5.4. Future — Missing pair integrations
 
-- **weaviate ↔ minio** — *Why:* Weaviate has no backup strategy today; `weaviate-data` is a single local volume. The `backup-s3` module turns MinIO into a durable backup target without new infra. *Mechanism:* enable `backup-s3` in `WEAVIATE_ENABLE_MODULES`; set `BACKUP_S3_BUCKET=weaviate-backups`, `BACKUP_S3_ENDPOINT=minio:9000`, `BACKUP_S3_USE_SSL=false`, `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`; trigger via `POST /v1/backups/s3`. *Effort:* small. *Confidence:* high.
 - **weaviate ↔ doc-processor** — *Why:* closes the RAG loop. Docling already extracts structured text + tables from PDFs; today nothing routes that output into Weaviate, so n8n/backend re-implement chunking ad hoc. *Mechanism:* n8n flow or backend route reads docling JSON, chunks, then `POST /v1/batch/objects` into a `Document` collection vectorized via `text2vec-openai`. *Effort:* medium. *Confidence:* high.
 - **weaviate ↔ n8n** — *Why:* the env wiring already exists (n8n injects `WEAVIATE_URL` and declares weaviate a required dep), but no shipped example workflow uses n8n's first-class Weaviate node to ingest webhook payloads, search, and feed retrieval into the existing AI Agent nodes. *Mechanism:* seed an example workflow driving the n8n Weaviate node → `http://weaviate:8080` (REST) or gRPC on `:50051`. *Effort:* small. *Confidence:* high.
 - **weaviate ↔ hermes** — *Why:* Hermes has no long-term memory or retrieval tool. A Weaviate-backed memory skill lets Hermes recall past sessions, store tool outputs, and do semantic lookup over user docs. *Mechanism:* Hermes custom skill posts/queries via the Weaviate Python client to `http://weaviate:8080` with hybrid search; collection seeded by `weaviate-init`. *Effort:* medium. *Confidence:* medium.
@@ -101,7 +101,7 @@ _No high-confidence opportunities identified._
 
 ### 5.6. Future — Unused features in this service
 
-- **`backup-s3` module** — *Why pursue:* zero current backup story; MinIO is already in-stack. *Effort:* small.
+- **`backup-s3` module** — *Why pursue:* the current single-node filesystem module is exported by the backup runner; direct S3 backup would support a future multi-node Weaviate deployment. *Effort:* small.
 - **Named vectors (`vectorConfig` array)** — *Why pursue:* lets one collection carry both a text2vec-openai vector and a multi2vec-clip vector for hybrid text+image search instead of two collections. *Effort:* medium.
 - **Reranker modules (`reranker-transformers` or `reranker-cohere`)** — *Why pursue:* cheap quality lift on RAG queries; the transformers variant runs in-cluster with no extra API costs. *Effort:* medium.
 - **Multi-tenancy (per-collection tenant shards)** — *Why pursue:* backend/n8n/Hermes could share one Weaviate cluster with per-user isolation instead of single-tenant anonymous access. *Effort:* medium.
@@ -126,4 +126,4 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 | Persistent semantic vector storage | supported | tested | Atlas configures persistent Weaviate REST and gRPC storage and wires backend consumers through container or operator-run localhost sources. |
 | LiteLLM and CLIP vectorization | partial | tested | Text vectorization routes through LiteLLM and optional CLIP supports multimodal embeddings, but enabling SigLIP changes dimensions and requires collection revectorization. |
 | Authenticated multi-tenant isolation | not-supported | documented | The stock container enables anonymous access and Atlas does not provision tenant boundaries or per-consumer authorization policies. |
-| Automated vector database backups | not-supported | documented | Atlas mounts persistent Weaviate data but ships no scheduled native backup or restore workflow for the vector database. |
+| Automated vector database backups | supported | tested | Atlas enables Weaviate's native filesystem backup provider and the backup runner creates, polls, verifies, exports, and restores completed snapshots without archiving the live data volume. Scheduling and retention remain operator-owned. |

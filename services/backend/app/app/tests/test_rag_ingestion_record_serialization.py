@@ -16,7 +16,9 @@ from rag_ingestion.store import (
     RedisIngestionStore,
     _IDX_PREFIX,
     _INDEX_SET,
+    _INDEX_ZSET,
     _KEY_PREFIX,
+    _LEASE_PREFIX,
 )
 
 
@@ -127,7 +129,11 @@ def test_redis_lua_roundtrip_preserves_public_list_contract() -> None:
         raw = json.loads(store._redis.get(_KEY_PREFIX + record_id))
         assert raw["errors"] == {}
         assert store.get(record_id).errors == []
-        assert next(r for r in store.list() if r.id == record_id).errors == []
+        score = store._redis.zscore(_INDEX_ZSET, record_id)
+        assert score is not None
+        page = store.list_page(cursor=str(int(score) - 1), limit=1)
+        assert page.records[0].id == record_id
+        assert page.records[0].errors == []
 
         failed = store.fail_pending_dispatch(
             record_id,
@@ -143,3 +149,54 @@ def test_redis_lua_roundtrip_preserves_public_list_contract() -> None:
         store._redis.delete(_KEY_PREFIX + record_id)
         store._redis.delete(_IDX_PREFIX + record.idempotency_key)
         store._redis.srem(_INDEX_SET, record_id)
+        store._redis.zrem(_INDEX_ZSET, record_id)
+
+
+@pytest.mark.skipif(
+    not _TEST_REDIS_URL,
+    reason="set ATLAS_TEST_REDIS_URL to exercise exact-owner Redis claims",
+)
+def test_live_redis_execution_claim_exact_owner_contract() -> None:
+    store = RedisIngestionStore(_TEST_REDIS_URL)
+    suffix = uuid.uuid4().hex
+    record = IngestionRecord(
+        id=f"claim-{suffix}",
+        consumer="acme",
+        profile="default",
+        revision="1",
+        idempotency_key=f"claim-key-{suffix}",
+    )
+    store.create_if_absent(record)
+    lease_key = _LEASE_PREFIX + record.id
+    record_key = _KEY_PREFIX + record.id
+    try:
+        assert store.claim_execution(record.id, ExecutionClaim("owner-a", 30)) is True
+        assert 0 < store._redis.ttl(lease_key) <= 30
+        assert store.claim_execution(
+            record.id, ExecutionClaim("owner-b", 30, "unrelated-owner")
+        ) is False
+        assert store.claim_execution(
+            record.id, ExecutionClaim("owner-b", 30, "owner-a")
+        ) is True
+        assert store._redis.get(lease_key) == "owner-b"
+        assert store.renew_execution(record.id, "owner-a", 30) is False
+        assert store.renew_execution(record.id, "owner-b", 20) is True
+        assert 0 < store._redis.ttl(lease_key) <= 20
+        assert store.claim_execution(
+            record.id, ExecutionClaim("owner-c", 30, "owner-a")
+        ) is False
+        assert store.release_execution(record.id, "owner-a") is False
+        assert store.release_execution(record.id, "owner-b") is True
+
+        persisted = store.get(record.id)
+        assert persisted is not None
+        persisted.status = "completed"
+        store._redis.set(record_key, json.dumps(persisted.to_dict()), ex=30)
+        assert store.claim_execution(
+            record.id, ExecutionClaim("owner-terminal", 30)
+        ) is False
+    finally:
+        store._redis.delete(record_key, lease_key)
+        store._redis.delete(_IDX_PREFIX + record.idempotency_key)
+        store._redis.srem(_INDEX_SET, record.id)
+        store._redis.zrem(_INDEX_ZSET, record.id)

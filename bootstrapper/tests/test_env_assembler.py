@@ -217,6 +217,14 @@ def test_committed_env_example_matches_assembler_output():
     )
 
 
+def test_host_bind_ip_defaults_to_loopback_with_empty_value_upgrade_guidance():
+    manifests = load_manifests(_REPO_ROOT / "services")
+    assembled = assemble_env_example(manifests)
+
+    assert "HOST_BIND_IP=127.0.0.1:" in assembled
+    assert "Existing .env files with HOST_BIND_IP= are upgraded" in assembled
+
+
 def test_backend_declares_and_forwards_comfyui_trusted_image_origins():
     manifests = {
         manifest.name: manifest

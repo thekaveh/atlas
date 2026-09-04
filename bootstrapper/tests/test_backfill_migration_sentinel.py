@@ -2,8 +2,8 @@
 
 Regression (pass-46 HIGH): ``backfill_missing_env_vars()`` runs BEFORE
 ``run_port_migration()`` in every flow. If it splices
-``BOOTSTRAPPER_PORT_LAYOUT_VERSION=4`` from ``.env.example`` into a
-legacy ``.env``, all four migrations silently skip — dropping the
+``BOOTSTRAPPER_PORT_LAYOUT_VERSION`` from ``.env.example`` into a
+legacy ``.env``, the migration chain can silently skip — dropping the
 user's ``COMFYUI_LOCALHOST_URL`` custom port and ``COMFYUI_MODEL_SET``
 selection. Same family: seeding a ``*_LOCALHOST_PORT`` while the legacy
 ``*_LOCALHOST_URL`` is still present makes migration v2 keep the seeded
@@ -15,10 +15,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from services.migrations.migration_v1 import needs_migration as needs_v1
+from services.migrations.migration_v2 import needs_migration as needs_v2
+from services.migrations.migration_v3 import needs_migration as needs_v3
+from services.migrations.migration_v4 import needs_migration as needs_v4
+from services.migrations.migration_v5 import needs_migration as needs_v5
+
 
 EXAMPLE = (
     "BASE_PORT=63000\n"
-    "BOOTSTRAPPER_PORT_LAYOUT_VERSION=4\n"
+    # Deliberately beyond the current chain: copying any non-empty sentinel
+    # could suppress every migration, regardless of today's terminal version.
+    "BOOTSTRAPPER_PORT_LAYOUT_VERSION=999\n"
     "COMFYUI_LOCALHOST_PORT=8188\n"
     "COMFYUI_USER_MODELS=\n"
     "COMFYUI_CUSTOM_MODELS_FILE=/custom-models.yaml\n"
@@ -52,7 +60,7 @@ def test_backfill_leaves_blank_sentinel_blank(tmp_path):
     )
     assert starter.backfill_missing_env_vars()
     out = (tmp_path / ".env").read_text()
-    assert "BOOTSTRAPPER_PORT_LAYOUT_VERSION=4" not in out
+    assert "BOOTSTRAPPER_PORT_LAYOUT_VERSION=\n" in out
 
 
 def test_backfill_defers_port_var_to_v2_when_legacy_url_present(tmp_path):
@@ -95,7 +103,11 @@ def test_legacy_env_backfill_then_migrations_still_run(tmp_path):
     assert starter.backfill_missing_env_vars()
     starter.run_port_migration(no_port_migrate=False)
     out = (tmp_path / ".env").read_text()
-    assert "BOOTSTRAPPER_PORT_LAYOUT_VERSION=4" in out
+    env_path = tmp_path / ".env"
+    assert not any(
+        needs_migration(env_path)
+        for needs_migration in (needs_v1, needs_v2, needs_v3, needs_v4, needs_v5)
+    )
     # v2 preserved the user's custom port instead of a seeded default.
     assert "COMFYUI_LOCALHOST_PORT=9999" in out
     # v3 removed the old enum (the commented v2 audit line is fine).
@@ -104,3 +116,5 @@ def test_legacy_env_backfill_then_migrations_still_run(tmp_path):
     ]
     assert not any(l.startswith("COMFYUI_MODEL_SET=") for l in active_lines)
     assert any(l.startswith("COMFYUI_USER_MODELS=") for l in active_lines)
+    # v5 applied rather than being suppressed by a backfilled sentinel.
+    assert "WEAVIATE_ENABLE_MODULES=backup-filesystem" in out

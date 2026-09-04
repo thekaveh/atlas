@@ -1,0 +1,4 @@
+# The upstream MLflow image omits the drivers required by Atlas's Postgres
+# metadata store and S3-compatible MinIO artifact store.
+boto3==1.43.56
+psycopg2-binary==2.9.12

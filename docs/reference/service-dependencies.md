@@ -8,7 +8,7 @@
 | asset-baker | minio | backend, comfyui, fal, blender-mcp, asset-worker | minio |
 | asset-worker | minio | backend, comfyui, fal, blender-mcp | minio |
 | backend | supabase, redis, litellm | weaviate, kong, celery, supavisor | supabase, weaviate, litellm, comfyui, fal, n8n, ray, local-deep-researcher, celery, supavisor, tika, docling, lightrag, tei-reranker, minio, redis, otel-collector, kong, neo4j |
-| backup | supabase, minio | - | supabase, minio |
+| backup | supabase | minio | supabase, minio, neo4j, weaviate |
 | blender-mcp | - | - | - |
 | celery | redis, backend, supabase, litellm | weaviate, supavisor, docling, tika, lightrag, minio, otel-collector | redis, supabase, litellm, weaviate, supavisor, docling, tika, lightrag, minio, otel-collector |
 | chatterbox | tts-provider | - | - |
@@ -43,7 +43,7 @@
 | ollama | supabase, litellm | - | - |
 | open-webui | supabase, redis, litellm | hermes | litellm, supabase, redis, backend, comfyui, stt-provider, tts-provider, local-deep-researcher |
 | openclaw | litellm | - | litellm |
-| otel-collector | tempo | loki | tempo |
+| otel-collector | tempo, loki | - | tempo, loki |
 | parakeet | litellm | - | - |
 | prometheus | supabase, redis, kong, ray | - | kong, litellm, backend, asset-worker, asset-baker, n8n, weaviate, minio, supabase, redis, grafana |
 | ray | supabase, redis | - | - |

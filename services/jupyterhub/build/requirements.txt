@@ -1,8 +1,14 @@
 # Atlas - JupyterHub Python Dependencies
 # AI/ML Libraries
 chonkie>=1.7.0,<2
-# GHSA-95ww-475f-pr4f affects Ragas' multimodal URL/file helper. Atlas exposes
-# only the four text collection metrics guarded by Backend's MetricName enum.
+# ragas==0.4.3 remains the latest release and has no fixed release for
+# PYSEC-2026-3046. Atlas' 14_ragas_evaluation.ipynb imports only AnswerRelevancy,
+# ContextPrecision, ContextRecall, and Faithfulness; it never imports the
+# vulnerable multimodalfaithfulness URL/file helper.
+# diskcache==5.6.3 is transitive through Ragas and has no fixed release for
+# PYSEC-2026-2447. Atlas never imports diskcache. Notebook 14 does not pass
+# cache= to llm_factory or OpenAIEmbeddings, so Ragas never creates a
+# DiskCacheBackend or reads an attacker-written pickle cache entry.
 ragas==0.4.3
 ollama>=0.6.2
 langchain>=0.3.0
@@ -33,9 +39,10 @@ sqlalchemy>=2.0.30
 httpx>=0.27.0
 h2>=4.4.1  # CVE-2026-71554 (HTTP/2 duplicate-Host smuggling; patch bump)
 requests>=2.33.0
-# CVE-2026-69248/69249: certificate-verification fixes. MLflow 3.15.1 caps
-# cryptography below 50; CVE-2026-69247 remains a reviewed non-reachable
-# exception until that upstream cap moves (Atlas exposes no PKCS#7 decrypt API).
+# CVE-2026-69248/69249: certificate-verification fixes. Installed MLflow 3.15.1
+# and current MLflow 3.15.2 both require cryptography<50, holding the lock at
+# cryptography==49.0.0. PYSEC-2026-3552 remains unreachable because Atlas has no
+# PKCS#7 EnvelopedData decrypt API and never calls the affected decrypt helpers.
 cryptography>=49.0.0,<50
 
 # Configuration and Utils
@@ -76,7 +83,7 @@ networkx>=3.3
 # Jupyter Extensions
 ipywidgets>=8.1.0
 jupyter-server-proxy>=4.1.0
-# The pinned upstream Python 3.11 image predates fixes now required by the
+# The pinned upstream Python 3.13 image predates fixes now required by the
 # final-image vulnerability gate. Keep these direct so the image does not
 # silently fall back to the older base-image copies.
 brotli==1.2.0
@@ -84,6 +91,11 @@ jupyterlab==4.6.3
 jupyterlab-git==0.54.0
 notebook==7.6.2
 wheel==0.46.2
+# CVE-2026-82397 + GHSA-8423-8fgw-73vq (request-parsing DoS) and
+# GHSA-wwv5-g3v4-889x (cookie-attribute injection, incomplete CVE-2026-35536 fix).
+tornado>=6.5.8
+# PYSEC-2026-3785 through PYSEC-2026-3788, transitive via jupyterlab-git.
+gitpython>=3.1.59
 
 # Deep Learning — PyTorch core
 torch==2.13.0
@@ -91,15 +103,21 @@ torchvision==0.28.0
 
 # Deep Learning — higher-level frameworks
 torchmetrics==1.4.2
+# CVE-2026-71211 affects the MLflow AI Gateway server's operator-supplied
+# auth_config.api_base, and no fixed release exists as of 2026-08-31.
+# Jupyter's image starts JupyterHub, not an MLflow server; Atlas'
+# 11_financial_research_kit.ipynb uses only the tracking client against the
+# separately deployed MLflow service, whose outer ASGI boundary blocks every
+# AI Gateway route family. Re-review this exception by 2026-11-27.
 mlflow==3.15.1
 
-# Graph Neural Networks (PyG) — ABI3 wheels matched to the Torch 2.13 CPU
-# build. The 2.13 index publishes pyg_lib 0.8 for both Linux x86_64 and arm64.
-# The legacy scatter/sparse/cluster wheels are not published for 2.13 and no
-# Atlas notebook imports them directly; torch-geometric uses its native
-# fallbacks for those optional accelerators.
---find-links https://data.pyg.org/whl/torch-2.13.0+cpu.html
-pyg_lib==0.8.0
+# Graph Neural Networks (PyG). torch-geometric is a pure-Python wheel on PyPI
+# and runs on its native fallbacks, so the image no longer depends on the
+# PyG wheel index. The optional compiled accelerators are deliberately absent:
+# pyg_lib was published only at `data.pyg.org`, which went unresolvable on
+# 2026-09-02 (the CNAME target has no A record) and is the sole source for it,
+# while the legacy scatter/sparse/cluster wheels were never built for 2.13.
+# No Atlas notebook imports any of them.
 torch_geometric==2.7.0
 
 # ML utilities
@@ -119,7 +137,13 @@ pyspark-client==4.1.2
 # pulls language-model deps used by the ml-lab notebooks that `import nnx`.
 thekaveh-nnx[lm]==0.2.0
 python-louvain  # `community` module — community_detection-karate notebook
-nltk>=3.10.0  # SentimentIntensityAnalyzer; VADER is integrity-locked by nlp-assets.toml
+# nltk 3.10.3 carries PYSEC-2026-3740 with no fixed release: the advisory's
+# affected range ends at last_affected 3.10.3, the same release that closed
+# PYSEC-2026-3733..3741. Reaching it needs a caller-controlled model path.
+# install_nlp_assets.py resolves the VADER lexicon from a build-time constant
+# and nlp-assets.toml integrity-locks it, so no artifact location is ever
+# operator- or request-supplied. Atlas maintainers own re-review by 2026-11-27.
+nltk>=3.10.3  # SentimentIntensityAnalyzer; VADER is integrity-locked by nlp-assets.toml
 spacy  # tokenizer + lemmatizer; model integrity-locked by nlp-model-requirements.txt and nlp-assets.toml
 torchao>=0.17  # transitive via nnx.quantize_int8 + nnx.qat_train_step_factory — quantization-mnist notebook
 prettytable  # nnx Utils.print_table renderer — used by 14 of 29 notebooks

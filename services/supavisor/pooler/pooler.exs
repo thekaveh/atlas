@@ -14,7 +14,7 @@ params = %{
   "ip_version" => "auto",
   "enforce_ssl" => false,
   "require_user" => false,
-  "auth_query" => "SELECT rolname, rolpassword FROM pg_authid WHERE rolname=$1;",
+  "auth_query" => "SELECT * FROM pgbouncer.get_auth($1);",
   "default_max_clients" => System.fetch_env!("POOLER_MAX_CLIENT_CONN"),
   "default_pool_size" => System.fetch_env!("POOLER_DEFAULT_POOL_SIZE"),
   "default_parameter_status" => %{"server_version" => version},

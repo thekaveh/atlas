@@ -201,7 +201,7 @@ def test_celery_compose_contract() -> None:
     ):
         assert name in worker["environment"]
     assert worker["environment"]["DATABASE_URL"] == (
-        "${SUPAVISOR_DATABASE_URL:-postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/${SUPABASE_DB_NAME}}"
+        "${SUPAVISOR_DATABASE_URL:-postgresql://${BACKEND_DB_USER_URI:?BACKEND_DB_USER_URI is required}:${BACKEND_DB_PASSWORD_URI:?BACKEND_DB_PASSWORD_URI is required}@supabase-db:5432/${SUPABASE_DB_NAME_URI:?SUPABASE_DB_NAME_URI is required}}"
     )
     assert "celery_app:celery_app" in " ".join(worker["command"])
     assert "--queues=${CELERY_QUEUE:-atlas}" in worker["command"]

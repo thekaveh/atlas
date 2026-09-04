@@ -52,7 +52,8 @@ services:
       # Vectorizers/generators route through LiteLLM (text2vec-openai, generative-openai).
       # text2vec-ollama is left enabled for backward-compat with un-migrated collections.
       DEFAULT_VECTORIZER_MODULE: 'text2vec-openai'
-      ENABLE_MODULES: ${WEAVIATE_ENABLE_MODULES:-text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama}
+      ENABLE_MODULES: ${WEAVIATE_ENABLE_MODULES:-text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem}
+      BACKUP_FILESYSTEM_PATH: '/var/lib/weaviate/backups'
       CLUSTER_HOSTNAME: 'weaviate'
       # Single-node Raft bootstrap. Without these, Weaviate logs
       # `failed to join cluster from [<self>:8300]` and `heartbeat
@@ -82,6 +83,7 @@ services:
       - "2112"
     volumes:
       - weaviate-data:/var/lib/weaviate
+      - weaviate-backups:/var/lib/weaviate/backups
       - weaviate-shared-config:/shared
       - ./init/scripts:/scripts
     networks:
@@ -122,4 +124,7 @@ volumes:
     driver: local
   weaviate-shared-config:
     name: ${PROJECT_NAME}-weaviate-shared-config
+    driver: local
+  weaviate-backups:
+    name: ${PROJECT_NAME}-weaviate-backups
     driver: local

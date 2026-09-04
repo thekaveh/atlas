@@ -3,6 +3,7 @@ surfaces:
 - site
 - wiki
 numbering: baked
+index: documentation-map
 sections:
 - id: overview
   number: '1'

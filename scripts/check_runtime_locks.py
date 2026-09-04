@@ -43,12 +43,19 @@ RUNTIME_LOCKS = (
     RuntimeLock(
         "services/airflow/build/requirements.txt",
         "services/airflow/build/requirements-locked.txt",
-        "3.12",
+        "3.13",
+        ("x86_64-manylinux_2_28", "aarch64-manylinux_2_28"),
     ),
     RuntimeLock(
         "services/jupyterhub/build/requirements.txt",
         "services/jupyterhub/build/requirements-locked.txt",
-        "3.11",
+        "3.13",
+        ("x86_64-manylinux_2_28", "aarch64-manylinux_2_28"),
+    ),
+    RuntimeLock(
+        "services/mlflow/build/requirements.txt",
+        "services/mlflow/build/requirements-locked.txt",
+        "3.10",
         ("x86_64-manylinux_2_28", "aarch64-manylinux_2_28"),
     ),
     RuntimeLock(

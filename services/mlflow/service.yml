@@ -16,7 +16,11 @@ capabilities:
   - name: "MLflow ingress authentication"
     status: partial
     verification: tested
-    note: "mlflow.localhost is protected by Kong dashboard Basic Auth and ACL, but the host-published direct UI/API has no MLflow application authentication."
+    note: "mlflow.localhost is protected by Kong dashboard Basic Auth and ACL, but the host-published direct tracking UI/API has no MLflow application authentication."
+  - name: "MLflow AI Gateway SSRF containment"
+    status: supported
+    verification: tested
+    note: "Atlas accepts exactly reviewed MLflow 3.15.1 to close CVE-2026-64849, disables every prefixed and unprefixed AI Gateway route family at its ASGI boundary until CVE-2026-71211 has an upstream fix, and runs the built image through a required multi-architecture smoke."
   - name: "Model registry deployment automation"
     status: not-supported
     verification: documented
@@ -32,10 +36,10 @@ containers:
 
 images:
   - var: MLFLOW_IMAGE
-    default: "ghcr.io/mlflow/mlflow:v3.14.0"
+    default: "ghcr.io/mlflow/mlflow:v3.15.1"
     container: mlflow
   - var: MLFLOW_INIT_IMAGE
-    default: "alpine:3.22.1"
+    default: "alpine:3.24.1"
     container: mlflow-init
 
 sources:
@@ -64,12 +68,22 @@ env:
     auto_managed: true
   - name: MLFLOW_DB_NAME
     default: mlflow
+  - name: MLFLOW_DB_NAME_URI
+    default: mlflow
+    description: "Bootstrapper-synchronized percent-encoded MLFLOW_DB_NAME for DSN path components."
   - name: MLFLOW_DB_USER
     default: mlflow
   - name: MLFLOW_DB_PASSWORD
-    default: ""
+    default: atlas-db-password
     secret: true
     description: "Auto-generated Postgres password for the dedicated MLflow database role."
+  - name: MLFLOW_DB_USER_URI
+    default: mlflow
+    description: "Bootstrapper-synchronized percent-encoded MLFLOW_DB_USER for DSN userinfo."
+  - name: MLFLOW_DB_PASSWORD_URI
+    default: atlas-db-password
+    secret: true
+    description: "Bootstrapper-synchronized percent-encoded MLFLOW_DB_PASSWORD for DSN userinfo."
 depends_on:
   required:
     - supabase

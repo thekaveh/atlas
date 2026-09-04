@@ -22,6 +22,12 @@
         {"required": ["url"]},
         {"required": ["files"]}
       ],
+      "allOf": [
+        {
+          "if": {"not": {"required": ["files"]}},
+          "then": {"required": ["url", "sha256"]}
+        }
+      ],
       "additionalProperties": false,
       "properties": {
         "name": {
@@ -54,8 +60,8 @@
         },
         "url": {
           "type": "string",
-          "pattern": "^https?://",
-          "description": "Direct download URL (HuggingFace resolve URL, signed civitai URL, or similar)."
+          "pattern": "^https://huggingface\\.co/[^/]+/[^/]+/resolve/[0-9a-f]{40}/.+$",
+          "description": "Curated artifact URL pinned to an immutable 40-hex Hugging Face revision."
         },
         "files": {
           "type": "array",
@@ -78,8 +84,9 @@
           "description": "Exact artifact size in bytes when known from an immutable upstream revision."
         },
         "sha256": {
-          "type": ["string", "null"],
-          "description": "Hex SHA-256 digest. Verified by comfyui-init when present."
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Exact lowercase SHA-256 digest. Required for every direct curated artifact."
         },
         "target_dir": {
           "type": "string",
@@ -125,6 +132,11 @@
           "type": "boolean",
           "description": "If true, this entry is activated by default when COMFYUI_USER_MODELS is empty (DB-free replacement for the former essential column in public.comfyui_models)."
         },
+        "provisioning_required": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether a selected artifact must provision successfully before ComfyUI can become ready. Defaults to true; optional is explicit."
+        },
         "precision": {
           "type": ["string", "null"],
           "enum": ["bf16", "fp16", "fp8", null],
@@ -157,7 +169,7 @@
     },
     "model_file": {
       "type": "object",
-      "required": ["role", "category", "url"],
+      "required": ["role", "category", "url", "sha256"],
       "additionalProperties": false,
       "properties": {
         "role": {
@@ -189,13 +201,14 @@
         },
         "url": {
           "type": "string",
-          "pattern": "^https?://"
+          "pattern": "^https://huggingface\\.co/[^/]+/[^/]+/resolve/[0-9a-f]{40}/.+$"
         },
         "filename": {
           "type": ["string", "null"]
         },
         "sha256": {
-          "type": ["string", "null"]
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         },
         "target_dir": {
           "type": ["string", "null"],
@@ -215,6 +228,10 @@
         },
         "variant": {
           "type": ["string", "null"]
+        },
+        "provisioning_required": {
+          "type": "boolean",
+          "description": "Optional per-file override of the logical model's readiness policy."
         }
       }
     }

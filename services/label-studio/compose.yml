@@ -4,25 +4,25 @@ services:
     build:
       context: ./init
       args:
-        BASE_IMAGE: ${LABEL_STUDIO_INIT_IMAGE:-alpine:3.22.1}
+        BASE_IMAGE: ${LABEL_STUDIO_INIT_IMAGE:-alpine:3.24.1}
     image: ${PROJECT_NAME}-label-studio-init:local
     container_name: ${PROJECT_NAME}-label-studio-init
     restart: "no"
     deploy:
       replicas: ${LABEL_STUDIO_INIT_SCALE:-0}
     depends_on:
-      supabase-db:
-        condition: service_healthy
+      supabase-db-init:
+        condition: service_completed_successfully
       minio-init:
         condition: service_completed_successfully
     environment:
       PGHOST: supabase-db
       PGPORT: 5432
-      PGUSER: ${SUPABASE_DB_USER}
-      PGPASSWORD: ${SUPABASE_DB_PASSWORD}
+      PGUSER: ${LABEL_STUDIO_DB_USER:?LABEL_STUDIO_DB_USER is required}
+      PGPASSWORD: ${LABEL_STUDIO_DB_PASSWORD:?LABEL_STUDIO_DB_PASSWORD is required}
       LABEL_STUDIO_DB_NAME: ${LABEL_STUDIO_DB_NAME:-label_studio}
-      LABEL_STUDIO_DB_USER: ${LABEL_STUDIO_DB_USER:-label_studio}
-      LABEL_STUDIO_DB_PASSWORD: ${LABEL_STUDIO_DB_PASSWORD}
+      LABEL_STUDIO_DB_USER: ${LABEL_STUDIO_DB_USER:?LABEL_STUDIO_DB_USER is required}
+      LABEL_STUDIO_DB_PASSWORD: ${LABEL_STUDIO_DB_PASSWORD:?LABEL_STUDIO_DB_PASSWORD is required}
     volumes:
       - ./init/scripts:/scripts:ro
     entrypoint: ["/bin/sh", "/scripts/init-label-studio.sh"]
@@ -43,8 +43,8 @@ services:
     environment:
       DJANGO_DB: default
       POSTGRE_NAME: ${LABEL_STUDIO_DB_NAME:-label_studio}
-      POSTGRE_USER: ${LABEL_STUDIO_DB_USER:-label_studio}
-      POSTGRE_PASSWORD: ${LABEL_STUDIO_DB_PASSWORD}
+      POSTGRE_USER: ${LABEL_STUDIO_DB_USER:?LABEL_STUDIO_DB_USER is required}
+      POSTGRE_PASSWORD: ${LABEL_STUDIO_DB_PASSWORD:?LABEL_STUDIO_DB_PASSWORD is required}
       POSTGRE_HOST: supabase-db
       POSTGRE_PORT: "5432"
       LABEL_STUDIO_HOST: http://label-studio.localhost:${KONG_HTTP_PORT:-63000}

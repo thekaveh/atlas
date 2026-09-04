@@ -50,3 +50,12 @@ pyspark[connect]==4.1.2
 # file exclusion semantics on the patched release even though Atlas does not
 # build sdists at runtime.
 setuptools>=83.0.0
+
+# The upstream Airflow image includes optional cloud/provider packages beyond
+# this overlay's direct dependency graph. Keep the overlay resolver inside the
+# compatibility ranges of those installed packages so adding Atlas providers
+# cannot leave the final image in a `pip check`-invalid state.
+botocore<1.43.57
+importlib-metadata<9
+protobuf<6.34
+websockets<17

@@ -18,9 +18,9 @@ capabilities:
     verification: documented
     note: "The stock container enables anonymous access and Atlas does not provision tenant boundaries or per-consumer authorization policies."
   - name: "Automated vector database backups"
-    status: not-supported
-    verification: documented
-    note: "Atlas mounts persistent Weaviate data but ships no scheduled native backup or restore workflow for the vector database."
+    status: supported
+    verification: tested
+    note: "Atlas enables Weaviate's native filesystem backup provider and the backup runner creates, polls, verifies, exports, and restores completed snapshots without archiving the live data volume. Scheduling and retention remain operator-owned."
 
 containers:
   - weaviate
@@ -29,7 +29,7 @@ containers:
 
 images:
   - var: WEAVIATE_IMAGE
-    default: "cr.weaviate.io/semitechnologies/weaviate:1.38.2"
+    default: "cr.weaviate.io/semitechnologies/weaviate:1.38.13"
     container: weaviate
   - var: WEAVIATE_INIT_IMAGE
     default: "alpine:3.24.1"
@@ -64,7 +64,7 @@ env:
     default: container-cpu
     description: "Options: container-cpu, container-gpu, disabled. (Effects driven by hook.)"
   - name: WEAVIATE_ENABLE_MODULES
-    default: "text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama"
+    default: "text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem"
   - name: CLIP_INFERENCE_API
     default: "http://multi2vec-clip:8080"
   - name: MULTI2VEC_CLIP_SIGLIP2_IMAGE
@@ -141,7 +141,7 @@ runtime_sc:
         AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
         PERSISTENCE_DATA_PATH: /var/lib/weaviate
         DEFAULT_VECTORIZER_MODULE: text2vec-openai
-        ENABLE_MODULES: text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama
+        ENABLE_MODULES: text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem
         CLUSTER_HOSTNAME: weaviate
         OPENAI_APIKEY: ${LITELLM_MASTER_KEY:-}
         CLIP_INFERENCE_API: http://multi2vec-clip:8080

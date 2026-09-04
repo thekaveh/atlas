@@ -16,14 +16,14 @@
 #           category: diffusion_models
 #           url: https://huggingface.co/Org/model/resolve/main/model.safetensors
 #           filename: model.safetensors
-#           sha256: <hex>
+#           sha256: <exact lowercase 64-hex SHA-256>
 #           target_dir: diffusion_models
 #       filename: <on-disk name>    # required for civitai URLs (their path has no
 #                                   #   filename — without this the download lands
 #                                   #   extension-less and ComfyUI never lists it)
 #       family: <string>            # optional; display family (e.g. "SDXL", "Flux"); defaults to name
 #       size_gb: <float>            # optional; surfaced in wizard, used for disk warning
-#       sha256: <hex>               # optional; verified by init script when present
+#       sha256: <exact lowercase 64-hex SHA-256>  # optional; verified when present
 #       cpu_supported: <bool>       # optional; defaults true; false adds "requires GPU" badge
 #       min_vram_gb: <float>        # optional; adds "requires N GB VRAM" badge when host has less
 #       requires_custom_node:       # optional; list of node-repo names (warn-only badges)
@@ -40,7 +40,7 @@
 #     category: lora
 #     url: https://huggingface.co/MyOrg/my-flux-lora/resolve/main/portrait.safetensors
 #     size_gb: 0.15
-#     sha256: a1b2c3...
+#     sha256: a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4
 #     notes: "Internal portrait LoRA for the marketing comp pipeline"
 
 models: []

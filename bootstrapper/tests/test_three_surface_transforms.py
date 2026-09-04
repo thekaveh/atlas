@@ -13,6 +13,7 @@ def _manifest(tmp_path: Path):
         """
 surfaces: [repo, site, wiki]
 numbering: baked
+index: overview
 sections:
   - {id: overview, number: "1", title: Overview, source: docs/index.md}
   - id: guides

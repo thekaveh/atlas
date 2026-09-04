@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
@@ -8,6 +9,7 @@ from media_operation_store import (
     InMemoryMediaOperationStore,
     MediaOperationCollisionError,
     RedisMediaOperationStore,
+    build_media_operation_store,
 )
 
 
@@ -101,6 +103,25 @@ def test_reconciliation_marker_is_shared_store_state() -> None:
 def test_in_memory_media_store_is_always_available() -> None:
     store = InMemoryMediaOperationStore()
     assert asyncio.run(store.ensure_available()) is None
+
+
+@pytest.mark.parametrize("mode", ["", "disk", "MEMORY"])
+def test_invalid_state_store_mode_is_unavailable_without_import_crash(
+    monkeypatch, mode
+) -> None:
+    monkeypatch.setenv("BACKEND_STATE_STORE_MODE", mode)
+    store = build_media_operation_store()
+    assert type(store).__name__ == "UnavailableMediaOperationStore"
+    with pytest.raises(RuntimeError, match="BACKEND_STATE_STORE_MODE"):
+        asyncio.run(store.ensure_available())
+
+
+def test_redis_mode_without_url_is_unavailable_not_memory(monkeypatch) -> None:
+    monkeypatch.setenv("BACKEND_STATE_STORE_MODE", "redis")
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    store = build_media_operation_store()
+    assert type(store).__name__ == "UnavailableMediaOperationStore"
+    assert not isinstance(store, InMemoryMediaOperationStore)
 
 
 def test_in_memory_create_rejects_cross_owner_operation_id_collision() -> None:
@@ -295,7 +316,7 @@ def test_redis_submission_unknown_record_has_no_expiry(monkeypatch) -> None:
             captured.update(
                 {"script": script, "key_count": key_count, "args": args}
             )
-            return [1, args[2]]
+            return [1, args[4]]
 
     monkeypatch.setattr(redis.Redis, "from_url", lambda *_a, **_k: FakeRedis())
     store = RedisMediaOperationStore("redis://redis:6379/0")
@@ -304,8 +325,8 @@ def test_redis_submission_unknown_record_has_no_expiry(monkeypatch) -> None:
 
     asyncio.run(store.create(operation))
 
-    assert captured["key_count"] == 2
-    assert captured["args"][4] == "1"
+    assert captured["key_count"] == 4
+    assert captured["args"][6] == "1"
     assert "redis.call('SET', KEYS[1], ARGV[1])" in captured["script"]
     assert "redis.call('SADD', KEYS[2]" in captured["script"]
 
@@ -344,5 +365,139 @@ def test_redis_ledger_winner_adoption_is_guarded_and_durable() -> None:
 
 def test_redis_stale_pending_cleanup_rechecks_key_atomically() -> None:
     script = RedisMediaOperationStore._REMOVE_STALE_PENDING_SCRIPT
-    assert "redis.call('EXISTS', ARGV[i]) == 0" in script
-    assert "redis.call('SREM', KEYS[1], ARGV[i + 1])" in script
+    assert "redis.call('GET', ARGV[1] .. ARGV[i])" in script
+    assert "remove = not pending" in script
+    assert "redis.call('SREM', KEYS[1], ARGV[i])" in script
+    assert "redis.call('ZREM', KEYS[2], ARGV[i])" in script
+
+
+def test_pending_ledger_pages_are_bounded_without_smembers_or_unbounded_mget(
+    monkeypatch,
+) -> None:
+    import redis.asyncio as redis
+
+    class FakeRedis:
+        def __init__(self):
+            self.mget_sizes = []
+            self.removed = []
+
+        async def eval(self, script, _key_count, *args):
+            if "SSCAN" in script:
+                return [0, "0", 0]
+            self.removed.extend(args[3:])
+            return 1
+
+        async def zrangebyscore(
+            self, _key, _minimum, _maximum, *, start, num, withscores
+        ):
+            assert start == 0
+            assert num == 101
+            assert withscores is True
+            return [(f"op-{index:04d}", index + 1.0) for index in range(101)]
+
+        async def mget(self, keys):
+            self.mget_sizes.append(len(keys))
+            pending = _operation()
+            pending["last_payload"]["provenance"] = {"ledger_attach_pending": True}
+            return [None if key.endswith("0003") else json.dumps(pending) for key in keys]
+
+        async def smembers(self, *_args, **_kwargs):
+            raise AssertionError("SMEMBERS must not be used in production recovery")
+
+    fake = FakeRedis()
+    monkeypatch.setattr(redis.Redis, "from_url", lambda *_a, **_k: fake)
+    store = RedisMediaOperationStore("redis://redis:6379/0")
+
+    page = asyncio.run(store.pending_ledger_intent_page(limit=100))
+
+    assert len(page.records) == 99
+    assert page.next_cursor == "100"
+    assert fake.mget_sizes == [100]
+    assert fake.removed == ["op-0003"]
+
+
+def test_redis_pending_page_keeps_cursor_when_full_migration_yields_no_new_score(
+    monkeypatch,
+) -> None:
+    """Duplicate legacy members must not terminate a still-bounded migration."""
+    import redis.asyncio as redis
+
+    class FakeRedis:
+        async def eval(self, script, *_args):
+            assert "SSCAN" in script
+            return [0, "9", 2]
+
+        async def zrangebyscore(self, *_args, **_kwargs):
+            return []
+
+        async def mget(self, _keys):
+            raise AssertionError("an empty score page must not issue MGET")
+
+    monkeypatch.setattr(redis.Redis, "from_url", lambda *_args, **_kwargs: FakeRedis())
+    store = RedisMediaOperationStore("redis://redis:6379/0")
+
+    page = asyncio.run(store.pending_ledger_intent_page(cursor="7", limit=2))
+
+    assert page.records == []
+    assert page.next_cursor == "7"
+
+
+def test_in_memory_pending_ledger_pages_do_not_lose_intents() -> None:
+    async def scenario():
+        store = InMemoryMediaOperationStore()
+        for index in range(205):
+            operation = _operation()
+            operation["operation_id"] = f"op-{index:04d}"
+            operation["last_payload"]["operation_id"] = operation["operation_id"]
+            operation["last_payload"]["provenance"] = {
+                "ledger_attach_pending": True
+            }
+            await store.create(operation)
+
+        seen = set()
+        cursor = None
+        while True:
+            page = await store.pending_ledger_intent_page(cursor=cursor, limit=50)
+            assert len(page.records) <= 50
+            seen.update(item["operation_id"] for item in page.records)
+            cursor = page.next_cursor
+            if cursor is None:
+                break
+        assert len(seen) == 205
+
+    asyncio.run(scenario())
+
+
+def test_in_memory_failed_intent_defers_behind_current_work_before_later_arrivals() -> None:
+    async def scenario():
+        store = InMemoryMediaOperationStore()
+        for operation_id in ("failed", "existing"):
+            operation = _operation()
+            operation["operation_id"] = operation_id
+            operation["last_payload"]["operation_id"] = operation_id
+            operation["last_payload"]["provenance"] = {
+                "ledger_attach_pending": True
+            }
+            await store.create(operation)
+
+        first = await store.pending_ledger_intent_page(limit=1)
+        assert [item["operation_id"] for item in first.records] == ["failed"]
+        assert await store.defer_pending_ledger_intent("failed") is True
+
+        later = _operation()
+        later["operation_id"] = "later"
+        later["last_payload"]["operation_id"] = "later"
+        later["last_payload"]["provenance"] = {"ledger_attach_pending": True}
+        await store.create(later)
+
+        seen = []
+        cursor = first.next_cursor
+        while True:
+            page = await store.pending_ledger_intent_page(cursor=cursor, limit=1)
+            seen.extend(item["operation_id"] for item in page.records)
+            cursor = page.next_cursor
+            if cursor is None:
+                break
+        assert seen == ["existing", "failed", "later"]
+
+    asyncio.run(scenario())

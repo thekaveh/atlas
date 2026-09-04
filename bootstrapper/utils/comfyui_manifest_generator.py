@@ -13,18 +13,18 @@ is enabled), replacing the former ``public.comfyui_models`` DB query that
 
   • ``volumes/comfyui/active-models.tsv``
         Shell-consumable tab-separated view: ``name\\ttype\\tfilename\\t
-        download_url\\tsha256\\ttarget_dir`` (one row per active model file,
-        no header).
-        ``sha256`` is the empty string when ``None`` — matching the old
-        ``COALESCE(sha256, '')`` pattern — so the existing verification
-        branch in ``download_models.sh`` continues to work unchanged.
+        download_url\\tsha256\\ttarget_dir\\tsource\\trequired|optional`` (one row per active
+        model file, no header). ``source`` carries the trust boundary:
+        curated rows require a SHA-256; dynamic/user rows may remain
+        explicitly unverified.
         ``comfyui-init``'s ``download_models.sh`` ``cat``s this file into
         its existing tempfile/download loop.
 
   • ``volumes/comfyui/active-custom-nodes.tsv``
         Shell-consumable tab-separated install plan for allowlisted custom
         nodes required by the active model set:
-        ``name\\trepo\\tref\\tinstall_requirements``.
+        ``name\\trepo\\tref\\tinstall_requirements\\tlock_path\\tlock_sha256\\t
+        required|optional``.
 
 All generated files are written atomically (tmp-then-replace) via
 ``comfyui_resolver.write_manifest`` (YAML) and an inline atomic write (TSV).
@@ -34,10 +34,16 @@ The generator is skipped cleanly when ``COMFYUI_SOURCE == "disabled"``.
 
 from __future__ import annotations
 
+import hashlib
 import os
+import re
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any, Mapping
+
+
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class ComfyUIManifestGenerator:
@@ -139,15 +145,25 @@ class ComfyUIManifestGenerator:
     def _row_tsv(row: dict[str, Any]) -> str:
         """Format a manifest-dict row as a single TSV line.
 
-        Columns: name TAB type TAB filename TAB download_url TAB sha256 TAB target_dir
-        ``sha256`` is the empty string when ``None``, matching the old
-        ``COALESCE(sha256, '')`` pattern used by the former psql query.
+        Columns: name TAB type TAB filename TAB download_url TAB sha256 TAB
+        target_dir TAB source TAB provisioning. Curated rows require a SHA-256; non-curated
+        rows retain an explicit empty value when the operator supplied none.
         """
         sha = row.get("sha256") or ""  # None → ""
         if "\t" in str(sha) or "\n" in str(sha) or "\r" in str(sha):
             raise ValueError(
                 f"ComfyUI model sha256 for {row.get('name', '<unknown>')!r} "
                 "contains a tab or newline; cannot write active-models.tsv safely."
+            )
+        source = str(row.get("source") or "")
+        if sha and not _SHA256_RE.fullmatch(str(sha)):
+            raise ValueError(
+                f"ComfyUI model sha256 for {row.get('name', '<unknown>')!r} "
+                "must be an exact lowercase SHA-256."
+            )
+        if source == "curated" and not sha:
+            raise ValueError(
+                f"ComfyUI curated model {row.get('name', '<unknown>')!r} requires sha256."
             )
         return "\t".join([
             ComfyUIManifestGenerator._safe_tsv_field(row, "name"),
@@ -156,6 +172,8 @@ class ComfyUIManifestGenerator:
             ComfyUIManifestGenerator._safe_tsv_field(row, "download_url"),
             str(sha),
             ComfyUIManifestGenerator._safe_tsv_field(row, "target_dir"),
+            ComfyUIManifestGenerator._safe_tsv_field(row, "source"),
+            "required" if bool(row.get("provisioning_required", True)) else "optional",
         ])
 
     @staticmethod
@@ -170,12 +188,49 @@ class ComfyUIManifestGenerator:
 
     @staticmethod
     def _custom_node_row_tsv(node: Any) -> str:
+        lock_sha = str(node.requirements_lock_sha256 or "")
+        lock_path = (
+            f"/comfyui-manifest/custom-node-locks/{lock_sha}.txt"
+            if node.install_requirements
+            else ""
+        )
         return "\t".join([
             ComfyUIManifestGenerator._safe_custom_node_field(node.name, node.name),
             ComfyUIManifestGenerator._safe_custom_node_field(node.name, node.repo),
             ComfyUIManifestGenerator._safe_custom_node_field(node.name, node.ref),
             "true" if node.install_requirements else "false",
+            ComfyUIManifestGenerator._safe_custom_node_field(node.name, lock_path),
+            ComfyUIManifestGenerator._safe_custom_node_field(node.name, lock_sha),
+            "required" if node.provisioning_required else "optional",
         ])
+
+    @staticmethod
+    def _copy_custom_node_lock(node: Any, output_dir: Path) -> None:
+        if not node.install_requirements:
+            return
+        source = node.requirements_lock
+        expected = str(node.requirements_lock_sha256 or "")
+        if not isinstance(source, Path) or not source.is_file():
+            raise ValueError(f"ComfyUI custom node {node.name!r} has no dependency lock")
+        actual = hashlib.sha256(source.read_bytes()).hexdigest()
+        if actual != expected:
+            raise ValueError(
+                f"ComfyUI custom node {node.name!r} dependency-lock digest mismatch"
+            )
+        lock_dir = output_dir / "custom-node-locks"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        destination = lock_dir / f"{expected}.txt"
+        fd, tmp = tempfile.mkstemp(dir=str(lock_dir), prefix=expected + ".", suffix=".tmp")
+        os.close(fd)
+        try:
+            shutil.copyfile(source, tmp)
+            os.replace(tmp, destination)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
     def _write_tsv(
         self,
@@ -222,6 +277,12 @@ class ComfyUIManifestGenerator:
                             f"{previous.get('bundle_id') or previous.get('name')} and "
                             f"{row.get('bundle_id') or row.get('name')}."
                         )
+                # One physical artifact may serve multiple logical bundles.
+                # Readiness criticality is the strict union: an optional
+                # declaration must never downgrade another selected bundle's
+                # required dependency.
+                if bool(row.get("provisioning_required", True)):
+                    previous["provisioning_required"] = True
                 continue
             seen_paths[key] = row
             download_rows.append(row)
@@ -253,6 +314,9 @@ class ComfyUIManifestGenerator:
         from utils import comfyui_custom_nodes
 
         nodes = comfyui_custom_nodes.active_custom_nodes(entries, self.env)
+
+        for node in nodes:
+            self._copy_custom_node_lock(node, tsv_path.parent)
 
         tsv_path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(

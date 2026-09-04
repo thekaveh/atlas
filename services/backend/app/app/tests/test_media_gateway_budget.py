@@ -7,6 +7,7 @@ import importlib
 import os
 import sys
 import time
+from types import SimpleNamespace
 from uuid import uuid4
 
 import jwt
@@ -269,7 +270,10 @@ def test_state_store_preflight_blocks_provider_and_budget_reservation(monkeypatc
     client = TestClient(main.app)
     response = _submit(client, consumer="acme")
     assert response.status_code == 503
-    assert response.json()["detail"] == "Media operation state store is unavailable"
+    assert response.json()["detail"] == {
+        "code": "state_store_unavailable",
+        "message": "Media operation state store is unavailable",
+    }
     spend = client.get("/media/spend", params={"consumer": "acme"}).json()
     assert spend["records"] == []
 
@@ -389,6 +393,137 @@ def test_background_drain_recovers_attach_without_client_poll(monkeypatch):
     operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
     assert operation["last_payload"]["provenance"]["ledger_attach_completed"] is True
     assert asyncio.run(main.MEDIA_BUDGET_ENGINE.store.get("fal-3d-9")) is not None
+
+
+def test_background_drain_caps_recovery_pages_per_cycle(monkeypatch):
+    main = _fresh_main(monkeypatch, budget_enabled=False)
+    calls = []
+
+    class EndlessStore:
+        async def pending_ledger_intent_page(self, *, cursor, limit):
+            calls.append((cursor, limit))
+            return SimpleNamespace(records=[], next_cursor=str(len(calls)))
+
+    monkeypatch.setattr(main, "MEDIA_OPERATION_STORE", EndlessStore())
+    monkeypatch.setattr(main, "media_ledger_recovery_batch_size", lambda: 7)
+    monkeypatch.setattr(main, "media_ledger_recovery_max_cycles", lambda: 3)
+    sleeps = 0
+
+    async def one_poll_then_stop(_seconds):
+        nonlocal sleeps
+        sleeps += 1
+        if sleeps > 1:
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(main.asyncio, "sleep", one_poll_then_stop)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main._media_ledger_intent_loop())
+
+    assert calls == [(None, 7), ("1", 7), ("2", 7)]
+
+
+def test_background_drain_defers_repeated_failure_while_new_work_progresses(
+    monkeypatch,
+):
+    main = _fresh_main(monkeypatch, budget_enabled=False)
+    from media_operation_store import InMemoryMediaOperationStore
+
+    class ArrivingStore(InMemoryMediaOperationStore):
+        def __init__(self):
+            super().__init__()
+            self.pages = 0
+
+        async def pending_ledger_intent_page(self, **kwargs):
+            if self.pages:
+                operation_id = f"arrival-{self.pages}"
+                await self.create(pending_operation(operation_id))
+            self.pages += 1
+            return await super().pending_ledger_intent_page(**kwargs)
+
+    def pending_operation(operation_id):
+        return {
+            "operation_id": operation_id,
+            "provider": "fal",
+            "modality": "image",
+            "model": "flux",
+            "owner_scope": "service",
+            "budget_tracked": True,
+            "reconciled": False,
+            "last_payload": {
+                "operation_id": operation_id,
+                "status": "queued",
+                "provenance": {"ledger_attach_pending": True},
+            },
+        }
+
+    store = ArrivingStore()
+    asyncio.run(store.create(pending_operation("failed")))
+    asyncio.run(store.create(pending_operation("existing")))
+    monkeypatch.setattr(main, "MEDIA_OPERATION_STORE", store)
+    monkeypatch.setattr(main, "media_ledger_recovery_batch_size", lambda: 1)
+    monkeypatch.setattr(main, "media_ledger_recovery_max_cycles", lambda: 1)
+    main._media_ledger_intent_cursor = None
+    attempts = []
+
+    async def recover(operation_id, operation):
+        attempts.append(operation_id)
+        if operation_id == "failed":
+            raise RuntimeError("still unavailable")
+        return operation
+
+    async def reconcile(_operation_id, _operation):
+        return None
+
+    monkeypatch.setattr(main, "_maybe_recover_media_ledger_intent", recover)
+    monkeypatch.setattr(main, "_maybe_reconcile_ledger", reconcile)
+    polls = 0
+
+    async def four_polls(_seconds):
+        nonlocal polls
+        polls += 1
+        if polls > 4:
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(main.asyncio, "sleep", four_polls)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main._media_ledger_intent_loop())
+
+    assert attempts[:4] == ["failed", "existing", "failed", "arrival-1"]
+
+
+def test_background_drain_resets_cursor_when_failure_cannot_be_deferred(monkeypatch):
+    main = _fresh_main(monkeypatch, budget_enabled=False)
+
+    class BrokenDeferralStore:
+        async def pending_ledger_intent_page(self, **_kwargs):
+            return SimpleNamespace(
+                records=[{"operation_id": "failed"}], next_cursor="8"
+            )
+
+        async def defer_pending_ledger_intent(self, _operation_id):
+            raise RuntimeError("redis unavailable")
+
+    async def fail_recovery(_operation_id, _operation):
+        raise RuntimeError("ledger unavailable")
+
+    polls = 0
+
+    async def one_poll(_seconds):
+        nonlocal polls
+        polls += 1
+        if polls > 1:
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(main, "MEDIA_OPERATION_STORE", BrokenDeferralStore())
+    monkeypatch.setattr(main, "_maybe_recover_media_ledger_intent", fail_recovery)
+    monkeypatch.setattr(main, "media_ledger_recovery_max_cycles", lambda: 3)
+    monkeypatch.setattr(main.asyncio, "sleep", one_poll)
+    main._media_ledger_intent_cursor = "7"
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main._media_ledger_intent_loop())
+
+    assert main._media_ledger_intent_cursor is None
 
 
 def test_duplicate_provider_operation_id_does_not_cross_tenant_state(monkeypatch):
@@ -1548,6 +1683,10 @@ def test_operation_poll_returns_503_when_state_store_lookup_fails(monkeypatch):
 
     response = TestClient(main.app).get("/media/operations/fal-op")
     assert response.status_code == 503
+    assert response.json()["detail"] == {
+        "code": "state_store_unavailable",
+        "message": "Media operation state store is unavailable",
+    }
 
 
 def test_submission_returns_503_when_budget_reservation_store_fails(monkeypatch):
