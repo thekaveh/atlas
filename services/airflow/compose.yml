@@ -17,7 +17,7 @@ services:
       - "${HOST_BIND_IP:-}${AIRFLOW_PORT}:8080"
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@supabase-db:5432/airflow
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER_URI:?AIRFLOW_DB_USER_URI is required}:${AIRFLOW_DB_PASSWORD_URI:?AIRFLOW_DB_PASSWORD_URI is required}@supabase-db:5432/airflow
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
       # Airflow 3.x renamed [webserver] secret_key → [api] secret_key (the
       # `airflow webserver` subcommand was removed alongside; api-server
@@ -110,7 +110,7 @@ services:
       # unreachable and every task dies at Pre-Execute with httpcore.ConnectError
       # (#791). Point it at the webserver's compose DNS name (project-agnostic).
       AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/execution/
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@supabase-db:5432/airflow
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER_URI:?AIRFLOW_DB_USER_URI is required}:${AIRFLOW_DB_PASSWORD_URI:?AIRFLOW_DB_PASSWORD_URI is required}@supabase-db:5432/airflow
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
       # Required for inter-process signed-payload validation (DagFileProcessor
       # → scheduler RPC, deferrable triggers, JWT auth between schedulers in
@@ -198,7 +198,7 @@ services:
       # that also resolves the Execution API and must not fall back to
       # localhost:8080 (#791).
       AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/execution/
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@supabase-db:5432/airflow
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER_URI:?AIRFLOW_DB_USER_URI is required}:${AIRFLOW_DB_PASSWORD_URI:?AIRFLOW_DB_PASSWORD_URI is required}@supabase-db:5432/airflow
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
       AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
       AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
@@ -253,11 +253,9 @@ services:
       replicas: ${AIRFLOW_INIT_SCALE:-0}
     environment:
       AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@supabase-db:5432/airflow
-      # NOTE: do NOT set _AIRFLOW_DB_MIGRATE=true here. The entrypoint
-      # would try to migrate BEFORE init-airflow.sh CREATEs the airflow
-      # DB — failing with "database does not exist". The script does its
-      # own `airflow db migrate` at line 48 AFTER creating the DB.
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER_URI:?AIRFLOW_DB_USER_URI is required}:${AIRFLOW_DB_PASSWORD_URI:?AIRFLOW_DB_PASSWORD_URI is required}@supabase-db:5432/airflow
+      # The central Supabase init owns role/database provisioning; this
+      # container owns only Airflow's application migrations and seed data.
       # CRITICAL: init-airflow.sh runs `airflow users create --password
       # "${AIRFLOW_ADMIN_PASSWORD}"` (line 63). Under `set -euo pipefail`
       # an unset var aborts the script — and webserver/scheduler/
@@ -287,10 +285,10 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       SUPABASE_DB_NAME: ${SUPABASE_DB_NAME}
-      SUPABASE_DB_USER: ${SUPABASE_DB_USER}
-      SUPABASE_DB_PASSWORD: ${SUPABASE_DB_PASSWORD}
-      AIRFLOW_DB_USER: ${AIRFLOW_DB_USER}
-      AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD}
+      AIRFLOW_DB_USER: ${AIRFLOW_DB_USER:?AIRFLOW_DB_USER is required}
+      AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD:?AIRFLOW_DB_PASSWORD is required}
+      AIRFLOW_ATLAS_DB_USER: ${AIRFLOW_ATLAS_DB_USER:?AIRFLOW_ATLAS_DB_USER is required}
+      AIRFLOW_ATLAS_DB_PASSWORD: ${AIRFLOW_ATLAS_DB_PASSWORD:?AIRFLOW_ATLAS_DB_PASSWORD is required}
       # Neo4j credentials consumed by init-airflow.sh when seeding
       # neo4j_default (Connection requires auth — Neo4j is auth-on by
       # default). Canonical var names are GRAPH_DB_USER / _PASSWORD
@@ -327,8 +325,8 @@ services:
     # to make the script actually execute. Caught by Pass 38.
     command: ["bash", "/scripts/init-airflow.sh"]
     depends_on:
-      supabase-db:
-        condition: service_healthy
+      supabase-db-init:
+        condition: service_completed_successfully
     networks:
       - backend-network
 

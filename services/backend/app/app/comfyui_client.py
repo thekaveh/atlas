@@ -5,16 +5,97 @@ import httpx
 import asyncio
 import time
 import uuid
-from typing import Dict, Any, Optional, List
+from typing import Awaitable, Dict, Any, Optional, List
 import os
 import logging
+from collections.abc import Mapping
 from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
 
-class ComfyUIHistoryUnavailableError(RuntimeError):
+class ComfyUIUpstreamError(RuntimeError):
+    """Base class for safe, typed ComfyUI upstream failures."""
+
+
+class ComfyUIUnavailableError(ComfyUIUpstreamError):
+    """Raised when no usable HTTP response arrives from ComfyUI."""
+
+
+class ComfyUIResponseError(ComfyUIUpstreamError):
+    """Raised when ComfyUI returns a failed or malformed HTTP response."""
+
+
+class ComfyUIHistoryUnavailableError(ComfyUIUnavailableError):
     """Raised when ComfyUI history cannot be read."""
+
+
+class ComfyUIImageTooLargeError(ValueError):
+    """Raised when a valid image response exceeds Atlas's local byte cap."""
+
+
+def _response_json(response: httpx.Response) -> Any:
+    """Return JSON only from a successful, decodable ComfyUI response."""
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise ComfyUIResponseError(
+            "ComfyUI returned an invalid response"
+        ) from exc
+    try:
+        return response.json()
+    except (ValueError, UnicodeError) as exc:
+        raise ComfyUIResponseError(
+            "ComfyUI returned an invalid response"
+        ) from exc
+
+
+def _log_upstream_failure(operation: str, exc: Exception) -> None:
+    logger.error("%s (error_type=%s)", operation, type(exc).__name__)
+
+
+async def _request_json(
+    request: Awaitable[httpx.Response],
+    *,
+    operation: str,
+    unavailable_error: type[ComfyUIUnavailableError] = ComfyUIUnavailableError,
+) -> Any:
+    """Execute one JSON request while preserving failure category."""
+    try:
+        response = await request
+    except httpx.TransportError as exc:
+        _log_upstream_failure(operation, exc)
+        message = (
+            "ComfyUI history is unavailable"
+            if unavailable_error is ComfyUIHistoryUnavailableError
+            else "ComfyUI is unavailable"
+        )
+        raise unavailable_error(message) from exc
+    return _response_json(response)
+
+
+def _target_history(
+    history: Dict[str, Any], prompt_id: str
+) -> Optional[Mapping[str, Any]]:
+    """Validate the requested ComfyUI history record before interpreting it."""
+    if prompt_id not in history:
+        return None
+    target = history[prompt_id]
+    if not isinstance(target, Mapping):
+        raise ComfyUIResponseError("ComfyUI returned an invalid response")
+
+    if "outputs" in target and not isinstance(target["outputs"], Mapping):
+        raise ComfyUIResponseError("ComfyUI returned an invalid response")
+
+    if "status" in target:
+        status_value = target["status"]
+        if not isinstance(status_value, Mapping):
+            raise ComfyUIResponseError("ComfyUI returned an invalid response")
+        if "status_str" in status_value and not isinstance(
+            status_value["status_str"], str
+        ):
+            raise ComfyUIResponseError("ComfyUI returned an invalid response")
+    return target
 
 
 class ComfyUIClient:
@@ -57,120 +138,104 @@ class ComfyUIClient:
     
     async def get_models(self) -> Dict[str, List[str]]:
         """Get available models from ComfyUI"""
-        try:
-            response = await self.client.get(f"{self.base_url}/object_info")
-            response.raise_for_status()
-            object_info = response.json()
-            
-            models = {}
-            
-            # Extract checkpoint models
-            if "CheckpointLoaderSimple" in object_info:
-                checkpoint_info = object_info["CheckpointLoaderSimple"]["input"]["required"]
-                if "ckpt_name" in checkpoint_info:
-                    models["checkpoints"] = checkpoint_info["ckpt_name"][0]
-            
-            # Extract VAE models
-            if "VAELoader" in object_info:
-                vae_info = object_info["VAELoader"]["input"]["required"]
-                if "vae_name" in vae_info:
-                    models["vae"] = vae_info["vae_name"][0]
-            
-            # Extract ControlNet models
-            if "ControlNetLoader" in object_info:
-                controlnet_info = object_info["ControlNetLoader"]["input"]["required"]
-                if "control_net_name" in controlnet_info:
-                    models["controlnet"] = controlnet_info["control_net_name"][0]
-            
-            # Extract LoRA models
-            if "LoraLoader" in object_info:
-                lora_info = object_info["LoraLoader"]["input"]["required"]
-                if "lora_name" in lora_info:
-                    models["lora"] = lora_info["lora_name"][0]
-            
-            return models
-            
-        except Exception as exc:
-            logger.error("Failed to get ComfyUI models (error_type=%s)", type(exc).__name__)
-            return {}
+        object_info = await _request_json(
+            self.client.get(f"{self.base_url}/object_info"),
+            operation="Failed to get ComfyUI models",
+        )
+        if not isinstance(object_info, dict):
+            raise ComfyUIResponseError("ComfyUI returned an invalid response")
+
+        models: Dict[str, List[str]] = {}
+        loaders = (
+            ("CheckpointLoaderSimple", "ckpt_name", "checkpoints"),
+            ("VAELoader", "vae_name", "vae"),
+            ("ControlNetLoader", "control_net_name", "controlnet"),
+            ("LoraLoader", "lora_name", "lora"),
+        )
+        for loader_name, input_name, result_name in loaders:
+            if loader_name not in object_info:
+                continue
+            try:
+                choices = object_info[loader_name]["input"]["required"][input_name][0]
+            except (KeyError, IndexError, TypeError) as exc:
+                raise ComfyUIResponseError(
+                    "ComfyUI returned an invalid response"
+                ) from exc
+            if not isinstance(choices, list) or not all(
+                isinstance(choice, str) for choice in choices
+            ):
+                raise ComfyUIResponseError(
+                    "ComfyUI returned an invalid response"
+                )
+            models[result_name] = choices
+        return models
     
     async def queue_prompt(self, workflow: Dict[str, Any]) -> Dict[str, Any]:
         """Queue a workflow for execution"""
-        try:
-            # Generate a unique client_id for this request
-            client_id = str(uuid.uuid4())
-            
-            prompt_data = {
-                "prompt": workflow,
-                "client_id": client_id
-            }
-            
-            response = await self.client.post(
+        # Generate a unique client_id for this request
+        client_id = str(uuid.uuid4())
+        prompt_data = {
+            "prompt": workflow,
+            "client_id": client_id
+        }
+        result = await _request_json(
+            self.client.post(
                 f"{self.base_url}/prompt",
                 json=prompt_data
-            )
-            response.raise_for_status()
-            result = response.json()
-            
-            return {
-                "success": True,
-                "prompt_id": result.get("prompt_id"),
-                "client_id": client_id,
-                "number": result.get("number")
-            }
-            
-        except Exception as exc:
-            logger.error("Failed to queue prompt (error_type=%s)", type(exc).__name__)
-            return {
-                "success": False,
-                "error": "ComfyUI prompt submission failed"
-            }
+            ),
+            operation="Failed to queue ComfyUI prompt",
+        )
+        prompt_id = result.get("prompt_id") if isinstance(result, dict) else None
+        if not isinstance(prompt_id, str) or not prompt_id.strip():
+            raise ComfyUIResponseError("ComfyUI returned an invalid response")
+        return {
+            "success": True,
+            "prompt_id": prompt_id,
+            "client_id": client_id,
+            "number": result.get("number")
+        }
     
     async def get_history(self, prompt_id: Optional[str] = None) -> Dict[str, Any]:
         """Get execution history"""
-        try:
-            url = f"{self.base_url}/history"
-            if prompt_id:
-                url += f"/{prompt_id}"
-            
-            response = await self.client.get(url)
-            response.raise_for_status()
-            return response.json()
-            
-        except Exception as exc:
-            logger.error("Failed to get history (error_type=%s)", type(exc).__name__)
-            raise ComfyUIHistoryUnavailableError(
-                "ComfyUI history is unavailable"
-            ) from exc
+        url = f"{self.base_url}/history"
+        if prompt_id is not None:
+            url += f"/{prompt_id}"
+        history = await _request_json(
+            self.client.get(url),
+            operation="Failed to get ComfyUI history",
+            unavailable_error=ComfyUIHistoryUnavailableError,
+        )
+        if not isinstance(history, dict):
+            raise ComfyUIResponseError("ComfyUI returned an invalid response")
+        if prompt_id is not None:
+            _target_history(history, prompt_id)
+        return history
     
     async def get_queue_status(self) -> Dict[str, Any]:
         """Get current queue status"""
-        try:
-            response = await self.client.get(f"{self.base_url}/queue")
-            response.raise_for_status()
-            return response.json()
-            
-        except Exception as exc:
-            logger.error("Failed to get queue status (error_type=%s)", type(exc).__name__)
-            return {}
+        queue = await _request_json(
+            self.client.get(f"{self.base_url}/queue"),
+            operation="Failed to get ComfyUI queue status",
+        )
+        if not isinstance(queue, dict):
+            raise ComfyUIResponseError("ComfyUI returned an invalid response")
+        return queue
     
     async def cancel_prompt(self, prompt_id: str) -> bool:
         """Request atomic cancellation of exactly one ComfyUI job."""
-        try:
-            job_id = quote(prompt_id, safe="")
-            response = await self.client.post(
+        job_id = quote(prompt_id, safe="")
+        body = await _request_json(
+            self.client.post(
                 f"{self.base_url}/api/jobs/{job_id}/cancel"
-            )
-            response.raise_for_status()
-            body = response.json()
-            if not isinstance(body, dict) or set(body) != {"cancelled"}:
-                return False
-            cancelled = body["cancelled"]
-            return cancelled if type(cancelled) is bool else False
-            
-        except Exception as exc:
-            logger.error("Failed to cancel prompt (error_type=%s)", type(exc).__name__)
-            return False
+            ),
+            operation="Failed to cancel ComfyUI prompt",
+        )
+        if not isinstance(body, dict) or set(body) != {"cancelled"}:
+            raise ComfyUIResponseError("ComfyUI returned an invalid response")
+        cancelled = body["cancelled"]
+        if type(cancelled) is not bool:
+            raise ComfyUIResponseError("ComfyUI returned an invalid response")
+        return cancelled
     
     async def generate_simple_image(
         self,
@@ -281,44 +346,28 @@ class ComfyUIClient:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return {
-                    "success": False,
-                    "error": "Timeout waiting for completion"
-                }
-            
-            try:
-                history = await asyncio.wait_for(
-                    self.get_history(prompt_id), timeout=remaining
-                )
-            except asyncio.TimeoutError:
-                return {
-                    "success": False,
-                    "error": "Timeout waiting for completion"
-                }
-            except ComfyUIHistoryUnavailableError:
-                return {
-                    "success": False,
-                    "error": "ComfyUI history is unavailable",
-                    "prompt_id": prompt_id,
-                }
-            
-            if prompt_id in history:
-                prompt_history = history[prompt_id]
-                
-                # Check if completed
+                raise asyncio.TimeoutError
+
+            history = await asyncio.wait_for(
+                self.get_history(prompt_id), timeout=remaining
+            )
+            prompt_history = _target_history(history, prompt_id)
+            if prompt_history is not None:
+                status_value = prompt_history.get("status", {})
+
+                # A failed prompt can still have partial outputs. Error wins.
+                if status_value.get("status_str") == "error":
+                    return {
+                        "success": False,
+                        "error": "ComfyUI generation failed",
+                        "prompt_id": prompt_id
+                    }
+
                 if "outputs" in prompt_history:
                     return {
                         "success": True,
                         "outputs": prompt_history["outputs"],
-                        "status": prompt_history.get("status", {}),
-                        "prompt_id": prompt_id
-                    }
-                
-                # Check if failed
-                if "status" in prompt_history and prompt_history["status"].get("status_str") == "error":
-                    return {
-                        "success": False,
-                        "error": "ComfyUI generation failed",
+                        "status": status_value,
                         "prompt_id": prompt_id
                     }
             
@@ -340,14 +389,42 @@ class ComfyUIClient:
             ) as response:
                 response.raise_for_status()
                 declared = response.headers.get("content-length")
-                if declared and int(declared) > self.max_image_bytes:
-                    raise ValueError("ComfyUI image exceeds configured byte limit")
+                if declared is not None:
+                    if not declared or not all(
+                        "0" <= char <= "9" for char in declared
+                    ):
+                        raise ComfyUIResponseError(
+                            "ComfyUI returned an invalid response"
+                        )
+                    try:
+                        declared_bytes = int(declared)
+                    except ValueError as exc:
+                        raise ComfyUIResponseError(
+                            "ComfyUI returned an invalid response"
+                        ) from exc
+                    if declared_bytes > self.max_image_bytes:
+                        raise ComfyUIImageTooLargeError(
+                            "ComfyUI image exceeds configured byte limit"
+                        )
                 async for chunk in response.aiter_bytes():
                     if len(chunks) + len(chunk) > self.max_image_bytes:
-                        raise ValueError("ComfyUI image exceeds configured byte limit")
+                        raise ComfyUIImageTooLargeError(
+                            "ComfyUI image exceeds configured byte limit"
+                        )
                     chunks.extend(chunk)
             return bytes(chunks)
-            
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                raise
+            _log_upstream_failure("Failed to get ComfyUI image data", exc)
+            raise ComfyUIResponseError(
+                "ComfyUI returned an invalid response"
+            ) from exc
+        except httpx.TransportError as exc:
+            _log_upstream_failure("Failed to get ComfyUI image data", exc)
+            raise ComfyUIUnavailableError("ComfyUI is unavailable") from exc
+        except (ComfyUIUpstreamError, ComfyUIImageTooLargeError):
+            raise
         except Exception as exc:
             logger.error("Failed to get image data (error_type=%s)", type(exc).__name__)
             raise

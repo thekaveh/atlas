@@ -26,9 +26,13 @@ CREATE SCHEMA graphql_public;
 
 ALTER SCHEMA graphql_public OWNER TO supabase_admin;
 
+CREATE SCHEMA lightrag;
+
+ALTER SCHEMA lightrag OWNER TO atlas_lightrag;
+
 CREATE SCHEMA n8n;
 
-ALTER SCHEMA n8n OWNER TO supabase_admin;
+ALTER SCHEMA n8n OWNER TO atlas_n8n;
 
 CREATE SCHEMA pgbouncer;
 
@@ -36,7 +40,7 @@ ALTER SCHEMA pgbouncer OWNER TO pgbouncer;
 
 CREATE SCHEMA realtime;
 
-ALTER SCHEMA realtime OWNER TO supabase_admin;
+ALTER SCHEMA realtime OWNER TO atlas_realtime;
 
 CREATE SCHEMA research;
 
@@ -44,7 +48,7 @@ ALTER SCHEMA research OWNER TO supabase_admin;
 
 CREATE SCHEMA storage;
 
-ALTER SCHEMA storage OWNER TO supabase_admin;
+ALTER SCHEMA storage OWNER TO supabase_storage_admin;
 
 CREATE SCHEMA vault;
 
@@ -403,6 +407,160 @@ $_$;
 
 ALTER FUNCTION pgbouncer.get_auth(p_usename text) OWNER TO supabase_admin;
 
+CREATE FUNCTION public.complete_memory_weaviate_rebuild(expected_generation bigint) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+    RAISE EXCEPTION
+        'Weaviate rebuild completion requires generation, model, and dimension';
+END
+$$;
+
+ALTER FUNCTION public.complete_memory_weaviate_rebuild(expected_generation bigint) OWNER TO supabase_admin;
+
+CREATE FUNCTION public.complete_memory_weaviate_rebuild(expected_generation bigint, expected_model text, expected_dimension integer) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE
+    completed boolean;
+BEGIN
+    UPDATE public.memory_embedding_schema_state
+       SET weaviate_rebuild_required = false,
+           weaviate_synced_generation = expected_generation,
+           weaviate_synced_model = expected_model,
+           weaviate_synced_dimension = expected_dimension,
+           updated_at = now()
+     WHERE singleton = true
+       AND weaviate_dirty_generation = expected_generation
+       AND weaviate_target_model = expected_model
+       AND target_dimension = expected_dimension
+       AND NOT EXISTS (
+           SELECT 1 FROM public.memory_facts
+            WHERE vector_sync_pending = true
+       )
+    RETURNING true INTO completed;
+    RETURN COALESCE(completed, false);
+END
+$$;
+
+ALTER FUNCTION public.complete_memory_weaviate_rebuild(expected_generation bigint, expected_model text, expected_dimension integer) OWNER TO supabase_admin;
+
+CREATE FUNCTION public.contract_memory_embedding_contract(expected_model text, expected_dimension integer, expected_generation bigint) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE
+    target integer;
+    target_model text;
+    target_generation bigint;
+    mismatches bigint;
+BEGIN
+    IF expected_model IS NULL OR btrim(expected_model) = '' THEN
+        RAISE EXCEPTION 'memory embedding model identity must not be empty';
+    END IF;
+    IF expected_dimension < 1 OR expected_dimension > 4000 THEN
+        RAISE EXCEPTION 'invalid memory embedding dimension %', expected_dimension;
+    END IF;
+    PERFORM pg_advisory_xact_lock(hashtextextended('atlas.memory.embedding.schema', 0));
+    SELECT target_dimension, pgvector_target_model, pgvector_target_generation
+      INTO target, target_model, target_generation
+      FROM public.memory_embedding_schema_state
+     WHERE singleton = true
+     FOR UPDATE;
+    IF target IS DISTINCT FROM expected_dimension THEN
+        RAISE EXCEPTION 'memory embedding target is %, not %', target, expected_dimension;
+    END IF;
+    IF target_model IS DISTINCT FROM expected_model
+       OR target_generation IS DISTINCT FROM expected_generation THEN
+        RAISE EXCEPTION 'memory embedding target identity is % generation %, not % generation %',
+            target_model, target_generation, expected_model, expected_generation;
+    END IF;
+    SELECT count(*) INTO mismatches
+      FROM public.memory_facts
+     WHERE embedding IS NULL
+        OR vector_dims(embedding) <> expected_dimension
+        OR embedding_model IS DISTINCT FROM expected_model
+        OR embedding_generation <> expected_generation;
+    IF mismatches <> 0 THEN
+        RAISE EXCEPTION 'memory embedding backfill incomplete: % mismatched row(s)', mismatches;
+    END IF;
+    ALTER TABLE public.memory_facts
+        VALIDATE CONSTRAINT memory_facts_embedding_dimension;
+    UPDATE public.memory_embedding_schema_state
+       SET active_dimension = expected_dimension,
+           pgvector_active_model = expected_model,
+           pgvector_active_generation = expected_generation,
+           phase = 'ready',
+           updated_at = now()
+     WHERE singleton = true;
+END
+$$;
+
+ALTER FUNCTION public.contract_memory_embedding_contract(expected_model text, expected_dimension integer, expected_generation bigint) OWNER TO supabase_admin;
+
+CREATE FUNCTION public.contract_memory_embedding_dimension(expected_dimension integer) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+    RAISE EXCEPTION
+        'memory embedding contraction requires model and generation identity';
+END
+$$;
+
+ALTER FUNCTION public.contract_memory_embedding_dimension(expected_dimension integer) OWNER TO supabase_admin;
+
+CREATE FUNCTION public.ensure_memory_weaviate_identity(expected_model text, expected_dimension integer) RETURNS bigint
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE
+    state public.memory_embedding_schema_state%ROWTYPE;
+BEGIN
+    IF expected_model IS NULL OR btrim(expected_model) = '' THEN
+        RAISE EXCEPTION 'memory Weaviate model identity must not be empty';
+    END IF;
+    IF expected_dimension < 1 OR expected_dimension > 4000 THEN
+        RAISE EXCEPTION 'invalid memory Weaviate dimension %', expected_dimension;
+    END IF;
+    SELECT * INTO state
+      FROM public.memory_embedding_schema_state
+     WHERE singleton = true
+     FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'memory embedding schema state is missing';
+    END IF;
+    IF state.target_dimension IS DISTINCT FROM expected_dimension THEN
+        RAISE EXCEPTION 'memory embedding target is %, not %',
+            state.target_dimension, expected_dimension;
+    END IF;
+
+    IF state.weaviate_target_model IS DISTINCT FROM expected_model THEN
+        UPDATE public.memory_embedding_schema_state
+           SET weaviate_target_model = expected_model,
+               weaviate_rebuild_required = true,
+               weaviate_dirty_generation = weaviate_dirty_generation + 1,
+               updated_at = now()
+         WHERE singleton = true
+        RETURNING weaviate_dirty_generation INTO state.weaviate_dirty_generation;
+    ELSIF (state.weaviate_synced_model IS DISTINCT FROM expected_model
+           OR state.weaviate_synced_dimension IS DISTINCT FROM expected_dimension)
+          AND NOT state.weaviate_rebuild_required THEN
+        UPDATE public.memory_embedding_schema_state
+           SET weaviate_rebuild_required = true,
+               weaviate_dirty_generation = weaviate_dirty_generation + 1,
+               updated_at = now()
+         WHERE singleton = true
+        RETURNING weaviate_dirty_generation INTO state.weaviate_dirty_generation;
+    END IF;
+    RETURN state.weaviate_dirty_generation;
+END
+$$;
+
+ALTER FUNCTION public.ensure_memory_weaviate_identity(expected_model text, expected_dimension integer) OWNER TO supabase_admin;
+
 CREATE FUNCTION public.handle_auth_user_sync() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO ''
@@ -440,6 +598,42 @@ END;
 $$;
 
 ALTER FUNCTION public.health() OWNER TO supabase_admin;
+
+CREATE FUNCTION public.mark_memory_weaviate_dirty() RETURNS bigint
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE
+    generation bigint;
+BEGIN
+    UPDATE public.memory_embedding_schema_state
+       SET weaviate_rebuild_required = true,
+           weaviate_dirty_generation = weaviate_dirty_generation + 1,
+           updated_at = now()
+     WHERE singleton = true
+    RETURNING weaviate_dirty_generation INTO generation;
+    IF generation IS NULL THEN
+        RAISE EXCEPTION 'memory embedding schema state is missing';
+    END IF;
+    RETURN generation;
+END
+$$;
+
+ALTER FUNCTION public.mark_memory_weaviate_dirty() OWNER TO supabase_admin;
+
+CREATE FUNCTION public.set_memory_weaviate_rebuild_required(required boolean) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+    IF NOT required THEN
+        RAISE EXCEPTION 'Weaviate rebuild may only be cleared with generation CAS';
+    END IF;
+    PERFORM public.mark_memory_weaviate_dirty();
+END
+$$;
+
+ALTER FUNCTION public.set_memory_weaviate_rebuild_required(required boolean) OWNER TO supabase_admin;
 
 CREATE FUNCTION public.update_updated_at_column() RETURNS trigger
     LANGUAGE plpgsql
@@ -607,6 +801,31 @@ CREATE TABLE public.memory_consolidation_log (
 
 ALTER TABLE public.memory_consolidation_log OWNER TO supabase_admin;
 
+CREATE TABLE public.memory_embedding_schema_state (
+    singleton boolean DEFAULT true NOT NULL,
+    active_dimension integer NOT NULL,
+    target_dimension integer NOT NULL,
+    pgvector_active_model text,
+    pgvector_target_model text NOT NULL,
+    pgvector_active_generation bigint DEFAULT 0 NOT NULL,
+    pgvector_target_generation bigint DEFAULT 1 NOT NULL,
+    phase text NOT NULL,
+    weaviate_rebuild_required boolean DEFAULT true NOT NULL,
+    weaviate_dirty_generation bigint DEFAULT 1 NOT NULL,
+    weaviate_synced_generation bigint DEFAULT 0 NOT NULL,
+    weaviate_target_model text,
+    weaviate_synced_model text,
+    weaviate_synced_dimension integer,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT memory_embedding_schema_state_active_dimension_check CHECK (((active_dimension >= 1) AND (active_dimension <= 4000))),
+    CONSTRAINT memory_embedding_schema_state_phase_check CHECK ((phase = ANY (ARRAY['backfill'::text, 'ready'::text]))),
+    CONSTRAINT memory_embedding_schema_state_singleton_check CHECK (singleton),
+    CONSTRAINT memory_embedding_schema_state_target_dimension_check CHECK (((target_dimension >= 1) AND (target_dimension <= 4000))),
+    CONSTRAINT memory_embedding_schema_state_weaviate_synced_dimension_check CHECK (((weaviate_synced_dimension >= 1) AND (weaviate_synced_dimension <= 4000)))
+);
+
+ALTER TABLE public.memory_embedding_schema_state OWNER TO supabase_admin;
+
 CREATE TABLE public.memory_facts (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     user_id uuid,
@@ -617,7 +836,9 @@ CREATE TABLE public.memory_facts (
     source_conversation_id uuid,
     source_message_ids jsonb DEFAULT '[]'::jsonb,
     metadata jsonb DEFAULT '{}'::jsonb,
-    embedding public.vector(768),
+    embedding public.vector,
+    embedding_model text,
+    embedding_generation bigint DEFAULT 0 NOT NULL,
     weaviate_id character varying(255),
     vector_sync_pending boolean DEFAULT false NOT NULL,
     is_active boolean DEFAULT true,
@@ -626,6 +847,7 @@ CREATE TABLE public.memory_facts (
     updated_at timestamp with time zone DEFAULT now(),
     expires_at timestamp with time zone,
     CONSTRAINT memory_facts_confidence_check CHECK (((confidence >= (0.0)::double precision) AND (confidence <= (1.0)::double precision))),
+    CONSTRAINT memory_facts_embedding_dimension CHECK (((embedding IS NULL) OR (public.vector_dims(embedding) = 768))),
     CONSTRAINT memory_facts_fact_type_check CHECK (((fact_type)::text = ANY ((ARRAY['observation'::character varying, 'preference'::character varying, 'instruction'::character varying, 'relationship'::character varying, 'event'::character varying])::text[])))
 );
 
@@ -730,7 +952,7 @@ CREATE TABLE storage.buckets (
     avif_autodetection boolean DEFAULT false
 );
 
-ALTER TABLE storage.buckets OWNER TO supabase_admin;
+ALTER TABLE storage.buckets OWNER TO supabase_storage_admin;
 
 CREATE TABLE storage.objects (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -744,7 +966,7 @@ CREATE TABLE storage.objects (
     path_tokens text[] GENERATED ALWAYS AS (string_to_array(name, '/'::text)) STORED
 );
 
-ALTER TABLE storage.objects OWNER TO supabase_admin;
+ALTER TABLE storage.objects OWNER TO supabase_storage_admin;
 
 ALTER TABLE ONLY auth.refresh_tokens ALTER COLUMN id SET DEFAULT nextval('auth.refresh_tokens_id_seq'::regclass);
 
@@ -777,6 +999,9 @@ ALTER TABLE ONLY public.media_spend_ledger
 
 ALTER TABLE ONLY public.memory_consolidation_log
     ADD CONSTRAINT memory_consolidation_log_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.memory_embedding_schema_state
+    ADD CONSTRAINT memory_embedding_schema_state_pkey PRIMARY KEY (singleton);
 
 ALTER TABLE ONLY public.memory_facts
     ADD CONSTRAINT memory_facts_pkey PRIMARY KEY (id);
@@ -843,7 +1068,7 @@ CREATE INDEX idx_memory_facts_conversation ON public.memory_facts USING btree (s
 
 CREATE INDEX idx_memory_facts_created_at ON public.memory_facts USING btree (created_at);
 
-CREATE INDEX idx_memory_facts_embedding ON public.memory_facts USING hnsw (embedding public.vector_cosine_ops);
+CREATE INDEX idx_memory_facts_embedding ON public.memory_facts USING hnsw (((embedding)::public.vector(768)) public.vector_cosine_ops) WHERE ((embedding IS NOT NULL) AND (public.vector_dims(embedding) = 768) AND (embedding_generation = 1));
 
 CREATE INDEX idx_memory_facts_namespace ON public.memory_facts USING btree (namespace);
 
@@ -937,6 +1162,26 @@ ALTER TABLE ONLY storage.objects
 ALTER TABLE ONLY storage.objects
     ADD CONSTRAINT objects_owner_fkey FOREIGN KEY (owner) REFERENCES auth.users(id);
 
+CREATE POLICY "Atlas backend direct role access" ON public.media_spend_ledger TO atlas_backend USING (true) WITH CHECK (true);
+
+CREATE POLICY "Atlas backend direct role access" ON public.memory_consolidation_log TO atlas_backend USING (true) WITH CHECK (true);
+
+CREATE POLICY "Atlas backend direct role access" ON public.memory_facts TO atlas_backend USING (true) WITH CHECK (true);
+
+CREATE POLICY "Atlas backend direct role access" ON public.memory_sessions TO atlas_backend USING (true) WITH CHECK (true);
+
+CREATE POLICY "Atlas backend direct role access" ON public.research_logs TO atlas_backend USING (true) WITH CHECK (true);
+
+CREATE POLICY "Atlas backend direct role access" ON public.research_results TO atlas_backend USING (true) WITH CHECK (true);
+
+CREATE POLICY "Atlas backend direct role access" ON public.research_sessions TO atlas_backend USING (true) WITH CHECK (true);
+
+CREATE POLICY "Atlas backend direct role access" ON public.research_sources TO atlas_backend USING (true) WITH CHECK (true);
+
+CREATE POLICY "Atlas backend schema-state read" ON public.memory_embedding_schema_state FOR SELECT TO atlas_backend USING (true);
+
+CREATE POLICY "Atlas upstream migration roles" ON public.schema_migrations TO supabase_auth_admin, atlas_realtime USING (true) WITH CHECK (true);
+
 CREATE POLICY "Service role can access all comfyui generations" ON public.comfyui_generations USING ((auth.role() = 'service_role'::text));
 
 CREATE POLICY "Service role can access all comfyui workflows" ON public.comfyui_workflows USING ((auth.role() = 'service_role'::text));
@@ -987,6 +1232,8 @@ ALTER TABLE public.media_spend_ledger ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.memory_consolidation_log ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE public.memory_embedding_schema_state ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE public.memory_facts ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.memory_sessions ENABLE ROW LEVEL SECURITY;
@@ -1013,28 +1260,57 @@ GRANT ALL ON SCHEMA auth TO service_role;
 GRANT ALL ON SCHEMA auth TO supabase_auth_admin;
 GRANT ALL ON SCHEMA auth TO dashboard_user;
 GRANT USAGE ON SCHEMA auth TO postgres;
+GRANT USAGE ON SCHEMA auth TO atlas_open_webui;
+GRANT USAGE ON SCHEMA auth TO atlas_studio_readonly;
 
 GRANT USAGE ON SCHEMA extensions TO anon;
 GRANT USAGE ON SCHEMA extensions TO authenticated;
 GRANT USAGE ON SCHEMA extensions TO service_role;
 GRANT ALL ON SCHEMA extensions TO dashboard_user;
 
+GRANT USAGE ON SCHEMA lightrag TO atlas_studio_readonly;
+
+GRANT USAGE ON SCHEMA n8n TO atlas_airflow_reader;
+GRANT USAGE ON SCHEMA n8n TO atlas_mcp;
+GRANT USAGE ON SCHEMA n8n TO atlas_jupyter;
+GRANT USAGE ON SCHEMA n8n TO atlas_zeppelin;
+GRANT USAGE ON SCHEMA n8n TO atlas_studio_readonly;
+
+GRANT USAGE ON SCHEMA pgbouncer TO atlas_supavisor;
+
 GRANT USAGE ON SCHEMA public TO postgres;
 GRANT USAGE ON SCHEMA public TO anon;
 GRANT USAGE ON SCHEMA public TO authenticated;
 GRANT USAGE ON SCHEMA public TO service_role;
+GRANT ALL ON SCHEMA public TO atlas_meta;
+GRANT ALL ON SCHEMA public TO atlas_realtime;
+GRANT USAGE ON SCHEMA public TO atlas_airflow_reader;
+GRANT USAGE ON SCHEMA public TO atlas_mcp;
+GRANT USAGE ON SCHEMA public TO atlas_jupyter;
+GRANT USAGE ON SCHEMA public TO atlas_zeppelin;
+GRANT USAGE ON SCHEMA public TO atlas_backend;
+GRANT ALL ON SCHEMA public TO atlas_open_webui;
+GRANT ALL ON SCHEMA public TO atlas_lightrag;
+GRANT USAGE ON SCHEMA public TO atlas_studio_readonly;
 
 GRANT USAGE ON SCHEMA realtime TO postgres;
 GRANT USAGE ON SCHEMA realtime TO anon;
 GRANT USAGE ON SCHEMA realtime TO authenticated;
 GRANT USAGE ON SCHEMA realtime TO service_role;
+GRANT USAGE ON SCHEMA realtime TO atlas_studio_readonly;
 
+REVOKE ALL ON SCHEMA storage FROM supabase_storage_admin;
+GRANT ALL ON SCHEMA storage TO supabase_storage_admin WITH GRANT OPTION;
 GRANT USAGE ON SCHEMA storage TO postgres WITH GRANT OPTION;
 GRANT USAGE ON SCHEMA storage TO anon;
 GRANT USAGE ON SCHEMA storage TO authenticated;
 GRANT ALL ON SCHEMA storage TO service_role;
-GRANT ALL ON SCHEMA storage TO supabase_storage_admin WITH GRANT OPTION;
 GRANT ALL ON SCHEMA storage TO dashboard_user;
+GRANT USAGE ON SCHEMA storage TO atlas_airflow_reader;
+GRANT USAGE ON SCHEMA storage TO atlas_mcp;
+GRANT USAGE ON SCHEMA storage TO atlas_jupyter;
+GRANT USAGE ON SCHEMA storage TO atlas_zeppelin;
+GRANT USAGE ON SCHEMA storage TO atlas_studio_readonly;
 
 GRANT USAGE ON SCHEMA vault TO postgres WITH GRANT OPTION;
 GRANT USAGE ON SCHEMA vault TO service_role;
@@ -1654,6 +1930,7 @@ GRANT ALL ON FUNCTION pg_catalog.pg_reload_conf() TO postgres WITH GRANT OPTION;
 
 REVOKE ALL ON FUNCTION pgbouncer.get_auth(p_usename text) FROM PUBLIC;
 GRANT ALL ON FUNCTION pgbouncer.get_auth(p_usename text) TO pgbouncer;
+GRANT ALL ON FUNCTION pgbouncer.get_auth(p_usename text) TO atlas_supavisor;
 
 GRANT ALL ON FUNCTION public._postgis_deprecate(oldname text, newname text, version text) TO postgres;
 GRANT ALL ON FUNCTION public._postgis_deprecate(oldname text, newname text, version text) TO anon;
@@ -1930,6 +2207,14 @@ GRANT ALL ON FUNCTION public.checkauthtrigger() TO anon;
 GRANT ALL ON FUNCTION public.checkauthtrigger() TO authenticated;
 GRANT ALL ON FUNCTION public.checkauthtrigger() TO service_role;
 
+REVOKE ALL ON FUNCTION public.complete_memory_weaviate_rebuild(expected_generation bigint) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.complete_memory_weaviate_rebuild(expected_generation bigint) TO postgres;
+
+REVOKE ALL ON FUNCTION public.complete_memory_weaviate_rebuild(expected_generation bigint, expected_model text, expected_dimension integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.complete_memory_weaviate_rebuild(expected_generation bigint, expected_model text, expected_dimension integer) TO postgres;
+GRANT ALL ON FUNCTION public.complete_memory_weaviate_rebuild(expected_generation bigint, expected_model text, expected_dimension integer) TO service_role;
+GRANT ALL ON FUNCTION public.complete_memory_weaviate_rebuild(expected_generation bigint, expected_model text, expected_dimension integer) TO atlas_backend;
+
 GRANT ALL ON FUNCTION public.contains_2d(public.box2df, public.box2df) TO postgres;
 GRANT ALL ON FUNCTION public.contains_2d(public.box2df, public.box2df) TO anon;
 GRANT ALL ON FUNCTION public.contains_2d(public.box2df, public.box2df) TO authenticated;
@@ -1944,6 +2229,14 @@ GRANT ALL ON FUNCTION public.contains_2d(public.geometry, public.box2df) TO post
 GRANT ALL ON FUNCTION public.contains_2d(public.geometry, public.box2df) TO anon;
 GRANT ALL ON FUNCTION public.contains_2d(public.geometry, public.box2df) TO authenticated;
 GRANT ALL ON FUNCTION public.contains_2d(public.geometry, public.box2df) TO service_role;
+
+REVOKE ALL ON FUNCTION public.contract_memory_embedding_contract(expected_model text, expected_dimension integer, expected_generation bigint) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.contract_memory_embedding_contract(expected_model text, expected_dimension integer, expected_generation bigint) TO postgres;
+GRANT ALL ON FUNCTION public.contract_memory_embedding_contract(expected_model text, expected_dimension integer, expected_generation bigint) TO service_role;
+GRANT ALL ON FUNCTION public.contract_memory_embedding_contract(expected_model text, expected_dimension integer, expected_generation bigint) TO atlas_backend;
+
+REVOKE ALL ON FUNCTION public.contract_memory_embedding_dimension(expected_dimension integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.contract_memory_embedding_dimension(expected_dimension integer) TO postgres;
 
 GRANT ALL ON FUNCTION public.cosine_distance(public.halfvec, public.halfvec) TO postgres;
 GRANT ALL ON FUNCTION public.cosine_distance(public.halfvec, public.halfvec) TO anon;
@@ -1999,6 +2292,11 @@ GRANT ALL ON FUNCTION public.enablelongtransactions() TO postgres;
 GRANT ALL ON FUNCTION public.enablelongtransactions() TO anon;
 GRANT ALL ON FUNCTION public.enablelongtransactions() TO authenticated;
 GRANT ALL ON FUNCTION public.enablelongtransactions() TO service_role;
+
+REVOKE ALL ON FUNCTION public.ensure_memory_weaviate_identity(expected_model text, expected_dimension integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.ensure_memory_weaviate_identity(expected_model text, expected_dimension integer) TO postgres;
+GRANT ALL ON FUNCTION public.ensure_memory_weaviate_identity(expected_model text, expected_dimension integer) TO service_role;
+GRANT ALL ON FUNCTION public.ensure_memory_weaviate_identity(expected_model text, expected_dimension integer) TO atlas_backend;
 
 GRANT ALL ON FUNCTION public.equals(geom1 public.geometry, geom2 public.geometry) TO postgres;
 GRANT ALL ON FUNCTION public.equals(geom1 public.geometry, geom2 public.geometry) TO anon;
@@ -2773,6 +3071,11 @@ GRANT ALL ON FUNCTION public.longtransactionsenabled() TO anon;
 GRANT ALL ON FUNCTION public.longtransactionsenabled() TO authenticated;
 GRANT ALL ON FUNCTION public.longtransactionsenabled() TO service_role;
 
+REVOKE ALL ON FUNCTION public.mark_memory_weaviate_dirty() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.mark_memory_weaviate_dirty() TO postgres;
+GRANT ALL ON FUNCTION public.mark_memory_weaviate_dirty() TO service_role;
+GRANT ALL ON FUNCTION public.mark_memory_weaviate_dirty() TO atlas_backend;
+
 GRANT ALL ON FUNCTION public.overlaps_2d(public.box2df, public.box2df) TO postgres;
 GRANT ALL ON FUNCTION public.overlaps_2d(public.box2df, public.box2df) TO anon;
 GRANT ALL ON FUNCTION public.overlaps_2d(public.box2df, public.box2df) TO authenticated;
@@ -3142,6 +3445,11 @@ GRANT ALL ON FUNCTION public.postgis_wagyu_version() TO postgres;
 GRANT ALL ON FUNCTION public.postgis_wagyu_version() TO anon;
 GRANT ALL ON FUNCTION public.postgis_wagyu_version() TO authenticated;
 GRANT ALL ON FUNCTION public.postgis_wagyu_version() TO service_role;
+
+REVOKE ALL ON FUNCTION public.set_memory_weaviate_rebuild_required(required boolean) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.set_memory_weaviate_rebuild_required(required boolean) TO postgres;
+GRANT ALL ON FUNCTION public.set_memory_weaviate_rebuild_required(required boolean) TO service_role;
+GRANT ALL ON FUNCTION public.set_memory_weaviate_rebuild_required(required boolean) TO atlas_backend;
 
 GRANT ALL ON FUNCTION public.sparsevec_cmp(public.sparsevec, public.sparsevec) TO postgres;
 GRANT ALL ON FUNCTION public.sparsevec_cmp(public.sparsevec, public.sparsevec) TO anon;
@@ -5549,18 +5857,25 @@ GRANT ALL ON FUNCTION public.sum(public.vector) TO service_role;
 
 GRANT ALL ON TABLE auth.audit_log_entries TO dashboard_user;
 GRANT ALL ON TABLE auth.audit_log_entries TO postgres;
+GRANT SELECT ON TABLE auth.audit_log_entries TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE auth.instances TO dashboard_user;
 GRANT ALL ON TABLE auth.instances TO postgres;
+GRANT SELECT ON TABLE auth.instances TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE auth.refresh_tokens TO dashboard_user;
 GRANT ALL ON TABLE auth.refresh_tokens TO postgres;
+GRANT SELECT ON TABLE auth.refresh_tokens TO atlas_studio_readonly;
 
 GRANT ALL ON SEQUENCE auth.refresh_tokens_id_seq TO dashboard_user;
 GRANT ALL ON SEQUENCE auth.refresh_tokens_id_seq TO postgres;
 
+GRANT SELECT ON TABLE auth.schema_migrations TO atlas_studio_readonly;
+
 GRANT ALL ON TABLE auth.users TO dashboard_user;
 GRANT ALL ON TABLE auth.users TO postgres;
+GRANT SELECT ON TABLE auth.users TO atlas_open_webui;
+GRANT SELECT ON TABLE auth.users TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE extensions.pg_stat_statements TO postgres WITH GRANT OPTION;
 
@@ -5570,67 +5885,189 @@ GRANT ALL ON TABLE public.comfyui_generations TO postgres;
 GRANT ALL ON TABLE public.comfyui_generations TO anon;
 GRANT ALL ON TABLE public.comfyui_generations TO authenticated;
 GRANT ALL ON TABLE public.comfyui_generations TO service_role;
+GRANT SELECT ON TABLE public.comfyui_generations TO atlas_realtime;
+GRANT SELECT ON TABLE public.comfyui_generations TO atlas_airflow_reader;
+GRANT SELECT ON TABLE public.comfyui_generations TO atlas_mcp;
+GRANT SELECT ON TABLE public.comfyui_generations TO atlas_jupyter;
+GRANT SELECT ON TABLE public.comfyui_generations TO atlas_zeppelin;
+GRANT SELECT ON TABLE public.comfyui_generations TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.comfyui_workflows TO postgres;
 GRANT ALL ON TABLE public.comfyui_workflows TO anon;
 GRANT ALL ON TABLE public.comfyui_workflows TO authenticated;
 GRANT ALL ON TABLE public.comfyui_workflows TO service_role;
+GRANT SELECT ON TABLE public.comfyui_workflows TO atlas_realtime;
+GRANT SELECT ON TABLE public.comfyui_workflows TO atlas_airflow_reader;
+GRANT SELECT ON TABLE public.comfyui_workflows TO atlas_mcp;
+GRANT SELECT ON TABLE public.comfyui_workflows TO atlas_jupyter;
+GRANT SELECT ON TABLE public.comfyui_workflows TO atlas_zeppelin;
+GRANT SELECT ON TABLE public.comfyui_workflows TO atlas_studio_readonly;
+
+GRANT SELECT ON TABLE public.geography_columns TO atlas_realtime;
+GRANT SELECT ON TABLE public.geography_columns TO atlas_airflow_reader;
+GRANT SELECT ON TABLE public.geography_columns TO atlas_mcp;
+GRANT SELECT ON TABLE public.geography_columns TO atlas_jupyter;
+GRANT SELECT ON TABLE public.geography_columns TO atlas_zeppelin;
+GRANT SELECT ON TABLE public.geography_columns TO atlas_studio_readonly;
+
+GRANT SELECT ON TABLE public.geometry_columns TO atlas_realtime;
+GRANT SELECT ON TABLE public.geometry_columns TO atlas_airflow_reader;
+GRANT SELECT ON TABLE public.geometry_columns TO atlas_mcp;
+GRANT SELECT ON TABLE public.geometry_columns TO atlas_jupyter;
+GRANT SELECT ON TABLE public.geometry_columns TO atlas_zeppelin;
+GRANT SELECT ON TABLE public.geometry_columns TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.media_spend_ledger TO postgres;
 GRANT ALL ON TABLE public.media_spend_ledger TO anon;
 GRANT ALL ON TABLE public.media_spend_ledger TO authenticated;
 GRANT ALL ON TABLE public.media_spend_ledger TO service_role;
+GRANT SELECT ON TABLE public.media_spend_ledger TO atlas_realtime;
+GRANT SELECT ON TABLE public.media_spend_ledger TO atlas_airflow_reader;
+GRANT SELECT ON TABLE public.media_spend_ledger TO atlas_mcp;
+GRANT SELECT ON TABLE public.media_spend_ledger TO atlas_jupyter;
+GRANT SELECT ON TABLE public.media_spend_ledger TO atlas_zeppelin;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.media_spend_ledger TO atlas_backend;
+GRANT SELECT ON TABLE public.media_spend_ledger TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.memory_consolidation_log TO postgres;
 GRANT ALL ON TABLE public.memory_consolidation_log TO anon;
 GRANT ALL ON TABLE public.memory_consolidation_log TO authenticated;
 GRANT ALL ON TABLE public.memory_consolidation_log TO service_role;
+GRANT SELECT ON TABLE public.memory_consolidation_log TO atlas_realtime;
+GRANT SELECT ON TABLE public.memory_consolidation_log TO atlas_airflow_reader;
+GRANT SELECT ON TABLE public.memory_consolidation_log TO atlas_mcp;
+GRANT SELECT ON TABLE public.memory_consolidation_log TO atlas_jupyter;
+GRANT SELECT ON TABLE public.memory_consolidation_log TO atlas_zeppelin;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.memory_consolidation_log TO atlas_backend;
+GRANT SELECT ON TABLE public.memory_consolidation_log TO atlas_studio_readonly;
+
+GRANT ALL ON TABLE public.memory_embedding_schema_state TO postgres;
+GRANT SELECT ON TABLE public.memory_embedding_schema_state TO atlas_realtime;
+GRANT SELECT ON TABLE public.memory_embedding_schema_state TO atlas_airflow_reader;
+GRANT SELECT ON TABLE public.memory_embedding_schema_state TO atlas_mcp;
+GRANT SELECT ON TABLE public.memory_embedding_schema_state TO atlas_jupyter;
+GRANT SELECT ON TABLE public.memory_embedding_schema_state TO atlas_zeppelin;
+GRANT SELECT ON TABLE public.memory_embedding_schema_state TO atlas_backend;
+GRANT SELECT ON TABLE public.memory_embedding_schema_state TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.memory_facts TO postgres;
 GRANT ALL ON TABLE public.memory_facts TO anon;
 GRANT ALL ON TABLE public.memory_facts TO authenticated;
 GRANT ALL ON TABLE public.memory_facts TO service_role;
+GRANT SELECT ON TABLE public.memory_facts TO atlas_realtime;
+GRANT SELECT ON TABLE public.memory_facts TO atlas_airflow_reader;
+GRANT SELECT ON TABLE public.memory_facts TO atlas_mcp;
+GRANT SELECT ON TABLE public.memory_facts TO atlas_jupyter;
+GRANT SELECT ON TABLE public.memory_facts TO atlas_zeppelin;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.memory_facts TO atlas_backend;
+GRANT SELECT ON TABLE public.memory_facts TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.memory_sessions TO postgres;
 GRANT ALL ON TABLE public.memory_sessions TO anon;
 GRANT ALL ON TABLE public.memory_sessions TO authenticated;
 GRANT ALL ON TABLE public.memory_sessions TO service_role;
+GRANT SELECT ON TABLE public.memory_sessions TO atlas_realtime;
+GRANT SELECT ON TABLE public.memory_sessions TO atlas_airflow_reader;
+GRANT SELECT ON TABLE public.memory_sessions TO atlas_mcp;
+GRANT SELECT ON TABLE public.memory_sessions TO atlas_jupyter;
+GRANT SELECT ON TABLE public.memory_sessions TO atlas_zeppelin;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.memory_sessions TO atlas_backend;
+GRANT SELECT ON TABLE public.memory_sessions TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.research_logs TO postgres;
 GRANT ALL ON TABLE public.research_logs TO anon;
 GRANT ALL ON TABLE public.research_logs TO authenticated;
 GRANT ALL ON TABLE public.research_logs TO service_role;
+GRANT SELECT ON TABLE public.research_logs TO atlas_realtime;
+GRANT SELECT ON TABLE public.research_logs TO atlas_airflow_reader;
+GRANT SELECT ON TABLE public.research_logs TO atlas_mcp;
+GRANT SELECT ON TABLE public.research_logs TO atlas_jupyter;
+GRANT SELECT ON TABLE public.research_logs TO atlas_zeppelin;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.research_logs TO atlas_backend;
+GRANT SELECT ON TABLE public.research_logs TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.research_results TO postgres;
 GRANT ALL ON TABLE public.research_results TO anon;
 GRANT ALL ON TABLE public.research_results TO authenticated;
 GRANT ALL ON TABLE public.research_results TO service_role;
+GRANT SELECT ON TABLE public.research_results TO atlas_realtime;
+GRANT SELECT ON TABLE public.research_results TO atlas_airflow_reader;
+GRANT SELECT ON TABLE public.research_results TO atlas_mcp;
+GRANT SELECT ON TABLE public.research_results TO atlas_jupyter;
+GRANT SELECT ON TABLE public.research_results TO atlas_zeppelin;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.research_results TO atlas_backend;
+GRANT SELECT ON TABLE public.research_results TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.research_sessions TO postgres;
 GRANT ALL ON TABLE public.research_sessions TO anon;
 GRANT ALL ON TABLE public.research_sessions TO authenticated;
 GRANT ALL ON TABLE public.research_sessions TO service_role;
+GRANT SELECT ON TABLE public.research_sessions TO atlas_realtime;
+GRANT SELECT ON TABLE public.research_sessions TO atlas_airflow_reader;
+GRANT SELECT ON TABLE public.research_sessions TO atlas_mcp;
+GRANT SELECT ON TABLE public.research_sessions TO atlas_jupyter;
+GRANT SELECT ON TABLE public.research_sessions TO atlas_zeppelin;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.research_sessions TO atlas_backend;
+GRANT SELECT ON TABLE public.research_sessions TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.research_sources TO postgres;
 GRANT ALL ON TABLE public.research_sources TO anon;
 GRANT ALL ON TABLE public.research_sources TO authenticated;
 GRANT ALL ON TABLE public.research_sources TO service_role;
+GRANT SELECT ON TABLE public.research_sources TO atlas_realtime;
+GRANT SELECT ON TABLE public.research_sources TO atlas_airflow_reader;
+GRANT SELECT ON TABLE public.research_sources TO atlas_mcp;
+GRANT SELECT ON TABLE public.research_sources TO atlas_jupyter;
+GRANT SELECT ON TABLE public.research_sources TO atlas_zeppelin;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.research_sources TO atlas_backend;
+GRANT SELECT ON TABLE public.research_sources TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.schema_migrations TO postgres;
 GRANT ALL ON TABLE public.schema_migrations TO anon;
 GRANT ALL ON TABLE public.schema_migrations TO authenticated;
 GRANT ALL ON TABLE public.schema_migrations TO service_role;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.schema_migrations TO atlas_realtime;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.schema_migrations TO supabase_auth_admin;
+GRANT SELECT ON TABLE public.schema_migrations TO atlas_airflow_reader;
+GRANT SELECT ON TABLE public.schema_migrations TO atlas_mcp;
+GRANT SELECT ON TABLE public.schema_migrations TO atlas_jupyter;
+GRANT SELECT ON TABLE public.schema_migrations TO atlas_zeppelin;
+GRANT SELECT ON TABLE public.schema_migrations TO atlas_studio_readonly;
+
+GRANT SELECT ON TABLE public.spatial_ref_sys TO atlas_realtime;
+GRANT SELECT ON TABLE public.spatial_ref_sys TO atlas_airflow_reader;
+GRANT SELECT ON TABLE public.spatial_ref_sys TO atlas_mcp;
+GRANT SELECT ON TABLE public.spatial_ref_sys TO atlas_jupyter;
+GRANT SELECT ON TABLE public.spatial_ref_sys TO atlas_zeppelin;
+GRANT SELECT ON TABLE public.spatial_ref_sys TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.users TO postgres;
 GRANT ALL ON TABLE public.users TO anon;
 GRANT ALL ON TABLE public.users TO authenticated;
 GRANT ALL ON TABLE public.users TO service_role;
+GRANT SELECT ON TABLE public.users TO atlas_realtime;
+GRANT SELECT ON TABLE public.users TO atlas_airflow_reader;
+GRANT SELECT ON TABLE public.users TO atlas_mcp;
+GRANT SELECT ON TABLE public.users TO atlas_jupyter;
+GRANT SELECT ON TABLE public.users TO atlas_zeppelin;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.users TO atlas_open_webui;
+GRANT SELECT ON TABLE public.users TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE storage.buckets TO service_role;
 GRANT SELECT ON TABLE storage.buckets TO authenticated;
+GRANT SELECT ON TABLE storage.buckets TO atlas_airflow_reader;
+GRANT SELECT ON TABLE storage.buckets TO atlas_mcp;
+GRANT SELECT ON TABLE storage.buckets TO atlas_jupyter;
+GRANT SELECT ON TABLE storage.buckets TO atlas_zeppelin;
+GRANT SELECT ON TABLE storage.buckets TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE storage.objects TO service_role;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE storage.objects TO authenticated;
+GRANT SELECT ON TABLE storage.objects TO atlas_airflow_reader;
+GRANT SELECT ON TABLE storage.objects TO atlas_mcp;
+GRANT SELECT ON TABLE storage.objects TO atlas_jupyter;
+GRANT SELECT ON TABLE storage.objects TO atlas_zeppelin;
+GRANT SELECT ON TABLE storage.objects TO atlas_studio_readonly;
 
 GRANT SELECT,REFERENCES,DELETE,TRUNCATE ON TABLE vault.secrets TO postgres WITH GRANT OPTION;
 GRANT SELECT,DELETE ON TABLE vault.secrets TO service_role;
@@ -5646,6 +6083,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_auth_admin IN SCHEMA auth GRANT ALL O
 
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_auth_admin IN SCHEMA auth GRANT ALL ON TABLES TO postgres;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_auth_admin IN SCHEMA auth GRANT ALL ON TABLES TO dashboard_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_auth_admin IN SCHEMA auth GRANT SELECT ON TABLES TO atlas_studio_readonly;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA auth GRANT ALL ON TABLES TO service_role;
 
@@ -5685,6 +6123,19 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA graphql_public GRANT 
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA graphql_public GRANT ALL ON TABLES TO authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA graphql_public GRANT ALL ON TABLES TO service_role;
 
+ALTER DEFAULT PRIVILEGES FOR ROLE atlas_lightrag IN SCHEMA lightrag GRANT ALL ON SEQUENCES TO atlas_lightrag;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE atlas_lightrag IN SCHEMA lightrag GRANT ALL ON FUNCTIONS TO atlas_lightrag;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE atlas_lightrag IN SCHEMA lightrag GRANT ALL ON TABLES TO atlas_lightrag;
+ALTER DEFAULT PRIVILEGES FOR ROLE atlas_lightrag IN SCHEMA lightrag GRANT SELECT ON TABLES TO atlas_studio_readonly;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE atlas_n8n IN SCHEMA n8n GRANT SELECT ON TABLES TO atlas_studio_readonly;
+ALTER DEFAULT PRIVILEGES FOR ROLE atlas_n8n IN SCHEMA n8n GRANT SELECT ON TABLES TO atlas_airflow_reader;
+ALTER DEFAULT PRIVILEGES FOR ROLE atlas_n8n IN SCHEMA n8n GRANT SELECT ON TABLES TO atlas_mcp;
+ALTER DEFAULT PRIVILEGES FOR ROLE atlas_n8n IN SCHEMA n8n GRANT SELECT ON TABLES TO atlas_jupyter;
+ALTER DEFAULT PRIVILEGES FOR ROLE atlas_n8n IN SCHEMA n8n GRANT SELECT ON TABLES TO atlas_zeppelin;
+
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO postgres;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO anon;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO authenticated;
@@ -5714,6 +6165,19 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON TABLES TO anon;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON TABLES TO authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT SELECT ON TABLES TO atlas_studio_readonly;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT SELECT ON TABLES TO atlas_airflow_reader;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT SELECT ON TABLES TO atlas_mcp;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT SELECT ON TABLES TO atlas_jupyter;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT SELECT ON TABLES TO atlas_zeppelin;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE atlas_meta IN SCHEMA public GRANT SELECT ON TABLES TO atlas_studio_readonly;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE atlas_realtime IN SCHEMA public GRANT SELECT ON TABLES TO atlas_studio_readonly;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE atlas_open_webui IN SCHEMA public GRANT SELECT ON TABLES TO atlas_studio_readonly;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE atlas_lightrag IN SCHEMA public GRANT SELECT ON TABLES TO atlas_studio_readonly;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON SEQUENCES TO postgres;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON SEQUENCES TO anon;
@@ -5721,11 +6185,15 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON SEQUENCES TO service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON SEQUENCES TO dashboard_user;
 
+ALTER DEFAULT PRIVILEGES FOR ROLE atlas_realtime IN SCHEMA realtime GRANT ALL ON SEQUENCES TO atlas_realtime;
+
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON FUNCTIONS TO postgres;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON FUNCTIONS TO anon;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON FUNCTIONS TO authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON FUNCTIONS TO service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON FUNCTIONS TO dashboard_user;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE atlas_realtime IN SCHEMA realtime GRANT ALL ON FUNCTIONS TO atlas_realtime;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON TABLES TO postgres;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON TABLES TO anon;
@@ -5733,15 +6201,22 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON TABLES TO service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA realtime GRANT ALL ON TABLES TO dashboard_user;
 
+ALTER DEFAULT PRIVILEGES FOR ROLE atlas_realtime IN SCHEMA realtime GRANT ALL ON TABLES TO atlas_realtime;
+ALTER DEFAULT PRIVILEGES FOR ROLE atlas_realtime IN SCHEMA realtime GRANT SELECT ON TABLES TO atlas_studio_readonly;
+
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON SEQUENCES TO postgres;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON SEQUENCES TO anon;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON SEQUENCES TO authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON SEQUENCES TO service_role;
 
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_storage_admin IN SCHEMA storage GRANT ALL ON SEQUENCES TO supabase_storage_admin;
+
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON FUNCTIONS TO postgres;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON FUNCTIONS TO anon;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON FUNCTIONS TO authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON FUNCTIONS TO service_role;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_storage_admin IN SCHEMA storage GRANT ALL ON FUNCTIONS TO supabase_storage_admin;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON TABLES TO postgres;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON TABLES TO anon;
@@ -5750,6 +6225,13 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON TABLES
 
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA storage GRANT SELECT ON TABLES TO authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA storage GRANT ALL ON TABLES TO service_role;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_storage_admin IN SCHEMA storage GRANT ALL ON TABLES TO supabase_storage_admin;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_storage_admin IN SCHEMA storage GRANT SELECT ON TABLES TO atlas_studio_readonly;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_storage_admin IN SCHEMA storage GRANT SELECT ON TABLES TO atlas_airflow_reader;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_storage_admin IN SCHEMA storage GRANT SELECT ON TABLES TO atlas_mcp;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_storage_admin IN SCHEMA storage GRANT SELECT ON TABLES TO atlas_jupyter;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_storage_admin IN SCHEMA storage GRANT SELECT ON TABLES TO atlas_zeppelin;
 
 CREATE EVENT TRIGGER issue_graphql_placeholder ON sql_drop
          WHEN TAG IN ('DROP EXTENSION')

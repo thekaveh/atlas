@@ -21,8 +21,8 @@ services:
       AWS_SECRET_ACCESS_KEY: ${MINIO_ICEBERG_SECRET_KEY}
       CATALOG_CATALOG__IMPL: org.apache.iceberg.jdbc.JdbcCatalog
       CATALOG_URI: jdbc:postgresql://supabase-db:5432/iceberg
-      CATALOG_JDBC_USER: ${ICEBERG_DB_USER}
-      CATALOG_JDBC_PASSWORD: ${ICEBERG_DB_PASSWORD}
+      CATALOG_JDBC_USER: ${ICEBERG_DB_USER:?ICEBERG_DB_USER is required}
+      CATALOG_JDBC_PASSWORD: ${ICEBERG_DB_PASSWORD:?ICEBERG_DB_PASSWORD is required}
       CATALOG_WAREHOUSE: s3://lakehouse/
       CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
       CATALOG_S3_ENDPOINT: http://minio:9000
@@ -53,14 +53,11 @@ services:
     deploy:
       replicas: ${ICEBERG_REST_INIT_SCALE:-0}
     depends_on:
-      supabase-db:
-        condition: service_healthy
+      supabase-db-init:
+        condition: service_completed_successfully
     environment:
-      SUPABASE_DB_NAME: ${SUPABASE_DB_NAME}
-      SUPABASE_DB_USER: ${SUPABASE_DB_USER}
-      SUPABASE_DB_PASSWORD: ${SUPABASE_DB_PASSWORD}
-      ICEBERG_DB_USER: ${ICEBERG_DB_USER}
-      ICEBERG_DB_PASSWORD: ${ICEBERG_DB_PASSWORD}
+      ICEBERG_DB_USER: ${ICEBERG_DB_USER:?ICEBERG_DB_USER is required}
+      ICEBERG_DB_PASSWORD: ${ICEBERG_DB_PASSWORD:?ICEBERG_DB_PASSWORD is required}
     volumes:
       - ./init/scripts:/scripts:ro
     entrypoint: ["/bin/sh", "/scripts/init-iceberg-rest.sh"]

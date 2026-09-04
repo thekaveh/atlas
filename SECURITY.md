@@ -45,10 +45,11 @@ on their host.
   `torch==2.4.1` JupyterHub image: **remediated**. JupyterHub now ships the
   coordinated PyTorch 2.13 CPU pair and matching PyTorch-Geometric wheel set.
 - `torch.jit.script` memory corruption (GHSA-rrmf-rvhw-rf47): **remediated**.
-  Docling GPU and JupyterHub now use Torch 2.13.0; the Jupyter PyG family moved
-  to the official 2.13 CPU wheel index and `pyg_lib` 0.8 ABI3 wheel. The unused
-  torchaudio and legacy scatter/sparse/cluster extensions were removed rather
-  than held on vulnerable or unavailable companion releases.
+  Docling GPU and JupyterHub now use Torch 2.13.0; the Jupyter PyG family
+  resolves torch-geometric from PyPI and carries no compiled accelerator. The
+  unused torchaudio, the legacy scatter/sparse/cluster extensions, and
+  `pyg_lib` were removed rather than held on vulnerable, unavailable, or
+  single-CDN companion releases.
 - Ragas multimodal URL-processing SSRF (CVE-2026-6587): **unreachable**.
   Backend exposes only a closed enum of text metrics and never imports the
   vulnerable multimodal collection; Jupyter use is operator-authored code.
@@ -63,10 +64,6 @@ on their host.
   **operator-controlled**. NeMo 2.7.x requires Transformers 4.57.x, while
   Atlas loads only the `PARAKEET_MODEL` chosen in process environment at
   startup. Transcription requests cannot supply or change a model repository.
-- PyG local wheel `pyg-lib==0.8.0+pt213cpu`: **explicit audit exclusion**.
-  PyPI's advisory endpoint cannot query the PEP 440 local build identifier.
-  The wheel comes from PyG's official Torch 2.13 CPU index, is ABI-coupled to
-  the pinned Torch family, and had no known advisory at the 2026-08-02 review.
   CI requires this exact exclusion and fails if the local package/version drifts.
 - setuptools source-distribution exclusion bypass (CVE-2026-59890):
   **remediated**. Shipped compiled graphs and the Docling localhost lock now

@@ -24,7 +24,7 @@ Every route except `GET /health` and `GET /metrics` requires `Authorization: Bea
 |---|---:|---|
 | `ASSET_WORKER_SOURCE` | `disabled` | Enables the containerized worker when set to `container`. |
 | `ASSET_WORKER_IMAGE` | `python:3.12.9-slim` | Base image for the local build. |
-| `ASSET_WORKER_GLTF_TRANSFORM_VERSION` | `4.4.1` | Pinned `@gltf-transform/cli` version installed in the image. |
+| `ASSET_WORKER_GLTF_TRANSFORM_VERSION` | `4.4.1` | Expected pinned `@gltf-transform/cli` lock version. An override is a validation guard and must match both `package.json` and `package-lock.json`; update those files together when refreshing the dependency. |
 | `ASSET_WORKER_MAX_UPLOAD_MB` | `200` | Maximum uploaded or MinIO-referenced GLB size. Inputs are streamed and rejected with `413` before transformation when exceeded. |
 | `ASSET_WORKER_TIMEOUT_SECONDS` | `300` | Per-command timeout for `inspect`, `validate`, and `optimize`. A timeout returns `504`. |
 | `ASSET_WORKER_CONCURRENCY` | `1` | Maximum concurrent mutation requests. A saturated worker rejects new work with `429` before acquiring its input. |

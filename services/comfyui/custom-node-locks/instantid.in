@@ -1,0 +1,9 @@
+# Mirrored from ComfyUI_InstantID requirements.txt at
+# 72495e806bc2ab9c41581e15ccaa1bcf83c477e8.
+insightface
+# InsightFace leaves ONNX unconstrained.  Require the first release containing
+# the version-converter bounds checks for PYSEC-2026-2689/PYSEC-2026-3587.
+onnx>=1.22.0
+# insightface already declares onnx + onnxruntime. The reviewed AI-Dock base
+# supplies its platform-appropriate runtime provider; adding onnxruntime-gpu
+# to the shared CPU/GPU overlay would install both providers into one namespace.

@@ -17,3 +17,10 @@ datasources:
     access: proxy
     url: ${LOKI_ENDPOINT}
     editable: false
+    jsonData:
+      derivedFields:
+        - datasourceUid: Tempo
+          matcherType: label
+          matcherRegex: trace_id
+          name: TraceID
+          url: '$${__value.raw}'

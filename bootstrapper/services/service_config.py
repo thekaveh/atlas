@@ -7,6 +7,7 @@ Python implementation of generate_service_environment() and related functions fr
 import os
 import re
 from typing import Dict, Any, Optional
+from urllib.parse import quote
 from core.config_parser import ConfigParser
 from utils.atomic_write import atomic_write_text, render_env_assignment
 from utils.system import get_localhost_host, resolve_host_gateway_ip
@@ -22,6 +23,13 @@ def _configured_weaviate_modules(env_file_vars: dict, default_modules: str) -> s
     anyone meant, and nothing in the wizard can express it.
     """
     return env_file_vars.get('WEAVIATE_ENABLE_MODULES') or default_modules
+
+
+def _uri_component(env_file_vars: dict, name: str, default: str = '') -> str:
+    """Return a generated URI component, tolerating pre-generator env files."""
+    return env_file_vars.get(f'{name}_URI') or quote(
+        env_file_vars.get(name, default), safe=''
+    )
 
 
 class ServiceConfig:
@@ -1162,11 +1170,9 @@ class ServiceConfig:
     def _generate_otel_tempo_loki_config(self) -> dict:
         """Generate disabled-by-default tracing/log-store scales and endpoints.
 
-        OTel Collector is the ingest point, but the first Atlas slice exports
-        only traces to Tempo. Loki is admitted as an internal log store and
-        Grafana datasource; log shipping stays a follow-up until traces are
-        proven. Enabling the collector without Tempo would silently drop spans,
-        so fail before compose starts.
+        OTel Collector is the ingest point for traces and logs. Enabling it
+        without Tempo or Loki would leave one telemetry pipeline without a
+        durable sink, so fail before compose starts.
         """
         otel_source = self.service_sources.get("OTEL_COLLECTOR_SOURCE", "disabled")
         tempo_source = self.service_sources.get("TEMPO_SOURCE", "disabled")
@@ -1176,6 +1182,14 @@ class ServiceConfig:
             raise ValueError(
                 "OTel Collector requires Tempo to be enabled for trace export. "
                 "Either pass --tempo-source container alongside "
+                "--otel-collector-source container, or set "
+                "--otel-collector-source disabled."
+            )
+
+        if otel_source == "container" and loki_source != "container":
+            raise ValueError(
+                "OTel Collector requires Loki to be enabled for log export. "
+                "Either pass --loki-source container alongside "
                 "--otel-collector-source container, or set "
                 "--otel-collector-source disabled."
             )
@@ -1303,16 +1317,28 @@ class ServiceConfig:
         fragments consume these vars with direct fallbacks, so rollback is a
         SOURCE flip rather than a manual compose edit.
         """
+        raw_env = self.config_parser.parse_env_file()
+        tenant_id = raw_env.get("SUPAVISOR_TENANT_ID") or "atlas"
+        if tenant_id != tenant_id.strip():
+            raise ValueError(
+                "SUPAVISOR_TENANT_ID must not contain surrounding whitespace"
+            )
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", tenant_id):
+            raise ValueError(
+                "SUPAVISOR_TENANT_ID must contain only ASCII letters, digits, "
+                "underscores, or hyphens"
+            )
+
         source = self.service_sources.get("SUPAVISOR_SOURCE", "disabled")
         if source == "disabled":
             return {
                 "SUPAVISOR_SCALE": "0",
                 "SUPAVISOR_DB_HOST": "supabase-db",
                 "SUPAVISOR_DB_PORT_VALUE": "5432",
-                "SUPAVISOR_DB_USER": "${SUPABASE_DB_USER}",
+                "SUPAVISOR_DB_USER": "${N8N_DB_USER}",
                 "SUPAVISOR_DATABASE_URL": (
-                    "postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}"
-                    "@supabase-db:5432/${SUPABASE_DB_NAME}"
+                    "postgresql://${BACKEND_DB_USER_URI}:${BACKEND_DB_PASSWORD_URI}"
+                    "@supabase-db:5432/${SUPABASE_DB_NAME_URI}"
                 ),
             }
 
@@ -1320,10 +1346,10 @@ class ServiceConfig:
             "SUPAVISOR_SCALE": "1",
             "SUPAVISOR_DB_HOST": "supavisor",
             "SUPAVISOR_DB_PORT_VALUE": "6543",
-            "SUPAVISOR_DB_USER": "${SUPABASE_DB_USER}.${SUPAVISOR_TENANT_ID}",
+            "SUPAVISOR_DB_USER": "${N8N_DB_USER}.${SUPAVISOR_TENANT_ID}",
             "SUPAVISOR_DATABASE_URL": (
-                "postgresql://${SUPABASE_DB_USER}.${SUPAVISOR_TENANT_ID}:"
-                "${SUPABASE_DB_PASSWORD}@supavisor:6543/${SUPABASE_DB_NAME}"
+                "postgresql://${BACKEND_DB_USER_URI}.${SUPAVISOR_TENANT_ID}:"
+                "${BACKEND_DB_PASSWORD_URI}@supavisor:6543/${SUPABASE_DB_NAME_URI}"
             ),
         }
 
@@ -1783,9 +1809,15 @@ class ServiceConfig:
             # Supabase pgvector URI.
             supabase_source = sources.get('SUPABASE_SOURCE', 'container')
             if supabase_source != 'disabled':
-                pg_user = lightrag_raw_env.get('SUPABASE_DB_USER', 'supabase_admin')
-                pg_password = lightrag_raw_env.get('SUPABASE_DB_PASSWORD', '')
-                pg_db = lightrag_raw_env.get('SUPABASE_DB_NAME', 'postgres')
+                pg_user = _uri_component(
+                    lightrag_raw_env, 'LIGHTRAG_DB_USER', 'atlas_lightrag'
+                )
+                pg_password = _uri_component(
+                    lightrag_raw_env, 'LIGHTRAG_DB_PASSWORD'
+                )
+                pg_db = _uri_component(
+                    lightrag_raw_env, 'SUPABASE_DB_NAME', 'postgres'
+                )
                 env_vars['LIGHTRAG_PG_URI'] = (
                     f'postgresql://{pg_user}:{pg_password}@supabase-db:5432/{pg_db}'
                 )
@@ -1879,6 +1911,13 @@ class ServiceConfig:
         # JupyterHub - check SOURCE variable
         jupyterhub_source = sources.get('JUPYTERHUB_SOURCE', 'container')
         env_vars['JUPYTERHUB_SCALE'] = '0' if jupyterhub_source == 'disabled' else '1'
+        # Curated MCP currently supports only an in-stack container source.
+        # Clear the URL when disabled so a previous enabled run cannot leave
+        # the bundled notebook pointed at a stale endpoint.
+        mcp_servers_source = sources.get('MCP_SERVERS_SOURCE', 'disabled')
+        env_vars['MCP_SERVERS_URL'] = {
+            'container': 'http://mcp-servers:8000/mcp',
+        }.get(mcp_servers_source, '')
 
         return env_vars
     

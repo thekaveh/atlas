@@ -249,6 +249,7 @@ class Manifest:
     containers: list[str] = field(default_factory=list)
     virtual: bool = False
     docs: str = ""
+    docs_exception: str = ""
     images: list[ImageRef] = field(default_factory=list)
     sources: SourcesBlock | None = None
     depends_on: DependsOn = field(default_factory=DependsOn)
@@ -516,6 +517,7 @@ def _to_dataclass(raw: dict[str, Any], source_path: Path) -> Manifest:
         label=raw["label"],
         category=raw["category"],
         docs=raw.get("docs", ""),
+        docs_exception=raw.get("docs_exception", ""),
         containers=list(raw.get("containers", [])),
         virtual=bool(raw.get("virtual", False)),
         env=env,

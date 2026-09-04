@@ -11,6 +11,9 @@ from __future__ import annotations
 import asyncio
 import gc
 import json
+import os
+import subprocess
+import sys
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -240,6 +243,32 @@ def test_redis_ingestion_store_configures_bounded_socket_deadlines(monkeypatch):
     assert store._redis is sentinel
     assert captured["socket_connect_timeout"] == 3
     assert captured["socket_timeout"] == 3
+
+
+def test_redis_ingestion_page_keeps_cursor_when_full_migration_yields_no_new_score(
+    monkeypatch,
+):
+    """Duplicate legacy members must not terminate a still-bounded migration."""
+    import redis
+
+    class FakeRedis:
+        def eval(self, script, *_args):
+            assert "SSCAN" in script
+            return [0, "9", 2]
+
+        def zrangebyscore(self, *_args, **_kwargs):
+            return []
+
+        def mget(self, _keys):
+            raise AssertionError("an empty score page must not issue MGET")
+
+    monkeypatch.setattr(redis.Redis, "from_url", lambda *_args, **_kwargs: FakeRedis())
+    store = RedisIngestionStore("redis://redis:6379/0")
+
+    page = store.list_page(cursor="7", limit=2)
+
+    assert page.records == []
+    assert page.next_cursor == "7"
 
 
 def test_sync_discovery_and_chunking_run_off_the_event_loop(tmp_path, monkeypatch):
@@ -1768,10 +1797,121 @@ def test_pipeline_status_timeout_is_configurable(monkeypatch):
     assert LightRagClient(endpoint="http://x", pipeline_status_timeout=3.0)._pipeline_status_timeout == 3.0
     assert LightRagClient(endpoint="http://x")._pipeline_status_timeout == 50.0
 
-    # Blank / non-numeric / non-positive env values fall back to the default.
-    for bad in ("", "not-a-number", "-5", "0"):
+    # Blank, malformed, non-finite, non-positive, and over-limit values fall
+    # back to the finite default.
+    for bad in ("", "not-a-number", "nan", "inf", "-5", "0", "3600.1"):
         monkeypatch.setenv("LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS", bad)
         assert _resolve_pipeline_status_timeout(None) == 30.0
+
+    assert _resolve_pipeline_status_timeout(3600.0) == 3600.0
+    monkeypatch.setenv("LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS", "50")
+    for bad_explicit in (float("nan"), float("inf"), -1.0, 0.0, 3600.1):
+        assert _resolve_pipeline_status_timeout(bad_explicit) == 50.0
+
+    monkeypatch.setenv("LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS", "invalid")
+    assert _resolve_pipeline_status_timeout(float("inf")) == 30.0
+
+
+def test_pipeline_status_timeout_safely_coerces_explicit_values(monkeypatch):
+    from rag_ingestion.clients import _resolve_pipeline_status_timeout
+
+    class OverflowingFloat:
+        def __float__(self):
+            raise OverflowError("synthetic overflow")
+
+    class HostileFloat:
+        def __float__(self):
+            raise RuntimeError("synthetic hostile coercion")
+
+    class ProcessControlFloat:
+        def __init__(self, error):
+            self.error = error
+
+        def __float__(self):
+            raise self.error
+
+    monkeypatch.setenv("LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS", "50")
+
+    # Preserve the existing numeric-string compatibility deliberately, while
+    # ordinary ints/floats remain the primary programmatic API.
+    for explicit, expected in (
+        (1, 1.0),
+        (3.5, 3.5),
+        ("45", 45.0),
+        (" 45 ", 45.0),
+    ):
+        assert _resolve_pipeline_status_timeout(explicit) == expected
+
+    # bool is not a duration even though Python's float(True) is 1.0. Every
+    # other malformed/coercion-failing value also falls through to valid env.
+    invalid_explicit_values = (
+        True,
+        False,
+        "garbage",
+        "   ",
+        object(),
+        OverflowingFloat(),
+        HostileFloat(),
+        float("nan"),
+        float("inf"),
+        -1,
+        0,
+        3600.1,
+    )
+    for invalid in invalid_explicit_values:
+        assert _resolve_pipeline_status_timeout(invalid) == 50.0
+
+    monkeypatch.setenv("LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS", "invalid")
+    for invalid in invalid_explicit_values:
+        assert _resolve_pipeline_status_timeout(invalid) == 30.0
+
+    # Catch ordinary coercion failures only. Process-control exceptions must
+    # remain visible to the caller and must never be converted into defaults.
+    for expected in (KeyboardInterrupt, SystemExit):
+        with pytest.raises(expected):
+            _resolve_pipeline_status_timeout(ProcessControlFloat(expected()))
+
+
+def test_ingestion_ttl_uses_safe_default_for_invalid_values(monkeypatch):
+    from rag_ingestion.store import _ttl_seconds
+
+    monkeypatch.delenv("RAG_INGESTION_TTL_SECONDS", raising=False)
+    assert _ttl_seconds() == 7 * 24 * 3600
+
+    monkeypatch.setenv("RAG_INGESTION_TTL_SECONDS", "3600")
+    assert _ttl_seconds() == 3600
+
+    monkeypatch.setenv("RAG_INGESTION_TTL_SECONDS", "31536000")
+    assert _ttl_seconds() == 31536000
+
+    for bad in (
+        "",
+        "not-an-integer",
+        "0",
+        "-1",
+        "59",
+        "31536001",
+        "99999999999999999999999999999999999999999999999999",
+    ):
+        monkeypatch.setenv("RAG_INGESTION_TTL_SECONDS", bad)
+        assert _ttl_seconds() == 7 * 24 * 3600
+
+
+def test_invalid_ingestion_ttl_cannot_crash_module_import():
+    env = os.environ.copy()
+    env["RAG_INGESTION_TTL_SECONDS"] = "not-an-integer"
+    result = subprocess.run(
+        [sys.executable, "-c", "import rag_ingestion.store; print('imported')"],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "imported"
 
 
 def test_chunk_phase_isolates_oversize_document(tmp_path, monkeypatch):

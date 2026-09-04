@@ -43,7 +43,7 @@ Atlas bakes the Spark Kafka connector into `services/spark/build/Dockerfile`:
 
 - `org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.2`
 - `org.apache.spark:spark-token-provider-kafka-0-10_2.13:4.1.2`
-- `org.apache.kafka:kafka-clients:3.9.1`
+- `org.apache.kafka:kafka-clients:3.9.2`
 - `org.apache.commons:commons-pool2:2.12.1`
 
 Example Spark read:

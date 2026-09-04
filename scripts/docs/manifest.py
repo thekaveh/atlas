@@ -67,6 +67,7 @@ class Page:
 class Manifest:
     surfaces: tuple[str, ...]
     numbering: str
+    index_id: str
     sections: tuple[Section, ...]
     diagrams: tuple[DiagramEntry, ...]
 
@@ -135,6 +136,7 @@ def parse_manifest(text: str) -> Manifest:
     try:
         surfaces = tuple(str(item) for item in _required(raw, "surfaces", "manifest"))
         numbering = str(_required(raw, "numbering", "manifest"))
+        index_id = str(_required(raw, "index", "manifest"))
         sections_raw = _required(raw, "sections", "manifest")
     except TypeError as exc:
         raise ManifestError(f"Manifest has an invalid value: {exc}") from exc
@@ -161,9 +163,13 @@ def parse_manifest(text: str) -> Manifest:
                 master=str(_required(diagram, "master", f"diagrams[{index}]")),
             )
         )
-    manifest = Manifest(surfaces, numbering, sections, tuple(diagrams))
+    manifest = Manifest(surfaces, numbering, index_id, sections, tuple(diagrams))
     _validate_uniqueness(manifest)
     _validate_numbering(manifest.sections)
+    if manifest.index_id not in {page.id for page in manifest.pages}:
+        raise ManifestError(
+            f"Manifest index references unknown page ID: {manifest.index_id}"
+        )
     return manifest
 
 
@@ -200,6 +206,15 @@ def _validated_repo_path(repo_root: Path, relative: str, label: str) -> Path:
     if pure.is_absolute() or ".." in pure.parts:
         raise ManifestError(f"{label} must stay within the repository: {relative}")
     path = repo_root.joinpath(*pure.parts)
+    current = repo_root
+    for part in pure.parts:
+        current /= part
+        if current.is_symlink():
+            raise ManifestError(f"{label} must not traverse a symlink: {relative}")
+    try:
+        path.resolve().relative_to(repo_root.resolve())
+    except ValueError as exc:
+        raise ManifestError(f"{label} must stay within the repository: {relative}") from exc
     if not path.is_file():
         raise ManifestError(f"{label} does not exist: {relative}")
     return path

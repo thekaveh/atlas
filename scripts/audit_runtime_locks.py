@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import tempfile
 from dataclasses import dataclass
 from datetime import date
@@ -22,6 +23,11 @@ from scripts.bounded_subprocess import (
 ROOT = Path(__file__).resolve().parents[1]
 _LOCAL_VERSION_RE = re.compile(r"^[A-Za-z0-9_.-]+==[^\s]+\+[^\s]+$")
 COMMAND_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS
+# `npm audit` contacts the registry for the whole dependency graph and takes
+# just over four minutes for services/asset-worker/app, so the shared 300s
+# default sits right on the edge and tips over on slower CI runners.
+NPM_AUDIT_TIMEOUT_SECONDS = 900
+_NPM_AUDIT_ATTEMPTS = 3
 
 
 @dataclass(frozen=True)
@@ -47,68 +53,70 @@ AUDIT_SPECS = (
         review_by=date(2026, 9, 15),
     ),
     AuditSpec("services/airflow/build/requirements-locked.txt"),
+    AuditSpec("services/mlflow/build/requirements-locked.txt"),
     AuditSpec(
         "services/jupyterhub/build/requirements-locked.txt",
-        # cryptography 50 fixes PYSEC-2026-3552 (the PKCS#7 EnvelopedData
-        # Bleichenbacher oracle; previously indexed as CVE-2026-69247, since
-        # withdrawn from the advisory DB), but current MLflow caps it below 50.
-        # Atlas exposes no PKCS#7 decrypt endpoint; retain this exact fail-closed
-        # exception only until MLflow relaxes the upstream cap.
-        # Atlas maintainers own re-review by 2026-09-01.
+        # cryptography==49.0.0: PYSEC-2026-3552's PKCS#7 EnvelopedData decrypt
+        # oracle is fixed in 50.0.0, but installed MLflow 3.15.1 and current
+        # 3.15.2 require cryptography<50. Atlas has no PKCS#7 decrypt endpoint.
+        # diskcache==5.6.3: PYSEC-2026-2447 has no fixed release; notebook 14
+        # passes no cache backend, so Ragas never creates or reads a disk cache.
+        # ragas==0.4.3: PYSEC-2026-3046 has no fixed release; notebook 14 imports
+        # only four text metrics and never the multimodalfaithfulness helper.
+        # mlflow==3.15.1: CVE-2026-71211 has no fixed release; it affects the
+        # AI Gateway server's operator-supplied auth_config.api_base. Jupyter's
+        # entrypoint starts JupyterHub, and notebook 11 uses only MLflow's
+        # tracking client. The separately deployed service blocks every Gateway
+        # route family at its outer ASGI boundary in services/mlflow/atlas_server.py.
+        # nltk==3.10.3: PYSEC-2026-3740 has no fixed release — the advisory's
+        # affected range ends at last_affected 3.10.3, the same version that
+        # fixed the earlier PYSEC-2026-3733..3741 set. It needs a
+        # caller-controlled model path to reach the model-artifact APIs. Atlas
+        # touches nltk only through install_nlp_assets.py, which resolves the
+        # VADER lexicon from a build-time constant and is integrity-locked by
+        # nlp-assets.toml; notebooks run SentimentIntensityAnalyzer over
+        # in-memory text and never supply an artifact location.
+        # Atlas maintainers own re-review by 2026-11-27.
         frozenset(
-            {"PYSEC-2026-3552", "PYSEC-2026-2447", "PYSEC-2026-3046"}
+            {
+                "PYSEC-2026-3552",
+                "PYSEC-2026-2447",
+                "PYSEC-2026-3046",
+                "CVE-2026-71211",
+                "PYSEC-2026-3740",
+            }
         ),
-        frozenset({"pyg-lib==0.8.0+pt213cpu"}),
-        review_by=date(2026, 9, 1),
+        review_by=date(2026, 11, 27),
     ),
     AuditSpec(
         "services/parakeet/provider/gpu/requirements-locked.txt",
-        # PYSEC-2026-3624 (CVE-2026-58659) is RCE in PyTorch Lightning's
-        # _load_state, reached only through LightningModule.load_from_checkpoint
-        # on an attacker-supplied checkpoint. No released 2.x carries the fix:
-        # upstream fixed it in commit d710d68, and OSV's range reports "fixed in
-        # 2022.6.15" — a CalVer artifact of the pre-1.x line, so the range is
-        # unusable as an upgrade target. Atlas never calls load_from_checkpoint;
-        # lightning is transitive via nemo-toolkit, and the provider loads
-        # through nemo_asr.models.ASRModel.from_pretrained (transcribe.py:37) on
-        # the operator-pinned PARAKEET_MODEL repo, not on user-supplied files.
-        # Drop this exception once a lightning 2.x release ships d710d68.
-        #
-        # CVE-2026-68508 is RCE in hydra-core, via hydra.utils.instantiate()
-        # resolving a `_target_` import path out of a config the caller does not
-        # control. hydra-core 1.3.4 ships the fix, but nemo-toolkit caps
-        # hydra-core<=1.3.2 in every extra this lock pulls -- including the
-        # newest 3.0.0 -- so `--upgrade-package hydra-core` resolves to a
-        # zero-line diff and there is no reachable upgrade target. Atlas never
-        # imports hydra: the provider's only NeMo entry point is
-        # nemo_asr.models.ASRModel.from_pretrained (transcribe.py:37) on the
-        # operator-pinned PARAKEET_MODEL repo, and request payloads cannot
-        # select that model. Drop this exception once nemo-toolkit relaxes the
-        # upstream cap to admit 1.3.4.
-        # Atlas maintainers own re-review by 2026-09-01.
+        # nemo-toolkit==3.0.0 still caps Lightning at <=2.4.0 and Hydra at
+        # <=1.3.2; the lock resolves lightning==2.4.0 (PYSEC-2026-3624) and
+        # hydra-core==1.3.2 (CVE-2026-68508), below their fixes. NeMo leaves
+        # Transformers unconstrained. Atlas calls
+        # only ASRModel.from_pretrained at transcribe.py:37 for the
+        # operator-configured PARAKEET_MODEL. NeMo restore routes Hydra through
+        # safe_instantiate's recursive target allowlist and bypasses Lightning
+        # load_from_checkpoint; request payloads cannot choose or upload a model.
+        # Atlas maintainers own re-review by 2026-11-27.
         frozenset(
             {
-                "PYSEC-2025-217",
-                "PYSEC-2026-2288",
-                "PYSEC-2026-2289",
-                "PYSEC-2026-2290",
                 "PYSEC-2026-3624",
                 "CVE-2026-68508",
             }
         ),
-        review_by=date(2026, 9, 1),
+        review_by=date(2026, 11, 27),
     ),
     AuditSpec(
         "services/parakeet/provider/mlx/requirements-locked.txt",
-        # PYSEC-2025-138 and PYSEC-2025-139 are memory-safety findings in
-        # mlx<0.29.4. The Apple Silicon lock resolves mlx 0.29.3 because no
-        # 0.29.4 wheel is published for this exact Python/platform graph yet;
-        # the provider accepts audio only through the bounded parser and does
-        # not expose arbitrary MLX program/model loading to request callers.
-        # Atlas maintainers own re-review by 2026-09-15; remove these IDs as
-        # soon as the fixed wheel resolves for aarch64-apple-darwin.
+        # mlx==0.29.3 retains PYSEC-2025-138/PYSEC-2025-139 because the fixed
+        # 0.29.4 Python 3.12 arm64 wheels require macOS 14/15, while Atlas'
+        # aarch64-apple-darwin lock preserves its generic macOS target. Atlas
+        # calls only parakeet_mlx.from_pretrained at api_server.py:64 for the
+        # operator-configured config.json + model.safetensors; neither that path
+        # nor audio transcription calls vulnerable .npy or GGUF loaders.
         frozenset({"PYSEC-2025-138", "PYSEC-2025-139"}),
-        review_by=date(2026, 9, 15),
+        review_by=date(2026, 11, 27),
     ),
     AuditSpec("bootstrapper/requirements-locked.txt"),
     AuditSpec("services/asset-baker/app/requirements-locked.txt"),
@@ -125,6 +133,8 @@ AUDIT_SPECS = (
     AuditSpec("services/asset-worker/app/requirements-test-locked.txt"),
     AuditSpec("services/local-deep-researcher/build/config/runtime-requirements.lock"),
     AuditSpec("services/requirements-init-locked.txt"),
+    AuditSpec("services/comfyui/custom-node-locks/instantid.txt"),
+    AuditSpec("services/comfyui/custom-node-locks/gguf.txt"),
 )
 
 SOURCE_SPECS: tuple[SourceSpec, ...] = ()
@@ -133,6 +143,26 @@ UV_PROJECTS = (
     "bootstrapper",
     "services/docling/provider/localhost",
 )
+
+# Reviewed advisory exceptions for uv-managed projects, keyed by project path.
+# Same contract as AuditSpec: every entry needs a rationale and a review
+# deadline inside the 90-day horizon, and an entry that stops matching a live
+# finding fails as a stale allowlist entry.
+UV_PROJECT_EXCEPTIONS: dict[str, tuple[frozenset[str], date]] = {
+    # transformers==5.8.1: CVE-2026-9856 is fixed in 5.10.0, which
+    # docling-core[chunking]'s transformers<5.9.0 cap makes unreachable while
+    # the docling family stays pinned at 2.102.1 across the gpu, adapter, and
+    # localhost providers. The advisory is a path traversal requiring user
+    # interaction against a caller-supplied model artifact; this provider never
+    # imports transformers, exposes no model-path parameter, and its
+    # /v1/document/convert and /internal/lightrag/bundle endpoints accept
+    # documents rather than model locations.
+    # Atlas maintainers own re-review by 2026-10-15.
+    "services/docling/provider/localhost": (
+        frozenset({"CVE-2026-9856"}),
+        date(2026, 10, 15),
+    ),
+}
 
 NPM_PROJECTS = (
     "services/asset-worker/app",
@@ -170,6 +200,8 @@ AUDITED_RUNTIME_MANIFESTS = frozenset(
         "services/docling/provider/localhost/uv.lock",
         "services/jupyterhub/build/requirements.txt",
         "services/jupyterhub/build/requirements-locked.txt",
+        "services/mlflow/build/requirements.txt",
+        "services/mlflow/build/requirements-locked.txt",
         "services/local-deep-researcher/build/config/runtime-requirements.lock",
         "services/local-deep-researcher/locks/runtime-pyproject.toml",
         "services/local-deep-researcher/locks/runtime.uv.lock",
@@ -178,6 +210,10 @@ AUDITED_RUNTIME_MANIFESTS = frozenset(
         "services/mcp-servers/runtime/requirements-test.txt",
         "services/mcp-servers/runtime/requirements-test-locked.txt",
         "services/requirements-init-locked.txt",
+        "services/comfyui/custom-node-locks/instantid.in",
+        "services/comfyui/custom-node-locks/instantid.txt",
+        "services/comfyui/custom-node-locks/gguf.in",
+        "services/comfyui/custom-node-locks/gguf.txt",
         "services/n8n/init/config/package-lock.json",
         "services/n8n/init/config/package.json",
         "services/parakeet/provider/gpu/requirements.txt",
@@ -208,6 +244,10 @@ def discover_runtime_manifests(root: Path = ROOT) -> frozenset[str]:
         "services/local-deep-researcher/build/config/runtime-requirements.lock",
         "services/local-deep-researcher/locks/runtime-pyproject.toml",
         "services/local-deep-researcher/locks/runtime.uv.lock",
+        "services/comfyui/custom-node-locks/instantid.in",
+        "services/comfyui/custom-node-locks/instantid.txt",
+        "services/comfyui/custom-node-locks/gguf.in",
+        "services/comfyui/custom-node-locks/gguf.txt",
     }
     found.update(path for path in nonstandard if (root / path).is_file())
     return frozenset(found)
@@ -364,23 +404,54 @@ def audit_uv_project(project: str, *, root: Path = ROOT) -> list[str]:
             ]
         if result.returncode != 0:
             return [redacted_failure(f"{project}: uv export", result.returncode)]
+        reviewed, review_by = UV_PROJECT_EXCEPTIONS.get(
+            project, (frozenset(), None)
+        )
         return audit_spec(
-            AuditSpec(str(lock), display_name=f"{project}/uv.lock"),
+            AuditSpec(
+                str(lock),
+                reviewed,
+                display_name=f"{project}/uv.lock",
+                review_by=review_by,
+            ),
             root=Path("/"),
         )
 
 
 def audit_npm_project(project: str, *, root: Path = ROOT) -> list[str]:
+    """Audit one npm project, retrying only transient registry failures.
+
+    `npm audit` resolves the advisory set over the network, and shared CI egress
+    draws registry errors that have nothing to do with the lock under audit —
+    observed on two different projects across consecutive runs while both audit
+    clean locally. Retrying that one case keeps the gate meaningful: a real
+    vulnerability count, a malformed response, and a timeout all still fail on
+    the first attempt.
+    """
+    for attempt in range(1, _NPM_AUDIT_ATTEMPTS + 1):
+        failures = _audit_npm_project_once(project, root=root)
+        if failures != [_npm_registry_failure(project)]:
+            return failures
+        if attempt < _NPM_AUDIT_ATTEMPTS:
+            time.sleep(attempt * 5)
+    return [_npm_registry_failure(project)]
+
+
+def _npm_registry_failure(project: str) -> str:
+    return f"{project}: npm audit registry request failed (details redacted)"
+
+
+def _audit_npm_project_once(project: str, *, root: Path = ROOT) -> list[str]:
     try:
         result = run_bounded(
             ["npm", "audit", "--package-lock-only", "--omit=dev", "--json"],
             cwd=root / project,
-            timeout_seconds=COMMAND_TIMEOUT_SECONDS,
+            timeout_seconds=NPM_AUDIT_TIMEOUT_SECONDS,
         )
     except CommandTimedOut:
         return [
             f"{project}: npm audit timed out after "
-            f"{COMMAND_TIMEOUT_SECONDS} seconds"
+            f"{NPM_AUDIT_TIMEOUT_SECONDS} seconds"
         ]
     except (CommandLaunchError, CommandOutputTooLarge):
         return [
@@ -394,7 +465,7 @@ def audit_npm_project(project: str, *, root: Path = ROOT) -> list[str]:
     if result.returncode not in {0, 1}:
         return [redacted_failure(f"{project}: npm audit", result.returncode)]
     if payload.get("error"):
-        return [f"{project}: npm audit registry request failed (details redacted)"]
+        return [_npm_registry_failure(project)]
     metadata = payload.get("metadata")
     vulnerabilities = metadata.get("vulnerabilities") if isinstance(metadata, dict) else None
     if not isinstance(vulnerabilities, dict) or not isinstance(

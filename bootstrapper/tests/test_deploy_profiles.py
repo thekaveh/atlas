@@ -44,14 +44,14 @@ def test_canonical_profile_aliases_and_defaults():
     assert set(CANONICAL_PROFILES) == {"default", "prod"}
 
 
-def test_shipped_bundles_express_legacy_behavior():
+def test_shipped_bundles_default_to_loopback():
     bundles = load_profile_bundles()
     prod = bundles["prod"]
     assert prod.host_bind_ip == "127.0.0.1:"
     assert prod.sources == {"prometheus": "container", "grafana": "container"}
     assert prod.env == {"LOG_MAX_SIZE": "10m", "LOG_MAX_FILE": "3"}
     default = bundles["default"]
-    assert default.host_bind_ip == ""
+    assert default.host_bind_ip == "127.0.0.1:"
     assert default.sources == {} and default.env == {}
 
 
@@ -133,9 +133,56 @@ def test_merge_consumer_overrides_override_only():
 # ── applier (integration, tmp .env) ──────────────────────────────────
 
 
+@pytest.mark.parametrize(
+    "case",
+    (
+        ("prod", "", "", {"HOST_BIND_IP": "127.0.0.1:"}, False),
+        ("prod", "default", "0.0.0.0:", {"HOST_BIND_IP": "127.0.0.1:"}, True),
+        ("prod", "default", "10.0.0.5:", {}, True),
+        ("prod", "prod", "0.0.0.0:", {}, False),
+    ),
+)
+def test_profile_host_bind_resolution_preserves_ownership(
+    case: tuple[str, str, str, dict[str, str], bool],
+) -> None:
+    active, prior, current, expected, switching = case
+    bundles = {
+        "default": NS(host_bind_ip="0.0.0.0:"),
+        "prod": NS(host_bind_ip="127.0.0.1:"),
+    }
+    overrides, actual_prior, actual_switching = start._profile_host_bind_overrides(
+        active,
+        bundles[active],
+        bundles,
+        {"ATLAS_PROFILE_APPLIED": prior, "HOST_BIND_IP": current},
+    )
+    assert overrides == expected
+    assert actual_prior == prior
+    assert actual_switching is switching
+
+
+def test_profile_host_bind_resolution_reports_profile_owned_clear(capsys) -> None:
+    bundles = {
+        "default": NS(host_bind_ip=""),
+        "prod": NS(host_bind_ip="127.0.0.1:"),
+    }
+    overrides, prior, switching = start._profile_host_bind_overrides(
+        "default",
+        bundles["default"],
+        bundles,
+        {"ATLAS_PROFILE_APPLIED": "prod", "HOST_BIND_IP": "127.0.0.1:"},
+    )
+    assert overrides == {"HOST_BIND_IP": ""}
+    assert prior == "prod"
+    assert switching is True
+    assert "cleared HOST_BIND_IP" in capsys.readouterr().out
+
+
 def _make_starter(tmp_path: Path, env_body: str) -> "start.AtlasStarter":
     (tmp_path / ".env").write_text(env_body, encoding="utf-8")
-    (tmp_path / ".env.example").write_text("HOST_BIND_IP=\n", encoding="utf-8")
+    (tmp_path / ".env.example").write_text(
+        "HOST_BIND_IP=127.0.0.1:\n", encoding="utf-8"
+    )
     starter = start.AtlasStarter()
     starter.config_parser.root_dir = tmp_path
     starter.config_parser.env_file_path = tmp_path / ".env"
@@ -162,10 +209,10 @@ def test_prod_then_default_switch_resets_asserted_sources(tmp_path):
     assert env["HOST_BIND_IP"] == "127.0.0.1:"
     assert env["ATLAS_PROFILE_APPLIED"] == "prod"
     # Switch to default: prod's asserted sources reset to their service
-    # defaults, bind sentinel cleared, marker updated — no residue.
+    # defaults while the safe loopback bind remains, marker updated — no residue.
     assert s.apply_profile_overrides("default") is True
     env = _env(tmp_path)
-    assert env["HOST_BIND_IP"] == ""
+    assert env["HOST_BIND_IP"] == "127.0.0.1:"
     assert env["PROMETHEUS_SOURCE"] == "disabled"
     assert env["GRAFANA_SOURCE"] == "disabled"
     assert env["ATLAS_PROFILE_APPLIED"] == "default"
@@ -209,7 +256,7 @@ def test_dev_alias_applies_default_bundle(tmp_path):
     s = _make_starter(tmp_path, body)
     assert s.apply_profile_overrides("dev") is True
     env = _env(tmp_path)
-    assert env["HOST_BIND_IP"] == ""
+    assert env["HOST_BIND_IP"] == "127.0.0.1:"
     assert env["ATLAS_PROFILE_APPLIED"] == "default"
 
 

@@ -61,6 +61,17 @@ def test_backfill_preserves_existing_non_blank_values(tmp_path):
     assert "SUPABASE_DB_PASSWORD=password" not in out
 
 
+def test_backfill_upgrades_legacy_blank_host_bind_to_loopback(tmp_path):
+    starter = _make_starter(
+        tmp_path,
+        "HOST_BIND_IP=\n",
+        "HOST_BIND_IP=127.0.0.1:\n",
+    )
+
+    assert starter.backfill_missing_env_vars()
+    assert (tmp_path / ".env").read_text() == "HOST_BIND_IP=127.0.0.1:\n"
+
+
 def test_backfill_handles_inline_comments(tmp_path):
     """Inline comment (`# …`) after the blank value isn't mistaken for content."""
     env_body = "SUPABASE_DB_PASSWORD=  # autogen at runtime\n"

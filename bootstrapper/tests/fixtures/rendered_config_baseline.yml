@@ -28,7 +28,7 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__FERNET_KEY: ''
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:@supabase-db:5432/airflow
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:atlas-db-password@supabase-db:5432/airflow
       AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
       AIRFLOW_UID: '50000'
       ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
@@ -82,8 +82,8 @@ services:
     - /scripts/init-airflow.sh
     container_name: atlas-airflow-init
     depends_on:
-      supabase-db:
-        condition: service_healthy
+      supabase-db-init:
+        condition: service_completed_successfully
         required: true
     deploy:
       replicas: 0
@@ -93,10 +93,12 @@ services:
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__CORE__FERNET_KEY: ''
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:@supabase-db:5432/airflow
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:atlas-db-password@supabase-db:5432/airflow
       AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
       AIRFLOW_ADMIN_PASSWORD: ''
-      AIRFLOW_DB_PASSWORD: ''
+      AIRFLOW_ATLAS_DB_PASSWORD: atlas-db-password
+      AIRFLOW_ATLAS_DB_USER: atlas_airflow_reader
+      AIRFLOW_DB_PASSWORD: atlas-db-password
       AIRFLOW_DB_USER: airflow
       AIRFLOW_UID: '50000'
       ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
@@ -111,8 +113,6 @@ services:
       REDIS_PASSWORD: redis_password
       SPARK_SOURCE: disabled
       SUPABASE_DB_NAME: postgres
-      SUPABASE_DB_PASSWORD: password
-      SUPABASE_DB_USER: supabase_admin
       WEAVIATE_SOURCE: container
     image: atlas-airflow:local
     networks:
@@ -155,7 +155,7 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__FERNET_KEY: ''
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:@supabase-db:5432/airflow
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:atlas-db-password@supabase-db:5432/airflow
       AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
       AIRFLOW_UID: '50000'
       ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
@@ -225,7 +225,7 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__CORE__FERNET_KEY: ''
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:@supabase-db:5432/airflow
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:atlas-db-password@supabase-db:5432/airflow
       AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
       AIRFLOW_UID: '50000'
       ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
@@ -262,6 +262,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8080
       published: '63070'
       protocol: tcp
@@ -329,6 +330,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8096
       published: '63052'
       protocol: tcp
@@ -390,6 +392,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8095
       published: '63053'
       protocol: tcp
@@ -404,7 +407,7 @@ services:
       context: '{REPO_ROOT}/services/backend/app'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: python:3.12.13
+        BASE_IMAGE: python:3.12.14-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970
     container_name: atlas-backend
     depends_on:
       kong-api-gateway:
@@ -450,6 +453,7 @@ services:
       BACKEND_PG_POOL_MIN: '1'
       BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS: '300'
       BACKEND_PLUGINS_SITE_DIR: /tmp/atlas-plugins-site
+      BACKEND_STATE_STORE_MODE: redis
       BACKEND_STORAGE_ALLOWED_BUCKETS: default
       CELERY_BROKER_URL: ''
       CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS: '3600'
@@ -460,6 +464,7 @@ services:
       CELERY_TASK_TIME_LIMIT_SECONDS: '900'
       CELERY_WORKER_CONCURRENCY: '2'
       CELERY_WORKER_PREFETCH_MULTIPLIER: '1'
+      CHONKIE_SEMANTIC_EMBEDDING_MODEL: minishlab/potion-base-32M
       COMFYUI_BASE_URL: http://comfyui:18188
       COMFYUI_COMPLETION_TIMEOUT_SECONDS: '300'
       COMFYUI_ENABLED: 'true'
@@ -467,7 +472,7 @@ services:
       COMFYUI_MANIFEST_PATH: /comfyui-manifest/selected-models.yaml
       COMFYUI_MAX_IMAGE_BYTES: '20971520'
       COMFYUI_SOURCE: container-cpu
-      DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
+      DATABASE_URL: postgresql://atlas_backend:atlas-db-password@supabase-db:5432/postgres
       DOCLING_API_TOKEN: ''
       DOCLING_ENDPOINT: ''
       FAL_API_KEY: ''
@@ -490,6 +495,7 @@ services:
       KONG_URL: http://kong-api-gateway:8000
       LANGMEM_AUTO_CONSOLIDATE: 'true'
       LANGMEM_CONSOLIDATION_INTERVAL: '86400'
+      LANGMEM_EMBEDDING_DIM: '768'
       LANGMEM_EMBEDDING_MODEL: ''
       LANGMEM_ENABLED: 'true'
       LANGMEM_EXTRACTION_MODEL: ''
@@ -497,6 +503,7 @@ services:
       LANGMEM_NAMESPACE: default
       LIGHTRAG_API_KEY: ''
       LIGHTRAG_ENDPOINT: ''
+      LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS: '30'
       LIGHTRAG_RERANK_ADAPTER_ENABLED: 'false'
       LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS: '30'
       LIGHTRAG_RERANK_ADAPTER_TOKEN: ''
@@ -515,6 +522,8 @@ services:
       MEDIA_DISABLED_PROVIDERS: ''
       MEDIA_INPUT_MAX_BYTES: '26214400'
       MEDIA_INPUT_MAX_PIXELS: '40000000'
+      MEDIA_LEDGER_RECOVERY_BATCH_SIZE: '100'
+      MEDIA_LEDGER_RECOVERY_MAX_CYCLES: '4'
       MEDIA_OPERATION_TTL_SECONDS: '604800'
       MEDIA_REQUEST_MAX_BYTES: '41943040'
       MINIO_ENDPOINT: ''
@@ -535,6 +544,7 @@ services:
       RAG_INGESTION_MAX_CORPUS_BYTES: '1073741824'
       RAG_INGESTION_MAX_FILE_BYTES: '104857600'
       RAG_INGESTION_MAX_FILES: '10000'
+      RAG_INGESTION_TTL_SECONDS: '604800'
       RAGAS_EMBEDDINGS_MODEL: ''
       RAGAS_EVALUATOR_MODEL: ''
       RAY_ADDRESS: ''
@@ -566,6 +576,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8000
       published: '63093'
       protocol: tcp
@@ -589,6 +600,11 @@ services:
       read_only: true
       bind: {}
   backup:
+    build:
+      context: '{REPO_ROOT}/services/backup/init'
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
     command:
     - /scripts/backup-all.sh
     container_name: atlas-backup
@@ -600,14 +616,33 @@ services:
     environment:
       BACKUP_BUCKET: atlas-backups
       BACKUP_COMMAND_TIMEOUT_SECONDS: '900'
-      BACKUP_S3_ALIAS_URL: http://minio:9000
+      BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS: '120'
+      BACKUP_DATABASES: 'true'
+      BACKUP_DEPLOYMENT_ID: ''
+      BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT: '3'
+      BACKUP_MANIFEST_HMAC_KEY: ''
+      BACKUP_MAX_DATABASE_ARCHIVE_BYTES: '53687091200'
+      BACKUP_MAX_POSTGRES_DUMP_BYTES: '10737418240'
+      BACKUP_NEO4J_SOURCE: container
+      BACKUP_RESTORE_GLOBAL_TIMEOUT_SECONDS: '28800'
+      BACKUP_RESTORE_MAX_CANDIDATES: '100'
+      BACKUP_S3_ACCESS_KEY: ''
+      BACKUP_S3_ALIAS_URL: ''
+      BACKUP_S3_ENDPOINT: http://minio:9000
+      BACKUP_S3_MODE: local
+      BACKUP_S3_REGION: us-east-1
+      BACKUP_S3_SECRET_KEY: ''
+      BACKUP_S3_SESSION_TOKEN: ''
+      BACKUP_S3_TLS_VERIFY: 'true'
       BACKUP_SOURCE: disabled
+      BACKUP_WEAVIATE_SOURCE: container
       MINIO_ROOT_PASSWORD: ''
       MINIO_ROOT_USER: minioadmin
       SUPABASE_DB_NAME: postgres
       SUPABASE_DB_PASSWORD: password
       SUPABASE_DB_USER: supabase_admin
-    image: postgres:17.10-alpine
+      WEAVIATE_URL: http://weaviate:8080
+    image: atlas-backup:local
     networks:
       backend-network: null
     restart: 'no'
@@ -623,14 +658,12 @@ services:
       read_only: true
       volume: {}
     - type: volume
-      source: graph-db-data
-      target: /volumes/graph-db
-      read_only: true
+      source: neo4j-backups
+      target: /database-snapshots/neo4j
       volume: {}
     - type: volume
-      source: weaviate-data
-      target: /volumes/weaviate
-      read_only: true
+      source: weaviate-backups
+      target: /database-snapshots/weaviate
       volume: {}
   cadvisor:
     cap_drop:
@@ -651,6 +684,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8080
       published: '63008'
       protocol: tcp
@@ -671,7 +705,7 @@ services:
       context: '{REPO_ROOT}/services/backend/app'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: python:3.12.13
+        BASE_IMAGE: python:3.12.14-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970
     command:
     - celery
     - -A
@@ -702,6 +736,7 @@ services:
       replicas: 0
     environment:
       ATLAS_OTEL_ENABLED: 'false'
+      BACKEND_STATE_STORE_MODE: redis
       CELERY_BROKER_URL: ''
       CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS: '3600'
       CELERY_QUEUE: atlas
@@ -711,10 +746,12 @@ services:
       CELERY_TASK_TIME_LIMIT_SECONDS: '900'
       CELERY_WORKER_CONCURRENCY: '2'
       CELERY_WORKER_PREFETCH_MULTIPLIER: '1'
+      CHONKIE_SEMANTIC_EMBEDDING_MODEL: minishlab/potion-base-32M
       COMFYUI_BASE_URL: http://comfyui:18188
-      DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
+      DATABASE_URL: postgresql://atlas_backend:atlas-db-password@supabase-db:5432/postgres
       DOCLING_API_TOKEN: ''
       DOCLING_ENDPOINT: ''
+      LANGMEM_EMBEDDING_DIM: '768'
       LANGMEM_EMBEDDING_MODEL: ''
       LANGMEM_ENABLED: 'true'
       LANGMEM_EXTRACTION_MODEL: ''
@@ -722,6 +759,7 @@ services:
       LANGMEM_NAMESPACE: default
       LIGHTRAG_API_KEY: ''
       LIGHTRAG_ENDPOINT: ''
+      LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS: '30'
       LITELLM_API_KEY: ''
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
@@ -737,6 +775,7 @@ services:
       RAG_INGESTION_MAX_CORPUS_BYTES: '1073741824'
       RAG_INGESTION_MAX_FILE_BYTES: '104857600'
       RAG_INGESTION_MAX_FILES: '10000'
+      RAG_INGESTION_TTL_SECONDS: '604800'
       REDIS_URL: redis://:redis_password@redis:6379/0
       TIKA_ENDPOINT: ''
       TIKA_MAX_FILE_SIZE: '52428800'
@@ -815,6 +854,9 @@ services:
   comfyui:
     container_name: atlas-comfyui
     depends_on:
+      comfyui-init:
+        condition: service_completed_successfully
+        required: true
       redis:
         condition: service_started
         required: true
@@ -835,6 +877,7 @@ services:
       COMFYUI_ARGS: --listen
       COMFYUI_CUSTOM_NODES_PATH: /opt/ComfyUI/custom_nodes
       COMFYUI_CUSTOM_NODES_TSV: /comfyui-manifest/active-custom-nodes.tsv
+      COMFYUI_MANIFEST_ROOT: /comfyui-manifest
       COMFYUI_PORT_HOST: '8188'
       COMFYUI_REF: v0.27.0
       COMFYUI_UPLOAD_TO_SUPABASE: 'true'
@@ -848,9 +891,7 @@ services:
     healthcheck:
       test:
       - CMD
-      - curl
-      - -f
-      - http://localhost:18188/system_stats
+      - /opt/ai-dock/bin/atlas-comfyui-healthcheck.sh
       timeout: 10s
       interval: 30s
       retries: 5
@@ -870,6 +911,7 @@ services:
     platform: linux/amd64
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 18188
       published: '63054'
       protocol: tcp
@@ -905,7 +947,17 @@ services:
       target: /opt/ai-dock/bin/provisioning.sh
       read_only: true
       bind: {}
+    - type: bind
+      source: '{REPO_ROOT}/services/comfyui/provisioning/healthcheck.sh'
+      target: /opt/ai-dock/bin/atlas-comfyui-healthcheck.sh
+      read_only: true
+      bind: {}
   comfyui-init:
+    build:
+      context: '{REPO_ROOT}/services/comfyui/init'
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
     container_name: atlas-comfyui-init
     depends_on:
       ollama-pull:
@@ -920,7 +972,7 @@ services:
       COMFYUI_MODELS_PATH: /models
     extra_hosts:
     - host.docker.internal=
-    image: alpine:3.24.1
+    image: atlas-comfyui-init:local
     networks:
       backend-network: null
     restart: 'no'
@@ -966,6 +1018,7 @@ services:
     pids_limit: 512
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 11235
       published: '63050'
       protocol: tcp
@@ -1072,6 +1125,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 5555
       published: '63071'
       protocol: tcp
@@ -1111,6 +1165,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 3000
       published: '63009'
       protocol: tcp
@@ -1189,10 +1244,12 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8642
       published: '63072'
       protocol: tcp
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 9119
       published: '63073'
       protocol: tcp
@@ -1203,6 +1260,11 @@ services:
       target: /opt/data
       volume: {}
   hermes-init:
+    build:
+      context: '{REPO_ROOT}/services/hermes/init'
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
     container_name: atlas-hermes-init
     depends_on:
       litellm:
@@ -1227,7 +1289,7 @@ services:
       STT_INTERNAL_API_KEY: ''
       STT_INTERNAL_URL: ''
       TTS_INTERNAL_URL: ''
-    image: alpine:3.24.1
+    image: atlas-hermes-init:local
     labels:
       com.atlas.agent: hermes
       com.atlas.category: ai
@@ -1274,7 +1336,7 @@ services:
       AWS_SECRET_ACCESS_KEY: ''
       CATALOG_CATALOG__IMPL: org.apache.iceberg.jdbc.JdbcCatalog
       CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
-      CATALOG_JDBC_PASSWORD: ''
+      CATALOG_JDBC_PASSWORD: atlas-db-password
       CATALOG_JDBC_USER: iceberg
       CATALOG_S3_ENDPOINT: http://minio:9000
       CATALOG_S3_PATH__STYLE__ACCESS: 'true'
@@ -1301,6 +1363,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8181
       published: '63022'
       protocol: tcp
@@ -1308,8 +1371,8 @@ services:
   iceberg-rest-init:
     container_name: atlas-iceberg-rest-init
     depends_on:
-      supabase-db:
-        condition: service_healthy
+      supabase-db-init:
+        condition: service_completed_successfully
         required: true
     deploy:
       replicas: 0
@@ -1317,11 +1380,8 @@ services:
     - /bin/sh
     - /scripts/init-iceberg-rest.sh
     environment:
-      ICEBERG_DB_PASSWORD: ''
+      ICEBERG_DB_PASSWORD: atlas-db-password
       ICEBERG_DB_USER: iceberg
-      SUPABASE_DB_NAME: postgres
-      SUPABASE_DB_PASSWORD: password
-      SUPABASE_DB_USER: supabase_admin
     image: postgres:15.18-alpine
     networks:
       backend-network: null
@@ -1378,6 +1438,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8080
       published: '63090'
       protocol: tcp
@@ -1397,7 +1458,7 @@ services:
       context: '{REPO_ROOT}/services/jupyterhub/build'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: quay.io/jupyter/datascience-notebook:python-3.11.10
+        BASE_IMAGE: quay.io/jupyter/datascience-notebook:2026-08-24@sha256:e5029672ab8a861345f117dc466a4dab91ad7c299f3c7c853b9b193860b16aaf
     command:
     - start-notebook.sh
     - --ServerApp.allow_origin=*
@@ -1424,7 +1485,7 @@ services:
       BACKEND_API_URL: http://backend:8000
       BACKEND_NOTEBOOK_API_TOKEN: ''
       COMFYUI_BASE_URL: http://comfyui:18188
-      DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
+      DATABASE_URL: postgresql://atlas_jupyter:atlas-db-password@supabase-db:5432/postgres
       DOCLING_API_TOKEN: ''
       DOCLING_ENDPOINT: ''
       GRANT_SUDO: 'yes'
@@ -1440,6 +1501,7 @@ services:
       LABEL_STUDIO_URL: ''
       LITELLM_API_KEY: ''
       LITELLM_BASE_URL: http://litellm:4000
+      MCP_SERVERS_URL: ''
       MINIO_ENDPOINT: http://minio:9000
       MLFLOW_TRACKING_URI: ''
       N8N_BASE_URL: http://n8n:5678
@@ -1490,6 +1552,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8888
       published: '63094'
       protocol: tcp
@@ -1538,7 +1601,8 @@ services:
       KONG_DNS_NOT_FOUND_TTL: '1'
       KONG_DNS_ORDER: LAST,A,CNAME
       KONG_DNS_STALE_TTL: '4'
-      KONG_NGINX_HTTP_LOG_FORMAT: atlas '$$request_method $$uri $$server_protocol' $$status $$body_bytes_sent '"$$http_user_agent"' $$kong_request_id
+      KONG_NGINX_HTTP_LOG_FORMAT: atlas '$$request_method $$uri $$server_protocol'
+        $$status $$body_bytes_sent '"$$http_user_agent"' $$kong_request_id
       KONG_NGINX_HTTP_UPSTREAM_KEEPALIVE: '16'
       KONG_NGINX_HTTP_UPSTREAM_KEEPALIVE_REQUESTS: '100'
       KONG_NGINX_HTTP_UPSTREAM_KEEPALIVE_TIMEOUT: 60s
@@ -1582,10 +1646,12 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8000
       published: '63000'
       protocol: tcp
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8443
       published: '63001'
       protocol: tcp
@@ -1614,7 +1680,7 @@ services:
       PASSWORD: ''
       POSTGRE_HOST: supabase-db
       POSTGRE_NAME: label_studio
-      POSTGRE_PASSWORD: ''
+      POSTGRE_PASSWORD: atlas-db-password
       POSTGRE_PORT: '5432'
       POSTGRE_USER: label_studio
       SECRET_KEY: ''
@@ -1651,6 +1717,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8080
       published: '63091'
       protocol: tcp
@@ -1665,14 +1732,14 @@ services:
       context: '{REPO_ROOT}/services/label-studio/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.22.1
+        BASE_IMAGE: alpine:3.24.1
     container_name: atlas-label-studio-init
     depends_on:
       minio-init:
         condition: service_completed_successfully
         required: true
-      supabase-db:
-        condition: service_healthy
+      supabase-db-init:
+        condition: service_completed_successfully
         required: true
     deploy:
       replicas: 0
@@ -1681,12 +1748,12 @@ services:
     - /scripts/init-label-studio.sh
     environment:
       LABEL_STUDIO_DB_NAME: label_studio
-      LABEL_STUDIO_DB_PASSWORD: ''
+      LABEL_STUDIO_DB_PASSWORD: atlas-db-password
       LABEL_STUDIO_DB_USER: label_studio
       PGHOST: supabase-db
-      PGPASSWORD: password
+      PGPASSWORD: atlas-db-password
       PGPORT: '5432'
-      PGUSER: supabase_admin
+      PGUSER: label_studio
     image: atlas-label-studio-init:local
     networks:
       backend-network: null
@@ -1718,7 +1785,7 @@ services:
       interval: 5s
       retries: 20
       start_period: 10s
-    image: clickhouse/clickhouse-server:25.8.12
+    image: clickhouse/clickhouse-server:25.8.33.6
     logging:
       driver: json-file
       options:
@@ -1742,14 +1809,14 @@ services:
       context: '{REPO_ROOT}/services/langfuse/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.22.1
+        BASE_IMAGE: alpine:3.24.1
     container_name: atlas-langfuse-init
     depends_on:
       minio-init:
         condition: service_completed_successfully
         required: true
-      supabase-db:
-        condition: service_healthy
+      supabase-db-init:
+        condition: service_completed_successfully
         required: true
     deploy:
       replicas: 0
@@ -1759,9 +1826,9 @@ services:
     environment:
       LANGFUSE_DB_NAME: langfuse
       PGHOST: supabase-db
-      PGPASSWORD: password
+      PGPASSWORD: atlas-db-password
       PGPORT: '5432'
-      PGUSER: supabase_admin
+      PGUSER: langfuse
     image: atlas-langfuse-init:local
     networks:
       backend-network: null
@@ -1792,7 +1859,7 @@ services:
       CLICKHOUSE_PASSWORD: ''
       CLICKHOUSE_URL: http://langfuse-clickhouse:8123
       CLICKHOUSE_USER: clickhouse
-      DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/langfuse
+      DATABASE_URL: postgresql://langfuse:atlas-db-password@supabase-db:5432/langfuse
       ENCRYPTION_KEY: ''
       HOSTNAME: 0.0.0.0
       LANGFUSE_INIT_ORG_ID: atlas
@@ -1853,6 +1920,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 3000
       published: '63005'
       protocol: tcp
@@ -1877,7 +1945,7 @@ services:
       CLICKHOUSE_PASSWORD: ''
       CLICKHOUSE_URL: http://langfuse-clickhouse:8123
       CLICKHOUSE_USER: clickhouse
-      DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/langfuse
+      DATABASE_URL: postgresql://langfuse:atlas-db-password@supabase-db:5432/langfuse
       ENCRYPTION_KEY: ''
       HOSTNAME: 0.0.0.0
       LANGFUSE_INIT_ORG_ID: atlas
@@ -2028,6 +2096,7 @@ services:
       docling-lightrag-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 9621
       published: '63074'
       protocol: tcp
@@ -2038,6 +2107,11 @@ services:
       target: /app/data
       volume: {}
   lightrag-init:
+    build:
+      context: '{REPO_ROOT}/services/lightrag/init'
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
     container_name: atlas-lightrag-init
     depends_on:
       litellm:
@@ -2062,7 +2136,7 @@ services:
       LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
       LITELLM_MASTER_KEY: ''
-    image: alpine:3.24.1
+    image: atlas-lightrag-init:local
     networks:
       backend-network: null
     restart: 'no'
@@ -2097,7 +2171,7 @@ services:
         required: true
     environment:
       ANTHROPIC_API_KEY: ''
-      DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/litellm
+      DATABASE_URL: postgresql://litellm:atlas-db-password@supabase-db:5432/litellm
       FAL_AI_API_KEY: ''
       HERMES_API_KEY: ''
       LANGFUSE_BASE_URL: ''
@@ -2145,6 +2219,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 4000
       published: '63040'
       protocol: tcp
@@ -2163,8 +2238,8 @@ services:
       dockerfile: Dockerfile
     container_name: atlas-litellm-init
     depends_on:
-      supabase-db:
-        condition: service_healthy
+      supabase-db-init:
+        condition: service_completed_successfully
         required: true
     deploy:
       replicas: 1
@@ -2199,9 +2274,9 @@ services:
       OPENROUTER_API_KEY: ''
       OPENROUTER_USER_MODELS: ''
       PGHOST: supabase-db
-      PGPASSWORD: password
+      PGPASSWORD: atlas-db-password
       PGPORT: '5432'
-      PGUSER: supabase_admin
+      PGUSER: litellm
       TEI_RERANKER_ENDPOINT: ''
       TEI_RERANKER_MODEL_ID: mixedbread-ai/mxbai-rerank-base-v1
       TEI_RERANKER_SOURCE: disabled
@@ -2365,6 +2440,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8080
       published: '63095'
       protocol: tcp
@@ -2413,6 +2489,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 2024
       published: '63097'
       protocol: tcp
@@ -2488,16 +2565,16 @@ services:
       GRAPH_DB_PASSWORD: neo4j_password
       GRAPH_DB_USER: neo4j
       MCP_NEO4J_MAX_ROWS: ''
+      MCP_POSTGRES_DB_HOST: supabase-db
+      MCP_POSTGRES_DB_NAME: postgres
+      MCP_POSTGRES_DB_PASSWORD: atlas-db-password
+      MCP_POSTGRES_DB_PORT: '5432'
+      MCP_POSTGRES_DB_USER: atlas_mcp
       MCP_POSTGRES_MAX_ROWS: '50'
       MCP_SEARXNG_MAX_RESULTS: '5'
       MCP_TOOL_TIMEOUT_SECONDS: '15'
       NEO4J_URI: bolt://neo4j-graph-db:7687
       SEARXNG_URL: http://searxng:8080
-      SUPABASE_DB_HOST: supabase-db
-      SUPABASE_DB_NAME: postgres
-      SUPABASE_DB_PASSWORD: password
-      SUPABASE_DB_PORT: '5432'
-      SUPABASE_DB_USER: supabase_admin
     image: atlas-mcp-servers:local
     logging:
       driver: json-file
@@ -2548,10 +2625,12 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 9000
       published: '63020'
       protocol: tcp
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 9001
       published: '63021'
       protocol: tcp
@@ -2629,20 +2708,14 @@ services:
       read_only: true
       bind: {}
   mlflow:
+    build:
+      context: '{REPO_ROOT}/services/mlflow'
+      dockerfile: build/Dockerfile
+      args:
+        BASE_IMAGE: ghcr.io/mlflow/mlflow:v3.15.1
     command:
-    - mlflow
-    - server
-    - --host
-    - 0.0.0.0
-    - --port
-    - '5000'
-    - --backend-store-uri
-    - postgresql://mlflow:@supabase-db:5432/mlflow
-    - --artifacts-destination
-    - s3://mlflow
-    - --serve-artifacts
-    - --allowed-hosts
-    - mlflow,mlflow:5000,localhost,localhost:63092,mlflow.localhost,mlflow.localhost:63000
+    - python
+    - atlas_server.py
     container_name: atlas-mlflow
     depends_on:
       mlflow-init:
@@ -2651,10 +2724,16 @@ services:
     deploy:
       replicas: 0
     environment:
+      _MLFLOW_SERVER_ARTIFACT_DESTINATION: s3://mlflow
+      _MLFLOW_SERVER_ARTIFACT_ROOT: mlflow-artifacts:/
+      _MLFLOW_SERVER_FILE_STORE: postgresql://mlflow:atlas-db-password@supabase-db:5432/mlflow
+      _MLFLOW_SERVER_REGISTRY_STORE: postgresql://mlflow:atlas-db-password@supabase-db:5432/mlflow
+      _MLFLOW_SERVER_SERVE_ARTIFACTS: 'true'
       AWS_ACCESS_KEY_ID: ''
       AWS_DEFAULT_REGION: us-east-1
       AWS_SECRET_ACCESS_KEY: ''
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      MLFLOW_SERVER_ALLOWED_HOSTS: mlflow,mlflow:5000,localhost,localhost:5000,localhost:63092,mlflow.localhost,mlflow.localhost:63000
     healthcheck:
       test:
       - CMD-SHELL
@@ -2669,7 +2748,7 @@ services:
       interval: 30s
       retries: 10
       start_period: 1m0s
-    image: ghcr.io/mlflow/mlflow:v3.14.0
+    image: atlas-mlflow:local
     logging:
       driver: json-file
       options:
@@ -2679,23 +2758,25 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 5000
       published: '63092'
       protocol: tcp
     restart: unless-stopped
+    working_dir: /opt/atlas
   mlflow-init:
     build:
       context: '{REPO_ROOT}/services/mlflow/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.22.1
+        BASE_IMAGE: alpine:3.24.1
     container_name: atlas-mlflow-init
     depends_on:
       minio-init:
         condition: service_completed_successfully
         required: true
-      supabase-db:
-        condition: service_healthy
+      supabase-db-init:
+        condition: service_completed_successfully
         required: true
     deploy:
       replicas: 0
@@ -2704,12 +2785,12 @@ services:
     - /scripts/init-mlflow.sh
     environment:
       MLFLOW_DB_NAME: mlflow
-      MLFLOW_DB_PASSWORD: ''
+      MLFLOW_DB_PASSWORD: atlas-db-password
       MLFLOW_DB_USER: mlflow
       PGHOST: supabase-db
-      PGPASSWORD: password
+      PGPASSWORD: atlas-db-password
       PGPORT: '5432'
-      PGUSER: supabase_admin
+      PGUSER: mlflow
     image: atlas-mlflow-init:local
     networks:
       backend-network: null
@@ -2765,10 +2846,10 @@ services:
       CRAWL4AI_ENDPOINT: ''
       DB_POSTGRESDB_DATABASE: postgres
       DB_POSTGRESDB_HOST: supabase-db
-      DB_POSTGRESDB_PASSWORD: password
+      DB_POSTGRESDB_PASSWORD: atlas-db-password
       DB_POSTGRESDB_PORT: '5432'
       DB_POSTGRESDB_SCHEMA: n8n
-      DB_POSTGRESDB_USER: supabase_admin
+      DB_POSTGRESDB_USER: atlas_n8n
       DB_SCHEMA: n8n
       DB_TYPE: postgresdb
       DOCLING_API_TOKEN: ''
@@ -2831,6 +2912,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 5678
       published: '63075'
       protocol: tcp
@@ -2895,10 +2977,10 @@ services:
       CRAWL4AI_ENDPOINT: ''
       DB_POSTGRESDB_DATABASE: postgres
       DB_POSTGRESDB_HOST: supabase-db
-      DB_POSTGRESDB_PASSWORD: password
+      DB_POSTGRESDB_PASSWORD: atlas-db-password
       DB_POSTGRESDB_PORT: '5432'
       DB_POSTGRESDB_SCHEMA: n8n
-      DB_POSTGRESDB_USER: supabase_admin
+      DB_POSTGRESDB_USER: atlas_n8n
       DB_SCHEMA: n8n
       DB_TYPE: postgresdb
       DOCLING_API_TOKEN: ''
@@ -2980,10 +3062,12 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 7687
       published: '63023'
       protocol: tcp
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 7474
       published: '63024'
       protocol: tcp
@@ -2993,10 +3077,10 @@ services:
       source: '{REPO_ROOT}/services/neo4j/build/scripts'
       target: /scripts
       bind: {}
-    - type: bind
-      source: '{REPO_ROOT}/services/neo4j/build/snapshot'
+    - type: volume
+      source: neo4j-backups
       target: /snapshot
-      bind: {}
+      volume: {}
     - type: volume
       source: graph-db-data
       target: /data
@@ -3020,6 +3104,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 9100
       published: '63007'
       protocol: tcp
@@ -3066,6 +3151,11 @@ services:
       target: /root/.ollama
       volume: {}
   ollama-pull:
+    build:
+      context: '{REPO_ROOT}/services/ollama/pull'
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
     container_name: atlas-ollama-pull
     depends_on:
       ollama:
@@ -3081,11 +3171,11 @@ services:
     environment:
       OLLAMA_CUSTOM_MODELS: ''
       OLLAMA_HOST_URL: ''
-      OLLAMA_PULL_STALL_TIMEOUT_SECONDS: "120"
+      OLLAMA_PULL_STALL_TIMEOUT_SECONDS: '120'
       OLLAMA_USER_MODELS: qwen3.8:latest,nomic-embed-text,qwen3-embedding:0.6b
     extra_hosts:
     - host.docker.internal=
-    image: alpine:3.24.1
+    image: atlas-ollama-pull:local
     networks:
       backend-network: null
     restart: 'no'
@@ -3128,7 +3218,7 @@ services:
       BACKEND_OPEN_WEBUI_API_TOKEN: ''
       COMFYUI_BASE_URL: http://comfyui:18188
       COMFYUI_COMPLETION_TIMEOUT_SECONDS: '300'
-      DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
+      DATABASE_URL: postgresql://atlas_open_webui:atlas-db-password@supabase-db:5432/postgres
       ENABLE_IMAGE_GENERATION: 'true'
       ENABLE_OLLAMA_API: 'false'
       ENABLE_OPENAI_API: 'true'
@@ -3154,6 +3244,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8080
       published: '63096'
       protocol: tcp
@@ -3176,7 +3267,7 @@ services:
       context: '{REPO_ROOT}/services/open-webui/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: python:3.12.7-slim
+        BASE_IMAGE: python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579
     container_name: atlas-open-webui-init
     depends_on:
       open-web-ui:
@@ -3191,7 +3282,7 @@ services:
       ADMIN_EMAIL: admin@localhost
       ADMIN_NAME: Admin
       ADMIN_PASSWORD: admin
-      DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
+      DATABASE_URL: postgresql://atlas_open_webui:atlas-db-password@supabase-db:5432/postgres
       FUNCTIONS_DIR: /functions
       TOOLS_DIR: /tools
       WEBUI_SECRET_KEY: secret
@@ -3264,10 +3355,12 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 18789
       published: '63076'
       protocol: tcp
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 18790
       published: '63077'
       protocol: tcp
@@ -3282,22 +3375,27 @@ services:
       target: /home/node/.openclaw/workspace
       volume: {}
   openclaw-init:
+    build:
+      context: '{REPO_ROOT}/services/openclaw/init'
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
     container_name: atlas-openclaw-init
     deploy:
       replicas: 0
     entrypoint:
     - sh
     - -c
-    - "set -e\napk add --no-cache jq > /dev/null\nCONFIG=/home/node/.openclaw/openclaw.json\n\
-      PATCH='{\"gateway\":{\"controlUi\":{\"dangerouslyAllowHostHeaderOriginFallback\"\
-      :true}}}'\n# Write via tmp + mv on BOTH branches: `> \"$$CONFIG\"` truncates\n\
-      # the target before jq runs, so a missing/failed jq used to\n# leave a 0-byte\
-      \ config the gateway chokes on (and re-runs\n# could not self-heal \u2014 jq\
-      \ errors on the empty file).\nif [ -s \"$$CONFIG\" ]; then\n  jq --argjson patch\
-      \ \"$$PATCH\" '. * $$patch' \"$$CONFIG\" > \"$$CONFIG.tmp\" && mv \"$$CONFIG.tmp\"\
-      \ \"$$CONFIG\"\nelse\n  echo \"$$PATCH\" | jq . > \"$$CONFIG.tmp\" && mv \"\
-      $$CONFIG.tmp\" \"$$CONFIG\"\nfi\nchown -R 1000:1000 /home/node/.openclaw\n"
-    image: alpine:3.24.1
+    - "set -e\nCONFIG=/home/node/.openclaw/openclaw.json\nPATCH='{\"gateway\":{\"\
+      controlUi\":{\"dangerouslyAllowHostHeaderOriginFallback\":true}}}'\n# Write\
+      \ via tmp + mv on BOTH branches: `> \"$$CONFIG\"` truncates\n# the target before\
+      \ jq runs, so a missing/failed jq used to\n# leave a 0-byte config the gateway\
+      \ chokes on (and re-runs\n# could not self-heal \u2014 jq errors on the empty\
+      \ file).\nif [ -s \"$$CONFIG\" ]; then\n  jq --argjson patch \"$$PATCH\" '.\
+      \ * $$patch' \"$$CONFIG\" > \"$$CONFIG.tmp\" && mv \"$$CONFIG.tmp\" \"$$CONFIG\"\
+      \nelse\n  echo \"$$PATCH\" | jq . > \"$$CONFIG.tmp\" && mv \"$$CONFIG.tmp\"\
+      \ \"$$CONFIG\"\nfi\nchown -R 1000:1000 /home/node/.openclaw\n"
+    image: atlas-openclaw-init:local
     networks:
       backend-network: null
     restart: 'no'
@@ -3316,8 +3414,8 @@ services:
     container_name: atlas-otel-collector
     depends_on:
       loki:
-        condition: service_started
-        required: false
+        condition: service_healthy
+        required: true
       tempo:
         condition: service_healthy
         required: true
@@ -3357,7 +3455,7 @@ services:
     deploy:
       replicas: 0
     environment:
-      DATA_SOURCE_NAME: postgresql://supabase_admin:password@supabase-db:5432/postgres?sslmode=disable
+      DATA_SOURCE_NAME: postgresql://atlas_metrics:atlas-db-password@supabase-db:5432/postgres?sslmode=disable
       PG_EXPORTER_AUTO_DISCOVER_DATABASES: 'true'
       PG_EXPORTER_DISABLE_SETTINGS_METRICS: 'true'
     healthcheck:
@@ -3381,6 +3479,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 9187
       published: '63013'
       protocol: tcp
@@ -3417,6 +3516,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 9090
       published: '63006'
       protocol: tcp
@@ -3544,6 +3644,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 6379
       published: '63025'
       protocol: tcp
@@ -3574,6 +3675,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 9121
       published: '63026'
       protocol: tcp
@@ -3623,6 +3725,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 19092
       published: '63010'
       protocol: tcp
@@ -3652,6 +3755,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8080
       published: '63011'
       protocol: tcp
@@ -3714,6 +3818,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8080
       published: '63056'
       protocol: tcp
@@ -3838,6 +3943,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 18080
       published: '63028'
       protocol: tcp
@@ -3913,6 +4019,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8080
       published: '63027'
       protocol: tcp
@@ -3972,7 +4079,7 @@ services:
     environment:
       PGRST_DB_ANON_ROLE: anon
       PGRST_DB_SCHEMA: public,storage
-      PGRST_DB_URI: postgres://supabase_admin:password@supabase-db:5432/postgres
+      PGRST_DB_URI: postgres://authenticator:atlas-db-password@supabase-db:5432/postgres
       PGRST_DB_USE_LEGACY_GUCS: 'false'
       PGRST_JWT_SECRET: ''
     image: postgrest/postgrest:v12.2.10
@@ -3985,6 +4092,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 3000
       published: '63017'
       protocol: tcp
@@ -3998,7 +4106,7 @@ services:
     environment:
       API_EXTERNAL_URL: http://supabase-auth:9999
       DB_NAMESPACE: auth
-      GOTRUE_DB_DATABASE_URL: postgres://supabase_admin:password@supabase-db:5432/postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:atlas-db-password@supabase-db:5432/postgres
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DISABLE_SIGNUP: 'false'
       GOTRUE_EXTERNAL_EMAIL_ENABLED: 'true'
@@ -4027,15 +4135,19 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 9999
       published: '63016'
       protocol: tcp
     restart: unless-stopped
   supabase-db:
+    command:
+    - sh
+    - /usr/local/bin/enforce-scram-host-auth.sh
     container_name: atlas-supabase-db
     environment:
       POSTGRES_DB: postgres
-      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
       POSTGRES_PASSWORD: password
       POSTGRES_USER: supabase_admin
     healthcheck:
@@ -4069,6 +4181,11 @@ services:
       source: '{REPO_ROOT}/services/supabase/db/snapshot'
       target: /snapshot
       bind: {}
+    - type: bind
+      source: '{REPO_ROOT}/services/supabase/db/scripts/enforce-scram-host-auth.sh'
+      target: /usr/local/bin/enforce-scram-host-auth.sh
+      read_only: true
+      bind: {}
   supabase-db-init:
     container_name: atlas-supabase-db-init
     depends_on:
@@ -4078,10 +4195,60 @@ services:
     entrypoint:
     - /scripts/db-init-runner.sh
     environment:
+      AIRFLOW_ATLAS_DB_PASSWORD: atlas-db-password
+      AIRFLOW_ATLAS_DB_USER: atlas_airflow_reader
+      AIRFLOW_DB_PASSWORD: atlas-db-password
+      AIRFLOW_DB_USER: airflow
+      BACKEND_DB_PASSWORD: atlas-db-password
+      BACKEND_DB_USER: atlas_backend
+      ICEBERG_DB_PASSWORD: atlas-db-password
+      ICEBERG_DB_USER: iceberg
+      JUPYTER_DB_PASSWORD: atlas-db-password
+      JUPYTER_DB_USER: atlas_jupyter
+      LABEL_STUDIO_DB_NAME: label_studio
+      LABEL_STUDIO_DB_PASSWORD: atlas-db-password
+      LABEL_STUDIO_DB_USER: label_studio
+      LANGFUSE_DB_NAME: langfuse
+      LANGFUSE_DB_PASSWORD: atlas-db-password
+      LANGFUSE_DB_USER: langfuse
+      LANGMEM_EMBEDDING_DIM: '768'
+      LANGMEM_EMBEDDING_MODEL: ''
+      LIGHTRAG_DB_PASSWORD: atlas-db-password
+      LIGHTRAG_DB_USER: atlas_lightrag
+      LITELLM_DB_NAME: litellm
+      LITELLM_DB_PASSWORD: atlas-db-password
+      LITELLM_DB_USER: litellm
+      LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
+      MCP_POSTGRES_DB_PASSWORD: atlas-db-password
+      MCP_POSTGRES_DB_USER: atlas_mcp
+      MLFLOW_DB_NAME: mlflow
+      MLFLOW_DB_PASSWORD: atlas-db-password
+      MLFLOW_DB_USER: mlflow
+      N8N_DB_PASSWORD: atlas-db-password
+      N8N_DB_USER: atlas_n8n
+      OPEN_WEBUI_DB_PASSWORD: atlas-db-password
+      OPEN_WEBUI_DB_USER: atlas_open_webui
       PGDATABASE: postgres
       PGHOST: supabase-db
       PGPASSWORD: password
       PGUSER: supabase_admin
+      POSTGRES_EXPORTER_DB_PASSWORD: atlas-db-password
+      POSTGRES_EXPORTER_DB_USER: atlas_metrics
+      SUPABASE_API_DB_PASSWORD: atlas-db-password
+      SUPABASE_API_DB_USER: authenticator
+      SUPABASE_AUTH_DB_PASSWORD: atlas-db-password
+      SUPABASE_AUTH_DB_USER: supabase_auth_admin
+      SUPABASE_META_DB_PASSWORD: atlas-db-password
+      SUPABASE_META_DB_USER: atlas_meta
+      SUPABASE_REALTIME_DB_PASSWORD: atlas-db-password
+      SUPABASE_REALTIME_DB_USER: atlas_realtime
+      SUPABASE_STORAGE_DB_PASSWORD: atlas-db-password
+      SUPABASE_STORAGE_DB_USER: supabase_storage_admin
+      SUPABASE_STUDIO_DB_USER: atlas_studio_readonly
+      SUPAVISOR_DB_ADMIN_PASSWORD: atlas-db-password
+      SUPAVISOR_DB_ADMIN_USER: atlas_supavisor
+      ZEPPELIN_DB_PASSWORD: atlas-db-password
+      ZEPPELIN_DB_USER: atlas_zeppelin
     image: postgres:15.18-alpine
     networks:
       backend-network: null
@@ -4105,9 +4272,9 @@ services:
     environment:
       PG_META_DB_HOST: supabase-db
       PG_META_DB_NAME: postgres
-      PG_META_DB_PASSWORD: password
+      PG_META_DB_PASSWORD: atlas-db-password
       PG_META_DB_PORT: '5432'
-      PG_META_DB_USER: supabase_admin
+      PG_META_DB_USER: atlas_meta
       PG_META_PORT: '8080'
     image: supabase/postgres-meta:v0.96.6
     logging:
@@ -4119,6 +4286,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8080
       published: '63014'
       protocol: tcp
@@ -4140,10 +4308,10 @@ services:
       DB_CHANNEL_ENABLED: 'true'
       DB_HOST: supabase-db
       DB_NAME: postgres
-      DB_PASSWORD: password
+      DB_PASSWORD: atlas-db-password
       DB_PORT: '5432'
       DB_SLOT: supabase_realtime_slot
-      DB_USER: supabase_admin
+      DB_USER: atlas_realtime
       DNS_NODES: supabase-realtime-noop.invalid
       ERL_AFLAGS: -proto_dist inet_tcp
       HOSTNAME: supabase-realtime
@@ -4166,6 +4334,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 4000
       published: '63018'
       protocol: tcp
@@ -4178,7 +4347,7 @@ services:
         required: true
     environment:
       ANON_KEY: ''
-      DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
+      DATABASE_URL: postgresql://supabase_storage_admin:atlas-db-password@supabase-db:5432/postgres
       FILE_SIZE_LIMIT: '52428800'
       FILE_STORAGE_BACKEND_PATH: /var/lib/storage
       FILE_STORAGE_PATH: /var/lib/storage
@@ -4201,6 +4370,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 5000
       published: '63015'
       protocol: tcp
@@ -4236,10 +4406,15 @@ services:
         required: true
     environment:
       AUTH_JWT_SECRET: ''
-      DATABASE_URL: postgresql://supabase_admin:password@supabase-db:5432/postgres
+      DATABASE_URL: postgresql://atlas_meta:atlas-db-password@supabase-db:5432/postgres
       DEFAULT_ORGANIZATION_NAME: atlas
       HOSTNAME: 0.0.0.0
-      POSTGRES_PASSWORD: password
+      POSTGRES_DB: postgres
+      POSTGRES_HOST: supabase-db
+      POSTGRES_PASSWORD: atlas-db-password
+      POSTGRES_PORT: '5432'
+      POSTGRES_USER_READ_ONLY: atlas_studio_readonly
+      POSTGRES_USER_READ_WRITE: atlas_meta
       STUDIO_PG_META_URL: http://supabase-meta:8080
       SUPABASE_ANON_KEY: ''
       SUPABASE_PUBLIC_URL: http://localhost:63000
@@ -4263,6 +4438,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 3000
       published: '63019'
       protocol: tcp
@@ -4283,7 +4459,7 @@ services:
     environment:
       API_JWT_SECRET: ''
       CLUSTER_POSTGRES: 'true'
-      DATABASE_URL: ecto://supabase_admin:password@supabase-db:5432/postgres
+      DATABASE_URL: ecto://atlas_supavisor:atlas-db-password@supabase-db:5432/supavisor
       DB_POOL_SIZE: '5'
       ERL_AFLAGS: -proto_dist inet_tcp
       METRICS_JWT_SECRET: ''
@@ -4294,9 +4470,9 @@ services:
       PORT: '4000'
       POSTGRES_DB: postgres
       POSTGRES_HOST: supabase-db
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: atlas-db-password
       POSTGRES_PORT: '5432'
-      POSTGRES_USER: supabase_admin
+      POSTGRES_USER: atlas_supavisor
       PROXY_PORT_TRANSACTION: '6543'
       REGION: local
       SECRET_KEY_BASE: ''
@@ -4367,6 +4543,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 80
       published: '63041'
       protocol: tcp
@@ -4442,6 +4619,7 @@ services:
     pids_limit: 512
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 9998
       published: '63057'
       protocol: tcp
@@ -4475,6 +4653,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8080
       published: '63029'
       protocol: tcp
@@ -4526,6 +4705,7 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8000
       published: '63098'
       protocol: tcp
@@ -4564,10 +4744,11 @@ services:
     - http
     environment:
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      BACKUP_FILESYSTEM_PATH: /var/lib/weaviate/backups
       CLIP_INFERENCE_API: http://multi2vec-clip:8080
       CLUSTER_HOSTNAME: weaviate
       DEFAULT_VECTORIZER_MODULE: text2vec-openai
-      ENABLE_MODULES: text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama
+      ENABLE_MODULES: text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem
       OPENAI_APIKEY: ''
       PERSISTENCE_DATA_PATH: /var/lib/weaviate
       PROMETHEUS_MONITORING_ENABLED: 'true'
@@ -4588,7 +4769,7 @@ services:
       timeout: 5s
       interval: 10s
       retries: 5
-    image: cr.weaviate.io/semitechnologies/weaviate:1.38.2
+    image: cr.weaviate.io/semitechnologies/weaviate:1.38.13
     logging:
       driver: json-file
       options:
@@ -4598,10 +4779,12 @@ services:
       backend-network: null
     ports:
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 8080
       published: '63030'
       protocol: tcp
     - mode: ingress
+      host_ip: 127.0.0.1
       target: 50051
       published: '63031'
       protocol: tcp
@@ -4610,6 +4793,10 @@ services:
     - type: volume
       source: weaviate-data
       target: /var/lib/weaviate
+      volume: {}
+    - type: volume
+      source: weaviate-backups
+      target: /var/lib/weaviate/backups
       volume: {}
     - type: volume
       source: weaviate-shared-config
@@ -4707,9 +4894,9 @@ services:
       TRINO_JDBC_URL: jdbc:trino://trino:8080/lakehouse
       TRINO_JDBC_USER: atlas
       TRINO_SOURCE: disabled
-      ZEPPELIN_JDBC_POSTGRES_PASSWORD: password
+      ZEPPELIN_JDBC_POSTGRES_PASSWORD: atlas-db-password
       ZEPPELIN_JDBC_POSTGRES_URL: jdbc:postgresql://supabase-db:5432/postgres
-      ZEPPELIN_JDBC_POSTGRES_USER: supabase_admin
+      ZEPPELIN_JDBC_POSTGRES_USER: atlas_zeppelin
       ZEPPELIN_LOG_DIR: /logs
       ZEPPELIN_NOTEBOOK_DIR: /notebook
       ZEPPELIN_PORT: '8080'
@@ -4870,6 +5057,9 @@ volumes:
   n8n-data:
     name: atlas-n8n-data
     driver: local
+  neo4j-backups:
+    name: atlas-neo4j-backups
+    driver: local
   open-web-ui-data:
     name: atlas-open-web-ui-data
     driver: local
@@ -4904,6 +5094,9 @@ volumes:
     driver: local
   verba-data:
     name: atlas_verba-data
+  weaviate-backups:
+    name: atlas-weaviate-backups
+    driver: local
   weaviate-data:
     name: atlas-weaviate-data
     driver: local

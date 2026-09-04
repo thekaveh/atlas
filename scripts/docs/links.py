@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from html.parser import HTMLParser
+
+from markdown_it import MarkdownIt
+from markdown_it.token import Token
 
 
 REPO_URL = "https://github.com/thekaveh/atlas"
@@ -14,12 +18,43 @@ _HTML_LINK_RE = re.compile(
     r"(?P<quote>[\"'])(?P<target>.*?)(?P=quote)[^>]*>",
     re.IGNORECASE,
 )
+_MARKDOWN = MarkdownIt("commonmark")
+_INERT_HTML_CONTAINERS = {"script", "style", "template"}
 
 
 @dataclass(frozen=True)
 class Link:
     target: str
     is_image: bool
+
+
+class _RenderedAnchorParser(HTMLParser):
+    """Collect navigable raw-HTML anchors while ignoring inert containers."""
+
+    def __init__(self, targets: list[str]) -> None:
+        super().__init__(convert_charrefs=True)
+        self._targets = targets
+        self._inert_stack: list[str] = []
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        normalized = tag.lower()
+        if normalized in _INERT_HTML_CONTAINERS:
+            self._inert_stack.append(normalized)
+            return
+        if self._inert_stack or normalized != "a":
+            return
+        href = next((value for name, value in attrs if name.lower() == "href"), None)
+        if href is not None:
+            self._targets.append(href)
+
+    def handle_endtag(self, tag: str) -> None:
+        normalized = tag.lower()
+        if self._inert_stack and normalized == self._inert_stack[-1]:
+            self._inert_stack.pop()
 
 
 def _without_fenced_code(markdown: str) -> str:
@@ -55,6 +90,32 @@ def find_links(markdown: str) -> list[Link]:
             )
         )
     return [link for _, link in sorted(links, key=lambda item: item[0])]
+
+
+def navigable_link_targets(markdown: str) -> list[str]:
+    """Return links that CommonMark renders as navigation, in document order.
+
+    Markdown links include inline, reference, and URI autolinks. Raw HTML
+    anchors are included because every Atlas surface renders them; comments,
+    code, fences, images, and inert HTML containers never create graph edges.
+    """
+    targets: list[str] = []
+    html_parser = _RenderedAnchorParser(targets)
+
+    def visit(tokens: list[Token]) -> None:
+        for token in tokens:
+            if token.type == "link_open":
+                href = token.attrGet("href")
+                if href is not None:
+                    targets.append(href)
+            elif token.type in {"html_block", "html_inline"}:
+                html_parser.feed(token.content)
+            if token.children:
+                visit(token.children)
+
+    visit(_MARKDOWN.parse(markdown))
+    html_parser.close()
+    return targets
 
 
 def is_forbidden(target: str, surface: str) -> bool:

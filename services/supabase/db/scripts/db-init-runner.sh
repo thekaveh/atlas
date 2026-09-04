@@ -7,6 +7,19 @@ if [ -z "$PGHOST" ] || [ -z "$PGUSER" ] || [ -z "$PGPASSWORD" ] || [ -z "$PGDATA
   exit 1
 fi
 
+LANGMEM_EMBEDDING_DIM="${LANGMEM_EMBEDDING_DIM:-768}"
+ATLAS_MEMORY_EMBEDDING_MODEL="${LANGMEM_EMBEDDING_MODEL:-${LITELLM_EMBEDDING_MODEL:-ollama/nomic-embed-text}}"
+case "$LANGMEM_EMBEDDING_DIM" in
+  ''|*[!0-9]*)
+    echo "db-init-runner: ERROR - LANGMEM_EMBEDDING_DIM must be an integer from 1 through 4000." >&2
+    exit 1
+    ;;
+esac
+if [ "$LANGMEM_EMBEDDING_DIM" -lt 1 ] || [ "$LANGMEM_EMBEDDING_DIM" -gt 4000 ]; then
+  echo "db-init-runner: ERROR - LANGMEM_EMBEDDING_DIM must be an integer from 1 through 4000." >&2
+  exit 1
+fi
+
 echo "db-init-runner: Waiting for database service $PGHOST..."
 # Use pg_isready to wait for the database server to accept connections.
 # Bounded (300s) like every other init wait loop — depends_on's
@@ -55,7 +68,10 @@ run_sql_directory() {
     if [ -f "$f" ]; then
       echo "db-init-runner: Running $phase_name SQL script: $f"
       # Execute script using psql, stop on error.
-      psql -v ON_ERROR_STOP=1 --host "$PGHOST" --username "$PGUSER" --dbname "$PGDATABASE" -a -f "$f"
+      psql -v ON_ERROR_STOP=1 \
+        -v "atlas_memory_embedding_dim=$LANGMEM_EMBEDDING_DIM" \
+        -v "atlas_memory_embedding_model=$ATLAS_MEMORY_EMBEDDING_MODEL" \
+        --host "$PGHOST" --username "$PGUSER" --dbname "$PGDATABASE" -a -f "$f"
     fi
   done < "$list_file"
   rm -f "$list_file"
@@ -63,6 +79,14 @@ run_sql_directory() {
 
 echo "db-init-runner: Database is ready. Running Atlas post-initialization scripts from $ATLAS_SQL_DIR..."
 run_sql_directory "$ATLAS_SQL_DIR" "Atlas" "true" "/tmp/_db_init_atlas_sql_files"
+
+ROLE_SCRIPT="$ATLAS_SQL_DIR/05-scoped-roles.sh"
+if [ ! -f "$ROLE_SCRIPT" ]; then
+  echo "db-init-runner: ERROR - required scoped-role provisioner not found: $ROLE_SCRIPT" >&2
+  exit 1
+fi
+echo "db-init-runner: Applying scoped PostgreSQL roles and grants..."
+/bin/sh "$ROLE_SCRIPT"
 
 echo "db-init-runner: Running optional user post-initialization scripts from $USER_SQL_DIR..."
 run_sql_directory "$USER_SQL_DIR" "user" "false" "/tmp/_db_init_user_sql_files"

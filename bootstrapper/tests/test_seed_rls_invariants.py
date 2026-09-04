@@ -8,11 +8,11 @@ PR. The exposure chain that makes this load-bearing:
     default privileges granting anon full `arwdDxtm`.
   * `services/supabase/compose.yml` sets `PGRST_DB_SCHEMA: "public,storage"`
     and `PGRST_DB_ANON_ROLE: anon`.
-  * `.env.example` ships `HOST_BIND_IP=` empty, so PostgREST publishes on
-    0.0.0.0.
+  * `.env.example` ships a loopback `HOST_BIND_IP` default. An operator can
+    deliberately publish PostgREST remotely with a non-empty override.
 
-So for `public`, RLS is the ONLY thing between an unauthenticated network peer
-and the table. Two slices shipped without it: `12-comfyui.sql` (user prompts
+So for `public`, RLS remains the database authorization boundary for every
+PostgREST peer, including a deliberately remote publication. Two slices shipped without it: `12-comfyui.sql` (user prompts
 and output paths — readable AND deletable) and `03b-gotrue-migration-sync.sql`
 (one DELETE returns GoTrue to the PostgreSQL-17 crash-loop the slice exists to
 prevent). Both were confirmed against a running stack before being fixed.
@@ -28,6 +28,12 @@ import pytest
 SCRIPTS_DIR = (
     Path(__file__).resolve().parents[2] / "services" / "supabase" / "db" / "scripts"
 )
+SCOPED_ROLES = SCRIPTS_DIR / "05-scoped-roles.sh"
+
+# Internal coordination tables are intentionally invisible to every PostgREST
+# JWT role.  A dedicated database login may receive a command-scoped policy in
+# 05-scoped-roles.sh; these tables must not acquire a public/client policy here.
+DENY_BY_DEFAULT_PUBLIC_TABLES = {"memory_embedding_schema_state"}
 
 #: `public.` is OPTIONAL — an unqualified `CREATE TABLE secrets_vault (...)`
 #: lands in `public` too (it is first on the default search_path) and was
@@ -79,12 +85,48 @@ def test_every_public_table_enables_row_level_security():
 
 
 def test_no_public_table_is_created_without_a_policy():
-    """RLS with no policy denies everyone, including service_role."""
+    """Client-facing tables have policies; internal tables default-deny."""
     sql = _all_sql()
     for table in sorted(set(_ENABLE_RLS.findall(sql))):
+        if table in DENY_BY_DEFAULT_PUBLIC_TABLES:
+            assert not re.search(
+                rf"CREATE\s+POLICY[^;]+ON\s+public\.{table}\b",
+                sql,
+                re.IGNORECASE,
+            ), f"public.{table} must not expose a PostgREST client policy"
+            continue
         assert re.search(
             rf"CREATE\s+POLICY[^;]+ON\s+public\.{table}\b", sql, re.IGNORECASE
         ), f"public.{table} enables RLS but declares no policy"
+
+
+def test_memory_schema_state_is_private_but_backend_can_read_it():
+    """The internal state is not a client API, while Backend needs SELECT."""
+    memory_sql = (SCRIPTS_DIR / "14-backend-memory.sql").read_text(encoding="utf-8")
+    scoped_roles = SCOPED_ROLES.read_text(encoding="utf-8")
+
+    assert (
+        "ALTER TABLE public.memory_embedding_schema_state ENABLE ROW LEVEL SECURITY;"
+        in memory_sql
+    )
+    assert re.search(
+        r"REVOKE\s+ALL\s+ON\s+public\.memory_embedding_schema_state\s+"
+        r"FROM\s+anon,\s*authenticated,\s*service_role;",
+        memory_sql,
+        re.IGNORECASE,
+    )
+    assert "Atlas backend schema-state read" in scoped_roles
+    assert (
+        "CREATE POLICY %I ON public.memory_embedding_schema_state "
+        "FOR SELECT TO %I USING (true)"
+        in scoped_roles
+    )
+    assert not re.search(
+        r"CREATE\s+POLICY[^;]+ON\s+public\.memory_embedding_schema_state\s+"
+        r"FOR\s+ALL",
+        scoped_roles,
+        re.IGNORECASE,
+    )
 
 
 @pytest.mark.parametrize("table", ["objects", "buckets"])

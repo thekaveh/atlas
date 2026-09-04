@@ -255,6 +255,56 @@ def test_gpu_module_never_loads_model_during_import(monkeypatch):
     assert calls == 0
 
 
+@pytest.mark.parametrize(
+    ("device", "expected_transfer"), (("cuda", "cuda"), ("cpu", "cpu"))
+)
+def test_gpu_loader_preserves_nemo3_model_load_contract(
+    monkeypatch, device, expected_transfer
+):
+    calls: list[tuple[str, str | None]] = []
+
+    class Model:
+        def cuda(self):
+            calls.append(("transfer", "cuda"))
+            return self
+
+        def cpu(self):
+            calls.append(("transfer", "cpu"))
+            return self
+
+        def eval(self):
+            calls.append(("eval", None))
+            return self
+
+    class ASRModel:
+        @staticmethod
+        def from_pretrained(model_name):
+            calls.append(("from_pretrained", model_name))
+            return Model()
+
+    asr = types.ModuleType("nemo.collections.asr")
+    asr.models = types.SimpleNamespace(ASRModel=ASRModel)
+    collections = types.ModuleType("nemo.collections")
+    collections.asr = asr
+    nemo = types.ModuleType("nemo")
+    nemo.collections = collections
+    monkeypatch.setitem(sys.modules, "nemo", nemo)
+    monkeypatch.setitem(sys.modules, "nemo.collections", collections)
+    monkeypatch.setitem(sys.modules, "nemo.collections.asr", asr)
+    monkeypatch.setenv("PARAKEET_MODEL", "nvidia/parakeet-tdt-0.6b-v3")
+    monkeypatch.setenv("PARAKEET_DEVICE", device)
+
+    module = _load(GPU_TRANSCRIBE, f"parakeet_gpu_nemo3_{device}")
+    loaded = module.load_model()
+
+    assert isinstance(loaded, Model)
+    assert calls == [
+        ("from_pretrained", "nvidia/parakeet-tdt-0.6b-v3"),
+        ("transfer", expected_transfer),
+        ("eval", None),
+    ]
+
+
 def test_both_parakeet_apis_use_lifespan_boundary_and_deadline():
     for path in (GPU_API, MLX_API):
         source = path.read_text(encoding="utf-8")

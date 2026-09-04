@@ -8,11 +8,11 @@ capabilities:
   - name: "Local Grafana-queryable log storage"
     status: supported
     verification: tested
-    note: "Atlas provisions a single local Loki store and a Grafana datasource for querying logs that an operator sends to its internal endpoint."
+    note: "Atlas provisions a single local Loki store, accepts redacted OTLP logs from the required Collector, and exposes them through a trace-linked Grafana datasource."
   - name: "Automatic Atlas application log collection"
     status: not-supported
-    verification: documented
-    note: "No Promtail, Docker logging driver, or OpenTelemetry-to-Loki exporter is wired, so stock Atlas application logs are not ingested automatically."
+    verification: tested
+    note: "The Collector persists logs that applications emit over OTLP, but Atlas does not scrape container stdout or install a Promtail/Docker logging driver automatically."
   - name: "Highly available long-term log retention"
     status: not-supported
     verification: documented
@@ -57,7 +57,7 @@ rows:
   - display_name: "Loki"
     source_var: LOKI_SOURCE
     scale_var: LOKI_SCALE
-    description: "Grafana-native log store; log shipping remains a follow-up."
+    description: "Grafana-native store for redacted OTLP logs from the Collector."
 
 runtime_sc:
   loki:

@@ -93,13 +93,15 @@ def _env_int(name: str, default: int) -> int:
     return clamp_limit(os.getenv(name), default=default, maximum=10_000)
 
 
-def _postgres_dsn() -> str:
-    host = os.getenv("SUPABASE_DB_HOST", "supabase-db")
-    port = os.getenv("SUPABASE_DB_PORT", "5432")
-    dbname = os.getenv("SUPABASE_DB_NAME", "postgres")
-    user = os.getenv("SUPABASE_DB_USER", "supabase_admin")
-    password = os.getenv("SUPABASE_DB_PASSWORD", "")
-    return f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
+def _postgres_connection_kwargs() -> dict[str, str]:
+    """Return discrete libpq parameters so arbitrary userinfo stays lossless."""
+    return {
+        "host": os.getenv("MCP_POSTGRES_DB_HOST", "supabase-db"),
+        "port": os.getenv("MCP_POSTGRES_DB_PORT", "5432"),
+        "dbname": os.getenv("MCP_POSTGRES_DB_NAME", "postgres"),
+        "user": os.environ["MCP_POSTGRES_DB_USER"],
+        "password": os.environ["MCP_POSTGRES_DB_PASSWORD"],
+    }
 
 
 def postgres_query(sql: str, limit: int | None = None) -> dict[str, Any]:
@@ -120,7 +122,9 @@ def postgres_query(sql: str, limit: int | None = None) -> dict[str, Any]:
     # READ WRITE, defeating the read-only guard (e.g. SELECT nextval() would
     # advance a sequence). With autocommit=True our explicit BEGIN opens the
     # transaction and its READ ONLY characteristic actually applies.
-    with psycopg.connect(_postgres_dsn(), autocommit=True, row_factory=dict_row) as conn:
+    with psycopg.connect(
+        **_postgres_connection_kwargs(), autocommit=True, row_factory=dict_row
+    ) as conn:
         with conn.cursor() as cur:
             cur.execute("BEGIN READ ONLY")
             # SET does not accept bind parameters — with psycopg's server-side

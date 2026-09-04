@@ -5,6 +5,7 @@ import yaml
 
 REPO = Path(__file__).resolve().parent.parent.parent
 SCRIPT = REPO / "services" / "airflow" / "init" / "scripts" / "init-airflow.sh"
+ROLE_SCRIPT = REPO / "services" / "supabase" / "db" / "scripts" / "05-scoped-roles.sh"
 COMPOSE = REPO / "services" / "airflow" / "compose.yml"
 MANIFEST = REPO / "services" / "airflow" / "service.yml"
 
@@ -66,8 +67,8 @@ def test_airflow_contract_discloses_unsandboxed_privileged_dag_execution():
         "${MINIO_ROOT_USER}",
         "${MINIO_ROOT_PASSWORD}",
         "${LITELLM_MASTER_KEY}",
-        "${SUPABASE_DB_USER}",
-        "${SUPABASE_DB_PASSWORD}",
+        "${AIRFLOW_ATLAS_DB_USER}",
+        "${AIRFLOW_ATLAS_DB_PASSWORD}",
         "${GRAPH_DB_USER}",
         "${GRAPH_DB_PASSWORD}",
         "${REDIS_PASSWORD}",
@@ -171,32 +172,24 @@ def test_init_script_minio_default_carries_path_style_addressing():
 
 
 def test_init_script_re_applies_airflow_db_password():
-    """ALTER ROLE airflow WITH PASSWORD ... must run every cold start so
-    AIRFLOW_DB_PASSWORD rotations in .env take effect — CREATE ROLE only
-    fires the first time. Pre-Pass-6 a rotated password sat in .env but
-    Postgres still authenticated only the old value.
+    """The provisioner must conditionally re-apply rotated passwords.
+
+    Rewriting an unchanged SCRAM password changes its salted verifier, so the
+    central provisioner compares its managed input marker first. A changed
+    AIRFLOW_DB_PASSWORD still reaches ALTER ROLE on the next cold start.
     """
-    body = SCRIPT.read_text(encoding="utf-8")
-    # Built via printf + psql stdin so :'pw' interpolation quote-protects
-    # the password (psql -c does NOT interpolate; see init-airflow.sh).
-    # Anchored at line start: the ALTER must run UNCONDITIONALLY (not
-    # inside the ||-guarded CREATE branch) or rotations stop applying.
-    import re as _re
-    assert _re.search(r"(?m)^printf \"ALTER ROLE :\\\"role\\\" WITH PASSWORD :'pw'", body), (
-        "init-airflow.sh must ALTER ROLE the airflow role's password every "
-        "run; without this, AIRFLOW_DB_PASSWORD rotations don't take effect."
-    )
+    body = ROLE_SCRIPT.read_text(encoding="utf-8")
+    assert "ALTER ROLE %I LOGIN PASSWORD %L" in body
+    assert "atlas.password_fingerprint" in body
 
 
 def test_init_script_quotes_configurable_airflow_db_role():
     """AIRFLOW_DB_USER is configurable, so role use must be quoted by psql."""
-    body = SCRIPT.read_text(encoding="utf-8")
+    body = ROLE_SCRIPT.read_text(encoding="utf-8")
     assert "rolname = :'role'" in body
-    assert r'CREATE ROLE :\"role\"' in body
-    assert r'ALTER ROLE :\"role\"' in body
-    assert r'GRANT ALL PRIVILEGES ON DATABASE airflow TO :\"role\"' in body
-    assert r'ALTER DATABASE airflow OWNER TO :\"role\"' in body
-    assert "-v role=\"${AIRFLOW_DB_USER}\"" in body
+    assert "CREATE ROLE %I LOGIN" in body
+    assert "ALTER ROLE %I LOGIN PASSWORD %L" in body
+    assert 'ensure_database airflow "$AIRFLOW_DB_USER"' in body
     assert "rolname='${AIRFLOW_DB_USER}'" not in body
 
 
@@ -259,8 +252,8 @@ def test_init_script_alters_database_owner_for_pg15_public_schema():
     migrate` succeeds. Without this the stack ships supabase/postgres:17.x
     and every cold start would fail at db migrate with permission denied.
     """
-    body = SCRIPT.read_text(encoding="utf-8")
-    assert "ALTER DATABASE airflow OWNER TO" in body, (
-        "init-airflow.sh must re-own the airflow database to the airflow "
+    body = ROLE_SCRIPT.read_text(encoding="utf-8")
+    assert "ALTER DATABASE %I OWNER TO %I" in body, (
+        "the central provisioner must re-own the airflow database to the airflow "
         "role; otherwise PG15+ blocks CREATE TABLE in the public schema."
     )

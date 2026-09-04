@@ -31,7 +31,8 @@
 #                             target_dir, size_gb, size_bytes, precision, variant
 #   family                    display family label; defaults to name
 #   size_gb                   approximate disk size (GB)
-#   sha256                    hex SHA-256; verified by comfyui-init when present
+#   sha256                    exact lowercase SHA-256; mandatory for every
+#                             curated downloadable artifact
 #   target_dir                override in-container subdir under /models
 #   min_vram_gb               adds "requires N GB VRAM" badge when host has less
 #   min_ram_gb                recommended host/unified memory shown in the wizard
@@ -47,6 +48,9 @@
 #   license_name              human-readable model-weight license
 #   license_url               immutable authoritative license URL
 #   license_restrictions      material operator obligations shown in the wizard
+#   provisioning_required    selected artifact blocks readiness unless false;
+#                            defaults true and is independent of source/hash
+#                            verification (bundle files may override it)
 
 models:
 
@@ -62,7 +66,8 @@ models:
     family: SD1.5
     category: checkpoint
     size_gb: 3.97
-    url: https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors
+    url: https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/resolve/451f4fe16113bff5a5d2269ed5ad43b0592e9a14/v1-5-pruned-emaonly.safetensors
+    sha256: 6ce0161689b3853acaa03779ec93eafe75a02f4ced659bee03f50797806fa2fa
     min_vram_gb: 4.0
     cpu_supported: true
     requires_custom_node: []
@@ -72,7 +77,8 @@ models:
     family: SDXL
     category: checkpoint
     size_gb: 6.94
-    url: https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors
+    url: https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/462165984030d82259a11f4367a4eed129e94a7b/sd_xl_base_1.0.safetensors
+    sha256: 31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b
     min_vram_gb: 8.0
     cpu_supported: false
     requires_custom_node: []
@@ -84,7 +90,8 @@ models:
     family: SD1.5
     category: vae
     size_gb: 0.32
-    url: https://huggingface.co/stabilityai/sd-vae-ft-mse-original/resolve/main/vae-ft-mse-840000-ema-pruned.safetensors
+    url: https://huggingface.co/stabilityai/sd-vae-ft-mse-original/resolve/629b3ad3030ce36e15e70c5db7d91df0d60c627f/vae-ft-mse-840000-ema-pruned.safetensors
+    sha256: 735e4c3a447a3255760d7f86845f09f937809baa529c17370d83e4c3758f3c75
     cpu_supported: true
     requires_custom_node: []
     popularity: 80
@@ -93,7 +100,8 @@ models:
     family: SDXL
     category: vae
     size_gb: 0.32
-    url: https://huggingface.co/stabilityai/sdxl-vae/resolve/main/sdxl_vae.safetensors
+    url: https://huggingface.co/stabilityai/sdxl-vae/resolve/6f5909a7e596173e25d4e97b07fd19cdf9611c76/sdxl_vae.safetensors
+    sha256: 63aeecb90ff7bc1c115395962d3e803571385b61938377bc7089b36e81e92e2e
     cpu_supported: true
     requires_custom_node: []
     popularity: 85
@@ -104,7 +112,8 @@ models:
     family: SDXL
     category: ipadapter
     size_gb: 0.85
-    url: https://huggingface.co/h94/IP-Adapter/resolve/main/sdxl_models/ip-adapter-plus_sdxl_vit-h.safetensors
+    url: https://huggingface.co/h94/IP-Adapter/resolve/018e402774aeeddd60609b4ecdb7e298259dc729/sdxl_models/ip-adapter-plus_sdxl_vit-h.safetensors
+    sha256: 3f5062b8400c94b7159665b21ba5c62acdcd7682262743d7f2aefedef00e6581
     min_vram_gb: 6.0
     cpu_supported: false
     requires_custom_node:
@@ -115,7 +124,8 @@ models:
     family: SDXL
     category: ipadapter
     size_gb: 0.50
-    url: https://huggingface.co/h94/IP-Adapter-FaceID/resolve/main/ip-adapter-faceid-plusv2_sdxl.bin
+    url: https://huggingface.co/h94/IP-Adapter-FaceID/resolve/43907e6f44d079bf1a9102d9a6e56aef7a219bae/ip-adapter-faceid-plusv2_sdxl.bin
+    sha256: c6945d82b543700cc3ccbb98d363b837e9c596281607857c74b713a876daf5fb
     min_vram_gb: 6.0
     cpu_supported: false
     requires_custom_node:
@@ -128,7 +138,8 @@ models:
     family: InstantID
     category: instantid
     size_gb: 1.20
-    url: https://huggingface.co/InstantX/InstantID/resolve/main/ip-adapter.bin
+    url: https://huggingface.co/InstantX/InstantID/resolve/57b32dfee076092ad2930c71fd6d439c2c3b1820/ip-adapter.bin
+    sha256: 02b3618e36d803784166660520098089a81388e61a93ef8002aa79a5b1c546e1
     min_vram_gb: 8.0
     cpu_supported: false
     requires_custom_node:
@@ -141,7 +152,8 @@ models:
     family: Real-ESRGAN
     category: upscaler
     size_gb: 0.07
-    url: https://huggingface.co/lllyasviel/Annotators/resolve/main/RealESRGAN_x4plus.pth
+    url: https://huggingface.co/lllyasviel/Annotators/resolve/982e7edaec38759d914a963c48c4726685de7d96/RealESRGAN_x4plus.pth
+    sha256: 4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1
     cpu_supported: true
     requires_custom_node: []
     popularity: 90
@@ -150,7 +162,8 @@ models:
     family: 4x-UltraSharp
     category: upscaler
     size_gb: 0.07
-    url: https://huggingface.co/lokCX/4x-Ultrasharp/resolve/main/4x-UltraSharp.pth
+    url: https://huggingface.co/lokCX/4x-Ultrasharp/resolve/1856559b50de25116a7c07261177dd128f1f5664/4x-UltraSharp.pth
+    sha256: a5812231fc936b42af08a5edba784195495d303d5b3248c24489ef0c4021fe01
     cpu_supported: true
     requires_custom_node: []
     popularity: 88
@@ -161,7 +174,8 @@ models:
     family: EasyNegative
     category: embedding
     size_gb: 0.0
-    url: https://huggingface.co/embed/EasyNegative/resolve/main/EasyNegative.safetensors
+    url: https://huggingface.co/embed/EasyNegative/resolve/05278ab48b52fddec9b00f43a056f361e5c1a0ea/EasyNegative.safetensors
+    sha256: c74b4e810b030f6b75fde959e2db678c268d07115b85356d3c0138ba5eb42340
     cpu_supported: true
     requires_custom_node: []
     popularity: 85
@@ -172,7 +186,8 @@ models:
     family: CLIP
     category: clip
     size_gb: 0.60
-    url: https://huggingface.co/openai/clip-vit-large-patch14/resolve/main/pytorch_model.bin
+    url: https://huggingface.co/openai/clip-vit-large-patch14/resolve/32bd64288804d66eefd0ccbe215aa642df71cc41/pytorch_model.bin
+    sha256: f1a17cdbe0f36fec524f5cafb1c261ea3bbbc13e346e0f74fc9eb0460dedd0d3
     min_vram_gb: 2.0
     cpu_supported: true
     requires_custom_node: []
@@ -186,26 +201,13 @@ models:
     family: AnimateDiff
     category: motion_lora
     size_gb: 0.028
-    url: https://huggingface.co/guoyww/animatediff-motion-lora-zoom-in/resolve/main/diffusion_pytorch_model.safetensors
+    url: https://huggingface.co/guoyww/animatediff-motion-lora-zoom-in/resolve/6a8aaab901694b3f9b6a1e5fb54d7e19bc4a3b0d/diffusion_pytorch_model.safetensors
+    sha256: d589471a1c4048c4d3f1526ab29a3ddb6177eb3dcc336502d084285a09600396
     min_vram_gb: 6.0
     cpu_supported: false
     requires_custom_node:
       - ComfyUI-AnimateDiff-Evolved
     popularity: 65
-
-  # ── Audio ─────────────────────────────────────────────────────────────
-
-  - name: audioldm-text-to-audio
-    family: AudioLDM
-    category: audio_model
-    size_gb: 1.50
-    url: https://huggingface.co/cvssp/audioldm/resolve/main/pytorch_model.bin
-    min_vram_gb: 6.0
-    cpu_supported: false
-    # Audio nodes are an open ecosystem; surface the model but leave node
-    # selection to the user (warn-only — no canonical wrapper today).
-    requires_custom_node: []
-    popularity: 50
 
   # ── Krea 2 ────────────────────────────────────────────────────────────
   # Both logical bundles share the same Qwen3-VL text encoder and Qwen-Image

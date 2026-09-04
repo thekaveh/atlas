@@ -26,9 +26,6 @@ if [ -z "$OLLAMA_HOST_URL" ]; then
   exit 1
 fi
 
-echo "ollama-pull: Installing required tools..."
-apk add --no-cache curl
-
 echo "ollama-pull: Waiting for Ollama API at $OLLAMA_HOST_URL..."
 sleep 5 # Initial wait
 # Bounded wait (300s, mirroring weaviate/minio/n8n init): ollama has no

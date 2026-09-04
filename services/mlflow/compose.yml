@@ -4,25 +4,25 @@ services:
     build:
       context: ./init
       args:
-        BASE_IMAGE: ${MLFLOW_INIT_IMAGE:-alpine:3.22.1}
+        BASE_IMAGE: ${MLFLOW_INIT_IMAGE:-alpine:3.24.1}
     image: ${PROJECT_NAME}-mlflow-init:local
     container_name: ${PROJECT_NAME}-mlflow-init
     restart: "no"
     deploy:
       replicas: ${MLFLOW_INIT_SCALE:-0}
     depends_on:
-      supabase-db:
-        condition: service_healthy
+      supabase-db-init:
+        condition: service_completed_successfully
       minio-init:
         condition: service_completed_successfully
     environment:
       PGHOST: supabase-db
       PGPORT: 5432
-      PGUSER: ${SUPABASE_DB_USER}
-      PGPASSWORD: ${SUPABASE_DB_PASSWORD}
+      PGUSER: ${MLFLOW_DB_USER:?MLFLOW_DB_USER is required}
+      PGPASSWORD: ${MLFLOW_DB_PASSWORD:?MLFLOW_DB_PASSWORD is required}
       MLFLOW_DB_NAME: ${MLFLOW_DB_NAME:-mlflow}
-      MLFLOW_DB_USER: ${MLFLOW_DB_USER:-mlflow}
-      MLFLOW_DB_PASSWORD: ${MLFLOW_DB_PASSWORD}
+      MLFLOW_DB_USER: ${MLFLOW_DB_USER:?MLFLOW_DB_USER is required}
+      MLFLOW_DB_PASSWORD: ${MLFLOW_DB_PASSWORD:?MLFLOW_DB_PASSWORD is required}
     volumes:
       - ./init/scripts:/scripts:ro
     entrypoint: ["/bin/sh", "/scripts/init-mlflow.sh"]
@@ -30,7 +30,12 @@ services:
       - backend-network
 
   mlflow:
-    image: ${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.14.0}
+    build:
+      context: .
+      dockerfile: build/Dockerfile
+      args:
+        BASE_IMAGE: ${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.15.1}
+    image: ${PROJECT_NAME}-mlflow:local
     container_name: ${PROJECT_NAME}-mlflow
     restart: unless-stopped
     deploy:
@@ -45,20 +50,18 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_MLFLOW_ACCESS_KEY}
       AWS_SECRET_ACCESS_KEY: ${MINIO_MLFLOW_SECRET_KEY}
       AWS_DEFAULT_REGION: ${MINIO_REGION:-us-east-1}
+      # Mirror `mlflow server`'s internal environment contract so Atlas can
+      # wrap the upstream ASGI app and deny the unfixed AI Gateway SSRF routes.
+      _MLFLOW_SERVER_FILE_STORE: postgresql://${MLFLOW_DB_USER_URI:?MLFLOW_DB_USER_URI is required}:${MLFLOW_DB_PASSWORD_URI:?MLFLOW_DB_PASSWORD_URI is required}@supabase-db:5432/${MLFLOW_DB_NAME_URI:?MLFLOW_DB_NAME_URI is required}
+      _MLFLOW_SERVER_REGISTRY_STORE: postgresql://${MLFLOW_DB_USER_URI:?MLFLOW_DB_USER_URI is required}:${MLFLOW_DB_PASSWORD_URI:?MLFLOW_DB_PASSWORD_URI is required}@supabase-db:5432/${MLFLOW_DB_NAME_URI:?MLFLOW_DB_NAME_URI is required}
+      _MLFLOW_SERVER_ARTIFACT_ROOT: mlflow-artifacts:/
+      _MLFLOW_SERVER_ARTIFACT_DESTINATION: s3://${MINIO_BUCKET_MLFLOW:-mlflow}
+      _MLFLOW_SERVER_SERVE_ARTIFACTS: "true"
+      MLFLOW_SERVER_ALLOWED_HOSTS: mlflow,mlflow:5000,localhost,localhost:5000,localhost:${MLFLOW_PORT},mlflow.localhost,mlflow.localhost:${KONG_HTTP_PORT}
+    working_dir: /opt/atlas
     command:
-      - mlflow
-      - server
-      - --host
-      - 0.0.0.0
-      - --port
-      - "5000"
-      - --backend-store-uri
-      - postgresql://${MLFLOW_DB_USER}:${MLFLOW_DB_PASSWORD}@supabase-db:5432/${MLFLOW_DB_NAME:-mlflow}
-      - --artifacts-destination
-      - s3://${MINIO_BUCKET_MLFLOW:-mlflow}
-      - --serve-artifacts
-      - --allowed-hosts
-      - mlflow,mlflow:5000,localhost,localhost:${MLFLOW_PORT},mlflow.localhost,mlflow.localhost:${KONG_HTTP_PORT}
+      - python
+      - atlas_server.py
     healthcheck:
       test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request\nurllib.request.urlopen('http://localhost:5000/health', timeout=5).read()\nPY"]
       interval: 30s

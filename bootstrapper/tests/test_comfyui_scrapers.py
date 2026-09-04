@@ -75,6 +75,54 @@ def test_parse_civitai_lora():
         assert e.target_dir == "loras"
 
 
+def test_parse_civitai_skips_malformed_supplied_sha256_with_warning(capsys):
+    raw = {
+        "items": [{
+            "id": 1,
+            "modelVersions": [{
+                "files": [{
+                    "primary": True,
+                    "name": "model.safetensors",
+                    "downloadUrl": "https://civitai.com/api/download/models/1",
+                    "hashes": {"SHA256": "not-a-digest"},
+                }]
+            }],
+        }]
+    }
+    assert _parse_civitai_response(raw, category="checkpoint") == []
+    assert "malformed SHA256" in capsys.readouterr().err
+
+
+def test_parse_civitai_keeps_valid_sibling_when_one_digest_is_malformed(capsys):
+    valid_sha = "AB" * 32
+    raw = {
+        "items": [
+            {
+                "id": 1,
+                "modelVersions": [{"files": [{
+                    "primary": True,
+                    "name": "bad.safetensors",
+                    "downloadUrl": "https://civitai.com/api/download/models/1",
+                    "hashes": {"SHA256": "not-a-digest"},
+                }]}],
+            },
+            {
+                "id": 2,
+                "modelVersions": [{"files": [{
+                    "primary": True,
+                    "name": "good.safetensors",
+                    "downloadUrl": "https://civitai.com/api/download/models/2",
+                    "hashes": {"SHA256": valid_sha},
+                }]}],
+            },
+        ]
+    }
+    entries = _parse_civitai_response(raw, category="lora")
+    assert [entry.name for entry in entries] == ["civitai-2"]
+    assert entries[0].sha256 == valid_sha.lower()
+    assert "malformed SHA256" in capsys.readouterr().err
+
+
 def test_parse_hf_skips_malformed_entry():
     """A fixture with a missing siblings array shouldn't crash; skips entry."""
     raw = [{"id": "broken/model", "downloads": 100}]  # no siblings array

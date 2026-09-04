@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 ChunkStrategy = Literal["semantic", "recursive", "token"]
+_DEFAULT_SEMANTIC_EMBEDDING_MODEL = "minishlab/potion-base-32M"
 
 
 class ChunkingError(RuntimeError):
@@ -116,7 +117,10 @@ def _normalize_chunks(raw_chunks: list[Any], source_text: str) -> List[TextChunk
 def _semantic_embedding_model_override(semantic_embedding_model: Any | None) -> Any:
     if semantic_embedding_model is not None:
         return semantic_embedding_model
-    return os.getenv("CHONKIE_SEMANTIC_EMBEDDING_MODEL", "minishlab/potion-base-32M")
+    return (
+        os.getenv("CHONKIE_SEMANTIC_EMBEDDING_MODEL", "").strip()
+        or _DEFAULT_SEMANTIC_EMBEDDING_MODEL
+    )
 
 
 def chunk_text(

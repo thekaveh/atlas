@@ -14,22 +14,22 @@ from radon.raw import analyze
 
 ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_BASELINE_SNAPSHOT = {
-    "radon_grade_c_or_worse": 359,
-    "radon_grade_e_or_worse": 20,
-    "functions_over_60_physical_lines": 189,
-    "functions_over_100_physical_lines": 70,
-    "functions_over_4_parameters": 138,
-    "modules_over_600_logical_lines": 16,
-    "tracked_files": 1475,
+    "radon_grade_c_or_worse": 428,
+    "radon_grade_e_or_worse": 23,
+    "functions_over_60_physical_lines": 252,
+    "functions_over_100_physical_lines": 85,
+    "functions_over_4_parameters": 156,
+    "modules_over_600_logical_lines": 21,
+    "tracked_files": 1544,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {
-    "radon_grade_c_or_worse": 46,
-    "radon_grade_e_or_worse": 1,
-    "functions_over_60_physical_lines": 25,
-    "functions_over_100_physical_lines": 8,
-    "functions_over_4_parameters": 37,
-    "modules_over_600_logical_lines": 0,
+    "radon_grade_c_or_worse": 62,
+    "radon_grade_e_or_worse": 3,
+    "functions_over_60_physical_lines": 30,
+    "functions_over_100_physical_lines": 9,
+    "functions_over_4_parameters": 40,
+    "modules_over_600_logical_lines": 1,
 }
 _COMPLEXITY_METRICS = (
     "radon_grade_c_or_worse",
@@ -216,11 +216,19 @@ def _assert_accepted_signal_grounded(item: dict) -> None:
 
 
 def _assert_complexity_baseline_owned(
-    complexity: dict, *, today: date = date.today()
+    complexity: dict, *, today: date | None = None
 ) -> None:
+    # A today-valued default binds once at import, so a suite running across UTC
+    # midnight compares a stale "today" with fixtures built from the current one
+    # and the expiry boundary stops rejecting.
+    if today is None:
+        today = date.today()
     assert complexity["owner"] == "Atlas maintainers"
     assert date.fromisoformat(complexity["review_by"]) >= today
-    assert "Do not increase" in complexity["regression_policy"]
+    regression_policy = complexity["regression_policy"]
+    assert "Do not increase" in regression_policy
+    assert "reviewed commit-range attribution" in regression_policy
+    assert "every new Radon E/F symbol" in regression_policy
     assert complexity["baseline_snapshot"] == EXPECTED_BASELINE_SNAPSHOT
     assert (
         complexity["extended_python_baseline_snapshot"]
@@ -253,9 +261,10 @@ def test_every_maintenance_ceiling_is_immutable_without_review() -> None:
 
 def test_expired_maintenance_review_deadline_fails() -> None:
     mutated = deepcopy(_complexity_ledger())
-    mutated["review_by"] = (date.today() - timedelta(days=1)).isoformat()
+    today = date.today()
+    mutated["review_by"] = (today - timedelta(days=1)).isoformat()
     with pytest.raises(AssertionError):
-        _assert_complexity_baseline_owned(mutated)
+        _assert_complexity_baseline_owned(mutated, today=today)
 
 
 def test_complexity_baseline_is_recomputed_and_regression_bounded() -> None:

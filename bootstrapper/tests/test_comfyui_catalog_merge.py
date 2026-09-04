@@ -54,6 +54,21 @@ def test_partial_failure_civitai_down(capsys):
     assert "civitai" in captured.err.lower()
 
 
+def test_partial_failure_civitai_invalid_payload_keeps_healthy_catalog(capsys):
+    with patch("utils.comfyui_library.list_huggingface_models") as mock_hf, \
+         patch(
+             "utils.comfyui_library.list_civitai_loras",
+             side_effect=ValueError("malformed Civitai SHA256"),
+         ):
+        mock_hf.return_value = [_fake_entry("hf-healthy", "huggingface")]
+        entries = assemble_wizard_catalog()
+
+    names = {entry.name for entry in entries}
+    assert "hf-healthy" in names
+    assert any(entry.source == "curated" for entry in entries)
+    assert "civitai" in capsys.readouterr().err.lower()
+
+
 def test_partial_failure_huggingface_down(capsys):
     """HuggingFace 503 → civitai entries still surface + curated still in."""
     with patch("utils.comfyui_library.list_huggingface_models",

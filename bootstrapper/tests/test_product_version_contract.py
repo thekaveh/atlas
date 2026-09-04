@@ -56,4 +56,4 @@ def test_release_documentation_records_current_tag() -> None:
     releasing = (ROOT / "docs/deployment/releasing.md").read_text(encoding="utf-8")
 
     assert f"`v{version}`" in releasing
-    assert "first tagged checkpoint" in releasing
+    assert "first release-style tag" in releasing

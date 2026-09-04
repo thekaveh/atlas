@@ -289,10 +289,12 @@ def test_run_port_migration_honors_atlas_env_file(tmp_path, monkeypatch):
 
     starter.run_port_migration(no_port_migrate=False)
     text = custom_env.read_text()
-    # Chained v1 + v2 + v3 + v4 migrations leave the sentinel at the v4
-    # terminal value — the test cares about path resolution (custom env
-    # honored) rather than version semantics.
-    assert "BOOTSTRAPPER_PORT_LAYOUT_VERSION=4" in text
+    # The current terminal migration completed against the custom file. This
+    # test cares about path resolution, so avoid copying its version number.
+    from services.migrations.migration_v5 import needs_migration as needs_v5
+
+    assert needs_v5(custom_env) is False
+    assert "WEAVIATE_ENABLE_MODULES=backup-filesystem" in text
     # Real repo .env (if present) was not touched.
     repo_env = Path(__file__).resolve().parents[2] / ".env"
     if repo_env.is_file():

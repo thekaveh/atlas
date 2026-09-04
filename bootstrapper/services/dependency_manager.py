@@ -289,6 +289,40 @@ class DependencyManager:
                 return 0
 
         return 1  # Assume enabled if no explicit scale or source
+
+    def _conditional_dependency_violations(
+        self, service_name: str, dep_config: Dict, env_vars: Dict[str, str]
+    ) -> List[Dict]:
+        """Configuration-time dependency failures for a manifest rule.
+
+        These are intentionally independent of replica scale so declarative
+        one-shot services can fail bootstrap before Compose launch. An absent
+        or explicitly empty value uses ``when_defaults``, matching Compose and
+        POSIX-shell ``${VAR:-default}``; nonempty values always win.
+        """
+        violations: List[Dict] = []
+        for rule in dep_config.get('conditional_requires', []):
+            conditions = rule.get('when', {})
+            defaults = rule.get('when_defaults', {})
+            selected = all(
+                (env_vars.get(name) or defaults.get(name, '')) == expected
+                for name, expected in conditions.items()
+            )
+            if not selected:
+                continue
+            for required_service in rule.get('requires', []):
+                if self.get_service_scale(required_service) > 0:
+                    continue
+                violations.append({
+                    'service': service_name,
+                    'required_service': required_service,
+                    'error_message': rule.get(
+                        'error_message',
+                        f"{service_name} requires {required_service} for the selected mode",
+                    ),
+                    'auto_resolve': bool(rule.get('auto_resolve', False)),
+                })
+        return violations
         
     def check_service_dependencies(self) -> bool:
         """
@@ -307,8 +341,20 @@ class DependencyManager:
             return True  # No dependencies defined
             
         all_satisfied = True
+        env_vars = self.config_parser.parse_env_file()
         
         for service_name, dep_config in dependencies.items():
+            # One-shot services intentionally render at scale zero, but may
+            # still have configuration-time requirements.  Keep those rules
+            # declarative in the owning manifest and evaluate them before the
+            # ordinary enabled-service scale gate below.
+            conditional = self._conditional_dependency_violations(
+                service_name, dep_config, env_vars
+            )
+            if conditional:
+                self.dependency_violations.extend(conditional)
+                all_satisfied = False
+
             service_scale = self.get_service_scale(service_name)
             
             # Only check dependencies for enabled services
@@ -328,7 +374,8 @@ class DependencyManager:
                     self.dependency_violations.append({
                         'service': service_name,
                         'required_service': required_service,
-                        'error_message': error_msg
+                        'error_message': error_msg,
+                        'auto_resolve': True,
                     })
                     all_satisfied = False
                     
@@ -362,6 +409,8 @@ class DependencyManager:
         # caller printed "Auto-disabled trino..." twice.
         seen: set = set()
         for violation in self.dependency_violations:
+            if not violation.get('auto_resolve', True):
+                continue
             service_name = violation['service']
             if service_name in seen:
                 continue

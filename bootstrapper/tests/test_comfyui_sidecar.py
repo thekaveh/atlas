@@ -202,3 +202,49 @@ def test_entry_overrides_via_kwargs(tmp_path):
     assert e.sha256 == "deadbeef"
     assert e.cpu_supported is False
     assert e.requires_custom_node == ("SomeNode",)
+
+def test_provisioning_required_defaults_true_and_rejects_nonboolean(tmp_path, capsys):
+    valid = tmp_path / "valid.yaml"
+    valid.write_text(
+        "models:\n"
+        "  - name: optional-model\n"
+        "    category: checkpoint\n"
+        "    url: https://example.test/model.bin\n"
+        "    provisioning_required: false\n",
+        encoding="utf-8",
+    )
+    assert load_custom_models(str(valid))[0].provisioning_required is False
+
+    invalid = tmp_path / "invalid.yaml"
+    invalid.write_text(
+        "models:\n"
+        "  - name: ambiguous-model\n"
+        "    category: checkpoint\n"
+        "    url: https://example.test/model.bin\n"
+        "    provisioning_required: optional\n",
+        encoding="utf-8",
+    )
+    assert load_custom_models(str(invalid)) == []
+    assert "provisioning_required must be a boolean" in capsys.readouterr().err
+
+
+def test_bundle_file_null_provisioning_required_is_rejected_but_omission_inherits(
+    tmp_path, capsys
+):
+    base = (
+        "models:\n"
+        "  - name: bundle\n"
+        "    category: checkpoint\n"
+        "    files:\n"
+        "      - role: weights\n"
+        "        category: checkpoint\n"
+        "        url: https://example.test/model.bin\n"
+    )
+    omitted = tmp_path / "omitted.yaml"
+    omitted.write_text(base, encoding="utf-8")
+    assert load_custom_models(str(omitted))[0].files[0].provisioning_required is None
+
+    explicit_null = tmp_path / "null.yaml"
+    explicit_null.write_text(base + "        provisioning_required: null\n", encoding="utf-8")
+    assert load_custom_models(str(explicit_null)) == []
+    assert "bundle file provisioning_required must be a boolean" in capsys.readouterr().err

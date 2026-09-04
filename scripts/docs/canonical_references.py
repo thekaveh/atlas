@@ -4,15 +4,22 @@ from __future__ import annotations
 
 import argparse
 import re
+from datetime import date
 from pathlib import Path
 
 from bootstrapper.docs.sitegen.model import load_docs_model
 from bootstrapper.docs.sitegen.pages import architecture_pages, reference_pages, static_pages
+from bootstrapper.services.manifest_validator import VALIDATOR_RULES
 from bootstrapper.docs.sitegen.services import service_pages
 from scripts.docs.manifest import load_manifest
 
 
 _SERVICE_LINK_RE = re.compile(r"\]\(([a-z0-9][a-z0-9-]*)\.md\)")
+_VALIDATOR_BEGIN = "<!-- BEGIN GENERATED MANIFEST VALIDATOR CATALOG -->"
+_VALIDATOR_END = "<!-- END GENERATED MANIFEST VALIDATOR CATALOG -->"
+_ARCHIVE_BEGIN = "<!-- BEGIN GENERATED PLAN ARCHIVE RANGE -->"
+_ARCHIVE_END = "<!-- END GENERATED PLAN ARCHIVE RANGE -->"
+_DATED_ARCHIVE_NAME = re.compile(r"^(\d{4}-\d{2}-\d{2})-.+\.md$")
 
 
 def _final_newline(text: str) -> str:
@@ -25,6 +32,73 @@ def _service_index(text: str) -> str:
 
 def _ports_reference(text: str) -> str:
     return text.replace("../../deployment/", "../deployment/")
+
+
+def _replace_generated_block(text: str, begin: str, end: str, body: str) -> str:
+    if text.count(begin) != 1 or text.count(end) != 1:
+        raise ValueError(f"expected exactly one generated block: {begin}")
+    start = text.index(begin)
+    finish = text.index(end, start) + len(end)
+    return text[:start] + f"{begin}\n{body.rstrip()}\n{end}" + text[finish:]
+
+
+def render_validator_catalog() -> str:
+    """Render the public catalog from the executable validator registry."""
+    lines = [
+        "| Rule | Diagnostics | Contract |",
+        "|---|---|---|",
+    ]
+    for rule in VALIDATOR_RULES:
+        diagnostics = ", ".join(f"`{diagnostic}`" for diagnostic in rule.diagnostics)
+        lines.append(f"| `{rule.name}` | {diagnostics} | {rule.description} |")
+    return "\n".join(lines)
+
+
+def _is_real_archive_root(repo_root: Path, folder: Path) -> bool:
+    """Reject direct and ancestor symlinks below the supplied repository root."""
+    try:
+        relative = folder.relative_to(repo_root)
+    except ValueError:
+        return False
+    current = repo_root
+    for part in relative.parts:
+        current /= part
+        if current.is_symlink():
+            return False
+    return folder.is_dir()
+
+
+def _dated_archive_range(repo_root: Path) -> tuple[date, date]:
+    dates: list[date] = []
+    for relative in ("docs/superpowers/plans", "docs/superpowers/specs"):
+        folder = repo_root / relative
+        if not _is_real_archive_root(repo_root, folder):
+            raise ValueError(
+                f"advertised archive root is not a real directory: {folder}"
+            )
+        for path in sorted(folder.glob("*.md")):
+            if path.is_symlink() or not path.is_file():
+                raise ValueError(
+                    f"advertised archive entry is not a real file: {path}"
+                )
+            match = _DATED_ARCHIVE_NAME.fullmatch(path.name)
+            if match is None:
+                raise ValueError(f"advertised archive entry is not date-prefixed: {path}")
+            dates.append(date.fromisoformat(match.group(1)))
+    if not dates:
+        raise ValueError("advertised plan/spec archives contain no dated Markdown")
+    return min(dates), max(dates)
+
+
+def render_plan_archive_line(repo_root: Path) -> str:
+    first, last = _dated_archive_range(repo_root)
+    return (
+        "- [superpowers/plans](superpowers/plans/) + "
+        "[superpowers/specs](superpowers/specs/) — point-in-time implementation "
+        f"plans and specs dated {first.isoformat()} through {last.isoformat()} "
+        "(consult them when archaeology on a past track is needed; CHANGELOG "
+        "entries link the relevant artifacts)"
+    )
 
 
 def _apply_manifest_h1_numbers(
@@ -61,6 +135,24 @@ def render_canonical_references(repo_root: Path) -> dict[Path, str]:
             static[old_site / "reference" / "index.md"]
         ),
     }
+    contributing = repo_root / "docs" / "CONTRIBUTING-services.md"
+    rendered[contributing] = _final_newline(
+        _replace_generated_block(
+            contributing.read_text(encoding="utf-8"),
+            _VALIDATOR_BEGIN,
+            _VALIDATOR_END,
+            render_validator_catalog(),
+        )
+    )
+    docs_index = repo_root / "docs" / "README.md"
+    rendered[docs_index] = _final_newline(
+        _replace_generated_block(
+            docs_index.read_text(encoding="utf-8"),
+            _ARCHIVE_BEGIN,
+            _ARCHIVE_END,
+            render_plan_archive_line(repo_root),
+        )
+    )
     for source, content in references.items():
         target = repo_root / "docs" / "reference" / source.name
         transformed = _ports_reference(content) if source.name == "ports-routes.md" else content

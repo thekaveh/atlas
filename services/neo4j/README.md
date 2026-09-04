@@ -8,7 +8,7 @@ The Neo4j service provides:
 - Graph database for storing and querying relationships
 - Web-based browser interface for data visualization
 - Cypher query language support
-- Manual full-dump backups and automatic restore-from-snapshot at startup
+- Orchestrated offline system/application dumps and authenticated restore staging
 
 ## 2. Source modes and access information
 
@@ -38,7 +38,7 @@ To manually create a graph database backup:
 docker exec -it ${PROJECT_NAME}-neo4j-graph-db /usr/local/bin/backup.sh
 ```
 
-The backup will be stored in the `/snapshot` directory inside the container, which is mounted to the `./services/neo4j/build/snapshot/` directory on your host machine.
+The legacy backup is stored in the `${PROJECT_NAME}-neo4j-backups` named volume mounted at `/snapshot`. Images created before the coordinated workflow may also contain the legacy repository bind path `build/snapshot`; Atlas leaves that path and its files operator-accessible rather than deleting or silently migrating them. Import a legacy dump manually after verifying its origin and exact Neo4j compatibility. For coordinated Atlas backups, use `services/backup/run-consistent-backup.sh`; it preserves the initial running state, dumps both `system` and `neo4j` with the exact 5.26.27 image, and publishes signed metadata with the other database artifacts.
 
 ### 4.2. Manual Restore
 
@@ -71,7 +71,8 @@ docker exec -it ${PROJECT_NAME}-neo4j-graph-db /usr/local/bin/restore.sh
 With `NEO4J_GRAPH_DB_SOURCE=container`, Neo4j data is stored in Docker named volumes. In `localhost` mode, the host installation owns persistence:
 - **Volume Name**: `atlas-graph-db-data` (from `${PROJECT_NAME}-graph-db-data`)
 - **Mount Point**: `/data` (inside container)
-- **Backup Location**: `/snapshot` (mounted to host)
+- **Backup Location**: `/snapshot` (named-volume mount)
+- **Backup Volume**: `${PROJECT_NAME}-neo4j-backups`
 
 ## 6. Environment Variables
 
@@ -243,6 +244,7 @@ _No upstream calls._
 
 | Service | Category |
 |---|---|
+| backup | infra |
 | kong | infra |
 | airflow | agents |
 | lightrag | agents |
@@ -260,7 +262,6 @@ _No upstream calls._
 ### 13.4. Future — Missing pair integrations
 
 - **neo4j ↔ n8n** — *Why:* unlocks no-code graph automation (entity sync, alerting on graph patterns, hydrating workflows from Cypher). n8n ships a first-party Neo4j credential + node. *Mechanism:* n8n Neo4j node configured with `bolt://neo4j-graph-db:7687`, `neo4j` / `${GRAPH_DB_PASSWORD}`; add `NEO4J_URI` to `services/n8n/compose.yml` and a credential seed in n8n init. *Effort:* small. *Confidence:* high.
-- **neo4j ↔ minio** — *Why:* Neo4j currently dumps backups to a local bind mount (`./services/neo4j/build/snapshot/`). Pushing dumps to MinIO gives durable, versioned, off-node backup. *Mechanism:* modify `backup.sh` to `mc cp` the dump to `s3://${MINIO_BUCKET}/neo4j-backups/`. *Effort:* small. *Confidence:* high.
 - **neo4j ↔ hermes** — *Why:* persistent agent memory + entity/relation recall across sessions; Hermes skills write structured episodic memory as a graph and traverse it for context. *Mechanism:* Hermes custom skill via Bolt at `bolt://neo4j-graph-db:7687` using the official neo4j Python driver; `GRAPH_DB_USER`/`GRAPH_DB_PASSWORD` from `.env`. *Effort:* medium. *Confidence:* medium.
 - **neo4j ↔ weaviate** — *Why:* GraphRAG patterns — Weaviate finds semantically similar chunks, Neo4j expands the neighbourhood (entities, citations, relationships) for grounded answers. *Mechanism:* backend orchestrator: Weaviate `nearText` → take payload `entity_ids` → Cypher `MATCH (e)-[*1..2]-(n) RETURN n`. *Effort:* medium. *Confidence:* medium.
 - **neo4j ↔ doc-processor** — *Why:* Docling extracts structured document elements (sections, tables, references); persisting them as a graph turns the doc corpus into a navigable knowledge graph. *Mechanism:* backend route or n8n flow: docling JSON → LiteLLM entity/relation extractor → Cypher `MERGE` over Bolt. *Effort:* medium. *Confidence:* medium.
@@ -317,5 +318,5 @@ For more troubleshooting help, see [../quick-start/troubleshooting.md](../../doc
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Container and host graph storage | supported | tested | Atlas supports a persistent Neo4j container or an operator-run localhost endpoint and wires Bolt consumers through the selected source. |
-| Snapshot backup and restore | partial | documented | Atlas can create full database dumps and restore the latest snapshot, but backup stops Neo4j and automatic restore can replace live volume contents at startup. |
+| Snapshot backup and restore | supported | tested | The backup orchestrator records whether Neo4j Community 5.26.27 is running, stops it for bounded system and neo4j database dumps, restores the prior running state on success or failure, and provides an authenticated offline load path. |
 | Production access isolation | partial | documented | Password authentication is configured, but direct Bolt and Browser ports are plaintext and Atlas does not provision separate least-privilege service roles. |

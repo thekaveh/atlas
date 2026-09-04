@@ -73,10 +73,10 @@
           "conditions": [
             {
               "id": "healthcheck-condition",
-              "leftValue": "={{ $json.status }}",
-              "rightValue": "healthy",
+              "leftValue": "={{ $json.status === 'healthy' || ($json.service === 'fal' && $json.status === 'configured') }}",
+              "rightValue": true,
               "operator": {
-                "type": "string",
+                "type": "boolean",
                 "operation": "equals"
               }
             }

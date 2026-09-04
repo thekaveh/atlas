@@ -26,6 +26,10 @@ EXPECTED_MODEL = (
 EXPECTED_INSTALLER_SHA256 = (
     "303dad03a9fbf9c10d8488e09f0d603b7cb71e7d8ccfc48216e1844076e84bc3"
 )
+NLP_MODEL_COPY_LINE = (
+    "COPY --chown=${NB_UID}:${NB_GID} nlp-model-requirements.txt "
+    "/tmp/nlp-model-requirements.txt\n"
+)
 EXPECTED_DOCKER_BLOCK = """COPY --chown=${NB_UID}:${NB_GID} nlp-model-requirements.txt /tmp/nlp-model-requirements.txt
 COPY --chown=${NB_UID}:${NB_GID} nlp-assets.toml /tmp/nlp-assets.toml
 COPY --chown=${NB_UID}:${NB_GID} install_nlp_assets.py /tmp/install_nlp_assets.py
@@ -113,7 +117,7 @@ def test_jupyterhub_nlp_asset_projection_and_build_contract_are_exact() -> None:
         ("model", "en_core_web_sm-3.8.0", "en_core_web_sm-3.7.0"),
         ("dockerfile", " --require-hashes", ""),
         ("dockerfile", " --no-deps", ""),
-        ("dockerfile", " --chown=${NB_UID}:${NB_GID}", ""),
+        ("dockerfile", NLP_MODEL_COPY_LINE, ""),
         (
             "dockerfile",
             " && python /tmp/install_nlp_assets.py verify --manifest /tmp/nlp-assets.toml --data-dir /home/jovyan/nltk_data \\\n",
@@ -139,6 +143,8 @@ def test_jupyterhub_nlp_asset_contract_rejects_every_drift(
     values = _current()
     source = values[field]
     assert isinstance(source, str)
+    if old == NLP_MODEL_COPY_LINE:
+        assert source.count(old) == 1
     mutated = source.replace(old, new, 1)
     assert mutated != source
     values[field] = mutated

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -37,6 +38,9 @@ def _entry(*nodes: str) -> ComfyUILibraryEntry:
 
 
 def _write_nodes(path: Path, nodes: list[dict]) -> Path:
+    lock = path.with_name(path.stem + "-requirements.txt")
+    lock.write_text("example==1.0 --hash=sha256:" + "a" * 64 + "\n", encoding="utf-8")
+    lock_sha = hashlib.sha256(lock.read_bytes()).hexdigest()
     lines = ["custom_nodes:"]
     for n in nodes:
         lines.append(f"  - name: {n['name']}")
@@ -44,6 +48,8 @@ def _write_nodes(path: Path, nodes: list[dict]) -> Path:
         lines.append(f"    ref: {n['ref']}")
         if n.get("install_requirements"):
             lines.append("    install_requirements: true")
+            lines.append(f"    requirements_lock: {lock.name}")
+            lines.append(f"    requirements_lock_sha256: {lock_sha}")
         if n.get("mps_unsafe"):
             lines.append("    mps_unsafe: true")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -52,6 +58,9 @@ def _write_nodes(path: Path, nodes: list[dict]) -> Path:
 
 def _allowlist(path: Path) -> Path:
     # Mixed valid/invalid entries; preserved from the original test.
+    lock = path.with_name("requirements-lock.txt")
+    lock.write_text("example==1.0 --hash=sha256:" + "a" * 64 + "\n", encoding="utf-8")
+    lock_sha = hashlib.sha256(lock.read_bytes()).hexdigest()
     path.write_text(
         "\n".join([
             "custom_nodes:",
@@ -59,6 +68,8 @@ def _allowlist(path: Path) -> Path:
             "    repo: https://github.com/city96/ComfyUI-GGUF.git",
             f"    ref: {_SHA}",
             "    install_requirements: true",
+            f"    requirements_lock: {lock.name}",
+            f"    requirements_lock_sha256: {lock_sha}",
             "  - name: FloatingTag",
             "    repo: https://github.com/example/FloatingTag.git",
             "    ref: main",
@@ -162,6 +173,86 @@ def test_mps_unsafe_parses_and_defaults_false(tmp_path):
 
     assert nodes["Plain"].mps_unsafe is False
     assert nodes["CudaOnly"].mps_unsafe is True
+
+
+def test_provisioning_required_defaults_true_and_optional_is_explicit(tmp_path):
+    path = tmp_path / "n.yaml"
+    path.write_text(
+        "\n".join(
+            [
+                "custom_nodes:",
+                "  - name: RequiredByDefault",
+                "    repo: https://github.com/o/r.git",
+                f"    ref: {_SHA}",
+                "  - name: Optional",
+                "    repo: https://github.com/o/o.git",
+                f"    ref: {_SHA2}",
+                "    provisioning_required: false",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    nodes = {node.name: node for node in load_custom_nodes(path=str(path))}
+    assert nodes["RequiredByDefault"].provisioning_required is True
+    assert nodes["Optional"].provisioning_required is False
+
+
+def test_lenient_node_loader_skips_nonboolean_provisioning_policy(tmp_path, capsys):
+    path = tmp_path / "n.yaml"
+    path.write_text(
+        "custom_nodes:\n"
+        "  - name: Ambiguous\n"
+        "    repo: https://github.com/o/a.git\n"
+        f"    ref: {_SHA}\n"
+        "    provisioning_required: optional\n",
+        encoding="utf-8",
+    )
+
+    assert load_custom_nodes(path=str(path)) == []
+    assert "provisioning_required must be a boolean" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("value", ["false", "true"])
+def test_strict_consumer_nodes_preserve_explicit_provisioning_policy(tmp_path, value):
+    path = tmp_path / "consumer-nodes.yaml"
+    path.write_text(
+        "\n".join(
+            [
+                "custom_nodes:",
+                "  - name: ConsumerNode",
+                "    repo: https://github.com/o/c.git",
+                f"    ref: {_SHA}",
+                f"    provisioning_required: {value}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    node = parse_custom_nodes_strict(path)[0]
+    assert node.provisioning_required is (value == "true")
+
+
+def test_strict_consumer_nodes_reject_nonboolean_provisioning_policy(tmp_path):
+    path = tmp_path / "consumer-nodes.yaml"
+    path.write_text(
+        "\n".join(
+            [
+                "custom_nodes:",
+                "  - name: ConsumerNode",
+                "    repo: https://github.com/o/c.git",
+                f"    ref: {_SHA}",
+                "    provisioning_required: optional",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="provisioning_required must be a boolean"):
+        parse_custom_nodes_strict(path)
 
 
 def test_parse_custom_nodes_strict_valid(tmp_path):
@@ -281,3 +372,51 @@ def test_parse_custom_nodes_strict_rejects_invalid(tmp_path, bad):
 
     with pytest.raises(ValueError):
         parse_custom_nodes_strict(tmp_path / "c.yaml")
+
+
+@pytest.mark.parametrize(
+    ("lock_lines", "match"),
+    [
+        ([], "requires requirements_lock"),
+        (
+            [
+                "    requirements_lock: ../outside.txt",
+                f"    requirements_lock_sha256: \"{'0' * 64}\"",
+            ],
+            "must stay under",
+        ),
+        (
+            [
+                "    requirements_lock: dependency-lock.txt",
+                f"    requirements_lock_sha256: \"{'0' * 64}\"",
+            ],
+            "digest mismatch",
+        ),
+    ],
+)
+def test_parse_custom_nodes_strict_fails_closed_for_invalid_dependency_locks(
+    tmp_path: Path, lock_lines: list[str], match: str
+) -> None:
+    (tmp_path / "dependency-lock.txt").write_text(
+        "example==1.0 --hash=sha256:" + "a" * 64 + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path.parent / "outside.txt").write_text("outside\n", encoding="utf-8")
+    path = tmp_path / "c.yaml"
+    path.write_text(
+        "\n".join(
+            [
+                "custom_nodes:",
+                "  - name: strict-node",
+                "    repo: https://github.com/o/strict-node.git",
+                f"    ref: {_SHA}",
+                "    install_requirements: true",
+                *lock_lines,
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=match):
+        parse_custom_nodes_strict(path)

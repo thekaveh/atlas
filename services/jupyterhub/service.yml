@@ -26,9 +26,9 @@ capabilities:
     verification: tested
     note: "User work persists in jupyterhub-data and bundled notebooks mount read-only, but cold volume removal still deletes the writable workspace."
   - name: "Curated MCP notebook endpoint"
-    status: stubbed
-    verification: documented
-    note: "The manifest and notebook declare MCP_SERVERS_URL, but compose does not inject it into JupyterHub, so the bundled MCP notebook reports the service disabled even when enabled."
+    status: supported
+    verification: tested
+    note: "The bootstrapper injects MCP_SERVERS_URL only when MCP_SERVERS_SOURCE=container and leaves it empty when disabled; the bundled notebook exercises discovery, invocation, and error handling against that endpoint. The direct backend-network URL bypasses Kong authentication and is appropriate only for this operator-trusted notebook environment."
   - name: "Multi-user JupyterHub isolation and HA"
     status: not-supported
     verification: documented
@@ -39,7 +39,7 @@ containers:
 
 images:
   - var: JUPYTERHUB_IMAGE
-    default: "quay.io/jupyter/datascience-notebook:python-3.11.10"
+    default: "quay.io/jupyter/datascience-notebook:2026-08-24@sha256:e5029672ab8a861345f117dc466a4dab91ad7c299f3c7c853b9b193860b16aaf"
     container: jupyterhub
 
 sources:
@@ -52,6 +52,20 @@ sources:
       label: "Disabled"
 
 env:
+  - name: JUPYTER_DB_USER
+    default: atlas_jupyter
+    description: "Read-only PostgreSQL login exposed to curated notebooks."
+  - name: JUPYTER_DB_PASSWORD
+    default: atlas-db-password
+    secret: true
+    description: "Auto-generated password for JupyterHub's read-only database role."
+  - name: JUPYTER_DB_USER_URI
+    default: atlas_jupyter
+    description: "Bootstrapper-synchronized percent-encoded JUPYTER_DB_USER for DSN userinfo."
+  - name: JUPYTER_DB_PASSWORD_URI
+    default: atlas-db-password
+    secret: true
+    description: "Bootstrapper-synchronized percent-encoded JUPYTER_DB_PASSWORD for DSN userinfo."
   - name: JUPYTERHUB_SOURCE
     default: container
   - name: JUPYTERHUB_PORT
@@ -67,8 +81,8 @@ env:
     default: "sc://spark-connect:15002"
     description: "Spark Connect endpoint used by bundled notebooks; override for a remote or managed Spark Connect server."
   - name: MCP_SERVERS_URL
-    default: ""
-    description: "Streamable HTTP URL for the Curated MCP Servers endpoint (http://mcp-servers:8000/mcp). Set by the bootstrapper when MCP_SERVERS_SOURCE is enabled; empty when disabled (#600)."
+    auto_managed: true
+    description: "Streamable HTTP URL for the Curated MCP Servers endpoint. The bootstrapper sets http://mcp-servers:8000/mcp only for MCP_SERVERS_SOURCE=container and clears it when disabled."
   - name: JUPYTERHUB_SCALE
     auto_managed: true
 

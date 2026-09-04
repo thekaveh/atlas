@@ -5,6 +5,7 @@ from scripts.docs.canonical_references import (
     render_canonical_references,
     sync_canonical_references,
 )
+from scripts.docs.manifest import load_manifest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,6 +20,8 @@ def test_canonical_reference_projection_covers_dynamic_public_pages() -> None:
     } | {"docs/architecture/README.md", "docs/architecture/index.md"}
 
     assert {path.relative_to(ROOT).as_posix() for path in rendered} == {
+        "docs/CONTRIBUTING-services.md",
+        "docs/README.md",
         "docs/tracks.md",
         "docs/services.md",
         "docs/reference/index.md",
@@ -61,3 +64,23 @@ def test_the_track_matrix_has_exactly_one_generated_home() -> None:
     assert homes == ["docs/site/tracks.md"], (
         f"the track matrix should have exactly one generated home, found: {homes}"
     )
+
+
+def test_documentation_map_delegates_service_inventory_to_generated_catalog() -> None:
+    manifest = load_manifest(ROOT / "docs" / "manifest.yaml", ROOT)
+    documentation_map = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
+    service_catalog = (ROOT / "docs" / "services.md").read_text(encoding="utf-8")
+    service_sources = [
+        page.source
+        for page in manifest.pages
+        if len(Path(page.source).parts) == 3
+        and Path(page.source).parts[0] == "services"
+        and Path(page.source).name == "README.md"
+    ]
+
+    assert service_sources
+    for source in service_sources:
+        link = f"../{source}"
+        assert link in service_catalog
+        assert link not in documentation_map
+    assert "[Service catalog](services.md)" in documentation_map

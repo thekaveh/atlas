@@ -4,22 +4,22 @@ services:
     build:
       context: ./init
       args:
-        BASE_IMAGE: ${LANGFUSE_INIT_IMAGE:-alpine:3.22.1}
+        BASE_IMAGE: ${LANGFUSE_INIT_IMAGE:-alpine:3.24.1}
     image: ${PROJECT_NAME}-langfuse-init:local
     container_name: ${PROJECT_NAME}-langfuse-init
     restart: "no"
     deploy:
       replicas: ${LANGFUSE_INIT_SCALE:-0}
     depends_on:
-      supabase-db:
-        condition: service_healthy
+      supabase-db-init:
+        condition: service_completed_successfully
       minio-init:
         condition: service_completed_successfully
     environment:
       PGHOST: supabase-db
       PGPORT: 5432
-      PGUSER: ${SUPABASE_DB_USER}
-      PGPASSWORD: ${SUPABASE_DB_PASSWORD}
+      PGUSER: ${LANGFUSE_DB_USER:?LANGFUSE_DB_USER is required}
+      PGPASSWORD: ${LANGFUSE_DB_PASSWORD:?LANGFUSE_DB_PASSWORD is required}
       LANGFUSE_DB_NAME: ${LANGFUSE_DB_NAME:-langfuse}
     volumes:
       - ./init/scripts:/scripts:ro
@@ -28,7 +28,7 @@ services:
       - backend-network
 
   langfuse-clickhouse:
-    image: ${LANGFUSE_CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:25.8.12}
+    image: ${LANGFUSE_CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:25.8.33.6}
     container_name: ${PROJECT_NAME}-langfuse-clickhouse
     restart: unless-stopped
     user: "101:101"
@@ -86,7 +86,7 @@ services:
       HOSTNAME: "0.0.0.0"
       NEXTAUTH_URL: http://langfuse.localhost:${KONG_HTTP_PORT}
       NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
-      DATABASE_URL: postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/${LANGFUSE_DB_NAME:-langfuse}
+      DATABASE_URL: postgresql://${LANGFUSE_DB_USER_URI:?LANGFUSE_DB_USER_URI is required}:${LANGFUSE_DB_PASSWORD_URI:?LANGFUSE_DB_PASSWORD_URI is required}@supabase-db:5432/${LANGFUSE_DB_NAME_URI:?LANGFUSE_DB_NAME_URI is required}
       SALT: ${LANGFUSE_SALT}
       ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY}
       TELEMETRY_ENABLED: "false"

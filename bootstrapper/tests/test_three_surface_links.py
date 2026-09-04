@@ -1,4 +1,4 @@
-from scripts.docs.links import find_links, is_forbidden
+from scripts.docs.links import find_links, is_forbidden, navigable_link_targets
 
 
 def test_find_links_returns_links_and_images_without_code_fences() -> None:
@@ -36,3 +36,18 @@ def test_forbidden_link_matrix_is_surface_specific() -> None:
     assert is_forbidden(site, "wiki")
     assert not is_forbidden("https://docs.docker.com/", "site")
     assert not is_forbidden("guide.md", "wiki")
+
+
+def test_navigable_links_include_commonmark_autolinks_and_raw_html_anchors() -> None:
+    markdown = """
+<https://example.com/guide>
+<a href="guide.md?one=1&amp;two=2">Guide</a>
+![image](ignored.md)
+<!-- <a href="comment.md">Comment</a> -->
+<script><a href="script.md">Script</a></script>
+"""
+
+    assert navigable_link_targets(markdown) == [
+        "https://example.com/guide",
+        "guide.md?one=1&two=2",
+    ]

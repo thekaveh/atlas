@@ -41,13 +41,13 @@ Atlas is a self-hosted engineering platform that bundles 30+ services — LLM in
 
 It's not a catalog of independent containers: the services are integrated out of the box. Kong routes every `*.localhost` host, LiteLLM unifies local and cloud models behind one API, an adaptive FastAPI backend auto-wires to whichever vector, graph, workflow, and media services you enable, Supabase provides shared auth and storage, and one observability pipeline plus declared dependency ordering tie it all together.
 
-Source-configurable services expose the deployment variants each family supports — commonly `container`, `localhost`, or `disabled` — so the same stack scales from a CPU starter to a multi-GPU lab. Seven tracks — Generative AI · RAG, Generative AI · Engineering, Generative AI · Creative, ML Engineering, Data Engineering, Trading / Financial Research, and All / Custom — preselect a working subset per workflow, and a `--profile` switch (`dev`/`default` vs `prod`) flips the same stack between a loose dev layout and a hardened prod one. The always-on core is Kong, Supabase, Redis, LiteLLM, and the Backend API.
+Source-configurable services expose the deployment variants each family supports — commonly `container`, `localhost`, or `disabled` — so the same stack scales from a CPU starter to a multi-GPU lab. Seven tracks — Generative AI · RAG, Generative AI · Engineering, Generative AI · Creative, ML Engineering, Data Engineering, Trading / Financial Research, and All / Custom — preselect a working subset per workflow, and a `--profile` switch (`dev`/`default` vs `prod`) applies the matching source and observability bundle. Both profiles keep published service ports loopback-bound by default; an explicit `HOST_BIND_IP` remains an operator choice. The always-on core is Kong, Supabase, Redis, LiteLLM, and the Backend API.
 
 - **30+ services across 7 tracks**, all ports derived from one `BASE_PORT`
 - **Integrated, not just launched:** Kong routing, the LiteLLM model gateway, an adaptive backend, shared Supabase auth, and one observability pipeline
 - **Always-on core:** Kong, Supabase, Redis, LiteLLM, Backend
 - **Per-service SOURCE:** family-specific variants, commonly `container` / `localhost` / `disabled`
-- **Profiles:** `--profile dev` (default) or `--profile prod` (loopback-bound, observability on)
+- **Profiles:** `--profile dev` (default, loopback-bound) or `--profile prod` (also loopback-bound, observability on)
 - **One command:** `./start.sh` opens the interactive **Textual TUI wizard** — pick a track, choose per-service sources, set the base port, and watch the live launch
 
 [![Atlas — interactive setup wizard streaming the launch phase, with the ASCII brand banner pinned at the top of the terminal](./docs/screenshots/wizard-running.png)](./docs/screenshots/wizard-running.png)

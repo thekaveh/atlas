@@ -165,6 +165,31 @@ def test_generated_reference_pages_cover_core_sources() -> None:
     assert "open-webui" in dependencies
 
 
+def test_service_authoring_policy_projects_to_site_and_wiki() -> None:
+    site_guide = (DOCS_SITE / "CONTRIBUTING-services.md").read_text(encoding="utf-8")
+    wiki_guide = (WIKI_DIR / "9.2-Contributing-Services.md").read_text(encoding="utf-8")
+    site_map = (DOCS_SITE / "documentation-map.md").read_text(encoding="utf-8")
+    wiki_map = (WIKI_DIR / "9.3-Documentation-Map.md").read_text(encoding="utf-8")
+    site_fields = (DOCS_SITE / "reference" / "manifest-fields.md").read_text(
+        encoding="utf-8"
+    )
+    wiki_fields = (WIKI_DIR / "10.6-Manifest-Fields.md").read_text(encoding="utf-8")
+    canonical_map = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
+    archive_range = re.search(
+        r"plans and specs dated (\d{4}-\d{2}-\d{2} through \d{4}-\d{2}-\d{2})",
+        canonical_map,
+    )
+
+    assert archive_range is not None
+    for guide in (site_guide, wiki_guide):
+        assert "`manifest_documentation`" in guide
+        assert "`missing_documentation`" in guide
+    for documentation_map in (site_map, wiki_map):
+        assert archive_range.group(1) in documentation_map
+    for fields in (site_fields, wiki_fields):
+        assert "| docs_exception |" in fields
+
+
 def test_diagram_masters_and_surface_assets_are_complete() -> None:
     manifest = _manifest()
     assert len(manifest.diagrams) >= 1
@@ -567,7 +592,8 @@ def test_platform_and_jupyter_docs_do_not_overstate_integration_coverage() -> No
     assert "LiteLLM is the single path" not in home
     assert "access to all Atlas services" not in jupyter
     assert "Auto-configured connections to all services" not in jupyter
-    assert "current MCP endpoint" in jupyter
+    assert "MCP_SERVERS_URL" in jupyter
+    assert "remain empty when their source is disabled" in jupyter
 
 
 def test_canonical_home_embeds_the_committed_platform_image() -> None:
@@ -776,7 +802,7 @@ def test_services_lint_build_validation_covers_all_local_build_contexts() -> Non
                 expected.add((relative, dockerfile))
     assert expected
     for context, dockerfile in expected:
-        assert f'"{context}|{dockerfile}|' in workflow
+        assert f'"{context}|{dockerfile}"' in workflow
 
 
 def test_adapter_tmpfs_covers_default_concurrent_upload_and_result_budget() -> None:

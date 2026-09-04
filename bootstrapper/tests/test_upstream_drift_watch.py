@@ -16,6 +16,7 @@ from scripts import upstream_drift_watch as watch
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "upstream-drift-watch.yml"
+REAL_SUBPROCESS_TEST_TIMEOUT_SECONDS = 5.0
 
 
 def _load_github_workflow(path: Path) -> dict:
@@ -303,6 +304,77 @@ def test_probe_remote_build_contexts_fetches_pinned_dockerfiles_and_resolves_bas
         2.0,
     )]
     assert inspected == [("nginx:alpine", 3.0), ("node:20", 3.0)]
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "COPY --from=vendor/tool:latest /tool /tool",
+        "RUN --mount=type=bind,from=vendor/tool:latest,target=/tool true",
+        "# syntax=vendor/frontend:latest",
+        "ARG TOOL=vendor/safe:1.2.3\nCOPY --from=$TOOL /tool /tool",
+    ),
+)
+def test_remote_dockerfile_auxiliary_sources_fail_closed(
+    monkeypatch, source: str
+) -> None:
+    context = watch.RemoteBuildContext(
+        repository="example/project",
+        ref="0123456789abcdef0123456789abcdef01234567",
+        subdir="frontend",
+        dockerfile="Dockerfile",
+    )
+    monkeypatch.setattr(
+        watch,
+        "_load_remote_dockerfile",
+        lambda *_args: f"{source}\nFROM vendor/safe:1.2.3\n",
+    )
+
+    result = watch.probe_remote_build_contexts(
+        (context,),
+        expected_digests={"vendor/safe:1.2.3": "sha256:" + "a" * 64},
+        http_timeout=2.0,
+        image_timeout=3.0,
+    )
+
+    assert result.ok is False
+    assert result.detail
+
+
+@pytest.mark.parametrize(
+    ("dockerfile_text", "expected"),
+    (
+        (
+            "FROM vendor/base:1.2.3 AS build\nFROM build AS runtime\n",
+            ("vendor/base:1.2.3",),
+        ),
+        (
+            "FROM vendor/base:1.2.3 AS build\nFROM scratch AS runtime\n",
+            ("vendor/base:1.2.3",),
+        ),
+        ("FROM scratch\n", ()),
+    ),
+)
+def test_remote_dockerfile_internal_stages_and_scratch_are_not_bases(
+    dockerfile_text: str, expected: tuple[str, ...]
+) -> None:
+    assert watch._literal_dockerfile_bases(dockerfile_text) == expected
+
+
+@pytest.mark.parametrize("separator", ("\v", "\f", "\u0085", "\u2028"))
+def test_remote_dockerfile_control_character_cannot_hide_following_from(
+    separator: str,
+) -> None:
+    dockerfile = (
+        "FROM vendor/safe:1.2.3\n"
+        f"RUN printf x\\{separator}\n"
+        "FROM vendor/hidden:latest\n"
+    )
+
+    assert watch._literal_dockerfile_bases(dockerfile) == (
+        "vendor/hidden:latest",
+        "vendor/safe:1.2.3",
+    )
 
 
 def test_probe_remote_build_contexts_reports_mutable_base_digest_drift(monkeypatch):
@@ -665,14 +737,22 @@ def _write_fake_docker(tmp_path: Path, body: str) -> None:
 def test_probe_manifest_images_uses_bounded_real_subprocess(tmp_path, monkeypatch):
     _write_fake_docker(tmp_path, "exit 0")
     monkeypatch.setenv("PATH", f"{tmp_path}:{__import__('os').environ['PATH']}")
-    result = watch.probe_manifest_images(("example/image:1",), timeout=1.0, workers=1)
+    result = watch.probe_manifest_images(
+        ("example/image:1",),
+        timeout=REAL_SUBPROCESS_TEST_TIMEOUT_SECONDS,
+        workers=1,
+    )
     assert result.ok is True
 
 
 def test_probe_manifest_images_reports_nonzero_output_with_bounded_detail(tmp_path, monkeypatch):
     _write_fake_docker(tmp_path, "printf '%800s' '' | tr ' ' x >&2\nexit 9")
     monkeypatch.setenv("PATH", f"{tmp_path}:{__import__('os').environ['PATH']}")
-    result = watch.probe_manifest_images(("broken/image:1",), timeout=1.0, workers=1)
+    result = watch.probe_manifest_images(
+        ("broken/image:1",),
+        timeout=REAL_SUBPROCESS_TEST_TIMEOUT_SECONDS,
+        workers=1,
+    )
     assert result.ok is False
     assert "broken/image:1" in result.detail
     assert len(result.detail) < 600

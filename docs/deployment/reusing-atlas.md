@@ -144,14 +144,18 @@ built local images (`<project>-backend:local`, etc.) untouched — and
 `docker compose up --force-recreate` recreates *containers* from those stale
 images, so without a rebuild the backend can run last week's code against this
 week's compose/env (e.g. a pre-Celery image → `ModuleNotFoundError`). Atlas now
-detects this: it records the source commit its local images were last built at
-(in a gitignored `.atlas-build-state` marker) and, when the commit has changed,
-a normal `./start.sh` adds `--build` so stale images rebuild **before**
-containers are recreated. The three paths behave as expected:
+detects this: it records the source commit, a secret-safe fingerprint of the
+resolved local-image build configuration and dependency graph, and the Compose
+target set actually built (in a gitignored `.atlas-build-state` marker). When
+any of those inputs changes, a normal `./start.sh` adds `--build` so stale images rebuild **before**
+containers are recreated. Release archives without Git metadata still use the
+build-configuration fingerprint. The paths behave as expected:
 
 - **Fresh clone** — no marker yet → images build on first start.
-- **Unchanged restart** — commit matches the marker → no rebuild, fast start (buildkit still caches, so a rebuild that does run only touches contexts that actually changed).
+- **Unchanged restart** — commit, resolved build inputs, and enabled target set match the marker → no rebuild, fast start (buildkit still caches, so a rebuild that does run only touches contexts that actually changed).
 - **Submodule upgrade** — commit differs → stale local images rebuild automatically; no manual `docker compose build` needed.
+- **Same-commit image/build-arg change** — the resolved build fingerprint differs → enabled local images rebuild automatically.
+- **A previously disabled service is enabled** — the target set differs → that service cannot inherit a marker written while only other services were built.
 
 (Uncommitted local edits to a Dockerfile under the same commit aren't auto-detected — rebuild those with `./start.sh --cold` or an explicit `docker compose build`.)
 
@@ -533,8 +537,10 @@ profile_overrides:
 ```
 
 `./start.sh` with no `--profile` flag uses the manifest's `profile:`;
-`--profile prod` selects the whole prod set in one switch (loopback bind,
-observability ON, log rotation, prod sources). Semantics per field: a profile's
+`--profile prod` selects the whole prod set in one switch (observability ON,
+log rotation, prod sources). Both shipped profiles keep newly configured and
+legacy-blank published ports loopback-bound; a non-empty `HOST_BIND_IP` is an
+explicit operator choice and is preserved. Semantics per field: a profile's
 `sources` are asserted on every start of that profile **except** when that
 service's source was set by an explicit CLI flag this run (operator wins);
 `env` values apply only when unset (an operator-set value is kept with a
@@ -582,7 +588,7 @@ networks:
     external: true
 ```
 
-**Scope note:** overlay services *launch*, but they are intentionally **not** wired into Atlas's wizard, topology port-allocator, or generated `.env.example` — you manage their image/ports/env directly in the fragment (use `${HOST_BIND_IP:-}` on published ports to inherit the `--profile prod` localhost-binding behavior). If you'd rather keep your service in its *own* repo entirely, use Method A instead (it joins the same network from outside).
+**Scope note:** overlay services *launch*, but they are intentionally **not** wired into Atlas's wizard, topology port-allocator, or generated `.env.example` — you manage their image/ports/env directly in the fragment (use `${HOST_BIND_IP:-}` on published ports to inherit Atlas's loopback binding default). If you'd rather keep your service in its *own* repo entirely, use Method A instead (it joins the same network from outside).
 
 #### 6.1.2. Adding parent-owned MinIO buckets
 
@@ -1021,6 +1027,8 @@ services:
 
 **What the contract enforces.** A `mount` corpus must be a relative path under the shared execution root (`RAG_INGESTION_CORPUS_ROOT`, default `/app/corpus`) — an absolute path, a `~`, or a `..` segment is rejected; a MinIO corpus must reference a store the same consumer declared. Corpus discovery is bounded by manifest-owned limits (`RAG_INGESTION_MAX_FILE_BYTES`, default 100 MiB; `RAG_INGESTION_MAX_CORPUS_BYTES`, default 1 GiB; `RAG_INGESTION_MAX_FILES`, default 10,000) before content is retained in memory. `parser_order` is invoked exactly as declared — no silent fallback across parsers — and each job records observable phases (`discover → parse → chunk → embed → vector_write → lightrag_upload → drain → finalize`) with per-file errors isolated so one bad file doesn't fail the batch. Each `vector_target`/`graph_target` declares `on_unavailable: fail | skip` so a disabled backend fails or visibly skips rather than silently degrading. Ingestions are idempotent and leased: the job key is consumer + profile + revision + corpus fingerprint (so a resubmit of unchanged content returns the existing job, changed content creates a fresh one), and each execution holds an owner-fenced Redis lease (`RAG_INGESTION_EXECUTION_LEASE_SECONDS`, default 30) so duplicate deliveries and lost workers can't double-write. A `wait_for_extraction: true` graph target polls LightRAG until idle or `timeout_seconds`, then finalizes.
 
+List ingestion state in bounded pages. `GET /api/rag/ingestions` keeps the historical JSON-list body, returns 100 records by default (maximum 200), and exposes the exclusive continuation token in `X-Atlas-Next-Cursor`; send that value as the next request's `cursor` query parameter. Stateful Backend routes use Redis by default and return a typed `state_store_unavailable` HTTP 503 during an outage. The only in-memory alternative is the explicit `BACKEND_STATE_STORE_MODE=memory` single-process, non-durable mode; it is not an automatic outage fallback, and RAG submissions run synchronously rather than crossing into a Celery worker-local store.
+
 Live ingestion against running Docling/Tika/Weaviate/LightRAG is an **optional** live test; the unit suite validates the contract, the phase state machine, capability semantics, idempotency, and path safety with fake upstreams. The complete field-level contract lives in the backend's ingestion module and its test suite (`app/app/tests/test_rag_ingestion.py`).
 
 Downstream payoff: `rag-showcase` keeps owning its datasets, comparison reports, and approach-specific plugins, while Atlas owns the repeatable ingestion lifecycle across documents, vector stores, and LightRAG.
@@ -1437,18 +1445,21 @@ containerized Ollama **next to** the host's Ollama, double-loading models and
 contending for GPU/RAM on single-GPU machines. On a host that already runs
 Ollama, prefer `ollama-localhost`.
 
-### 7.6. Upgrades — warm starts do not rebuild local images
+### 7.6. Upgrades — warm starts rebuild stale local images
 
-A warm `./start.sh` recreates containers (`--force-recreate`) but **never
-rebuilds** them; the local image build (`compose build --no-cache`) runs **only
-on `--cold`**. So after you advance your Atlas submodule pin, a plain warm
-restart keeps running the **stale** locally-built images (backend, asset-worker,
-…) with no indication — a backend fix can be silently absent because the old
-image is still live.
+A warm `./start.sh` always recreates containers (`--force-recreate`) and adds
+`--build` when its gitignored `.atlas-build-state` marker no longer matches the
+Atlas commit, resolved local-image build inputs/dependencies, or actual
+enabled/explicit Compose target set. This covers submodule pin advances,
+same-commit build-arg changes such as `MLFLOW_IMAGE`, and enabling a service that was excluded from
+the previous build. Release archives without Git metadata still track build
+inputs and targets. A successful targeted build records only that target set,
+so rebuilding unrelated enabled services cannot mark a disabled service fresh.
 
-**After moving the pin, rebuild:** cold-start (`./stop.sh --cold && ./start.sh`)
-or rebuild the affected local-build services with
-`docker compose build --no-cache <svc>` before a warm start.
+An unchanged warm restart skips the build. `./start.sh --cold` remains the
+operator-controlled no-cache rebuild and volume-reset path; use it (or an
+explicit `docker compose build --no-cache <svc>`) for uncommitted Dockerfile or
+build-context edits, because the marker does not hash source-file contents.
 
 ### 7.7. Post-launch verification
 

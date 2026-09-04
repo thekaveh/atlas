@@ -132,6 +132,14 @@ def test_source_permutation_matrix_matches_every_manifest_option():
     assert exercised == declared | cloud
 
 
+def test_explicit_remote_host_bind_remains_a_valid_compose_override(tmp_path: Path):
+    env_file = tmp_path / ".env"
+    _write_env_with_override(env_file, "HOST_BIND_IP", "0.0.0.0:")
+
+    ok, stderr = _compose_config_ok(env_file)
+    assert ok, f"HOST_BIND_IP=0.0.0.0: produced invalid compose:\n{stderr}"
+
+
 # ─── Scaled-family rendering tests ──────────────────────────────────────
 # These exercise multi-replica scales that ``test_source_value_produces_valid_compose``
 # can't catch — that test only flips SOURCE vars; the auto-managed *_SCALE

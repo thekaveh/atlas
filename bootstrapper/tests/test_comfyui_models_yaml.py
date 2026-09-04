@@ -58,7 +58,14 @@ def _entry_to_comparable(e: ComfyUILibraryEntry) -> dict:
     Excludes 'pulled' (wizard-time computed) and 'source' (set by the loader,
     differs between curated/fallback). Those are tested separately.
     """
-    return json.loads(json.dumps(dataclasses.asdict(e)))
+    comparable = json.loads(json.dumps(dataclasses.asdict(e)))
+    # The historical catalog snapshot predates the optional per-file
+    # readiness override. None means "inherit requiredness from the logical
+    # entry" and therefore does not change the pinned artifact metadata.
+    for file_row in comparable.get("files", []):
+        if file_row.get("provisioning_required") is None:
+            file_row.pop("provisioning_required", None)
+    return comparable
 
 
 # ─── Schema validation ───────────────────────────────────────────────────────
@@ -79,6 +86,161 @@ def test_yaml_passes_schema():
     data = yaml.safe_load(_YAML_PATH.read_text(encoding="utf-8"))
     # jsonschema raises if invalid; no assertion needed
     jsonschema.validate(instance=data, schema=schema)
+
+
+def _minimal_direct_model(**overrides):
+    model = {
+        "name": "verified-direct",
+        "category": "checkpoint",
+        "url": (
+            "https://huggingface.co/example/model/resolve/"
+            + "1" * 40
+            + "/model.safetensors"
+        ),
+        "sha256": "a" * 64,
+    }
+    model.update(overrides)
+    return {"models": [model]}
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"url": "https://huggingface.co/example/model/resolve/main/model.safetensors"},
+        {"sha256": None},
+        {"sha256": "a" * 63},
+        {"sha256": "A" * 64},
+    ],
+)
+def test_schema_rejects_mutable_or_unverified_direct_artifacts(overrides):
+    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(instance=_minimal_direct_model(**overrides), schema=schema)
+
+
+@pytest.mark.parametrize(
+    "file_overrides",
+    [
+        {"url": "https://huggingface.co/example/model/resolve/main/model.safetensors"},
+        {"sha256": None},
+        {"sha256": "not-a-sha256"},
+    ],
+)
+def test_schema_applies_the_same_trust_contract_to_bundle_files(file_overrides):
+    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    artifact = {
+        "role": "weights",
+        "category": "checkpoint",
+        "url": (
+            "https://huggingface.co/example/model/resolve/"
+            + "2" * 40
+            + "/model.safetensors"
+        ),
+        "sha256": "b" * 64,
+    }
+    artifact.update(file_overrides)
+    catalog = {
+        "models": [{"name": "verified-bundle", "category": "checkpoint", "files": [artifact]}]
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(instance=catalog, schema=schema)
+
+
+def test_curated_catalog_has_only_immutable_verified_download_artifacts():
+    """Direct and bundle artifacts share one immutable/hash trust boundary."""
+    data = yaml.safe_load(_YAML_PATH.read_text(encoding="utf-8"))
+    artifacts = []
+    for model in data["models"]:
+        files = model.get("files")
+        artifacts.extend(files if files else [model])
+
+    assert len(artifacts) == 20  # 14 direct + 6 bundle declarations
+    for artifact in artifacts:
+        assert "/resolve/main/" not in artifact["url"]
+        assert len(artifact["sha256"]) == 64
+        assert artifact["sha256"] == artifact["sha256"].lower()
+        assert all(char in "0123456789abcdef" for char in artifact["sha256"])
+
+
+def test_dead_audioldm_root_artifact_is_not_offered_anywhere():
+    """The removed URL never existed in any of the 17 upstream revisions.
+
+    Provenance is recorded in .superpowers/sdd/task-7-report.md; this static
+    guard avoids a flaky network dependency while preventing reintroduction.
+    """
+    dead_name = "audioldm-text-to-audio"
+    dead_url = "https://huggingface.co/cvssp/audioldm/resolve/main/pytorch_model.bin"
+    curated = _YAML_PATH.read_text(encoding="utf-8")
+    fallback = (
+        _REPO_ROOT / "bootstrapper/utils/data/comfyui_catalog_fallback.json"
+    ).read_text(encoding="utf-8")
+    assert dead_name not in curated and dead_url not in curated
+    assert dead_name not in fallback and dead_url not in fallback
+
+
+def test_library_rejects_mutable_curated_catalog_even_without_schema_runner(
+    monkeypatch, tmp_path
+):
+    import utils.comfyui_library as library
+
+    catalog = tmp_path / "models.yaml"
+    catalog.write_text(
+        """models:
+  - name: mutable
+    category: checkpoint
+    url: https://huggingface.co/example/model/resolve/main/model.safetensors
+    sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(library, "_find_comfyui_yaml", lambda: catalog)
+
+    with pytest.raises(RuntimeError, match="immutable 40-hex"):
+        library.list_curated()
+
+
+def test_library_rejects_direct_bundle_target_conflicts(monkeypatch, tmp_path):
+    import utils.comfyui_library as library
+
+    revision = "1" * 40
+    catalog = tmp_path / "models.yaml"
+    catalog.write_text(
+        f"""models:
+  - name: direct
+    category: checkpoint
+    filename: shared.safetensors
+    url: https://huggingface.co/example/one/resolve/{revision}/one.safetensors
+    sha256: {'a' * 64}
+  - name: bundle
+    category: checkpoint
+    files:
+      - role: weights
+        category: checkpoint
+        filename: shared.safetensors
+        url: https://huggingface.co/example/two/resolve/{revision}/two.safetensors
+        sha256: {'b' * 64}
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(library, "_find_comfyui_yaml", lambda: catalog)
+
+    with pytest.raises(RuntimeError, match="Conflicting.*checkpoints/shared"):
+        library.list_curated()
+
+
+def test_complete_curated_catalog_emits_one_verified_row_per_unique_target(tmp_path):
+    from utils.comfyui_manifest_generator import ComfyUIManifestGenerator
+
+    tsv_path = tmp_path / "active-models.tsv"
+    ComfyUIManifestGenerator({})._write_tsv(list_curated(), tsv_path)
+    rows = [line.split("\t") for line in tsv_path.read_text(encoding="utf-8").splitlines()]
+
+    assert len(rows) == 18
+    assert all(len(row) == 8 for row in rows)
+    assert all(len(row[4]) == 64 and row[4] == row[4].lower() for row in rows)
+    assert all(row[6] == "curated" for row in rows)
+    assert all(row[7] == "required" for row in rows)
+    assert len({(row[5], row[2]) for row in rows}) == len(rows)
 
 
 def test_yaml_has_expected_entry_count():

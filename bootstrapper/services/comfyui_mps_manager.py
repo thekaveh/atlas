@@ -992,7 +992,15 @@ class ComfyUiMpsManager:
             return result
         seen: set[str] = set()
         for node in nodes:
-            name, repo, ref, install_requirements, mps_unsafe = self._node_fields(node)
+            (
+                name,
+                repo,
+                ref,
+                install_requirements,
+                requirements_lock,
+                requirements_lock_sha256,
+                mps_unsafe,
+            ) = self._node_fields(node)
             if not name or name in seen:
                 continue
             seen.add(name)
@@ -1006,6 +1014,8 @@ class ComfyUiMpsManager:
                     repo=repo,
                     ref=ref,
                     install_requirements=install_requirements,
+                    requirements_lock=requirements_lock,
+                    requirements_lock_sha256=requirements_lock_sha256,
                     emit=emit,
                     warnings=result.warnings,
                 )
@@ -1029,6 +1039,8 @@ class ComfyUiMpsManager:
         repo: str,
         ref: str,
         install_requirements: bool,
+        requirements_lock: Path | None,
+        requirements_lock_sha256: str,
         emit,
         warnings: list[str],
     ) -> str:
@@ -1046,6 +1058,12 @@ class ComfyUiMpsManager:
             raise ComfyUiMpsError(f"custom node {name!r} must use a https://github.com/*.git repo")
         if not (len(ref) == 40 and all(c in "0123456789abcdefABCDEF" for c in ref)):
             raise ComfyUiMpsError(f"custom node {name!r} ref must be a full 40-character SHA")
+        if install_requirements:
+            self._verify_node_dependency_lock(
+                requirements_lock,
+                requirements_lock_sha256=requirements_lock_sha256,
+                name=name,
+            )
 
         nodes_root = self.repo_dir / "custom_nodes"
         nodes_root.mkdir(parents=True, exist_ok=True)
@@ -1054,11 +1072,12 @@ class ComfyUiMpsManager:
 
         if (dest / ".git").exists():
             if self._rev_parse(dest) == ref_l:
-                return "skipped"
-            emit(f"updating {name} to {ref_l}")
-            self._run(["git", "-C", str(dest), "fetch", "origin", ref_l])
-            self._run(["git", "-C", str(dest), "checkout", "--detach", ref_l])
-            outcome = "updated"
+                outcome = "skipped"
+            else:
+                emit(f"updating {name} to {ref_l}")
+                self._run(["git", "-C", str(dest), "fetch", "origin", ref_l])
+                self._run(["git", "-C", str(dest), "checkout", "--detach", ref_l])
+                outcome = "updated"
         else:
             tmp = dest.with_name(dest.name + ".tmp")
             if tmp.exists():
@@ -1072,28 +1091,55 @@ class ComfyUiMpsManager:
             outcome = "provisioned"
 
         if install_requirements:
-            req = dest / "requirements.txt"
-            if req.exists():
-                self._pip_install_node_requirements(req, name=name, emit=emit, warnings=warnings)
+            self._pip_install_node_requirements(
+                requirements_lock,
+                requirements_lock_sha256=requirements_lock_sha256,
+                name=name,
+                emit=emit,
+                warnings=warnings,
+            )
         return outcome
 
     def _pip_install_node_requirements(
-        self, requirements_txt: Path, *, name: str, emit, warnings: list[str]
+        self,
+        requirements_lock: Path | None,
+        *,
+        requirements_lock_sha256: str,
+        name: str,
+        emit,
+        warnings: list[str],
     ) -> None:
-        """pip-install a node's requirements into the shared host ComfyUI venv.
+        """Install a reviewed node lock into the shared host ComfyUI venv.
 
         RISK: a node pinning an older torch would silently downgrade Metal-enabled
         Torch and break MPS — the host venv has no disposable-image safety net
         (unlike the container path). Guard with a ``pip freeze`` before/after
         diff: warn LOUD on any torch/torchvision/torchaudio drift and point at
         ``comfyui-mps install --update`` (which re-applies the pinned torch
-        stack). The install completes either way (parity with the container hook).
+        stack). Locks exclude the base Torch triple and install without dependency
+        re-resolution. The install completes either way (parity with the container
+        hook).
         """
         if not self.venv_python.exists():
             raise ComfyUiMpsError("ComfyUI venv is not installed — run install first")
+        verified_lock = self._verify_node_dependency_lock(
+            requirements_lock,
+            requirements_lock_sha256=requirements_lock_sha256,
+            name=name,
+        )
         before = self._pip_freeze()
         self._run(
-            [str(self.venv_python), "-m", "pip", "install", "--no-cache-dir", "-r", str(requirements_txt)]
+            [
+                str(self.venv_python),
+                "-m",
+                "pip",
+                "install",
+                "--no-cache-dir",
+                "--no-deps",
+                "--require-hashes",
+                "-r",
+                str(verified_lock),
+            ]
         )
         after = self._pip_freeze()
         drifted = [p for p in ("torch", "torchvision", "torchaudio") if before.get(p) != after.get(p)]
@@ -1106,6 +1152,28 @@ class ComfyUiMpsManager:
             )
             emit(msg)
             warnings.append(f"{name}: torch stack drifted ({changes}) — run comfyui-mps install --update")
+
+    @staticmethod
+    def _verify_node_dependency_lock(
+        requirements_lock: Path | None,
+        *,
+        requirements_lock_sha256: str,
+        name: str,
+    ) -> Path:
+        if requirements_lock is None or not requirements_lock.is_file():
+            raise ComfyUiMpsError(f"{name} dependency lock is missing")
+        if not (
+            len(requirements_lock_sha256) == 64
+            and all(ch in "0123456789abcdef" for ch in requirements_lock_sha256)
+        ):
+            raise ComfyUiMpsError(f"{name} dependency lock SHA-256 is invalid")
+        actual = hashlib.sha256(requirements_lock.read_bytes()).hexdigest()
+        if actual != requirements_lock_sha256:
+            raise ComfyUiMpsError(
+                f"{name} dependency lock digest mismatch: expected "
+                f"{requirements_lock_sha256}, got {actual}"
+            )
+        return requirements_lock
 
     def _pip_freeze(self) -> dict[str, str]:
         """``{package: version}`` for the torch triple from ``pip freeze`` (empty on error)."""
@@ -1146,14 +1214,17 @@ class ComfyUiMpsManager:
         return (result.stdout or "").strip()
 
     @staticmethod
-    def _node_fields(node) -> tuple[str, str, str, bool, bool]:
+    def _node_fields(node) -> tuple[str, str, str, bool, Path | None, str, bool]:
         """Normalize a node (``ComfyUICustomNode`` or dict) to a uniform tuple."""
         get = node.get if isinstance(node, dict) else lambda k: getattr(node, k, None)
+        raw_lock = get("requirements_lock")
         return (
             str(get("name") or "").strip(),
             str(get("repo") or "").strip(),
             str(get("ref") or "").strip(),
             bool(get("install_requirements")),
+            Path(raw_lock) if raw_lock else None,
+            str(get("requirements_lock_sha256") or "").strip().lower(),
             bool(get("mps_unsafe")),
         )
 
@@ -1165,7 +1236,7 @@ class ComfyUiMpsManager:
         missing: list[str] = []
         seen: set[str] = set()
         for node in nodes:
-            name, _repo, ref, _ir, mps_unsafe = self._node_fields(node)
+            name, _repo, ref, _ir, _lock, _lock_sha, mps_unsafe = self._node_fields(node)
             if not name or name in seen:
                 continue
             seen.add(name)

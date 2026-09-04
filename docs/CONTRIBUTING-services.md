@@ -321,7 +321,7 @@ Write a helper in `bootstrapper/services/service_config.py` and wire it into `ge
 
 For everything else, stay declarative. Adding a hook means writing Python, adding a unit test for it, and giving future maintainers an extra place to read.
 
-> **Worked example — Qdrant:** Single SOURCE, no cross-service dependencies, no derived state. → **No hook needed.** The declarative `runtime_sc` covers all four sources.
+> **Worked example — Qdrant:** Single SOURCE, no cross-service dependencies, no derived state. → **No hook needed.** The declarative `runtime_sc` covers every declared source.
 
 ### 10.2. `runtime_adaptive` and `runtime_deps`
 
@@ -649,7 +649,14 @@ Distilled from real audit findings — each entry cites the commit, PR, or memor
 
 ### 14.3. Init-container patterns
 
-- **Init containers use vanilla `alpine:latest` + inline `apk add`.** Don't ship a Dockerfile that builds a custom init image — the global `alpine:latest` tag gets clobbered.
+- **Init jobs never install packages at container startup.** Put required tools
+  in a service-owned `init/Dockerfile` (or another explicitly named build
+  context), pin the multi-architecture base index and every Alpine package
+  version, and give the result a project-local image name. Runtime `apk add`
+  makes startup depend on mutable repositories and can silently change a
+  deployed revision. Debian images likewise receive security fixes through a
+  reviewed pinned-base refresh, not `apt-get upgrade`; required final-image
+  scanning gates each refresh.
 - **TTS/STT engine in-container ports are NOT all 8000.** Parakeet, Speaches, Docling listen on `8000`; Chatterbox listens on `4123`. Don't assume.
 
 ### 14.4. Regen / test gotchas
@@ -716,7 +723,9 @@ Service READMEs follow a numbered convention (`## 1. Overview`, `## 2. Access`, 
 name: myservice
 label: "My service (human-readable)"
 category: apps                          # infra | data | llm | media | agents | apps
-docs: services/myservice/README.md        # optional
+docs: services/myservice/README.md        # safe repo-relative Markdown path
+# docs_exception: "No guide is published because compatibility migrations preserve retired environment keys."
+# Use only when neither docs nor a sibling README.md is available.
 virtual: false                          # true for env-only manifests like cloud-providers
 
 containers:                             # may be [] when virtual: true
@@ -801,13 +810,33 @@ rows:
 
 ## 19. Validator rules (what the lint catches)
 
-1. **schema check** — every `service.yml` matches `bootstrapper/schemas/service.schema.json`
-2. **duplicate_env_var** — exactly one manifest owns each env-var name
-3. **duplicate_container** — exactly one manifest owns each container name
-4. **unknown_dependency** — `depends_on.required/optional` references a known manifest
-5. **undeclared_export** — every `exports[].name` is declared in `env:` OR written by some `runtime_sc.<key>.<source>.environment`
-6. **undeclared_source_var** — the SOURCE var itself is declared in `env:`
-7. **unknown_consumer** — every `exports[].consumers` entry is a known manifest
+Every `service.yml` first passes `bootstrapper/schemas/service.schema.json`.
+The table below is generated from the ordered registry that also executes the
+cross-manifest rules; do not edit it by hand.
+
+<!-- BEGIN GENERATED MANIFEST VALIDATOR CATALOG -->
+| Rule | Diagnostics | Contract |
+|---|---|---|
+| `unique_env_vars` | `duplicate_env_var` | Each environment variable has exactly one owning manifest. |
+| `unique_containers` | `duplicate_container` | Each Compose container name has exactly one owning manifest. |
+| `unique_capabilities` | `duplicate_capability` | Capability names are unique within each manifest. |
+| `data_flow_targets` | `data_flow_unknown_target` | Every runtime data-flow target names a manifest or approved aggregate documentation folder. |
+| `dependency_closure` | `unknown_dependency` | Required and optional dependencies name existing manifests. |
+| `export_consumer_closure` | `unknown_consumer` | Every exported-variable consumer names an existing manifest. |
+| `per_manifest_contract` | `undeclared_source_var`, `undeclared_export` | Source variables and exported values are declared or produced by their owning manifest. |
+| `dependency_tier_members` | `undeclared_tier_member` | Every runtime dependency-tier member names a declared container. |
+| `topology_acyclic` | `topology_cycle` | The combined required-dependency graph is acyclic. |
+| `alias_uniqueness` | `duplicate_alias` | Kong row aliases are unique across manifests. |
+| `category_capacity` | `category_overflow` | Port-owning variables fit within their category's allocated slot block. |
+| `engine_reachability` | `engine_orphan` | Engine-only manifests are reachable from a parent source option. |
+| `runtime_source_coverage` | `runtime_sc_unknown_variant`, `runtime_sc_missing_variant` | Main runtime slices match the manifest's declared source variants exactly. |
+| `production_source_availability` | `no_prod_option` | Every source-configurable service retains an option available in the production profile. |
+| `secondary_number_inputs` | `invalid_secondary_number` | Manifest-driven numeric inputs have valid bounds, defaults, sources, and owned environment variables. |
+| `automatic_source_preferences` | `auto_prefer_unknown_option`, `auto_prefer_unknown_capability`, `auto_prefer_no_fallback`, `auto_prefer_fallback_not_terminal` | Automatic source preferences use known options and capabilities with a terminal fallback. |
+| `fragment_container_contract` | `fragment_container_drift`, `missing_fragment`, `unexpected_fragment` | Non-virtual manifests match a sibling Compose fragment; virtual manifests have none. |
+| `fragment_include_contract` | `missing_fragment_manifest`, `fragment_include_drift` | Every on-disk Compose fragment has a manifest and appears exactly once in the root include list. |
+| `manifest_documentation` | `missing_documentation`, `invalid_documentation`, `invalid_documentation_exception`, `documentation_exception_conflict` | Every manifest has safe Markdown documentation or a specific validated exception. |
+<!-- END GENERATED MANIFEST VALIDATOR CATALOG -->
 
 ## 20. Byte-equivalence
 
@@ -860,8 +889,8 @@ image, host ports, and environment, and joins the shared network
 (`networks: { backend-network: { name: ${PROJECT_NAME}-network, external: true } }`).
 It is intentionally NOT wired into the wizard, the topology port-allocator, or
 the generated `.env.example` — manage its image/ports/env directly in the
-fragment (use `${HOST_BIND_IP:-}` on published ports to inherit `--profile prod`
-localhost binding). The default manifest loader
+fragment (use `${HOST_BIND_IP:-}` on published ports to inherit Atlas's
+loopback binding default). The default manifest loader
 (`bootstrapper.services.manifests.load_manifests`) still skips `_`-prefixed
 directories, so a `_user/<name>/service.yml` remains invisible to the core
 manifest pipeline; a downstream wrapper can still call
@@ -873,19 +902,53 @@ This slot is reserved by convention; the upstream `.gitignore` excludes
 consumer-facing walkthrough.
 
 
-## 22. Documentation-only manifest fields
+## 22. Documentation-oriented manifest fields
 
-A few fields on `service.yml` are accepted by the schema but not yet consumed
-by any operational code. They exist for clarity and future use:
+A few fields on `service.yml` document ownership and capability contracts even
+though containers do not consume them directly:
 
 - `images[].notes` — free-form note on what the image is used for. Not read
   by any Python code.
-- `docs:` — pointer to the service's `services/<name>/README.md`. Useful
-  for grep, but no Python imports it.
+- `docs:` — repository-relative pointer to existing Markdown. The validator
+  rejects missing, escaping, non-Markdown, directory, and symlink targets.
+- `docs_exception:` — last-resort, specific reason a manifest has no docs and
+  no sibling `README.md`. Write a printable single line with an explicit
+  `because` clause followed by at least four substantive rationale words,
+  including at least three distinct terms. The validator applies NFKC and
+  case-folding, rejects every Unicode category-C character (including controls
+  and zero-width formatting), and removes generic boilerplate and link-like
+  text before locating and scoring the rationale. Link-like text includes
+  Markdown links/labels, angle autolinks, RFC URI schemes, email-like tokens,
+  validated IP links, and dotted host candidates. The bounded email-like
+  grammar accepts an atom or quoted local part (including spaces) followed by a
+  Unicode dotted host or bracketed domain literal; it is deliberately not a
+  full RFC email parser. Host candidates are IDNA-normalized. Except for the
+  invalid all-numeric candidates, a valid dotted host with a
+  port/path/query/fragment is stripped regardless of case; bare lowercase hosts
+  with an alphabetic 2–63
+  character final label (or a punycode label) are also stripped. The
+  intentionally conservative bare-host rule removes an
+  ambiguous lowercase identifier such as `module.foo`; bare uppercase
+  `module.Class`, digit-suffixed identifiers and versions, single-label service
+  DNS, and numeric host-port pairs remain available as substantive technical
+  context. Bare `.local` / `.internal` / `.localhost` names, including
+  `www`-prefixed service DNS, also remain; suffix-bearing reserved DNS is
+  stripped. Validated IPv4 and bracketed IPv6 are stripped only with a
+  port/path/query/fragment; bare IP mentions remain. Bracketed IPv6 may carry
+  an optional non-empty zone identifier in raw `%eth0` or RFC 6874 `%25eth0`
+  form, bounded to `[A-Za-z0-9._~-]+` and checked by the IP address parser. A
+  separate bounded fallback strips malformed bracketed colon/address-like
+  tokens when they carry a port/path/query/fragment so suffix prose cannot be
+  scored; it does not assert that those fallbacks are valid addresses. A
+  tracking link may follow a real reason, but cannot be the reason. Exceptions
+  attached to documented services are also rejected. This is a bounded
+  authoring gate, not proof that a rationale is semantically correct;
+  reviewers still assess the concrete claim.
 - `exports[]` — declares the env-var contract this service offers to other
   services. The cross-manifest validator (`bootstrapper/services/manifest_validator.py`)
   checks closure (every consumer name resolves) but does NOT check that the
   exported value is actually produced at runtime.
 
-Treat these as documentation. Setting them helps future readers; omitting
-them never breaks anything.
+Every manifest, including `virtual: true` manifests, must resolve to safe
+documentation or carry a validated exception. Doc-only folders have no
+manifest and remain outside this rule.

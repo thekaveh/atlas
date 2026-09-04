@@ -63,9 +63,9 @@ services:
         --conf spark.sql.catalog.lakehouse.client.region=${MINIO_REGION:-us-east-1}
         --conf spark.eventLog.enabled=true
         --conf spark.eventLog.dir=s3a://${MINIO_BUCKET_SPARK_HISTORY:-spark-history}/
-      ZEPPELIN_JDBC_POSTGRES_URL: jdbc:postgresql://supabase-db:5432/${SUPABASE_DB_NAME}
-      ZEPPELIN_JDBC_POSTGRES_USER: ${SUPABASE_DB_USER}
-      ZEPPELIN_JDBC_POSTGRES_PASSWORD: ${SUPABASE_DB_PASSWORD}
+      ZEPPELIN_JDBC_POSTGRES_URL: jdbc:postgresql://supabase-db:5432/${SUPABASE_DB_NAME_URI:?SUPABASE_DB_NAME_URI is required}
+      ZEPPELIN_JDBC_POSTGRES_USER: ${ZEPPELIN_DB_USER:?ZEPPELIN_DB_USER is required}
+      ZEPPELIN_JDBC_POSTGRES_PASSWORD: ${ZEPPELIN_DB_PASSWORD:?ZEPPELIN_DB_PASSWORD is required}
     volumes:
       - ./notebooks:/notebook
       - zeppelin-logs:/logs
