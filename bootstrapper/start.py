@@ -6746,6 +6746,23 @@ def endpoints_group() -> None:
     """Consumer endpoint export commands (stable machine-readable contract)."""
 
 
+def _manifest_base_port_is_unallocated(consumer_config, env) -> bool:
+    """Report whether a manifest ``BASE_PORT: auto`` still has no port block.
+
+    ``auto`` resolves at bring-up and is then persisted, so a value that is
+    absent, non-numeric, or still ``DEFAULT_BASE_PORT`` means no allocation has
+    happened. That is the same test ``_resolve_auto_base_port_override`` uses to
+    decide a persisted block is not durably ours.
+    """
+    overrides = getattr(consumer_config, "env_overrides", None) or {}
+    if str(overrides.get("BASE_PORT", "")).strip().lower() != "auto":
+        return False
+    try:
+        return int(str(env.get("BASE_PORT", "")).strip()) == DEFAULT_BASE_PORT
+    except (TypeError, ValueError):
+        return True
+
+
 @endpoints_group.command("export")
 @click.option(
     "--format",
@@ -6768,8 +6785,18 @@ def endpoints_group() -> None:
     default=None,
     help="Write to PATH instead of stdout (required with --with-secrets).",
 )
+@click.option(
+    "--allow-unresolved",
+    is_flag=True,
+    help="Export even when a manifest BASE_PORT: auto has not been allocated yet. "
+    "The port fields then describe the default block, not this stack's — intended "
+    "for templating and sample files, not for connecting to anything.",
+)
 def endpoints_export_command(
-    output_format: str, with_secrets: bool, output_path: str | None
+    output_format: str,
+    with_secrets: bool,
+    output_path: str | None,
+    allow_unresolved: bool,
 ) -> None:
     """Export the stable consumer endpoint contract as env or JSON.
 
@@ -6792,6 +6819,25 @@ def endpoints_export_command(
     starter = AtlasStarter()
     env = starter.config_parser.parse_env_file()
     consumer_config = starter.config_parser.load_consumer_config()
+
+    # A manifest BASE_PORT: auto is allocated at bring-up, and a cold .env still
+    # carries DEFAULT_BASE_PORT until then. Exporting in that state answers a
+    # question that has no answer yet: every port describes the default block
+    # rather than this stack's. Worse on a shared host, where that block may
+    # belong to a different Atlas project and will answer rather than refuse.
+    if not allow_unresolved and _manifest_base_port_is_unallocated(
+        consumer_config, env
+    ):
+        project = starter.config_parser.get_project_name()
+        click.echo(
+            f"atlas: {project} has no allocated port block; BASE_PORT is 'auto' "
+            "so ports are assigned at bring-up.\n"
+            "       Start the stack first, or pass --allow-unresolved to export "
+            "placeholder ports anyway.",
+            err=True,
+        )
+        raise click.exceptions.Exit(3)
+
     fields = build_export(
         env,
         with_secrets=with_secrets,
