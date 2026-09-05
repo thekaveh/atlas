@@ -68,7 +68,16 @@ field. The field names are a compatibility contract. Output is secret-free by
 default (infra secrets are `${VAR}` references); `--with-secrets` resolves only
 consumer-scoped credentials and refuses stdout (requires `--output PATH`).
 Output is deterministic and byte-stable, so parent wrappers can diff it across
-runs. See [reusing-atlas.md §6.5](https://github.com/thekaveh/atlas/blob/main/docs/deployment/reusing-atlas.md).
+runs.
+
+When a consumer manifest sets `BASE_PORT: auto`, the port block is allocated at
+bring-up. Exporting before that would describe the default block rather than
+this stack's, and on a host running several Atlas projects that block plausibly
+belongs to another one — so the endpoints would answer from the wrong stack
+instead of refusing. The command therefore exits `3` until a block exists. Pass
+`--allow-unresolved` for the legitimate pre-allocation cases (CI templating,
+committing a sample) so the ambiguity is chosen rather than stumbled into. See
+[reusing-atlas.md §6.5](https://github.com/thekaveh/atlas/blob/main/docs/deployment/reusing-atlas.md).
 
 ## 6. Backend Plugin Manifest
 

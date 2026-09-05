@@ -6,15 +6,19 @@ per-consumer storage fields, with secret masking by default.
 """
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from core.config_parser import DEFAULT_BASE_PORT
 from core.endpoints_contract import (
     build_export,
     render_env,
     render_json,
 )
+from start import _manifest_base_port_is_unallocated, endpoints_export_command
 
 
 def _base_env(base_port: int = 63000) -> dict[str, str]:
@@ -601,3 +605,55 @@ def test_no_interpolation_token_survives_in_nonsecret_export_fields():
             assert "${" not in f.value, f"{f.name} leaked an interpolation token: {f.value!r}"
     # the redis password must never appear anywhere in the export
     assert all("s3cr3t-should-never-appear" not in f.value for f in fields)
+
+
+def _consumer_config(base_port_override: str | None):
+    """A stand-in consumer config carrying only the BASE_PORT override."""
+    overrides = {} if base_port_override is None else {"BASE_PORT": base_port_override}
+    return SimpleNamespace(env_overrides=overrides)
+
+
+@pytest.mark.parametrize(
+    ("override", "env_base_port", "unallocated"),
+    (
+        # `auto` resolves at bring-up and is then persisted, so a .env still at
+        # the default means no block has been assigned to this consumer yet.
+        ("auto", str(DEFAULT_BASE_PORT), True),
+        ("auto", None, True),
+        ("auto", "auto", True),
+        # A persisted non-default block is this stack's allocation.
+        ("auto", "20000", False),
+        # A pinned manifest port is knowable before bring-up.
+        ("20000", str(DEFAULT_BASE_PORT), False),
+        # No manifest opinion at all: nothing to resolve.
+        (None, str(DEFAULT_BASE_PORT), False),
+    ),
+)
+def test_manifest_auto_base_port_is_unallocated_until_bring_up(
+    override: str | None, env_base_port: str | None, unallocated: bool
+) -> None:
+    """Exporting before allocation would describe the default block, not this stack.
+
+    On a shared host that block plausibly belongs to a different Atlas project,
+    so the export would answer from someone else's stack rather than refuse —
+    which is why this is detected rather than documented.
+    """
+    env = {} if env_base_port is None else {"BASE_PORT": env_base_port}
+    assert (
+        _manifest_base_port_is_unallocated(_consumer_config(override), env)
+        is unallocated
+    )
+
+
+def test_endpoints_export_refuses_unallocated_auto_base_port_by_default() -> None:
+    """The refusal is opt-out, so the ambiguity is chosen rather than stumbled into."""
+    signature = inspect.signature(endpoints_export_command.callback)
+    assert "allow_unresolved" in signature.parameters
+    source = inspect.getsource(endpoints_export_command.callback)
+    assert "allow_unresolved" in source
+    assert "Exit(3)" in source
+    assert "--allow-unresolved" in (endpoints_export_command.help or "") or any(
+        "--allow-unresolved" in (param.opts or [None])[0]
+        for param in endpoints_export_command.params
+        if getattr(param, "opts", None)
+    )
