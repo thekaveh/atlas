@@ -473,7 +473,13 @@ def test_s3a_probe_reconciliation_is_clipped_to_remaining_overall_deadline(
         if line.startswith("container inspect --format")
         and "atlas-s3a-spark-" in line
     ]
-    assert 1 <= len(probe_inspections) < 10
+    # cleanup_resource() polls on `sleep 0.1`, so the probe count is roughly ten
+    # per second of reconcile window. Clipping to the 3s overall deadline admits
+    # about thirty; an unclipped reconcile would run the full 8s command timeout
+    # and produce about eighty. Bound the clipped case with headroom rather than
+    # at its own arithmetic edge -- the previous `< 10` sat exactly on the count
+    # a loaded runner produces and failed as `assert 10 < 10`.
+    assert 1 <= len(probe_inspections) < 60
 
 
 @pytest.mark.parametrize("failure_mode", ("remove", "malformed-inspect"))
