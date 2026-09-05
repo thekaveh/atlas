@@ -334,13 +334,21 @@ class DockerManager:
             # docker's stdin during long-running passthrough commands like
             # `logs -f` — the keystrokes would otherwise be visible inside an
             # active scroll region.
-            result = subprocess.run(
-                full_cmd,
-                cwd=str(self.root_dir),
-                stdin=subprocess.DEVNULL,
-                check=False
-            )
-            return result.returncode
+            try:
+                return subprocess.run(
+                    full_cmd,
+                    cwd=str(self.root_dir),
+                    stdin=subprocess.DEVNULL,
+                    check=False
+                ).returncode
+            except KeyboardInterrupt:
+                # `docker compose up --build` drives BuildKit inside the Docker
+                # daemon, so the build is not ours to stop reliably: it can
+                # finish after the abort and create containers for a run the
+                # operator already abandoned. Say so, because silence is what
+                # makes an interrupted run look like a broken source toggle.
+                self._report_interrupted_compose(resolved_project_name)
+                raise
         except Exception as e:
             self._on_command(f"❌ Error executing docker compose command: {e}")
             return 1
@@ -1119,6 +1127,22 @@ class DockerManager:
         waits up to 3 s before SIGKILL so the user gets a clean detach.
         """
         return self.stream_compose(['logs', '-f'], on_line=on_line)
+
+    def _report_interrupted_compose(self, project_name: str) -> None:
+        """Tell the operator an aborted bring-up may still be building.
+
+        The build runs in the Docker daemon rather than this process tree, so an
+        interrupt does not reliably stop it. A build that completes afterwards
+        contributes containers no run explains — including services a later run
+        disabled — which reads exactly like a broken source toggle. Naming that
+        possibility, and where to look, is what separates the two.
+        """
+        self._on_command(
+            "⚠ Interrupted. The image build runs inside the Docker daemon and "
+            "may still be running; it can still create containers for this run.\n"
+            "  Check before drawing conclusions: docker ps --filter "
+            f"label=com.docker.compose.project={project_name}"
+        )
 
     @staticmethod
     def _terminate_subprocess(proc: subprocess.Popen) -> int:
