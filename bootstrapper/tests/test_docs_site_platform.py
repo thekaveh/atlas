@@ -749,7 +749,7 @@ def test_docs_pages_workflow_is_main_only_pinned_and_uses_a_wiki_deploy_key() ->
     for sha in (
         "45bfe0192ca1faeb007ade9deae92b16b8254a0d",
         "fc324d3547104276b827a68afc52ff2a11cc49c9",
-        "cd2ce8fcbc39b97be8ca5fce6e763baed58fa128",
+        "368f82528645a54fb793d4d04e342629a3f51346",
     ):
         assert sha in text
 
