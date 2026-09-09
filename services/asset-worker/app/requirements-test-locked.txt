@@ -6,9 +6,9 @@ botocore==1.40.76
 click==8.4.2
 fastapi==0.139.0
 h11==0.16.0
-httpcore2==2.6.0
+httpcore2==2.12.0
 httptools==0.8.0
-httpx2==2.6.0
+httpx2==2.12.0
 idna==3.18
 iniconfig==2.3.0
 jmespath==1.1.0
