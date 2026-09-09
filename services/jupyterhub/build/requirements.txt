@@ -60,7 +60,9 @@ setuptools>=83.0.0
 # atlas_finance.research guards and notebook 11.
 openbb==4.7.2
 openbb-yfinance==1.6.3
-ccxt==4.5.77
+# Held at 4.5.64: ccxt 4.5.77 requires cryptography>=50,<51, and Atlas caps
+# cryptography<50 because MLflow 3.15.x does. Lift together with that cap.
+ccxt==4.5.64
 
 # Lakehouse clients
 # Keep boto3/s3fs aligned through botocore + fsspec to avoid slow resolver
