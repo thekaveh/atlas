@@ -27,6 +27,7 @@ COMMAND_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS
 # just over four minutes for services/asset-worker/app, so the shared 300s
 # default sits right on the edge and tips over on slower CI runners.
 NPM_AUDIT_TIMEOUT_SECONDS = 900
+_PIP_AUDIT_ATTEMPTS = 3
 _NPM_AUDIT_ATTEMPTS = 3
 
 
@@ -314,34 +315,11 @@ def audit_spec(
         failures.append(
             f"{display_name}: stale local-version exclusions: {', '.join(stale_local)}"
         )
-    with tempfile.TemporaryDirectory(prefix="atlas-pip-audit-") as raw_temp:
-        audit_input = Path(raw_temp) / "requirements.txt"
-        audit_input.write_text(public_requirements, encoding="utf-8")
-        try:
-            result = run_bounded(
-                [
-                    "pip-audit", "-r", str(audit_input), "--no-deps", "--disable-pip",
-                    "--strict", "--format", "json",
-                ],
-                cwd=root,
-                timeout_seconds=COMMAND_TIMEOUT_SECONDS,
-            )
-        except CommandTimedOut:
-            return [
-                f"{display_name}: pip-audit timed out after "
-                f"{COMMAND_TIMEOUT_SECONDS} seconds"
-            ]
-        except (CommandLaunchError, CommandOutputTooLarge):
-            return [
-                f"{display_name}: pip-audit could not complete "
-                "(subprocess details redacted)"
-            ]
-    if result.returncode not in {0, 1}:
-        return [redacted_failure(f"{display_name}: pip-audit", result.returncode)]
-    try:
-        payload = json.loads(result.stdout)
-    except json.JSONDecodeError as exc:
-        return [f"{display_name}: invalid pip-audit JSON: {exc}"]
+    payload, audit_failures = _pip_audit_report(
+        display_name, public_requirements, root=root
+    )
+    if payload is None:
+        return audit_failures
     found = {
         str(vulnerability["id"])
         for dependency in payload.get("dependencies", [])
@@ -357,6 +335,82 @@ def audit_spec(
         suffix = f" ({len(found)} reviewed exception(s))" if found else ""
         print(f"PASS {display_name}{suffix}")
     return failures
+
+
+def _pip_audit_report(
+    display_name: str,
+    public_requirements: str,
+    *,
+    root: Path = ROOT,
+) -> tuple[dict | None, list[str]]:
+    """Run pip-audit for one lock, retrying only a silent transient failure.
+
+    pip-audit resolves advisories over the network, and a PyPI or OSV hiccup on
+    shared CI egress surfaces as an ordinary exit code with *empty* stdout --
+    reported downstream as unparseable JSON even though the lock is fine.
+    Retrying only that case keeps the gate meaningful: a real vulnerability set,
+    a non-empty malformed payload, a bad exit code, and a timeout each still
+    fail on the first attempt.
+    """
+    for attempt in range(1, _PIP_AUDIT_ATTEMPTS + 1):
+        payload, failures, empty = _pip_audit_report_once(
+            display_name, public_requirements, root=root
+        )
+        if not empty:
+            return payload, failures
+        if attempt < _PIP_AUDIT_ATTEMPTS:
+            time.sleep(attempt * 5)
+    return None, [_pip_audit_empty_failure(display_name)]
+
+
+def _pip_audit_empty_failure(display_name: str) -> str:
+    return f"{display_name}: pip-audit returned no report (details redacted)"
+
+
+def _pip_audit_report_once(
+    display_name: str,
+    public_requirements: str,
+    *,
+    root: Path = ROOT,
+) -> tuple[dict | None, list[str], bool]:
+    """Return ``(payload, failures, empty)`` for a single pip-audit attempt."""
+    with tempfile.TemporaryDirectory(prefix="atlas-pip-audit-") as raw_temp:
+        audit_input = Path(raw_temp) / "requirements.txt"
+        audit_input.write_text(public_requirements, encoding="utf-8")
+        try:
+            result = run_bounded(
+                [
+                    "pip-audit", "-r", str(audit_input), "--no-deps", "--disable-pip",
+                    "--strict", "--format", "json",
+                ],
+                cwd=root,
+                timeout_seconds=COMMAND_TIMEOUT_SECONDS,
+            )
+        except CommandTimedOut:
+            return None, [
+                f"{display_name}: pip-audit timed out after "
+                f"{COMMAND_TIMEOUT_SECONDS} seconds"
+            ], False
+        except (CommandLaunchError, CommandOutputTooLarge):
+            return None, [
+                f"{display_name}: pip-audit could not complete "
+                "(subprocess details redacted)"
+            ], False
+    if result.returncode not in {0, 1}:
+        return None, [
+            redacted_failure(f"{display_name}: pip-audit", result.returncode)
+        ], False
+    if not result.stdout.strip():
+        return None, [_pip_audit_empty_failure(display_name)], True
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        return None, [f"{display_name}: invalid pip-audit JSON: {exc}"], False
+    if not isinstance(payload, dict):
+        return None, [
+            f"{display_name}: invalid pip-audit JSON: report is not an object"
+        ], False
+    return payload, [], False
 
 
 def audit_source_spec(spec: SourceSpec, *, root: Path = ROOT) -> list[str]:
