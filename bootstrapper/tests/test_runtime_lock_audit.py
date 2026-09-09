@@ -926,3 +926,72 @@ def test_npm_audit_requires_vulnerability_totals(
     failures = audit_runtime_locks.audit_npm_project("n8n", root=tmp_path)
 
     assert failures == ["n8n: npm audit response omitted vulnerability totals"]
+
+
+def test_pip_audit_retries_only_an_empty_report(tmp_path: Path, monkeypatch) -> None:
+    """An empty pip-audit report is retried, and a later good one is accepted."""
+    monkeypatch.setattr(audit_runtime_locks.time, "sleep", lambda _seconds: None)
+    attempts: list[int] = []
+
+    def fake_run(*_args, **_kwargs):
+        attempts.append(1)
+        stdout = "" if len(attempts) == 1 else json.dumps({"dependencies": []})
+        return SimpleNamespace(returncode=1, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(audit_runtime_locks, "run_bounded", fake_run)
+
+    payload, failures = audit_runtime_locks._pip_audit_report(
+        "svc/requirements-locked.txt", "requests==2.32.3\n", root=tmp_path
+    )
+
+    assert payload == {"dependencies": []}
+    assert failures == []
+    assert len(attempts) == 2
+
+
+def test_pip_audit_gives_up_after_repeated_empty_reports(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(audit_runtime_locks.time, "sleep", lambda _seconds: None)
+    attempts: list[int] = []
+
+    def fake_run(*_args, **_kwargs):
+        attempts.append(1)
+        return SimpleNamespace(returncode=1, stdout="  \n", stderr="")
+
+    monkeypatch.setattr(audit_runtime_locks, "run_bounded", fake_run)
+
+    payload, failures = audit_runtime_locks._pip_audit_report(
+        "svc/requirements-locked.txt", "requests==2.32.3\n", root=tmp_path
+    )
+
+    assert payload is None
+    assert failures == [
+        "svc/requirements-locked.txt: pip-audit returned no report (details redacted)"
+    ]
+    assert len(attempts) == audit_runtime_locks._PIP_AUDIT_ATTEMPTS
+
+
+def test_pip_audit_does_not_retry_a_malformed_report(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Only the empty case is transient; garbage must fail on the first attempt."""
+    monkeypatch.setattr(audit_runtime_locks.time, "sleep", lambda _seconds: None)
+    attempts: list[int] = []
+
+    def fake_run(*_args, **_kwargs):
+        attempts.append(1)
+        return SimpleNamespace(returncode=0, stdout="<html>502</html>", stderr="")
+
+    monkeypatch.setattr(audit_runtime_locks, "run_bounded", fake_run)
+
+    payload, failures = audit_runtime_locks._pip_audit_report(
+        "svc/requirements-locked.txt", "requests==2.32.3\n", root=tmp_path
+    )
+
+    assert payload is None
+    assert len(failures) == 1
+    assert failures[0].startswith(
+        "svc/requirements-locked.txt: invalid pip-audit JSON:"
+    )
+    assert len(attempts) == 1
