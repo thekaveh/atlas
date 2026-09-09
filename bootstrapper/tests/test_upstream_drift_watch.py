@@ -1076,7 +1076,7 @@ def _assert_workflow_setup_action_contract(steps):
     assert actions == [
         "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
         "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
-        "astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990",
+        "astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d",
     ]
 
 
