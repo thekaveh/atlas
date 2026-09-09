@@ -121,7 +121,18 @@ AUDIT_SPECS = (
     AuditSpec("bootstrapper/requirements-locked.txt"),
     AuditSpec("services/asset-baker/app/requirements-locked.txt"),
     AuditSpec("services/asset-worker/app/requirements-locked.txt"),
-    AuditSpec("services/docling/provider/gpu/requirements-locked.txt"),
+    AuditSpec(
+        "services/docling/provider/gpu/requirements-locked.txt",
+        # accelerate==1.14.0: CVE-2026-69112 has no fixed release — 1.14.0 is the
+        # newest published version and the upstream fix exists only as an
+        # unreleased commit. The path traversal is reached through
+        # load_checkpoint_in_model / load_checkpoint_and_dispatch, which trust
+        # weight_map entries inside a sharded checkpoint index. Docling loads its
+        # own pinned model artifacts; no Atlas path passes a caller-supplied
+        # checkpoint to accelerate. Atlas maintainers own re-review by 2026-11-30.
+        frozenset({"CVE-2026-69112"}),
+        review_by=date(2026, 11, 30),
+    ),
     AuditSpec("services/docling/provider/adapter/requirements-locked.txt"),
     AuditSpec("services/mcp-servers/runtime/requirements-locked.txt"),
     AuditSpec(
@@ -158,8 +169,14 @@ UV_PROJECT_EXCEPTIONS: dict[str, tuple[frozenset[str], date]] = {
     # /v1/document/convert and /internal/lightrag/bundle endpoints accept
     # documents rather than model locations.
     # Atlas maintainers own re-review by 2026-10-15.
+    # accelerate==1.14.0 reaches this project the same way it reaches the gpu
+    # provider: transitively, with Docling loading its own pinned artifacts
+    # rather than a caller-supplied sharded checkpoint. CVE-2026-69112 has no
+    # fixed release; 1.14.0 is the newest published version. Both findings share
+    # the earlier of the two deadlines, so neither can outlive its review.
+    # Atlas maintainers own re-review by 2026-10-15.
     "services/docling/provider/localhost": (
-        frozenset({"CVE-2026-9856"}),
+        frozenset({"CVE-2026-9856", "CVE-2026-69112"}),
         date(2026, 10, 15),
     ),
 }
