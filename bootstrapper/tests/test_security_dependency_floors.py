@@ -128,7 +128,7 @@ def test_backend_ci_installs_the_owned_test_contract() -> None:
     assert "httpx2" not in requirements
     assert "pytest==9.1.1" in dev_requirements
     assert "pytest-asyncio==1.4.0" in dev_requirements
-    assert "httpx2==2.6.0" in dev_requirements
+    assert "httpx2==2.12.0" in dev_requirements
     assert "requirements-test-locked.txt" in workflow
     assert "requirements-dev.txt" not in dockerfile
     assert "pytest-asyncio omitted intentionally" not in workflow
@@ -557,9 +557,10 @@ def test_jupyter_does_not_ship_unused_label_studio_sdk() -> None:
 def test_n8n_comfyui_nodes_override_sharp_to_patched_release() -> None:
     package = json.loads(_text("services/n8n/init/config/package.json"))
 
-    assert package["overrides"]["sharp"] == "0.35.3"
+    assert package["overrides"]["sharp"] == "0.35.4"
     assert '"node_modules/sharp"' in _text("services/n8n/init/config/package-lock.json")
-    assert '"version": "0.35.3"' in _text(
+    # 0.35.4 is the release that carries the fix; <0.35.4 is the advisory range.
+    assert '"version": "0.35.4"' in _text(
         "services/n8n/init/config/package-lock.json"
     )
 
@@ -570,7 +571,7 @@ def test_asset_worker_toolchain_uses_an_audited_npm_lock() -> None:
     helper = _text("scripts/gltf-transform-postprocess.sh")
 
     assert package["dependencies"]["@gltf-transform/cli"] == "4.4.1"
-    assert package["overrides"]["sharp"] == "0.35.3"
+    assert package["overrides"]["sharp"] == "0.35.4"
     assert "package-lock.json" in dockerfile
     assert "npm ci --omit=dev" in dockerfile
     assert "npm install -g" not in dockerfile

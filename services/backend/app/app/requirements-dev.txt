@@ -3,4 +3,7 @@ pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
 # Compatibility transport used by the current FastAPI/Starlette TestClient suite.
-httpx2==2.6.0
+# CVE-2026-84378/84379/84380/84381/84382: SSE line-buffering CPU exhaustion,
+# multipart header injection, Content-Length/Transfer-Encoding conflict,
+# wss:// sent without TLS, and unbounded streaming decompression.
+httpx2==2.12.0
