@@ -46,6 +46,24 @@ vulnerabilities:
       exposes the port must firewall it. The fix needs grpc 1.83.1; 1.38.13 is
       the newest Weaviate release and still ships 1.82.1. Remove this exception
       once Weaviate rebuilds.
+  - id: CVE-2026-75595
+    purls:
+      - "pkg:maven/io.netty/netty-handler@4.1.115.Final"
+    expired_at: 2026-09-30
+    statement: >-
+      netty-handler 4.1.115.Final ships inside the AWS SDK bundle jar
+      (bundle-2.29.52.jar) that the Airflow, Spark, and Zeppelin images fetch
+      for S3A. The advisory is an SNI routing bypass: a fragmented TLS
+      ClientHello makes SslClientHelloHandler select the default SslContext
+      instead of the SNI-specific one, which matters only where a netty TLS
+      *server* uses per-SNI clientAuth=REQUIRE as its sole mutual-TLS gate.
+      Atlas runs this jar exclusively as an S3A *client* against private MinIO
+      and starts no netty TLS listener, so the vulnerable server-side path is
+      never constructed. The fix needs netty 4.1.137/4.2.17, which is
+      unreachable while Hadoop 3.4.2 qualifies AWS SDK 2.29.52 and breaks
+      against newer SDK releases -- the same constraint that pins
+      GHSA-443w-3rq3-5m5h below, and both lift together. Remove this exception
+      when Hadoop qualifies a patched compatible SDK.
   - id: GHSA-443w-3rq3-5m5h
     purls:
       - "pkg:maven/software.amazon.awssdk/cloudfront@2.29.52"
