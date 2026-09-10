@@ -2765,7 +2765,7 @@ vulnerabilities:
   - id: CVE-2026-71211
     purls:
       - "pkg:pypi/mlflow@3.15.1"
-    expired_at: 2026-12-09
+    expired_at: 2026-10-15
     statement: >-
       MLflow has no fixed release for this AI Gateway SSRF. Atlas upgrades the
       server to 3.15.1 to close CVE-2026-64849, then starts it only through
