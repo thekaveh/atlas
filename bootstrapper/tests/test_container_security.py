@@ -1491,6 +1491,24 @@ def test_jupyter_runtime_pins_patched_python_and_node_tooling() -> None:
     assert 'npm install --global "npm@${NPM_VERSION}"' in dockerfile
 
 
+def test_jupyter_build_refuses_silent_source_compiles() -> None:
+    """A lost wheel must fail the build, not stretch it into a source compile.
+
+    #994 observed the notebook layer spend 44 minutes compiling torch-cluster
+    after a third-party wheel index became unreachable; a source build is
+    indistinguishable from a hung one. Only pyspark-client and python-louvain
+    publish sdists alone in this graph, and both are pure Python, so every other
+    package is required to arrive as a wheel.
+    """
+    dockerfile = (ROOT / "services/jupyterhub/build/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+
+    assert dockerfile.count("--only-binary=:all:") == 2
+    assert "--no-binary=pyspark-client" in dockerfile
+    assert "--no-binary=python-louvain" in dockerfile
+
+
 def test_jupyter_scala_kernels_pin_patched_transitive_libraries() -> None:
     dockerfile = (ROOT / "services/jupyterhub/build/Dockerfile").read_text(
         encoding="utf-8"

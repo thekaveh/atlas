@@ -96,10 +96,18 @@ COPY atlas_finance /home/jovyan/atlas_finance
 
 # PyG family packages require torch at metadata-generation time. Install the
 # matching CPU trio first so the general PyPI index cannot pull CUDA runtimes.
-RUN pip install --no-cache-dir \
+RUN pip install --no-cache-dir --only-binary=:all: \
       torch==2.13.0 torchvision==0.28.0 \
       --index-url https://download.pytorch.org/whl/cpu
+# Fail loudly instead of silently compiling. pip falls back to an sdist when a
+# wheel is unavailable, and a source build looks identical to a hung build --
+# #994 saw the layer spend 44 minutes compiling torch-cluster after a wheel
+# index went unreachable. Only two packages in this graph publish sdists alone,
+# and both are pure Python; anything else losing its wheel now fails the build
+# rather than quietly stretching it.
 RUN pip install --no-cache-dir \
+      --only-binary=:all: \
+      --no-binary=pyspark-client --no-binary=python-louvain \
       -r /tmp/requirements.txt -c /tmp/requirements-locked.txt
 
 # The newest official Jupyter base is immutable but contains three fixable
