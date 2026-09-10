@@ -51,6 +51,13 @@ pyspark[connect]==4.1.2
 # build sdists at runtime.
 setuptools>=83.0.0
 
+# Airflow 3.x core installs GitPython for git-backed DAG bundles, and the
+# pinned apache/airflow:3.3.1 base ships 3.1.58. That release carries
+# CVE-2026-78675, CVE-2026-78676 (CRITICAL), and CVE-2026-78677, all fixed in
+# 3.1.59. The base is pinned deliberately, so raise the floor in the overlay
+# the same way setuptools is raised above; drop this once the base ships it.
+gitpython>=3.1.59
+
 # The upstream Airflow image includes optional cloud/provider packages beyond
 # this overlay's direct dependency graph. Keep the overlay resolver inside the
 # compatibility ranges of those installed packages so adding Atlas providers
