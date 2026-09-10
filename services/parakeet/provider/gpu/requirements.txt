@@ -33,3 +33,9 @@ transformers>=5.5.0,<6
 # protobuf recursion issues, so keep the runtime on the secure compatible set.
 onnx>=1.22.0
 protobuf>=5.29.6,<5.30
+
+# pytorch-lightning is transitive under nemo-toolkit and is NOT covered by its
+# lightning<=2.4.0 cap, so PYSEC-2026-3967's fix is reachable even though the
+# sibling lightning advisory's is not. Floor it explicitly so the resolver
+# cannot drift back below the fix.
+pytorch-lightning>=2.6.6
