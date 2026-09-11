@@ -417,12 +417,12 @@ def _runtime_audit_spec(lock: str) -> audit_runtime_locks.AuditSpec:
         ),
         (
             "services/jupyterhub/build/requirements-locked.txt",
-            "CVE-2026-71211",
+            "PYSEC-2026-3865",
             "mlflow==3.15.1",
         ),
         (
             "services/parakeet/provider/gpu/requirements-locked.txt",
-            "CVE-2026-68508",
+            "PYSEC-2026-3850",
             "hydra-core==1.3.2",
         ),
         (
@@ -480,7 +480,7 @@ def test_jupyterhub_advisory_review_records_current_unreachable_paths() -> None:
             "PYSEC-2026-3552",
             "PYSEC-2026-2447",
             "PYSEC-2026-3046",
-            "CVE-2026-71211",
+            "PYSEC-2026-3865",
             "PYSEC-2026-3740",
         }
     )
@@ -508,7 +508,7 @@ def test_jupyterhub_advisory_review_records_current_unreachable_paths() -> None:
         "does not pass",
         "cache=",
         "DiskCacheBackend",
-        "CVE-2026-71211",
+        "PYSEC-2026-3865",
         "AI Gateway",
         "11_financial_research_kit.ipynb",
         "tracking client",
@@ -555,7 +555,8 @@ def test_parakeet_gpu_advisory_review_retains_only_unfixed_constraints() -> None
     assert spec.reviewed_advisories == frozenset(
         {
             "PYSEC-2026-3624",
-            "CVE-2026-68508",
+            "PYSEC-2026-3850",
+            "PYSEC-2026-3972",
         }
     )
     assert spec.review_by == date(2026, 11, 27)
