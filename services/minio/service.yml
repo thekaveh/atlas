@@ -37,11 +37,11 @@ containers:
 
 images:
   - var: MINIO_IMAGE
-    default: "minio/minio:RELEASE.2025-09-07T16-13-09Z"
+    default: "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
     container: minio
-    notes: "Pinned to a dated MinIO release tag. Review upstream security advisories before bumping."
+    notes: "Pinned to a dated MinIO release tag, served from quay.io. Docker Hub stopped answering anonymous pulls for minio/minio (401 UNAUTHORIZED; 404 from the Hub API), which broke fresh bring-ups and the CI image-pull step. quay.io is MinIO's own registry and carries this exact tag, multi-arch. Review upstream security advisories before bumping."
   - var: MINIO_INIT_IMAGE
-    default: "minio/mc:RELEASE.2025-08-13T08-35-41Z"
+    default: "quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z"
     container: minio-init
 
 sources:

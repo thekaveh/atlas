@@ -76,8 +76,8 @@ jobs:
       - name: Pull exact backup integration images
         run: |
           timeout 5m docker pull postgres:17.10-alpine
-          timeout 5m docker pull minio/minio:RELEASE.2025-09-07T16-13-09Z
-          timeout 5m docker pull minio/mc:RELEASE.2025-08-13T08-35-41Z
+          timeout 5m docker pull quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+          timeout 5m docker pull quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
           timeout 5m docker pull neo4j:5.26.27
           timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.13
           timeout 5m docker pull alpine:3.24.1
