@@ -64,6 +64,680 @@ vulnerabilities:
       exposes the port must firewall it. The fix needs grpc 1.83.1; 1.38.13 is
       the newest Weaviate release and still ships 1.82.1. Remove this exception
       once Weaviate rebuilds.
+  - id: CVE-2025-47913
+    purls:
+      - "pkg:golang/golang.org/x/crypto@v0.40.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2025-61726
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2025-61729
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2025-68121
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-25679
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-25681
+    purls:
+      - "pkg:golang/golang.org/x/net@v0.42.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-27136
+    purls:
+      - "pkg:golang/golang.org/x/net@v0.42.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-27145
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-32280
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-32281
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-32283
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-33186
+    purls:
+      - "pkg:golang/google.golang.org/grpc@v1.71.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-33811
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-33814
+    purls:
+      - "pkg:golang/golang.org/x/net@v0.42.0"
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-33818
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-39820
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-39821
+    purls:
+      - "pkg:golang/golang.org/x/net@v0.42.0"
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-39822
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-39828
+    purls:
+      - "pkg:golang/golang.org/x/crypto@v0.40.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-39829
+    purls:
+      - "pkg:golang/golang.org/x/crypto@v0.40.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-39830
+    purls:
+      - "pkg:golang/golang.org/x/crypto@v0.40.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-39831
+    purls:
+      - "pkg:golang/golang.org/x/crypto@v0.40.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-39832
+    purls:
+      - "pkg:golang/golang.org/x/crypto@v0.40.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-39835
+    purls:
+      - "pkg:golang/golang.org/x/crypto@v0.40.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-39836
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-42151
+    purls:
+      - "pkg:golang/github.com/prometheus/prometheus@v0.303.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-42154
+    purls:
+      - "pkg:golang/github.com/prometheus/prometheus@v0.303.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-42499
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-42504
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-42508
+    purls:
+      - "pkg:golang/golang.org/x/crypto@v0.40.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-46595
+    purls:
+      - "pkg:golang/golang.org/x/crypto@v0.40.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-46597
+    purls:
+      - "pkg:golang/golang.org/x/crypto@v0.40.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-46600
+    purls:
+      - "pkg:golang/golang.org/x/net@v0.42.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-56852
+    purls:
+      - "pkg:golang/golang.org/x/text@v0.27.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-56853
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-56854
+    purls:
+      - "pkg:golang/golang.org/x/crypto@v0.40.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-56858
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-56859
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-56860
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-56862
+    purls:
+      - "pkg:golang/stdlib@v1.24.6"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-84304
+    purls:
+      - "pkg:golang/google.golang.org/grpc@v1.71.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-84445
+    purls:
+      - "pkg:golang/google.golang.org/grpc@v1.71.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
+      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
+      newest mc MinIO has published (GitHub and quay agree), and it has been the new
+      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
+      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
+       only to the in-stack MinIO endpoint over the internal compose network, using 
+      operator-supplied credentials, then exits -- it serves no network listener and
+       processes no untrusted remote input. Deliberately time-boxed short rather tha
+      n the full horizon: the real question is not when a fix lands but whether Atla
+      s should keep depending on an abandoned image, given services/jenkins already 
+      installs mc from its GitHub release binary instead. Tracked for that decision.
   - id: CVE-2026-75595
     purls:
       - "pkg:maven/io.netty/netty-handler@4.1.115.Final"
