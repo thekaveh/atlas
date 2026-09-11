@@ -47,11 +47,19 @@ class SourceSpec:
     reviewed_advisories: frozenset[str] = frozenset()
 
 
+# PYSEC-2026-2447 (diskcache) and PYSEC-2026-3046 (ragas) were re-verified on
+# 2026-09-10 for the #998 review pass. Neither has a fixed release, and both
+# packages are already at their newest published version -- diskcache 5.6.3 and
+# ragas 0.4.3 -- so there is nothing to upgrade to. The reachability mitigations
+# recorded beside the ragas pin in requirements.txt still hold: rag_eval_service
+# imports only the four text collection metrics (AnswerRelevancy,
+# ContextPrecision, ContextRecall, Faithfulness) and references no multimodal,
+# image, or URL helper, which is where the SSRF lives.
 AUDIT_SPECS = (
     AuditSpec(
         "services/backend/app/app/requirements-locked.txt",
         frozenset({"PYSEC-2026-2447", "PYSEC-2026-3046"}),
-        review_by=date(2026, 9, 15),
+        review_by=date(2026, 12, 9),
     ),
     AuditSpec("services/airflow/build/requirements-locked.txt"),
     AuditSpec("services/mlflow/build/requirements-locked.txt"),
@@ -64,7 +72,8 @@ AUDIT_SPECS = (
         # passes no cache backend, so Ragas never creates or reads a disk cache.
         # ragas==0.4.3: PYSEC-2026-3046 has no fixed release; notebook 14 imports
         # only four text metrics and never the multimodalfaithfulness helper.
-        # mlflow==3.15.1: CVE-2026-71211 has no fixed release; it affects the
+        # mlflow==3.15.1: PYSEC-2026-3865 (formerly tracked as CVE-2026-71211,
+        # re-identified upstream 2026-09) has no fixed release; it affects the
         # AI Gateway server's operator-supplied auth_config.api_base. Jupyter's
         # entrypoint starts JupyterHub, and notebook 11 uses only MLflow's
         # tracking client. The separately deployed service blocks every Gateway
@@ -83,7 +92,7 @@ AUDIT_SPECS = (
                 "PYSEC-2026-3552",
                 "PYSEC-2026-2447",
                 "PYSEC-2026-3046",
-                "CVE-2026-71211",
+                "PYSEC-2026-3865",
                 "PYSEC-2026-3740",
             }
         ),
@@ -92,8 +101,13 @@ AUDIT_SPECS = (
     AuditSpec(
         "services/parakeet/provider/gpu/requirements-locked.txt",
         # nemo-toolkit==3.0.0 still caps Lightning at <=2.4.0 and Hydra at
-        # <=1.3.2; the lock resolves lightning==2.4.0 (PYSEC-2026-3624) and
-        # hydra-core==1.3.2 (CVE-2026-68508), below their fixes. NeMo leaves
+        # <=1.3.2; the lock resolves lightning==2.4.0 (PYSEC-2026-3624,
+        # PYSEC-2026-3972) and hydra-core==1.3.2 (PYSEC-2026-3850, formerly
+        # CVE-2026-68508), below their fixes. Re-verified 2026-09-10: hydra
+        # 1.3.4 and lightning fixes are published but remain out of reach
+        # behind those caps. pytorch-lightning is NOT capped by NeMo, so
+        # PYSEC-2026-3967 was fixed by flooring it at 2.6.6 rather than
+        # excepted. NeMo leaves
         # Transformers unconstrained. Atlas calls
         # only ASRModel.from_pretrained at transcribe.py:37 for the
         # operator-configured PARAKEET_MODEL. NeMo restore routes Hydra through
@@ -103,7 +117,8 @@ AUDIT_SPECS = (
         frozenset(
             {
                 "PYSEC-2026-3624",
-                "CVE-2026-68508",
+                "PYSEC-2026-3850",
+                "PYSEC-2026-3972",
             }
         ),
         review_by=date(2026, 11, 27),
@@ -124,14 +139,15 @@ AUDIT_SPECS = (
     AuditSpec("services/asset-worker/app/requirements-locked.txt"),
     AuditSpec(
         "services/docling/provider/gpu/requirements-locked.txt",
-        # accelerate==1.14.0: CVE-2026-69112 has no fixed release — 1.14.0 is the
+        # accelerate==1.14.0: PYSEC-2026-3804 (formerly CVE-2026-69112) has no
+        # fixed release — 1.14.0 is the
         # newest published version and the upstream fix exists only as an
         # unreleased commit. The path traversal is reached through
         # load_checkpoint_in_model / load_checkpoint_and_dispatch, which trust
         # weight_map entries inside a sharded checkpoint index. Docling loads its
         # own pinned model artifacts; no Atlas path passes a caller-supplied
         # checkpoint to accelerate. Atlas maintainers own re-review by 2026-11-30.
-        frozenset({"CVE-2026-69112"}),
+        frozenset({"PYSEC-2026-3804"}),
         review_by=date(2026, 11, 30),
     ),
     AuditSpec("services/docling/provider/adapter/requirements-locked.txt"),
@@ -139,7 +155,7 @@ AUDIT_SPECS = (
     AuditSpec(
         "services/backend/app/app/requirements-test-locked.txt",
         frozenset({"PYSEC-2026-2447", "PYSEC-2026-3046"}),
-        review_by=date(2026, 9, 15),
+        review_by=date(2026, 12, 9),
     ),
     AuditSpec("services/mcp-servers/runtime/requirements-test-locked.txt"),
     AuditSpec("services/asset-worker/app/requirements-test-locked.txt"),
@@ -161,7 +177,7 @@ UV_PROJECTS = (
 # deadline inside the 90-day horizon, and an entry that stops matching a live
 # finding fails as a stale allowlist entry.
 UV_PROJECT_EXCEPTIONS: dict[str, tuple[frozenset[str], date]] = {
-    # transformers==5.8.1: CVE-2026-9856 is fixed in 5.10.0, which
+    # transformers==5.8.1: PYSEC-2026-3929 (formerly CVE-2026-9856) is fixed in 5.10.0, which
     # docling-core[chunking]'s transformers<5.9.0 cap makes unreachable while
     # the docling family stays pinned at 2.102.1 across the gpu, adapter, and
     # localhost providers. The advisory is a path traversal requiring user
@@ -177,7 +193,7 @@ UV_PROJECT_EXCEPTIONS: dict[str, tuple[frozenset[str], date]] = {
     # the earlier of the two deadlines, so neither can outlive its review.
     # Atlas maintainers own re-review by 2026-10-15.
     "services/docling/provider/localhost": (
-        frozenset({"CVE-2026-9856", "CVE-2026-69112"}),
+        frozenset({"PYSEC-2026-3929", "PYSEC-2026-3804"}),
         date(2026, 10, 15),
     ),
 }
