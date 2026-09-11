@@ -105,7 +105,8 @@ torchvision==0.28.0
 
 # Deep Learning — higher-level frameworks
 torchmetrics==1.4.2
-# CVE-2026-71211 affects the MLflow AI Gateway server's operator-supplied
+# PYSEC-2026-3865 (alias of CVE-2026-71211) affects the MLflow AI Gateway
+# server's operator-supplied
 # auth_config.api_base, and no fixed release exists as of 2026-08-31.
 # Jupyter's image starts JupyterHub, not an MLflow server; Atlas'
 # 11_financial_research_kit.ipynb uses only the tracking client against the
