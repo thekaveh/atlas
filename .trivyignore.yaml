@@ -738,6 +738,43 @@ vulnerabilities:
       n the full horizon: the real question is not when a fix lands but whether Atla
       s should keep depending on an abandoned image, given services/jenkins already 
       installs mc from its GitHub release binary instead. Tracked for that decision.
+  - id: CVE-2026-54369
+    purls:
+      - "pkg:rpm/redhat/libacl@2.3.1-4.el9"
+    expired_at: 2026-10-15
+    statement: >-
+      Red Hat UBI 9.6 base package inside the pinned MinIO client image. Red Hat shi
+      ps the fix in 9.8, but MinIO has not rebuilt mc since RELEASE.2025-08-13T08-35
+      -41Z -- the newest it has published, unchanged for 13 months on both GitHub an
+      d quay -- so the patched package cannot be reached by bumping the pin. mc runs
+       as a one-shot init container against the in-stack MinIO endpoint over the int
+      ernal compose network, then exits; it serves no listener and processes no untr
+      usted remote input. Time-boxed short with the other mc findings, because the d
+      ecision this needs is whether to keep depending on an abandoned image at all.
+  - id: CVE-2026-4878
+    purls:
+      - "pkg:rpm/redhat/libcap@2.48-9.el9_2"
+    expired_at: 2026-10-15
+    statement: >-
+      Red Hat UBI 9.6 base package inside the pinned MinIO client image. Red Hat shi
+      ps the fix in 9.8, but MinIO has not rebuilt mc since RELEASE.2025-08-13T08-35
+      -41Z -- the newest it has published, unchanged for 13 months on both GitHub an
+      d quay -- so the patched package cannot be reached by bumping the pin. mc runs
+       as a one-shot init container against the in-stack MinIO endpoint over the int
+      ernal compose network, then exits; it serves no listener and processes no untr
+      usted remote input. Time-boxed short with the other mc findings, because the d
+      ecision this needs is whether to keep depending on an abandoned image at all.
+  - id: GHSA-hrxh-6v49-42gf
+    purls:
+      - "pkg:golang/google.golang.org/grpc@v1.71.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Vendored gRPC inside /usr/bin/mc in the pinned MinIO client image. Reported un
+      der a GHSA identifier rather than a CVE, alongside the other mc Go-module find
+      ings and with the same constraint: RELEASE.2025-08-13T08-35-41Z is the newest 
+      mc MinIO has published and has been for 13 months, so the patched gRPC cannot 
+      be reached by bumping. mc is a one-shot init client on the internal compose ne
+      twork that serves no listener. Time-boxed short with the rest of the mc set.
   - id: CVE-2026-75595
     purls:
       - "pkg:maven/io.netty/netty-handler@4.1.115.Final"
