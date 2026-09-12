@@ -285,10 +285,10 @@ def test_image_http_and_parser_security_floors() -> None:
     for relative, requirement in request_manifests.items():
         assert requirement in _text(relative), relative
 
-    assert "cryptography>=49.0.0,<50" in _text(
+    assert "cryptography>=50.0.0,<51" in _text(
         "services/jupyterhub/build/requirements.txt"
     )
-    assert "\ncryptography==49.0.0\n" in (
+    assert "\ncryptography==50.0.1\n" in (
         "\n" + _text("services/jupyterhub/build/requirements-locked.txt")
     )
 

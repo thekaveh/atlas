@@ -58,7 +58,7 @@ The stack orchestrates repository-defined containerized and virtual service fami
 - Dual vector backend: Weaviate preferred, pgvector fallback
 
 **MinIO object storage (artifact tier)**
-- S3-compatible artifact-tier storage server (Go, AGPL-v3). Pinned to the dated Docker Hub release tag `minio/minio:RELEASE.2025-09-07T16-13-09Z`; the GitHub-only service-account-CVE release `RELEASE.2025-10-15T17-29-55Z` is not yet available as a Docker image — bump the pin when a fixed image lands upstream.
+- S3-compatible artifact-tier storage server (Go, AGPL-v3). Pinned to the dated release tag `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` (served from MinIO's own registry; Docker Hub stopped answering anonymous pulls for `minio/minio`); the GitHub-only service-account-CVE release `RELEASE.2025-10-15T17-29-55Z` is not yet available as a Docker image — bump the pin when a fixed image lands upstream.
 - Sixteen pre-provisioned buckets across thirteen consumers — `comfyui`, `backend`, `n8n`, `jupyter`, `spark`, `docling`, `langfuse`, `mlflow`, `label-studio`, `iceberg` (4 buckets), `asset-ingest`, `asset-worker`, `asset-baker` — each with a scoped service-account credential surfaced as `MINIO_<NAME>_ACCESS_KEY` / `MINIO_<NAME>_SECRET_KEY` in `.env`.
 - Admin console at `http://localhost:63021`; S3 API at `http://localhost:63020` (host) / `http://minio:9000` (internal).
 - Complements Supabase Storage rather than replacing it. Per-consumer wiring (ComfyUI, Backend, n8n, JupyterHub, Doc Processor) ships in dedicated follow-up PRs — credentials and bucket names are in `.env` from day one for opt-in by env-only change.

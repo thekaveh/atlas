@@ -65,19 +65,15 @@ AUDIT_SPECS = (
     AuditSpec("services/mlflow/build/requirements-locked.txt"),
     AuditSpec(
         "services/jupyterhub/build/requirements-locked.txt",
-        # cryptography==49.0.0: PYSEC-2026-3552's PKCS#7 EnvelopedData decrypt
-        # oracle is fixed in 50.0.0, but installed MLflow 3.15.1 and current
-        # 3.15.2 require cryptography<50. Atlas has no PKCS#7 decrypt endpoint.
+        # PYSEC-2026-3552 (cryptography) and PYSEC-2026-3865 (mlflow) were
+        # removed here once MLflow 3.16.0 widened its cryptography cap from <50
+        # to <51: cryptography moves to 50.0.1, taking the PKCS#7 fix, and
+        # mlflow 3.16.0 falls outside the AI Gateway advisory's affected range.
+        # Both are now real fixes rather than unreachability arguments.
         # diskcache==5.6.3: PYSEC-2026-2447 has no fixed release; notebook 14
         # passes no cache backend, so Ragas never creates or reads a disk cache.
         # ragas==0.4.3: PYSEC-2026-3046 has no fixed release; notebook 14 imports
         # only four text metrics and never the multimodalfaithfulness helper.
-        # mlflow==3.15.1: PYSEC-2026-3865 (formerly tracked as CVE-2026-71211,
-        # re-identified upstream 2026-09) has no fixed release; it affects the
-        # AI Gateway server's operator-supplied auth_config.api_base. Jupyter's
-        # entrypoint starts JupyterHub, and notebook 11 uses only MLflow's
-        # tracking client. The separately deployed service blocks every Gateway
-        # route family at its outer ASGI boundary in services/mlflow/atlas_server.py.
         # nltk==3.10.3: PYSEC-2026-3740 has no fixed release — the advisory's
         # affected range ends at last_affected 3.10.3, the same version that
         # fixed the earlier PYSEC-2026-3733..3741 set. It needs a
@@ -89,10 +85,8 @@ AUDIT_SPECS = (
         # Atlas maintainers own re-review by 2026-11-27.
         frozenset(
             {
-                "PYSEC-2026-3552",
                 "PYSEC-2026-2447",
                 "PYSEC-2026-3046",
-                "PYSEC-2026-3865",
                 "PYSEC-2026-3740",
             }
         ),
