@@ -402,11 +402,6 @@ def _runtime_audit_spec(lock: str) -> audit_runtime_locks.AuditSpec:
     (
         (
             "services/jupyterhub/build/requirements-locked.txt",
-            "PYSEC-2026-3552",
-            "cryptography==49.0.0",
-        ),
-        (
-            "services/jupyterhub/build/requirements-locked.txt",
             "PYSEC-2026-2447",
             "diskcache==5.6.3",
         ),
@@ -414,11 +409,6 @@ def _runtime_audit_spec(lock: str) -> audit_runtime_locks.AuditSpec:
             "services/jupyterhub/build/requirements-locked.txt",
             "PYSEC-2026-3046",
             "ragas==0.4.3",
-        ),
-        (
-            "services/jupyterhub/build/requirements-locked.txt",
-            "PYSEC-2026-3865",
-            "mlflow==3.15.1",
         ),
         (
             "services/parakeet/provider/gpu/requirements-locked.txt",
@@ -477,19 +467,15 @@ def test_jupyterhub_advisory_review_records_current_unreachable_paths() -> None:
 
     assert spec.reviewed_advisories == frozenset(
         {
-            "PYSEC-2026-3552",
             "PYSEC-2026-2447",
             "PYSEC-2026-3046",
-            "PYSEC-2026-3865",
             "PYSEC-2026-3740",
         }
     )
     assert spec.review_by == date(2026, 11, 27)
     for pin in (
-        "cryptography==49.0.0",
         "diskcache==5.6.3",
         "ragas==0.4.3",
-        "mlflow==3.15.1",
     ):
         assert pin in lock
         assert pin in requirements
@@ -498,20 +484,12 @@ def test_jupyterhub_advisory_review_records_current_unreachable_paths() -> None:
     assert "nltk==3.10.3" in lock
     assert "nltk>=3.10.3" in requirements
     for evidence in (
-        "MLflow 3.15.1",
-        "MLflow 3.15.2",
-        "cryptography<50",
-        "PKCS#7",
         "14_ragas_evaluation.ipynb",
         "multimodalfaithfulness",
         "Atlas never imports diskcache",
         "does not pass",
         "cache=",
         "DiskCacheBackend",
-        "PYSEC-2026-3865",
-        "AI Gateway",
-        "11_financial_research_kit.ipynb",
-        "tracking client",
         "no fixed release",
         "PYSEC-2026-3740",
         "install_nlp_assets.py",
