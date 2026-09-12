@@ -67,6 +67,7 @@ vulnerabilities:
   - id: CVE-2025-47913
     purls:
       - "pkg:golang/golang.org/x/crypto@v0.40.0"
+      - "pkg:golang/golang.org/x/crypto@v0.37.0"
     expired_at: 2026-10-15
     statement: >-
       Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
@@ -147,6 +148,7 @@ vulnerabilities:
   - id: CVE-2026-25681
     purls:
       - "pkg:golang/golang.org/x/net@v0.42.0"
+      - "pkg:golang/golang.org/x/net@v0.39.0"
     expired_at: 2026-10-15
     statement: >-
       Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
@@ -243,6 +245,7 @@ vulnerabilities:
   - id: CVE-2026-33186
     purls:
       - "pkg:golang/google.golang.org/grpc@v1.71.0"
+      - "pkg:golang/google.golang.org/grpc@v1.72.0"
     expired_at: 2026-10-15
     statement: >-
       Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
@@ -597,6 +600,7 @@ vulnerabilities:
   - id: CVE-2026-56852
     purls:
       - "pkg:golang/golang.org/x/text@v0.27.0"
+      - "pkg:golang/golang.org/x/text@v0.24.0"
     expired_at: 2026-10-15
     statement: >-
       Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
@@ -775,6 +779,214 @@ vulnerabilities:
       mc MinIO has published and has been for 13 months, so the patched gRPC cannot 
       be reached by bumping. mc is a one-shot init client on the internal compose ne
       twork that serves no listener. Time-boxed short with the rest of the mc set.
+  - id: CVE-2025-62506
+    purls:
+      - "pkg:golang/github.com/minio/minio@v0.0.0-20250907161309-07c3a429bfed+dirty"
+    expired_at: 2026-10-15
+    statement: >-
+      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
+      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
+      it is absent from both Docker Hub and quay.io, verified -- so even the finding
+      s with a published upstream fix cannot be reached by moving the image pin. Sev
+      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
+      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
+       so both ports are loopback-bound unless an operator deliberately widens them,
+       and any operator who does must firewall them. This is a deployment mitigation
+      , not a code fix. Time-boxed short because the decision needed is whether Atla
+      s should keep depending on a server image whose security releases are not dist
+      ributed as containers.
+  - id: CVE-2026-24051
+    purls:
+      - "pkg:golang/go.opentelemetry.io/otel/sdk@v1.35.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
+      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
+      it is absent from both Docker Hub and quay.io, verified -- so even the finding
+      s with a published upstream fix cannot be reached by moving the image pin. Sev
+      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
+      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
+       so both ports are loopback-bound unless an operator deliberately widens them,
+       and any operator who does must firewall them. This is a deployment mitigation
+      , not a code fix. Time-boxed short because the decision needed is whether Atla
+      s should keep depending on a server image whose security releases are not dist
+      ributed as containers.
+  - id: CVE-2026-32285
+    purls:
+      - "pkg:golang/github.com/buger/jsonparser@v1.1.1"
+    expired_at: 2026-10-15
+    statement: >-
+      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
+      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
+      it is absent from both Docker Hub and quay.io, verified -- so even the finding
+      s with a published upstream fix cannot be reached by moving the image pin. Sev
+      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
+      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
+       so both ports are loopback-bound unless an operator deliberately widens them,
+       and any operator who does must firewall them. This is a deployment mitigation
+      , not a code fix. Time-boxed short because the decision needed is whether Atla
+      s should keep depending on a server image whose security releases are not dist
+      ributed as containers.
+  - id: CVE-2026-33322
+    purls:
+      - "pkg:golang/github.com/minio/minio@v0.0.0-20250907161309-07c3a429bfed+dirty"
+    expired_at: 2026-10-15
+    statement: >-
+      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
+      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
+      it is absent from both Docker Hub and quay.io, verified -- so even the finding
+      s with a published upstream fix cannot be reached by moving the image pin. Sev
+      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
+      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
+       so both ports are loopback-bound unless an operator deliberately widens them,
+       and any operator who does must firewall them. This is a deployment mitigation
+      , not a code fix. Time-boxed short because the decision needed is whether Atla
+      s should keep depending on a server image whose security releases are not dist
+      ributed as containers.
+  - id: CVE-2026-33419
+    purls:
+      - "pkg:golang/github.com/minio/minio@v0.0.0-20250907161309-07c3a429bfed+dirty"
+    expired_at: 2026-10-15
+    statement: >-
+      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
+      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
+      it is absent from both Docker Hub and quay.io, verified -- so even the finding
+      s with a published upstream fix cannot be reached by moving the image pin. Sev
+      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
+      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
+       so both ports are loopback-bound unless an operator deliberately widens them,
+       and any operator who does must firewall them. This is a deployment mitigation
+      , not a code fix. Time-boxed short because the decision needed is whether Atla
+      s should keep depending on a server image whose security releases are not dist
+      ributed as containers.
+  - id: CVE-2026-34204
+    purls:
+      - "pkg:golang/github.com/minio/minio@v0.0.0-20250907161309-07c3a429bfed+dirty"
+    expired_at: 2026-10-15
+    statement: >-
+      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
+      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
+      it is absent from both Docker Hub and quay.io, verified -- so even the finding
+      s with a published upstream fix cannot be reached by moving the image pin. Sev
+      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
+      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
+       so both ports are loopback-bound unless an operator deliberately widens them,
+       and any operator who does must firewall them. This is a deployment mitigation
+      , not a code fix. Time-boxed short because the decision needed is whether Atla
+      s should keep depending on a server image whose security releases are not dist
+      ributed as containers.
+  - id: CVE-2026-34986
+    purls:
+      - "pkg:golang/github.com/go-jose/go-jose/v4@v4.1.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
+      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
+      it is absent from both Docker Hub and quay.io, verified -- so even the finding
+      s with a published upstream fix cannot be reached by moving the image pin. Sev
+      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
+      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
+       so both ports are loopback-bound unless an operator deliberately widens them,
+       and any operator who does must firewall them. This is a deployment mitigation
+      , not a code fix. Time-boxed short because the decision needed is whether Atla
+      s should keep depending on a server image whose security releases are not dist
+      ributed as containers.
+  - id: CVE-2026-39414
+    purls:
+      - "pkg:golang/github.com/minio/minio@v0.0.0-20250907161309-07c3a429bfed+dirty"
+    expired_at: 2026-10-15
+    statement: >-
+      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
+      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
+      it is absent from both Docker Hub and quay.io, verified -- so even the finding
+      s with a published upstream fix cannot be reached by moving the image pin. Sev
+      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
+      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
+       so both ports are loopback-bound unless an operator deliberately widens them,
+       and any operator who does must firewall them. This is a deployment mitigation
+      , not a code fix. Time-boxed short because the decision needed is whether Atla
+      s should keep depending on a server image whose security releases are not dist
+      ributed as containers.
+  - id: CVE-2026-39883
+    purls:
+      - "pkg:golang/go.opentelemetry.io/otel/sdk@v1.35.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
+      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
+      it is absent from both Docker Hub and quay.io, verified -- so even the finding
+      s with a published upstream fix cannot be reached by moving the image pin. Sev
+      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
+      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
+       so both ports are loopback-bound unless an operator deliberately widens them,
+       and any operator who does must firewall them. This is a deployment mitigation
+      , not a code fix. Time-boxed short because the decision needed is whether Atla
+      s should keep depending on a server image whose security releases are not dist
+      ributed as containers.
+  - id: CVE-2026-40344
+    purls:
+      - "pkg:golang/github.com/minio/minio@v0.0.0-20250907161309-07c3a429bfed+dirty"
+    expired_at: 2026-10-15
+    statement: >-
+      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
+      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
+      it is absent from both Docker Hub and quay.io, verified -- so even the finding
+      s with a published upstream fix cannot be reached by moving the image pin. Sev
+      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
+      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
+       so both ports are loopback-bound unless an operator deliberately widens them,
+       and any operator who does must firewall them. This is a deployment mitigation
+      , not a code fix. Time-boxed short because the decision needed is whether Atla
+      s should keep depending on a server image whose security releases are not dist
+      ributed as containers.
+  - id: CVE-2026-41145
+    purls:
+      - "pkg:golang/github.com/minio/minio@v0.0.0-20250907161309-07c3a429bfed+dirty"
+    expired_at: 2026-10-15
+    statement: >-
+      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
+      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
+      it is absent from both Docker Hub and quay.io, verified -- so even the finding
+      s with a published upstream fix cannot be reached by moving the image pin. Sev
+      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
+      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
+       so both ports are loopback-bound unless an operator deliberately widens them,
+       and any operator who does must firewall them. This is a deployment mitigation
+      , not a code fix. Time-boxed short because the decision needed is whether Atla
+      s should keep depending on a server image whose security releases are not dist
+      ributed as containers.
+  - id: CVE-2026-41602
+    purls:
+      - "pkg:golang/github.com/apache/thrift@v0.21.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
+      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
+      it is absent from both Docker Hub and quay.io, verified -- so even the finding
+      s with a published upstream fix cannot be reached by moving the image pin. Sev
+      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
+      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
+       so both ports are loopback-bound unless an operator deliberately widens them,
+       and any operator who does must firewall them. This is a deployment mitigation
+      , not a code fix. Time-boxed short because the decision needed is whether Atla
+      s should keep depending on a server image whose security releases are not dist
+      ributed as containers.
+  - id: CVE-2026-79921
+    purls:
+      - "pkg:golang/github.com/rabbitmq/amqp091-go@v1.10.0"
+    expired_at: 2026-10-15
+    statement: >-
+      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
+      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
+      it is absent from both Docker Hub and quay.io, verified -- so even the finding
+      s with a published upstream fix cannot be reached by moving the image pin. Sev
+      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
+      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
+       so both ports are loopback-bound unless an operator deliberately widens them,
+       and any operator who does must firewall them. This is a deployment mitigation
+      , not a code fix. Time-boxed short because the decision needed is whether Atla
+      s should keep depending on a server image whose security releases are not dist
+      ributed as containers.
   - id: CVE-2026-75595
     purls:
       - "pkg:maven/io.netty/netty-handler@4.1.115.Final"
