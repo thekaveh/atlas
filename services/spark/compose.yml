@@ -282,7 +282,7 @@ services:
   # never start. minio-init solves this by pinning minio/mc; spark-init
   # does the same so the two stay in lockstep on the upstream mc release.
   spark-init:
-    image: ${MINIO_INIT_IMAGE:-minio/mc:RELEASE.2025-08-13T08-35-41Z}
+    image: ${MINIO_INIT_IMAGE:-quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z}
     container_name: ${PROJECT_NAME}-spark-init
     deploy:
       replicas: ${SPARK_INIT_SCALE:-0}
