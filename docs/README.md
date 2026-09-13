@@ -57,7 +57,7 @@ Documentation index for Atlas.
 
 ### 1.8. Feature-track plans and specs
 <!-- BEGIN GENERATED PLAN ARCHIVE RANGE -->
-- [superpowers/plans](superpowers/plans/) + [superpowers/specs](superpowers/specs/) — point-in-time implementation plans and specs dated 2026-05-31 through 2026-08-30 (consult them when archaeology on a past track is needed; CHANGELOG entries link the relevant artifacts)
+- [superpowers/plans](superpowers/plans/) + [superpowers/specs](superpowers/specs/) — point-in-time implementation plans and specs dated 2026-05-31 through 2026-09-13 (consult them when archaeology on a past track is needed; CHANGELOG entries link the relevant artifacts)
 <!-- END GENERATED PLAN ARCHIVE RANGE -->
 
 ### 1.9. Numbering-policy notes

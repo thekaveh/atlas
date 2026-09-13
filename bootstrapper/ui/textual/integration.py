@@ -789,14 +789,17 @@ def _build_steps_and_rows(
         title="Cold start  ·  rebuild", step_index=len(services_info) + 2,
         step_total=total,
         heading="Reset the existing stack state?",
-        subtitle=("Cold start removes all containers & volumes, then re-creates "
-                  "them — regenerating the volume-baked DB passwords "
-                  "(Supabase + Neo4j) so they match the freshly initialized data."),
+        wrap_subtitle=True,
+        subtitle=("Cold start removes this project's containers and managed volumes: "
+                  "database records, object files, workflow/chat history, models "
+                  "and caches stored there are LOST. It re-creates .env and "
+                  "regenerates keys/passwords. Back up data and configuration first; "
+                  "bind-mounted files and external volumes are kept."),
         options=[
             PromptOption("no", "No — keep existing data",
                          "fast — reuses volumes, current containers & DB passwords"),
             PromptOption("yes", "Yes — rebuild from scratch",
-                         "slow — drops volumes; cleanest reset; new DB passwords"),
+                         "destructive — delete project volume data and regenerate configuration"),
         ],
         default_value="no", service_name="",
     ))
