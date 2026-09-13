@@ -594,6 +594,24 @@ _SEARCH_ALLOWED_ACTIONS = frozenset({
 })
 
 
+def _permission_recovery_hints(joined: str) -> list[str]:
+    """Explain known permission symptoms without assuming ownership or repair."""
+    if "permission denied" not in joined and "errno 13" not in joined:
+        return []
+    # Only repeat fixed known mount names, never arbitrary log text
+    # (which can include credentials or terminal/shell control text).
+    mounts = [path for path in ("/litellm-config/", "/kong-config/") if path in joined]
+    location = " at " + ", ".join(mounts) if mounts else ""
+    return [
+        f"🔧 Permission denied{location}. Diagnosis is incomplete: "
+        "the failing service, host mount mapping and expected UID/GID "
+        "must be verified before changing permissions.",
+        "   Inspect that service's effective container user and mount "
+        "access (including read-only mounts); preserve existing files. "
+        "A permission error does not prove an ownership mismatch.",
+    ]
+
+
 class WizardScreen(Screen):
     """Setup wizard + in-place log streaming."""
 
@@ -1996,20 +2014,7 @@ class WizardScreen(Screen):
     def _emit_failure_hints(self, log_lines: list[str]) -> None:
         """Offer non-destructive diagnosis; log symptoms do not prove a cause."""
         joined = "\n".join(log_lines).lower()
-        hints = []
-        if "permission denied" in joined or "errno 13" in joined:
-            # Only repeat fixed known mount names, never arbitrary log text
-            # (which can include credentials or terminal/shell control text).
-            mounts = [path for path in ("/litellm-config/", "/kong-config/") if path in joined]
-            location = " at " + ", ".join(mounts) if mounts else ""
-            hints.extend([
-                f"🔧 Permission denied{location}. Diagnosis is incomplete: "
-                "the failing service, host mount mapping and expected UID/GID "
-                "must be verified before changing permissions.",
-                "   Inspect that service's effective container user and mount "
-                "access (including read-only mounts); preserve existing files. "
-                "A permission error does not prove an ownership mismatch.",
-            ])
+        hints = _permission_recovery_hints(joined)
         if "authentication failed" in joined or "password authentication" in joined:
             hints.extend([
                 "🔧 Authentication failed. This does not prove a stale volume.",

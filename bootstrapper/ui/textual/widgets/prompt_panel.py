@@ -593,6 +593,13 @@ class PromptPanel(Container):
     def set_on_change(self, callback: Callable[[int, PromptOption], None]) -> None:
         self._on_change = callback
 
+    def _render_step_caption(self, step: PromptStep) -> None:
+        """Render caption text with the space required by destructive warnings."""
+        self._heading.update(step.heading)
+        self._subtitle.update(step.subtitle)
+        self._subtitle.styles.height = "auto" if step.wrap_subtitle else 1
+        self.set_class(step.wrap_subtitle, "has-wrapped-subtitle")
+
     def load_step(self, step: PromptStep) -> None:
         self._step = step
         # Drop the per-row secondary-input registry: the options-branch
@@ -609,10 +616,7 @@ class PromptPanel(Container):
             f" {step.title}  ·  {step.step_index} / {step.step_total}  {bar} "
         )
         self.border_subtitle = ""
-        self._heading.update(step.heading)
-        self._subtitle.update(step.subtitle)
-        self._subtitle.styles.height = "auto" if step.wrap_subtitle else 1
-        self.set_class(step.wrap_subtitle, "has-wrapped-subtitle")
+        self._render_step_caption(step)
         # Hide the persistent search input by default — the multiselect
         # branch below re-shows it when ``filter_tags`` is set. Without
         # this the Input would linger across step changes (number /

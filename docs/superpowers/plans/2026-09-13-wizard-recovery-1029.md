@@ -82,3 +82,26 @@ https://docs.docker.com/reference/cli/docker/compose/down/ .
   also occur without this change and remain tracked separately in #1030.
 - Tests use synthetic logs and fake teardown; no user volumes were removed.
 - Required CI, both merges and post-merge publication remain pending.
+
+## 6. CI review follow-up
+
+The first required CI run reported 6,075 passed, 11 skipped and two complexity
+failures. Local reproduction confirmed recovery classification crossed the C
+threshold and caption wrapping added a branch to the reviewed `load_step`
+symbol. Permission diagnosis and caption rendering now have focused helpers;
+independent review confirmed preserved behavior. All code-complexity ceilings
+remain unchanged.
+
+Once those failures were fixed, the inventory gate exposed the three expected
+new files: this plan, its design spec and the recovery regression suite. A
+separate inventory maintenance review attributed exactly 1,545 → 1,548 files to
+`7a8e777b..f7bf572e`. The durable `.maintenance.json` review lists each path and
+purpose. Only that inventory snapshot and its pinned expectation are refreshed;
+counting rules, immutable-snapshot assertions and review deadlines remain.
+
+The separate non-required image scan reports existing Blender vendored Python
+debt tracked in #1002. No image or scanner configuration is changed here.
+
+Follow-up verification: maintenance plus recovery **27 passed**; wizard/TUI/stop/
+post-launch **256 passed, 1 skipped**; `make docs-check` and `git diff --check`
+passed. The existing full-warning compositor test confirms unchanged rendering.
