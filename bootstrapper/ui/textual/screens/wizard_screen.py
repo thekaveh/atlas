@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+import concurrent.futures
 import contextlib
 import math
 import os
@@ -35,6 +36,7 @@ import shlex
 import signal
 import sys
 import tempfile
+import threading
 from time import monotonic as _teardown_clock
 from pathlib import Path
 from typing import Callable
@@ -190,8 +192,11 @@ async def _stop_process_tree(
             proc.kill()
     except ProcessLookupError:
         pass
-    wait_task = asyncio.create_task(proc.wait())
-    await _await_uncancellable(wait_task)
+    # Draining through communicate() closes asyncio's pipe transports as well
+    # as reaping the leader. A cancelled stdout consumer followed by wait()
+    # alone leaves the read transport open until garbage collection.
+    reap_task = asyncio.create_task(proc.communicate())
+    await _await_uncancellable(reap_task)
 
 
 async def _await_uncancellable(task: asyncio.Task):
@@ -324,6 +329,127 @@ async def _run_streamed_command(
         except BaseException as cleanup_error:
             raise primary_error from cleanup_error
         raise
+
+
+class _ThreadedComposeExecutor:
+    """Run a synchronous pipeline Compose hook on the owning asyncio loop."""
+
+    def __init__(self, manager, loop: asyncio.AbstractEventLoop, log) -> None:
+        self._manager = manager
+        self._loop = loop
+        self._log = log
+        self._cancel_requested = threading.Event()
+        self._task_lock = threading.Lock()
+        self._tasks: set[asyncio.Task[int]] = set()
+
+    def _write(self, message: str, *, source: str, level: str) -> None:
+        self._log(message, source=source, level=level)
+
+    def _stream_line(self, line: str) -> None:
+        if not line:
+            return
+        source, level = _classify_compose_line(line)
+        self._write(line, source=(source or "docker"), level=level)
+
+    async def _run(self, command: list[str], args: list[str]) -> int:
+        task = asyncio.current_task()
+        assert task is not None
+        with self._task_lock:
+            self._tasks.add(task)
+        try:
+            if self._cancel_requested.is_set():
+                raise asyncio.CancelledError
+            return await _run_streamed_command(
+                command,
+                cwd=Path(self._manager.root_dir),
+                env={**os.environ, "BUILDKIT_PROGRESS": "plain"},
+                on_line=self._stream_line,
+                timeout_seconds=_compose_timeout_seconds(args),
+                termination_grace_seconds=_PROCESS_TERMINATION_GRACE_SECONDS,
+            )
+        finally:
+            with self._task_lock:
+                self._tasks.discard(task)
+
+    def __call__(
+        self,
+        args: list[str],
+        use_env_file: bool = True,
+        project_name: str | None = None,
+    ) -> int:
+        previous_project = self._manager.project_name_override
+        try:
+            if project_name:
+                self._manager.project_name_override = project_name
+            command = self._manager._build_compose_command(
+                args,
+                use_env_file=use_env_file,
+                top_level_flags=["--ansi=never"],
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._write(
+                "Docker Compose command could not be prepared "
+                f"({type(exc).__name__}; details redacted)",
+                source="docker",
+                level="error",
+            )
+            return 1
+        finally:
+            self._manager.project_name_override = previous_project
+
+        self._write("$ " + " ".join(command), source="docker", level="dim")
+        future = asyncio.run_coroutine_threadsafe(
+            self._run(command, list(args)), self._loop
+        )
+        try:
+            returncode = future.result()
+        except concurrent.futures.CancelledError:
+            self._write(
+                "Docker Compose command cancelled; owned subprocesses were cleaned up",
+                source="docker",
+                level="warn",
+            )
+            return 130
+        except Exception as exc:  # noqa: BLE001
+            self._write(
+                "Docker Compose command could not run "
+                f"({type(exc).__name__}; details redacted)",
+                source="docker",
+                level="error",
+            )
+            return 1
+        if returncode != 0:
+            self._write(
+                f"Docker Compose command failed with exit status {returncode}",
+                source="docker",
+                level="error",
+            )
+        return returncode
+
+    async def cancel_and_wait(self) -> None:
+        """Cancel only commands submitted by this executor and await cleanup."""
+        self._cancel_requested.set()
+        with self._task_lock:
+            tasks = tuple(self._tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def run_in_thread(self, fn):
+        """Run a sync helper and drain its submitted Compose work on cancel."""
+        thread_task = asyncio.create_task(asyncio.to_thread(fn))
+        try:
+            return await asyncio.shield(thread_task)
+        except asyncio.CancelledError as cancellation:
+            self._cancel_requested.set()
+            cleanup_task = asyncio.create_task(self.cancel_and_wait())
+            try:
+                await _await_uncancellable(cleanup_task)
+                await _await_uncancellable(thread_task)
+            except BaseException as cleanup_error:
+                raise cancellation from cleanup_error
+            raise
 
 
 async def _capture_bounded_process_output(
@@ -2336,9 +2462,11 @@ class WizardScreen(Screen):
         except Exception:  # noqa: BLE001
             pass
 
-    async def _reactivate_n8n_after_up(self, starter) -> bool:
+    async def _reactivate_n8n_after_up(
+        self, starter, compose_executor: _ThreadedComposeExecutor
+    ) -> bool:
         """Fail the TUI launch if the required webhook restart fails."""
-        if await asyncio.to_thread(starter._reactivate_n8n_if_needed):
+        if await compose_executor.run_in_thread(starter._reactivate_n8n_if_needed):
             return True
         self._write_status(
             "❌ n8n webhook reactivation failed — managed hosts will be rolled back",
@@ -2413,46 +2541,16 @@ class WizardScreen(Screen):
         sys.stdout = _LogPaneWriter(self, source="pipeline", level="info")
         sys.stderr = _LogPaneWriter(self, source="pipeline", level="warn")
 
-        # CRITICAL: ``docker_manager.execute_compose_command`` runs
-        # ``subprocess.run`` WITHOUT redirecting stdout — its docker compose
-        # output goes straight to the terminal fd and overwrites the
-        # Textual screen. Wrap it for the duration of the pipeline so its
-        # output gets piped into the LogPane like every other compose call.
+        # The starter's helpers use a synchronous Compose seam from worker
+        # threads. Bridge that seam back to the screen's bounded async runner
+        # so output stays in the LogPane and cancellation owns the process tree.
         original_execute = starter.docker_manager.execute_compose_command
-
-        def _patched_execute(args, use_env_file=True, project_name=None):
-            # ``--ansi=never`` — stdout here is a Popen pipe; with
-            # ``--ansi=always`` compose tries to attach a TTY-based
-            # progress console and fails with "failed to get console:
-            # provided file is not a console". Same fix as _run_compose.
-            previous_project = starter.docker_manager.project_name_override
-            if project_name:
-                starter.docker_manager.project_name_override = project_name
-            full_cmd = starter.docker_manager._build_compose_command(
-                args, top_level_flags=["--ansi=never"],
-            )
-            starter.docker_manager.project_name_override = previous_project
-            self._safe_log("$ " + " ".join(full_cmd), source="docker", level="dim")
-            try:
-                import subprocess as _sp
-                proc = _sp.Popen(
-                    full_cmd,
-                    cwd=str(starter.docker_manager.root_dir),
-                    stdin=_sp.DEVNULL, stdout=_sp.PIPE, stderr=_sp.STDOUT,
-                    text=True, bufsize=1, encoding="utf-8", errors="replace",
-                )
-                assert proc.stdout is not None
-                for line in proc.stdout:
-                    line = line.rstrip("\r\n")
-                    if line:
-                        src, lvl = _classify_compose_line(line)
-                        self._safe_log(line, source=(src or "docker"), level=lvl)
-                return proc.wait()
-            except Exception as exc:  # noqa: BLE001
-                self._safe_log(f"❌ {exc}", source="docker", level="error")
-                return 1
-
-        starter.docker_manager.execute_compose_command = _patched_execute
+        compose_executor = _ThreadedComposeExecutor(
+            starter.docker_manager,
+            asyncio.get_running_loop(),
+            self._safe_log,
+        )
+        starter.docker_manager.execute_compose_command = compose_executor
 
         # Resolve the deployment profile from stack_options (set by
         # _selections_to_args from the wizard's PROFILE_STEP_TITLE selection,
@@ -2607,7 +2705,7 @@ class WizardScreen(Screen):
                 self._write_status(f"  · {label}…", style="dim",
                                    source="pipeline")
                 try:
-                    ok = await asyncio.to_thread(fn)
+                    ok = await compose_executor.run_in_thread(fn)
                 except Exception as exc:  # noqa: BLE001
                     self._write_status(f"  ✗ {label} crashed: {exc}",
                                        style="bold red", source="pipeline")
@@ -2697,7 +2795,7 @@ class WizardScreen(Screen):
             # the DEFAULT path: a consumer-declared active n8n workflow with
             # no N8N_API_KEY left its production webhook 404 under
             # `./start.sh` while working under `./start.sh --no-tui`.
-            if not await self._reactivate_n8n_after_up(starter):
+            if not await self._reactivate_n8n_after_up(starter, compose_executor):
                 return
             starter.commit_managed_host_processes()
             managed_hosts_pending = False
