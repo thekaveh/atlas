@@ -1064,7 +1064,9 @@ def test_failure_log_capture_is_bounded_and_process_grouped() -> None:
     assert "_FAILURE_LOG_TIMEOUT_SECONDS =" in source
     assert "start_new_session=os.name == \"posix\"" in source
     assert source.count("proc = await _launch_process(") == 1
-    assert source.count("await _run_streamed_command(") == 2
+    # Failure-log capture, the threaded pipeline Compose hook, and the direct
+    # TUI Compose path must all delegate to the same bounded runner.
+    assert source.count("await _run_streamed_command(") == 3
     assert "_FAILURE_HINT_BUFFER_BYTES =" in source
     assert source.count("await _stop_process_tree(") >= 3
     assert "except asyncio.CancelledError:" in source

@@ -230,6 +230,12 @@ def test_tui_marks_launch_failed_when_n8n_reactivation_fails():
     from ui.textual.screens.wizard_screen import WizardScreen
 
     events: list[str] = []
+
+    class ComposeExecutor:
+        async def run_in_thread(self, fn):
+            events.append("thread")
+            return fn()
+
     screen = NS(
         _write_status=lambda *_args, **_kwargs: events.append("status"),
         _mark_launch_failed=lambda: events.append("failed"),
@@ -237,9 +243,38 @@ def test_tui_marks_launch_failed_when_n8n_reactivation_fails():
     starter = NS(_reactivate_n8n_if_needed=lambda: False)
 
     assert asyncio.run(
-        WizardScreen._reactivate_n8n_after_up(screen, starter)
+        WizardScreen._reactivate_n8n_after_up(
+            screen, starter, ComposeExecutor()
+        )
     ) is False
-    assert events == ["status", "failed"]
+    assert events == ["thread", "status", "failed"]
+
+
+def test_tui_reactivation_preserves_cancellation_after_executor_cleanup():
+    from ui.textual.screens.wizard_screen import WizardScreen
+
+    events: list[str] = []
+
+    class ComposeExecutor:
+        async def run_in_thread(self, _fn):
+            events.append("cleaned")
+            raise asyncio.CancelledError
+
+    screen = NS(
+        _write_status=lambda *_args, **_kwargs: events.append("status"),
+        _mark_launch_failed=lambda: events.append("failed"),
+    )
+    starter = NS(
+        _reactivate_n8n_if_needed=lambda: events.append("called") or True
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(
+            WizardScreen._reactivate_n8n_after_up(
+                screen, starter, ComposeExecutor()
+            )
+        )
+    assert events == ["cleaned"]
 
 
 def test_seed_workflows_publishes_when_no_api_key():
