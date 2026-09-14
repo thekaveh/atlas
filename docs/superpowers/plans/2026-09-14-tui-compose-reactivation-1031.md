@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python >=3.10, asyncio, concurrent futures, threading, Textual, pytest.
 
-## Global Constraints
+## 1. Global Constraints
 
 - Preserve existing output, progress, colors, command construction, n8n health checks, and headless behavior.
 - Use `_COMPOSE_UP_TIMEOUT_SECONDS` (30 minutes) for `restart n8n` and `_PROCESS_TERMINATION_GRACE_SECONDS` (2 seconds) for TERM-to-KILL cleanup.
@@ -20,7 +20,7 @@
 
 ---
 
-## 1. Verified behavior and acceptance matrix
+## 2. Verified behavior and acceptance matrix
 
 | Acceptance criterion | Planned change | Verification |
 |---|---|---|
@@ -29,7 +29,7 @@
 | Nonzero status fails with useful redacted diagnostics | Preserve integer return; add stable exit-status line without command/output interpolation | Exit-17 fixture and pipeline failure assertion with secret sentinel absent from synthesized diagnostic |
 | Successful reactivation keeps streaming and behavior | Use existing classifier/sink and keep `AtlasStarter._reactivate_n8n_if_needed` contract | Multi-line exit-0 fixture and existing n8n reactivation/health tests |
 
-## 2. File map
+## 3. File map
 
 - Modify `bootstrapper/ui/textual/screens/wizard_screen.py`: add the pipeline-scoped executor, cancellation-aware thread boundary, and install it as the temporary Compose hook.
 - Create `bootstrapper/tests/test_tui_compose_reactivation_1031.py`: controlled subprocess and actual-hook regression coverage.
@@ -37,7 +37,7 @@
 - Modify this plan after verification with exact results and review findings.
 - The design record is `docs/superpowers/specs/2026-09-14-tui-compose-reactivation-1031-design.md`.
 
-## 3. Task 1: Specify the executor contract with failing process fixtures
+## 4. Task 1: Specify the executor contract with failing process fixtures
 
 **Files:**
 - Create: `bootstrapper/tests/test_tui_compose_reactivation_1031.py`
@@ -53,7 +53,7 @@
 - [x] Write exit-17 and exit-0 fixtures. Assert the failure returns 17 and emits a stable numeric diagnostic; assert success preserves every streamed line and emits no failure line.
 - [x] Run `uv run --project bootstrapper pytest bootstrapper/tests/test_tui_compose_reactivation_1031.py -q`; the initial RED run failed because `_ThreadedComposeExecutor` did not exist.
 
-## 4. Task 2: Implement the smallest thread-to-loop bridge
+## 5. Task 2: Implement the smallest thread-to-loop bridge
 
 **Files:**
 - Modify: `bootstrapper/ui/textual/screens/wizard_screen.py`
@@ -70,7 +70,7 @@
 - [x] Emit synthesized diagnostics as fixed text plus exception type or numeric status only.
 - [x] Rerun the new suite; all nine executor fixtures pass and no fixture process survives cleanup.
 
-## 5. Task 3: Install the executor on the actual TUI reactivation path
+## 6. Task 3: Install the executor on the actual TUI reactivation path
 
 **Files:**
 - Modify: `bootstrapper/ui/textual/screens/wizard_screen.py`
@@ -87,7 +87,7 @@
 - [x] Preserve the existing command echo and all success-path log lines. Visual result: no success-state change; failures gain explicit bounded timeout/cancel/exit diagnostics in the existing Docker-colored log pane.
 - [x] Run the executor, n8n, launch, and process-runner tests with warnings as errors; 158 passed after the final review fix.
 
-## 6. Task 4: Regression, review, and delivery
+## 7. Task 4: Regression, review, and delivery
 
 **Files:**
 - Modify: `docs/superpowers/plans/2026-09-14-tui-compose-reactivation-1031.md`
@@ -105,7 +105,7 @@
 - [ ] Inspect and merge the direct `develop`-to-`main` promotion through current protection, then verify main contents, required post-merge CI, and docs publication if triggered.
 - [ ] Comment on and close #1031, mark its project item Done, delete only this campaign's local/remote branch, prune refs, remove disposable fixture processes/files, and checkpoint the ledger before #1030.
 
-## 7. Baseline and research evidence
+## 8. Baseline and research evidence
 
 - Live #1031 is open and Todo with no comments, assignee, milestone, blocker, subissue, or linked branch.
 - Current develop/main trees are identical before the issue branch; the branch was created from develop `32693d4f` and pushed before edits.
