@@ -338,6 +338,9 @@ class PromptStep:
     # ``[ALL] tag1 tag2 …`` and filters visible options by membership
     # in ``PromptOption.badges``.
     filter_tags: tuple[str, ...] = ()
+    # Destructive-choice warnings must be fully readable before selection.
+    # Ordinary prompts retain their existing one-line subtitle layout.
+    wrap_subtitle: bool = False
     # secondary_number REMOVED 2026-05-25 — config now lives on each
     # PromptOption (see PromptOption.secondary_number). Eligibility is
     # "option carries a config" instead of "step-level show_when filter."
@@ -426,6 +429,10 @@ class PromptPanel(Container):
     PromptPanel > .prompt-heading { height: 1; color: #e0e6f2; text-style: bold; }
     PromptPanel > .prompt-subtitle { height: 1; color: #8992b5; }
     PromptPanel > .prompt-spacer-2 { height: 1; }
+    /* Give a destructive-choice warning its decorative padding rows so both
+       the full warning and the choices remain visible in the same panel. */
+    PromptPanel.has-wrapped-subtitle { padding: 0 2; }
+    PromptPanel.has-wrapped-subtitle > .prompt-spacer-2 { height: 0; }
     /* Scrollable option list — capped so a 230-entry library scrape
        doesn't blow past the viewport. The cursor is kept in view by
        PromptPanel.move() calling scroll_visible() on the focused row. */
@@ -586,6 +593,13 @@ class PromptPanel(Container):
     def set_on_change(self, callback: Callable[[int, PromptOption], None]) -> None:
         self._on_change = callback
 
+    def _render_step_caption(self, step: PromptStep) -> None:
+        """Render caption text with the space required by destructive warnings."""
+        self._heading.update(step.heading)
+        self._subtitle.update(step.subtitle)
+        self._subtitle.styles.height = "auto" if step.wrap_subtitle else 1
+        self.set_class(step.wrap_subtitle, "has-wrapped-subtitle")
+
     def load_step(self, step: PromptStep) -> None:
         self._step = step
         # Drop the per-row secondary-input registry: the options-branch
@@ -602,8 +616,7 @@ class PromptPanel(Container):
             f" {step.title}  ·  {step.step_index} / {step.step_total}  {bar} "
         )
         self.border_subtitle = ""
-        self._heading.update(step.heading)
-        self._subtitle.update(step.subtitle)
+        self._render_step_caption(step)
         # Hide the persistent search input by default — the multiselect
         # branch below re-shows it when ``filter_tags`` is set. Without
         # this the Input would linger across step changes (number /

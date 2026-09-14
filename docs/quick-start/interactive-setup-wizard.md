@@ -263,7 +263,7 @@ Spark worker-count inputs are wired directly in the wizard code
 The wizard also collects these stack-level (non-service-source) options — **base port first**, before any service-source prompts; the cold-start and hosts-file options come last:
 
 - **Base port** for all services (default: 63000) — collected at the very start of the wizard so all subsequent port displays reflect the chosen base.
-- **Cold start** option to remove volumes and rebuild from scratch.
+- **Cold start** is an explicit destructive choice, defaulting to **No**. It removes this project's containers and Compose-managed volumes, including database records, object files, workflow/chat history, models and caches stored in those volumes. It also re-creates `.env` and regenerates keys/passwords. Back up needed data and configuration first. Bind-mounted files and external volumes remain.
 - **Hosts file configuration** to enable friendly URLs like `chat.localhost` and `n8n.localhost`.
 
 ## 8. Pre-Launch Summary
@@ -290,6 +290,42 @@ After confirmation, the wizard transitions in-place from prompts to the launch p
 - Per-service container names (e.g. `atlas-supabase-db`, `atlas-ollama-pull`) are **color-coded** based on `bootstrapper/ui/textual/palette.py::SOURCE_COLORS`. Unknown service names get a stable hue from a small md5-based palette so every service in the stack remains visually distinguishable.
 - The full launch-phase output is also tee'd to an owner-only `/tmp/atlas-launch-<timestamp>-<unique>.log` for post-mortem inspection. See [Troubleshooting](troubleshooting.md#2-session-log).
 - Press `Ctrl+Q` to detach cleanly from the wizard UI. `Ctrl+C` sends SIGINT — fine after services are up (already-detached compose containers keep running) but during the launch pipeline it may interrupt a compose step mid-flight, leaving the stack in a partial state. Either way, services that have finished starting keep running; resume log streaming with `docker compose logs -f <service>`.
+
+### 9.1. Recovery without deleting data
+
+Permission failures do not establish an ownership mismatch. Identify the failing
+service, container path, effective UID/GID and host mount mapping, including
+whether the mount is read-only, before changing permissions. When that evidence
+is missing, the recovery hint explicitly says diagnosis is incomplete. It never
+recommends making the whole volumes tree world-writable.
+
+For authentication failures, check service availability and health first, then
+compare the effective project/env configuration with the configuration used to
+initialize the installation. If stored credentials differ, retain the volume and
+recover the matching configuration or follow the service's credential-recovery
+procedure after a verified backup. A rejected password does not prove that a
+volume is stale; deletion is not an authentication repair. Connection and DNS
+failures require checking the host, port and network rather than resetting keys.
+
+Keep the session log for diagnosis and inspect it for secrets before sharing.
+Detach with `Ctrl+Q`, correct the diagnosed cause, and retry the original launch
+command with the same project and consumer options. These hints do not perform
+permission repairs, credential resets or deletion.
+
+### 9.2. Separate stop and destructive cold stop
+
+After launch, `Ctrl+S` stops the project while retaining volumes. `Ctrl+X` is a
+separate destructive cold-stop action. Its warning names the project and explains
+that Compose-managed named volumes and attached anonymous volumes are removed:
+database records, object files, workflow/chat history, models and caches stored
+there are lost. Bind mounts, external volumes, `.env` and managed host processes
+remain; unlike cold start, cold stop does not regenerate configuration.
+
+Both actions require pressing the **same key twice within eight seconds**. A
+different action re-arms its own confirmation; an expired confirmation requires
+another first press. The cold-stop warning remains in the session log for review.
+Read the data-loss warning and back up needed data before confirming. Detaching
+does not delete data.
 
 ## 10. Navigation
 
