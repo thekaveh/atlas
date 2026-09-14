@@ -35,6 +35,7 @@ import shlex
 import signal
 import sys
 import tempfile
+from time import monotonic as _teardown_clock
 from pathlib import Path
 from typing import Callable
 
@@ -593,6 +594,24 @@ _SEARCH_ALLOWED_ACTIONS = frozenset({
 })
 
 
+def _permission_recovery_hints(joined: str) -> list[str]:
+    """Explain known permission symptoms without assuming ownership or repair."""
+    if "permission denied" not in joined and "errno 13" not in joined:
+        return []
+    # Only repeat fixed known mount names, never arbitrary log text
+    # (which can include credentials or terminal/shell control text).
+    mounts = [path for path in ("/litellm-config/", "/kong-config/") if path in joined]
+    location = " at " + ", ".join(mounts) if mounts else ""
+    return [
+        f"🔧 Permission denied{location}. Diagnosis is incomplete: "
+        "the failing service, host mount mapping and expected UID/GID "
+        "must be verified before changing permissions.",
+        "   Inspect that service's effective container user and mount "
+        "access (including read-only mounts); preserve existing files. "
+        "A permission error does not prove an ownership mismatch.",
+    ]
+
+
 class WizardScreen(Screen):
     """Setup wizard + in-place log streaming."""
 
@@ -839,6 +858,7 @@ class WizardScreen(Screen):
         # the variant rather than a bare bool so arming one and pressing
         # the other re-arms instead of committing the wrong one.
         self._pending_teardown: bool | None = None
+        self._pending_teardown_deadline = 0.0
 
         # Register a wizard-time warning sink so cloud /v1/models fetch
         # failures (and similar) land in the launch log + log pane.
@@ -1992,71 +2012,38 @@ class WizardScreen(Screen):
                 pass
 
     def _emit_failure_hints(self, log_lines: list[str]) -> None:
-        """Surface a recovery hint in the live log pane when the
-        captured docker-compose output reveals a well-known failure
-        mode (stale volume, port conflict, etc.).
-
-        Pattern → hint mapping kept intentionally narrow: only mention
-        recoveries the user can act on directly. We never silently
-        wipe state; we tell them exactly which command to run.
-        """
+        """Offer non-destructive diagnosis; log symptoms do not prove a cause."""
         joined = "\n".join(log_lines).lower()
-
-        # Stale supabase-db volume: pgdata initialized with an old
-        # password, current .env now has a different one. Postgres
-        # won't re-init existing pgdata, so the stored creds and the
-        # .env creds diverge until the volume is wiped.
-        if (
-            "password authentication failed" in joined
-            and "supabase_admin" in joined
-        ):
-            self._write_status(
-                "🔧 Stale supabase-db volume detected.",
-                style="bold yellow", source="pipeline",
-            )
-            self._write_status(
-                "   The DB was initialized with a different password "
-                "than the current .env (likely from an earlier failed run).",
-                style="yellow", source="pipeline",
-            )
-            self._write_status(
-                "   Recovery: ./start.sh --cold "
-                "(wipes volumes + re-initializes from scratch).",
-                style="bold cyan", source="pipeline",
-            )
-            return
-
-        # Bind-mount permission denied. Containers (especially init
-        # ones running as root) can leave host dirs root-owned, then
-        # subsequent runs fail because the new container can't write
-        # to its own bind mount. ``_ensure_volume_dir_writable`` covers
-        # the litellm/kong cases proactively; this hint catches the
-        # generic case where some other volume dir is locked.
-        if (
-            "permission denied" in joined
-            and (
-                "config.yaml.tmp" in joined
-                or "/litellm-config/" in joined
-                or "/kong-config/" in joined
-                or "errno 13" in joined
-            )
-        ):
-            self._write_status(
-                "🔧 Bind-mount permission denied — a prior container left "
-                "a host directory root-owned. Recovery: "
-                "`sudo chmod -R 777 volumes/` and re-run ./start.sh, "
-                "or `./start.sh --cold` to wipe state entirely.",
-                style="bold yellow", source="pipeline",
-            )
-            return
-
-        # Generic auth failure on a non-supabase service (less common).
+        hints = _permission_recovery_hints(joined)
         if "authentication failed" in joined or "password authentication" in joined:
+            hints.extend([
+                "🔧 Authentication failed. This does not prove a stale volume.",
+                "   First check that the intended service is available and "
+                "healthy. Then compare the effective project/env configuration "
+                "with the configuration used to initialize this installation, "
+                "without copying passwords into logs or support reports.",
+                "   If stored credentials differ, retain the volume and recover "
+                "the matching configuration or use the service's documented "
+                "credential-recovery procedure after a verified backup. "
+                "Deleting data is not an authentication repair.",
+            ])
+        if any(marker in joined for marker in (
+            "connection refused", "connection timed out", "could not translate host name",
+        )):
+            hints.append(
+                "🔧 Service unavailable or unreachable. Check service health, "
+                "the configured host/port and container network before retrying. "
+                "This does not prove invalid credentials or corrupt data."
+            )
+        if hints:
+            for hint in hints:
+                self._write_status(hint, style="bold yellow", source="pipeline")
             self._write_status(
-                "🔧 Authentication failed for one or more services — "
-                "likely a stale volume from a prior run. "
-                "Try ./start.sh --cold to wipe and re-initialize.",
-                style="bold yellow", source="pipeline",
+                "   Keep the session log for diagnosis (review it for secrets "
+                "before sharing). Ctrl+Q detaches; after correcting the cause, "
+                "retry your original launch command with the same project and "
+                "consumer options, preserving data.",
+                style="bold cyan", source="pipeline",
             )
 
     def _on_log_filter_change(self, level: str, disabled: set[str]) -> None:
@@ -2145,7 +2132,8 @@ class WizardScreen(Screen):
         """
         if self._phase != "launch":
             return
-        if self._pending_teardown == cold:
+        now = _teardown_clock()
+        if self._pending_teardown == cold and now < self._pending_teardown_deadline:
             self._pending_teardown = None
             self.run_worker(
                 self._teardown_worker(cold=cold),
@@ -2156,16 +2144,27 @@ class WizardScreen(Screen):
             )
             return
         self._pending_teardown = cold
+        self._pending_teardown_deadline = now + 8
         if cold:
+            warning = (
+                f"Cold stop for project {self._resolve_project_name()}: removes "
+                "containers and Compose-managed named/attached anonymous volumes. "
+                "Data LOST in those volumes includes database records, object "
+                "files, workflow/chat history, models and caches. "
+                "Bind-mounted files, external volumes and .env are kept; "
+                "managed host processes keep running. Back up needed data first. "
+                "Press ctrl+x again within 8 seconds to confirm; otherwise "
+                "confirmation expires. Ctrl+Q detaches without deleting data."
+            )
+            self._write_status(warning, style="bold yellow", source="pipeline")
             self.notify(
-                "Cold stop removes this project's volumes — data will be "
-                "LOST. Press ctrl+x again to confirm.",
+                warning,
                 severity="error", timeout=8,
             )
         else:
             self.notify(
                 "Stop the stack? Containers go down, volumes are kept. "
-                "Press ctrl+s again to confirm.",
+                "Press ctrl+s again within 8 seconds to confirm.",
                 severity="warning", timeout=8,
             )
 
