@@ -57,9 +57,31 @@ def _diagram_asset_maps(manifest: Manifest, surface: str) -> dict[str, str]:
     return result
 
 
+def _copied_asset_maps(repo_root: Path) -> dict[str, str]:
+    """Map canonical copied assets to their roots on generated surfaces.
+
+    Site pages retain the canonical docs directory shape, while wiki pages are
+    flattened. Both outputs copy ``docs/assets`` and ``docs/screenshots`` to
+    their own root, so nested Markdown references must be recalculated just as
+    diagram references already are.
+    """
+    docs_root = repo_root / "docs"
+    result: dict[str, str] = {}
+    for directory_name in ("assets", "screenshots"):
+        directory = docs_root / directory_name
+        if not directory.is_dir():
+            continue
+        for path in sorted(candidate for candidate in directory.rglob("*") if candidate.is_file()):
+            result[path.relative_to(repo_root).as_posix()] = path.relative_to(
+                docs_root
+            ).as_posix()
+    return result
+
+
 def _render_pages(manifest: Manifest, repo_root: Path, destination: Path, surface: str) -> None:
     source_map = build_source_map(manifest, surface)
-    asset_map = _diagram_asset_maps(manifest, surface)
+    asset_map = _copied_asset_maps(repo_root)
+    asset_map.update(_diagram_asset_maps(manifest, surface))
     for page in manifest.pages:
         output = page.site_path if surface == "site" else page.wiki_path
         markdown = (repo_root / page.source).read_text(encoding="utf-8")

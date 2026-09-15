@@ -8,6 +8,7 @@ from scripts.docs.manifest import load_manifest
 
 def _repo(tmp_path: Path) -> Path:
     (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "guides").mkdir()
     (tmp_path / "docs" / "assets").mkdir()
     (tmp_path / "docs" / "assets" / "poster.png").write_bytes(b"poster")
     (tmp_path / "docs" / "screenshots").mkdir()
@@ -18,11 +19,13 @@ def _repo(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     (tmp_path / "docs" / "index.md").write_text(
-        "# 1. Overview\n\nA canonical sentence.\n\n[Guide](guide.md)\n",
+        "# 1. Overview\n\nA canonical sentence.\n\n[Guide](guides/guide.md)\n",
         encoding="utf-8",
     )
-    (tmp_path / "docs" / "guide.md").write_text(
-        "# 2. Guide\n\nA canonical sentence.\n\n[Overview](index.md)\n",
+    (tmp_path / "docs" / "guides" / "guide.md").write_text(
+        "# 2. Guide\n\nA canonical sentence.\n\n"
+        "[Overview](../index.md)\n\n"
+        "![Wizard](../screenshots/wizard.png)\n",
         encoding="utf-8",
     )
     (tmp_path / "docs" / "manifest.yaml").write_text(
@@ -32,7 +35,7 @@ numbering: baked
 index: overview
 sections:
   - {id: overview, number: "1", title: Overview, source: docs/index.md, diagrams: [overview]}
-  - {id: guide, number: "2", title: Guide, source: docs/guide.md}
+  - {id: guide, number: "2", title: Guide, source: docs/guides/guide.md}
 diagrams:
   - {id: overview, master: docs/diagram.html}
 """,
@@ -52,8 +55,16 @@ def test_build_projects_same_content_to_site_and_wiki(tmp_path: Path) -> None:
     assert "# 1. Overview" in site_home
     assert "# 1. Overview" in wiki_home
     assert "A canonical sentence." in site_home and "A canonical sentence." in wiki_home
-    assert "[Guide](guide.md)" in site_home
+    assert "[Guide](guides/guide.md)" in site_home
     assert "[Guide](2-Guide)" in wiki_home
+    site_guide = (root / "generated" / "site" / "guides" / "guide.md").read_text(
+        encoding="utf-8"
+    )
+    wiki_guide = (root / "generated" / "wiki" / "2-Guide.md").read_text(
+        encoding="utf-8"
+    )
+    assert "![Wizard](../screenshots/wizard.png)" in site_guide
+    assert "![Wizard](screenshots/wizard.png)" in wiki_guide
     assert (root / "generated" / "wiki" / "_Sidebar.md").exists()
     assert (root / "generated" / "wiki" / "_Footer.md").exists()
     assert (root / "generated" / "site" / "assets" / "poster.png").read_bytes() == b"poster"
