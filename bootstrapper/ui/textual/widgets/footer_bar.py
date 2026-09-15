@@ -58,9 +58,16 @@ class _Body(Static):
     def __init__(self, hints: list[Hint]) -> None:
         super().__init__()
         self.hints: list[Hint] = list(hints)
+        self.compact = False
 
     def update_hints(self, hints: list[Hint]) -> None:
         self.hints = list(hints)
+        self.update(self._build())
+
+    def set_compact(self, compact: bool) -> None:
+        if compact == self.compact:
+            return
+        self.compact = compact
         self.update(self._build())
 
     def on_mount(self) -> None:
@@ -68,9 +75,10 @@ class _Body(Static):
 
     def _build(self) -> RenderableType:
         line = Text()
+        separator = " · " if self.compact else "  ·  "
         for i, hint in enumerate(self.hints):
             if i > 0:
-                line.append("  ·  ", style=P.TEXT_FAINT)
+                line.append(separator, style=P.TEXT_FAINT)
             _append_hint(line, hint)
         return Align.center(line)
 
@@ -122,3 +130,12 @@ class FooterBar(Container):
         if right is not None:
             merged.append(right)
         self._body.update_hints(merged)
+
+    def set_compact(self, compact: bool, *, title_hint: str = "") -> None:
+        """Tighten separators and expose an essential out-of-band action."""
+        self._body.set_compact(compact)
+        self.border_title = (
+            f" Shortcuts · {title_hint} "
+            if compact and title_hint
+            else " Shortcuts "
+        )

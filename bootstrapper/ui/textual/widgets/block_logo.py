@@ -85,7 +85,28 @@ class BlockLogo(Widget):
 
     _art: tuple[list[str], list[str], int] | None = None
 
+    def __init__(
+        self,
+        *,
+        compact_label: str = "Atlas",
+        id: str | None = None,
+    ) -> None:
+        super().__init__(id=id)
+        self._compact_label = compact_label.strip() or "Atlas"
+        self._compact_height = False
+
+    def set_compact_height(self, compact: bool) -> None:
+        """Swap art density without replacing the mounted logo widget."""
+        if compact == self._compact_height:
+            return
+        self._compact_height = compact
+        self.refresh()
+
     def render(self) -> RenderableType:
+        if self._compact_height:
+            return Align.center(
+                Text(self._compact_label.upper(), style=f"bold {P.ACCENT}")
+            )
         # 1 row top spacer + 6 art rows = 7 cells. No bottom spacer.
         # The active lockup (built-in ATLAS or a BRAND_LOGO_FILE override) is
         # resolved once and cached so .env is read a single time, not on every
@@ -143,6 +164,7 @@ class BrandPanel(Container):
     def __init__(
         self,
         *,
+        brand_name: str = "Atlas",
         tagline: str = "Self-hosted Engineering Platform",
         author: str = "",
         author_email: str = "",
@@ -152,6 +174,7 @@ class BrandPanel(Container):
         id: str | None = None,
     ) -> None:
         super().__init__(id=id)
+        self.brand_name = brand_name.strip() or "Atlas"
         self.tagline = tagline
         self.author = author
         self.author_email = author_email
@@ -167,9 +190,14 @@ class BrandPanel(Container):
         # until the tab is actually visited (#912 item 4).
         self._alert_tabs: set[str] = set()
         self._tab_spans: dict[str, tuple[int, int]] = {}
+        self._logo = BlockLogo(compact_label=self.brand_name)
 
     def compose(self) -> ComposeResult:
-        yield BlockLogo()
+        yield self._logo
+
+    def set_compact_height(self, compact: bool) -> None:
+        """Use the one-row configured-brand lockup on short screens."""
+        self._logo.set_compact_height(compact)
 
     def _byline(self) -> str:
         parts: list[str] = []

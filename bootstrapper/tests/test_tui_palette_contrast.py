@@ -32,6 +32,13 @@ def test_muted_and_faint_text_remain_readable_on_primary_background():
     assert _contrast(P.TEXT_FAINT, P.BG) >= 4.5
 
 
+def test_compact_identity_and_textual_status_colors_meet_wcag_aa():
+    """Normal-size text targets WCAG 2.2 AA's 4.5:1 contrast ratio."""
+    for foreground in (P.ACCENT, P.TEXT, P.OK, P.WARN, P.ERR):
+        assert _contrast(foreground, P.BG) >= 4.5
+        assert _contrast(foreground, P.BG_INSET) >= 4.5
+
+
 def test_interactive_hint_and_chip_text_do_not_use_decorative_dim_colors():
     for relative in (
         "bootstrapper/ui/textual/widgets/prompt_panel.py",
