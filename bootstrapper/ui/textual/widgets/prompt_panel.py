@@ -602,6 +602,7 @@ class PromptPanel(Container):
 
     def load_step(self, step: PromptStep) -> None:
         self._step = step
+        self._set_kind_class(step.kind)
         # Drop the per-row secondary-input registry: the options-branch
         # below repopulates it when (and only when) at least one
         # ``opt.secondary_number`` is set on the step. Any other step
@@ -815,6 +816,7 @@ class PromptPanel(Container):
             self._mount_search_input(step.filter_tags)
             self._selected_index = 0
             self._mount_visible_rows()
+            self._option_list.focus()
             return
 
         # Default options-list step
@@ -894,6 +896,16 @@ class PromptPanel(Container):
                 label_width=label_col_width,
                 unit_suffix=unit_suffix_for_row,
             ))
+        # A preceding text/number/secret step leaves its Input focused until
+        # that widget is hidden above. Textual then clears focus; it does not
+        # automatically choose the visible option list again. Explicitly park
+        # focus here so Back/Next journeys never land on a keyboard-dead prompt.
+        self._option_list.focus()
+
+    def _set_kind_class(self, active_kind: str) -> None:
+        """Expose the active prompt shape to responsive CSS selectors."""
+        for kind in ("options", "multiselect", "number", "secret", "text"):
+            self.set_class(kind == active_kind, f"kind-{kind}")
 
     def _sync_secondary_inputs(self, source: "Input") -> None:
         """Mirror ``source.value`` across every sibling secondary input

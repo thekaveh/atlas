@@ -10,6 +10,45 @@ Atlas includes an interactive Textual TUI wizard that guides you through configu
 
 That's it. The wizard handles everything from there.
 
+### 1.1. Terminal size and compact layout
+
+The Textual wizard supports terminals down to **60 columns × 20 rows**. At
+that floor, Atlas folds the block logo into a one-line identity strip, hides
+the stack overview while a question is active, and gives the available rows
+to the focused prompt, its scrollable choices, the command summary, and the
+essential `move`, `mark`, `next`, and `back` actions. The overview returns on
+the Setup tab after launch. Growing the terminal back to 30 rows or more
+restores the full logo and overview without discarding entered text,
+selections, scroll position, or focus. The full shortcut inventory returns
+when the terminal is also at least 132 columns wide; narrower layouts keep the
+prompt-specific essentials and name `Ctrl+Q quit` in the footer title.
+
+Terminals at **59×20**, **60×19**, or smaller use the linear stdout flow. You
+can choose that usable fallback explicitly at any size with `./start.sh
+--no-tui`.
+
+![Atlas wizard compact layout at the supported 60 by 20 terminal floor](../screenshots/wizard-minimum-terminal.svg)
+
+*At 60×20, the selected row, prompt, command and next/back actions all remain
+visible.*
+
+![Atlas wizard normal layout at 120 by 44 terminal cells](../screenshots/wizard-normal-terminal.svg)
+
+*At 120×44, the existing block logo, stack overview, panel spacing and full
+work area remain.*
+
+The dark terminal palette targets the WCAG 2.2 AA normal-text ratio of
+**4.5:1**. Measured against the primary background, the compact identity
+accent is 10.76:1, primary text is 11.43:1, success is 9.16:1, warning is
+11.05:1, error is 6.18:1, and the faintest text is 4.54:1. Selected and status
+states also use cursor glyphs, checkbox text, icons and words, so color is not
+the only cue. Keyboard and compositor checks establish visible focus and
+operability in Textual 8.2.8; they are not a claim of screen-reader support.
+
+The screenshots use Atlas's dark theme and Textual's deterministic headless
+renderer at the stated terminal-cell dimensions. Font metrics, emoji width,
+and inline-image behavior can vary between terminal emulators.
+
 ## 2. Step Order
 
 The wizard's question order isn't fixed — service-source steps are sorted by each service's resolved port (so the wizard's order matches the stack-overview panel beside it), with the LLM cluster spliced in immediately after the LLM Engine step. The shape is roughly:

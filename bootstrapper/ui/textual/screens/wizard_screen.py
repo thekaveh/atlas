@@ -497,6 +497,50 @@ _SETUP_HINTS = [
     (("ctrl+q",), "quit"),
 ]
 
+# At the supported 60-column floor the full hint inventory is wider than the
+# panel, which used to clip the essential Back action. These four operations
+# are the minimum complete prompt loop; search/filter/quit bindings remain
+# active and the full inventory returns as soon as the terminal grows.
+_COMPACT_OPTION_HINTS = [
+    (("↑/↓",), "move"),
+    (("↵",), "next"),
+    (("esc",), "back"),
+]
+
+_COMPACT_MULTISELECT_HINTS = [
+    (("↑/↓",), "move"),
+    (("space",), "mark"),
+    (("↵",), "next"),
+    (("esc",), "back"),
+]
+
+_COMPACT_INPUT_HINTS = [
+    (("↵",), "next"),
+    (("esc",), "back"),
+]
+
+_COMPACT_SETUP_HINTS_BY_KIND = {
+    "options": _COMPACT_OPTION_HINTS,
+    "multiselect": _COMPACT_MULTISELECT_HINTS,
+    "number": _COMPACT_INPUT_HINTS,
+    "secret": _COMPACT_INPUT_HINTS,
+    "text": _COMPACT_INPUT_HINTS,
+}
+
+_COMPACT_STARTUP_HINTS = [
+    (("a",), "all"),
+    (("e",), "errors"),
+    (("s",), "sources"),
+    (("ctrl+c",), "cancel"),
+]
+
+_COMPACT_LAUNCH_HINTS = [
+    (("a",), "all"),
+    (("e",), "errors"),
+    (("s",), "sources"),
+    (("ctrl+q",), "detach"),
+]
+
 _LAUNCH_HINTS = [
     (("a",), "all"),
     (("e",), "errors"),
@@ -743,6 +787,16 @@ class WizardScreen(Screen):
 
     AUTO_FOCUS = None
 
+    # The ordinary layout first renders its smallest fixture completely at 27
+    # rows. Switch a little earlier so real prompts with hints and wrapped
+    # descriptions have a stable compact budget instead of flickering at the
+    # exact failure boundary.
+    COMPACT_HEIGHT_ROWS = 30
+    # The full setup inventory is 120 cells before screen, border and content
+    # padding. Keep footer density width-aware so growing a 60-column terminal
+    # never hides Back or Quit merely because the body leaves compact-height.
+    COMPACT_FOOTER_COLUMNS = 132
+
     BINDINGS = [
         Binding("up", "move(-1)", "Up", priority=True),
         Binding("down", "move(1)", "Down", priority=True),
@@ -839,6 +893,45 @@ class WizardScreen(Screen):
     WizardScreen #lower-pane > CommandSummary { dock: bottom; }
     WizardScreen > #wizard-body > FooterBar { margin-top: 1; }
     WizardScreen AtlasSplash { layer: overlay; width: 100%; height: 100%; }
+
+    WizardScreen.compact-height > #wizard-body { padding: 0 1; }
+    WizardScreen.compact-height BrandPanel { height: 3; }
+    WizardScreen.compact-height BrandPanel > BlockLogo { height: 1; }
+    WizardScreen.compact-height #info-section { display: none; }
+    WizardScreen.compact-height #lower-pane { margin-top: 0; }
+    WizardScreen.compact-height #lower-pane > PromptPanel {
+        padding: 0 1;
+    }
+    WizardScreen.compact-height PromptPanel > .prompt-subtitle {
+        max-height: 2;
+        overflow-y: hidden;
+    }
+    WizardScreen.compact-height PromptPanel > .prompt-spacer-2 { height: 0; }
+    WizardScreen.compact-height PromptPanel.kind-options > #option-list,
+    WizardScreen.compact-height PromptPanel.kind-multiselect > #option-list {
+        height: 1fr;
+        min-height: 1;
+    }
+    WizardScreen.compact-height #lower-pane > CommandSummary { margin-top: 0; }
+    WizardScreen.compact-height > #wizard-body > FooterBar { margin-top: 0; }
+
+    /* The prompt and summary retire at launch. Give their released rows to the
+       live overview when a user visits Setup instead of showing a blank tab. */
+    WizardScreen.compact-height.launch-phase #lower-pane { display: none; }
+    WizardScreen.compact-height.launch-phase #info-section {
+        display: block;
+        height: 1fr;
+        margin-top: 0;
+        overflow: hidden;
+    }
+    WizardScreen.compact-height.launch-phase #info-section > InfoPanel {
+        height: 1fr;
+    }
+    WizardScreen.compact-height.launch-phase InfoPanel > .info-body {
+        height: 1fr;
+        min-height: 0;
+        overflow-y: auto;
+    }
     """
 
     def __init__(
@@ -922,6 +1015,8 @@ class WizardScreen(Screen):
         self._fetch_generation: int = 0
 
         self._phase: str = "setup"   # "setup" | "launch"
+        self._compact_height = False
+        self._compact_footer = False
         self._launch_detach_ready = False
         # Distinct from _launch_detach_ready, which is ALSO set by
         # _mark_launch_failed so a failed run can still free Ctrl+Q.
@@ -958,6 +1053,7 @@ class WizardScreen(Screen):
         self._footer = FooterBar(hints=_SETUP_HINTS)
 
         self._brand_panel = BrandPanel(
+            brand_name=self._brand.name,
             tagline=self._brand.tagline or "Self-hosted Engineering Platform",
             author=self._brand.creator,
             author_email=self._brand.creator_email,
@@ -1049,6 +1145,8 @@ class WizardScreen(Screen):
         actually reachable — neither hint set advertised the tab
         navigation itself before this.
         """
+        if self._compact_footer:
+            return self._compact_footer_hints()
         if self._active_tab == BrandPanel.TAB_LOGS:
             hints = list(_LAUNCH_HINTS if self._launch_detach_ready else _STARTUP_HINTS)
         elif self._phase != "setup":
@@ -1067,6 +1165,34 @@ class WizardScreen(Screen):
             hints = hints + _TEARDOWN_HINTS
         if self._logs_enabled:
             hints = hints + [_TAB_HINT]
+        return hints
+
+    def _compact_footer_hints(self) -> list:
+        """Prioritize the actions that fit the short-screen footer."""
+        if self._phase == "setup":
+            kind = self._steps[self._step_index].kind if self._steps else "options"
+            return list(
+                _COMPACT_SETUP_HINTS_BY_KIND.get(kind, _COMPACT_OPTION_HINTS)
+            )
+        if self._active_tab == BrandPanel.TAB_LOGS:
+            if self._launch_succeeded:
+                return [
+                    (("ctrl+s",), "stop"),
+                    (("ctrl+x",), "cold"),
+                    (("ctrl+q",), "detach"),
+                ]
+            return list(
+                _COMPACT_LAUNCH_HINTS
+                if self._launch_detach_ready
+                else _COMPACT_STARTUP_HINTS
+            )
+        hints = [
+            _LAUNCH_ON_SETUP_HINT_DETACH
+            if self._launch_detach_ready
+            else _LAUNCH_ON_SETUP_HINT_CANCEL
+        ]
+        if self._launch_succeeded:
+            hints = hints + _TEARDOWN_HINTS
         return hints
 
     def show_tab(self, tab_id: str) -> None:
@@ -1151,6 +1277,7 @@ class WizardScreen(Screen):
                 pass
         self.query_one("#tab-logs").display = False
         self._brand_panel.set_tabs(BrandPanel.TAB_SETUP, enabled=False)
+        self._apply_compact_layout(self.app.size.width, self.app.size.height)
         if self._auto_launch:
             # CLI-flag mode: skip the wizard and jump straight to the
             # launch phase. The Setup tab (prompt panel + command summary)
@@ -1181,6 +1308,25 @@ class WizardScreen(Screen):
         from ui.textual.widgets.atlas_splash import AtlasSplash, should_show_splash
         if should_show_splash(self._no_splash):
             self.mount(AtlasSplash())
+
+    def on_resize(self, event: events.Resize) -> None:
+        self._apply_compact_layout(event.size.width, event.size.height)
+
+    def _apply_compact_layout(self, width: int, height: int) -> None:
+        """Apply compact body and footer states without remounting controls."""
+        compact = height < self.COMPACT_HEIGHT_ROWS
+        if compact != self._compact_height:
+            self._compact_height = compact
+            self.set_class(compact, "compact-height")
+            self._brand_panel.set_compact_height(compact)
+        self._compact_footer = width < self.COMPACT_FOOTER_COLUMNS
+        title_hint = (
+            "Ctrl+Q quit"
+            if self._compact_footer and self._phase == "setup"
+            else ""
+        )
+        self._footer.set_compact(self._compact_footer, title_hint=title_hint)
+        self._footer.update_hints(self._footer_hints())
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         """Surface failures from exit_on_error=False workers.
@@ -1329,6 +1475,7 @@ class WizardScreen(Screen):
                 hint="(usually <2s)",
             )]
             self._render_step(original, options=splash_options, is_loading=True)
+            self._footer.update_hints(self._footer_hints())
             self.run_worker(
                 self._fetch_provider_options(self._step_index, original, provider),
                 exclusive=False, exit_on_error=False,
@@ -1356,6 +1503,7 @@ class WizardScreen(Screen):
         # use the cached/static options directly.
         live_options = self._provider_cache.get(self._step_index, original.options)
         self._render_step(original, options=live_options)
+        self._footer.update_hints(self._footer_hints())
 
     def _render_step(self, original: PromptStep, *, options=None, is_loading: bool = False) -> None:
         """Build a PromptStep instance with display-time-resolved fields
@@ -1992,6 +2140,8 @@ class WizardScreen(Screen):
                 self._source_args, self._stack_options = {}, {}
 
         self._phase = "launch"
+        self.add_class("launch-phase")
+        self._apply_compact_layout(self.app.size.width, self.app.size.height)
         self.set_focus(None)
 
         self._retire_wizard_widgets()
