@@ -7,6 +7,8 @@ The steps' options_provider callables are invoked directly.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 
@@ -656,7 +658,7 @@ def test_load_current_step_dispatches_options_provider_for_kind_options():
         _provider_done: dict = {}
         _provider_cache: dict = {}
         _selections: dict = {}
-        _rendered_options = None   # captured by the stub below
+        _rendered_options = None
 
         def _advance_past_skipped(self, direction):
             # content_step.skip_if_prev needs at least one LLM active to NOT skip;
@@ -670,23 +672,22 @@ def test_load_current_step_dispatches_options_provider_for_kind_options():
             raise AssertionError("run_worker must NOT be called for kind='options' steps")
 
     fake = _FakeScreen()
-    # Bind the real _load_current_step to our fake screen instance.
+    fake._provider_done, fake._provider_cache, fake._selections = {}, {}, {}
+    footer_updates = []
+    fake._footer = SimpleNamespace(update_hints=footer_updates.append)
+    fake._footer_hints = lambda: [("enter", "next")]
     WizardScreen._load_current_step(fake)
 
-    # After the call, the provider must have been invoked and the cache populated.
-    assert fake._step_index in fake._provider_cache, (
-        "_provider_cache must contain the step after _load_current_step — "
-        "this FAILS without the kind='options' synchronous dispatch block"
-    )
     cached = fake._provider_cache[fake._step_index]
     assert len(cached) > 0, (
         "options_provider must return non-empty options for the Ollama config; "
         f"got {cached!r}"
     )
-    # The rendered options must also be non-empty (not the placeholder []).
-    assert fake._rendered_options is not None
     assert len(fake._rendered_options) > 0, (
         "_render_step was called with empty options — provider was not dispatched"
+    )
+    assert footer_updates == [[("enter", "next")]], (
+        "_load_current_step must refresh prompt-specific footer hints after rendering"
     )
 
 
