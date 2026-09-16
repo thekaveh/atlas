@@ -1406,12 +1406,12 @@ The following candidates were evaluated and explicitly *not* recommended at this
 
 Community input on roadmap priorities is welcome:
 
-- **Vote on features**: GitHub discussions for feature voting
+- **Vote on features**: react to or comment on the feature's tracking issue
 - **Suggest features**: submit feature requests via GitHub issues
 - **Contribute code**: help implement roadmap features
 - **Improve documentation**: help document new capabilities
 
-**Join the conversation**: [GitHub Discussions](https://github.com/thekaveh/atlas/discussions)
+**Join the conversation**: [GitHub Issues](https://github.com/thekaveh/atlas/issues)
 
 ---
 

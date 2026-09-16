@@ -162,5 +162,6 @@ Contributions welcome. Open a PR or an issue to propose changes.
 ## 6. Support
 
 - Check the [documentation](docs/README.md)
-- Report issues on [GitHub Issues](https://github.com/thekaveh/atlas/issues)
-- Ask questions in [GitHub Discussions](https://github.com/thekaveh/atlas/discussions)
+- Report bugs and request features on [GitHub Issues](https://github.com/thekaveh/atlas/issues)
+- Ask questions by [opening an issue with the `question` label](https://github.com/thekaveh/atlas/issues/new?labels=question)
+- Report security vulnerabilities privately through the [security policy](SECURITY.md), never as a public issue
