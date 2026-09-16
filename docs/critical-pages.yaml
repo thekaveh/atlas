@@ -1,0 +1,40 @@
+# Product-facing documentation completeness contract (#1052).
+#
+# `scripts.docs.check_docs` (run by `make docs-check`) requires every page
+# listed here to be declared in docs/manifest.yaml, reachable from the
+# documentation map, and to render each named section WITH a body on the
+# repo, site, and wiki surfaces. Markers are stable section titles, so the
+# contract never duplicates the mutable prose that lives in the pages.
+#
+# `external_references` lists community destinations a critical page may
+# point readers to. They are permitted references, never substitutes for a
+# self-contained page: an entry here cannot satisfy a `pages` role, and a
+# `pages` entry cannot be a URL.
+pages:
+  - id: security-policy
+    role: security
+    required_sections:
+      - Reporting a Vulnerability
+  - id: interactive-wizard
+    role: prerequisites
+    required_sections:
+      - Requirements
+  - id: documentation-map
+    role: support
+    required_sections:
+      - Getting help
+  - id: releasing
+    role: release
+    required_sections:
+      - Cutting a release (maintainer)
+  - id: troubleshooting
+    role: recovery
+    required_sections:
+      - Recovering from a prior sudo launch or stop
+      - Cold start when things just won't reconcile
+  - id: service-backup
+    role: recovery
+    required_sections:
+      - Restore maintenance and rollback
+external_references:
+  - https://github.com/thekaveh/atlas/issues
