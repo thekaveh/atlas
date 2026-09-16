@@ -29,7 +29,7 @@ GPU_DOCKERFILE_EXCLUSIONS = {
     "services/parakeet/provider/gpu/Dockerfile",
 }
 REVIEWED_REMOTE_BASE_DIGESTS = {
-    "nginx:alpine": "sha256:17ad11d84df6c69e327c0894125f712ec1f1de627b5e5ed7e12ca2ed8cd5daf8",
+    "nginx:alpine": "sha256:c8497b180665e631ec92a5091125bec5b214f0e2b99409e30653a125b37557da",
     "node:20": "sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5",
     "python:3.12-slim": "sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea",
 }
