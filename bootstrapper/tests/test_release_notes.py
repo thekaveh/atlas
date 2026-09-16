@@ -66,17 +66,21 @@ def history(tmp_path: Path) -> Path:
 
 def test_merge_promotions_expand_into_their_develop_commits(history: Path) -> None:
     notes = release_notes.collect_notes(history, "v0.1.0..main")
-    buckets = {(note.bucket, note.pr) for note in notes}
 
-    assert ("Fixes", 21) in buckets
-    assert ("Breaking changes", 22) in buckets
-    assert ("Documentation", 23) in buckets
-    assert ("Security", 24) in buckets
-    assert ("Promotions", 20) in buckets  # a squash promotion has nothing to expand
-    assert ("Promotions", 31) in buckets  # typed "fix(...): promote ... to main" is still a promotion
-    assert ("Promotions", 30) not in buckets  # the PR merge is replaced by its contents
-    assert ("Promotions", None) not in buckets  # so is the release branch's develop merge
-    assert ("Fixes", 26) in buckets  # the PR number is the last (#N), not the issue's
+    # The PR merge (#30) and the release branch's develop merge (no PR) are
+    # replaced by what they carry; the squash promotion (#20) and the typed
+    # "fix(...): promote ... to main" squash (#31) stay as single entries; #26
+    # takes the last (#N) suffix rather than the issue number that precedes it.
+    assert {(note.bucket, note.pr) for note in notes} == {
+        ("Fixes", 21),
+        ("Breaking changes", 22),
+        ("Documentation", 23),
+        ("Security", 24),
+        ("Unclassified", None),
+        ("Fixes", 26),
+        ("Promotions", 20),
+        ("Promotions", 31),
+    }
 
 
 @pytest.mark.parametrize(
