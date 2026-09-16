@@ -34,6 +34,8 @@ Before committing a parent consumer update, verify the `infra/` submodule status
 
 ## 3. Required Docs Checks
 
+`scripts/check_doc_links.py` validates relative Markdown links and raw HTML `<a href>` / `<img src>` targets against the repository tree, so canonical pages must link files GitHub can open (`quick-start/index.md`, never the site's `quick-start/`); the generated surfaces translate those targets themselves.
+
 ```bash
 uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check
 uv run --project bootstrapper python scripts/check_doc_links.py
