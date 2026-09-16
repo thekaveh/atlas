@@ -597,6 +597,10 @@ sections:
     number: '9.7'
     title: Service Directory Layout
     source: services/README.md
+  - id: security-policy
+    number: '9.8'
+    title: Security Policy
+    source: SECURITY.md
 - id: reference
   number: '10'
   title: Reference

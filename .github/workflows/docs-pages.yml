@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+      - "SECURITY.md"
       - "assets/**"
       - "services/**/README.md"
       - "services/**/architecture.*"

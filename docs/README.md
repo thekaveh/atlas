@@ -46,7 +46,7 @@ Documentation index for Atlas.
 ### 1.6. Development and contribution
 - [Development overview](development.md) — service admission, consumer layout, required checks, and repository structure
 - [Adding a service runbook](CONTRIBUTING-services.md) — six-decision walkthrough + the regen + lint chain
-- [Security policy](../SECURITY.md) — threat tiers, supported versions, responsible-disclosure address
+- [Security policy](../SECURITY.md) — project posture, operational tiers, reachability triage, public-edge requirements, automated scanning gates, and the private-advisory reporting route
 - [External dependency contract ledger](maintenance/external-contract-ledger.md) — durable record of consumed external API/CLI/config contract checks from maintenance passes
 
 ### 1.7. Cross-service research (Phase B corpus)
