@@ -133,3 +133,69 @@ def test_validator_catches_broken_link_with_inline_code_label(tmp_path):
     result = _run(tmp_path)
     assert result.returncode != 0
     assert "does-not-exist.md" in result.stdout
+
+
+def test_validator_checks_raw_html_anchor_and_image_targets(tmp_path):
+    """Raw ``<a href>`` and ``<img src>`` targets are validated like Markdown
+    links: a file target must exist relative to the page, a directory target
+    must hold a README.md GitHub renders in place, and external, anchor, and
+    mailto targets are skipped."""
+    a = tmp_path / "a.md"
+    (tmp_path / "guide").mkdir()
+    (tmp_path / "guide" / "README.md").write_text("# Guide\n")
+    (tmp_path / "b.md").write_text("## 2. Real\nbody")
+    (tmp_path / "pic.png").write_bytes(b"png")
+    a.write_text(
+        "# Top\n"
+        '<a href="b.md">B</a>\n'
+        "<a href='guide/'>Guide</a>\n"
+        '<a href="b.md#2-real">Anchor</a>\n'
+        '<img src="pic.png" alt="pic">\n'
+        '<a href="https://example.com/">ext</a>\n'
+        '<a href="mailto:me@example.com">mail</a>\n'
+        '<a href="#top">same page</a>\n'
+    )
+    result = _run(tmp_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_validator_flags_broken_raw_html_targets(tmp_path):
+    """An HTML anchor pointing at a nonexistent file, a directory with no
+    README.md, or a dead fragment fails validation and names the target."""
+    a = tmp_path / "a.md"
+    (tmp_path / "empty").mkdir()
+    (tmp_path / "b.md").write_text("## Real\nbody")
+    a.write_text(
+        '<a href="missing.md">Missing</a>\n'
+        '<a href="empty/">Directory</a>\n'
+        '<a href="b.md#no-such">Dead</a>\n'
+        '<img src="nope.png" alt="x">\n'
+    )
+    result = _run(tmp_path)
+    assert result.returncode == 1
+    assert "missing.md" in result.stdout
+    assert "empty/" in result.stdout
+    assert "no-such" in result.stdout
+    assert "nope.png" in result.stdout
+
+
+def test_validator_ignores_raw_html_inside_code(tmp_path):
+    """HTML quoted in a fence or an inline code span is never rendered, so
+    its targets are not validated."""
+    a = tmp_path / "a.md"
+    a.write_text(
+        '```html\n<a href="missing.md">x</a>\n```\n'
+        'Keep `<img src="./assets/gone.png">` as-is.\n'
+    )
+    result = _run(tmp_path)
+    assert result.returncode == 0, result.stdout
+
+
+def test_canonical_landing_html_actions_resolve_on_github():
+    """The landing page's raw HTML actions must target files GitHub can open,
+    not site-only directory URLs (#1048)."""
+    result = _run(REPO_ROOT / "docs" / "index.md")
+    assert result.returncode == 0, result.stdout + result.stderr
+    text = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+    for target in ("quick-start/index.md", "services.md", "architecture/index.md"):
+        assert f'href="{target}"' in text, target

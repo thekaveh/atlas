@@ -11,9 +11,9 @@
       <p>Seven tracks preselect coherent service families, while SOURCE modes choose container, localhost, or disabled operation where supported. Kong, Supabase, Redis, LiteLLM, and the Backend API form the always-on core, so every selected workload starts from the same integrated foundation.</p>
       <p>The launch wizard applies those choices through dev or prod profiles before showing the exact Compose plan.</p>
       <div class="atlas-home__actions">
-        <a href="quick-start/">Quick Start</a>
-        <a href="services/">Service Catalog</a>
-        <a href="architecture/">Architecture</a>
+        <a href="quick-start/index.md">Quick Start</a>
+        <a href="services.md">Service Catalog</a>
+        <a href="architecture/index.md">Architecture</a>
       </div>
     </div>
     <figure class="atlas-home__media">
