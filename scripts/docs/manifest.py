@@ -28,6 +28,21 @@ class Section:
     diagrams: tuple[str, ...] = ()
 
 
+# Canonical sources whose site location is not derivable from their path:
+# README files that would collide with directory indexes, and the root-level
+# security policy (#1047).
+_SITE_PATH_OVERRIDES = {
+    "docs/README.md": PurePosixPath("documentation-map.md"),
+    "docs/architecture/README.md": PurePosixPath("architecture", "diagram-authoring.md"),
+    "docs/diagrams/README.md": PurePosixPath("diagrams", "catalog.md"),
+    "SECURITY.md": PurePosixPath("security-policy.md"),
+}
+_SITE_PATH_BY_ID = {
+    "overview": PurePosixPath("index.md"),
+    "services-index": PurePosixPath("services", "index.md"),
+}
+
+
 @dataclass(frozen=True)
 class Page:
     id: str
@@ -38,19 +53,10 @@ class Page:
 
     @property
     def site_path(self) -> PurePosixPath:
+        override = _SITE_PATH_BY_ID.get(self.id) or _SITE_PATH_OVERRIDES.get(self.source)
+        if override is not None:
+            return override
         source = PurePosixPath(self.source)
-        if self.id == "overview":
-            return PurePosixPath("index.md")
-        if self.id == "services-index":
-            return PurePosixPath("services", "index.md")
-        if self.source == "docs/README.md":
-            return PurePosixPath("documentation-map.md")
-        if self.source == "docs/architecture/README.md":
-            return PurePosixPath("architecture", "diagram-authoring.md")
-        if self.source == "docs/diagrams/README.md":
-            return PurePosixPath("diagrams", "catalog.md")
-        if self.source == "SECURITY.md":
-            return PurePosixPath("security-policy.md")
         if source.parts[:1] == ("docs",):
             return PurePosixPath(*source.parts[1:])
         if len(source.parts) == 3 and source.parts[0] == "services" and source.name == "README.md":
