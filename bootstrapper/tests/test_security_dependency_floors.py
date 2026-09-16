@@ -570,7 +570,7 @@ def test_asset_worker_toolchain_uses_an_audited_npm_lock() -> None:
     dockerfile = _text("services/asset-worker/app/Dockerfile")
     helper = _text("scripts/gltf-transform-postprocess.sh")
 
-    assert package["dependencies"]["@gltf-transform/cli"] == "4.4.1"
+    assert package["dependencies"]["@gltf-transform/cli"] == "4.5.0"
     assert package["overrides"]["sharp"] == "0.35.4"
     assert "package-lock.json" in dockerfile
     assert "npm ci --omit=dev" in dockerfile
