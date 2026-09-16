@@ -50,6 +50,33 @@ def _mapped_page(canonical: str, source_map: dict[str, str]) -> str | None:
     return next((source_map[candidate] for candidate in candidates if candidate in source_map), None)
 
 
+def _pretty_url_dir(site_path: str) -> str:
+    """Return the directory MkDocs serves a site page from (``use_directory_urls``).
+
+    ``index.md`` is served from its parent directory and every other page from
+    a directory named after the file, so ``guides/setup.md`` becomes
+    ``guides/setup/`` and ``quick-start/index.md`` becomes ``quick-start/``.
+    """
+    path = PurePosixPath(site_path)
+    if path.name == "index.md":
+        parent = path.parent.as_posix()
+        return "" if parent == "." else parent
+    return path.with_suffix("").as_posix()
+
+
+def _relative_pretty_url(output_path: str, target_site_path: str) -> str:
+    """Relative directory URL from one rendered site page to another.
+
+    MkDocs rewrites Markdown links to match its directory URLs but leaves raw
+    HTML untouched, so canonical ``<a href="page.md">`` anchors would 404 on
+    the site unless the transform translates them here.
+    """
+    start = _pretty_url_dir(output_path) or "."
+    target = _pretty_url_dir(target_site_path) or "."
+    relative = posixpath.relpath(target, start)
+    return "./" if relative == "." else f"{relative}/"
+
+
 def _atlas_blob_source(target: str, source_map: dict[str, str]) -> str | None:
     """Resolve a repository blob URL to a manifest-owned canonical source."""
     if not target.startswith(_ATLAS_BLOB_PREFIX):
@@ -122,7 +149,10 @@ def rewrite_for_surface(
         mapped = _mapped_page(canonical, source_map)
         if mapped is None:
             return match.group(0)
-        rewritten = _relative_output(output_path, mapped)
+        if surface == "site":
+            rewritten = _relative_pretty_url(output_path, mapped)
+        else:
+            rewritten = _relative_output(output_path, mapped)
         if separator:
             rewritten += f"#{anchor}"
         return (
@@ -140,8 +170,8 @@ def rewrite_for_surface(
             output.append(line)
         else:
             rendered = _MARKDOWN_LINK_RE.sub(rewrite_match, line)
+            rendered = _HTML_HREF_RE.sub(rewrite_html_href, rendered)
             if surface == "wiki":
-                rendered = _HTML_HREF_RE.sub(rewrite_html_href, rendered)
                 rendered = _MARKDOWN_ATTR_LIST_RE.sub("", rendered)
             output.append(rendered)
     return "".join(output)

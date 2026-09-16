@@ -8,6 +8,12 @@ including pure same-page `#section` links) are validated against the
 target file's GitHub-computed heading slugs and explicit
 `<a name=…>`/`<a id=…>` anchors.
 
+Raw HTML `<a href="…">` and `<img src="…">` targets are validated the same
+way (#1048). GitHub renders raw HTML on every surface but only resolves file
+targets, so a directory target is accepted only when it carries a `README.md`
+that GitHub will render in place; site-style directory URLs such as
+`quick-start/` are reported as broken.
+
 Default scan set when invoked with no args:
   - README.md
   - docs/ (recursive, *.md only)
@@ -32,8 +38,22 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # the link is opaque to label content (we only consume up to the matching `)`).
 _LINK_RE = re.compile(r"\[(?P<label>[^\]]+)\]\((?P<target>(?!https?://|mailto:)[^)]+)\)")
 
+# Raw HTML navigation: `<a href="…">` and `<img src="…">` with either quote
+# style. External schemes, protocol-relative URLs, and data URIs are skipped
+# in `_is_external_target`, mirroring the Markdown rule above.
+_HTML_LINK_RE = re.compile(
+    r"<(?P<tag>a|img)\b[^>]*?\b(?:href|src)\s*=\s*"
+    r"(?P<quote>[\"'])(?P<target>.*?)(?P=quote)",
+    re.IGNORECASE,
+)
+_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+
 # Strip fenced code blocks (```...```) — non-greedy, multiline.
 _FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL)
+# Inline code spans. Markdown links keep them (inline-code labels are real
+# links), but raw HTML quoted inside backticks is never rendered, so the HTML
+# pass drops the spans before scanning.
+_INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 
 
 def _strip_fenced_code(text: str) -> str:
@@ -156,6 +176,54 @@ def _resolve_link_target(md: Path, file_part: str) -> Path:
     return resolved
 
 
+def _is_external_target(target: str) -> bool:
+    return bool(_SCHEME_RE.match(target)) or target.startswith("//")
+
+
+def _dead_anchor(md: Path, resolved: Path, fragment: str) -> str | None:
+    """Return the missing slug when ``fragment`` names no heading in ``resolved``."""
+    if not (fragment and resolved.suffix == ".md" and resolved.is_file()):
+        return None
+    frag = fragment.strip().lower()
+    anchors = _heading_anchors(resolved)
+    if frag in anchors or frag.strip("-") in anchors:
+        return None
+    return frag
+
+
+def _check_html_targets(md: Path, text: str) -> list[str]:
+    """Validate raw HTML anchors and images (#1048).
+
+    GitHub renders these on every surface but resolves only real files, so a
+    directory target passes only when GitHub would render a `README.md` there.
+    """
+    errors: list[str] = []
+    for m in _HTML_LINK_RE.finditer(_INLINE_CODE_RE.sub("", text)):
+        target = m.group("target").strip()
+        tag = m.group("tag").lower()
+        if not target or _is_external_target(target):
+            continue
+        file_part, _, fragment = target.partition("#")
+        if file_part:
+            resolved = _resolve_link_target(md, file_part)
+            if resolved.is_dir():
+                resolved = resolved / "README.md"
+            if not resolved.exists():
+                errors.append(
+                    f"{md}: broken HTML <{tag}> target {target} → {resolved}"
+                )
+                continue
+        else:
+            resolved = md  # pure `#section` — same-page anchor
+        frag = _dead_anchor(md, resolved, fragment)
+        if frag is not None:
+            errors.append(
+                f"{md}: dead anchor in HTML <{tag}> target {target} — "
+                f"no heading slug `#{frag}` in {resolved.name}"
+            )
+    return errors
+
+
 def _check_file(md: Path) -> list[str]:
     """Return a list of broken-link error strings for this markdown file.
 
@@ -175,14 +243,13 @@ def _check_file(md: Path) -> list[str]:
                 continue
         else:
             resolved = md  # pure `#section` — same-page anchor
-        if fragment and resolved.suffix == ".md" and resolved.is_file():
-            frag = fragment.strip().lower()
-            anchors = _heading_anchors(resolved)
-            if frag not in anchors and frag.strip("-") not in anchors:
-                errors.append(
-                    f"{md}: dead anchor [{m.group('label')}]({target}) — "
-                    f"no heading slug `#{frag}` in {resolved.name}"
-                )
+        frag = _dead_anchor(md, resolved, fragment)
+        if frag is not None:
+            errors.append(
+                f"{md}: dead anchor [{m.group('label')}]({target}) — "
+                f"no heading slug `#{frag}` in {resolved.name}"
+            )
+    errors.extend(_check_html_targets(md, text))
     return errors
 
 
