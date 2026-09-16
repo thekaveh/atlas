@@ -1,4 +1,4 @@
-# Security Policy
+# 9.8. Security Policy
 
 ## 1. Project Posture
 
@@ -89,7 +89,28 @@ advisory via the GitHub repository's **Security** tab → **Report a
 vulnerability**. Do not file public issues for security-sensitive
 findings.
 
-## 6. Remediation Reports
+## 6. Automated Scanning
+
+Two container-image gates run in `services-lint.yml` on every pull request:
+
+- **`Build-validation (Dockerfile + requirements.txt installability)`** is a
+  required check. It builds every local Dockerfile context, verifies the two
+  commit-pinned remote build contexts against their reviewed base-image index
+  digests, and Trivy-scans the manifest-owned remote images whose declarations
+  changed in the pull request.
+- **`Final-image scan (local Compose and init images)`** builds every local
+  Compose and init image and fails on any HIGH or CRITICAL finding. It reports
+  on every run but is **not yet a required check**: it advances through the
+  fleet one context at a time, and its promotion to the required set is
+  tracked in the issue linked from the CI workflow (#1002).
+
+Findings that cannot be fixed at the pinned version are excepted in
+`.trivyignore.yaml`. Every exception is scoped to an exact package version or
+path, carries a review statement, and expires; the scan refuses to run on a
+broad, duplicate, or stale entry. Reachability triage for those exceptions
+follows the same tier and edge rules as §1 and §2.
+
+## 7. Remediation Reports
 
 Historical Dependabot remediation reports were retired from the working
 tree in commit `ebdc9d4` (the `docs/security/` folder used to host them).
