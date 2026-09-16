@@ -373,7 +373,8 @@ cp .env config_backup.env  # Remove sensitive data before sharing
 ### 9.3. Community Resources
 
 - [GitHub Issues](https://github.com/thekaveh/atlas/issues) - Bug reports and feature requests
-- [GitHub Discussions](https://github.com/thekaveh/atlas/discussions) - Questions and community support
+- [Ask a question](https://github.com/thekaveh/atlas/issues/new?labels=question) - Open an issue with the `question` label; Discussions is not enabled on this repository
+- [Security policy](../../SECURITY.md) - Report security-sensitive findings privately, never as a public issue
 - [Documentation](https://github.com/thekaveh/atlas/blob/main/docs/README.md) - Complete documentation index
 
 ## 10. Recovery Procedures

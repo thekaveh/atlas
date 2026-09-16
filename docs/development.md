@@ -36,6 +36,8 @@ Before committing a parent consumer update, verify the `infra/` submodule status
 
 `make docs-check` also enforces the critical-page contract in `docs/critical-pages.yaml`: the security, prerequisites, support, release, and recovery pages it names must be declared in the manifest, reachable from the documentation map, and render each listed section with a body on the repo, site, and wiki surfaces. The contract names pages by manifest id and sections by stable title only; it never copies policy prose. Its `external_references` list records community destinations (such as the issue tracker) that a page may point to; they are permitted references, not substitutes for a self-contained page.
 
+`bootstrapper/tests/test_support_route.py` keeps every advertised first-party support destination live: reader-facing pages may not link GitHub Discussions while the feature is disabled on the repository, and the README, documentation map, and troubleshooting guide must route bugs, questions, and security reports separately. A maintainer who enables and moderates Discussions removes that guard in the same change that relinks it.
+
 `scripts/check_doc_links.py` validates relative Markdown links and raw HTML `<a href>` / `<img src>` targets against the repository tree, so canonical pages must link files GitHub can open (`quick-start/index.md`, never the site's `quick-start/`); the generated surfaces translate those targets themselves.
 
 ```bash

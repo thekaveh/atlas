@@ -79,7 +79,8 @@ If you can't find what you're looking for:
 
 1. Check the [Troubleshooting Guide](quick-start/troubleshooting.md)
 2. Search through the service-specific documentation
-3. Open an issue on GitHub if you need additional help
+3. Open a GitHub issue if you need additional help (use the `question` label for questions)
+4. For security-sensitive findings, follow the [security policy](../SECURITY.md) instead of opening a public issue
 
 ## 4. Contributing to documentation
 
