@@ -17,9 +17,113 @@
 # Renewed to 2026-12-09 on that basis. OSV additionally reports 44 rows as no
 # longer affected at the pinned version; those were deliberately NOT deleted,
 # because Trivy ships its own database and disagreement between the two is
-# routine -- confirming them needs the scan's own output, which currently stops
-# early on Blender (#1002). Full evidence: #998.
+# routine -- confirming them needs the scan's own output, which until
+# 2026-09-16 stopped early on Blender (#1002). Full evidence: #998.
+#
+# Blender-vendored Python (asset-baker, #1002 criterion 3). Blender 4.3.2 ships
+# its own CPython 3.11 under /opt/blender/4.3/python with certifi 2021.10.8,
+# setuptools 63.2.0 and urllib3 1.26.8 baked into the release tarball. They are
+# not apt- or pip-managed, and the fix is a Blender version move (4.5 LTS clears
+# certifi and urllib3; setuptools is confirmed only from 5.2), which needs the
+# blender-mcp bridge re-verified live. The nine rows below are scoped to the
+# exact dist-info paths inside that tree so an identical package anywhere else
+# still fails the gate. Reachability: the bundled interpreter runs only
+# bake.py (bpy, numpy, stdlib file I/O) under `blender -b`; the FastAPI layer
+# uses the image's own patched Python. Nothing in that process imports urllib3,
+# certifi or setuptools, opens a network connection, or installs packages.
 vulnerabilities:
+  - id: CVE-2023-37920
+    paths:
+      - "opt/blender/4.3/python/lib/python3.11/site-packages/certifi-2021.10.8.dist-info/METADATA"
+    expired_at: 2026-12-09
+    statement: >-
+      certifi 2021.10.8 is bundled inside Blender 4.3.2's vendored CPython in the
+      asset-baker image and still trusts the removed e-Tugra root. The bundled
+      interpreter runs only bake.py under `blender -b` and never opens a TLS
+      connection; the service's HTTP layer runs on the image's own Python with a
+      current certifi. Remove this exception with the Blender 4.5 LTS move
+      (#1002).
+  - id: CVE-2022-40897
+    paths:
+      - "opt/blender/4.3/python/lib/python3.11/site-packages/setuptools-63.2.0.dist-info/METADATA"
+    expired_at: 2026-12-09
+    statement: >-
+      setuptools 63.2.0 is bundled inside Blender 4.3.2's vendored CPython in the
+      asset-baker image. The advisory is a ReDoS in package_index.py, reached only
+      when setuptools resolves a package index; bake.py never imports setuptools
+      or installs anything. Remove this exception with the Blender version move
+      that ships a patched setuptools (#1002).
+  - id: CVE-2024-6345
+    paths:
+      - "opt/blender/4.3/python/lib/python3.11/site-packages/setuptools-63.2.0.dist-info/METADATA"
+    expired_at: 2026-12-09
+    statement: >-
+      setuptools 63.2.0 is bundled inside Blender 4.3.2's vendored CPython in the
+      asset-baker image. The remote code execution needs package_index download
+      functions to fetch an attacker-supplied URL; bake.py never imports
+      setuptools or installs packages, and the bundled interpreter has no network
+      use. Remove this exception with the Blender version move that ships a
+      patched setuptools (#1002).
+  - id: CVE-2025-47273
+    paths:
+      - "opt/blender/4.3/python/lib/python3.11/site-packages/setuptools-63.2.0.dist-info/METADATA"
+    expired_at: 2026-12-09
+    statement: >-
+      setuptools 63.2.0 is bundled inside Blender 4.3.2's vendored CPython in the
+      asset-baker image. The path traversal sits in PackageIndex and requires
+      resolving a malicious package; bake.py never imports setuptools or installs
+      packages. Remove this exception with the Blender version move that ships a
+      patched setuptools (#1002).
+  - id: CVE-2023-43804
+    paths:
+      - "opt/blender/4.3/python/lib/python3.11/site-packages/urllib3-1.26.8.dist-info/METADATA"
+    expired_at: 2026-12-09
+    statement: >-
+      urllib3 1.26.8 is bundled inside Blender 4.3.2's vendored CPython in the
+      asset-baker image. The cookie leak needs a cross-origin redirect issued by
+      the bundled interpreter, which never imports urllib3 or makes HTTP requests;
+      the service's HTTP layer uses the image's own patched urllib3. Remove this
+      exception with the Blender 4.5 LTS move (#1002).
+  - id: CVE-2025-66418
+    paths:
+      - "opt/blender/4.3/python/lib/python3.11/site-packages/urllib3-1.26.8.dist-info/METADATA"
+    expired_at: 2026-12-09
+    statement: >-
+      urllib3 1.26.8 is bundled inside Blender 4.3.2's vendored CPython in the
+      asset-baker image. The decompression-chain exhaustion needs urllib3 to fetch
+      an attacker-controlled response; the bundled interpreter runs only bake.py
+      and never imports urllib3 or makes HTTP requests. Remove this exception with
+      the Blender 4.5 LTS move (#1002).
+  - id: CVE-2025-66471
+    paths:
+      - "opt/blender/4.3/python/lib/python3.11/site-packages/urllib3-1.26.8.dist-info/METADATA"
+    expired_at: 2026-12-09
+    statement: >-
+      urllib3 1.26.8 is bundled inside Blender 4.3.2's vendored CPython in the
+      asset-baker image. The streaming-API compressed-data issue needs urllib3 to
+      stream an attacker-controlled response; the bundled interpreter runs only
+      bake.py and never imports urllib3 or makes HTTP requests. Remove this
+      exception with the Blender 4.5 LTS move (#1002).
+  - id: CVE-2026-21441
+    paths:
+      - "opt/blender/4.3/python/lib/python3.11/site-packages/urllib3-1.26.8.dist-info/METADATA"
+    expired_at: 2026-12-09
+    statement: >-
+      urllib3 1.26.8 is bundled inside Blender 4.3.2's vendored CPython in the
+      asset-baker image. The decompression-bomb safeguard bypass needs urllib3 to
+      follow a redirect from an attacker-controlled server; the bundled
+      interpreter runs only bake.py and never imports urllib3 or makes HTTP
+      requests. Remove this exception with the Blender 4.5 LTS move (#1002).
+  - id: CVE-2026-44431
+    paths:
+      - "opt/blender/4.3/python/lib/python3.11/site-packages/urllib3-1.26.8.dist-info/METADATA"
+    expired_at: 2026-12-09
+    statement: >-
+      urllib3 1.26.8 is bundled inside Blender 4.3.2's vendored CPython in the
+      asset-baker image. The header-forwarding disclosure needs urllib3 to follow
+      a cross-origin redirect with sensitive headers; the bundled interpreter runs
+      only bake.py and never imports urllib3 or makes HTTP requests. Remove this
+      exception with the Blender 4.5 LTS move (#1002).
   - id: CVE-2026-43871
     purls:
       - "pkg:maven/org.apache.thrift/libthrift@0.16.0"
