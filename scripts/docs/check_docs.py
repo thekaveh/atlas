@@ -19,6 +19,7 @@ from scripts.bounded_subprocess import (
 
 from .build_docs import build
 from .canonical_references import sync_canonical_references
+from .critical_pages import CONTRACT_PATH, SurfaceRoots, check_critical_pages, load_contract
 from .links import find_links, is_forbidden, navigable_link_targets
 from .manifest import Manifest, load_manifest
 
@@ -168,15 +169,10 @@ def _is_safe_file(root: Path, relative: Path) -> bool:
     return current.is_file()
 
 
-def check_manifest_reachability(
-    manifest: Manifest,
-    repo_root: Path,
-    generated_root: Path,
-) -> list[Finding]:
-    """Require every manifest page to be discoverable on all three surfaces."""
+def reachable_sources(manifest: Manifest, repo_root: Path) -> set[str]:
+    """Canonical sources reachable from the manifest index by rendered links."""
     pages_by_id = {page.id: page for page in manifest.pages}
-    pages_by_source = {page.source: page for page in manifest.pages}
-    known_sources = set(pages_by_source)
+    known_sources = {page.source for page in manifest.pages}
     root_page = pages_by_id[manifest.index_id]
     reachable = {root_page.source}
     pending = deque([root_page.source])
@@ -190,6 +186,18 @@ def check_manifest_reachability(
             if target is not None and target not in reachable:
                 reachable.add(target)
                 pending.append(target)
+    return reachable
+
+
+def check_manifest_reachability(
+    manifest: Manifest,
+    repo_root: Path,
+    generated_root: Path,
+) -> list[Finding]:
+    """Require every manifest page to be discoverable on all three surfaces."""
+    pages_by_id = {page.id: page for page in manifest.pages}
+    root_page = pages_by_id[manifest.index_id]
+    reachable = reachable_sources(manifest, repo_root)
 
     findings = [
         Finding(
@@ -360,10 +368,20 @@ def check(repo_root: Path, manifest_path: Path) -> list[Finding]:
     # every embedded image as a missing target.
     build(manifest_path, repo_root, site=True, wiki=True, check=False)
     rendered = repo_root / "generated"
+    contract = load_contract(repo_root / CONTRACT_PATH)
     surface_findings = [
         *check_self_containment(repo_root, rendered),
         *check_wiki_links(repo_root, rendered / "wiki"),
         *check_manifest_reachability(manifest, repo_root, rendered),
+        *(
+            Finding(item.severity, item.path, item.message, item.surface)
+            for item in check_critical_pages(
+                contract,
+                manifest,
+                reachable_sources(manifest, repo_root),
+                SurfaceRoots(repo_root, rendered),
+            )
+        ),
     ]
 
     return [
