@@ -132,6 +132,90 @@ def test_rewrite_leaves_site_html_anchors_on_pretty_urls() -> None:
     assert rendered == markdown
 
 
+def test_rewrite_maps_canonical_html_anchors_to_site_pretty_urls() -> None:
+    """Canonical pages link raw HTML anchors to files so GitHub resolves them.
+
+    MkDocs rewrites Markdown links but leaves raw HTML alone, so the site
+    surface must translate file targets into the directory URLs it serves.
+    """
+    markdown = """<a href="quick-start/index.md">Quick Start</a>
+<a href="services.md">Service Catalog</a>
+<a href="architecture/index.md#2-layers">Architecture</a>
+<a href="https://docs.docker.com/">Docker</a>
+<a href="#1-capabilities">Capabilities</a>
+"""
+
+    rendered = rewrite_for_surface(
+        markdown,
+        surface="site",
+        source_path="docs/index.md",
+        output_path="index.md",
+        source_map={
+            "docs/quick-start/index.md": "quick-start/index.md",
+            "docs/services.md": "services/index.md",
+            "docs/architecture/index.md": "architecture/index.md",
+        },
+    )
+
+    assert '<a href="quick-start/">Quick Start</a>' in rendered
+    assert '<a href="services/">Service Catalog</a>' in rendered
+    assert '<a href="architecture/#2-layers">Architecture</a>' in rendered
+    assert '<a href="https://docs.docker.com/">Docker</a>' in rendered
+    assert '<a href="#1-capabilities">Capabilities</a>' in rendered
+
+
+def test_rewrite_maps_site_html_anchors_relative_to_nested_pretty_urls() -> None:
+    """A nested page is served from its own directory, so siblings need ``../``."""
+    rendered = rewrite_for_surface(
+        '<a href="setup.md">Setup</a> <a href="../index.md">Home</a>\n',
+        surface="site",
+        source_path="docs/guides/intro.md",
+        output_path="guides/intro.md",
+        source_map={
+            "docs/index.md": "index.md",
+            "docs/guides/intro.md": "guides/intro.md",
+            "docs/guides/setup.md": "guides/setup.md",
+        },
+    )
+
+    assert rendered == '<a href="../setup/">Setup</a> <a href="../../">Home</a>\n'
+
+
+def test_rewrite_leaves_unpublished_site_html_anchors_untouched() -> None:
+    """The site surface never invents a destination for an unknown target."""
+    markdown = '<a href="private.md">Private</a>\n'
+
+    rendered = rewrite_for_surface(
+        markdown,
+        surface="site",
+        source_path="docs/index.md",
+        output_path="index.md",
+        source_map={"docs/index.md": "index.md"},
+    )
+
+    assert rendered == markdown
+
+
+def test_rewrite_maps_canonical_html_anchors_to_wiki_pages() -> None:
+    markdown = """<a href="quick-start/index.md">Quick Start</a>
+<a href="services.md#3-catalog">Service Catalog</a>
+"""
+
+    rendered = rewrite_for_surface(
+        markdown,
+        surface="wiki",
+        source_path="docs/index.md",
+        output_path="Home.md",
+        source_map={
+            "docs/quick-start/index.md": "2.1-Launch-Atlas",
+            "docs/services.md": "5.1-Service-Catalog",
+        },
+    )
+
+    assert '<a href="2.1-Launch-Atlas">Quick Start</a>' in rendered
+    assert '<a href="5.1-Service-Catalog#3-catalog">Service Catalog</a>' in rendered
+
+
 def test_rewrite_maps_markdown_links_to_extensionless_wiki_pages(
     tmp_path: Path,
 ) -> None:
