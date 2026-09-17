@@ -34,6 +34,7 @@ from .capabilities_resolver import (
     capability_section_enabled,
     is_aggregate_capability_doc,
     resolve_capability_rows,
+    resolve_support_lines,
 )
 from .capabilities_section_writer import (
     CapabilitySectionError,
@@ -238,6 +239,7 @@ def _process(
             new_readme,
             capability_rows,
             aggregate=is_aggregate_capability_doc(name),
+            support=resolve_support_lines(name, manifest_snapshot),
         )
 
     artifacts: list[tuple[Path, str]] = [(readme_path, new_readme)]

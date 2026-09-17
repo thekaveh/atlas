@@ -185,6 +185,8 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 
 ## 8. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Queue-mode workflow execution | supported | tested | Atlas serializes database migrations, stores workflows in Postgres, and offloads manual and triggered executions through Redis to a dedicated worker. |

@@ -95,6 +95,8 @@ For higher-quality document extraction, use Docling first and paste or upload th
 
 ## 8. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Reference Weaviate RAG workflow | partial | tested | Atlas wires the archived Verba UI to Weaviate and LiteLLM for isolated sample ingest and query, but does not treat it as the primary maintained chat or RAG runtime. |

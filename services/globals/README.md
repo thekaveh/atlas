@@ -80,6 +80,8 @@ _No high-confidence opportunities identified._
 
 ## 12. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Project namespace and base-port ownership | supported | tested | This virtual manifest owns the Compose project namespace, bind and gateway settings, and the base port from which service ports are derived; it launches no container of its own. |

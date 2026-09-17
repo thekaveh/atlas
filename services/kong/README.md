@@ -348,6 +348,8 @@ docker exec ${PROJECT_NAME}-kong-api-gateway curl http://localhost:8001/status
 
 ## 15. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | SOURCE-aware dynamic gateway routing | supported | tested | The bootstrapper generates DB-less Kong routes for enabled container and localhost sources, including service-specific upstream paths and health contracts. |

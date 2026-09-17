@@ -211,6 +211,25 @@ def _check_unique_capabilities(manifests: list[Manifest]) -> list[ValidationIssu
     return issues
 
 
+def _check_support_evidence(manifests: list[Manifest]) -> list[ValidationIssue]:
+    """A stable tier must cite evidence gathered at a release tag, not a bare commit."""
+    issues: list[ValidationIssue] = []
+    for manifest in manifests:
+        support = manifest.support
+        if support.declared and support.tier == "stable" and not support.evidence_revision.startswith("v"):
+            issues.append(
+                ValidationIssue(
+                    kind="support_stable_without_release_evidence",
+                    manifest=manifest.name,
+                    message=(
+                        "support tier 'stable' needs evidence_revision to be a release tag "
+                        f"(vX.Y.Z), got '{support.evidence_revision}'"
+                    ),
+                )
+            )
+    return issues
+
+
 def _check_dependency_closure(manifests: list[Manifest]) -> list[ValidationIssue]:
     """Every depends_on entry must reference an existing manifest."""
     known = {m.name for m in manifests}
@@ -1375,6 +1394,12 @@ VALIDATOR_RULES: tuple[ValidatorRule, ...] = (
         ("duplicate_capability",),
         "Capability names are unique within each manifest.",
         _check_unique_capabilities,
+    ),
+    ValidatorRule(
+        "support_evidence",
+        ("support_stable_without_release_evidence",),
+        "A stable support tier cites evidence gathered at a release tag.",
+        _check_support_evidence,
     ),
     ValidatorRule(
         "data_flow_targets",

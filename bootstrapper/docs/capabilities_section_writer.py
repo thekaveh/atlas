@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from .capabilities_resolver import CapabilityRow
+from .capabilities_resolver import CapabilityRow, SupportLine
 from .markdown_blocks import fenced_code_spans as _fenced_spans
 
 
@@ -80,14 +80,31 @@ def _escape_cell(value: str) -> str:
     return value.replace("\\", "\\\\").replace("|", "\\|")
 
 
+def _support_lines(support: tuple[SupportLine, ...], aggregate: bool) -> list[str]:
+    """Render the support-tier statement(s) that precede the capability table."""
+    rendered: list[str] = []
+    for line in support:
+        prefix = f"`{line.service}` — " if aggregate else ""
+        revision = f" (evidence at `{line.evidence_revision}`)" if line.evidence_revision else ""
+        rendered.append(
+            f"{prefix}Support tier: **{line.tier}** — {_escape_cell(line.evidence)}{revision}."
+        )
+        rendered.extend(f"  - Limitation: {_escape_cell(item)}" for item in line.limitations)
+    if rendered:
+        rendered.append("")
+    return rendered
+
+
 def render_capabilities_section(
     rows: tuple[CapabilityRow, ...],
     *,
     position: int,
     aggregate: bool,
+    support: tuple[SupportLine, ...] = (),
 ) -> str:
     """Render a byte-deterministic capability section."""
     lines = [f"## {position}. Capabilities & limitations", ""]
+    lines.extend(_support_lines(support, aggregate))
     if not rows:
         lines.append("_No capability contract declared._")
         return "\n".join(lines) + "\n"
@@ -120,6 +137,7 @@ def upsert_capabilities_section(
     rows: tuple[CapabilityRow, ...],
     *,
     aggregate: bool,
+    support: tuple[SupportLine, ...] = (),
 ) -> str:
     """Replace the real capability section, or append a dynamically numbered one."""
     existing = _slice_capabilities_section(readme_text)
@@ -129,6 +147,7 @@ def upsert_capabilities_section(
             rows,
             position=position,
             aggregate=aggregate,
+            support=support,
         )
         prefix = readme_text.rstrip()
         return (prefix + "\n\n" if prefix else "") + section
@@ -139,6 +158,7 @@ def upsert_capabilities_section(
         rows,
         position=position,
         aggregate=aggregate,
+        support=support,
     )
     suffix = readme_text[end:]
     if suffix:

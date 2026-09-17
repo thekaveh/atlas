@@ -155,3 +155,11 @@ runtime_deps:
 data_flow:
   calls:
     - litellm
+
+# Support tier (#1050). Selectable is not validated: this family is `experimental`
+# until a cited cold-start, workflow, and upgrade qualification run promotes it.
+support:
+  tier: experimental
+  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence_revision: v0.1.0
+  owner: Atlas maintainers

@@ -91,6 +91,8 @@ _No high-confidence opportunities identified._
 
 ## 8. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Maven Spark application builds | partial | tested | Atlas builds a Jenkins controller with Maven and a pinned MinIO client, but downstream repositories, Jenkinsfiles, credentials, and all project jobs remain operator-supplied. |

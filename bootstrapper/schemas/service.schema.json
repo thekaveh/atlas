@@ -57,6 +57,44 @@
         }
       }
     },
+    "support": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier", "evidence", "evidence_revision"],
+      "description": "Operator-facing support tier and the evidence it rests on (#1050). Selectable is not validated: a family is `stable` only with a cited qualification run.",
+      "properties": {
+        "tier": {
+          "type": "string",
+          "enum": ["stable", "experimental", "community", "unsupported"],
+          "description": "stable = qualified cold-start/workflow/upgrade evidence at evidence_revision; experimental = selectable, contract declared, not qualified; community = maintained outside the core team; unsupported = kept for reference only."
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 12,
+          "pattern": "^(?!.*[\\r\\n\\u000B\\u000C\\u0085\\u2028\\u2029])(?=.*\\S).+$",
+          "description": "Single-line pointer to the qualification evidence (issue, PR, report) or an honest statement that none exists yet."
+        },
+        "evidence_revision": {
+          "type": "string",
+          "pattern": "^(v[0-9]+\\.[0-9]+\\.[0-9]+|[0-9a-f]{40})$",
+          "description": "Release tag or full commit id the evidence was gathered at; staleness is judged against the release record."
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Who maintains the family's promise."
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!.*[\\r\\n\\u000B\\u000C\\u0085\\u2028\\u2029])(?=.*\\S).+$"
+          },
+          "description": "Single-line known limitations that keep the family below stable."
+        }
+      }
+    },
     "capabilities": {
       "type": "array",
       "minItems": 1,
