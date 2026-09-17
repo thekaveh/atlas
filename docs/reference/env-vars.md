@@ -53,7 +53,7 @@
 | ASSET_WORKER_ENDPOINT | asset-worker |  | In-network URL for the asset-worker API. |
 | ASSET_WORKER_API_TOKEN | asset-worker |  | Auto-generated bearer token required by all Asset Worker data and processing routes; /health remains unauthenticated. |
 | ASSET_WORKER_ALLOWED_INPUT_BUCKETS | asset-worker |  | Optional comma- or space-separated reference-route bucket allowlist; blank follows MINIO_BUCKET_ASSET_INPUTS. |
-| ASSET_WORKER_GLTF_TRANSFORM_VERSION | asset-worker | 4.4.1 | Expected pinned @gltf-transform/cli lock version; overrides must match package.json and package-lock.json. |
+| ASSET_WORKER_GLTF_TRANSFORM_VERSION | asset-worker | 4.5.0 | Expected pinned @gltf-transform/cli lock version; overrides must match package.json and package-lock.json. |
 | ASSET_WORKER_MAX_UPLOAD_MB | asset-worker | 200 | Maximum GLB upload or MinIO reference size in MiB. Input is streamed and rejected before transformation when this limit is exceeded. |
 | ASSET_WORKER_TIMEOUT_SECONDS | asset-worker | 300 | Per-command timeout for gltf-transform inspect, validate, and optimize subprocesses. |
 | ASSET_WORKER_CONCURRENCY | asset-worker | 1 | Maximum concurrent glTF mutation requests; saturated workers reject new work with HTTP 429 before request-body parsing or object-store fetch. |

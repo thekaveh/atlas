@@ -2,7 +2,7 @@ ARG BASE_IMAGE=python:3.12.9-slim
 ARG NODE_IMAGE=node:22-bookworm-slim@sha256:f32b81066cde10a75dbac96646099533316d94bac4150c55da1636e1f0ffdc46
 FROM ${NODE_IMAGE} AS node-runtime
 WORKDIR /opt/gltf-transform
-ARG GLTF_TRANSFORM_VERSION=4.4.1
+ARG GLTF_TRANSFORM_VERSION=4.5.0
 COPY package.json package-lock.json ./
 RUN locked_version="$(node -p 'require("./package.json").dependencies["@gltf-transform/cli"]')" \
     && if [ "$locked_version" != "$GLTF_TRANSFORM_VERSION" ]; then \
