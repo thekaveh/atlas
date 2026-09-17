@@ -2,5 +2,5 @@ ARG BASE_IMAGE=alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86
 FROM ${BASE_IMAGE}
 
 RUN apk add --no-cache \
-    ca-certificates=20260611-r0 \
+    ca-certificates=20260909-r0 \
     wget=1.25.0-r3

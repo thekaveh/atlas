@@ -3,7 +3,7 @@ FROM ${BASE_IMAGE}
 
 RUN apk add --no-cache \
     bash=5.3.9-r1 \
-    ca-certificates=20260611-r0 \
-    curl=8.21.0-r0 \
+    ca-certificates=20260909-r0 \
+    curl=8.22.0-r0 \
     gettext=1.0-r0 \
-    jq=1.8.1-r0
+    jq=1.8.2-r0
