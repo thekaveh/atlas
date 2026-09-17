@@ -654,9 +654,12 @@ Distilled from real audit findings — each entry cites the commit, PR, or memor
   context), pin the multi-architecture base index and every Alpine package
   version, and give the result a project-local image name. Runtime `apk add`
   makes startup depend on mutable repositories and can silently change a
-  deployed revision. Debian images likewise receive security fixes through a
-  reviewed pinned-base refresh, not `apt-get upgrade`; required final-image
-  scanning gates each refresh.
+  deployed revision. Debian images receive security fixes through a reviewed
+  pinned-base refresh first; when the newest published base still carries
+  fixed findings, a build-time `apt-get upgrade` with the rationale kept next
+  to it is the accepted fallback (airflow, spark, asset-baker, asset-worker,
+  backup-init, and backend do this). Required final-image scanning gates each
+  refresh either way.
 - **TTS/STT engine in-container ports are NOT all 8000.** Parakeet, Speaches, Docling listen on `8000`; Chatterbox listens on `4123`. Don't assume.
 
 ### 14.4. Regen / test gotchas
