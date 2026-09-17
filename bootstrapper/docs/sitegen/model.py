@@ -62,6 +62,7 @@ class ServicePage:
     port_vars: list[str]
     diagram_svg: Path | None
     diagram_html: Path | None
+    support_tier: str = "n/a"
 
 
 @dataclass(frozen=True)
@@ -303,6 +304,7 @@ def _manifest_docs(root: Path, tracks: list[TrackPage]) -> list[ServicePage]:
                 port_vars=port_vars,
                 diagram_svg=diagram_svg if diagram_svg.exists() else None,
                 diagram_html=diagram_html if diagram_html.exists() else None,
+                support_tier=manifest.support.tier if manifest else "n/a",
             )
         )
     return docs

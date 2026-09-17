@@ -38,6 +38,21 @@ from wizard.model.cloud_rules import SECRET_CLEAR, SECRET_KEEP, resolve_cloud_pr
 _WIZARD_WARN_SINK = None
 
 
+def _support_subtitle(svc) -> str:
+    """Mark selectable-but-unqualified families before launch (#1050).
+
+    Only `stable` families carry cited qualification evidence; every other tier
+    is shown next to the description so the operator sees the promise level on
+    the prompt itself rather than after a failed bring-up.
+    """
+    description = svc.description or ""
+    tier = getattr(svc, "support_tier", "experimental")
+    if tier == "stable":
+        return description
+    badge = f"[support: {tier}]"
+    return f"{description}  {badge}" if description else badge
+
+
 def _set_wizard_warn_sink(fn) -> None:
     """Called by WizardScreen.__init__ to register a logger callable
     of shape ``(msg: str) -> None``. Idempotent; reset to None on
@@ -698,7 +713,7 @@ def _build_steps_and_rows(
             title=f"{svc.display_name}  ·  source",
             step_index=i + 2, step_total=total,
             heading=f"How should {svc.display_name} run?",
-            subtitle=svc.description or "",
+            subtitle=_support_subtitle(svc),
             options=opts, default_value=default, service_name=svc.display_name,
             options_provider=_visible_source_options,
             service_key=svc.key,

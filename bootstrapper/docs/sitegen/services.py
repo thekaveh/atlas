@@ -353,7 +353,16 @@ def service_pages(model: DocsModel) -> dict[Path, str]:
     pages: dict[Path, str] = {}
     docs = model.root / "docs" / "site" / "services"
     categories = sorted({service.category for service in model.services})
-    sections: list[str] = ["# Service Catalog", "", "## 1. Services by Category", ""]
+    sections: list[str] = [
+        "# Service Catalog",
+        "",
+        "## 1. Services by Category",
+        "",
+        "The *Support* column is each family's declared support tier (`stable`, `experimental`, "
+        "`community`, `unsupported`) from its manifest's `support:` block; selectable is not the same "
+        "as validated, and a family is `stable` only with cited qualification evidence at a release tag.",
+        "",
+    ]
 
     for index, category in enumerate(categories, start=1):
         rows = []
@@ -365,6 +374,7 @@ def service_pages(model: DocsModel) -> dict[Path, str]:
                 [
                     _service_link(service),
                     service.title,
+                    service.support_tier,
                     csv_or_dash(service.track_keys),
                     source_vars,
                     source_defaults,
@@ -377,7 +387,7 @@ def service_pages(model: DocsModel) -> dict[Path, str]:
                 f"### 1.{index}. {category}",
                 "",
                 table(
-                    ["Service", "Title", "Tracks", "SOURCE", "Default", "Values", "Dependencies"],
+                    ["Service", "Title", "Support", "Tracks", "SOURCE", "Default", "Values", "Dependencies"],
                     rows,
                 ),
                 "",

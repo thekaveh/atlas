@@ -105,6 +105,8 @@ Docling MCP is the first specialist MCP expansion candidate because upstream sup
 
 ## 9. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Curated Streamable HTTP tools | supported | tested | Atlas serves FastMCP tools for bounded Postgres reads, Neo4j schema/read Cypher, and SearXNG search through one stateless /mcp endpoint. |

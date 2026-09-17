@@ -13,5 +13,6 @@ Generated manifest schema quick reference.
 | docs | Repository-relative operator documentation path |
 | docs_exception | Printable reason with an explicit `because` clause, four substantive words, and three distinct terms |
 | depends_on | Required and optional logical dependencies |
+| support | Support tier (`stable`, `experimental`, `community`, `unsupported`), the evidence it rests on, the release tag or commit that evidence was gathered at, the owner, and known limitations |
 | runtime_sc | Per-source runtime scale/env/deploy slices |
 | data_flow.calls | Runtime call graph used by docs and diagrams |

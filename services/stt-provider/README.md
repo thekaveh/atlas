@@ -239,6 +239,9 @@ does not expose the Faster-Whisper-style `int8` compute-type control.
 
 ## 11. Capabilities & limitations
 
+`parakeet` — Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+`speaches` — Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Service | Capability | Status | Verification | Notes |
 |---|---|---|---|---|
 | parakeet | NVIDIA Parakeet transcription | supported | tested | The GPU source loads the configured Parakeet-TDT checkpoint and serves standard and advanced OpenAI-shaped transcription routes with truthful readiness. |

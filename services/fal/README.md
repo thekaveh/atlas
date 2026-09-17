@@ -119,6 +119,8 @@ _No upstream calls._
 
 ## 6. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Virtual hosted media generation | supported | tested | The backend uses the server-side FAL key for hosted image and curated image-to-3D operations; Atlas runs no FAL container or direct provider ingress. |

@@ -1136,6 +1136,14 @@ def reference_pages(model: DocsModel) -> dict[Path, str]:
                     ),
                 ],
                 ["depends_on", "Required and optional logical dependencies"],
+                [
+                    "support",
+                    (
+                        "Support tier (`stable`, `experimental`, `community`, `unsupported`), "
+                        "the evidence it rests on, the release tag or commit that evidence was "
+                        "gathered at, the owner, and known limitations"
+                    ),
+                ],
                 ["runtime_sc", "Per-source runtime scale/env/deploy slices"],
                 ["data_flow.calls", "Runtime call graph used by docs and diagrams"],
             ],

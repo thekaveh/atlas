@@ -24,6 +24,39 @@ class CapabilityRow:
     notes: str
 
 
+@dataclass(frozen=True)
+class SupportLine:
+    """One rendered support-tier line and its source manifest (#1050)."""
+
+    service: str
+    tier: str
+    evidence: str
+    evidence_revision: str
+    limitations: tuple[str, ...]
+
+
+def resolve_support_lines(doc_name: str, manifests: Iterable[Manifest]) -> tuple[SupportLine, ...]:
+    """Resolve the support tier of every manifest a README documents, in member order."""
+    manifests_by_name = {manifest.name: manifest for manifest in manifests}
+    member_names = tuple(dict.fromkeys(doc_folder_to_manifests(doc_name)))
+    lines: list[SupportLine] = []
+    for member_name in member_names:
+        manifest = manifests_by_name.get(member_name)
+        if manifest is None:
+            continue
+        support = manifest.support
+        lines.append(
+            SupportLine(
+                service=manifest.name,
+                tier=support.tier,
+                evidence=support.evidence,
+                evidence_revision=support.evidence_revision,
+                limitations=support.limitations,
+            )
+        )
+    return tuple(lines)
+
+
 def capability_section_enabled(doc_name: str) -> bool:
     """Whether a README represents a capability-bearing Atlas service role."""
     return doc_name not in CAPABILITY_SECTION_EXCEPTIONS

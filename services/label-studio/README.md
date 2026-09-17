@@ -102,6 +102,8 @@ Enterprise review workflows, role-based permissions, and organization-wide SSO a
 
 ## 7. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Human dataset review and annotation | supported | tested | Atlas starts the Label Studio UI/API with a dedicated Postgres role and initial administrator for operator-created labeling projects. |

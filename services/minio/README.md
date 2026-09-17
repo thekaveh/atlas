@@ -198,6 +198,8 @@ _No upstream calls._
 
 ## 12. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | S3-compatible artifact storage | supported | tested | Atlas exposes the MinIO S3 API and console directly and through Kong for in-stack artifacts, lakehouse data, traces, models, and backups. |

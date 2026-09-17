@@ -40,6 +40,7 @@ class ServiceInfo:
     option_labels: dict[str, str]
     current_value: str
     env_var_name: str
+    support_tier: str = "experimental"
 
 
 class ServiceDiscovery:
@@ -53,6 +54,7 @@ class ServiceDiscovery:
         override_manager = SourceOverrideManager(config_parser)
         self._cli_param_keys = set(override_manager.source_mapping.keys())
         self._source_option_labels = self._load_source_option_labels()
+        self._support_tiers = self._load_support_tiers()
 
     def discover(self) -> List[ServiceInfo]:
         """
@@ -141,9 +143,20 @@ class ServiceDiscovery:
                 option_labels=option_labels,
                 current_value=current_value,
                 env_var_name=env_var_name,
+                support_tier=self._support_tiers.get(target_source_var, "experimental"),
             ))
 
         return services
+
+    def _load_support_tiers(self) -> dict[str, str]:
+        """Map SOURCE env var -> declared support tier (#1050)."""
+        from services.manifests import load_manifests
+
+        return {
+            manifest.sources.var: manifest.support.tier
+            for manifest in load_manifests(self.config_parser.root_dir / "services")
+            if manifest.sources is not None
+        }
 
     def _load_source_option_labels(self) -> dict[str, dict[str, str]]:
         """Map SOURCE env var -> option id -> wizard-facing label."""

@@ -203,6 +203,21 @@ class Capability:
     note: str
 
 
+SUPPORT_TIERS = ("stable", "experimental", "community", "unsupported")
+
+
+@dataclass(frozen=True)
+class Support:
+    """A manifest's `support:` block: the tier a family promises and its evidence (#1050)."""
+
+    tier: str = "experimental"
+    evidence: str = "not declared"
+    evidence_revision: str = ""
+    owner: str = ""
+    limitations: tuple[str, ...] = ()
+    declared: bool = False
+
+
 @dataclass(frozen=True)
 class SecondaryNumber:
     """Declarative inline numeric input attached to a manifest row."""
@@ -255,6 +270,7 @@ class Manifest:
     depends_on: DependsOn = field(default_factory=DependsOn)
     exports: list[ExportRef] = field(default_factory=list)
     capabilities: list[Capability] = field(default_factory=list)
+    support: Support = field(default_factory=Support)
     rows: list[Row] = field(default_factory=list)
     # Extra *.localhost Kong hostnames beyond rows[].alias (e.g. minio's
     # s3.minio.localhost -> minio:9000). Not wizard rows; may be multi-label.
@@ -509,6 +525,7 @@ def _to_dataclass(raw: dict[str, Any], source_path: Path) -> Manifest:
     ]
 
     capabilities = _capabilities_from_raw(raw)
+    support = _support_from_raw(raw)
 
     rows = [_row_from_raw(row) for row in raw.get("rows") or []]
 
@@ -526,6 +543,7 @@ def _to_dataclass(raw: dict[str, Any], source_path: Path) -> Manifest:
         depends_on=depends_on,
         exports=exports,
         capabilities=capabilities,
+        support=support,
         rows=rows,
         extra_kong_aliases=list(raw.get("extra_kong_aliases") or []),
         runtime_sc=dict(raw.get("runtime_sc") or {}),
@@ -573,6 +591,20 @@ def _capabilities_from_raw(raw: dict[str, Any]) -> list[Capability]:
         )
         for entry in raw.get("capabilities") or []
     ]
+
+
+def _support_from_raw(raw: dict[str, Any]) -> Support:
+    block = raw.get("support")
+    if not block:
+        return Support()
+    return Support(
+        tier=block["tier"],
+        evidence=block["evidence"],
+        evidence_revision=block["evidence_revision"],
+        owner=block.get("owner", ""),
+        limitations=tuple(block.get("limitations") or ()),
+        declared=True,
+    )
 
 
 def _format_jsonschema_error(err: JsonSchemaError) -> str:
