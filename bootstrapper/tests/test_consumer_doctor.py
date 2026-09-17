@@ -10,7 +10,7 @@ from tests.three_surface_test_utils import surface_text
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
-REUSING_ATLAS = REPO_ROOT / "docs" / "deployment" / "reusing-atlas.md"
+REUSING_ATLAS = REPO_ROOT / "docs" / "operations" / "reusing-atlas.md"
 
 
 def _write_base_env(tmp_path: Path, extra: str = "") -> None:
@@ -858,8 +858,8 @@ def test_consumer_doctor_docs_are_published_on_all_surfaces() -> None:
     assert "consumer CI" in reusing
 
     for text in (
-        surface_text("docs/operations.md", "site"),
-        surface_text("docs/operations.md", "wiki"),
+        surface_text("docs/operations/index.md", "site"),
+        surface_text("docs/operations/index.md", "wiki"),
     ):
         assert "./start.sh doctor" in text
         assert "--format json" in text

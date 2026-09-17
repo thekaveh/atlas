@@ -1,4 +1,4 @@
-# 6.12. Service Admission Workflow
+# 8.12. Service Admission Workflow
 
 Manifest, compose fragment, topology row, env assembler, docs regeneration, diagrams, tests, and CI drift gates.
 

@@ -1,5 +1,7 @@
 # Rebuild the setup-wizard TUI on MVVM (VMx ViewModels) — design
 
+> **Status: archived spec** — dated 2026-08-23; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 - **Ticket:** [#535](https://github.com/thekaveh/atlas/issues/535)
 - **Branch:** `feat/535-rebuild-setup-wizard-tui-mvvm-vmx` (cut from `develop`)
 - **Integration target:** `develop` (not `main`) until fully tested and validated

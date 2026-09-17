@@ -1,5 +1,7 @@
 # Atlas vNext GitHub Issues And Project Design
 
+> **Status: archived spec** — dated 2026-07-02; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 ## 1. Goal
 
 Turn the Atlas vNext strategy report into a durable GitHub planning system so the work is not lost after the report is read once.

@@ -1,5 +1,7 @@
 # Scheduled upstream-drift watch — design
 
+> **Status: archived spec** — dated 2026-08-24; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 - **Ticket:** [#969](https://github.com/thekaveh/atlas/issues/969)
 - **Branch:** `codex/969-upstream-drift-watch` (cut from `develop`)
 - **Integration target:** `develop`, followed by the normal `develop` → `main` promotion

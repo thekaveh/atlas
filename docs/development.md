@@ -109,7 +109,7 @@ atlas/
 │   ├── doc-processor/         # Doc-only — aggregate doc-processor documentation
 │   ├── multi2vec-clip/        # Doc-only — aggregate multi2vec-clip documentation (container ships inside weaviate/)
 │   └── _user/                 # (Gitignored) downstream submodule consumers' overlay slot
-├── docs/                      # User, service, deployment, diagram, and planning docs
+├── docs/                      # User, service, operations, diagram, and planning docs
 │   ├── CONTRIBUTING-services.md  # How to add a new service to the modular layout
 │   └── …
 ├── scripts/                   # Top-level utility scripts (e.g. migration helpers)

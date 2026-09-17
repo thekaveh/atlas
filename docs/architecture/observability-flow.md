@@ -1,4 +1,4 @@
-# 6.10. Observability Flow
+# 8.10. Observability Flow
 
 Prometheus, Grafana, Langfuse, OpenTelemetry Collector, Tempo, Loki, and service instrumentation boundaries.
 

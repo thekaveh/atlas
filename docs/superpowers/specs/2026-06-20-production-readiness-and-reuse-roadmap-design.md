@@ -1,5 +1,7 @@
 # Atlas — Production Readiness & Reuse Roadmap
 
+> **Status: archived spec** — dated 2026-06-20; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 **Date:** 2026-06-20
 **Status:** Design / assessment (for review)
 **Author:** Kaveh Razavi (with Claude Code)

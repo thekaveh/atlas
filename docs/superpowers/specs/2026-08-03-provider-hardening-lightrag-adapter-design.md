@@ -1,5 +1,7 @@
 # Provider Hardening and LightRAG–Docling Compatibility
 
+> **Status: archived spec** — dated 2026-08-03; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 ## 1. Context
 
 Atlas exposes Docling and Parakeet as model-backed HTTP providers. Their

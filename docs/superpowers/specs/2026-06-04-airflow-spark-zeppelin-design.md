@@ -1,5 +1,7 @@
 # Design — Apache Airflow + Spark Cluster + Apache Zeppelin
 
+> **Status: archived spec** — dated 2026-06-04; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 **Spec date:** 2026-06-04
 **Status:** Draft — pending review
 **Brainstorming session:** 2026-06-04 (this document)

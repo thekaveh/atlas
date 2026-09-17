@@ -15,7 +15,7 @@ ZEPPELIN_NOTEBOOK = ROOT / "services" / "zeppelin" / "notebooks" / "iceberg_adva
 SPARK_README = ROOT / "services" / "spark" / "README.md"
 ZEPPELIN_README = ROOT / "services" / "zeppelin" / "README.md"
 JUPYTER_README = ROOT / "services" / "jupyterhub" / "README.md"
-CONTRACT_DOC = ROOT / "docs" / "deployment" / "iceberg-advanced-smoke.md"
+CONTRACT_DOC = ROOT / "docs" / "operations" / "iceberg-advanced-smoke.md"
 
 
 ADVANCED_TOKENS = [

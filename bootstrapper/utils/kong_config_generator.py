@@ -919,7 +919,7 @@ class KongConfigGenerator:
                         # and warned, plus the explicit ones). The plugin
                         # schema itself ships these defaults; only Kong 4.0
                         # drops them. Documented in
-                        # docs/deployment/expected-startup-warnings.md.
+                        # docs/operations/expected-startup-warnings.md.
                     }
                 }
             ]

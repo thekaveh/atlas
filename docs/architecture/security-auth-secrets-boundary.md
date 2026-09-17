@@ -1,4 +1,4 @@
-# 6.11. Security, Auth, And Secrets Boundary
+# 8.11. Security, Auth, And Secrets Boundary
 
 Route-specific Kong controls, backend identity validation, application-enforced plugin keys, runtime secrets, and explicitly public or operator-trusted surfaces.
 

@@ -1,5 +1,7 @@
 # Post-Re-run Error Triage + Fix Plan
 
+> **Status: archived plan** — dated 2026-06-07; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 **Date:** 2026-06-07
 **Scope:** All errors surfaced by the third stack launch (post-PR-#64) against `LIGHTRAG_SOURCE=container` + `TEI_RERANKER_SOURCE=container-cpu` + `--base-port 64000` on Apple Silicon arm64.
 

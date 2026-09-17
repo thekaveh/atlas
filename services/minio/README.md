@@ -77,7 +77,7 @@ without forking Atlas by passing `MINIO_EXTRA_CONSUMERS` into `minio-init` —
 a space-separated list of `CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR` entries
 (optionally extended with extra read/write bucket lists), with the referenced
 variables supplied by the parent-owned `.env.user` or `ATLAS_ENV_USER_FILE`.
-See [reusing-atlas.md](../../docs/deployment/reusing-atlas.md) for the full
+See [reusing-atlas.md](../../docs/operations/reusing-atlas.md) for the full
 grammar and a worked example; §6.1 below covers the newer declarative
 `storage:` alternative.
 
@@ -96,7 +96,7 @@ host port).
 
 ### 6.1. Declarative consumer storage contract (`storage:`)
 
-A downstream consumer (see [reusing-atlas.md](../../docs/deployment/reusing-atlas.md))
+A downstream consumer (see [reusing-atlas.md](../../docs/operations/reusing-atlas.md))
 can declare object stores in its `atlas.consumer.yml` `storage:` block instead
 of hand-writing a `minio-init` compose override. Atlas compiles each declared
 store to the existing `MINIO_EXTRA_CONSUMERS` grammar, provisions a scoped
@@ -104,7 +104,7 @@ service-account credential, and generates the `minio-init` overlay
 automatically — no consumer compose override is required. Each store exports
 stable `ATLAS_STORE_<KEY>_*` fields (bucket, internal/public endpoints,
 region, credential variable names). Full schema and field reference:
-[reusing-atlas.md](../../docs/deployment/reusing-atlas.md).
+[reusing-atlas.md](../../docs/operations/reusing-atlas.md).
 
 ### 6.2. Browser-safe presigned URLs (sign against the public host)
 

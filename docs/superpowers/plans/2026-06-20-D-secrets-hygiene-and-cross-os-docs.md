@@ -1,5 +1,7 @@
 # Plan D — Secrets Hygiene + Cross-OS Docs Implementation Plan
 
+> **Status: archived plan** — dated 2026-06-20; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** (1) Close the secrets-hygiene gap — guarantee no shipped placeholder secret can survive to runtime — and (2) correct the README's overstated cross-OS claim to state the real Windows story (WSL / Git Bash).
