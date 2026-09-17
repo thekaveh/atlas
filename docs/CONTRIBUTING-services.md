@@ -823,6 +823,7 @@ cross-manifest rules; do not edit it by hand.
 | `unique_env_vars` | `duplicate_env_var` | Each environment variable has exactly one owning manifest. |
 | `unique_containers` | `duplicate_container` | Each Compose container name has exactly one owning manifest. |
 | `unique_capabilities` | `duplicate_capability` | Capability names are unique within each manifest. |
+| `support_evidence` | `support_stable_without_release_evidence` | A stable support tier cites evidence gathered at a release tag. |
 | `data_flow_targets` | `data_flow_unknown_target` | Every runtime data-flow target names a manifest or approved aggregate documentation folder. |
 | `dependency_closure` | `unknown_dependency` | Required and optional dependencies name existing manifests. |
 | `export_consumer_closure` | `unknown_consumer` | Every exported-variable consumer names an existing manifest. |
@@ -910,6 +911,20 @@ consumer-facing walkthrough.
 A few fields on `service.yml` document ownership and capability contracts even
 though containers do not consume them directly:
 
+- `support:` — the family's operator-facing support tier and the evidence it
+  rests on (#1050). Required keys: `tier` (`stable`, `experimental`,
+  `community`, `unsupported`), `evidence` (single-line pointer to the
+  qualification run, or an honest statement that none exists), and
+  `evidence_revision` (the release tag or full commit the evidence was gathered
+  at); optional `owner` and single-line `limitations`. Selectable is not
+  validated: every family starts `experimental` and is promoted to `stable`
+  only with cited cold-start, workflow, and upgrade evidence gathered at a
+  release tag — the validator rejects `stable` with a bare commit
+  (`support_stable_without_release_evidence`), and a repository test requires
+  that tag to appear in the release record so stale promotions are visible.
+  The tier renders in the generated catalog's *Support* column, at the top of
+  each README's *Capabilities & limitations* section, and as a `[support: …]`
+  badge on the wizard prompt for every non-stable family.
 - `images[].notes` — free-form note on what the image is used for. Not read
   by any Python code.
 - `docs:` — repository-relative pointer to existing Markdown. The validator

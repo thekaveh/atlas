@@ -385,6 +385,8 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 
 ## 8. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Authenticated adaptive orchestration API | supported | tested | Protected routes enforce Supabase user identity or scoped internal caller tokens on both direct and Kong paths; public health, readiness, metrics, schema, and docs remain intentionally unauthenticated. |

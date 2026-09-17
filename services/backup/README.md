@@ -214,6 +214,8 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 
 ## 7. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | On-demand Postgres and consistency-safe snapshot export | supported | documented | The orchestrated runner creates a snapshot-consistent PostgreSQL custom-format dump, an offline Neo4j Community dump, and a native online Weaviate snapshot with deployment-key-authenticated manifests, plus a read-only Supabase Storage archive, then uploads them to constrained on-stack MinIO or external S3. |

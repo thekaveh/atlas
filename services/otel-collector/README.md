@@ -82,6 +82,8 @@ _No high-confidence opportunities identified._
 
 ## 7. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | OTLP trace ingestion and Tempo export | supported | tested | Atlas accepts internal OTLP over gRPC and HTTP, batches traces, and exports them to the required Tempo service. |

@@ -214,6 +214,8 @@ _No high-confidence opportunities identified._
 
 ## 9. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Code-defined DAG orchestration | supported | tested | Atlas runs Airflow 3 with a separate API server, scheduler, DAG processor, and init path, using LocalExecutor for operator-authored DAGs. |

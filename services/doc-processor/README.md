@@ -334,6 +334,8 @@ _No upstream calls._
 
 ## 15. Capabilities & limitations
 
+`docling` — Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Service | Capability | Status | Verification | Notes |
 |---|---|---|---|---|
 | docling | Docling document conversion sources | partial | tested | Atlas provides an NVIDIA GPU container and an existing-host endpoint, but no CPU container or Atlas-managed native Docling lifecycle. |

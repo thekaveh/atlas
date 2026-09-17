@@ -61,6 +61,8 @@ _No high-confidence opportunities identified._
 
 ## 7. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Local distributed trace storage | supported | tested | Atlas configures a filesystem-backed Tempo service receiving internal OTLP traces from the OpenTelemetry Collector and exposes it to Grafana. |

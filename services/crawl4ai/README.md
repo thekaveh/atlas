@@ -64,6 +64,8 @@ Crawl4AI exposes MCP endpoints at `/mcp/sse`, `/mcp/ws`, and `/mcp/schema` on th
 
 ## 8. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Browser-backed web extraction | supported | tested | Atlas configures Crawl4AI's JavaScript-capable API and a Local Deep Researcher adapter that submits URLs and retains bounded markdown output. |

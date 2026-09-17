@@ -67,6 +67,8 @@ None. Broader conversion behavior belongs in Docling, not this protocol adapter.
 
 ## 7. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | LightRAG asynchronous parser compatibility | supported | tested | The logical service exposes LightRAG v1.5.4 submit, poll, and one-shot result routes while delegating one authenticated synchronous conversion to Docling. |

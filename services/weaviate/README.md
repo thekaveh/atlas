@@ -121,6 +121,8 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 
 ## 7. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Persistent semantic vector storage | supported | tested | Atlas configures persistent Weaviate REST and gRPC storage and wires backend consumers through container or operator-run localhost sources. |

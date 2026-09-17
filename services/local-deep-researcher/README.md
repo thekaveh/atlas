@@ -172,6 +172,8 @@ Returns `running_summary`, `sources_gathered`, `loop_count`, current node — us
 
 ## 9. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Multi-step local research loop | supported | tested | Atlas pins the upstream LangGraph source and serving dependencies, then routes search through SearXNG and generation through LiteLLM without requiring a direct cloud key. |

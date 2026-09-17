@@ -265,6 +265,10 @@ engine. Override in Open WebUI admin → Audio, or set
 
 ## 11. Capabilities & limitations
 
+`chatterbox` — Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+`speaches` — Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+`tts-provider` — Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Service | Capability | Status | Verification | Notes |
 |---|---|---|---|---|
 | chatterbox | GPU voice-cloning text-to-speech | supported | documented | The TTS selector starts the digest-pinned NVIDIA container and exposes Chatterbox synthesis and voice cloning through the selected provider endpoint. |
