@@ -73,7 +73,7 @@ services:
       context: ./provider
       dockerfile: adapter/Dockerfile
       args:
-        BASE_IMAGE: ${DOCLING_ADAPTER_IMAGE:-python:3.12.13-slim}
+        BASE_IMAGE: ${DOCLING_ADAPTER_IMAGE:-python:3.12.14-slim}
     image: ${PROJECT_NAME}-docling-lightrag-adapter:local
     container_name: ${PROJECT_NAME}-docling-lightrag-adapter
     restart: unless-stopped
