@@ -37,7 +37,7 @@ images:
     platform: "linux/amd64"
     notes: "Used as BASE_IMAGE in doc-processor/gpu/Dockerfile."
   - var: DOCLING_ADAPTER_IMAGE
-    default: "python:3.12.13-slim"
+    default: "python:3.12.14-slim"
     container: docling-lightrag-adapter
     notes: "Minimal base image for the isolated LightRAG compatibility adapter."
 

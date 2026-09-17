@@ -1037,7 +1037,7 @@ services:
       context: '{REPO_ROOT}/services/docling/provider'
       dockerfile: adapter/Dockerfile
       args:
-        BASE_IMAGE: python:3.12.13-slim
+        BASE_IMAGE: python:3.12.14-slim
     cap_drop:
     - ALL
     container_name: atlas-docling-lightrag-adapter
@@ -2547,7 +2547,7 @@ services:
       context: '{REPO_ROOT}/services/mcp-servers/runtime'
       dockerfile: ../build/Dockerfile
       args:
-        BASE_IMAGE: python:3.12.13-slim
+        BASE_IMAGE: python:3.12.14-slim
     container_name: atlas-mcp-servers
     depends_on:
       neo4j-graph-db:
