@@ -22,7 +22,7 @@
       "functions_over_100_physical_lines": 85,
       "functions_over_4_parameters": 156,
       "modules_over_600_logical_lines": 21,
-      "tracked_files": 1563,
+      "tracked_files": 1564,
       "v0.1.0_tracked_files": 667
     },
     "extended_python_baseline_snapshot": {
@@ -148,8 +148,8 @@
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_build_steps_and_rows",
-        "cyclomatic_complexity": 76,
-        "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; discovery and parity tests exercise its service-specific branches."
+        "cyclomatic_complexity": 75,
+        "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; discovery and parity tests exercise its service-specific branches. 76 -> 75 on #1050: the subtitle fallback moved into _support_subtitle."
       },
       {
         "path": "bootstrapper/ui/textual/integration.py",
@@ -228,7 +228,7 @@
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_build_steps_and_rows",
-        "cyclomatic_complexity": 76,
+        "cyclomatic_complexity": 75,
         "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; parity and discovery tests cover the branches. Revisit when prompt construction changes next."
       },
       {
@@ -281,6 +281,7 @@
     "refresh_notes_2026_09_16_issue_1047": "Reviewed the exact #1047 branch from base 5cf4ef24 (develop after #1081): tracked_files increases 1556->1557 for exactly one required artifact: bootstrapper/tests/test_security_policy_surfaces.py (manifest route, baked H1, actionable reporting content on site and wiki, documentation-map link on both generated surfaces, nav/sidebar reachability, docs-pages trigger, and live-gate wording coverage for SECURITY.md). No other file was added; the branch otherwise edits SECURITY.md, docs/manifest.yaml, docs/README.md, docs/CHANGELOG.md, scripts/docs/manifest.py (one site_path branch), and .github/workflows/docs-pages.yml. Direct remeasurement shows no change to any complexity metric.",
     "refresh_notes_2026_09_16_issue_1052": "Reviewed the exact #1052 branch from base 82b99618 (develop after #1085): tracked_files increases 1557->1560 for exactly three required artifacts: docs/critical-pages.yaml (the product-facing completeness contract naming critical pages by manifest id and required section titles), scripts/docs/critical_pages.py (contract loader and surface checks; every function measures Radon A or B), and bootstrapper/tests/test_critical_pages_contract.py (mutation fixtures for missing page, stripped navigation link, title-only rendering, missing generated page, contract schema rejections, and the live contract). The manifest-reachability walk in scripts/docs/check_docs.py was extracted into reachable_sources, which lowers check_manifest_reachability's complexity; no metric other than tracked_files changes.",
     "refresh_notes_2026_09_16_issue_1049": "Reviewed the exact #1049 branch from base 5fd9ceef (develop after #1086): tracked_files increases 1560->1561 for exactly one required artifact: bootstrapper/tests/test_support_route.py (guard that no reader-facing page links the disabled GitHub Discussions, plus bug/question/security routing coverage for README, docs/README.md, and the troubleshooting guide). All other changes are Markdown edits; no complexity metric changes.",
-    "refresh_notes_2026_09_16_issue_968": "Reviewed the exact #968 branch from base 4138b47b (develop after #1092): tracked_files increases 1561->1563 for exactly two required artifacts: scripts/release_notes.py (dry-run Conventional Commits release-notes generator; every function measures Radon A or B and none takes more than four parameters) and bootstrapper/tests/test_release_notes.py (synthetic-history fixtures for promotion expansion, PR de-duplication, verbatim unclassified subjects, numbering compliance, overrides, CLI selectors, and the CHANGELOG write refusal). No other file was added; the branch otherwise edits docs/deployment/releasing.md and docs/CHANGELOG.md."
+    "refresh_notes_2026_09_16_issue_968": "Reviewed the exact #968 branch from base 4138b47b (develop after #1092): tracked_files increases 1561->1563 for exactly two required artifacts: scripts/release_notes.py (dry-run Conventional Commits release-notes generator; every function measures Radon A or B and none takes more than four parameters) and bootstrapper/tests/test_release_notes.py (synthetic-history fixtures for promotion expansion, PR de-duplication, verbatim unclassified subjects, numbering compliance, overrides, CLI selectors, and the CHANGELOG write refusal). No other file was added; the branch otherwise edits docs/deployment/releasing.md and docs/CHANGELOG.md.",
+    "refresh_notes_2026_09_17_issue_1050": "Reviewed the exact #1050 branch from base 40cc344f (develop after #1105): tracked_files increases 1563->1564 for exactly one required artifact: bootstrapper/tests/test_support_tiers.py (schema shape, manifest parsing, validator rule, repo-wide tier declaration and release-evidence checks, README/catalog/reference rendering, wizard badge, and contributor-guide coverage). Other changes edit existing files: the manifest schema and loader, the validator registry, the capabilities resolver/writer, the sitegen model and catalog, the wizard discovery/integration, all 57 service manifests, and the regenerated READMEs and reference pages."
   }
 }

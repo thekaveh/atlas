@@ -160,6 +160,8 @@ SearXNG aggregates upstream engines in parallel; aggregate latency tracks the sl
 
 ## 11. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | JSON privacy metasearch | supported | documented | Atlas pins SearXNG with a thin version-matched override that enables HTML and JSON results while removing Tor-only engines. |

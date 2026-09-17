@@ -345,6 +345,8 @@ _No high-confidence opportunities identified._
 
 ## 15. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Unified authenticated model gateway | supported | tested | Atlas exposes chat, embeddings, image generation, and reranking through one LiteLLM endpoint protected by the generated master key, with an explicitly credentialed admin UI. |

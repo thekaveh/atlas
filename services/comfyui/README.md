@@ -348,6 +348,8 @@ ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:8188 \
 
 ## 12. Capabilities & limitations
 
+Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Container and managed-MPS image generation | supported | tested | Atlas configures CPU and NVIDIA containers plus an Apple-Silicon Metal host process behind the same endpoint contract. |
