@@ -18,7 +18,7 @@ from markdown_it.token import Token
 
 ROOT = Path(__file__).resolve().parents[2]
 CHANGELOG = ROOT / "docs/CHANGELOG.md"
-RELEASING = ROOT / "docs/deployment/releasing.md"
+RELEASING = ROOT / "docs/operations/releasing.md"
 
 SEMVER = (
     r"(?:0|[1-9]\d*)\."

@@ -1,4 +1,4 @@
-# 6.3. Bootstrapper Lifecycle
+# 8.3. Bootstrapper Lifecycle
 
 How start.sh flows through env loading, migrations, manifest synthesis, track filtering, Kong generation, compose assembly, and launch logs.
 

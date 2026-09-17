@@ -1,5 +1,7 @@
 # Seed Partition (Part A) Implementation Plan
 
+> **Status: archived plan** — dated 2026-06-25; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Reorganize `services/supabase/db/scripts/` so each application table's DDL lives in exactly one per-service, owned, guarded SQL file — with zero change to the resulting database schema, proven by a byte-identical `pg_dump`.

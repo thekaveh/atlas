@@ -1,5 +1,7 @@
 # Bounded TUI Compose reactivation (#1031)
 
+> **Status: archived spec** — dated 2026-09-14; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 ## 1. Verified problem
 
 At current `develop` commit `32693d4f`, the Textual launch pipeline temporarily

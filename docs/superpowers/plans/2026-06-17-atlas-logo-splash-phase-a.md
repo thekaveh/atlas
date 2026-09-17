@@ -1,5 +1,7 @@
 # Atlas Logo + Wizard Splash — Phase A (App) Implementation Plan
 
+> **Status: archived plan** — dated 2026-06-17; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Render the Atlas-and-globe source image to colored terminal block-art shipped as committed data, and play it as a skippable opening splash in the setup wizard that pixel-dissolves into the live UI (with a linear/`--no-tui` fallback).

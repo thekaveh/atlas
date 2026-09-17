@@ -1,5 +1,7 @@
 # Bounded TUI Compose Reactivation (#1031) Implementation Plan
 
+> **Status: archived plan** — dated 2026-09-14; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 > **For agentic workers:** Execute sequentially in this session with TDD and a separate code review. The campaign directive authorizes implementation and both PR merges without another approval checkpoint.
 
 **Goal:** Route the synchronous TUI Compose hook through the existing bounded async runner so n8n reactivation streams normally, times out, and cleans up its owned process tree on cancellation.

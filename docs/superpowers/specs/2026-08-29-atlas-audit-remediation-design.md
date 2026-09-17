@@ -1,5 +1,7 @@
 # Atlas Audit Remediation Design
 
+> **Status: archived spec** — dated 2026-08-29; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 ## 1. Objective
 
 Close every finding from the 2026-08-29 whole-repository audit: 2 Critical,

@@ -1,5 +1,7 @@
 # Atlas vNext Strategy Report Design
 
+> **Status: archived spec** — dated 2026-07-02; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 ## 1. Purpose
 
 Prepare a decision-ready strategy report for Atlas that evaluates the project as a self-hosted AI, data, ML, automation, and vertical-application platform. The report must be candid about strengths and weaknesses, compare Atlas with adjacent competitors, reconcile existing candidate-service research with current upstream reality, and recommend a ranked top 20 list of vNext candidates.

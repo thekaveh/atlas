@@ -1,5 +1,7 @@
 # Setup-wizard tracks — design
 
+> **Status: archived spec** — dated 2026-06-13; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 **Date:** 2026-06-13
 **Status:** Approved (brainstorming complete; ready for implementation plan)
 **Author:** Kaveh Razavi

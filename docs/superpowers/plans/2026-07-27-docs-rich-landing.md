@@ -1,5 +1,7 @@
 # Docs .io Rich Landing Page — Implementation Plan
 
+> **Status: archived plan** — dated 2026-07-27; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Turn the `.io` site homepage (`docs/index.md`) from a hero + link list into a rich, professional dspy.ai-style landing — hero, a capability/feature grid (the tracks), a quick-start code moment, and the topology visual — styled to match the Clean Systems reskin from PR #3.

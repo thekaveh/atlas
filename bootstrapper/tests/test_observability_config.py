@@ -200,7 +200,7 @@ def test_prometheus_scrapes_both_asset_processors() -> None:
 
 
 def test_prometheus_docs_inventory_both_asset_processors() -> None:
-    # docs/deployment/source-configuration.md and the root README used to carry
+    # docs/operations/source-configuration.md and the root README used to carry
     # duplicate copies of this "15 scrape jobs / Asset Worker+Baker" inventory;
     # the docs IA restructure (Tasks 2-3) intentionally removed those duplicates
     # in favor of the canonical services/prometheus/README.md plus the

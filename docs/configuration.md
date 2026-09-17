@@ -1,4 +1,4 @@
-# 7.1. Configuration
+# 6.1. Configuration
 
 ## 1. Environment Files
 

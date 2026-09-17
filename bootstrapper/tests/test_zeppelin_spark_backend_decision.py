@@ -11,8 +11,8 @@ README = REPO_ROOT / "services" / "zeppelin" / "README.md"
 COMPOSE = REPO_ROOT / "services" / "zeppelin" / "compose.yml"
 MANIFEST = REPO_ROOT / "services" / "zeppelin" / "service.yml"
 KONG_README = REPO_ROOT / "services" / "kong" / "README.md"
-PORTS_AND_ROUTES = REPO_ROOT / "docs" / "deployment" / "ports-and-routes.md"
-SOURCE_CONFIGURATION = REPO_ROOT / "docs" / "deployment" / "source-configuration.md"
+PORTS_AND_ROUTES = REPO_ROOT / "docs" / "operations" / "ports-and-routes.md"
+SOURCE_CONFIGURATION = REPO_ROOT / "docs" / "operations" / "source-configuration.md"
 ROOT_README = REPO_ROOT / "README.md"
 
 

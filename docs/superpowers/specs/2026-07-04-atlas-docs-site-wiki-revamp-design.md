@@ -1,5 +1,7 @@
 # Atlas Docs Site And Wiki Revamp Design
 
+> **Status: archived spec** — dated 2026-07-04; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 ## 1. Overview
 
 Atlas needs a documentation system that feels as intentional as the platform it describes. The current repository already has useful machinery: a generated MkDocs site, a GitHub Pages workflow, a GitHub Wiki exporter, service READMEs, manifest-driven service metadata, topology data, generated service diagrams, and CI drift checks. The problem is not absence of infrastructure. The problem is that the published surfaces still read and look like thin build artifacts: shallow service pages, a small wiki, a chaotic navigation tree, stock-theme ergonomics, and too little editorial structure.

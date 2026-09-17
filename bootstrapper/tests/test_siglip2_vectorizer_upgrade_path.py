@@ -11,7 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 WEAVIATE_MANIFEST = REPO_ROOT / "services" / "weaviate" / "service.yml"
 MULTI2VEC_README = REPO_ROOT / "services" / "multi2vec-clip" / "README.md"
 WEAVIATE_README = REPO_ROOT / "services" / "weaviate" / "README.md"
-SOURCE_CONFIG_DOC = REPO_ROOT / "docs" / "deployment" / "source-configuration.md"
+SOURCE_CONFIG_DOC = REPO_ROOT / "docs" / "operations" / "source-configuration.md"
 SIGLIP_RESEARCH = REPO_ROOT / "docs" / "research" / "candidates" / "siglip2-vectorizer.md"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 

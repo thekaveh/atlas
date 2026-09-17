@@ -1,5 +1,7 @@
 # Plugin Kong Timeouts Design
 
+> **Status: archived spec** — dated 2026-08-25; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 ## 1. Problem
 
 Backend plugin routes are proxied through Kong's shared `backend-api` service. Kong applies `connect_timeout`, `write_timeout`, and `read_timeout` at the service level, and Atlas does not emit those fields. Every plugin therefore inherits Kong's 60,000 ms defaults, even when its work legitimately takes longer.

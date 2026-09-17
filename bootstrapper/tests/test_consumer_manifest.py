@@ -11,7 +11,7 @@ from tests.three_surface_test_utils import surface_text
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
-REUSING_ATLAS = REPO_ROOT / "docs" / "deployment" / "reusing-atlas.md"
+REUSING_ATLAS = REPO_ROOT / "docs" / "operations" / "reusing-atlas.md"
 
 
 def _write_minimal_root(root: Path) -> None:

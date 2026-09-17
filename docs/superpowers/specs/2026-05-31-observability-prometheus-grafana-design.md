@@ -1,5 +1,7 @@
 # Observability bundle: Prometheus + Grafana — design
 
+> **Status: archived spec** — dated 2026-05-31; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 **Date:** 2026-05-31
 **Status:** Draft — pending implementation plan
 **Scope:** First in a series of four bundles. Subsequent specs (deferred): Spark + Zeppelin, Airflow, Obsidian.

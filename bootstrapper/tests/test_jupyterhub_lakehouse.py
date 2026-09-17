@@ -108,7 +108,7 @@ def test_jupyterhub_deployment_docs_describe_current_data_track_lakehouse_path()
     # lowercase PyPI/import name — used consistently across the manifest,
     # requirements.txt, and services/jupyterhub/README.md) as part of the lakehouse
     # client stack.
-    source_config = (ROOT / "docs" / "deployment" / "source-configuration.md").read_text(
+    source_config = (ROOT / "docs" / "operations" / "source-configuration.md").read_text(
         encoding="utf-8"
     )
 

@@ -1,5 +1,7 @@
 # Wizard recovery guidance (#1029)
 
+> **Status: archived spec** — dated 2026-09-13; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 ## 1. Verified problem
 
 At `7a8e777b`, `WizardScreen._emit_failure_hints` recommends recursive

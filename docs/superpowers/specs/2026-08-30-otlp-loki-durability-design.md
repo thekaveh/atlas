@@ -1,5 +1,7 @@
 # Durable OTLP-to-Loki Logging Design
 
+> **Status: archived spec** — dated 2026-08-30; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 ## 1. Goal
 
 Persist OTLP logs accepted by Atlas' pinned OpenTelemetry Collector in the

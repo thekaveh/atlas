@@ -9,7 +9,7 @@ from tests.three_surface_test_utils import surface_text
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
-REUSING_ATLAS = REPO_ROOT / "docs" / "deployment" / "reusing-atlas.md"
+REUSING_ATLAS = REPO_ROOT / "docs" / "operations" / "reusing-atlas.md"
 
 
 def _write_env_pair(tmp_path: Path) -> None:
@@ -161,8 +161,8 @@ def test_consumer_upgrade_docs_name_headless_backfill_and_compose_validate() -> 
     assert "Exit codes" in reusing
 
     for text in (
-        surface_text("docs/operations.md", "site"),
-        surface_text("docs/operations.md", "wiki"),
+        surface_text("docs/operations/index.md", "site"),
+        surface_text("docs/operations/index.md", "wiki"),
     ):
         assert "./start.sh env backfill" in text
         assert "./start.sh compose validate" in text

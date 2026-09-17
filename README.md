@@ -137,7 +137,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 
 *Kong routes services with declared host aliases; loopback-only interfaces such as Zeppelin bypass the gateway.*
 
-Full port + Kong-route detail: [docs/reference/ports-routes.md](docs/reference/ports-routes.md) and [docs/deployment/ports-and-routes.md](docs/deployment/ports-and-routes.md). Per-service documentation: [docs/services.md](docs/services.md).
+Full port + Kong-route detail: [docs/reference/ports-routes.md](docs/reference/ports-routes.md) and [docs/operations/ports-and-routes.md](docs/operations/ports-and-routes.md). Per-service documentation: [docs/services.md](docs/services.md).
 
 ## 3. Documentation
 
@@ -145,10 +145,10 @@ Full port + Kong-route detail: [docs/reference/ports-routes.md](docs/reference/p
 
 - **Getting started** — [Quick Start](docs/quick-start/index.md), [Interactive Setup Wizard](docs/quick-start/interactive-setup-wizard.md), [Troubleshooting](docs/quick-start/troubleshooting.md), [Startup error recovery](docs/TROUBLESHOOTING.md)
 - **Core concepts** — [Core Concepts](docs/core-concepts.md) (SOURCE values, tracks, manifests, gateway access), [SOURCE reference](docs/reference/source-values.md), [Tracks](docs/tracks.md)
-- **Operating the stack** — [Service catalog](docs/services.md), [SOURCE configuration](docs/deployment/source-configuration.md), [Ports and routes](docs/deployment/ports-and-routes.md), [Architecture diagrams](docs/architecture/index.md)
-- **Running Atlas for another project** — [Reusing Atlas as Infrastructure](docs/deployment/reusing-atlas.md), [Using as a submodule](docs/deployment/submodule-usage.md)
+- **Operating the stack** — [Service catalog](docs/services.md), [SOURCE configuration](docs/operations/source-configuration.md), [Ports and routes](docs/operations/ports-and-routes.md), [Architecture diagrams](docs/architecture/index.md)
+- **Running Atlas for another project** — [Reusing Atlas as Infrastructure](docs/operations/reusing-atlas.md), [Using as a submodule](docs/operations/submodule-usage.md)
 - **Contributing** — [Development](docs/development.md) (repository layout, parent-repo consumer layout, required docs checks), [Adding a service](docs/CONTRIBUTING-services.md), [Security policy](SECURITY.md)
-- **Release history** — [ROADMAP](docs/ROADMAP.md), [CHANGELOG](docs/CHANGELOG.md), [Releasing & version tags](docs/deployment/releasing.md)
+- **Release history** — [ROADMAP](docs/ROADMAP.md), [CHANGELOG](docs/CHANGELOG.md), [Releasing & version tags](docs/operations/releasing.md)
 - **Project & internal docs** — research, strategy, and maintenance notes live under `docs/`: [docs/research/README.md](docs/research/README.md), [docs/strategy/README.md](docs/strategy/README.md), [docs/maintenance/README.md](docs/maintenance/README.md)
 
 ## 4. Contributing

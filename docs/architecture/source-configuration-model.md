@@ -1,4 +1,4 @@
-# 6.4. SOURCE Configuration Model
+# 8.4. SOURCE Configuration Model
 
 Container, localhost, disabled, none, cloud-provider and managed-vLLM enablement, and adaptive-service behavior.
 

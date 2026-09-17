@@ -1,5 +1,7 @@
 # Model SoT Migration (Part B) Implementation Plan
 
+> **Status: archived plan** — dated 2026-06-25; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Move the LLM model source-of-truth out of the Postgres `public.llms` table into per-service YAML catalogs (`services/ollama/models.yaml`, `services/litellm/models.yaml`), resolved by a shared module into env vars; delete `llm-catalog-init` + `public.llms`.

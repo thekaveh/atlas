@@ -137,7 +137,7 @@ scripts/smoke-iceberg-advanced-sql.sh zeppelin
 This `data-eng` / `all` track smoke adds no new service, SOURCE, or port. It
 requires `SPARK_SOURCE`, `ICEBERG_REST_SOURCE`, `MINIO_SOURCE`, and
 `ZEPPELIN_SOURCE` all set to `container`. See
-[`docs/deployment/iceberg-advanced-smoke.md`](../../docs/deployment/iceberg-advanced-smoke.md)
+[`docs/operations/iceberg-advanced-smoke.md`](../../docs/operations/iceberg-advanced-smoke.md)
 for the full feature list this smoke exercises.
 
 ## 6. Dependencies & Integrations

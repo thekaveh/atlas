@@ -1,6 +1,10 @@
 # 9.3. Atlas Documentation
 
-Documentation index for Atlas.
+Documentation index for Atlas. Start from the journey that matches you:
+
+- **New to Atlas (run it locally):** [Documentation home](index.md) → [Quick Start](quick-start/index.md) → [Core Concepts](core-concepts.md) → [Tracks](tracks.md) → [Troubleshooting](TROUBLESHOOTING.md).
+- **Building on Atlas (application developer):** [Service catalog](services.md) → [Configuration](configuration.md) → [Reusing Atlas as Infrastructure](operations/reusing-atlas.md) → [Endpoint contract export](operations/index.md#5-endpoint-contract-export) → [Backend plugin manifest](operations/index.md#6-backend-plugin-manifest).
+- **Operating or contributing:** [Operations](operations/index.md) → [Architecture](architecture/index.md) → [Development](development.md) → [Reference](reference/index.md) → [Releasing](operations/releasing.md) → [Security policy](../SECURITY.md).
 
 ## 1. Documentation structure
 
@@ -34,14 +38,14 @@ Documentation index for Atlas.
 
 ### 1.5. Configuration and operations
 - [Configuration overview](configuration.md) — environment files, SOURCE overrides, and base-port behavior
-- [Operations overview](operations.md) — runtime commands, automation, validation, health, and managed-host lifecycle
-- [SOURCE Configuration](deployment/source-configuration.md) — SOURCE-based deployment, including GPU variants
-- [Ports and Routes](deployment/ports-and-routes.md) — canonical port offsets, direct URLs, and Kong routes
-- [Iceberg advanced smoke test](deployment/iceberg-advanced-smoke.md) — opt-in validation for write, schema, snapshot, time-travel, and maintenance behavior
-- [Reusing Atlas as Infrastructure](deployment/reusing-atlas.md) — overview + decision guide: use Atlas as the backing infra for another project (which method, is it ready, how to wire + customize)
-- [Using as a Submodule](deployment/submodule-usage.md) — deep-dive for the Git-submodule reuse method
-- [Releasing & version tags](deployment/releasing.md) — semver tag convention for pinning a vendored Atlas
-- [Expected Startup Warnings](deployment/expected-startup-warnings.md) — known-benign log lines on `./start.sh`
+- [Operations overview](operations/index.md) — runtime commands, automation, validation, health, and managed-host lifecycle
+- [SOURCE Configuration](operations/source-configuration.md) — SOURCE-based deployment, including GPU variants
+- [Ports and Routes](operations/ports-and-routes.md) — canonical port offsets, direct URLs, and Kong routes
+- [Iceberg advanced smoke test](operations/iceberg-advanced-smoke.md) — opt-in validation for write, schema, snapshot, time-travel, and maintenance behavior
+- [Reusing Atlas as Infrastructure](operations/reusing-atlas.md) — overview + decision guide: use Atlas as the backing infra for another project (which method, is it ready, how to wire + customize)
+- [Using as a Submodule](operations/submodule-usage.md) — deep-dive for the Git-submodule reuse method
+- [Releasing & version tags](operations/releasing.md) — semver tag convention for pinning a vendored Atlas
+- [Expected Startup Warnings](operations/expected-startup-warnings.md) — known-benign log lines on `./start.sh`
 
 ### 1.6. Development and contribution
 - [Development overview](development.md) — service admission, consumer layout, required checks, and repository structure

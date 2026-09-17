@@ -1,5 +1,7 @@
 # Atlas Audit Remediation Implementation Plan
 
+> **Status: archived plan** — dated 2026-08-29; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close all 35 findings from the 2026-08-29 Atlas repository audit on one consolidated, reviewable branch.
