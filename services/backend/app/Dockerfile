@@ -5,9 +5,16 @@ FROM ${BASE_IMAGE}
 
 WORKDIR /app
 
-# Debian security fixes arrive through a reviewed BASE_IMAGE refresh. Running a
-# mutable full-distribution upgrade here would make identical source revisions
-# produce different images; the required final-image scan gates every refresh.
+# Debian security fixes normally arrive through a reviewed BASE_IMAGE refresh.
+# When the newest published base still carries fixed findings (2026-09-17: the
+# current python:3.12.14-bookworm index itself reports 87 fixed HIGH advisories,
+# 64 of them in linux-libc-dev, #1002), take the published updates the same way
+# services/airflow, services/spark, services/asset-baker, services/asset-worker
+# and services/backup do. This trades byte-for-byte base reproducibility for a
+# patched runtime; the final-image scan still gates every refresh.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better layer caching
 COPY ./app/requirements.txt ./app/requirements-locked.txt ./
