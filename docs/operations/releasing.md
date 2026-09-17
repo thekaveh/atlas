@@ -92,14 +92,38 @@ test contract.
 - `v0.1.0` is the sole historical target-changelog exception. Its tagged tree still placed the checkpoint's changes under `[Unreleased]`; the versioned `0.1.0` heading was added by the later history reconciliation. Every subsequent tag must contain its own dated release heading before it is created.
 - The older changelog labels `1.0.0`, `1.5.0`, `2.0.0`, and `3.0.0` predate the tag convention. They identify historical project milestones, not Git tags or published releases. Atlas deliberately began its public semantic-version tag line at `v0.1.0`; the earlier labels remain in the changelog only to preserve their original chronology and content.
 
-## 6. Release notes from Conventional Commits (prototype)
+## 6. Release notes from Conventional Commits
 
-`scripts/release_notes.py` is the dry-run answer to the changelog-toil question
-in [#968](https://github.com/thekaveh/atlas/issues/968). It reads a commit
-range from the local repository, classifies each first-parent commit by its
-Conventional Commits subject, and prints concise, grouped notes. It installs
-no release framework, needs no credentials, never publishes a version, and
-refuses to write `docs/CHANGELOG.md`.
+`scripts/release_notes.py` answers the changelog-toil question in
+[#968](https://github.com/thekaveh/atlas/issues/968). It reads a commit range
+from the local repository, classifies each first-parent commit by its
+Conventional Commits subject, and renders concise, grouped notes. It installs
+no release framework, needs no credentials, and never publishes a version.
+
+**Adopted contract (2026-09-17).** The `[Unreleased]` section of
+`docs/CHANGELOG.md` opens with a generated block between the
+`GENERATED RELEASE NOTES` markers. The block lists breaking changes, security
+fixes, and features entry by entry and counts everything else; the curated
+entries that follow it are the detailed history and are never touched by the
+tool. The block records the exact range it was rendered from
+(`<!-- generated-range: v0.1.0..<commit> -->`), so it is reproducible, and
+`--check-changelog` (run by the required *Manifest lint + unit tests* job and by
+`test_committed_changelog_block_is_current`) fails when the block differs from
+what that range renders — a hand edit or a stale block is caught before merge.
+Refresh it at release time, or whenever a summary of newer work is wanted:
+
+```bash
+uv run --project bootstrapper python -m scripts.release_notes --update-changelog --range v0.1.0..origin/develop
+uv run --project bootstrapper python -m scripts.release_notes --check-changelog
+```
+
+Pull-request titles must be Conventional Commits subjects
+(`type(scope)!: summary`; the required job runs
+`scripts/release_notes.py --check-title`), because the squash commit takes its
+subject from the title and the generator reads that subject. Accepted types:
+`build`, `chore`, `ci`, `deps`, `docs`, `feat`, `fix`, `maintenance`, `perf`,
+`refactor`, `release`, `security`, `style`, `test`. History before `v0.1.0`
+keeps its hand-written form.
 
 ```bash
 uv run --project bootstrapper python -m scripts.release_notes --range v0.1.0..origin/main
@@ -115,18 +139,17 @@ commits it carries, a promotion *squash* (`release: …`) stays as a single
 nothing is counted twice. Subjects that are not Conventional Commits are kept
 verbatim under *Unclassified* rather than dropped.
 
-**Numbering.** Rendered sections are numbered `## 1.`, `## 2.`, … contiguously,
-so the output satisfies the same heading contract `make docs-check` enforces on
-hand-written pages. That settles the compatibility question the issue raised:
-generated notes can comply with the contract; whether `docs/CHANGELOG.md`
-itself becomes generated (and therefore exempt from hand numbering) remains a
-maintainer decision, and the file stays hand-maintained until it is made.
+**Numbering.** Stand-alone output is numbered `## 1.`, `## 2.`, … contiguously,
+and the changelog block is always the first `### 1.1.` entry of the Unreleased
+section, so both satisfy the heading contract `make docs-check` enforces on
+hand-written pages; keep the block first, because the numbering tool would
+otherwise rewrite its heading and the drift check would report it.
 
 **Corrections.** A maintainer fixes a misclassified change with an overrides
 file (`{pr: {bucket, subject}}`) passed on the command line. History is never
 rewritten, so the same range renders the same notes for anyone who applies the
 same overrides.
 
-**Not done here.** No `semantic-release`, no version derivation, no CI gate on
-commit-message format, and no published release; those follow only after the
-decision above.
+**Not done.** No `semantic-release`, no version derivation, and no published
+release; the tag procedure in §3 is unchanged and the generated block is refreshed
+by hand as part of step 1.
