@@ -301,7 +301,7 @@ def test_image_http_and_parser_security_floors() -> None:
     )
     assert (
         _locked_version("services/docling/provider/localhost/uv.lock", "soupsieve")
-        == "2.8.4"
+        == "2.9.2"  # CVE-2026-85999 / CVE-2026-86000 fixed in 2.9.0 (#1110)
     )
     assert (
         _locked_version(
