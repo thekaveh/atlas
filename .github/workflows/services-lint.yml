@@ -60,6 +60,18 @@ jobs:
         working-directory: bootstrapper
         run: uv sync --group dev --locked
 
+      - name: Pull-request title is a Conventional Commits subject
+        # The squash commit takes its subject from the title, and
+        # scripts/release_notes.py generates the changelog summary from those
+        # subjects (#968). Pushes to develop/main carry no title to check.
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: uv run --project bootstrapper python -m scripts.release_notes --check-title "$PR_TITLE"
+
+      - name: Generated changelog summary is current
+        run: uv run --project bootstrapper python -m scripts.release_notes --check-changelog
+
       - name: Install ShellCheck
         run: |
           curl -fsSL \
