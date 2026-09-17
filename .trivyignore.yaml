@@ -13,6 +13,8 @@
 #                  short of the 4.2.17 that CVE-2026-75595 needs. See #996.
 #   Julia      40  Julia 1.12.7 (jupyterhub) is the newest 1.12.x; 1.13.0 is a
 #                  minor-version move, not a patch.
+#   Iceberg    24  apache/iceberg-rest-fixture:1.10.1 is the newest published tag
+#                  (2026-09-17); the findings sit in its shaded adapter jar.
 #
 # Renewed to 2026-12-09 on that basis. OSV additionally reports 44 rows as no
 # longer affected at the pinned version; those were deliberately NOT deleted,
@@ -32,6 +34,319 @@
 # uses the image's own patched Python. Nothing in that process imports urllib3,
 # certifi or setuptools, opens a network connection, or installs packages.
 vulnerabilities:
+  - id: CVE-2025-48734
+    purls:
+      - "pkg:maven/commons-beanutils/commons-beanutils@1.9.4"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2025-67721
+    purls:
+      - "pkg:maven/io.airlift/aircompressor@0.27"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-33870
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http@4.1.124.Final"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-33871
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http2@4.1.124.Final"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-42579
+    purls:
+      - "pkg:maven/io.netty/netty-codec-dns@4.1.112.Final"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-42583
+    purls:
+      - "pkg:maven/io.netty/netty-codec@4.1.124.Final"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-42584
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http@4.1.124.Final"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-42587
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http2@4.1.124.Final"
+      - "pkg:maven/io.netty/netty-codec-http@4.1.124.Final"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-44249
+    purls:
+      - "pkg:maven/io.netty/netty-handler@4.1.124.Final"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-45416
+    purls:
+      - "pkg:maven/io.netty/netty-handler@4.1.124.Final"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-45674
+    purls:
+      - "pkg:maven/io.netty/netty-resolver-dns@4.1.112.Final"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-47691
+    purls:
+      - "pkg:maven/io.netty/netty-resolver-dns@4.1.112.Final"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-50010
+    purls:
+      - "pkg:maven/io.netty/netty-handler@4.1.124.Final"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-54399
+    purls:
+      - "pkg:maven/org.apache.httpcomponents.core5/httpcore5@5.3.4"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-54428
+    purls:
+      - "pkg:maven/org.apache.httpcomponents.core5/httpcore5-h2@5.3.4"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-54512
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.18.4"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-54513
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.18.4"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-55831
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http@4.1.124.Final"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-55833
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http@4.1.124.Final"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-56745
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http@4.1.124.Final"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-56819
+    purls:
+      - "pkg:maven/io.netty/netty-codec-http2@4.1.124.Final"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-59901
+    purls:
+      - "pkg:maven/io.netty/netty-codec@4.1.124.Final"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: CVE-2026-75595
+    purls:
+      - "pkg:maven/io.netty/netty-handler@4.1.124.Final"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
+  - id: GHSA-r7wm-3cxj-wff9
+    purls:
+      - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.18.4.1"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      this exact dependency inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server. Atlas
+      keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
+      exposes it only on the Compose network and a loopback-bound host port
+      (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
+      operator-driven. Remove this exception when Apache publishes a fixture
+      release carrying the fix (#1002).
   - id: CVE-2023-37920
     paths:
       - "opt/blender/4.3/python/lib/python3.11/site-packages/certifi-2021.10.8.dist-info/METADATA"
