@@ -1,5 +1,7 @@
 # Docs .io Reskin Core ("Clean Systems", light-first) — Implementation Plan
 
+> **Status: archived plan** — dated 2026-07-27; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Reskin the Atlas `.io` MkDocs-Material site from its stock dark-space look to the "Clean Systems" identity chosen from the direction mockup — light-first, airy, one calm blue accent, hairline borders, refined typography, with a proper Atlas logomark + favicon — and a dark theme given equal care.

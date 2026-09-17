@@ -1,5 +1,7 @@
 # Docs IA Restructure (Duplication Kill) — Implementation Plan
 
+> **Status: archived plan** — dated 2026-07-27; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Eliminate the reader-facing documentation duplication — shrink the 659-line root `README.md` from a parallel mini-site to a thin landing, and replace the hand-maintained copies of ports/SOURCE facts with links to their generated canonical reference pages — without touching nav-section numbering.

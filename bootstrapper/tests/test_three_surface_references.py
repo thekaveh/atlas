@@ -32,7 +32,7 @@ def test_canonical_reference_projection_covers_dynamic_public_pages() -> None:
         "docs/reference/manifest-fields.md",
     } | architecture
     assert "../services/comfyui/README.md" in rendered[ROOT / "docs/services.md"]
-    assert "../../deployment/" not in rendered[ROOT / "docs/reference/ports-routes.md"]
+    assert "../../operations/" not in rendered[ROOT / "docs/reference/ports-routes.md"]
 
 
 def test_committed_canonical_references_match_the_live_service_model() -> None:

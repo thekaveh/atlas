@@ -140,7 +140,7 @@ def check_stale_architecture_refs():
 
 def check_source_matrix():
     # The per-service SOURCE matrix used to be hand-maintained in
-    # docs/deployment/source-configuration.md; that copy was retired in
+    # docs/operations/source-configuration.md; that copy was retired in
     # favor of the GENERATED docs/reference/source-values.md (single
     # canonical source, regenerated from the manifests). This probe now
     # requires every *_SOURCE var to be documented in the generated
@@ -150,7 +150,7 @@ def check_source_matrix():
     # it wholesale.
     env = (ROOT / '.env.example').read_text(encoding="utf-8", errors='ignore')
     reference = (ROOT / 'docs/reference/source-values.md').read_text(encoding="utf-8", errors='ignore')
-    guide = (ROOT / 'docs/deployment/source-configuration.md').read_text(encoding="utf-8", errors='ignore')
+    guide = (ROOT / 'docs/operations/source-configuration.md').read_text(encoding="utf-8", errors='ignore')
     missing = []
     source_vars = sorted(set(re.findall(r'^([A-Z0-9_]+_SOURCE)=', env, re.M)))
     if not source_vars:
@@ -170,18 +170,18 @@ def check_source_matrix():
         if not _documented(var, reference) and not _documented(var, guide):
             missing.append(
                 f'{var}: undocumented in both docs/reference/source-values.md and '
-                'docs/deployment/source-configuration.md'
+                'docs/operations/source-configuration.md'
             )
     if 'reference/source-values.md' not in guide:
         missing.append(
-            'docs/deployment/source-configuration.md: missing link to docs/reference/source-values.md'
+            'docs/operations/source-configuration.md: missing link to docs/reference/source-values.md'
         )
     return missing
 
 
 def check_required_files():
     required = [
-        'docs/deployment/ports-and-routes.md',
+        'docs/operations/ports-and-routes.md',
         'docs/diagrams/architecture.svg',
         'docs/diagrams/architecture.html',
         'docs/diagrams/README.md',

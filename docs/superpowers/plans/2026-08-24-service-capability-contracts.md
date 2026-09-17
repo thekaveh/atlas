@@ -1,5 +1,7 @@
 # Service Capability Contracts Implementation Plan
 
+> **Status: archived plan** — dated 2026-08-24; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Each implementation task requires a fresh implementer, a specification review, and a code-quality review before the next task begins.
 
 **Goal:** Add a validated capability contract to every Atlas service manifest and render it into deterministic, drift-checked service documentation without requiring a live stack.

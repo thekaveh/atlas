@@ -1,5 +1,7 @@
 # Model SoT Migration — Part C (ComfyUI) Implementation Plan
 
+> **Status: archived plan** — dated 2026-06-26; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Mirror Part B for ComfyUI — move the ComfyUI model catalog SoT out of `public.comfyui_models` into per-service YAML (retaining the download metadata `comfyui-init` needs), delete `comfyui-catalog-init`, repoint `comfyui-init` + the backend GET route to a generated manifest, drop the table. Keep `comfyui_workflows` + `comfyui_generations` (runtime app state).

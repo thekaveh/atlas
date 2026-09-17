@@ -1,5 +1,7 @@
 # Phase 1 — Reuse Mechanics — Design
 
+> **Status: archived spec** — dated 2026-06-21; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 **Date:** 2026-06-21
 **Status:** Design (for implementation)
 **Scope:** Phase 1 of the production-readiness & reuse roadmap (`docs/superpowers/specs/2026-06-20-production-readiness-and-reuse-roadmap-design.md`, Part 5). Phase 0 merged in PR #124.

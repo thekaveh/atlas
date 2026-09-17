@@ -1,4 +1,4 @@
-# 8.1. Operations
+# 7.1. Operations
 
 ## 1. Runtime Commands
 
@@ -77,7 +77,7 @@ belongs to another one — so the endpoints would answer from the wrong stack
 instead of refusing. The command therefore exits `3` until a block exists. Pass
 `--allow-unresolved` for the legitimate pre-allocation cases (CI templating,
 committing a sample) so the ambiguity is chosen rather than stumbled into. See
-[reusing-atlas.md §6.5](https://github.com/thekaveh/atlas/blob/main/docs/deployment/reusing-atlas.md).
+[reusing-atlas.md §6.5](https://github.com/thekaveh/atlas/blob/main/docs/operations/reusing-atlas.md).
 
 ## 6. Backend Plugin Manifest
 
@@ -99,7 +99,7 @@ public. Timeout-bearing plugins receive dedicated Kong services so their
 strict millisecond `connect_timeout`, `write_timeout`, and `read_timeout`
 overrides do not affect other backend routes; omitted fields retain Kong's
 defaults. See
-[reusing-atlas.md §6.3.1](https://github.com/thekaveh/atlas/blob/main/docs/deployment/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml).
+[reusing-atlas.md §6.3.1](https://github.com/thekaveh/atlas/blob/main/docs/operations/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml).
 
 ## 7. Health And Logs
 

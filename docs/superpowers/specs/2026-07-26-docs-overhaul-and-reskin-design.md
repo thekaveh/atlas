@@ -1,5 +1,7 @@
 # Documentation Overhaul & .io Site Reskin — Design
 
+> **Status: archived spec** — dated 2026-07-26; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 - **Date:** 2026-07-26
 - **Status:** Draft (awaiting review)
 - **Owner:** Kaveh Razavi

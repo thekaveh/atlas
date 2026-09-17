@@ -14,8 +14,8 @@ from tests.three_surface_test_utils import surface_text
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-REUSING_ATLAS = REPO_ROOT / "docs" / "deployment" / "reusing-atlas.md"
-SUBMODULE_USAGE = REPO_ROOT / "docs" / "deployment" / "submodule-usage.md"
+REUSING_ATLAS = REPO_ROOT / "docs" / "operations" / "reusing-atlas.md"
+SUBMODULE_USAGE = REPO_ROOT / "docs" / "operations" / "submodule-usage.md"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 
 

@@ -384,7 +384,7 @@ def test_track_architecture_models_explicit_disabled_overrides() -> None:
 
 
 def test_localhost_port_docs_distinguish_transport_and_route_contracts() -> None:
-    text = (ROOT / "docs/deployment/ports-and-routes.md").read_text(encoding="utf-8")
+    text = (ROOT / "docs/operations/ports-and-routes.md").read_text(encoding="utf-8")
     for expected in (
         "TIKA_LOCALHOST_PORT",
         "COMFYUI_MPS_LOCALHOST_PORT",
@@ -407,7 +407,7 @@ def test_localhost_port_docs_distinguish_transport_and_route_contracts() -> None
 
 
 def test_managed_host_docs_and_historical_reference_name_current_surfaces() -> None:
-    operations = (ROOT / "docs/operations.md").read_text(encoding="utf-8")
+    operations = (ROOT / "docs/operations/index.md").read_text(encoding="utf-8")
     opening = operations.split("## 8. Managed Host Lifecycle", 1)[1].split("\n\n", 2)[1]
     assert "Blender" in opening
     changelog = (ROOT / "docs/CHANGELOG.md").read_text(encoding="utf-8")
@@ -511,7 +511,7 @@ def test_top_level_architecture_long_routes_use_reviewed_gutters_and_endpoints()
 
 
 def test_llm_docs_and_help_treat_none_as_no_ollama_not_cloud_only() -> None:
-    source_config = (ROOT / "docs/deployment/source-configuration.md").read_text(
+    source_config = (ROOT / "docs/operations/source-configuration.md").read_text(
         encoding="utf-8"
     )
     wizard = (ROOT / "docs/quick-start/interactive-setup-wizard.md").read_text(
@@ -542,7 +542,7 @@ def test_llm_docs_and_help_treat_none_as_no_ollama_not_cloud_only() -> None:
 
 
 def test_llm_docs_qualify_native_bypasses_and_do_not_promise_failover() -> None:
-    source_config = (ROOT / "docs/deployment/source-configuration.md").read_text(
+    source_config = (ROOT / "docs/operations/source-configuration.md").read_text(
         encoding="utf-8"
     )
     litellm = (ROOT / "services/litellm/README.md").read_text(encoding="utf-8")
@@ -556,7 +556,7 @@ def test_llm_docs_qualify_native_bypasses_and_do_not_promise_failover() -> None:
 
 
 def test_vllm_metal_host_guidance_is_track_aware_and_complete() -> None:
-    source_config = (ROOT / "docs/deployment/source-configuration.md").read_text(
+    source_config = (ROOT / "docs/operations/source-configuration.md").read_text(
         encoding="utf-8"
     )
     wizard = (ROOT / "docs/quick-start/interactive-setup-wizard.md").read_text(
@@ -572,7 +572,7 @@ def test_vllm_metal_host_guidance_is_track_aware_and_complete() -> None:
 
 
 def test_submodule_compose_and_kong_examples_respect_project_boundaries() -> None:
-    guide = (ROOT / "docs/deployment/submodule-usage.md").read_text(
+    guide = (ROOT / "docs/operations/submodule-usage.md").read_text(
         encoding="utf-8"
     )
     assert "depends_on:\n      - myproject-supabase-db" not in guide
@@ -767,7 +767,7 @@ def test_services_lint_gates_main_and_develop_and_runs_three_surface_check() -> 
 
 
 def test_source_configuration_shell_examples_do_not_comment_after_continuations() -> None:
-    source = (ROOT / "docs" / "deployment" / "source-configuration.md").read_text(
+    source = (ROOT / "docs" / "operations" / "source-configuration.md").read_text(
         encoding="utf-8"
     )
     assert "\\  #" not in source

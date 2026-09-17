@@ -1,5 +1,7 @@
 # Wizard minimum-terminal usability (#1030)
 
+> **Status: archived spec** — dated 2026-09-14; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 ## 1. Verified problem
 
 At current `develop` commit `3d6d0ab9`, the terminal gate accepts 60 columns

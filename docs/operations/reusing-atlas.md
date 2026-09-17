@@ -1,4 +1,4 @@
-# 8.6. Reusing Atlas as Infrastructure
+# 7.6. Reusing Atlas as Infrastructure
 
 How to use Atlas as the backing infrastructure / platform for another project — for example a RAG-showcase app that needs Weaviate + Neo4j + an LLM gateway + object storage without standing those up itself.
 
@@ -1309,7 +1309,7 @@ rather than repeating them.
 1. **Register** a parent manifest — [§6.1](#61-registering-a-parent-project-with-atlasconsumeryml) (`atlas.consumer.yml`).
 2. **Pin identity** (`PROJECT_NAME` + a distinct `BASE_PORT`) durably in the manifest — §7.2 — never the default `63000`; `doctor` warns if a non-default project is left on it. Set **`BASE_PORT: auto`** in the manifest to have Atlas reserve a distinct free block per consumer and keep it stable across restarts (best for several consumers on one host, §7.4), or commit a fixed number. (`--base-port auto` at launch is the one-off, resolve-fresh form.)
 3. **Select sources** once (`container` / `localhost` / `managed-localhost-mps` / `ollama-localhost` / `none`) — §7.3, [source-configuration.md](source-configuration.md). Gate a paid provider on its key with the manifest's key-gated [`enabled_if_env`](#61-registering-a-parent-project-with-atlasconsumeryml) form instead of a wrapper script.
-4. **Validate** headlessly — `env backfill` + `compose validate` + `doctor` ([operations.md](../operations.md); [§6.1.4](#614-headless-submodule-upgrade-validation) / [§6.1.5](#615-consumer-doctor-for-ci-preflight)). `doctor` also lints the default-`63000` squat and **declared-but-unpullable** model provisioning (`model_sidecars.ollama` / `COMFYUI_USER_MODELS` under a `*-localhost` source).
+4. **Validate** headlessly — `env backfill` + `compose validate` + `doctor` ([operations](index.md); [§6.1.4](#614-headless-submodule-upgrade-validation) / [§6.1.5](#615-consumer-doctor-for-ci-preflight)). `doctor` also lints the default-`63000` squat and **declared-but-unpullable** model provisioning (`model_sidecars.ollama` / `COMFYUI_USER_MODELS` under a `*-localhost` source).
 5. **Start** — `./start.sh --consumer … --base-port auto` (first run may pass source flags; see §7.3). Your consumer LiteLLM models are discoverable in `/v1/models` on start with **no `docker restart`**, and declared n8n workflows activate even **without an `N8N_API_KEY`** — Atlas performs any restart the webhook needs. Do **not** script an admin-API call or a container restart to "pick up" model/workflow changes.
 6. **Export + assert endpoints** for your app — [§6.5](#65-exporting-the-endpoint-contract-endpoints-export). Add **`endpoints assert --require …`** to your CI so an Atlas pin bump can't silently drop a field your code reads.
 7. **Operate day-2** — multi-instance isolation (§7.4), host-service coexistence (§7.5), upgrades (§7.6), verification (§7.7).

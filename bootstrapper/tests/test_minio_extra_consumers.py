@@ -18,8 +18,8 @@ MINIO_MANIFEST = REPO_ROOT / "services" / "minio" / "service.yml"
 MINIO_COMPOSE = REPO_ROOT / "services" / "minio" / "compose.yml"
 MINIO_INIT = REPO_ROOT / "services" / "minio" / "init" / "scripts" / "init-minio.sh"
 MINIO_README = REPO_ROOT / "services" / "minio" / "README.md"
-REUSING_ATLAS = REPO_ROOT / "docs" / "deployment" / "reusing-atlas.md"
-SUBMODULE_USAGE = REPO_ROOT / "docs" / "deployment" / "submodule-usage.md"
+REUSING_ATLAS = REPO_ROOT / "docs" / "operations" / "reusing-atlas.md"
+SUBMODULE_USAGE = REPO_ROOT / "docs" / "operations" / "submodule-usage.md"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 
 

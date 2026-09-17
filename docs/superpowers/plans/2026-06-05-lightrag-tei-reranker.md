@@ -1,5 +1,7 @@
 # LightRAG + TEI Reranker Implementation Plan
 
+> **Status: archived plan** — dated 2026-06-05; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add two new services (`lightrag` in `agents` tier, `tei-reranker` in `llm` tier) to the atlas stack. Both default-disabled. Wire LightRAG into existing Supabase pgvector + Neo4j + Redis (with adaptive in-process fallback), register LightRAG with LiteLLM as a callable model, extend `hermes`/`n8n`/`backend` `runtime_adaptive` to consume LightRAG, and add a standalone reranker service reusable by compatible callers.

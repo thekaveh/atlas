@@ -269,7 +269,7 @@ def test_lakehouse_spark_submit_smoke_dag_prepares_assets_and_submits_s3a_jar() 
 
 def test_airflow_docs_describe_s3a_spark_submit_validation_path() -> None:
     readme = (AIRFLOW_DIR / "README.md").read_text(encoding="utf-8")
-    source_docs = (ROOT / "docs" / "deployment" / "source-configuration.md").read_text(
+    source_docs = (ROOT / "docs" / "operations" / "source-configuration.md").read_text(
         encoding="utf-8"
     )
     combined = f"{readme}\n{source_docs}"
@@ -287,7 +287,7 @@ def test_airflow_docs_describe_s3a_spark_submit_validation_path() -> None:
 
 def test_airflow_docs_describe_task_sdk_connection_context_boundary() -> None:
     readme = (AIRFLOW_DIR / "README.md").read_text(encoding="utf-8")
-    source_docs = (ROOT / "docs" / "deployment" / "source-configuration.md").read_text(
+    source_docs = (ROOT / "docs" / "operations" / "source-configuration.md").read_text(
         encoding="utf-8"
     )
 

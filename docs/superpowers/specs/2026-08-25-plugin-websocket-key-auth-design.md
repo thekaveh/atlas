@@ -1,5 +1,7 @@
 # Plugin WebSocket Key Authentication Design
 
+> **Status: archived spec** — dated 2026-08-25; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 ## 1. Problem
 
 Plugin routers declare authentication once in `plugin.yml`. The backend mounts

@@ -1,4 +1,4 @@
-# 7.2. SOURCE Configuration Guide
+# 6.2. SOURCE Configuration Guide
 
 This guide explains the SOURCE-based configuration system that makes Atlas flexible and modular.
 

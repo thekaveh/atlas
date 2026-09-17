@@ -1,4 +1,4 @@
-# 6.8. LLM Provider Flow
+# 8.8. LLM Provider Flow
 
 Ollama, managed vLLM Metal, LiteLLM, cloud passthroughs, Open WebUI, backend, MCP/tool access, and trace hooks.
 

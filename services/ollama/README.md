@@ -62,7 +62,7 @@ Two levers, and they are different things:
 
 For `ollama-localhost` Atlas cannot set either (the host daemon owns them), so declare `OLLAMA_MODELS_RESIDENT_MIN` and `./start.sh doctor` will read the daemon's actual config and warn before a long run rather than after it.
 
-**`-1` is a footgun worth stating plainly.** It pins *every* loaded model in RAM until you revert it and restart Ollama. On a large model-set that is tens of GB held indefinitely. Prefer setting it for the duration of a run and reverting after — see [reusing Atlas](../../docs/deployment/reusing-atlas.md).
+**`-1` is a footgun worth stating plainly.** It pins *every* loaded model in RAM until you revert it and restart Ollama. On a large model-set that is tens of GB held indefinitely. Prefer setting it for the duration of a run and reverting after — see [reusing Atlas](../../docs/operations/reusing-atlas.md).
 
 Note that Redis cannot help here. The attention KV cache is per-sequence tensors touched on every generated token; Redis is a network hop. What Redis caches for LLM traffic is whole *responses*, and that happens one layer up at the LiteLLM gateway — see [LiteLLM](../litellm/README.md).
 

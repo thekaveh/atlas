@@ -9,7 +9,7 @@ from tests.three_surface_test_utils import surface_text
 REPO_ROOT = Path(__file__).resolve().parents[2]
 START_PY = REPO_ROOT / "bootstrapper" / "start.py"
 LINEAR_STARTUP = REPO_ROOT / "bootstrapper" / "core" / "linear_startup.py"
-REUSING_ATLAS = REPO_ROOT / "docs" / "deployment" / "reusing-atlas.md"
+REUSING_ATLAS = REPO_ROOT / "docs" / "operations" / "reusing-atlas.md"
 
 
 def test_start_cli_declares_detach_no_follow_and_json_options() -> None:
@@ -108,8 +108,8 @@ def test_detached_json_status_summary_reports_unhealthy_service(monkeypatch, cap
 def test_automation_docs_name_detach_as_scripted_bring_up() -> None:
     for text in (
         REUSING_ATLAS.read_text(encoding="utf-8"),
-        surface_text("docs/operations.md", "site"),
-        surface_text("docs/operations.md", "wiki"),
+        surface_text("docs/operations/index.md", "site"),
+        surface_text("docs/operations/index.md", "wiki"),
     ):
         assert "--no-tui --detach" in text
         assert "--no-follow" in text

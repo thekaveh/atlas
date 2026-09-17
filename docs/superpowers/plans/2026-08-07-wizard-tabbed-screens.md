@@ -1,5 +1,7 @@
 # Tabbed Wizard/Launch Screens Implementation Plan
 
+> **Status: archived plan** — dated 2026-08-07; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Split the Atlas wizard into two tabs — Setup and Logs — sharing one screen, so the log pane gets a usable share of the terminal instead of being crushed by the 61-service stack overview.

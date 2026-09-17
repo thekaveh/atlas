@@ -1,5 +1,7 @@
 # Docs Header Restructure (nativ-grade) — Implementation Plan
 
+> **Status: archived plan** — dated 2026-07-30; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Restructure the opening of all three documentation surfaces (root `README.md`, the generated `.io` landing, and the generated GitHub wiki `Home`) into a nativ-grade centered header, and add a new ~130-word lead-in executive summary at the top.

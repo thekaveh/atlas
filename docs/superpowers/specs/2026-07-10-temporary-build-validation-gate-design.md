@@ -1,5 +1,7 @@
 # Temporary Build-Validation Gate
 
+> **Status: archived spec** — dated 2026-07-10; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 ## 1. Context
 
 The `Build-validation (Dockerfile + requirements.txt installability)` job builds

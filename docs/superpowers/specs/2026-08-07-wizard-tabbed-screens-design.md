@@ -1,5 +1,7 @@
 # Tabbed wizard/launch screens + selectable content
 
+> **Status: archived spec** — dated 2026-08-07; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 **Date:** 2026-08-07
 **Status:** Approved design, ready for planning
 **Scope:** `bootstrapper/ui/textual/` — layout only. No pipeline, compose-streaming, service-resolution, or wizard-step logic changes.

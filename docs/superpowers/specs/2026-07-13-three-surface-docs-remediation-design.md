@@ -1,5 +1,7 @@
 # Atlas Three-Surface Documentation Remediation Design
 
+> **Status: archived spec** — dated 2026-07-13; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 ## 1. Purpose
 
 Atlas documentation must present the same public information through the repository, the MkDocs site, and the GitHub wiki without requiring authors to maintain three copies. The public surfaces must be deterministic, self-contained, locally illustrated, and derived from committed canonical documentation plus Atlas's existing service manifests and generated dependency sections.
