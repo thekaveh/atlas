@@ -5,7 +5,7 @@ services:
       context: ./app
       args:
         BASE_IMAGE: ${ASSET_WORKER_IMAGE:-python:3.12.9-slim}
-        GLTF_TRANSFORM_VERSION: ${ASSET_WORKER_GLTF_TRANSFORM_VERSION:-4.4.1}
+        GLTF_TRANSFORM_VERSION: ${ASSET_WORKER_GLTF_TRANSFORM_VERSION:-4.5.0}
     image: ${PROJECT_NAME}-asset-worker:local
     container_name: ${PROJECT_NAME}-asset-worker
     restart: unless-stopped
