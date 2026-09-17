@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -89,7 +90,7 @@ def _run_asset_worker_version_guard(
 
 def test_asset_worker_gltf_version_guard_is_valid_shell(tmp_path: Path) -> None:
     result, marker, node_marker = _run_asset_worker_version_guard(
-        tmp_path, expected="4.4.1", locked="4.4.1"
+        tmp_path, expected="4.5.0", locked="4.5.0"
     )
 
     assert result.returncode == 0, result.stderr
@@ -101,7 +102,7 @@ def test_asset_worker_gltf_version_guard_explains_lock_mismatch(
     tmp_path: Path,
 ) -> None:
     result, marker, node_marker = _run_asset_worker_version_guard(
-        tmp_path, expected="9.9.9", locked="4.4.1"
+        tmp_path, expected="9.9.9", locked="4.5.0"
     )
 
     assert result.returncode != 0
@@ -136,7 +137,7 @@ def test_asset_worker_manifest_contract() -> None:
     assert "ASSET_WORKER_PORT" in env
     assert env["ASSET_WORKER_ENDPOINT"]["auto_managed"] is True
     assert env["ASSET_WORKER_MINIO_BUCKET"]["default"] == "asset-worker"
-    assert env["ASSET_WORKER_GLTF_TRANSFORM_VERSION"]["default"] == "4.4.1"
+    assert env["ASSET_WORKER_GLTF_TRANSFORM_VERSION"]["default"] == "4.5.0"
 
 
 def test_asset_worker_track_membership_and_cli_mapping() -> None:
@@ -200,3 +201,25 @@ def test_asset_worker_readme_documents_api_and_postprocess_contract() -> None:
         "before request-body parsing or object-store fetch",
     ]:
         assert required in text
+
+
+def test_asset_worker_gltf_version_pins_agree_with_package_json() -> None:
+    """A Dependabot bump of @gltf-transform/cli must move every guard with it.
+
+    #1092 bumped package.json to 4.5.0 while the Dockerfile ARG, the compose
+    fallback and the manifest default stayed at 4.4.1, so the image guard
+    refused to build. Build-validation runs `npm ci` on the host rather than
+    the Docker build, so only the Final-image scan noticed.
+    """
+    package = json.loads(
+        (ROOT / "services/asset-worker/app/package.json").read_text(encoding="utf-8")
+    )
+    version = package["dependencies"]["@gltf-transform/cli"]
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    compose = (ROOT / "services/asset-worker/compose.yml").read_text(encoding="utf-8")
+    manifest = _manifest()
+    env = {entry["name"]: entry for entry in manifest["env"]}
+
+    assert f"ARG GLTF_TRANSFORM_VERSION={version}" in dockerfile
+    assert f"${{ASSET_WORKER_GLTF_TRANSFORM_VERSION:-{version}}}" in compose
+    assert env["ASSET_WORKER_GLTF_TRANSFORM_VERSION"]["default"] == version
