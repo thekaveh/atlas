@@ -53,7 +53,7 @@ def test_release_documentation_records_current_tag() -> None:
     version = tomllib.loads(
         (ROOT / "bootstrapper/pyproject.toml").read_text(encoding="utf-8")
     )["project"]["version"]
-    releasing = (ROOT / "docs/deployment/releasing.md").read_text(encoding="utf-8")
+    releasing = (ROOT / "docs/operations/releasing.md").read_text(encoding="utf-8")
 
     assert f"`v{version}`" in releasing
     assert "first release-style tag" in releasing

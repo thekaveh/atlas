@@ -1,5 +1,7 @@
 # Post-Launch Error Fix Plan
 
+> **Status: archived plan** — dated 2026-06-06; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 **Date:** 2026-06-06
 **Scope:** All errors surfaced in the first successful launch of the stack with `LIGHTRAG_SOURCE=container` + `TEI_RERANKER_SOURCE=container-cpu` after the LightRAG + TEI Reranker integration shipped.
 **Base SHA:** `36a6347` (most recent main).

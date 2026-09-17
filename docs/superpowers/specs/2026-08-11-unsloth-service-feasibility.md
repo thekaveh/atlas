@@ -1,5 +1,7 @@
 # Unsloth as an Atlas service — feasibility study
 
+> **Status: archived spec** — dated 2026-08-11; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 **Date:** 2026-08-11 (rev. 2 — Studio-centred, three source flavours)
 **Status:** Feasibility study — no implementation, no decision taken
 **Upstream:** https://github.com/unslothai/unsloth (71.5k stars, Apache-2.0 core / AGPL-3.0 Studio UI)

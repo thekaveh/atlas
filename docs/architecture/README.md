@@ -1,4 +1,4 @@
-# 6.13. Architecture Diagram Catalog
+# 8.13. Architecture Diagram Catalog
 
 ## 1. Generated Diagram Index
 

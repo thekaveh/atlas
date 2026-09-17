@@ -1,5 +1,7 @@
 # Airflow + Spark + Zeppelin Implementation Plan
 
+> **Status: archived plan** — dated 2026-06-04; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add Apache Spark 4.1.2 (standalone cluster), Apache Zeppelin 0.12.0 (Spark-first notebook), and Apache Airflow 3.2.2 (LocalExecutor with AI/ML SDK) to the atlas stack as a single coordinated PR, with comprehensive cross-stack integration covering MinIO, Supabase, LiteLLM, Hermes, and the existing service lineup.

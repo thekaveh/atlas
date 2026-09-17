@@ -83,7 +83,7 @@ with `spark.wap.branch`, schema evolution, nested JSON, Structured Streaming
 from `s3a://landing/` into Iceberg with checkpoints under `s3a://checkpoints/`,
 and maintenance calls such as `rewrite_data_files`, `expire_snapshots`, and
 `remove_orphan_files`. See
-[`docs/deployment/iceberg-advanced-smoke.md`](../../docs/deployment/iceberg-advanced-smoke.md).
+[`docs/operations/iceberg-advanced-smoke.md`](../../docs/operations/iceberg-advanced-smoke.md).
 
 ### 4.1. Cloud burst: Amazon EMR Serverless (optional)
 

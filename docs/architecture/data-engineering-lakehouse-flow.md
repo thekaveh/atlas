@@ -1,4 +1,4 @@
-# 6.9. Data Engineering Lakehouse Flow
+# 8.9. Data Engineering Lakehouse Flow
 
 MinIO, Iceberg REST, Supabase Postgres, Spark, JupyterHub, Zeppelin, Airflow, Trino, and Redpanda.
 

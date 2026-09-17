@@ -1,5 +1,7 @@
 # Design: Per-service seed partition + move the LLM model source-of-truth out of Supabase
 
+> **Status: archived spec** — dated 2026-06-25; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 - **Date:** 2026-06-25
 - **Status:** Approved (design); pending implementation plan
 - **Branch:** `model-sot-decoupling`

@@ -1,5 +1,7 @@
 # Atlas vNext Strategy Report Implementation Plan
 
+> **Status: archived plan** — dated 2026-07-02; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Produce a decision-ready Atlas vNext strategy report that assesses the project, compares competitors, evaluates MCP and dashboard options, and ranks the top 20 next candidates.

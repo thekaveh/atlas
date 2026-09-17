@@ -437,134 +437,134 @@ sections:
       number: 5.3.7
       title: User Supabase Migrations
       source: services/supabase/db/_user/README.md
-- id: architecture
+- id: configuration
   number: '6'
+  title: Configuration
+  children:
+  - id: configuration-index
+    number: '6.1'
+    title: Configuration Overview
+    source: docs/configuration.md
+  - id: source-configuration
+    number: '6.2'
+    title: SOURCE Configuration
+    source: docs/operations/source-configuration.md
+  - id: ports-routes
+    number: '6.3'
+    title: Ports And Routes
+    source: docs/operations/ports-and-routes.md
+- id: operations
+  number: '7'
+  title: Operations
+  children:
+  - id: operations-index
+    number: '7.1'
+    title: Operations Overview
+    source: docs/operations/index.md
+  - id: troubleshooting
+    number: '7.2'
+    title: Troubleshooting
+    source: docs/TROUBLESHOOTING.md
+  - id: startup-warnings
+    number: '7.3'
+    title: Expected Startup Warnings
+    source: docs/operations/expected-startup-warnings.md
+  - id: iceberg-smoke
+    number: '7.4'
+    title: Iceberg Advanced Smoke Test
+    source: docs/operations/iceberg-advanced-smoke.md
+  - id: releasing
+    number: '7.5'
+    title: Releasing
+    source: docs/operations/releasing.md
+  - id: reusing-atlas
+    number: '7.6'
+    title: Reusing Atlas
+    source: docs/operations/reusing-atlas.md
+  - id: submodule-usage
+    number: '7.7'
+    title: Submodule Usage
+    source: docs/operations/submodule-usage.md
+- id: architecture
+  number: '8'
   title: Architecture
   children:
   - id: architecture-index
-    number: '6.1'
+    number: '8.1'
     title: Platform Architecture
     source: docs/architecture/index.md
     diagrams:
     - atlas-platform
   - id: architecture-platform
-    number: '6.2'
+    number: '8.2'
     title: Platform Overview
     source: docs/architecture/platform-overview.md
     diagrams:
     - architecture-platform-overview
   - id: architecture-bootstrapper
-    number: '6.3'
+    number: '8.3'
     title: Bootstrapper Lifecycle
     source: docs/architecture/bootstrapper-lifecycle.md
     diagrams:
     - architecture-bootstrapper-lifecycle
   - id: architecture-source-model
-    number: '6.4'
+    number: '8.4'
     title: SOURCE Model
     source: docs/architecture/source-configuration-model.md
     diagrams:
     - architecture-source-configuration-model
   - id: architecture-tracks
-    number: '6.5'
+    number: '8.5'
     title: Track Matrix
     source: docs/architecture/track-selection-matrix.md
     diagrams:
     - architecture-track-selection-matrix
   - id: architecture-routing
-    number: '6.6'
+    number: '8.6'
     title: Network Routing
     source: docs/architecture/network-routing-topology.md
     diagrams:
     - architecture-network-routing-topology
   - id: architecture-rag
-    number: '6.7'
+    number: '8.7'
     title: RAG Flow
     source: docs/architecture/data-rag-flow.md
     diagrams:
     - architecture-data-rag-flow
   - id: architecture-llm
-    number: '6.8'
+    number: '8.8'
     title: LLM Flow
     source: docs/architecture/llm-provider-flow.md
     diagrams:
     - architecture-llm-provider-flow
   - id: architecture-lakehouse
-    number: '6.9'
+    number: '8.9'
     title: Lakehouse Flow
     source: docs/architecture/data-engineering-lakehouse-flow.md
     diagrams:
     - architecture-data-engineering-lakehouse-flow
   - id: architecture-observability
-    number: '6.10'
+    number: '8.10'
     title: Observability Flow
     source: docs/architecture/observability-flow.md
     diagrams:
     - architecture-observability-flow
   - id: architecture-security
-    number: '6.11'
+    number: '8.11'
     title: Security Boundary
     source: docs/architecture/security-auth-secrets-boundary.md
     diagrams:
     - architecture-security-auth-secrets-boundary
   - id: architecture-admission
-    number: '6.12'
+    number: '8.12'
     title: Service Admission
     source: docs/architecture/service-admission-workflow.md
     diagrams:
     - architecture-service-admission-workflow
   - id: architecture-authoring
-    number: '6.13'
+    number: '8.13'
     title: Diagram Authoring
     source: docs/architecture/README.md
-- id: configuration
-  number: '7'
-  title: Configuration
-  children:
-  - id: configuration-index
-    number: '7.1'
-    title: Configuration Overview
-    source: docs/configuration.md
-  - id: source-configuration
-    number: '7.2'
-    title: SOURCE Configuration
-    source: docs/deployment/source-configuration.md
-  - id: ports-routes
-    number: '7.3'
-    title: Ports And Routes
-    source: docs/deployment/ports-and-routes.md
-- id: operations
-  number: '8'
-  title: Operations
-  children:
-  - id: operations-index
-    number: '8.1'
-    title: Operations Overview
-    source: docs/operations.md
-  - id: troubleshooting
-    number: '8.2'
-    title: Troubleshooting
-    source: docs/TROUBLESHOOTING.md
-  - id: startup-warnings
-    number: '8.3'
-    title: Expected Startup Warnings
-    source: docs/deployment/expected-startup-warnings.md
-  - id: iceberg-smoke
-    number: '8.4'
-    title: Iceberg Advanced Smoke Test
-    source: docs/deployment/iceberg-advanced-smoke.md
-  - id: releasing
-    number: '8.5'
-    title: Releasing
-    source: docs/deployment/releasing.md
-  - id: reusing-atlas
-    number: '8.6'
-    title: Reusing Atlas
-    source: docs/deployment/reusing-atlas.md
-  - id: submodule-usage
-    number: '8.7'
-    title: Submodule Usage
-    source: docs/deployment/submodule-usage.md
 - id: development
   number: '9'
   title: Development

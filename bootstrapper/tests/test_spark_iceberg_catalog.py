@@ -11,7 +11,7 @@ COMPOSE = SPARK_DIR / "compose.yml"
 DOCKERFILE = SPARK_DIR / "build" / "Dockerfile"
 MANIFEST = SPARK_DIR / "service.yml"
 README = SPARK_DIR / "README.md"
-SOURCE_DOC = REPO_ROOT / "docs" / "deployment" / "source-configuration.md"
+SOURCE_DOC = REPO_ROOT / "docs" / "operations" / "source-configuration.md"
 
 ICEBERG_VERSION = "1.11.0"
 ICEBERG_RUNTIME = "iceberg-spark-runtime-4.1_2.13"

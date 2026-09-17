@@ -1,5 +1,7 @@
 # Service capability contracts — design
 
+> **Status: archived spec** — dated 2026-08-24; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 - **Ticket:** [#967](https://github.com/thekaveh/atlas/issues/967)
 - **Branch:** `codex/967-service-capability-contracts` (cut from `develop`)
 - **Integration target:** `develop`, followed by the normal `develop` → `main` promotion

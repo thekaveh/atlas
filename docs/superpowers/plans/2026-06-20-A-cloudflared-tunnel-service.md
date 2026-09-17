@@ -1,5 +1,7 @@
 # Plan A — Cloudflared Tunnel Service Implementation Plan
 
+> **Status: archived plan** — dated 2026-06-20; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a `cloudflared` service (Cloudflare Tunnel sidecar) that connects outbound to Cloudflare and proxies inbound HTTPS traffic to the existing Kong gateway, giving the stack TLS + a public domain with zero open inbound ports.

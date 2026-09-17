@@ -760,7 +760,7 @@ field. The field names are a compatibility contract. Output is secret-free by
 default (infra secrets are `${VAR}` references); `--with-secrets` resolves only
 consumer-scoped credentials and refuses stdout (requires `--output PATH`).
 Output is deterministic and byte-stable, so parent wrappers can diff it across
-runs. See [reusing-atlas.md §6.5](https://github.com/thekaveh/atlas/blob/main/docs/deployment/reusing-atlas.md).
+runs. See [reusing-atlas.md §6.5](https://github.com/thekaveh/atlas/blob/main/docs/operations/reusing-atlas.md).
 
 ## 6. Backend Plugin Manifest
 
@@ -781,7 +781,7 @@ the historical single backend route unchanged. Timeout-bearing plugins receive
 dedicated Kong services so their strict millisecond `connect_timeout`,
 `write_timeout`, and `read_timeout` overrides do not affect other backend
 routes; omitted fields retain Kong's defaults. See
-[reusing-atlas.md §6.3.1](https://github.com/thekaveh/atlas/blob/main/docs/deployment/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml).
+[reusing-atlas.md §6.3.1](https://github.com/thekaveh/atlas/blob/main/docs/operations/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml).
 
 ## 7. Health And Logs
 
@@ -1093,7 +1093,7 @@ def reference_pages(model: DocsModel) -> dict[Path, str]:
                     env_var.description or "-",
                 ]
             )
-    route_doc = "[Deployment route reference](../../deployment/ports-and-routes.md#2-kong-hostnames)"
+    route_doc = "[Deployment route reference](../../operations/ports-and-routes.md#2-kong-hostnames)"
     ports_rows = [
         [
             service.name,

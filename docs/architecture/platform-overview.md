@@ -1,4 +1,4 @@
-# 6.2. Atlas Platform Overview
+# 8.2. Atlas Platform Overview
 
 User entrypoints, Kong, apps, agents, LLM core, data stores, and cloud-provider boundaries.
 

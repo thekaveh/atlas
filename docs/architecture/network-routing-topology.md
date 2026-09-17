@@ -1,4 +1,4 @@
-# 6.6. Network And Routing Topology
+# 8.6. Network And Routing Topology
 
 Host ports, Kong aliases, direct service ports, backend-network-only services, and localhost-mode boundaries.
 

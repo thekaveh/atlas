@@ -1,5 +1,7 @@
 # LightRAG + TEI Reranker — Stack Integration Design
 
+> **Status: archived spec** — dated 2026-06-05; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 **Status:** Draft — awaiting review
 **Date:** 2026-06-05
 **Scope:** Add LightRAG (graph-augmented RAG server) and TEI Reranker (BGE-reranker-v2-m3) as two new first-class services in the atlas stack. Wire both into existing storage (Supabase pgvector, Neo4j, Redis), document processing (docling), LLM routing (LiteLLM), and agent runtimes (hermes, n8n, backend).

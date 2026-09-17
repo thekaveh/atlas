@@ -1,5 +1,7 @@
 # Plan C — Backup / Restore Tooling Implementation Plan
 
+> **Status: archived plan** — dated 2026-06-20; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add cross-service backup tooling that dumps the Supabase Postgres database and snapshots the critical named volumes, pushes the artifacts to S3-compatible object storage (MinIO on-box, or any external S3), and can restore them — runnable on demand and on a schedule.

@@ -1,5 +1,7 @@
 # Atlas Logo, Setup-Wizard Splash, and GitHub Identity — Design
 
+> **Status: archived spec** — dated 2026-06-17; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+
 Date: 2026-06-17
 Status: Approved for planning
 

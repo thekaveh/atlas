@@ -35,7 +35,7 @@ def test_current_docs_do_not_reference_retired_external_locations() -> None:
         ROOT / "README.md",
         ROOT / "docs/README.md",
         ROOT / "docs/ROADMAP.md",
-        *sorted((ROOT / "docs/deployment").glob("*.md")),
+        *sorted((ROOT / "docs/operations").glob("*.md")),
         *sorted((ROOT / "docs/quick-start").glob("*.md")),
         *sorted((ROOT / "services").glob("*/README.md")),
         ROOT / "services/docling/provider/localhost/README.md",

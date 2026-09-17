@@ -31,7 +31,7 @@ def _service_index(text: str) -> str:
 
 
 def _ports_reference(text: str) -> str:
-    return text.replace("../../deployment/", "../deployment/")
+    return text.replace("../../operations/", "../operations/")
 
 
 def _replace_generated_block(text: str, begin: str, end: str, body: str) -> str:
