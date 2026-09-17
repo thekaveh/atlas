@@ -1451,14 +1451,17 @@ def test_backend_runtime_excludes_ci_artifacts_and_build_installer() -> None:
 
     assert "**/.ci-venv" in dockerignore
     assert "**/__pycache__" in dockerignore
-    assert "apt-get upgrade" not in dockerfile
+    # The backend takes published Debian updates (#1002): the newest python
+    # base still carried fixed findings, so a reviewed refresh alone could not
+    # clear the gate. The rationale must stay next to the upgrade.
+    assert "apt-get upgrade -y --no-install-recommends" in dockerfile
     assert "reviewed BASE_IMAGE refresh" in dockerfile
+    assert "rm -rf /var/lib/apt/lists/*" in dockerfile
     assert "pip uninstall --yes uv" in dockerfile
 
 
 def test_changed_debian_images_use_reviewed_base_refreshes_not_mutable_upgrades() -> None:
     for relative in (
-        "services/backend/app/Dockerfile",
         "services/jupyterhub/build/Dockerfile",
         "services/litellm/init/Dockerfile",
         "services/open-webui/init/Dockerfile",
