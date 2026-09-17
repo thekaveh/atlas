@@ -208,3 +208,89 @@ def test_dry_run_over_real_history_is_numbering_compliant() -> None:
 
     assert heading_number_findings(text) == []
     assert notes, "recent history should produce at least one note"
+
+
+def test_changelog_block_lists_detailed_buckets_and_counts_the_rest(history: Path) -> None:
+    pinned = release_notes.resolve_range(history, "v0.1.0..main")
+    notes = release_notes.collect_notes(history, pinned)
+    block = release_notes.render_changelog_block(notes, rev_range=pinned)
+
+    assert block.startswith(release_notes.CHANGELOG_BEGIN + "\n<!-- generated-range: v0.1.0..")
+    assert block.rstrip().endswith(release_notes.CHANGELOG_END)
+    assert "### 1.1. Generated summary — `v0.1.0` through `" in block
+    assert "**Breaking changes**" in block and "expose support tiers (#22)" in block
+    assert "**Security**" in block and "renew the exception set (#24)" in block
+    assert "**Features**" not in block  # the fixture has no feat commits
+    assert "Also in this range: 2 fixes, 1 documentation, 2 promotions, 1 unclassified" in block
+    assert "keep prompts usable" not in block  # fixes are counted, not listed
+    assert heading_number_findings("# 9.5. Changelog\n\n## 1. [Unreleased]\n\n" + block) == []
+
+
+def test_replace_changelog_block_keeps_everything_else(history: Path) -> None:
+    text = (
+        "# 9.5. Changelog\n\n## 1. [Unreleased]\n\n"
+        f"{release_notes.CHANGELOG_BEGIN}\n<!-- generated-range: pending -->\n{release_notes.CHANGELOG_END}\n\n"
+        "### 1.2. Fixed — curated entry\n\n- kept\n"
+    )
+    pinned = release_notes.resolve_range(history, "v0.1.0..main")
+    block = release_notes.render_changelog_block(release_notes.collect_notes(history, pinned), rev_range=pinned)
+
+    updated = release_notes.replace_changelog_block(text, block)
+
+    assert updated.endswith("### 1.2. Fixed — curated entry\n\n- kept\n")
+    assert updated.count(release_notes.CHANGELOG_BEGIN) == 1
+    assert release_notes.committed_block_range(updated) == pinned
+    with pytest.raises(ValueError, match="exactly one"):
+        release_notes.replace_changelog_block(text + text, block)
+
+
+def test_update_and_check_changelog_detect_hand_edits(history: Path) -> None:
+    changelog = history / "docs" / "CHANGELOG.md"
+    changelog.parent.mkdir()
+    changelog.write_text(
+        "# 9.5. Changelog\n\n## 1. [Unreleased]\n\n"
+        f"{release_notes.CHANGELOG_BEGIN}\n<!-- generated-range: pending -->\n{release_notes.CHANGELOG_END}\n",
+        encoding="utf-8",
+    )
+
+    assert release_notes.main(["--update-changelog", "--range", "v0.1.0..main", "--repo", str(history)]) == 0
+    assert release_notes.main(["--check-changelog", "--repo", str(history)]) == 0
+    tampered = changelog.read_text(encoding="utf-8").replace("expose support tiers", "expose tiers")
+    changelog.write_text(tampered, encoding="utf-8")
+    assert release_notes.main(["--check-changelog", "--repo", str(history)]) == 1
+
+
+@pytest.mark.parametrize(
+    "title, ok",
+    [
+        ("fix(wizard): keep prompts usable at the minimum", True),
+        ("feat!: drop the legacy SOURCE names", True),
+        ("release: promote the batch to main", True),
+        ("deps(deps): bump the minors group across 2 directories", True),
+        ("Overnight maintenance run (2026-08-20)", False),
+        ("fix: ", False),
+        ("Fix(wizard): capitalised type", False),
+        ("fix(): empty scope", False),
+    ],
+)
+def test_pull_request_title_gate(title: str, ok: bool) -> None:
+    assert release_notes.check_pull_request_title(title) is ok
+    assert release_notes.main(["--check-title", title]) == (0 if ok else 1)
+
+
+def test_committed_changelog_block_is_current() -> None:
+    """The block in docs/CHANGELOG.md must equal what its recorded range renders."""
+    assert release_notes.main(["--check-changelog", "--repo", str(ROOT)]) == 0
+
+
+def test_required_lint_job_gates_titles_and_the_changelog_block() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "services-lint.yml").read_text(encoding="utf-8")
+    # The two gates must sit inside the required lint job, i.e. after its name
+    # and before the next job's name.
+    lint_job = workflow.split("name: Manifest lint + unit tests", 1)[1].split(
+        "name: Compose merge + byte-equivalence + source-permutation matrix", 1
+    )[0]
+
+    assert "--check-title \"$PR_TITLE\"" in lint_job
+    assert "if: github.event_name == 'pull_request'" in lint_job
+    assert "python -m scripts.release_notes --check-changelog" in lint_job
