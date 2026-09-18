@@ -15,7 +15,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "services/jupyterhub/build/refresh_pip_vendor.py"
 OLD_MSGPACK_REF = "pkg:pypi/msgpack@1.1.2"
-NEW_MSGPACK_REF = "pkg:pypi/msgpack@1.2.1"
+NEW_MSGPACK_REF = "pkg:pypi/msgpack@1.2.2"
 SETUPTOOLS_REF = "pkg:pypi/setuptools@70.3.0"
 PIP_REF = "bom-ref:pip"
 
@@ -110,9 +110,9 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
         + "\n",
         encoding="utf-8",
     )
-    source = tmp_path / "msgpack-1.2.1"
+    source = tmp_path / "msgpack-1.2.2"
     source.mkdir()
-    (source / "__init__.py").write_text('__version__ = "1.2.1"\n', encoding="utf-8")
+    (source / "__init__.py").write_text('__version__ = "1.2.2"\n', encoding="utf-8")
     (source / "fallback.py").write_text("def pack(value):\n    return value\n", encoding="utf-8")
     record = tmp_path / "pip-26.2.1.dist-info" / "RECORD"
     record.parent.mkdir()
@@ -157,14 +157,14 @@ def test_refresh_replaces_vendored_msgpack_and_truthfully_updates_inventory(
         source / "__init__.py"
     ).read_bytes()
     assert (vendor / "vendor.txt").read_text(encoding="utf-8") == (
-        "msgpack==1.2.1\n"
+        "msgpack==1.2.2\n"
     )
     bom = json.loads((vendor / "bom.cdx.json").read_text(encoding="utf-8"))
     components = bom["components"]
     assert [item["name"] for item in components] == ["pip", "msgpack", "packaging"]
     assert components[1] == {
         "name": "msgpack",
-        "version": "1.2.1",
+        "version": "1.2.2",
         "bom-ref": NEW_MSGPACK_REF,
         "purl": NEW_MSGPACK_REF,
     }

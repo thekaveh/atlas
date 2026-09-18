@@ -131,7 +131,7 @@ RUN curl -fL \
       --underscore-component /opt/conda/lib/python3.13/site-packages/nbclassic/static/components/underscore \
       --underscore-source /tmp/underscore \
       --nbclassic-record /opt/conda/lib/python3.13/site-packages/nbclassic-1.3.3.dist-info/RECORD \
- && python -c 'from pip._vendor import msgpack; assert msgpack.version == (1, 2, 1), msgpack.version; payload = {"atlas": 9}; assert msgpack.unpackb(msgpack.packb(payload)) == payload' \
+ && python -c 'from pip._vendor import msgpack; assert msgpack.version == (1, 2, 2), msgpack.version; payload = {"atlas": 9}; assert msgpack.unpackb(msgpack.packb(payload)) == payload' \
  && python -m pip uninstall -y conda-rattler-solver py-rattler \
  && python -c 'from pathlib import Path; patterns = ("conda-rattler-solver-0.1.1-*.json", "py-rattler-0.25.0-*.json"); records = [matches for pattern in patterns if len(matches := list(Path("/opt/conda/conda-meta").glob(pattern))) != 1]; assert not records, records; [path.unlink() for pattern in patterns for path in Path("/opt/conda/conda-meta").glob(pattern)]' \
  && conda --version \
