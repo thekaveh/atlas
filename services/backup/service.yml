@@ -21,7 +21,7 @@ capabilities:
   - name: "Consistent Neo4j and Weaviate backup/restore"
     status: supported
     verification: tested
-    note: "The host orchestrator captures Neo4j Community 5.26.27 offline, restores both databases into a disposable exact-version stage, and uses Weaviate 1.38.13's native online backup plus an isolated exact-version restore stage. Live cutover is quiesced, copy-based, query-validated, and protected by retained rollback volumes."
+    note: "The host orchestrator captures Neo4j Community 5.26.30 offline, restores both databases into a disposable exact-version stage, and uses Weaviate 1.38.13's native online backup plus an isolated exact-version restore stage. Live cutover is quiesced, copy-based, query-validated, and protected by retained rollback volumes."
   - name: "Scheduled and remote retention"
     status: partial
     verification: documented

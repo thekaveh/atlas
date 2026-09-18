@@ -12,7 +12,7 @@ capabilities:
   - name: "Snapshot backup and restore"
     status: supported
     verification: tested
-    note: "The backup orchestrator records whether Neo4j Community 5.26.27 is running, stops it for bounded system and neo4j database dumps, restores the prior running state on success or failure, and provides an authenticated offline load path."
+    note: "The backup orchestrator records whether Neo4j Community 5.26.30 is running, stops it for bounded system and neo4j database dumps, restores the prior running state on success or failure, and provides an authenticated offline load path."
   - name: "Production access isolation"
     status: partial
     verification: documented
@@ -23,7 +23,7 @@ containers:
 
 images:
   - var: NEO4J_GRAPH_DB_IMAGE
-    default: "neo4j:5.26.27"
+    default: "neo4j:5.26.30"
     container: neo4j-graph-db
     notes: "Used as build-arg BASE_IMAGE in graph-db/Dockerfile."
 
