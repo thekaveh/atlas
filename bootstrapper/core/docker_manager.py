@@ -347,7 +347,21 @@ class DockerManager:
                 # finish after the abort and create containers for a run the
                 # operator already abandoned. Say so, because silence is what
                 # makes an interrupted run look like a broken source toggle.
-                self._report_interrupted_compose(resolved_project_name)
+                #
+                # Only say it when a build could actually be in flight. This
+                # helper also runs `ps`, `logs -f`, `restart` and `down`, and
+                # Ctrl+C on a `logs -f` detach is routine -- warning there sends
+                # the operator hunting for a build that was never started.
+                # `build`, `up`, `create` and `run` can start one -- `up`
+                # builds a missing image even without `--build`. Membership
+                # rather than position, because a global flag can carry a value
+                # before the subcommand (`--profile prod up`); flags cannot
+                # collide with these names since they all begin with `-`. It
+                # can over-match a service literally named `up`, which is the
+                # safe direction: an extra warning costs a glance, a missing
+                # one costs the containers an abandoned build left behind.
+                if {"build", "up", "create", "run"}.intersection(args):
+                    self._report_interrupted_compose(resolved_project_name)
                 raise
         except Exception as e:
             self._on_command(f"❌ Error executing docker compose command: {e}")

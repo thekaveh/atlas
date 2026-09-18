@@ -79,3 +79,47 @@ def test_normal_completion_emits_no_interrupt_warning(monkeypatch, tmp_path) -> 
 
     assert manager.execute_compose_command(["up", "-d"]) == 0
     assert not any("may still be running" in message for message in messages)
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        (["up", "-d", "--build"], True),
+        (["up", "-d"], True),          # `up` builds a missing image without --build
+        (["--profile", "prod", "build", "backend"], True),
+        (["ps"], False),
+        (["down"], False),
+        (["restart", "n8n"], False),
+        (["logs", "-f", "backend"], False),
+    ],
+)
+def test_interrupt_warning_only_fires_where_a_build_could_be_running(
+    monkeypatch, tmp_path, args, expected,
+) -> None:
+    """Ctrl+C on a `logs -f` detach is routine and starts no build.
+
+    execute_compose_command is generic -- callers pass `ps`, `restart` and
+    `logs -f` through it too. Claiming an image build may still be running there
+    sends the operator hunting for something that never started, and a warning
+    that fires on every interrupt stops carrying information.
+    """
+    messages: list[str] = []
+    manager = _manager(messages)
+    manager.root_dir = tmp_path  # type: ignore[attr-defined]
+    manager.project_name_override = "atlas-test"  # type: ignore[attr-defined]
+    monkeypatch.setattr(manager, "detect_docker_compose_command", lambda: "docker compose")
+    monkeypatch.setattr(
+        manager, "_validated_compose_file_args", lambda *a, **k: ([], False)
+    )
+    manager.config_parser = type(  # type: ignore[attr-defined]
+        "_CP", (), {"env_file_exists": staticmethod(lambda: False)}
+    )()
+
+    def _interrupted(*_args, **_kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("core.docker_manager.subprocess.run", _interrupted)
+
+    with pytest.raises(KeyboardInterrupt):
+        manager.execute_compose_command(args)
+
+    warned = any("may still be running" in message for message in messages)
+    assert warned is expected
