@@ -3,7 +3,7 @@
 
 pip 26.2.1 ships msgpack 1.1.2 in ``pip._vendor`` and also lists a build-only
 setuptools 70.3.0 component in its embedded CycloneDX inventory.  The Jupyter
-image already installs the reviewed msgpack 1.2.1 wheel, so copy that exact
+image already installs the reviewed msgpack 1.2.2 wheel, so copy that exact
 implementation into pip's private namespace and update the inventory.  Every
 upstream expectation is checked before the first mutation so a future pip
 layout fails closed instead of receiving a partial or misdirected patch.
@@ -23,7 +23,7 @@ from pathlib import Path
 
 
 OLD_MSGPACK = "1.1.2"
-NEW_MSGPACK = "1.2.1"
+NEW_MSGPACK = "1.2.2"
 BUILD_ONLY_SETUPTOOLS = "70.3.0"
 UNDERSCORE_ASSETS = (
     "README.md",
