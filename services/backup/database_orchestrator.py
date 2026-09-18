@@ -24,7 +24,7 @@ import sys
 import time
 
 
-NEO4J_IMAGE = "neo4j:5.26.27"
+NEO4J_IMAGE = "neo4j:5.26.30"
 WEAVIATE_IMAGE = "cr.weaviate.io/semitechnologies/weaviate:1.38.13"
 HELPER_IMAGE = "alpine:3.24.1"
 OWNER_LABEL = "com.atlas.database-restore-token"
@@ -1391,7 +1391,7 @@ class DatabaseCoordinator:
                     "-d system \"SHOW DATABASES YIELD name,currentStatus WHERE "
                     "name IN ['system','neo4j'] AND currentStatus='online' RETURN name ORDER BY name\"",
                 ],
-                "staged Neo4j 5.26.27",
+                "staged Neo4j 5.26.30",
                 env=child_env,
                 exec_env=("NEO4J_USERNAME", "NEO4J_PASSWORD"),
             )

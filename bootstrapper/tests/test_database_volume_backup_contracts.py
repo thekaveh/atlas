@@ -22,7 +22,7 @@ from tests import test_postgres_restore_safety as restore_safety
 
 
 REPO = Path(__file__).resolve().parents[2]
-NEO4J_IMAGE = "neo4j:5.26.27"
+NEO4J_IMAGE = "neo4j:5.26.30"
 WEAVIATE_IMAGE = "cr.weaviate.io/semitechnologies/weaviate:1.38.13"
 
 
@@ -569,7 +569,7 @@ def test_neo4j_exact_image_uses_bounded_offline_dump_contract() -> None:
     script = (REPO / "services/neo4j/build/scripts/offline-backup.sh").read_text(
         encoding="utf-8"
     )
-    assert "neo4j:5.26.27" in script
+    assert "neo4j:5.26.30" in script
     assert "database is still online" in script
     assert "neo4j-admin database dump neo4j" in script
     assert "neo4j-admin database dump system" in script
@@ -758,7 +758,7 @@ def test_database_collector_archives_only_completed_native_snapshots(tmp_path: P
         "snapshot_state=complete\n"
         f"backup_timestamp={timestamp}\n"
         f"neo4j_image={NEO4J_IMAGE}\n"
-        "neo4j_version=5.26.27\n"
+        "neo4j_version=5.26.30\n"
         "started_at=2026-08-30T01:02:01Z\n"
         "completed_at=2026-08-30T01:02:02Z\n"
         f"neo4j_sha256={neo4j_sha}\n"
@@ -850,7 +850,7 @@ def _signed_database_publication(root: Path, timestamp: str, key_hex: str) -> st
         "snapshot_state=complete\n"
         f"backup_timestamp={timestamp}\n"
         f"neo4j_image={NEO4J_IMAGE}\n"
-        "neo4j_version=5.26.27\n"
+        "neo4j_version=5.26.30\n"
         f"neo4j_sha256={neo4j_sha}\n"
         "neo4j_bytes=16\n"
         f"system_sha256={system_sha}\n"
@@ -870,7 +870,7 @@ def _signed_database_publication(root: Path, timestamp: str, key_hex: str) -> st
         "format_version=1", "snapshot_state=complete",
         f"backup_timestamp={timestamp}", f"backup_id={backup_id}",
         "deployment_id_hex=61746c61732d74657374",
-        f"neo4j_image={NEO4J_IMAGE}", "neo4j_version=5.26.27",
+        f"neo4j_image={NEO4J_IMAGE}", "neo4j_version=5.26.30",
         "neo4j_state=complete", "neo4j_started_at=2026-08-30T01:02:01Z",
         "neo4j_completed_at=2026-08-30T01:02:02Z",
         f"neo4j_archive_sha256={hashlib.sha256(neo_archive.read_bytes()).hexdigest()}",

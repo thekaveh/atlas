@@ -3030,7 +3030,7 @@ services:
       context: '{REPO_ROOT}/services/neo4j/build'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: neo4j:5.26.27
+        BASE_IMAGE: neo4j:5.26.30
     container_name: atlas-neo4j-graph-db
     deploy:
       replicas: 1

@@ -1,5 +1,17 @@
-ARG BASE_IMAGE=${NEO4J_GRAPH_DB_IMAGE:-neo4j:5.26.27}
+ARG BASE_IMAGE=${NEO4J_GRAPH_DB_IMAGE:-neo4j:5.26.30}
 FROM ${BASE_IMAGE}
+
+# Debian security fixes normally arrive through a reviewed BASE_IMAGE refresh.
+# The 5.26.30 refresh (2026-09-18, #1002) cleared every jar finding and 217 of
+# 223 OS findings the 5.26.27 image carried, but the newest published tag
+# still lags six fixed HIGH advisories in gzip, libpcre2 and libsqlite3, so
+# take the published updates the same way services/backend, services/airflow,
+# services/spark and services/backup do. This trades byte-for-byte base
+# reproducibility for a patched runtime; the final-image scan still gates
+# every refresh.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy backup and restore scripts
 COPY ./scripts/backup.sh /usr/local/bin/backup.sh
