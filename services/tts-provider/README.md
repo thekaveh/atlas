@@ -93,7 +93,7 @@ for the full Chatterbox-on-host walkthrough.
 | `TTS_PROVIDER_SCALE` | (auto) | 1 when any container variant is active, else 0. |
 | `SPEACHES_IMAGE` | `ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu` | Override to pin a different release. |
 | `SPEACHES_GPU_IMAGE` | `ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cuda` | CUDA build pin. |
-| `SPEACHES_TTS_MODEL` | `hexgrad/Kokoro-82M` | Model id Open WebUI sends to Speaches' `/v1/audio/speech`. **Compatibility note:** the shipped default is the PyTorch Kokoro repo, which Speaches' Kokoro executor rejects (it requires the ONNX build `speaches-ai/Kokoro-82M-v1.0-ONNX`, or the alias `tts-1`). See the preload note below. |
+| `SPEACHES_TTS_MODEL` | `speaches-ai/Kokoro-82M-v1.0-ONNX` | Model id Open WebUI sends to Speaches' `/v1/audio/speech`. The shipped default is the ONNX build Speaches' Kokoro executor requires; the alias `tts-1` also resolves to it. Pointing this at the PyTorch repo `hexgrad/Kokoro-82M` is rejected by that executor. See the preload note below. |
 | `SPEACHES_PORT` | `63060` | Speaches container external port. |
 | `SPEACHES_SCALE` | (auto) | 1 when speaches is active. |
 | `CHATTERBOX_IMAGE` | `travisvn/chatterbox-tts-api:gpu` | GPU build tag. No version-locked GPU tag yet — pin to a digest for production. |
