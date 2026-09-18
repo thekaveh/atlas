@@ -109,6 +109,14 @@ def _renumbered_heading(
         recognized = (
             prefix.group(1) == number
             or parts == parent_path
+            # A dotted prefix whose depth matches the heading's own depth is a
+            # section number, even when its value changed because the section
+            # moved -- which is the case renumbering exists for. Without this,
+            # `### 1.4. Bits` becoming 1.1 emits `### 1.1. 1.4. Bits`, and
+            # heading_number_findings accepts it because the new number is
+            # correct, so the corruption ships silently. H2 is excluded so the
+            # semantic-title heuristic below still keeps `## 2026. Roadmap`.
+            or (level >= 3 and len(parts) == level - 1)
             or (level == 2 and len(parts) == 1 and parts[0] < 100)
         )
         if not recognized:
