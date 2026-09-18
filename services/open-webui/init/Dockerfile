@@ -12,9 +12,16 @@
 ARG BASE_IMAGE=python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579
 FROM ${BASE_IMAGE}
 
-# Debian fixes arrive by deliberately refreshing BASE_IMAGE. A mutable full
-# upgrade would make the same source non-reproducible; the required final-image
-# scan gates each reviewed base refresh.
+# Debian security fixes normally arrive through a reviewed BASE_IMAGE refresh.
+# When the newest published base still carries fixed findings (2026-09-18: the
+# current python:3.12.14-slim-bookworm index still ships libpcre2 10.42-1 with
+# three fixed HIGH advisories, #1002), take the published updates the same way
+# services/backend, services/jupyterhub and services/neo4j do. This trades
+# byte-for-byte base reproducibility for a patched runtime; the final-image
+# scan still gates every refresh.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
