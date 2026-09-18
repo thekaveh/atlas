@@ -526,7 +526,7 @@ make docs-check
 - **`validate_fragments`** — always, before the final `make docs-check` gate.
 - **`docs.regen`** — required after creating a new service that owns a same-folder README, or after editing `data_flow.calls` on an existing service. Manifests whose `docs:` field points to an aggregate/doc-only README are exempt from same-folder generation. The drift gate in CI (`bootstrapper.docs.regen --all --check`) catches stale existing per-service READMEs/SVGs/HTMLs.
 
-**No external prerequisites.** Graphviz used to be required for the top-level diagram regen; that step is retired now that the diagram is hand-authored via the architecture-diagram skill.
+**One external prerequisite: Cairo.** Graphviz is no longer required for the top-level diagram regen; that step is retired now that the diagram is hand-authored via the architecture-diagram skill. Diagram rendering still goes through `cairosvg`, which links the native Cairo library: CI installs `libcairo2` before both documentation jobs, and locally you need `libcairo2` (Debian/Ubuntu) or `brew install cairo` (macOS).
 
 **Atlas hero art:** regenerate with `python bootstrapper/scripts/generate_logo.py` (needs `pip install pillow` + `chafa` on PATH); commit the refreshed `bootstrapper/ui/textual/assets/atlas_hero_*.json`. Not gated in CI.
 
@@ -556,7 +556,7 @@ All four are required status checks in the live `gitflow` ruleset:
 
 | Job | What it catches |
 |---|---|
-| **Manifest lint + unit tests** | `validate_fragments` lint + 1,300+ pytest tests + the backend's own pytest suite (`services/backend/app/app/tests/`). Catches: manifest schema violations, dependency cycles, env-example drift, category overflow, backend route regressions. |
+| **Manifest lint + unit tests** | `validate_fragments` lint + 6,000+ pytest tests + the backend's own pytest suite (`services/backend/app/app/tests/`). Catches: manifest schema violations, dependency cycles, env-example drift, category overflow, backend route regressions. |
 | **Compose merge + byte-equivalence + source-permutation matrix** | Renders `docker compose config` for the merged fragment list + verifies it matches the golden baseline + tests every source variant of every service. Catches: compose-syntax errors, source-permutation regressions. |
 | **Docs drift + audit scripts** | `regen --all --check` + `make docs-check` + the remaining audits (`check_doc_links` — including `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-kong-routes`, `validate_research_schema`, `check-track-membership`) + lock verification for the Docling localhost provider, Local Deep Researcher, and compiled service runtimes + a vulnerability audit of compiled runtime locks. Catches: stale per-service docs, three-surface drift, cross-surface links, missing local assets, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale or unreproducible runtime locks, vulnerable runtime dependency closures, and track-membership omissions. |
 | **Build-validation** | `docker buildx build` for every local non-GPU Compose build context plus every `services/*/init/Dockerfile` context; GPU provider builds are intentionally excluded for runner size/time. Catches: unsatisfiable pip pins, broken Dockerfiles, and init-image drift. Runs on every workflow execution and is required. |
@@ -851,15 +851,34 @@ cross-manifest rules; do not edit it by hand.
 fragment's compose shape, you'll either need to update the baseline (after
 confirming the change is intentional) or restore byte-equivalence.
 
-```bash
-# Inspect drift
-docker compose --env-file .env -f docker-compose.yml config > /tmp/actual.yml
-diff bootstrapper/tests/fixtures/rendered_config_baseline.yml /tmp/actual.yml
+The gate does not compare a raw `docker compose config` dump. It renders from
+`.env.example` plus a small set of test overrides, passes `-p atlas`, and rewrites
+machine-specific absolute paths to the `{REPO_ROOT}` and `{HOME}` tokens the committed
+fixture stores. Redirecting `docker compose config` into the fixture does none of that:
+the result can never match the gate, and because that command reads your live `.env` it
+would write real secrets into a tracked file.
 
-# Refresh baseline (only when the drift is intentional)
-docker compose --env-file .env -f docker-compose.yml config > \
-    bootstrapper/tests/fixtures/rendered_config_baseline.yml
+```bash
+# Inspect drift — the gate is the diff; it reports the first mismatching key path.
+cd bootstrapper && uv run pytest tests/test_fragment_equivalence.py -q
+
+# Refresh the baseline (only when the drift is intentional), reusing the gate's
+# own helpers so the refreshed fixture is what the gate will compare against.
+cd bootstrapper && uv run python -c "
+import subprocess, yaml
+from tests.test_fragment_equivalence import _build_test_env, _normalize_paths, BASELINE, REPO_ROOT
+rendered = subprocess.run(
+    ['docker', 'compose', '--env-file', str(_build_test_env()), '-p', 'atlas',
+     '-f', str(REPO_ROOT / 'docker-compose.yml'), 'config'],
+    capture_output=True, text=True, check=True,
+).stdout
+BASELINE.write_text(yaml.safe_dump(_normalize_paths(yaml.safe_load(rendered)), sort_keys=True))
+"
 ```
+
+A full refresh re-sorts and reflows all ~5,100 lines, which buries the change you
+actually made. For a one- or two-key change, edit the fixture surgically instead and
+let the gate confirm it.
 
 
 ## 21. `services/_user/` overlay slot (downstream submodule consumers)
