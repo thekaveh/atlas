@@ -17,8 +17,18 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for faster Python package management (pinned so the dependency
-# installer itself is deterministic across rebuilds).
-RUN pip install --no-cache-dir uv==0.11.19
+# installer itself is deterministic across rebuilds). uv stays in the image
+# because the entrypoint builds the runtime venv with it on first launch;
+# 0.11.28+ links quinn-proto 0.11.15 (GHSA-4w2j-m93h-cj5j), which the
+# final-image scan flagged in the 0.11.19 binary (#1002).
+#
+# The base's system setuptools (79.0.1) vendors jaraco.context 5.3.0 and
+# wheel 0.45.1 with fixed HIGH findings, and nothing here uses it: the
+# runtime venv gets its own lock-pinned setuptools/wheel from
+# config/runtime-requirements.lock, and the init scripts import neither.
+# Drop it, which also matches the python:3.12-slim images that ship none.
+RUN pip install --no-cache-dir uv==0.11.33 \
+    && pip uninstall --yes setuptools
 
 # Create necessary directories
 RUN mkdir -p /app/data /app/config /app/repo
