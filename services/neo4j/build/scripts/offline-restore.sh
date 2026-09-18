@@ -2,8 +2,8 @@
 # Load an authenticated, pre-staged Atlas snapshot into offline Neo4j Community.
 set -euo pipefail
 
-EXPECTED_NEO4J_IMAGE="neo4j:5.26.27"
-EXPECTED_NEO4J_VERSION="5.26.27"
+EXPECTED_NEO4J_IMAGE="neo4j:5.26.30"
+EXPECTED_NEO4J_VERSION="5.26.30"
 SOURCE="${1:?usage: offline-restore.sh /snapshot/restore-TIMESTAMP}"
 TIMEOUT_SECONDS="${BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS:-120}"
 REPORT_ROOT="${NEO4J_REPORT_ROOT:-/reports}"

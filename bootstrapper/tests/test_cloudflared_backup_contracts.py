@@ -5275,7 +5275,7 @@ def test_owned_helper_status_125_reconciles_late_container(
     monkeypatch.setattr(live_integration, "_run", run)
 
     result = owned.run_helper(
-        "offline-helper", ["--network", "none", "neo4j:5.26.27"], check=False
+        "offline-helper", ["--network", "none", "neo4j:5.26.30"], check=False
     )
     assert result.returncode == 125
     owned.cleanup()
@@ -5307,7 +5307,7 @@ def test_owned_helper_status_125_preserves_late_foreign_collision(
     monkeypatch.setattr(live_integration, "_run", run)
 
     owned.run_helper(
-        "offline-helper", ["--network", "none", "neo4j:5.26.27"], check=False
+        "offline-helper", ["--network", "none", "neo4j:5.26.30"], check=False
     )
     with pytest.raises(live_integration._OwnershipMismatch, match="foreign"):
         owned.cleanup()

@@ -1,9 +1,9 @@
 #!/bin/bash
-# Exact Neo4j Community 5.26.27 offline dump contract.
+# Exact Neo4j Community 5.26.30 offline dump contract.
 set -euo pipefail
 
-EXPECTED_NEO4J_IMAGE="neo4j:5.26.27"
-EXPECTED_NEO4J_VERSION="5.26.27"
+EXPECTED_NEO4J_IMAGE="neo4j:5.26.30"
+EXPECTED_NEO4J_VERSION="5.26.30"
 SNAPSHOT_ROOT="${NEO4J_SNAPSHOT_ROOT:-/snapshot}"
 TIMESTAMP="${BACKUP_TIMESTAMP:?BACKUP_TIMESTAMP is required}"
 TIMEOUT_SECONDS="${BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS:-120}"

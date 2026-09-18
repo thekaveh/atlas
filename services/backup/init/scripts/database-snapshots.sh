@@ -2,8 +2,8 @@
 # Collect completed Neo4j offline dumps and a native online Weaviate snapshot.
 # Sourced by backup-all.sh after run_bounded and WORK are initialized.
 
-EXPECTED_NEO4J_IMAGE="neo4j:5.26.27"
-EXPECTED_NEO4J_VERSION="5.26.27"
+EXPECTED_NEO4J_IMAGE="neo4j:5.26.30"
+EXPECTED_NEO4J_VERSION="5.26.30"
 EXPECTED_WEAVIATE_IMAGE="cr.weaviate.io/semitechnologies/weaviate:1.38.13"
 EXPECTED_WEAVIATE_VERSION="1.38.13"
 
