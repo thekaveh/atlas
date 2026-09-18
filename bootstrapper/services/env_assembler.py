@@ -43,8 +43,9 @@ _HEADER = """\
 #
 # This .env.example is produced by bootstrapper/services/env_assembler.py
 # from services/<name>/service.yml manifests. To change a default, edit the
-# relevant manifest and re-run `./start.sh` (which regenerates this file)
-# or `python -m services.env_assembler` for the regen-only path.
+# relevant manifest and re-run `python -m services.env_assembler` from the
+# bootstrapper directory. `./start.sh` does NOT regenerate this file -- it
+# backfills your own .env from whatever this file already contains.
 #
 # Variables flagged `auto-managed` are computed at runtime by the bootstrapper
 # from SOURCE values and are intentionally emitted without a default here.

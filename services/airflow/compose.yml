@@ -270,8 +270,11 @@ services:
       # `db migrate` doesn't accidentally seed examples into our metadata DB.
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW_UID: "50000"
-      # Sibling-source vars consumed by the init script for conditional
-      # connection seeding (dual-write per project_runtime_sc_vs_compose_env).
+      # Sibling-source vars for conditional connection seeding (dual-write per
+      # project_runtime_sc_vs_compose_env). init-airflow.sh reads SPARK_SOURCE,
+      # MINIO_SOURCE, WEAVIATE_SOURCE and NEO4J_GRAPH_DB_SOURCE;
+      # ICEBERG_REST_SOURCE is injected for parity but has no seeding branch yet,
+      # so it is inert until one is added -- do not cite it as a live consumer.
       # LITELLM + REDIS are intentionally absent: both are always-on per their
       # service.yml and the init script seeds their Connections unconditionally.
       # NEO4J_GRAPH_DB_SOURCE is the canonical name (NEO4J_SOURCE does not exist).
