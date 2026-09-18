@@ -38,7 +38,7 @@ To manually create a graph database backup:
 docker exec -it ${PROJECT_NAME}-neo4j-graph-db /usr/local/bin/backup.sh
 ```
 
-The legacy backup is stored in the `${PROJECT_NAME}-neo4j-backups` named volume mounted at `/snapshot`. Images created before the coordinated workflow may also contain the legacy repository bind path `build/snapshot`; Atlas leaves that path and its files operator-accessible rather than deleting or silently migrating them. Import a legacy dump manually after verifying its origin and exact Neo4j compatibility. For coordinated Atlas backups, use `services/backup/run-consistent-backup.sh`; it preserves the initial running state, dumps both `system` and `neo4j` with the exact 5.26.27 image, and publishes signed metadata with the other database artifacts.
+The legacy backup is stored in the `${PROJECT_NAME}-neo4j-backups` named volume mounted at `/snapshot`. Images created before the coordinated workflow may also contain the legacy repository bind path `build/snapshot`; Atlas leaves that path and its files operator-accessible rather than deleting or silently migrating them. Import a legacy dump manually after verifying its origin and exact Neo4j compatibility. For coordinated Atlas backups, use `services/backup/run-consistent-backup.sh`; it preserves the initial running state, dumps both `system` and `neo4j` with the exact 5.26.30 image, and publishes signed metadata with the other database artifacts.
 
 ### 4.2. Manual Restore
 
@@ -276,7 +276,7 @@ _No upstream calls._
 
 - **Native vector index (HNSW)** — *Why pursue:* Neo4j 5 ships an HNSW vector index, letting us store embeddings on graph nodes and combine ANN search with graph traversal in one DB. *Effort:* small.
 - **GenAI plugin (`genai.vector.encode*`)** — *Why pursue:* embed text directly inside Cypher via OpenAI/Vertex/Bedrock — wire it to LiteLLM and ingestion becomes one query. *Effort:* small.
-- **APOC core + extended** — *Why pursue:* image is plain `neo4j:5.26.27`; APOC is not preinstalled. APOC unlocks bulk import, periodic-iterate, JSON/HTTP, and LLM procedures. *Effort:* small.
+- **APOC core + extended** — *Why pursue:* image is plain `neo4j:5.26.30`; APOC is not preinstalled. APOC unlocks bulk import, periodic-iterate, JSON/HTTP, and LLM procedures. *Effort:* small.
 - **Neosemantics (n10s)** — *Why pursue:* RDF/ontology import/export bridges Neo4j with external semantic-web sources (Wikidata, schema.org). *Effort:* medium.
 - **Read-only role for LLM-generated Cypher** — *Why pursue:* safe execution of model-authored queries from open-webui/hermes; mitigates prompt-injection-to-`DETACH DELETE`. *Effort:* small.
 
@@ -320,5 +320,5 @@ Support tier: **experimental** — Capability contract declared (#967); no cited
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Container and host graph storage | supported | tested | Atlas supports a persistent Neo4j container or an operator-run localhost endpoint and wires Bolt consumers through the selected source. |
-| Snapshot backup and restore | supported | tested | The backup orchestrator records whether Neo4j Community 5.26.27 is running, stops it for bounded system and neo4j database dumps, restores the prior running state on success or failure, and provides an authenticated offline load path. |
+| Snapshot backup and restore | supported | tested | The backup orchestrator records whether Neo4j Community 5.26.30 is running, stops it for bounded system and neo4j database dumps, restores the prior running state on success or failure, and provides an authenticated offline load path. |
 | Production access isolation | partial | documented | Password authentication is configured, but direct Bolt and Browser ports are plaintext and Atlas does not provision separate least-privilege service roles. |

@@ -32,7 +32,7 @@ from tests.seed_harness import (
 
 REPO = Path(__file__).resolve().parents[2]
 NEO4J_IMAGE, WEAVIATE_IMAGE = (
-    "neo4j:5.26.27", "cr.weaviate.io/semitechnologies/weaviate:1.38.13",
+    "neo4j:5.26.30", "cr.weaviate.io/semitechnologies/weaviate:1.38.13",
 )
 IMAGES = (NEO4J_IMAGE, WEAVIATE_IMAGE)
 OWNER_LABEL, SCOPE_LABEL, ROLE_LABEL = (
