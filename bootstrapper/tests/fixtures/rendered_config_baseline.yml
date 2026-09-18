@@ -1397,7 +1397,7 @@ services:
       context: '{REPO_ROOT}/services/jenkins/build'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: jenkins/jenkins:lts-jdk21@sha256:f4f65e6cd1405cd889b7f5ac33f9d5cdc2a099de6b87fe8a3933b9c5d53d1d02
+        BASE_IMAGE: jenkins/jenkins:lts-jdk21@sha256:c1e4c349365f6d16d88595b2c5f7e8ff39b8ae1d061f62420bac193b4b9616d0
     container_name: atlas-jenkins
     depends_on:
       minio-init:
