@@ -1460,9 +1460,22 @@ def test_backend_runtime_excludes_ci_artifacts_and_build_installer() -> None:
     assert "pip uninstall --yes uv" in dockerfile
 
 
+def test_jupyter_runtime_takes_published_ubuntu_updates_with_rationale() -> None:
+    dockerfile = (ROOT / "services/jupyterhub/build/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+
+    # JupyterHub takes published Ubuntu updates (#1002): the pinned base ships
+    # seven fixed linux-libc-dev findings and the newest upstream base trades
+    # them for fixed rattler findings, so no reviewed refresh alone could clear
+    # the gate. The rationale must stay next to the upgrade.
+    assert "apt-get upgrade -y --no-install-recommends" in dockerfile
+    assert "reviewed BASE_IMAGE refresh" in dockerfile
+    assert "rm -rf /var/lib/apt/lists/*" in dockerfile
+
+
 def test_changed_debian_images_use_reviewed_base_refreshes_not_mutable_upgrades() -> None:
     for relative in (
-        "services/jupyterhub/build/Dockerfile",
         "services/litellm/init/Dockerfile",
         "services/open-webui/init/Dockerfile",
     ):

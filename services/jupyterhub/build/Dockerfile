@@ -27,10 +27,21 @@ ARG JULIA_SHA256_ARM64=9243c0b524c7f300883240a1ee5ea3916a30e070bff718acf8ccaee31
 # Switch to root to install system packages
 USER root
 
+# Ubuntu security fixes normally arrive through a reviewed BASE_IMAGE refresh.
+# When the newest published base cannot clear the final-image scan (2026-09-18:
+# the pinned 2026-08-24 base ships linux-libc-dev 6.8.0-138 with seven fixed
+# HIGH kernel-header advisories, and the newest 2026-09-07 base fixes those but
+# adds fixed pyo3/quinn-proto findings inside conda's rattler binary that this
+# Dockerfile does not touch, #1002), take the published updates the same way
+# services/backend, services/airflow, services/spark and services/backup do.
+# This trades byte-for-byte base reproducibility for a patched runtime; the
+# final-image scan still gates every refresh.
+#
 # Install system dependencies, including OpenJDK 17 for the Almond Scala kernel
 # (Almond runs on the JVM; JDK 17 covers Scala 2.13 + Scala 3). The headless
 # package is ~120 MB smaller than the full openjdk-17-jdk.
 RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends \
     curl \
     wget \
