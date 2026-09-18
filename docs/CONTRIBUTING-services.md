@@ -658,7 +658,8 @@ Distilled from real audit findings — each entry cites the commit, PR, or memor
   pinned-base refresh first; when the newest published base still carries
   fixed findings, a build-time `apt-get upgrade` with the rationale kept next
   to it is the accepted fallback (airflow, spark, asset-baker, asset-worker,
-  backup-init, backend, and jupyterhub do this). Required final-image scanning gates each
+  backup-init, backend, jupyterhub, neo4j, litellm-init, and open-webui-init do
+  this). Required final-image scanning gates each
   refresh either way.
 - **TTS/STT engine in-container ports are NOT all 8000.** Parakeet, Speaches, Docling listen on `8000`; Chatterbox listens on `4123`. Don't assume.
 

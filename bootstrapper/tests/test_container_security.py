@@ -1474,13 +1474,20 @@ def test_jupyter_runtime_takes_published_ubuntu_updates_with_rationale() -> None
     assert "rm -rf /var/lib/apt/lists/*" in dockerfile
 
 
-def test_changed_debian_images_use_reviewed_base_refreshes_not_mutable_upgrades() -> None:
+def test_slim_bookworm_init_images_take_published_debian_updates_with_rationale() -> None:
+    # Both inits pin the same python:3.12.14-slim-bookworm digest. On 2026-09-18
+    # the current index of that tag still shipped libpcre2 10.42-1 with three
+    # fixed HIGH advisories, so no reviewed refresh could clear the gate (#1002)
+    # and they take the same accepted fallback as backend/jupyterhub/neo4j.
+    # The rationale must stay next to the upgrade.
     for relative in (
         "services/litellm/init/Dockerfile",
         "services/open-webui/init/Dockerfile",
     ):
         dockerfile = (ROOT / relative).read_text(encoding="utf-8")
-        assert "apt-get upgrade" not in dockerfile, relative
+        assert "apt-get upgrade -y --no-install-recommends" in dockerfile, relative
+        assert "reviewed BASE_IMAGE refresh" in dockerfile, relative
+        assert "rm -rf /var/lib/apt/lists/*" in dockerfile, relative
 
 
 def test_jupyter_runtime_pins_patched_python_and_node_tooling() -> None:
