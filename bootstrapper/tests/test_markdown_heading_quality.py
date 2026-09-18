@@ -66,3 +66,23 @@ def test_semantic_numeric_titles_are_preserved():
     assert renumber_markdown(source) == (
         "## 1. 2026. Roadmap\n## 2. 3.14 API compatibility\n"
     )
+def test_moved_subsection_is_renumbered_without_double_numbering():
+    """A subsection whose number changes must not keep its old prefix.
+
+    heading_number_findings only checks depth and sequence, so a corrupted
+    `### 1.1. 1.4. Bits` passes the gate -- the new number is correct and the
+    stale one is just title text. The rewrite has to strip it.
+    """
+    source = "## 1. Overview\n### 1.4. Bits\n#### 7.7.7. Deeper\n"
+
+    assert renumber_markdown(source) == (
+        "## 1. Overview\n### 1.1. Bits\n#### 1.1.1. Deeper\n"
+    )
+
+
+def test_renumber_markdown_is_idempotent_after_a_move():
+    source = "## 1. Overview\n### 9.9. Bits\n"
+
+    once = renumber_markdown(source)
+
+    assert renumber_markdown(once) == once

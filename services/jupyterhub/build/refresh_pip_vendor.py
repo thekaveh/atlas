@@ -156,7 +156,7 @@ def _validate_state(
     vendored_msgpack = vendor / "msgpack"
 
     if not (msgpack_source / "__init__.py").is_file():
-        raise ValueError("msgpack 1.2.1 source package is incomplete")
+        raise ValueError(f"msgpack {NEW_MSGPACK} source package is incomplete")
     if (vendor / "setuptools").exists():
         raise ValueError("setuptools is now shipped and may not be removed from the SBOM")
 

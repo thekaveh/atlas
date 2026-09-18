@@ -359,7 +359,7 @@ docker compose ps > service_status.txt
 docker compose logs --tail=100 > stack_logs.txt
 
 # Configuration
-cp .env config_backup.env  # Remove sensitive data before sharing
+cp .env .env.backup.support  # matches .gitignore's .env.backup.* — redact secrets before sharing
 ```
 
 ### 9.2. Common Support Information

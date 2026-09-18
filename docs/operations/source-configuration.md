@@ -35,7 +35,7 @@ These services can run on your host machine instead of in containers:
 | Service | SOURCE Variable | Localhost Option | Benefits |
 |---------|----------------|------------------|----------|
 | **Ollama** (LiteLLM upstream) | `LLM_PROVIDER_SOURCE` | `ollama-localhost` | Faster, uses existing models, less memory. LiteLLM still fronts the upstream. |
-| **ComfyUI** | `COMFYUI_SOURCE` | `localhost` | Direct access, custom setups, faster |
+| **ComfyUI** | `COMFYUI_SOURCE` | `localhost`, `managed-localhost-mps` | Direct access, custom setups, faster; `managed-localhost-mps` lets Atlas install and run a Metal/MPS ComfyUI on Apple Silicon |
 | **Weaviate** | `WEAVIATE_SOURCE` | `localhost` | Custom configuration, performance |
 | **Neo4j** | `NEO4J_GRAPH_DB_SOURCE` | `localhost` | Use an existing graph database |
 | **OpenClaw** | `OPENCLAW_SOURCE` | `localhost` | Native performance, existing config |
@@ -216,7 +216,16 @@ python main.py --port 8000
 # (URL is derived as http://host.docker.internal:8188 at compose-render time.)
 ```
 
-#### 4.2.4. `disabled`
+#### 4.2.4. `managed-localhost-mps`
+```bash
+COMFYUI_SOURCE=managed-localhost-mps
+```
+- **Use case**: Apple Silicon, where Metal/MPS acceleration is unavailable inside a Linux container
+- **Pros**: GPU-accelerated on macOS; Atlas owns the install, start/stop and health of the host process
+- **Cons**: macOS/Apple Silicon only; the process runs outside Docker
+- **Requirements**: managed through `./start.sh comfyui-mps <preflight|install|provision|start|stop|status|health|remove>`
+
+#### 4.2.5. `disabled`
 ```bash
 COMFYUI_SOURCE=disabled
 ```
@@ -225,7 +234,7 @@ COMFYUI_SOURCE=disabled
 - **Cons**: No image generation
 - **Requirements**: None
 
-#### 4.2.5. `FAL_SOURCE` — cloud media provider
+#### 4.2.6. `FAL_SOURCE` — cloud media provider
 ```bash
 FAL_SOURCE=enabled
 FAL_API_KEY=<your-fal-key>

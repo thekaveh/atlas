@@ -5,6 +5,7 @@ from copy import deepcopy
 from datetime import date, timedelta
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -46,7 +47,19 @@ def _baseline_python_files() -> list[Path]:
         *ROOT.joinpath("bootstrapper").rglob("*.py"),
         *ROOT.joinpath("services/backend/app/app").rglob("*.py"),
     ]
-    return [path for path in files if not any(part.startswith(".") for part in path.parts)]
+    # Filter the REPO-RELATIVE path. ROOT is absolute, so filtering path.parts
+    # tests the whole filesystem prefix: a checkout under any dot-directory --
+    # including .claude/worktrees/<name>, the worktree location this repo
+    # documents -- matches on every file and empties the list, leaving every
+    # ceiling assertion below to pass against zero files. _extended_python_files
+    # already filters relatively; match it.
+    return [
+        path
+        for path in files
+        if not any(
+            part.startswith(".") for part in path.relative_to(ROOT).parts
+        )
+    ]
 
 
 def _extended_python_files() -> list[Path]:
@@ -331,3 +344,29 @@ def test_confirmed_dead_private_helpers_remain_removed() -> None:
     assert "def prune_system(" not in (
         ROOT / "bootstrapper" / "core" / "docker_manager.py"
     ).read_text(encoding="utf-8")
+def test_baseline_file_discovery_ignores_the_checkout_prefix(
+    tmp_path, monkeypatch,
+) -> None:
+    """Discovery must filter the repo-relative path, not the absolute one.
+
+    This repository documents .claude/worktrees/<name> as the worktree
+    location. Filtering the absolute path matches ".claude" on every file, so
+    the discovery returns nothing and every ceiling assertion in this module
+    passes against zero files -- the gate reports green while measuring
+    nothing.
+    """
+    checkout = tmp_path / ".claude" / "worktrees" / "probe"
+    (checkout / "bootstrapper").mkdir(parents=True)
+    (checkout / "bootstrapper" / "module.py").write_text("x = 1\n")
+    app = checkout / "services/backend/app/app"
+    app.mkdir(parents=True)
+    (app / "main.py").write_text("y = 2\n")
+    # A genuinely hidden directory inside the repo must still be excluded.
+    (checkout / "bootstrapper" / ".venv").mkdir()
+    (checkout / "bootstrapper" / ".venv" / "vendored.py").write_text("z = 3\n")
+
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", checkout)
+
+    found = {path.name for path in _baseline_python_files()}
+
+    assert found == {"module.py", "main.py"}

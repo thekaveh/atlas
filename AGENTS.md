@@ -37,7 +37,7 @@ For TUI/CLI visual work: after each change, describe exactly what changed visual
 
 ## Git Workflow
 
-`main` and `develop` are protected by the `gitflow` ruleset. Direct pushes are rejected even for the repo owner. Every change must land via a pull request with the currently required `services-lint` checks green:
+`main` and `develop` are protected by the `gitflow` ruleset: pull request required, no force-push, no branch deletion, and four required `services-lint` checks. Every change lands via a pull request with those checks green:
 
 - `Manifest lint + unit tests`
 - `Compose merge + byte-equivalence + source-permutation matrix`
@@ -45,6 +45,8 @@ For TUI/CLI visual work: after each change, describe exactly what changed visual
 - `Build-validation (Dockerfile + requirements.txt installability)`
 
 Build validation is enabled on every workflow run and is a required check in the live `gitflow` ruleset.
+
+The ruleset also grants the repository admin role an always-on bypass (`bypass_mode: always`), so these rules are the required workflow rather than a mechanical guarantee for an admin. Inspect the live rule with `gh api repos/thekaveh/atlas/rulesets`.
 
 Strict mode is enabled, so each PR branch must be up to date with that PR's target branch before merge becomes available. Conversation-resolution is required.
 

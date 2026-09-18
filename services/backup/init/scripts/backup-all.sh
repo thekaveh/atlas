@@ -73,6 +73,12 @@ backup_id="$(od -An -N16 -v -tx1 /dev/urandom | tr -d '[:space:]')"
 case "$backup_id" in *[!0-9a-f]*|'') echo "backup: could not generate backup identity" >&2; exit 1;; esac
 [ "${#backup_id}" -eq 32 ] || { echo "backup: could not generate backup identity" >&2; exit 1; }
 WORK="/tmp/atlas-backup-${backup_id}"
+# The S3 client config holds the access key, secret key and session token in
+# plaintext once `mc alias import` persists them. It must live OUTSIDE $WORK:
+# the artifact upload is `mc cp --recursive "$WORK/"`, so anything under $WORK
+# is published into the backup bucket. The cleanup trap only removes it at
+# exit, which is after the upload. Mirrors restore-postgres.sh.
+S3_CONFIG_DIR="/tmp/atlas-backup-s3-${backup_id}"
 rm -rf "$WORK" && mkdir -p "$WORK"
 COMPLETE="/tmp/atlas-backup-complete-${backup_id}"
 SNAPSHOT_PID=""
@@ -130,7 +136,7 @@ cleanup() {
   close_snapshot; record_cleanup_failure "$?"
   release_backup_lock; record_cleanup_failure "$?"
   rm -f "$COMPLETE"; record_cleanup_failure "$?"
-  rm -rf "$WORK/mc"; record_cleanup_failure "$?"
+  rm -rf "$S3_CONFIG_DIR"; record_cleanup_failure "$?"
   if [ "$rc" -ne 0 ]; then
     [ "$cleanup_rc" -eq 0 ] || echo "backup: cleanup failed with status ${cleanup_rc}; preserving primary status ${rc}" >&2
     exit "$rc"
@@ -140,7 +146,7 @@ cleanup() {
 trap cleanup 0
 trap 'exit 130' 1 2 15
 
-configure_backup_s3 "$WORK/mc"
+configure_backup_s3 "$S3_CONFIG_DIR"
 run_bounded mc mb --region "$BACKUP_S3_REGION" --ignore-existing "s3/${BUCKET}"
 timeout -s TERM -k 10 "$BACKUP_LOCK_HOLD_SECONDS" \
   env PGPASSWORD="$SUPABASE_DB_PASSWORD" PGAPPNAME="$BACKUP_LOCK_APP" \
