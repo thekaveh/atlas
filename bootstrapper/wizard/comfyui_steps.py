@@ -393,8 +393,10 @@ def build_comfyui_steps(
     """Build the ComfyUI model multiselect step.
 
     Parallel to build_ollama_steps(). Activated right after the ComfyUI
-    source step via a skip_if_prev guard: fires only when
-    COMFYUI_SOURCE is container-cpu or container-gpu.
+    source step via a skip_if_prev guard: fires for every non-disabled
+    COMFYUI_SOURCE -- container-cpu, container-gpu, localhost and
+    managed-localhost-mps -- and is skipped only when the source is
+    `disabled` or empty. See _skip_when_disabled below.
 
     Args:
         env_vars: the current .env snapshot (read at wizard build time)
