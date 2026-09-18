@@ -144,7 +144,7 @@ jobs:
                 --ignorefile .trivyignore.yaml \
                 --exit-code 1 \
                 --no-progress \
-                --timeout 10m \
+                --timeout 30m \
                 "$image_tag"
               echo "::group::Unfixed High/Critical findings (informational)"
               trivy image \
@@ -154,7 +154,7 @@ jobs:
                 --ignorefile .trivyignore.yaml \
                 --exit-code 0 \
                 --no-progress \
-                --timeout 10m \
+                --timeout 30m \
                 "$image_tag"
               echo "::endgroup::"
               docker image rm "$image_tag"
