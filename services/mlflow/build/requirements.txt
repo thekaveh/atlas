@@ -2,3 +2,14 @@
 # metadata store and S3-compatible MinIO artifact store.
 boto3==1.43.56
 psycopg2-binary==2.9.12
+
+# The upstream image's own site-packages lag four advisories the final-image
+# scan flags (#1002, 2026-09-18): GitPython 3.1.57, sqlparse 0.5.5, setuptools
+# 65.5.1 and wheel 0.45.1. Atlas pins exactly MLflow 3.15.1 (atlas_server.py
+# guard, gateway SSRF review), and the newest v3.16.1 base still carries the
+# same class of findings, so these move here, inside MLflow's own declared
+# ranges (gitpython<4, sqlparse<1), through the audited lock instead.
+GitPython==3.1.62
+sqlparse==0.6.0
+setuptools==84.0.0
+wheel==0.48.0
