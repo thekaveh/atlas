@@ -541,6 +541,10 @@ jobs:
                 uv run --project bootstrapper python scripts/smoke_mlflow_gateway_guard.py \
                   --image "$image_tag"
               fi
+              # 30m: the Zeppelin image (thousands of jars plus two conda
+              # environments, read back through the Docker daemon) spends
+              # more than 10 minutes in Trivy's analysis phase on a hosted
+              # runner, while the Spark images take ~6.5 minutes each (#1002).
               trivy image \
                 --image-src docker \
                 --scanners vuln \
@@ -549,7 +553,7 @@ jobs:
                 --ignorefile .trivyignore.yaml \
                 --exit-code 1 \
                 --no-progress \
-                --timeout 10m \
+                --timeout 30m \
                 "$image_tag"
               docker image rm "$image_tag"
               image_tag=""
