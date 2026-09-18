@@ -644,12 +644,22 @@ def replace_step_secondary_selections(
 
 def _restored_primary_defaults(original, selections: dict):
     """Return defaults plus active input state for a revisited step."""
+    from wizard.model.cloud_rules import SECRET_CLEAR, SECRET_KEEP
+
     default_values = list(original.default_values)
     default_value = original.default_value
     restored_input_value = None
     prior = selections.get(original.title)
     if original.kind == "multiselect" and isinstance(prior, str):
-        default_values = [value for value in prior.split(",") if value]
+        # SECRET_KEEP/SECRET_CLEAR are sentinels, not selections. A degraded
+        # options fetch commits SECRET_KEEP to mean "leave whatever .env holds
+        # alone"; splitting it here would re-enter the step with the sentinel
+        # as the only checked row, the visible-row filter would drop it, and
+        # the next Enter would commit an empty CSV -- which downstream reads as
+        # "the user chose no models" and disables the provider while blanking
+        # its stored key. Fall through to the .env-seeded defaults instead.
+        if prior not in {SECRET_KEEP, SECRET_CLEAR}:
+            default_values = [value for value in prior.split(",") if value]
     elif isinstance(prior, str):
         if original.kind in {"secret", "text"}:
             restored_input_value = _restored_free_text_input(prior)

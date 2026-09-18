@@ -21,7 +21,7 @@ Atlas provides the Jenkins server, JCasC, Maven, and MinIO publishing seam. Down
 
 ```bash
 JENKINS_SOURCE=disabled            # container | disabled
-JENKINS_IMAGE=jenkins/jenkins:lts-jdk21
+JENKINS_IMAGE=jenkins/jenkins:lts-jdk21@sha256:c1e4c349365f6d16d88595b2c5f7e8ff39b8ae1d061f62420bac193b4b9616d0
 JENKINS_PORT=                      # auto-assigned in the apps band
 JENKINS_ADMIN_USER=admin
 JENKINS_ADMIN_PASSWORD=            # auto-generated

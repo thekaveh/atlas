@@ -33,8 +33,15 @@ ON CONFLICT DO NOTHING;
 -- PostgreSQL 17. Emptying the table returns GoTrue to the crash-loop this
 -- slice exists to prevent.
 --
--- GoTrue connects as supabase_admin (GOTRUE_DB_DATABASE_URL uses
--- SUPABASE_DB_USER), which owns this table and so bypasses RLS.
+-- Identity note: GoTrue does NOT connect as supabase_admin. compose.yml builds
+-- GOTRUE_DB_DATABASE_URL from SUPABASE_AUTH_DB_USER_URI, which defaults to
+-- supabase_auth_admin. In the pinned supabase/postgres:17.6.1.139 image that
+-- role has neither rolsuper nor rolbypassrls (supabase_admin has both;
+-- service_role has rolbypassrls), so it does not bypass this policy by role
+-- attribute. Its access here rests on table ownership instead. Re-verify that
+-- ownership against a live GoTrue before changing the grant chain or adding
+-- FORCE ROW LEVEL SECURITY -- losing access returns GoTrue to the crash-loop
+-- this slice exists to prevent.
 ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Service role can access the gotrue migration tracker" ON public.schema_migrations;

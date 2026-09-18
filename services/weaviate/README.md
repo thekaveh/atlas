@@ -47,7 +47,7 @@ If you disable the CLIP provider, remove `multi2vec-clip` from `WEAVIATE_ENABLE_
 
 ```bash
 MULTI2VEC_CLIP_SOURCE=disabled
-WEAVIATE_ENABLE_MODULES=text2vec-openai,generative-openai,backup-filesystem
+WEAVIATE_ENABLE_MODULES=text2vec-openai,text2vec-ollama,generative-openai,generative-ollama,backup-filesystem
 CLIP_INFERENCE_API=
 ```
 
