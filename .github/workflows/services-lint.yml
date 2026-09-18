@@ -529,10 +529,15 @@ jobs:
               platform_tag="${platform#linux/}"
               image_tag="atlas-ci/runtime-${image_index}-${platform_tag}:${GITHUB_SHA}"
               docker buildx build --load --platform "$platform" -t "$image_tag" -f "$dockerfile_path" "$context/"
-              if [ "$context|$dockerfile" = "services/spark/build|Dockerfile" ]; then
+              # Functional smokes run only on the runner's native platform. The
+              # arm64 images are still built and scanned below, but a JVM or a
+              # Python server under QEMU user emulation cannot finish inside the
+              # smoke bounds: the Spark S3A round trip passes in ~12s natively
+              # and hit its 300s bound on the emulated arm64 image (#1002).
+              if [ "$context|$dockerfile" = "services/spark/build|Dockerfile" ] && [ "$platform" = "linux/amd64" ]; then
                 scripts/smoke_spark_s3a.sh "$image_tag"
               fi
-              if [ "$context|$dockerfile" = "services/mlflow|build/Dockerfile" ]; then
+              if [ "$context|$dockerfile" = "services/mlflow|build/Dockerfile" ] && [ "$platform" = "linux/amd64" ]; then
                 uv run --project bootstrapper python scripts/smoke_mlflow_gateway_guard.py \
                   --image "$image_tag"
               fi
