@@ -352,7 +352,15 @@ class DockerManager:
                 # helper also runs `ps`, `logs -f`, `restart` and `down`, and
                 # Ctrl+C on a `logs -f` detach is routine -- warning there sends
                 # the operator hunting for a build that was never started.
-                if self._compose_args_can_build(args):
+                # `build`, `up`, `create` and `run` can start one -- `up`
+                # builds a missing image even without `--build`. Membership
+                # rather than position, because a global flag can carry a value
+                # before the subcommand (`--profile prod up`); flags cannot
+                # collide with these names since they all begin with `-`. It
+                # can over-match a service literally named `up`, which is the
+                # safe direction: an extra warning costs a glance, a missing
+                # one costs the containers an abandoned build left behind.
+                if {"build", "up", "create", "run"}.intersection(args):
                     self._report_interrupted_compose(resolved_project_name)
                 raise
         except Exception as e:
@@ -1133,26 +1141,6 @@ class DockerManager:
         waits up to 3 s before SIGKILL so the user gets a clean detach.
         """
         return self.stream_compose(['logs', '-f'], on_line=on_line)
-
-    @staticmethod
-    def _compose_args_can_build(args: List[str]) -> bool:
-        """True when this compose invocation can start an image build.
-
-        `up`, `create` and `run` build any image that is missing even without
-        `--build`, so the subcommand alone decides. Read-only and lifecycle
-        subcommands (`ps`, `logs`, `restart`, `down`, `stop`, `exec`) never do.
-
-        Matches any bare token rather than positionally, because a global flag
-        can carry a value before the subcommand (`--profile prod up`). That can
-        over-match a service literally named `up`, which is the safe direction:
-        an extra warning costs a glance, a missing one costs the containers an
-        abandoned build left behind.
-        """
-        return any(
-            arg in {"build", "up", "create", "run"}
-            for arg in args
-            if not arg.startswith("-")
-        )
 
     def _report_interrupted_compose(self, project_name: str) -> None:
         """Tell the operator an aborted bring-up may still be building.

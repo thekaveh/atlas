@@ -84,3 +84,20 @@ def test_hba_malformed_candidate_keeps_original_and_recovery_backup(
     assert "invalid" in result.stderr.lower()
     assert hba.read_text(encoding="utf-8") == original
     assert hba.with_name("pg_hba.conf.atlas.bak").read_text(encoding="utf-8") == original
+def test_hba_guard_leaves_no_temporary_candidate_in_pgdata(tmp_path: Path) -> None:
+    """The no-rewrite path must not leak its candidate into PGDATA.
+
+    $candidate is created inside PGDATA and is only consumed by the `mv` that
+    runs when the rewritten file actually differs. When the rules are already
+    scram-sha-256 the compare matches, the `mv` is skipped, and clearing the
+    cleanup trap before removing the candidate strands it in the data
+    directory -- one file per container start, since the name carries $$.
+    """
+    already_hardened = "host all all 127.0.0.1/32 scram-sha-256\n"
+
+    result, hba_path = _run_guard(tmp_path, already_hardened)
+
+    assert result.returncode == 0, result.stderr
+    assert hba_path.read_text(encoding="utf-8") == already_hardened
+    leftovers = sorted(child.name for child in hba_path.parent.glob(".pg_hba.conf.atlas.*"))
+    assert leftovers == [], f"temporary candidate stranded in PGDATA: {leftovers}"
