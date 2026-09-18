@@ -15,6 +15,9 @@
 #                  minor-version move, not a patch.
 #   Iceberg    24  apache/iceberg-rest-fixture:1.10.1 is the newest published tag
 #                  (2026-09-17); the findings sit in its shaded adapter jar.
+#   Jenkins     4  jackson in the upstream image's build-time plugin manager jar,
+#                  plus one x/crypto SSH-server advisory in the git-lfs 3.8.0 client
+#                  binary that replaces the upstream image's stale 3.7.1.
 #
 # Renewed to 2026-12-09 on that basis. OSV additionally reports 44 rows as no
 # longer affected at the pinned version; those were deliberately NOT deleted,
@@ -34,6 +37,54 @@
 # uses the image's own patched Python. Nothing in that process imports urllib3,
 # certifi or setuptools, opens a network connection, or installs packages.
 vulnerabilities:
+  - id: CVE-2026-56854
+    paths:
+      - "usr/local/bin/git-lfs"
+    expired_at: 2026-12-09
+    statement: >-
+      golang.org/x/crypto v0.54.0 is compiled into the git-lfs 3.8.0 release
+      binary that Atlas installs into the Jenkins image (the newest git-lfs
+      release on 2026-09-17; the fix is x/crypto 0.55.0). The advisory is an SSH
+      server-side authentication bypass; git-lfs only acts as an SSH client for
+      git-lfs-authenticate and never listens. Jenkins is disabled by default
+      (JENKINS_SOURCE=disabled). Remove when git-lfs publishes a release built
+      against x/crypto 0.55.0 or newer (#1002).
+  - id: GHSA-r7wm-3cxj-wff9
+    paths:
+      - "opt/jenkins-plugin-manager.jar"
+    expired_at: 2026-12-09
+    statement: >-
+      jackson 2.20.1 ships inside /opt/jenkins-plugin-manager.jar, the
+      plugin-installer CLI the upstream jenkins/jenkins:lts-jdk21 image bundles;
+      Atlas runs it only at image build time (jenkins-plugin-cli --plugin-file)
+      and the Jenkins runtime never loads that jar. Jenkins itself is disabled by
+      default (JENKINS_SOURCE=disabled) and sits behind its own login. Remove when
+      the upstream image ships a plugin manager built against jackson
+      2.18.8+/2.21.4+ (#1002).
+  - id: CVE-2026-54512
+    paths:
+      - "opt/jenkins-plugin-manager.jar"
+    expired_at: 2026-12-09
+    statement: >-
+      jackson 2.20.1 ships inside /opt/jenkins-plugin-manager.jar, the
+      plugin-installer CLI the upstream jenkins/jenkins:lts-jdk21 image bundles;
+      Atlas runs it only at image build time (jenkins-plugin-cli --plugin-file)
+      and the Jenkins runtime never loads that jar. Jenkins itself is disabled by
+      default (JENKINS_SOURCE=disabled) and sits behind its own login. Remove when
+      the upstream image ships a plugin manager built against jackson
+      2.18.8+/2.21.4+ (#1002).
+  - id: CVE-2026-54513
+    paths:
+      - "opt/jenkins-plugin-manager.jar"
+    expired_at: 2026-12-09
+    statement: >-
+      jackson 2.20.1 ships inside /opt/jenkins-plugin-manager.jar, the
+      plugin-installer CLI the upstream jenkins/jenkins:lts-jdk21 image bundles;
+      Atlas runs it only at image build time (jenkins-plugin-cli --plugin-file)
+      and the Jenkins runtime never loads that jar. Jenkins itself is disabled by
+      default (JENKINS_SOURCE=disabled) and sits behind its own login. Remove when
+      the upstream image ships a plugin manager built against jackson
+      2.18.8+/2.21.4+ (#1002).
   - id: CVE-2025-48734
     purls:
       - "pkg:maven/commons-beanutils/commons-beanutils@1.9.4"
