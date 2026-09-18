@@ -48,6 +48,7 @@ UPSTREAM_URL = "https://github.com/langchain-ai/local-deep-researcher.git"
 BUILD_DEPENDENCIES = ("setuptools==83.0.0", "wheel==0.47.0")
 SECURITY_DEPENDENCIES = (
     "aiohttp>=3.14.3",
+    "anyio>=4.14.2",
     "click>=8.3.3",
     "langchain-classic>=1.0.7",
     "langsmith>=0.8.18",

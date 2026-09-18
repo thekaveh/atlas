@@ -22,6 +22,7 @@ NEO_RESTORE = REPO / "services/neo4j/build/scripts/offline-restore.sh"
 SNAPSHOTS = REPO / "services/backup/init/scripts/database-snapshots.sh"
 RESTORE_SNAPSHOTS = REPO / "services/backup/init/scripts/restore-databases.sh"
 BACKUP_ENTRYPOINT = REPO / "services/backup/init/scripts/entrypoint.sh"
+BACKUP_ALL = REPO / "services/backup/init/scripts/backup-all.sh"
 BACKUP_DOCKERFILE = REPO / "services/backup/init/Dockerfile"
 BACKUP_COMPOSE = REPO / "services/backup/compose.yml"
 WORKFLOW = REPO / ".github/workflows/services-lint.yml"
@@ -105,7 +106,7 @@ def _shell_function(path: Path, name: str) -> str:
         (
             "backup-all.sh",
             "cleanup",
-            'COMPLETE=/tmp/complete\nWORK=/tmp/work\n'
+            'COMPLETE=/tmp/complete\nWORK=/tmp/work\nS3_CONFIG_DIR=/tmp/s3config\n'
             'close_snapshot() { return 0; }\nrelease_backup_lock() { return 0; }\n',
         ),
         (
@@ -827,3 +828,31 @@ def test_legacy_neo4j_bind_snapshots_remain_operator_accessible():
     text = NEO_README.read_text(encoding="utf-8")
     assert "build/snapshot" in text
     assert "legacy" in text.lower()
+
+
+def test_s3_client_config_is_never_inside_the_published_artifact_root() -> None:
+    """The mc config dir must not sit under $WORK.
+
+    `mc alias import` persists the S3 access key, secret key and session token
+    in plaintext under MC_CONFIG_DIR. The artifact upload is
+    `mc cp --recursive "$WORK/" ...`, so any path under $WORK is published into
+    the backup bucket, and the cleanup trap only removes it at exit -- after
+    the upload has already run. Keeping the config dir outside $WORK is what
+    stops every backup from shipping the credentials that can read it.
+    """
+    script = BACKUP_ALL.read_text(encoding="utf-8")
+
+    config_args = re.findall(r"^configure_backup_s3 (.+)$", script, re.MULTILINE)
+    assert config_args, "backup-all.sh no longer configures the S3 client"
+    for arg in config_args:
+        assert "$WORK" not in arg, (
+            f"S3 client config {arg} is inside the published artifact root $WORK; "
+            "mc cp --recursive would upload the credentials into the backup bucket"
+        )
+
+    # And the recursive publish still targets $WORK, so the constraint above is
+    # the thing actually keeping the credentials out of the bucket.
+    assert re.search(r'mc cp --recursive "\$WORK/"', script), (
+        "artifact upload no longer publishes $WORK recursively -- re-derive "
+        "which directories reach the bucket before relaxing this contract"
+    )

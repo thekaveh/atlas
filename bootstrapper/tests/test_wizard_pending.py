@@ -72,6 +72,40 @@ def test_back_navigation_restores_secret_without_losing_sentinel_semantics(
     assert rendered.restored_input_value == expected_input
 
 
+@pytest.mark.parametrize("saved", [SECRET_KEEP, SECRET_CLEAR])
+def test_back_navigation_keeps_multiselect_sentinel_out_of_the_checked_set(saved):
+    """A sentinel prior must not be restored as a literal selection.
+
+    A degraded catalog fetch commits SECRET_KEEP to mean "keep the saved
+    models". Splitting that string into the checked set leaves the step with
+    one invisible row, which renders as nothing checked; committing that empty
+    set downstream disables the provider and blanks its stored API key.
+    """
+    step = PromptStep(
+        title="OpenAI Cloud  \u00b7  models", step_index=1, step_total=1,
+        heading="models", kind="multiselect",
+        default_values=["gpt-5", "gpt-4o"],
+        options=[PromptOption("gpt-5", "gpt-5"), PromptOption("gpt-4o", "gpt-4o")],
+    )
+
+    rendered = _render(step, {step.title: saved})
+
+    assert rendered.default_values == ["gpt-5", "gpt-4o"]
+
+
+def test_back_navigation_restores_real_multiselect_csv():
+    step = PromptStep(
+        title="OpenAI Cloud  \u00b7  models", step_index=1, step_total=1,
+        heading="models", kind="multiselect",
+        default_values=["gpt-5", "gpt-4o"],
+        options=[PromptOption("gpt-5", "gpt-5"), PromptOption("gpt-4o", "gpt-4o")],
+    )
+
+    rendered = _render(step, {step.title: "gpt-4o"})
+
+    assert rendered.default_values == ["gpt-4o"]
+
+
 def test_back_navigation_restores_inline_secondary_number():
     step = PromptStep(
         title="Ray", step_index=1, step_total=1, heading="Ray",

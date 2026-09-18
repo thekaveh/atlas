@@ -39,7 +39,7 @@ Disabling the CLIP module requires updating both the source variant **and** Weav
 
 ```bash
 MULTI2VEC_CLIP_SOURCE=disabled
-WEAVIATE_ENABLE_MODULES=text2vec-openai,text2vec-ollama,generative-openai,generative-ollama
+WEAVIATE_ENABLE_MODULES=text2vec-openai,text2vec-ollama,generative-openai,generative-ollama,backup-filesystem
 CLIP_INFERENCE_API=
 ```
 
