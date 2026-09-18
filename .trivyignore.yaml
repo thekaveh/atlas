@@ -7,7 +7,10 @@
 # pinned component's newest published release. They collapse into three
 # clusters, and in none of them is an upstream fix reachable:
 #
-#   Zeppelin  171  apache/zeppelin:0.12.1 is still the newest published tag.
+#   Zeppelin  176  apache/zeppelin:0.12.1 is still the newest published tag
+#                  (5 rows added 2026-09-18 when the final-image scan first
+#                  reached the image, #1002: amqp-client, three netty-handler
+#                  copies, libthrift 0.13.0 and tornado 6.2, all upstream-bundled).
 #   Spark      40  No released Spark carries the fix. 4.2.0 -- the newest --
 #                  still ships libthrift 0.16.0, and its netty 4.2.13.Final is
 #                  short of the 4.2.17 that CVE-2026-75595 needs. See #996.
@@ -3272,6 +3275,7 @@ vulnerabilities:
   - id: CVE-2023-33953
     purls:
       - "pkg:pypi/grpcio@1.47.1"
+      - "pkg:pypi/grpcio@1.48.1"
     expired_at: 2026-12-09
     statement: >-
       Apache Zeppelin 0.12.1 bundles this exact dependency inside its tested
@@ -3279,6 +3283,49 @@ vulnerabilities:
       shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
       to a fixed loopback port with no Kong route, limiting access to local operators
       or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-75516
+    purls:
+      - "pkg:maven/com.rabbitmq/amqp-client@5.5.3"
+    expired_at: 2026-12-09
+    statement: >-
+      amqp-client 5.5.3 is shaded into the Alluxio interpreter jar
+      (interpreter/alluxio/zeppelin-alluxio-0.12.1.jar). Atlas seeds only the
+      stock Spark interpreter and never binds an Alluxio interpreter, so the
+      class is present on disk but no interpreter process loads it. Apache Zeppelin 0.12.1 is still the newest published tag and bundles this exact dependency inside its tested interpreter/runtime distribution; replacing individual transitive packages or shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin to a fixed loopback port with no Kong route, limiting access to local operators or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-75595
+    purls:
+      - "pkg:maven/io.netty/netty-handler@4.1.51.Final"
+      - "pkg:maven/io.netty/netty-handler@4.1.75.Final"
+      - "pkg:maven/io.netty/netty-handler@4.1.87.Final"
+    expired_at: 2026-12-09
+    statement: >-
+      These netty-handler copies are shaded into the Neo4j, Cassandra and R
+      interpreter jars that ship with the upstream image; Atlas seeds only the
+      stock Spark interpreter and none of these three is bound. The advisory is
+      an SNI routing bypass that matters only where a netty TLS server uses
+      per-SNI clientAuth=REQUIRE as its sole mutual-TLS gate, which no Zeppelin
+      interpreter does. Apache Zeppelin 0.12.1 is still the newest published tag and bundles this exact dependency inside its tested interpreter/runtime distribution; replacing individual transitive packages or shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin to a fixed loopback port with no Kong route, limiting access to local operators or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-43871
+    purls:
+      - "pkg:maven/org.apache.thrift/libthrift@0.13.0"
+    expired_at: 2026-12-09
+    statement: >-
+      libthrift 0.13.0 (lib/libthrift-0.13.0.jar) is the RPC layer between the
+      Zeppelin server and its interpreter processes, so it cannot be removed or
+      swapped without rebuilding Zeppelin itself. The advisory is a denial of
+      service via an infinite loop in Thrift protocol parsing; the interpreter
+      RPC listens only inside the container and is reachable by nothing but the
+      server that spawned the interpreter. Apache Zeppelin 0.12.1 is still the newest published tag and bundles this exact dependency inside its tested interpreter/runtime distribution; replacing individual transitive packages or shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin to a fixed loopback port with no Kong route, limiting access to local operators or explicit SSH tunnels. Remove this exception with a compatible upstream release.
+  - id: CVE-2026-82397
+    purls:
+      - "pkg:pypi/tornado@6.2"
+    expired_at: 2026-12-09
+    statement: >-
+      tornado 6.2 sits in the upstream image's conda Python 3.7 interpreter
+      environment (envs/python_3_with_R) and the conda package cache; the fix,
+      6.5.8, requires Python 3.9 or newer, so no in-place upgrade exists for that
+      environment. Tornado there backs the IPython kernel transport, which is
+      loopback-only inside the container. Apache Zeppelin 0.12.1 is still the newest published tag and bundles this exact dependency inside its tested interpreter/runtime distribution; replacing individual transitive packages or shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin to a fixed loopback port with no Kong route, limiting access to local operators or explicit SSH tunnels. Remove this exception with a compatible upstream release.
   - id: CVE-2023-39410
     purls:
       - "pkg:maven/org.apache.avro/avro@1.11.2"
