@@ -319,6 +319,10 @@ def test_required_ci_runs_a_real_spark_minio_s3a_round_trip() -> None:
         for fragment in (
             'scripts/smoke_spark_s3a.sh "$image_tag"',
             '"$context|$dockerfile" = "services/spark/build|Dockerfile"',
+            # The JVM round trip runs only on the native platform; the emulated
+            # arm64 image is built and scanned but cannot finish the smoke in
+            # its 300s bound (#1002).
+            '"services/spark/build|Dockerfile" ] && [ "$platform" = "linux/amd64" ]',
         )
     )
     assert all(
