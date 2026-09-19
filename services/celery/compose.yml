@@ -37,7 +37,12 @@ services:
       LANGMEM_EXTRACTION_MODEL: ${LANGMEM_EXTRACTION_MODEL:-}
       LANGMEM_EMBEDDING_MODEL: ${LANGMEM_EMBEDDING_MODEL:-}
       LANGMEM_EMBEDDING_DIM: ${LANGMEM_EMBEDDING_DIM:-768}
-      WEAVIATE_URL: ${WEAVIATE_URL:-http://weaviate:8080}
+      # No `:-` default: WEAVIATE_URL is auto-managed and the weaviate
+      # manifest blanks it for `disabled`. `${VAR:-x}` substitutes on EMPTY,
+      # not just unset, so a default here resurrects an endpoint for a
+      # service that is not running and defeats the consumer's
+      # not-configured branch. Matches STT/TTS/DOCLING_ENDPOINT alongside.
+      WEAVIATE_URL: ${WEAVIATE_URL}
       WEAVIATE_ENABLED: true
       COMFYUI_BASE_URL: ${COMFYUI_ENDPOINT:-http://comfyui:18188}
       N8N_BASE_URL: http://n8n:5678
