@@ -1501,6 +1501,7 @@ services:
       LABEL_STUDIO_URL: ''
       LITELLM_API_KEY: ''
       LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
       MCP_SERVERS_URL: ''
       MINIO_ENDPOINT: http://minio:9000
       MLFLOW_TRACKING_URI: ''

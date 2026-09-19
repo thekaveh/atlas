@@ -140,6 +140,10 @@ runtime_adaptive:
     environment_adaptation:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
+      # 08_scala_basics.ipynb requires this: the Scala kernel reads
+      # sys.env only -- it has no dotenv fallback like the Python
+      # notebooks -- and aborts on an empty value.
+      LITELLM_DEFAULT_MODEL: ${LITELLM_DEFAULT_MODEL}
       WEAVIATE_URL: http://weaviate:8080
       NEO4J_URI: bolt://neo4j-graph-db:7687
       COMFYUI_BASE_URL: ${COMFYUI_ENDPOINT}
