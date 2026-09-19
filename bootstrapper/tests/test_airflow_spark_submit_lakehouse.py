@@ -113,12 +113,22 @@ def _fake_docker_environment(
     )
 
 
+# Budget for the process barriers below. These probes signal a shell and wait
+# for it to reap its child; 5s was tight enough to flake on a loaded CI runner
+# -- the same required job pulls fifteen images and runs the suite twice, and
+# test_s3a_smoke_reaps_child_when_interruption_is_repeated failed there on a
+# commit whose content had already passed the same job. The assertions still
+# fail if the process never reaps; a longer budget only removes the load
+# sensitivity, it does not weaken what is being asserted.
+_PROCESS_BARRIER_SECONDS = 30
+
+
 def _wait_for_process_barrier(
     process: subprocess.Popen[str],
     ready: Callable[[], bool],
     failure: str,
 ) -> None:
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + _PROCESS_BARRIER_SECONDS
     while time.monotonic() < deadline:
         if ready():
             return
@@ -558,7 +568,7 @@ def test_s3a_smoke_forwards_signals_then_cleans_owned_resources(
 
     process.send_signal(interruption)
     try:
-        process.communicate(timeout=5)
+        process.communicate(timeout=_PROCESS_BARRIER_SECONDS)
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGKILL)
         process.communicate()
@@ -656,7 +666,7 @@ def test_s3a_smoke_reaps_child_when_interruption_is_repeated(tmp_path: Path) -> 
     assert process.poll() is None
     process.send_signal(signal.SIGINT)
     try:
-        process.communicate(timeout=5)
+        process.communicate(timeout=_PROCESS_BARRIER_SECONDS)
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGKILL)
         process.communicate()
@@ -693,7 +703,7 @@ def test_s3a_smoke_preserves_signal_status_and_retries_interrupted_cleanup(
 
     process.send_signal(signal.SIGTERM)
     try:
-        process.communicate(timeout=5)
+        process.communicate(timeout=_PROCESS_BARRIER_SECONDS)
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGKILL)
         process.communicate()
