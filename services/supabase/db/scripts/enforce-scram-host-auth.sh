@@ -81,6 +81,11 @@ if [ -s "$pgdata/PG_VERSION" ] && [ -f "$hba" ]; then
     fi
     echo "supabase-db: upgraded host authentication rules to scram-sha-256"
   fi
+  # Clear the temporaries before dropping the trap, not after. On the
+  # no-change path `cmp -s` matched, so the `mv` above never consumed
+  # $candidate -- and $candidate lives inside PGDATA. Dropping the trap first
+  # leaves it there for good, one file per container start.
+  rm -f "$candidate" "$rendered" "$backup_candidate"
   trap - EXIT HUP INT TERM
 fi
 
