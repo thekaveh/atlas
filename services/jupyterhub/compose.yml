@@ -35,6 +35,10 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/3
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
+      # 08_scala_basics.ipynb requires this: the Scala kernel reads
+      # sys.env only -- it has no dotenv fallback like the Python
+      # notebooks -- and aborts on an empty value.
+      LITELLM_DEFAULT_MODEL: ${LITELLM_DEFAULT_MODEL}
       # No `:-` default: WEAVIATE_URL is auto-managed and the weaviate
       # manifest blanks it for `disabled`. `${VAR:-x}` substitutes on EMPTY,
       # not just unset, so a default here resurrects an endpoint for a
