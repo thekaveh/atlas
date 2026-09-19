@@ -129,14 +129,22 @@ def test_memory_schema_state_is_private_but_backend_can_read_it():
     )
 
 
+@pytest.mark.parametrize("role", ["anon", "authenticated"])
 @pytest.mark.parametrize("table", ["objects", "buckets"])
-def test_storage_tables_are_not_granted_to_anon(table):
+def test_storage_tables_are_not_granted_to_client_roles(table, role):
     """`storage` has RLS DISABLED, so the GRANT is the only control.
 
     `04-storage.sql` disables RLS on these deliberately ("managing access
     through GRANTs instead"), and `storage` is in PGRST_DB_SCHEMA — so a grant
     to `anon` made every object path, owner and bucket row readable by any
     unauthenticated peer.
+
+    `authenticated` is not the safer half of that pair. GOTRUE_DISABLE_SIGNUP
+    is "false", so anyone who can reach the gateway can mint one of these JWTs,
+    and with RLS off there is no owner scoping left -- a SELECT grant exposes
+    every bucket's contents and a DML grant lets any account rewrite or delete
+    other people's object rows. PostgREST reaches these tables only by switching
+    into these two roles; the Storage service uses its own credentials.
     """
     sql = _all_sql()
     # `ON TABLE storage.x` and `ON storage.x` are both valid; the original
@@ -147,16 +155,16 @@ def test_storage_tables_are_not_granted_to_anon(table):
         sql,
         re.IGNORECASE,
     ):
-        assert "anon" not in match.group(1), (
-            f"storage.{table} is granted to anon: {match.group(0).strip()}"
+        assert role not in match.group(1), (
+            f"storage.{table} is granted to {role}: {match.group(0).strip()}"
         )
     for match in re.finditer(
         r"GRANT\s+[^;]*?\s+ON\s+ALL\s+TABLES\s+IN\s+SCHEMA\s+storage\s+TO\s+([^;]+);",
         sql,
         re.IGNORECASE,
     ):
-        assert "anon" not in match.group(1), (
-            f"schema-wide storage grant includes anon: {match.group(0).strip()}"
+        assert role not in match.group(1), (
+            f"schema-wide storage grant includes {role}: {match.group(0).strip()}"
         )
     # ...and the DEFAULT PRIVILEGE, which grants anon on every FUTURE table
     # and was not checked at all.
@@ -165,8 +173,8 @@ def test_storage_tables_are_not_granted_to_anon(table):
         sql,
         re.IGNORECASE,
     ):
-        assert "anon" not in match.group(1), (
-            f"storage default privilege includes anon: {match.group(0).strip()}"
+        assert role not in match.group(1), (
+            f"storage default privilege includes {role}: {match.group(0).strip()}"
         )
 
 
@@ -180,3 +188,33 @@ def test_the_user_backfill_does_not_overwrite_a_renamed_profile():
     users_sql = (SCRIPTS_DIR / "10-users.sql").read_text(encoding="utf-8")
     assert "ON CONFLICT (id) DO NOTHING" in users_sql
     assert "DO UPDATE\nSET name" not in users_sql
+def test_public_client_grants_are_conditional_on_row_level_security():
+    """`GRANT ... ON ALL TABLES IN SCHEMA public` must not reach client roles.
+
+    This slice re-runs on every boot, and `ALL TABLES` takes every table in the
+    schema -- including ones created since by whatever else shares the
+    database. Open WebUI and JupyterHub both use SUPABASE_DB_NAME_URI with no
+    schema of their own and neither enables RLS, while PGRST_DB_SCHEMA
+    publishes `public`; so a blanket grant republished their tables through
+    PostgREST after every restart. ALTER DEFAULT PRIVILEGES is creator-scoped
+    and never covered them, so it is neither the cause nor the fix.
+    """
+    sql = (SCRIPTS_DIR / "06-permissions.sql").read_text(encoding="utf-8")
+
+    for match in re.finditer(
+        r"GRANT\s+[^;]*?\s+ON\s+ALL\s+TABLES\s+IN\s+SCHEMA\s+public\s+TO\s+([^;]+);",
+        sql,
+        re.IGNORECASE,
+    ):
+        grantees = match.group(1)
+        for role in ("anon", "authenticated"):
+            assert role not in grantees, (
+                f"blanket public grant reaches {role}, which republishes every "
+                f"co-tenant table on each boot: {match.group(0).strip()}"
+            )
+
+    # The replacement must actually be conditional on RLS, not just narrower.
+    assert re.search(r"rowsecurity", sql, re.IGNORECASE), (
+        "the per-table grant loop is gone; client roles on `public` must stay "
+        "gated on the table actually carrying RLS"
+    )

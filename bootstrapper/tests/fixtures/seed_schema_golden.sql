@@ -6034,6 +6034,8 @@ GRANT SELECT ON TABLE public.schema_migrations TO atlas_jupyter;
 GRANT SELECT ON TABLE public.schema_migrations TO atlas_zeppelin;
 GRANT SELECT ON TABLE public.schema_migrations TO atlas_studio_readonly;
 
+REVOKE ALL ON TABLE public.spatial_ref_sys FROM anon;
+REVOKE ALL ON TABLE public.spatial_ref_sys FROM authenticated;
 GRANT SELECT ON TABLE public.spatial_ref_sys TO atlas_realtime;
 GRANT SELECT ON TABLE public.spatial_ref_sys TO atlas_airflow_reader;
 GRANT SELECT ON TABLE public.spatial_ref_sys TO atlas_mcp;
@@ -6054,7 +6056,6 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.users TO atlas_open_webui;
 GRANT SELECT ON TABLE public.users TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE storage.buckets TO service_role;
-GRANT SELECT ON TABLE storage.buckets TO authenticated;
 GRANT SELECT ON TABLE storage.buckets TO atlas_airflow_reader;
 GRANT SELECT ON TABLE storage.buckets TO atlas_mcp;
 GRANT SELECT ON TABLE storage.buckets TO atlas_jupyter;
@@ -6062,7 +6063,6 @@ GRANT SELECT ON TABLE storage.buckets TO atlas_zeppelin;
 GRANT SELECT ON TABLE storage.buckets TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE storage.objects TO service_role;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE storage.objects TO authenticated;
 GRANT SELECT ON TABLE storage.objects TO atlas_airflow_reader;
 GRANT SELECT ON TABLE storage.objects TO atlas_mcp;
 GRANT SELECT ON TABLE storage.objects TO atlas_jupyter;
@@ -6223,7 +6223,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON TABLES
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON TABLES TO authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA storage GRANT ALL ON TABLES TO service_role;
 
-ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA storage GRANT SELECT ON TABLES TO authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA storage GRANT ALL ON TABLES TO service_role;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_storage_admin IN SCHEMA storage GRANT ALL ON TABLES TO supabase_storage_admin;

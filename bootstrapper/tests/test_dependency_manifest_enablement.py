@@ -69,8 +69,13 @@ def test_every_source_configurable_manifest_service_honors_disabled(tmp_path):
 def test_disabled_trino_with_disabled_minio_passes(tmp_path):
     dm = _make_dm(
         tmp_path,
+        # LANGFUSE_SOURCE is spelled out because an ABSENT source var still
+        # resolves to scale 1 rather than the manifest's `disabled` default,
+        # so leaving it out would enable Langfuse here and fire its own
+        # minio requirement -- noise from a different service in a trino test.
         "TRINO_SOURCE=disabled\nREDPANDA_SOURCE=disabled\n"
-        "ICEBERG_REST_SOURCE=disabled\nMINIO_SOURCE=disabled\nMINIO_SCALE=0\n",
+        "ICEBERG_REST_SOURCE=disabled\nMINIO_SOURCE=disabled\nMINIO_SCALE=0\n"
+        "LANGFUSE_SOURCE=disabled\n",
     )
     assert dm.check_service_dependencies() is True
     assert dm.get_dependency_violations() == []
@@ -255,3 +260,43 @@ def test_auto_resolve_disables_each_service_once(tmp_path):
 
     disabled = dm.auto_resolve_dependency_violations()
     assert disabled.count("trino") == 1, f"resolved more than once: {disabled}"
+# ── Langfuse cannot start without MinIO; that must be enforced, not implied ──
+def test_enabled_langfuse_with_disabled_minio_fails_early(tmp_path):
+    """Langfuse needs S3-compatible event storage and langfuse-init runs after
+    minio-init provisions the bucket. depends_on drives ordering only; without
+    a runtime_deps entry the combination starts a Langfuse that never works and
+    reports nothing. Three tracks offer Langfuse while MinIO is off-track.
+    """
+    dm = _make_dm(
+        tmp_path,
+        "LANGFUSE_SOURCE=container\nMINIO_SOURCE=disabled\nMINIO_SCALE=0\n",
+    )
+
+    assert dm.check_service_dependencies() is False
+    assert any(
+        v["service"] == "langfuse" and v["required_service"] == "minio"
+        for v in dm.get_dependency_violations()
+    )
+
+
+def test_enabled_langfuse_with_minio_available_passes(tmp_path):
+    """The new requirement must not fire when MinIO is actually present."""
+    dm = _make_dm(tmp_path, "LANGFUSE_SOURCE=container\nMINIO_SOURCE=container\n")
+
+    dm.check_service_dependencies()
+
+    langfuse_violations = [
+        v for v in dm.get_dependency_violations() if v["service"] == "langfuse"
+    ]
+    assert langfuse_violations == []
+
+
+def test_disabled_langfuse_does_not_validate_its_own_requirements(tmp_path):
+    """A disabled Langfuse must not drag MinIO into the check."""
+    dm = _make_dm(
+        tmp_path, "LANGFUSE_SOURCE=disabled\nMINIO_SOURCE=disabled\nMINIO_SCALE=0\n"
+    )
+
+    dm.check_service_dependencies()
+
+    assert [v for v in dm.get_dependency_violations() if v["service"] == "langfuse"] == []
