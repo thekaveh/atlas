@@ -186,7 +186,10 @@ def test_iceberg_rest_compose_contract() -> None:
     env = rest["environment"]
     assert env["CATALOG_CATALOG__IMPL"] == "org.apache.iceberg.jdbc.JdbcCatalog"
     assert env["CATALOG_URI"] == "jdbc:postgresql://supabase-db:5432/iceberg"
-    assert env["CATALOG_WAREHOUSE"] == "s3://lakehouse/"
+    # Tracks the bucket minio-init provisions rather than a literal: every
+    # other Iceberg client derives its warehouse from this var, so a hardcoded
+    # name sent the catalog to a bucket that does not exist once it is set.
+    assert env["CATALOG_WAREHOUSE"] == "s3://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/"
     assert env["CATALOG_IO__IMPL"] == "org.apache.iceberg.aws.s3.S3FileIO"
     assert env["CATALOG_S3_ENDPOINT"] == "http://minio:9000"
     assert env["CATALOG_S3_PATH__STYLE__ACCESS"] == "true"
