@@ -193,7 +193,8 @@ services:
       - --conf
       - spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181
       - --conf
-      - spark.sql.catalog.lakehouse.warehouse=s3a://lakehouse/
+      # Tracks the bucket minio-init provisions, as zeppelin already does.
+      - spark.sql.catalog.lakehouse.warehouse=s3a://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/
       - --conf
       - spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO
       - --conf
@@ -205,7 +206,7 @@ services:
       - --conf
       - spark.sql.catalog.lakehouse.s3.secret-access-key=${MINIO_ICEBERG_SECRET_KEY}
       - --conf
-      - spark.sql.catalog.lakehouse.client.region=us-east-1
+      - spark.sql.catalog.lakehouse.client.region=${MINIO_REGION:-us-east-1}
       # Spark History needs DRIVERS to write event logs — spark-history's
       # read-side config alone produces nothing to read. Connect-driven
       # sessions inherit the server's defaults, so writing eventLog.enabled
