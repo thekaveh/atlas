@@ -124,7 +124,12 @@ services:
       BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS: ${BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS:-300}
       BACKEND_PLUGINS_SITE_DIR: ${BACKEND_PLUGINS_SITE_DIR:-/tmp/atlas-plugins-site}
       # Vector database integration
-      WEAVIATE_URL: ${WEAVIATE_URL:-http://weaviate:8080}
+      # No `:-` default: WEAVIATE_URL is auto-managed and the weaviate
+      # manifest blanks it for `disabled`. `${VAR:-x}` substitutes on EMPTY,
+      # not just unset, so a default here resurrects an endpoint for a
+      # service that is not running and defeats the consumer's
+      # not-configured branch. Matches STT/TTS/DOCLING_ENDPOINT alongside.
+      WEAVIATE_URL: ${WEAVIATE_URL}
       WEAVIATE_ENABLED: true
       # STT/TTS/DOC endpoints (available for future proxy implementation)
       STT_ENDPOINT: ${STT_ENDPOINT}
