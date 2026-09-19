@@ -1037,3 +1037,45 @@ def test_submit_without_manifest_falls_back_to_verbatim(tmp_path, monkeypatch):
     _run(_submit_handler(captured=captured), body)
     graph = captured["last_prompt_body"]["prompt"]
     assert graph["1"]["inputs"]["ckpt_name"] == "sdxl_base.safetensors"
+@pytest.mark.parametrize(
+    ("field", "value", "minimum", "maximum"),
+    [
+        ("width", 999_999, 64, 4096),
+        ("height", 999_999, 64, 4096),
+        ("width", 0, 64, 4096),
+        ("steps", 100_000, 1, 150),
+        ("steps", 0, 1, 150),
+    ],
+)
+def test_integer_generation_parameters_outside_their_bounds_are_rejected(
+    field, value, minimum, maximum
+):
+    """These reach ComfyUI, which allocates for them.
+
+    An unbounded width/height/steps turns one authenticated request into an
+    out-of-memory event for everyone else sharing the GPU. ValueError is the
+    right shape: the /media/generate handler maps it to 400, so the caller is
+    told what was wrong instead of seeing a 500.
+    """
+    with pytest.raises(ValueError, match=field):
+        cmc._bounded_int(value, field=field, minimum=minimum, maximum=maximum)
+
+
+def test_cfg_outside_its_bounds_is_rejected():
+    with pytest.raises(ValueError, match="cfg"):
+        cmc._bounded_float(10_000.0, field="cfg", minimum=0.0, maximum=100.0)
+
+
+@pytest.mark.parametrize("value", ["not-a-number", None, [], {}])
+def test_non_numeric_generation_parameters_are_rejected_not_crashed(value):
+    """Previously `int(payload["width"])` raised bare TypeError/ValueError from
+    deep in the client; the message never named the field."""
+    with pytest.raises(ValueError, match="width"):
+        cmc._bounded_int(value, field="width", minimum=64, maximum=4096)
+
+
+def test_generation_parameter_bounds_accept_ordinary_values():
+    assert cmc._bounded_int(1024, field="width", minimum=64, maximum=4096) == 1024
+    assert cmc._bounded_int("768", field="height", minimum=64, maximum=4096) == 768
+    assert cmc._bounded_int(30, field="steps", minimum=1, maximum=150) == 30
+    assert cmc._bounded_float("7.5", field="cfg", minimum=0.0, maximum=100.0) == 7.5

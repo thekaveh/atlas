@@ -78,6 +78,52 @@ def _profile_for(model: str) -> Dict[str, Any]:
     return dict(_DEFAULT_PROFILE)
 
 
+# Bounds for caller-supplied generation parameters. These reach ComfyUI, which
+# allocates for them: an unbounded width/height/steps turns one authenticated
+# request into an out-of-memory event for every other tenant sharing the GPU.
+# The ceilings are deliberately generous -- they exist to reject the absurd,
+# not to second-guess a legitimate render. They are constants rather than env
+# knobs on purpose: this repository declares a tunable in five places
+# (manifest, compose, .env.example, the env-vars reference and the compose
+# baseline), which is not worth doing for a limit nobody has asked to raise.
+# If one is ever needed, MEDIA_REQUEST_MAX_BYTES is the pattern to copy.
+_DIMENSION_MIN = 64
+_DIMENSION_MAX = 4096
+_STEPS_MIN = 1
+_STEPS_MAX = 150
+_CFG_MIN = 0.0
+_CFG_MAX = 100.0
+
+
+def _bounded_int(payload_value: Any, *, field: str, minimum: int, maximum: int) -> int:
+    """Coerce and bound a caller-supplied integer, or raise ValueError (-> 400)."""
+    try:
+        value = int(payload_value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"provider=comfyui {field} must be an integer, got {payload_value!r}"
+        ) from None
+    if not minimum <= value <= maximum:
+        raise ValueError(
+            f"provider=comfyui {field} must be between {minimum} and {maximum}, got {value}"
+        )
+    return value
+
+
+def _bounded_float(payload_value: Any, *, field: str, minimum: float, maximum: float) -> float:
+    try:
+        value = float(payload_value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"provider=comfyui {field} must be a number, got {payload_value!r}"
+        ) from None
+    if not minimum <= value <= maximum:
+        raise ValueError(
+            f"provider=comfyui {field} must be between {minimum} and {maximum}, got {value}"
+        )
+    return value
+
+
 def _resolve_param(input_payload: Dict[str, Any], key: str, aliases: Tuple[str, ...], profile: Dict[str, Any]) -> Any:
     """Caller-supplied value wins; otherwise the profile default."""
     for alias in aliases:
@@ -412,10 +458,22 @@ class ComfyUIMediaClient:
         nested_size = input_payload.get("image_size")
         if not isinstance(nested_size, dict):
             nested_size = {}
-        width = int(input_payload.get("width") or nested_size.get("width") or 1024)
-        height = int(input_payload.get("height") or nested_size.get("height") or 1024)
-        steps = int(_resolve_param(input_payload, "steps", ("steps", "num_inference_steps"), profile))
-        cfg = float(_resolve_param(input_payload, "cfg", ("cfg", "guidance_scale"), profile))
+        width = _bounded_int(
+            input_payload.get("width") or nested_size.get("width") or 1024,
+            field="width", minimum=_DIMENSION_MIN, maximum=_DIMENSION_MAX,
+        )
+        height = _bounded_int(
+            input_payload.get("height") or nested_size.get("height") or 1024,
+            field="height", minimum=_DIMENSION_MIN, maximum=_DIMENSION_MAX,
+        )
+        steps = _bounded_int(
+            _resolve_param(input_payload, "steps", ("steps", "num_inference_steps"), profile),
+            field="steps", minimum=_STEPS_MIN, maximum=_STEPS_MAX,
+        )
+        cfg = _bounded_float(
+            _resolve_param(input_payload, "cfg", ("cfg", "guidance_scale"), profile),
+            field="cfg", minimum=_CFG_MIN, maximum=_CFG_MAX,
+        )
         sampler_name = str(_resolve_param(input_payload, "sampler_name", ("sampler_name",), profile))
         scheduler = str(_resolve_param(input_payload, "scheduler", ("scheduler",), profile))
         seed_input = input_payload.get("seed")
