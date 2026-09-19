@@ -23,7 +23,11 @@ services:
       CATALOG_URI: jdbc:postgresql://supabase-db:5432/iceberg
       CATALOG_JDBC_USER: ${ICEBERG_DB_USER:?ICEBERG_DB_USER is required}
       CATALOG_JDBC_PASSWORD: ${ICEBERG_DB_PASSWORD:?ICEBERG_DB_PASSWORD is required}
-      CATALOG_WAREHOUSE: s3://lakehouse/
+      # Must track MINIO_BUCKET_ICEBERG_LAKEHOUSE: minio-init provisions the
+      # bucket from it and every other client (jupyterhub, spark, airflow)
+      # derives its warehouse from it. Hardcoding the name pointed the catalog
+      # at a bucket that does not exist as soon as the var was customized.
+      CATALOG_WAREHOUSE: s3://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/
       CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
       CATALOG_S3_ENDPOINT: http://minio:9000
       CATALOG_S3_PATH__STYLE__ACCESS: "true"

@@ -214,7 +214,7 @@ services:
       - --conf
       - spark.eventLog.enabled=true
       - --conf
-      - spark.eventLog.dir=s3a://spark-history/
+      - spark.eventLog.dir=s3a://${MINIO_BUCKET_SPARK_HISTORY:-spark-history}/
     healthcheck:
       test: ["CMD-SHELL", "bash -ec '</dev/tcp/localhost/15002'"]
       interval: 10s
@@ -256,7 +256,7 @@ services:
       # Same SPARK_HISTORY_OPTS must appear in service.yml::runtime_sc.
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
       SPARK_HISTORY_OPTS: >-
-        -Dspark.history.fs.logDirectory=s3a://spark-history/
+        -Dspark.history.fs.logDirectory=s3a://${MINIO_BUCKET_SPARK_HISTORY:-spark-history}/
         -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000
         -Dspark.hadoop.fs.s3a.access.key=${MINIO_ROOT_USER}
         -Dspark.hadoop.fs.s3a.secret.key=${MINIO_ROOT_PASSWORD}
