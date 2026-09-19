@@ -129,14 +129,22 @@ def test_memory_schema_state_is_private_but_backend_can_read_it():
     )
 
 
+@pytest.mark.parametrize("role", ["anon", "authenticated"])
 @pytest.mark.parametrize("table", ["objects", "buckets"])
-def test_storage_tables_are_not_granted_to_anon(table):
+def test_storage_tables_are_not_granted_to_client_roles(table, role):
     """`storage` has RLS DISABLED, so the GRANT is the only control.
 
     `04-storage.sql` disables RLS on these deliberately ("managing access
     through GRANTs instead"), and `storage` is in PGRST_DB_SCHEMA — so a grant
     to `anon` made every object path, owner and bucket row readable by any
     unauthenticated peer.
+
+    `authenticated` is not the safer half of that pair. GOTRUE_DISABLE_SIGNUP
+    is "false", so anyone who can reach the gateway can mint one of these JWTs,
+    and with RLS off there is no owner scoping left -- a SELECT grant exposes
+    every bucket's contents and a DML grant lets any account rewrite or delete
+    other people's object rows. PostgREST reaches these tables only by switching
+    into these two roles; the Storage service uses its own credentials.
     """
     sql = _all_sql()
     # `ON TABLE storage.x` and `ON storage.x` are both valid; the original
@@ -147,16 +155,16 @@ def test_storage_tables_are_not_granted_to_anon(table):
         sql,
         re.IGNORECASE,
     ):
-        assert "anon" not in match.group(1), (
-            f"storage.{table} is granted to anon: {match.group(0).strip()}"
+        assert role not in match.group(1), (
+            f"storage.{table} is granted to {role}: {match.group(0).strip()}"
         )
     for match in re.finditer(
         r"GRANT\s+[^;]*?\s+ON\s+ALL\s+TABLES\s+IN\s+SCHEMA\s+storage\s+TO\s+([^;]+);",
         sql,
         re.IGNORECASE,
     ):
-        assert "anon" not in match.group(1), (
-            f"schema-wide storage grant includes anon: {match.group(0).strip()}"
+        assert role not in match.group(1), (
+            f"schema-wide storage grant includes {role}: {match.group(0).strip()}"
         )
     # ...and the DEFAULT PRIVILEGE, which grants anon on every FUTURE table
     # and was not checked at all.
@@ -165,8 +173,8 @@ def test_storage_tables_are_not_granted_to_anon(table):
         sql,
         re.IGNORECASE,
     ):
-        assert "anon" not in match.group(1), (
-            f"storage default privilege includes anon: {match.group(0).strip()}"
+        assert role not in match.group(1), (
+            f"storage default privilege includes {role}: {match.group(0).strip()}"
         )
 
 

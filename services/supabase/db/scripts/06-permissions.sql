@@ -49,17 +49,24 @@ DO $$ BEGIN
     -- object path, owner and bucket row readable by any unauthenticated
     -- network peer. (For `public` the grant below is fine: RLS is enabled on
     -- every table there and is the intended gate.)
-    GRANT SELECT ON ALL TABLES IN SCHEMA storage TO authenticated;
+    -- `authenticated` is EXCLUDED here too, for the same reason and not a
+    -- milder version of it. GOTRUE_DISABLE_SIGNUP is "false", so an
+    -- `authenticated` JWT is self-service, and with RLS off on these tables the
+    -- grant carries no owner scoping: it exposed every bucket's object paths,
+    -- owners and metadata to any account that signed itself up. This ran on
+    -- every boot and the default privilege below extended it to every future
+    -- storage table, so 04-storage.sql's exclusions could not hold on their own.
     -- Repair existing deployments — a GRANT already made is not undone by
     -- simply omitting it on a later run.
     REVOKE ALL ON ALL TABLES IN SCHEMA storage FROM anon;
+    REVOKE ALL ON ALL TABLES IN SCHEMA storage FROM authenticated;
     -- Explicit grants for storage.buckets table
     GRANT ALL PRIVILEGES ON storage.buckets TO service_role;
     GRANT ALL PRIVILEGES ON storage.objects TO service_role;
     GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA storage TO service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON TABLES TO service_role;
-    ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT SELECT ON TABLES TO authenticated;
     ALTER DEFAULT PRIVILEGES IN SCHEMA storage REVOKE SELECT ON TABLES FROM anon;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA storage REVOKE SELECT ON TABLES FROM authenticated;
     -- Note: Specific function grants might be needed depending on base image setup
 
   ELSE
