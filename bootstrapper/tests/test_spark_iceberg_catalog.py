@@ -66,13 +66,13 @@ def test_spark_connect_defaults_include_lakehouse_rest_catalog():
         "spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog",
         "spark.sql.catalog.lakehouse.type=rest",
         "spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181",
-        "spark.sql.catalog.lakehouse.warehouse=s3a://lakehouse/",
+        "spark.sql.catalog.lakehouse.warehouse=s3a://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/",
         "spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO",
         "spark.sql.catalog.lakehouse.s3.endpoint=http://minio:9000",
         "spark.sql.catalog.lakehouse.s3.path-style-access=true",
         "spark.sql.catalog.lakehouse.s3.access-key-id=${MINIO_ICEBERG_ACCESS_KEY}",
         "spark.sql.catalog.lakehouse.s3.secret-access-key=${MINIO_ICEBERG_SECRET_KEY}",
-        "spark.sql.catalog.lakehouse.client.region=us-east-1",
+        "spark.sql.catalog.lakehouse.client.region=${MINIO_REGION:-us-east-1}",
     }
     for conf in expected_confs:
         assert conf in joined
@@ -111,3 +111,32 @@ def test_spark_docs_explain_lakehouse_catalog_without_new_ports_or_source():
     assert "SPARK_SOURCE=container" in readme
     assert "spark-lakehouse" not in readme
     assert "Spark Connect | `sc://spark-connect:15002`" in readme
+def test_every_iceberg_client_derives_bucket_and_region_from_the_same_vars():
+    """Clients of one catalog must not disagree about where it lives.
+
+    spark-connect and zeppelin both configure `spark.sql.catalog.lakehouse`.
+    zeppelin read MINIO_BUCKET_ICEBERG_LAKEHOUSE and MINIO_REGION while
+    spark-connect hardcoded `s3a://lakehouse/` and `us-east-1`, so setting
+    either variable pointed the two clients at different warehouses -- and at a
+    bucket minio-init had not provisioned under that name.
+    """
+    import re
+
+    offenders = []
+    for fragment in sorted((REPO_ROOT / "services").glob("*/compose.yml")):
+        for line in fragment.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            if "spark.sql.catalog.lakehouse.warehouse=" in stripped:
+                if "MINIO_BUCKET_ICEBERG_LAKEHOUSE" not in stripped:
+                    offenders.append(f"{fragment.relative_to(REPO_ROOT)}: {stripped}")
+            if "spark.sql.catalog.lakehouse.client.region=" in stripped:
+                if "MINIO_REGION" not in stripped:
+                    offenders.append(f"{fragment.relative_to(REPO_ROOT)}: {stripped}")
+
+    assert not offenders, (
+        "an Iceberg client hardcodes the warehouse bucket or region instead of "
+        "tracking the variables minio-init and the other clients use:\n  "
+        + "\n  ".join(offenders)
+    )
