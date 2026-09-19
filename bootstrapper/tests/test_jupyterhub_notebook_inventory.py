@@ -174,3 +174,43 @@ def test_jupyterhub_allow_origin_flag_uses_env_knob():
     command = compose["services"]["jupyterhub"]["command"]
 
     assert "--ServerApp.allow_origin=${JUPYTER_ALLOW_ORIGIN:-*}" in command
+def test_env_vars_the_scala_kernel_hard_requires_are_injected():
+    """The Scala kernel reads sys.env only and has no dotenv fallback.
+
+    Python notebooks can call load_dotenv() and recover a value the container
+    was never given; the Scala kernel cannot. So any variable a Scala cell
+    reads and then asserts non-empty has to arrive through compose, or the cell
+    aborts on every run no matter how the operator configured .env.
+    """
+    import json
+    import re
+
+    compose = COMPOSE_FILE.read_text(encoding="utf-8")
+    required: dict[str, str] = {}
+
+    for notebook in sorted(NOTEBOOK_DIR.glob("*.ipynb")):
+        doc = json.loads(notebook.read_text(encoding="utf-8"))
+        for cell in doc.get("cells", []):
+            source = "".join(cell.get("source", []))
+            if "sys.env.getOrElse" not in source:
+                continue
+            for name in re.findall(
+                r'sys\.env\.getOrElse\(\s*"([A-Z][A-Z0-9_]*)"\s*,\s*""\s*\)', source
+            ):
+                if re.search(rf'require\(\s*\w+\.nonEmpty', source):
+                    required[name] = notebook.name
+
+    assert required, (
+        "no Scala cell hard-requires an env var any more -- re-derive this "
+        "contract before deleting the test"
+    )
+
+    missing = {
+        name: origin
+        for name, origin in required.items()
+        if not re.search(rf"^\s+{re.escape(name)}:", compose, re.MULTILINE)
+    }
+    assert not missing, (
+        "these are required by a Scala notebook cell but never injected into "
+        f"the jupyterhub container, so the cell always aborts: {missing}"
+    )
