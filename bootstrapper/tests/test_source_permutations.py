@@ -181,3 +181,79 @@ def test_spark_renders_at_every_supported_worker_count(worker_count: str, tmp_pa
     env_file.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
     ok, stderr = _compose_config_ok(env_file)
     assert ok, f"SPARK_WORKER_SCALE={worker_count} produced invalid compose:\n{stderr}"
+# Endpoint vars a manifest blanks for `disabled` must not be re-defaulted by a
+# consumer. `${VAR:-x}` substitutes on EMPTY, not merely unset, so a non-empty
+# default there overwrites the very signal that says "provider is off".
+# Each entry below is a known instance awaiting its consumer being checked; the
+# fix is only safe where that consumer branches on the empty value. This list
+# may shrink, never grow.
+_KNOWN_ENDPOINT_DEFAULTS = {
+    "services/asset-baker/compose.yml: ASSET_BAKER_MINIO_ENDPOINT",
+    "services/asset-worker/compose.yml: ASSET_WORKER_MINIO_ENDPOINT",
+    "services/backend/compose.yml: NEO4J_URI",
+    "services/grafana/compose.yml: PROMETHEUS_ENDPOINT",
+    "services/grafana/compose.yml: TEMPO_ENDPOINT",
+    "services/grafana/compose.yml: LOKI_ENDPOINT",
+    "services/jupyterhub/compose.yml: NEO4J_URI",
+    "services/mcp-servers/compose.yml: NEO4J_URI",
+}
+
+
+def _env_vars_blanked_when_disabled() -> set[str]:
+    """Env vars a manifest explicitly sets to "" in its `disabled` slice."""
+    import yaml
+
+    blanked: set[str] = set()
+    for manifest_path in sorted((REPO_ROOT / "services").glob("*/service.yml")):
+        doc = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+        for family in (doc.get("runtime_sc") or {}).values():
+            environment = ((family or {}).get("disabled") or {}).get("environment") or {}
+            blanked.update(key for key, value in environment.items() if value == "")
+    return blanked
+
+
+def _has_non_empty_default(line: str, var: str) -> bool:
+    marker = "${" + var + ":-"
+    index = line.find(marker)
+    # `${VAR:-}` is the established "empty when unset" idiom and preserves blank.
+    return index != -1 and not line[index + len(marker):].startswith("}")
+
+
+def _endpoint_defaults_that_override_a_blank(blanked: set[str]) -> set[str]:
+    found: set[str] = set()
+    for fragment in sorted((REPO_ROOT / "services").glob("*/compose.yml")):
+        relative = fragment.relative_to(REPO_ROOT)
+        for line in fragment.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            found.update(
+                f"{relative}: {var}"
+                for var in blanked
+                if _has_non_empty_default(stripped, var)
+            )
+    return found
+
+
+def test_no_consumer_default_resurrects_an_endpoint_its_manifest_blanks():
+    """An empty auto-managed endpoint is how a consumer learns a provider is off.
+
+    weaviate's manifest sets `WEAVIATE_URL: ""` for `disabled` on purpose and the
+    backend branches on the blank; a `${VAR:-url}` default in the consumer handed
+    it an endpoint for a container that was not running, so a disabled provider
+    failed like a broken one.
+    """
+    blanked = _env_vars_blanked_when_disabled()
+    assert blanked, "no manifest blanks an endpoint on `disabled` -- re-derive this contract"
+
+    offenders = _endpoint_defaults_that_override_a_blank(blanked)
+
+    assert not (offenders - _KNOWN_ENDPOINT_DEFAULTS), (
+        "a consumer fragment defaults an endpoint its owning manifest blanks for "
+        "`disabled`, so the not-configured signal never reaches it:\n  "
+        + "\n  ".join(sorted(offenders - _KNOWN_ENDPOINT_DEFAULTS))
+    )
+    assert not (_KNOWN_ENDPOINT_DEFAULTS - offenders), (
+        "these were fixed -- drop them from _KNOWN_ENDPOINT_DEFAULTS so the list "
+        f"keeps ratcheting down: {sorted(_KNOWN_ENDPOINT_DEFAULTS - offenders)}"
+    )

@@ -14,7 +14,12 @@ services:
     ports:
       - "${HOST_BIND_IP:-}${VERBA_PORT}:8000"
     environment:
-      WEAVIATE_URL_VERBA: ${VERBA_WEAVIATE_URL:-http://weaviate:8080}
+      # No `:-` default: WEAVIATE_URL is auto-managed and the weaviate
+      # manifest blanks it for `disabled`. `${VAR:-x}` substitutes on EMPTY,
+      # not just unset, so a default here resurrects an endpoint for a
+      # service that is not running and defeats the consumer's
+      # not-configured branch. Matches STT/TTS/DOCLING_ENDPOINT alongside.
+      WEAVIATE_URL_VERBA: ${VERBA_WEAVIATE_URL}
       OPENAI_API_KEY: ${LITELLM_MASTER_KEY}
       OPENAI_BASE_URL: http://litellm:4000/v1
       OPENAI_EMBED_API_KEY: ${LITELLM_MASTER_KEY}

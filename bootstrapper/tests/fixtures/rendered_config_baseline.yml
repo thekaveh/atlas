@@ -564,7 +564,7 @@ services:
       TIKA_TIMEOUT_SECONDS: '30'
       TTS_ENDPOINT: ''
       WEAVIATE_ENABLED: 'true'
-      WEAVIATE_URL: http://weaviate:8080
+      WEAVIATE_URL: ''
     extra_hosts:
     - host.docker.internal=
     logging:
@@ -781,7 +781,7 @@ services:
       TIKA_MAX_FILE_SIZE: '52428800'
       TIKA_TIMEOUT_SECONDS: '30'
       WEAVIATE_ENABLED: 'true'
-      WEAVIATE_URL: http://weaviate:8080
+      WEAVIATE_URL: ''
     extra_hosts:
     - host.docker.internal=
     healthcheck:
@@ -1526,7 +1526,7 @@ services:
       SUPABASE_ANON_KEY: ''
       SUPABASE_URL: http://kong-api-gateway:8000
       TTS_ENDPOINT: ''
-      WEAVIATE_URL: http://weaviate:8080
+      WEAVIATE_URL: ''
     extra_hosts:
     - host.docker.internal=
     healthcheck:
@@ -2890,7 +2890,7 @@ services:
       TIKA_ENDPOINT: ''
       TTS_ENDPOINT: ''
       VUE_APP_URL_BASE_API: http://n8n.localhost:63000/
-      WEAVIATE_URL: http://weaviate:8080
+      WEAVIATE_URL: ''
       WEBHOOK_URL: http://n8n.localhost:63000/
     healthcheck:
       test:
@@ -3010,7 +3010,7 @@ services:
       STT_ENDPOINT: ''
       TIKA_ENDPOINT: ''
       TTS_ENDPOINT: ''
-      WEAVIATE_URL: http://weaviate:8080
+      WEAVIATE_URL: ''
     image: n8nio/n8n:2.28.2
     logging:
       driver: json-file
@@ -4686,7 +4686,7 @@ services:
       OPENAI_MODEL: ''
       UNSTRUCTURED_API_KEY: ''
       UNSTRUCTURED_API_URL: ''
-      WEAVIATE_URL_VERBA: http://weaviate:8080
+      WEAVIATE_URL_VERBA: ''
     healthcheck:
       test:
       - CMD-SHELL

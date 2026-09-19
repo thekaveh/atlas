@@ -62,7 +62,12 @@ services:
       DOCLING_API_TOKEN: ${DOCLING_API_TOKEN}
       PARAKEET_API_TOKEN: ${PARAKEET_API_TOKEN}
       TIKA_ENDPOINT: ${TIKA_ENDPOINT:-}
-      WEAVIATE_URL: ${WEAVIATE_URL:-http://weaviate:8080}
+      # No `:-` default: WEAVIATE_URL is auto-managed and the weaviate
+      # manifest blanks it for `disabled`. `${VAR:-x}` substitutes on EMPTY,
+      # not just unset, so a default here resurrects an endpoint for a
+      # service that is not running and defeats the consumer's
+      # not-configured branch. Matches STT/TTS/DOCLING_ENDPOINT alongside.
+      WEAVIATE_URL: ${WEAVIATE_URL}
       # Prometheus metrics endpoint — n8n exposes /metrics on its main
       # port (5678) when N8N_METRICS=true. Scraped by the observability
       # bundle's Prometheus when PROMETHEUS_SOURCE=container. The
@@ -177,7 +182,12 @@ services:
       DOCLING_API_TOKEN: ${DOCLING_API_TOKEN}
       PARAKEET_API_TOKEN: ${PARAKEET_API_TOKEN}
       TIKA_ENDPOINT: ${TIKA_ENDPOINT:-}
-      WEAVIATE_URL: ${WEAVIATE_URL:-http://weaviate:8080}
+      # No `:-` default: WEAVIATE_URL is auto-managed and the weaviate
+      # manifest blanks it for `disabled`. `${VAR:-x}` substitutes on EMPTY,
+      # not just unset, so a default here resurrects an endpoint for a
+      # service that is not running and defeats the consumer's
+      # not-configured branch. Matches STT/TTS/DOCLING_ENDPOINT alongside.
+      WEAVIATE_URL: ${WEAVIATE_URL}
       HERMES_ENDPOINT: ${HERMES_ENDPOINT:-}
       HERMES_API_KEY: ${HERMES_API_KEY:-}
       LIGHTRAG_ENDPOINT: ${LIGHTRAG_ENDPOINT:-}

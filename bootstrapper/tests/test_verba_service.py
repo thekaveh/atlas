@@ -161,7 +161,9 @@ def test_verba_compose_contract() -> None:
     assert service["volumes"] == ["verba-data:/data"]
 
     env = service["environment"]
-    assert env["WEAVIATE_URL_VERBA"] == "${VERBA_WEAVIATE_URL:-http://weaviate:8080}"
+    # No default: the weaviate manifest blanks this for `disabled`, and
+    # `${VAR:-x}` would substitute on empty and resurrect the endpoint.
+    assert env["WEAVIATE_URL_VERBA"] == "${VERBA_WEAVIATE_URL}"
     assert env["OPENAI_API_KEY"] == "${LITELLM_MASTER_KEY}"
     assert env["OPENAI_BASE_URL"] == "http://litellm:4000/v1"
     assert env["OPENAI_EMBED_API_KEY"] == "${LITELLM_MASTER_KEY}"
