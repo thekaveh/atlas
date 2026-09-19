@@ -189,6 +189,21 @@ runtime_sc:
       deploy: {}
       extra_hosts: []
 
+# Enforced runtime requirement, distinct from the depends_on ordering above.
+# depends_on drives startup order and display; service_dependencies (synthesized
+# from this block) is what DependencyManager.check_service_dependencies actually
+# validates, and only services declaring runtime_deps are checked. MinIO is the
+# one source-configurable dependency Langfuse cannot start without -- it needs
+# S3-compatible event storage, and langfuse-init runs after minio-init
+# provisions the bucket and service account. Without this, a track that offers
+# Langfuse while force-disabling MinIO produces a Langfuse that never works and
+# no warning at all. Matches the trino -> minio/iceberg-rest precedent.
+runtime_deps:
+  langfuse:
+    requires:
+      - minio
+    optional: []
+
 data_flow:
   calls:
     - supabase

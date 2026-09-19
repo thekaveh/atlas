@@ -76,14 +76,29 @@ GRANT ALL ON ALL SEQUENCES IN SCHEMA storage TO service_role;
 -- Nothing reads these tables as anon: the Storage service has its own HTTP
 -- API and its own credentials, and no code in the tree queries them through
 -- PostgREST.
-GRANT SELECT ON storage.buckets TO authenticated;
-GRANT SELECT ON storage.objects TO authenticated;
-GRANT INSERT, UPDATE, DELETE ON storage.objects TO authenticated;
+-- `authenticated` is excluded for the same reason, and it is not a weaker
+-- case. GOTRUE_DISABLE_SIGNUP is "false" (supabase/compose.yml), so anyone who
+-- can reach the gateway can self-register and hold an `authenticated` JWT. With
+-- RLS off there is no owner scoping left: SELECT exposed every object's path,
+-- owner and metadata across every bucket, and INSERT/UPDATE/DELETE let any such
+-- account rewrite or erase every row in storage.objects -- other people's
+-- objects included. Upstream Supabase grants this role only because it runs
+-- these tables with RLS ON and owner-scoped policies; this slice deliberately
+-- does not.
+--
+-- Nothing in the tree needs it. The Storage service reaches these tables as
+-- SUPABASE_STORAGE_DB_USER with its own DDL/DML/READ contract (pinned by
+-- tests/test_database_role_boundaries.py), and service_role keeps ALL above.
+-- If an out-of-tree consumer really must read storage through PostgREST, give
+-- it owner-scoped RLS policies rather than restoring a blanket grant.
 
--- Repair existing deployments: the grant above was previously issued to anon,
--- and a GRANT already made is not undone by re-running the slice.
+-- Repair existing deployments: the grants above were previously issued to anon
+-- and to authenticated, and a GRANT already made is not undone by re-running
+-- the slice.
 REVOKE ALL ON storage.buckets FROM anon;
 REVOKE ALL ON storage.objects FROM anon;
+REVOKE ALL ON storage.buckets FROM authenticated;
+REVOKE ALL ON storage.objects FROM authenticated;
 
 -- Create default storage bucket (safe to re-run)
 DO $$ BEGIN
