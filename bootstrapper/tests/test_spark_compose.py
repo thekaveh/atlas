@@ -101,7 +101,7 @@ def test_spark_init_uses_minio_mc_image():
 
 def test_spark_connect_emits_event_log_to_history_bucket():
     """spark-connect must set spark.eventLog.enabled=true +
-    spark.eventLog.dir=s3a://spark-history/ so that Connect-driven
+    spark.eventLog.dir at the configured history bucket so that Connect-driven
     Spark sessions actually feed the History Server. Without these,
     the Pass 15 fix wouldn't deliver; the documented spark-history
     feature ships non-functional.
@@ -113,8 +113,13 @@ def test_spark_connect_emits_event_log_to_history_bucket():
         "spark-connect must enable eventLog or the History Server stays "
         "empty forever. Pass 15 fix."
     )
-    assert "spark.eventLog.dir=s3a://spark-history/" in joined, (
-        "spark-connect must point eventLog at s3a://spark-history/."
+    assert (
+        "spark.eventLog.dir=s3a://${MINIO_BUCKET_SPARK_HISTORY:-spark-history}/"
+        in joined
+    ), (
+        "spark-connect must point eventLog at the bucket minio-init actually "
+        "provisions. A literal name silently diverges from the History Server "
+        "and the provisioner as soon as MINIO_BUCKET_SPARK_HISTORY is set."
     )
 
 
@@ -216,3 +221,29 @@ def test_spark_connect_healthcheck_is_documented():
         "healthy",
     ):
         assert expected in readme
+def test_event_log_writer_reader_and_provisioner_agree_on_one_bucket():
+    """Three sites must name the same bucket or the History Server is empty.
+
+    Drivers write event logs to `spark.eventLog.dir`, the History Server reads
+    `spark.history.fs.logDirectory`, and minio-init provisions the bucket from
+    MINIO_BUCKET_SPARK_HISTORY. Any of the three hardcoding the name keeps
+    working on the default and silently diverges the moment the var is set --
+    logs land in one bucket while the server reads another, or the bucket the
+    server wants was never created.
+    """
+    raw = COMPOSE.read_text(encoding="utf-8")
+    manifest = (
+        COMPOSE.parent / "service.yml"
+    ).read_text(encoding="utf-8")
+
+    bucket_ref = "${MINIO_BUCKET_SPARK_HISTORY:-spark-history}"
+    for label, text in (("compose", raw), ("manifest", manifest)):
+        for setting in ("spark.eventLog.dir=", "spark.history.fs.logDirectory="):
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("#") or setting not in stripped:
+                    continue
+                assert bucket_ref in stripped, (
+                    f"{label}: {setting} hardcodes the history bucket instead "
+                    f"of tracking MINIO_BUCKET_SPARK_HISTORY: {stripped}"
+                )
