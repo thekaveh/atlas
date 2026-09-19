@@ -188,3 +188,33 @@ def test_the_user_backfill_does_not_overwrite_a_renamed_profile():
     users_sql = (SCRIPTS_DIR / "10-users.sql").read_text(encoding="utf-8")
     assert "ON CONFLICT (id) DO NOTHING" in users_sql
     assert "DO UPDATE\nSET name" not in users_sql
+def test_public_client_grants_are_conditional_on_row_level_security():
+    """`GRANT ... ON ALL TABLES IN SCHEMA public` must not reach client roles.
+
+    This slice re-runs on every boot, and `ALL TABLES` takes every table in the
+    schema -- including ones created since by whatever else shares the
+    database. Open WebUI and JupyterHub both use SUPABASE_DB_NAME_URI with no
+    schema of their own and neither enables RLS, while PGRST_DB_SCHEMA
+    publishes `public`; so a blanket grant republished their tables through
+    PostgREST after every restart. ALTER DEFAULT PRIVILEGES is creator-scoped
+    and never covered them, so it is neither the cause nor the fix.
+    """
+    sql = (SCRIPTS_DIR / "06-permissions.sql").read_text(encoding="utf-8")
+
+    for match in re.finditer(
+        r"GRANT\s+[^;]*?\s+ON\s+ALL\s+TABLES\s+IN\s+SCHEMA\s+public\s+TO\s+([^;]+);",
+        sql,
+        re.IGNORECASE,
+    ):
+        grantees = match.group(1)
+        for role in ("anon", "authenticated"):
+            assert role not in grantees, (
+                f"blanket public grant reaches {role}, which republishes every "
+                f"co-tenant table on each boot: {match.group(0).strip()}"
+            )
+
+    # The replacement must actually be conditional on RLS, not just narrower.
+    assert re.search(r"rowsecurity", sql, re.IGNORECASE), (
+        "the per-table grant loop is gone; client roles on `public` must stay "
+        "gated on the table actually carrying RLS"
+    )

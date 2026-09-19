@@ -6034,6 +6034,8 @@ GRANT SELECT ON TABLE public.schema_migrations TO atlas_jupyter;
 GRANT SELECT ON TABLE public.schema_migrations TO atlas_zeppelin;
 GRANT SELECT ON TABLE public.schema_migrations TO atlas_studio_readonly;
 
+REVOKE ALL ON TABLE public.spatial_ref_sys FROM anon;
+REVOKE ALL ON TABLE public.spatial_ref_sys FROM authenticated;
 GRANT SELECT ON TABLE public.spatial_ref_sys TO atlas_realtime;
 GRANT SELECT ON TABLE public.spatial_ref_sys TO atlas_airflow_reader;
 GRANT SELECT ON TABLE public.spatial_ref_sys TO atlas_mcp;

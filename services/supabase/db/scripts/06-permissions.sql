@@ -12,8 +12,10 @@ DO $$ BEGIN
     GRANT USAGE ON SCHEMA public, auth, storage TO anon, authenticated, service_role;
 
     -- Grant table permissions (public schema)
-    GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
-    GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated, service_role;
+    -- service_role is the trusted backend identity and bypasses RLS anyway.
+    -- anon/authenticated are granted per-table further down, restricted to
+    -- tables that actually have RLS -- see the loop after this block.
+    GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 
     -- Grant sequence permissions (public schema)
     GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, service_role;
@@ -72,4 +74,46 @@ DO $$ BEGIN
   ELSE
       RAISE WARNING 'One or more standard roles (anon, authenticated, service_role) not found. Skipping permission grants.';
   END IF;
+END $$;
+
+-- Client-role grants on `public`, restricted to tables that carry RLS.
+--
+-- `ON ALL TABLES IN SCHEMA public` took every table in the schema, and this
+-- slice re-runs on every boot -- so it also swept in tables created since by
+-- whatever else shares this database. Open WebUI and JupyterHub both connect
+-- to SUPABASE_DB_NAME_URI ("postgres") with no schema of their own (the
+-- `openwebui` schema in 02-schemas.sql is commented out) and neither is
+-- RLS-aware, while PGRST_DB_SCHEMA publishes `public`. The result was that
+-- after any restart an `anon` caller could SELECT their tables through
+-- PostgREST, and an `authenticated` one could write them. ALTER DEFAULT
+-- PRIVILEGES did not cause this and does not fix it: it is scoped to the
+-- creating role, so it never covered their tables in the first place.
+--
+-- Granting only where RLS exists keeps the intended gate in front of every
+-- row. Every table these seeds create has RLS enabled, so Atlas's own surface
+-- is unchanged; a co-tenant table without policies simply is not published.
+-- Services that need real isolation should still get their own schema or
+-- database -- this bounds the blast radius, it does not replace that.
+DO $$
+DECLARE
+  target record;
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'anon') THEN
+    RETURN;
+  END IF;
+  FOR target IN
+    SELECT tablename, rowsecurity
+    FROM pg_tables
+    WHERE schemaname = 'public'
+  LOOP
+    IF target.rowsecurity THEN
+      EXECUTE format('GRANT SELECT ON public.%I TO anon', target.tablename);
+      EXECUTE format('GRANT ALL ON public.%I TO authenticated', target.tablename);
+    ELSE
+      -- Repair existing deployments: a GRANT already made is not undone by
+      -- omitting it on a later run.
+      EXECUTE format('REVOKE ALL ON public.%I FROM anon', target.tablename);
+      EXECUTE format('REVOKE ALL ON public.%I FROM authenticated', target.tablename);
+    END IF;
+  END LOOP;
 END $$;
