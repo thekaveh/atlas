@@ -121,6 +121,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Agents & Workflows | n8n | 63075 | n8n.localhost |
 | Agents & Workflows | OpenClaw | 63076 | openclaw.localhost |
 | Agents & Workflows | Curated MCP Servers | 63078 | mcp.localhost |
+| Agents & Workflows | TrueForge | 63079 | trueforge.localhost |
 | Apps & UIs | Jenkins | 63090 | jenkins.localhost |
 | Apps & UIs | Label Studio | 63091 | label-studio.localhost |
 | Apps & UIs | MLflow | 63092 | mlflow.localhost |

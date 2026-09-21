@@ -15,6 +15,7 @@ The *Support* column is each family's declared support tier (`stable`, `experime
 | [mcp-servers](../services/mcp-servers/README.md) | Curated MCP Servers | experimental | all, gen-ai-eng, gen-ai-rag | MCP_SERVERS_SOURCE | disabled | container, disabled | supabase, neo4j, searxng |
 | [n8n](../services/n8n/README.md) | n8n (workflow automation) | experimental | all, gen-ai-eng, gen-ai-rag | N8N_SOURCE, N8N_INIT_SOURCE | container | container, disabled | supabase, redis, litellm |
 | [openclaw](../services/openclaw/README.md) | OpenClaw (AI agent gateway) | experimental | all, gen-ai-eng | OPENCLAW_SOURCE, OPENCLAW_INIT_SOURCE | disabled, container | disabled, container, localhost | litellm |
+| [trueforge](../services/trueforge/README.md) | TrueForge (agent runtime: MCP + approvals + schedules) | experimental | all, gen-ai-eng | TRUEFORGE_SOURCE | disabled | container, disabled | supabase, redis, litellm |
 
 ### 1.2. aggregate
 

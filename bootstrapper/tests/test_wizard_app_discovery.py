@@ -73,6 +73,11 @@ EXPECTED_DISCOVERED = frozenset({
     # SourceOverrideManager.source_mapping (same pattern as Ray's
     # ray_head_source / Spark's spark_master_source).
     "Apache Airflow",
+    # TrueForge (added 2026-09-20, #1159) — general agent runtime
+    # (MCP tools + approvals + schedules). Single anchor container named
+    # after the family, so 'trueforge_source' in source_mapping needs
+    # no shim.
+    "TrueForge",
     # Iceberg REST Catalog (added 2026-07-03) — durable lakehouse catalog
     # for the data-eng track. Single-container family; wired via
     # 'iceberg_rest_source' in source_mapping.

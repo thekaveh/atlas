@@ -805,6 +805,31 @@ VERBA_ENDPOINT=...           # auto-managed as http://verba:8000
 - **Containers**: `verba`.
 - **Requirements**: LiteLLM is always-on; `WEAVIATE_SOURCE` must be `container` or `localhost`. Docling is optional and documented as a manual pre-processing path, not a hard dependency.
 
+### 4.23. TRUEFORGE_SOURCE
+
+TrueForge is Atlas' general agent runtime — saved agents with MCP tools, per-tool-call human approvals, schedules, and per-session cost accounting (adopted as an `experimental`-tier service, [#1159](https://github.com/thekaveh/atlas/issues/1159)). When enabled, Atlas runs the TrueForge server, a schedule controller, and a one-shot settings-seeding init container; provisions a dedicated Supabase Postgres database; and seeds a `custom` model provider pointed at LiteLLM plus (when mcp-servers is enabled) the in-stack MCP tool connector. It appears in the `gen-ai-eng` track.
+
+#### 4.23.1. `disabled` (Default)
+```bash
+TRUEFORGE_SOURCE=disabled
+```
+- **Use case**: Default safe startup with no agent runtime.
+- **Pros**: Zero footprint.
+- **Cons**: No saved-agent harness; only the fixed-purpose agents remain.
+- **Requirements**: None.
+
+#### 4.23.2. `container`
+```bash
+TRUEFORGE_SOURCE=container
+TRUEFORGE_API_KEY=...        # auto-generated on first bootstrap
+TRUEFORGE_DB_PASSWORD=...    # auto-generated on first bootstrap
+```
+- **Use case**: Compose agents in a UI — pick a LiteLLM model, attach MCP tools, gate writes behind approvals, and run them on demand or on hourly/daily/weekly schedules.
+- **Pros**: Kong-aliased UI/API at `trueforge.localhost` (dashboard-user guarded); live model list seeded from the LiteLLM gateway (Ollama and cloud models arrive automatically); a dedicated LiteLLM virtual key so agent traffic never carries the master key; LiteLLM-routed calls appear in Langfuse when that service is enabled.
+- **Cons**: Upstream is young (v0.2, experimental tier); the image is linux/amd64-only and runs emulated on Apple Silicon; no OIDC login in-stack (network-trusted admin identity); skills and sandbox execution are deliberately unconfigured.
+- **Containers**: `trueforge`, `trueforge-controller`, `trueforge-init` (one-shot).
+- **Requirements**: Supabase Postgres, Redis, and LiteLLM are always-on; `MCP_SERVERS_SOURCE=container` is optional but recommended for agent tools.
+
 ## 5. Configuration Patterns
 
 ### 5.1. Development Setup

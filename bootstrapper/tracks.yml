@@ -37,7 +37,7 @@ tracks:
     services: [open-webui, supavisor, n8n, hermes, openclaw, jupyterhub, comfyui, neo4j,
                stt-provider, tts-provider, searxng, mcp-servers, vllm-metal,
                langfuse, otel-collector, tempo, loki,
-               local-deep-researcher, tika, celery, cloudflared]
+               local-deep-researcher, tika, celery, cloudflared, trueforge]
 
   - key: gen-ai-creative
     display_name: Generative AI · Creative

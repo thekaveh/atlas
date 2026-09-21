@@ -237,6 +237,9 @@ class ServiceConfig:
         langfuse_config = self._generate_langfuse_config()
         env_vars.update(langfuse_config)
 
+        trueforge_config = self._generate_trueforge_config()
+        env_vars.update(trueforge_config)
+
         # Generate OpenTelemetry / Tempo / Loki tracing and log-store configuration.
         otel_config = self._generate_otel_tempo_loki_config()
         env_vars.update(otel_config)
@@ -1165,6 +1168,29 @@ class ServiceConfig:
             "LANGFUSE_WORKER_SCALE": "1",
             "LANGFUSE_CLICKHOUSE_SCALE": "1",
             "LANGFUSE_ENDPOINT": "http://langfuse-web:3000",
+        }
+
+    def _generate_trueforge_config(self) -> dict:
+        """Generate TrueForge family scales and endpoint.
+
+        All three containers (server + schedule controller + settings-seeding
+        init) rise and fall together; the hard dependencies (supabase, redis,
+        litellm) are always-on, so no cross-service validation is needed here.
+        """
+        source = self.service_sources.get("TRUEFORGE_SOURCE", "disabled")
+        if source == "disabled":
+            return {
+                "TRUEFORGE_SCALE": "0",
+                "TRUEFORGE_CONTROLLER_SCALE": "0",
+                "TRUEFORGE_INIT_SCALE": "0",
+                "TRUEFORGE_ENDPOINT": "",
+            }
+
+        return {
+            "TRUEFORGE_SCALE": "1",
+            "TRUEFORGE_CONTROLLER_SCALE": "1",
+            "TRUEFORGE_INIT_SCALE": "1",
+            "TRUEFORGE_ENDPOINT": "http://trueforge:8790",
         }
 
     def _generate_otel_tempo_loki_config(self) -> dict:
