@@ -1,0 +1,138 @@
+# services/trueforge/compose.yml — TrueForge agent runtime
+# (server + schedule controller + settings-seeding init)
+services:
+  trueforge:
+    # linux/amd64-only upstream image; Docker Desktop on Apple Silicon runs it
+    # under emulation (declared in service.yml `images.platform`, same as
+    # chatterbox/docling).
+    image: ${TRUEFORGE_IMAGE:-tfy.jfrog.io/tfy-images/trueforge:0.2.0-8b1d98e}
+    container_name: ${PROJECT_NAME}-trueforge
+    restart: unless-stopped
+    deploy:
+      replicas: ${TRUEFORGE_SCALE:-0}
+    depends_on:
+      supabase-db-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+    ports:
+      - "${HOST_BIND_IP:-}${TRUEFORGE_PORT}:8790"
+    environment:
+      NODE_ENV: production
+      # Multi-process topology: Postgres + Redis (standalone mode is
+      # SQLite/single-process and not production-safe per upstream docs).
+      STANDALONE: "false"
+      PORT: 8790
+      # The image's production default already binds 0.0.0.0, but pin it
+      # explicitly so the published port and the loopback healthcheck can
+      # never regress on an upstream default change (the langfuse #928
+      # bind-address lesson).
+      HOST: "0.0.0.0"
+      # Own database on the shared Supabase Postgres, litellm/langfuse-style,
+      # plus TrueForge's dedicated schema inside it (upstream v0.2 relocated
+      # its tables from `public` to the `trueforge` schema).
+      DATABASE_URL: postgresql://${TRUEFORGE_DB_USER_URI:?TRUEFORGE_DB_USER_URI is required}:${TRUEFORGE_DB_PASSWORD_URI:?TRUEFORGE_DB_PASSWORD_URI is required}@supabase-db:5432/${TRUEFORGE_DB_NAME_URI:?TRUEFORGE_DB_NAME_URI is required}
+      POSTGRES_SCHEMA: trueforge
+      # Shared stack Redis on its own logical database (0 = default consumers,
+      # 2 = Open WebUI websockets, 3 = JupyterHub, 4 = celery). Carries
+      # executor peering only, so the footprint is small; revisit against the
+      # #1040 Redis capacity thread if session load grows.
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/5
+      # Host-facing origin for the UI and for MCP OAuth/DCR callbacks —
+      # the Kong route, not the direct port (langfuse NEXTAUTH_URL precedent).
+      PUBLIC_BASE_URL: http://trueforge.localhost:${KONG_HTTP_PORT}
+      # Service credential for controller -> server schedule dispatch.
+      TRUEFORGE_API_KEY: ${TRUEFORGE_API_KEY}
+      # Deliberately unset: the OIDC triple (network-trusted admin identity,
+      # #1159 Q4), TRUEFORGE_MTLS_*, catalog-path overrides (live settings are
+      # seeded by trueforge-init instead), and every TRUEFOUNDRY_SANDBOX_* /
+      # SKILL knob (no sandbox provider and no skill sources in v1, #1159 Q3).
+    healthcheck:
+      # Node image without wget/curl — probe with the built-in fetch, exactly
+      # as upstream's own compose does.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8790/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    # Above the app's default GRACEFUL_TIMEOUT_SECONDS (30) so SIGKILL does
+    # not cut off in-flight turn drain (upstream compose does the same).
+    stop_grace_period: 35s
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network
+
+  trueforge-controller:
+    # Same image as the server; only the entrypoint differs (schedule
+    # dispatch loop). Command path verified against upstream's Helm chart
+    # and compose file.
+    image: ${TRUEFORGE_IMAGE:-tfy.jfrog.io/tfy-images/trueforge:0.2.0-8b1d98e}
+    container_name: ${PROJECT_NAME}-trueforge-controller
+    restart: unless-stopped
+    command: ["node", "dist/controller-main.js"]
+    deploy:
+      replicas: ${TRUEFORGE_CONTROLLER_SCALE:-0}
+    depends_on:
+      trueforge:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      STANDALONE: "false"
+      # The controller reads schedule state from the same database and hands
+      # runs to the server over HTTP with the shared service credential. No
+      # REDIS_URL: the controller takes no part in executor peering.
+      DATABASE_URL: postgresql://${TRUEFORGE_DB_USER_URI:?TRUEFORGE_DB_USER_URI is required}:${TRUEFORGE_DB_PASSWORD_URI:?TRUEFORGE_DB_PASSWORD_URI is required}@supabase-db:5432/${TRUEFORGE_DB_NAME_URI:?TRUEFORGE_DB_NAME_URI is required}
+      POSTGRES_SCHEMA: trueforge
+      SERVER_URL: http://trueforge:8790
+      TRUEFORGE_API_KEY: ${TRUEFORGE_API_KEY}
+    stop_grace_period: 35s
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network
+
+  trueforge-init:
+    # Reuses the server image (Node 24 with built-in fetch) so the family
+    # ships exactly one remote image and no extra build context. The script
+    # is bind-mounted; PUT /api/v1/settings/* is replace-by-name, so re-runs
+    # on every start are idempotent.
+    image: ${TRUEFORGE_IMAGE:-tfy.jfrog.io/tfy-images/trueforge:0.2.0-8b1d98e}
+    container_name: ${PROJECT_NAME}-trueforge-init
+    restart: "no"
+    entrypoint: ["node", "/scripts/init.mjs"]
+    deploy:
+      replicas: ${TRUEFORGE_INIT_SCALE:-0}
+    depends_on:
+      trueforge:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+    environment:
+      TRUEFORGE_URL: http://trueforge:8790
+      TRUEFORGE_API_KEY: ${TRUEFORGE_API_KEY}
+      LITELLM_BASE_URL: http://litellm:4000
+      # Used once to mint/rotate a dedicated `trueforge` LiteLLM virtual key
+      # (the #1159 Q4 mitigation); the seeded model provider carries that
+      # virtual key, never the master key itself.
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      # 1 when the mcp-servers family is enabled — gates seeding of the
+      # in-stack MCP connector.
+      MCP_SERVERS_SCALE: ${MCP_SERVERS_SCALE:-0}
+    volumes:
+      - ./init/scripts:/scripts:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - backend-network
