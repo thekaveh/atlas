@@ -593,8 +593,8 @@ def test_discovery_allows_manifest_without_images_when_inventory_is_nonempty(tmp
     assert watch.load_manifest_image_refs(services) == ("demo:1",)
 
 
-def test_repository_manifest_inventory_has_71_unique_literal_image_refs():
-    assert len(watch.load_manifest_image_refs(REPO_ROOT / "services")) == 71
+def test_repository_manifest_inventory_has_72_unique_literal_image_refs():
+    assert len(watch.load_manifest_image_refs(REPO_ROOT / "services")) == 72
 
 
 def test_probe_ollama_library_requires_the_plausible_catalog_threshold(monkeypatch):

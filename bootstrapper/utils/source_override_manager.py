@@ -52,6 +52,7 @@ class SourceOverrideManager:
             # ClickHouse), so runtime_sc is keyed by langfuse-web while the
             # user-facing knob stays family-level LANGFUSE_SOURCE.
             'langfuse_web_source': 'LANGFUSE_SOURCE',
+            'trueforge_source': 'TRUEFORGE_SOURCE',
             'jupyterhub_source': 'JUPYTERHUB_SOURCE',
             'mlflow_source': 'MLFLOW_SOURCE',
             'label_studio_source': 'LABEL_STUDIO_SOURCE',

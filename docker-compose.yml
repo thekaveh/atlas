@@ -72,6 +72,7 @@ include:
   - services/verba/compose.yml
   - services/openclaw/compose.yml
   - services/hermes/compose.yml
+  - services/trueforge/compose.yml
   - services/lightrag/compose.yml
 
   # Compute additions (2026-06-04)

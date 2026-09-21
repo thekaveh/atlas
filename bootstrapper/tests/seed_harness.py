@@ -66,6 +66,7 @@ _SCOPED_ROLE_SPECS = (
     ("AIRFLOW_DB", "airflow", "airflow"),
     ("AIRFLOW_ATLAS_DB", "atlas_airflow_reader", "airflow-reader"),
     ("LANGFUSE_DB", "langfuse", "langfuse"),
+    ("TRUEFORGE_DB", "trueforge", "trueforge"),
     ("MLFLOW_DB", "mlflow", "mlflow"),
     ("LABEL_STUDIO_DB", "label_studio", "label"),
     ("ICEBERG_DB", "iceberg", "iceberg"),
@@ -87,6 +88,7 @@ SCOPED_ROLE_TEST_ENV.update(
     {
         "LITELLM_DB_NAME": "litellm",
         "LANGFUSE_DB_NAME": "langfuse",
+        "TRUEFORGE_DB_NAME": "trueforge",
         "MLFLOW_DB_NAME": "mlflow",
         "LABEL_STUDIO_DB_NAME": "label_studio",
     }

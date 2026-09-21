@@ -66,6 +66,7 @@
 | TEMPO_SOURCE | tempo | disabled | container, disabled |
 | TIKA_SOURCE | tika | disabled | container, tika-localhost, disabled |
 | TRINO_SOURCE | trino | disabled | container, disabled |
+| TRUEFORGE_SOURCE | trueforge | disabled | container, disabled |
 | TTS_PROVIDER_SOURCE | tts-provider | speaches-container-cpu | speaches-container-cpu, speaches-container-gpu, chatterbox-container-gpu, chatterbox-localhost, disabled |
 | VERBA_SOURCE | verba | disabled | container, disabled |
 | VLLM_METAL_SOURCE | vllm-metal | disabled | managed-localhost, disabled |

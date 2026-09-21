@@ -1727,6 +1727,7 @@ class AtlasStarter:
             'HERMES_DASHBOARD_PORT',
             'MCP_SERVERS_PORT',
             'LANGFUSE_PORT',
+            'TRUEFORGE_PORT',
             'TEI_RERANKER_PORT',
             'LIGHTRAG_API_PORT',
             'ICEBERG_REST_PORT',
@@ -5785,6 +5786,9 @@ class AtlasStartGroup(click.Group):
 @click.option('--langfuse-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override LANGFUSE_SOURCE — LLM traces and prompt/eval observability.')
+@click.option('--trueforge-source',
+              type=click.Choice(['container', 'disabled'], case_sensitive=False),
+              help='Override TRUEFORGE_SOURCE — TrueForge agent runtime (MCP tools + approvals + schedules).')
 @click.option('--otel-collector-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override OTEL_COLLECTOR_SOURCE — internal OpenTelemetry ingest.')
@@ -5878,7 +5882,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
          multi2vec_clip_source,
          ray_source, ray_worker_count,
          prometheus_source, prometheus_retention_days, grafana_source,
-         langfuse_source,
+         langfuse_source, trueforge_source,
          otel_collector_source, tempo_source, loki_source,
          spark_source, spark_workers,
          zeppelin_source,
@@ -5996,6 +6000,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     'prometheus_source': prometheus_source,
                     'grafana_source': grafana_source,
                     'langfuse_source': langfuse_source,
+                    'trueforge_source': trueforge_source,
                     'otel_collector_source': otel_collector_source,
                     'tempo_source': tempo_source,
                     'loki_source': loki_source,
@@ -6263,6 +6268,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
             'prometheus_source': prometheus_source,
             'grafana_source': grafana_source,
             'langfuse_source': langfuse_source,
+            'trueforge_source': trueforge_source,
             'otel_collector_source': otel_collector_source,
             'tempo_source': tempo_source,
             'loki_source': loki_source,

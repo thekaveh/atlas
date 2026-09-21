@@ -4248,6 +4248,9 @@ services:
       SUPABASE_STUDIO_DB_USER: atlas_studio_readonly
       SUPAVISOR_DB_ADMIN_PASSWORD: atlas-db-password
       SUPAVISOR_DB_ADMIN_USER: atlas_supavisor
+      TRUEFORGE_DB_NAME: trueforge
+      TRUEFORGE_DB_PASSWORD: atlas-db-password
+      TRUEFORGE_DB_USER: trueforge
       ZEPPELIN_DB_PASSWORD: atlas-db-password
       ZEPPELIN_DB_USER: atlas_zeppelin
     image: postgres:15.18-alpine
@@ -4665,6 +4668,119 @@ services:
       target: /etc/trino/catalog
       read_only: true
       bind: {}
+  trueforge:
+    container_name: atlas-trueforge
+    depends_on:
+      litellm:
+        condition: service_healthy
+        required: true
+      redis:
+        condition: service_healthy
+        required: true
+      supabase-db-init:
+        condition: service_completed_successfully
+        required: true
+    deploy:
+      replicas: 0
+    environment:
+      DATABASE_URL: postgresql://trueforge:atlas-db-password@supabase-db:5432/trueforge
+      HOST: 0.0.0.0
+      NODE_ENV: production
+      PORT: '8790'
+      POSTGRES_SCHEMA: trueforge
+      PUBLIC_BASE_URL: http://trueforge.localhost:63000
+      REDIS_URL: redis://:redis_password@redis:6379/5
+      STANDALONE: 'false'
+      TRUEFORGE_API_KEY: ''
+    healthcheck:
+      interval: 10s
+      retries: 20
+      start_period: 30s
+      test:
+      - CMD
+      - node
+      - -e
+      - fetch('http://127.0.0.1:8790/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+      timeout: 5s
+    image: tfy.jfrog.io/tfy-images/trueforge:0.2.0-8b1d98e
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    ports:
+    - host_ip: 127.0.0.1
+      mode: ingress
+      protocol: tcp
+      published: '63079'
+      target: 8790
+    restart: unless-stopped
+    stop_grace_period: 35s
+  trueforge-controller:
+    command:
+    - node
+    - dist/controller-main.js
+    container_name: atlas-trueforge-controller
+    depends_on:
+      trueforge:
+        condition: service_healthy
+        required: true
+    deploy:
+      replicas: 0
+    environment:
+      DATABASE_URL: postgresql://trueforge:atlas-db-password@supabase-db:5432/trueforge
+      NODE_ENV: production
+      POSTGRES_SCHEMA: trueforge
+      SERVER_URL: http://trueforge:8790
+      STANDALONE: 'false'
+      TRUEFORGE_API_KEY: ''
+    image: tfy.jfrog.io/tfy-images/trueforge:0.2.0-8b1d98e
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    restart: unless-stopped
+    stop_grace_period: 35s
+  trueforge-init:
+    container_name: atlas-trueforge-init
+    depends_on:
+      litellm:
+        condition: service_healthy
+        required: true
+      trueforge:
+        condition: service_healthy
+        required: true
+    deploy:
+      replicas: 0
+    entrypoint:
+    - node
+    - /scripts/init.mjs
+    environment:
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_MASTER_KEY: ''
+      MCP_SERVERS_SCALE: '0'
+      TRUEFORGE_API_KEY: ''
+      TRUEFORGE_URL: http://trueforge:8790
+    image: tfy.jfrog.io/tfy-images/trueforge:0.2.0-8b1d98e
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    restart: 'no'
+    volumes:
+    - bind: {}
+      read_only: true
+      source: '{REPO_ROOT}/services/trueforge/init/scripts'
+      target: /scripts
+      type: bind
   verba:
     container_name: atlas-verba
     depends_on:
