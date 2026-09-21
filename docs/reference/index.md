@@ -13,7 +13,7 @@
 
 | Category | Count | Services |
 | --- | --- | --- |
-| agents | 7 | airflow, celery, hermes, lightrag, mcp-servers, n8n, openclaw |
+| agents | 8 | airflow, celery, hermes, lightrag, mcp-servers, n8n, openclaw, trueforge |
 | aggregate | 3 | doc-processor, multi2vec-clip, stt-provider |
 | apps | 10 | backend, jenkins, jupyterhub, label-studio, llm-graph-builder, local-deep-researcher, mlflow, open-webui, verba, zeppelin |
 | data | 10 | iceberg-rest, minio, neo4j, redis, redpanda, spark, supabase, supavisor, trino, weaviate |

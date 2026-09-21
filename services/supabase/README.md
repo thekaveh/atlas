@@ -311,6 +311,7 @@ _No upstream calls._
 | lightrag | agents |
 | mcp-servers | agents |
 | n8n | agents |
+| trueforge | agents |
 | backend | apps |
 | jupyterhub | apps |
 | label-studio | apps |

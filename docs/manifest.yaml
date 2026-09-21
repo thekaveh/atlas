@@ -375,32 +375,38 @@ sections:
       source: services/trino/README.md
       diagrams:
       - service-trino
-    - id: service-tts-provider
+    - id: service-trueforge
       number: 5.2.56
+      title: trueforge
+      source: services/trueforge/README.md
+      diagrams:
+      - service-trueforge
+    - id: service-tts-provider
+      number: 5.2.57
       title: tts-provider
       source: services/tts-provider/README.md
       diagrams:
       - service-tts-provider
     - id: service-verba
-      number: 5.2.57
+      number: 5.2.58
       title: verba
       source: services/verba/README.md
       diagrams:
       - service-verba
     - id: service-vllm-metal
-      number: 5.2.58
+      number: 5.2.59
       title: vllm-metal
       source: services/vllm-metal/README.md
       diagrams:
       - service-vllm-metal
     - id: service-weaviate
-      number: 5.2.59
+      number: 5.2.60
       title: weaviate
       source: services/weaviate/README.md
       diagrams:
       - service-weaviate
     - id: service-zeppelin
-      number: 5.2.60
+      number: 5.2.61
       title: zeppelin
       source: services/zeppelin/README.md
       diagrams:
@@ -764,6 +770,8 @@ diagrams:
   master: services/tika/architecture.html
 - id: service-trino
   master: services/trino/architecture.html
+- id: service-trueforge
+  master: services/trueforge/architecture.html
 - id: service-tts-provider
   master: services/tts-provider/architecture.html
 - id: service-verba

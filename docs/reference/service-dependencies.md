@@ -59,6 +59,7 @@
 | tempo | kong, ray | - | - |
 | tika | - | backend, n8n | - |
 | trino | minio, iceberg-rest | spark, zeppelin, jupyterhub, airflow | iceberg-rest, minio |
+| trueforge | supabase, redis, litellm | mcp-servers | supabase, redis, litellm, mcp-servers |
 | tts-provider | litellm | - | - |
 | verba | weaviate, litellm, kong | docling, open-webui, jupyterhub | weaviate, litellm |
 | vllm-metal | litellm | - | - |
