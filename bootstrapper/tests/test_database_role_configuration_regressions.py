@@ -127,6 +127,7 @@ def test_key_generation_preserves_raw_database_names_and_derives_path_components
         "SUPABASE_DB_NAME",
         "LITELLM_DB_NAME",
         "LANGFUSE_DB_NAME",
+        "TRUEFORGE_DB_NAME",
         "MLFLOW_DB_NAME",
         "LABEL_STUDIO_DB_NAME",
     )
@@ -169,6 +170,7 @@ def test_scoped_uri_paths_never_interpolate_raw_database_names() -> None:
             "SUPABASE_DB_NAME",
             "LITELLM_DB_NAME",
             "LANGFUSE_DB_NAME",
+            "TRUEFORGE_DB_NAME",
             "MLFLOW_DB_NAME",
             "LABEL_STUDIO_DB_NAME",
         )
@@ -195,6 +197,7 @@ def test_hostile_database_names_round_trip_through_rendered_dsn_paths(
         "SUPABASE_DB_NAME",
         "LITELLM_DB_NAME",
         "LANGFUSE_DB_NAME",
+        "TRUEFORGE_DB_NAME",
         "MLFLOW_DB_NAME",
         "LABEL_STUDIO_DB_NAME",
     ):

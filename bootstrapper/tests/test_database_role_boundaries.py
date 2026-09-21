@@ -169,6 +169,12 @@ POSTGRES_CONSUMERS: dict[str, ConsumerContract] = {
         ("public",), ("Langfuse Prisma tables",), (), frozenset({"DDL", "DML", "READ"}),
         "LANGFUSE_DB_USER", "LANGFUSE_DB_PASSWORD",
     ),
+    "trueforge": ConsumerContract(
+        ("trueforge", "trueforge-controller"), "trueforge",
+        ("trueforge",), ("TrueForge migration tables",), (),
+        frozenset({"DDL", "DML", "READ"}),
+        "TRUEFORGE_DB_USER", "TRUEFORGE_DB_PASSWORD",
+    ),
     "mlflow": ConsumerContract(
         ("mlflow-init", "mlflow"), "mlflow", ("public",), ("MLflow migration tables",), (),
         frozenset({"DDL", "DML", "READ"}), "MLFLOW_DB_USER", "MLFLOW_DB_PASSWORD",
@@ -376,6 +382,7 @@ _TEST_ROLE_SPECS = (
     ("AIRFLOW_DB", "airflow", "airflow"),
     ("AIRFLOW_ATLAS_DB", "atlas_airflow_reader", "airflow-reader"),
     ("LANGFUSE_DB", "langfuse", "langfuse"),
+    ("TRUEFORGE_DB", "trueforge", "trueforge"),
     ("MLFLOW_DB", "mlflow", "mlflow"),
     ("LABEL_STUDIO_DB", "label_studio", "label"),
     ("ICEBERG_DB", "iceberg", "iceberg"),
@@ -397,6 +404,7 @@ TEST_SECRETS.update(
     {
         "LITELLM_DB_NAME": "litellm",
         "LANGFUSE_DB_NAME": "langfuse",
+        "TRUEFORGE_DB_NAME": "trueforge",
         "MLFLOW_DB_NAME": "mlflow",
         "LABEL_STUDIO_DB_NAME": "label_studio",
     }
@@ -487,6 +495,7 @@ _SCOPED_AUTH_TARGET_SPECS = (
     ("airflow", "AIRFLOW_DB", "airflow"),
     ("atlas_airflow_reader", "AIRFLOW_ATLAS_DB", SCOPED_AUTH_DATABASE),
     ("langfuse", "LANGFUSE_DB", "langfuse"),
+    ("trueforge", "TRUEFORGE_DB", "trueforge"),
     ("mlflow", "MLFLOW_DB", "mlflow"),
     ("label_studio", "LABEL_STUDIO_DB", "label_studio"),
     ("iceberg", "ICEBERG_DB", "iceberg"),
