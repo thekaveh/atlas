@@ -52,7 +52,7 @@ EXCLUDED_PARTS = {
     '.claude',  # Claude Code's worktrees / scratch dirs are ephemeral, not source
     '.Codex',  # Codex worktrees / scratch dirs are ephemeral, not source
 }
-EXCLUDED_FILES = {'repo-issues-report.md'}
+EXCLUDED_FILES = {'repo-issues-report.md', 'CLAUDE.md'}
 
 LINK_RE = re.compile(r'\[[^\]]*\]\(([^)]+)\)')
 URL_RE = re.compile(r'^[a-z][a-z0-9+.-]*:', re.I)
@@ -219,6 +219,65 @@ def check_professional_symbols():
     return hits
 
 
+def _fenced_code_lines(text):
+    """Yield (line_number, fence_language, line) for every line inside a
+    fenced ``` block. The inverse view of _strip_fenced_code_blocks: link
+    checks want prose only, command-safety checks want copy blocks only."""
+    in_fence = False
+    lang = ""
+    for line_number, line in enumerate(text.splitlines(), 1):
+        stripped = line.lstrip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            lang = stripped[3:].strip().lower() if in_fence else ""
+            continue
+        if in_fence:
+            yield line_number, lang, line
+
+
+# Hazard classes that must never reappear in user-facing copy blocks.
+# Prose may still DESCRIBE these commands (e.g. to warn against them);
+# only fenced code — what readers copy and run — is gated. Fixed by
+# #1164/#1165/#1166/#1185/#1186/#1187; each rule pins one of them.
+_COMMAND_SAFETY_RULES = (
+    (re.compile(r"docker\s+(system|volume|image|container|network)\s+prune"),
+     "daemon-wide docker prune in a copy block — Atlas recovery is project-scoped (#1165)"),
+    (re.compile(r"cp -r /data"),
+     "raw live data-directory copy presented as a backup (#1166)"),
+    (re.compile(r"import psycopg2"),
+     "driver import presented as a database connectivity probe (#1185)"),
+    (re.compile(r"--cold\b.*regenerat|regenerat.*--cold\b", re.IGNORECASE),
+     "cold start described as key regeneration — it deletes project volumes (#1164)"),
+)
+_QUICK_START_SHELL_VAR = re.compile(r"docker\s+(logs|exec)\s+\$\{PROJECT_NAME\}")
+_BASH_SYNOPSIS_BARS = re.compile(r"[a-z][a-z-]*\|[a-z][a-z-]*\|[a-z][a-z-]*\|[a-z]")
+
+
+def check_recovery_command_safety():
+    hits = []
+    for p in markdown_files():
+        rel = str(p.relative_to(ROOT))
+        if rel.startswith(_CONTENT_QUALITY_EXEMPT):
+            continue
+        text = p.read_text(encoding="utf-8", errors="ignore")
+        for line_no, lang, line in _fenced_code_lines(text):
+            for pattern, message in _COMMAND_SAFETY_RULES:
+                if pattern.search(line):
+                    hits.append(f"{rel}:{line_no}: {message}")
+            if rel.startswith("docs/quick-start/") and _QUICK_START_SHELL_VAR.search(line):
+                hits.append(
+                    f"{rel}:{line_no}: copy block depends on an unexported "
+                    f"shell variable — use docker compose service names (#1186)"
+                )
+            if lang == "bash" and _BASH_SYNOPSIS_BARS.search(line):
+                hits.append(
+                    f"{rel}:{line_no}: action-alternative synopsis inside an "
+                    f"executable bash block — a shell parses the bars as "
+                    f"pipelines; use a text block (#1187)"
+                )
+    return hits
+
+
 def _is_service_readme(path):
     parts = path.relative_to(ROOT).parts
     return len(parts) >= 3 and parts[0] == "services" and parts[-1] == "README.md"
@@ -275,6 +334,7 @@ def main():
         'numbered_headings': check_numbered_headings(),
         'professional_symbols': check_professional_symbols(),
         'content_quality': check_content_quality(),
+        'recovery_command_safety': check_recovery_command_safety(),
     }
     failed = False
     for name, issues in checks.items():
