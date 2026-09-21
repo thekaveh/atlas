@@ -77,6 +77,7 @@ class KeyGenerator:
         "AIRFLOW_DB_PASSWORD",
         "AIRFLOW_ATLAS_DB_PASSWORD",
         "LANGFUSE_DB_PASSWORD",
+        "TRUEFORGE_DB_PASSWORD",
         "MLFLOW_DB_PASSWORD",
         "LABEL_STUDIO_DB_PASSWORD",
         "ICEBERG_DB_PASSWORD",
@@ -92,6 +93,7 @@ class KeyGenerator:
         "SUPABASE_DB_NAME",
         "LITELLM_DB_NAME",
         "LANGFUSE_DB_NAME",
+        "TRUEFORGE_DB_NAME",
         "MLFLOW_DB_NAME",
         "LABEL_STUDIO_DB_NAME",
     )
@@ -113,6 +115,7 @@ class KeyGenerator:
         ("AIRFLOW_DB_USER", "AIRFLOW_DB_PASSWORD"),
         ("AIRFLOW_ATLAS_DB_USER", "AIRFLOW_ATLAS_DB_PASSWORD"),
         ("LANGFUSE_DB_USER", "LANGFUSE_DB_PASSWORD"),
+        ("TRUEFORGE_DB_USER", "TRUEFORGE_DB_PASSWORD"),
         ("MLFLOW_DB_USER", "MLFLOW_DB_PASSWORD"),
         ("LABEL_STUDIO_DB_USER", "LABEL_STUDIO_DB_PASSWORD"),
         ("ICEBERG_DB_USER", "ICEBERG_DB_PASSWORD"),
@@ -445,6 +448,12 @@ class KeyGenerator:
         """
         return _cli_safe_token_urlsafe(32)
 
+    def generate_trueforge_api_key(self) -> str:
+        """TrueForge controller -> server service credential. URL-safe
+        32-byte token — same posture as HERMES_API_KEY / LITELLM_MASTER_KEY.
+        """
+        return _cli_safe_token_urlsafe(32)
+
     def generate_crawl4ai_api_token(self) -> str:
         """Crawl4AI Docker API bearer token. Stable unless missing."""
         return _cli_safe_token_urlsafe(32)
@@ -467,6 +476,17 @@ class KeyGenerator:
             return True
         new_key = self.generate_hermes_api_key()
         return self.update_env_key('HERMES_API_KEY', new_key)
+
+    def generate_and_update_trueforge_api_key(self, force: bool = False) -> bool:
+        """Generate TRUEFORGE_API_KEY when absent. Idempotent: existing keys
+        are preserved — the TrueForge server and controller must present the
+        same credential, and both read it from .env at compose time.
+        """
+        current_value = self.get_current_env_value('TRUEFORGE_API_KEY')
+        if not force and current_value:
+            return True
+        new_key = self.generate_trueforge_api_key()
+        return self.update_env_key('TRUEFORGE_API_KEY', new_key)
 
     def generate_and_update_crawl4ai_api_token(self, force: bool = False) -> bool:
         """Generate CRAWL4AI_API_TOKEN when absent. Existing tokens stick."""
@@ -1169,6 +1189,13 @@ class KeyGenerator:
         # references it via os.environ/HERMES_API_KEY, so rotating it
         # without restarting the LiteLLM container would break routing.
         results['HERMES_API_KEY'] = self.generate_and_update_hermes_api_key(force=False)
+
+        # TrueForge controller->server service credential — same posture as
+        # HERMES_API_KEY: only generate when absent (server and controller
+        # must keep presenting the same value across restarts), and generated
+        # even while TRUEFORGE_SOURCE=disabled so enabling the service later
+        # needs no manual secret edit.
+        results['TRUEFORGE_API_KEY'] = self.generate_and_update_trueforge_api_key(force=False)
 
         # Crawl4AI Docker API bearer token — generated even when disabled so
         # enabling the service later does not require a manual secret edit.

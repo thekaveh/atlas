@@ -337,6 +337,10 @@ class KongConfigGenerator:
         if langfuse_service:
             services.append(langfuse_service)
 
+        trueforge_service = self.generate_trueforge_service()
+        if trueforge_service:
+            services.append(trueforge_service)
+
         mlflow_service = self.generate_mlflow_service()
         if mlflow_service:
             services.append(mlflow_service)
@@ -1469,6 +1473,34 @@ class KongConfigGenerator:
                     'strip_path': False,
                     'preserve_host': True,
                     'hosts': ['langfuse.localhost'],
+                }
+            ],
+            'plugins': [
+                {'name': 'cors'},
+                {'name': 'basic-auth'},
+                {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
+            ],
+        }
+
+    def generate_trueforge_service(self) -> Optional[Dict[str, Any]]:
+        """Kong route for the TrueForge agent-runtime UI/API.
+
+        TrueForge runs with its fixed local admin identity (no OIDC in-stack,
+        #1159 Q4), so the browser route gets the same dashboard-user
+        basic-auth/ACL guard as Langfuse and MLflow. PUBLIC_BASE_URL points at
+        this route; the direct host port stays loopback-bound.
+        """
+        if self.get_env_value('TRUEFORGE_SOURCE') != 'container':
+            return None
+        return {
+            'name': 'trueforge',
+            'url': 'http://trueforge:8790/',
+            'routes': [
+                {
+                    'name': 'trueforge-all',
+                    'strip_path': False,
+                    'preserve_host': True,
+                    'hosts': ['trueforge.localhost'],
                 }
             ],
             'plugins': [

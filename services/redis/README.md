@@ -73,6 +73,7 @@ _No upstream calls._
 | celery | agents |
 | lightrag | agents |
 | n8n | agents |
+| trueforge | agents |
 | backend | apps |
 | jupyterhub | apps |
 | open-webui | apps |

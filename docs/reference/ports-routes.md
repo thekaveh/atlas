@@ -49,6 +49,7 @@ Generated summary of model-backed service port variables and Kong aliases. Use t
 | tei-reranker | llm | `TEI_RERANKER_PORT`, `TEI_RERANKER_LOCALHOST_PORT` | `rerank.localhost` | [Deployment route reference](../operations/ports-and-routes.md#2-kong-hostnames) |
 | tika | media | `TIKA_PORT`, `TIKA_LOCALHOST_PORT` | `tika.localhost` | [Deployment route reference](../operations/ports-and-routes.md#2-kong-hostnames) |
 | trino | data | `TRINO_PORT` | `trino.localhost` | [Deployment route reference](../operations/ports-and-routes.md#2-kong-hostnames) |
+| trueforge | agents | `TRUEFORGE_PORT` | `trueforge.localhost` | [Deployment route reference](../operations/ports-and-routes.md#2-kong-hostnames) |
 | tts-provider | media | `TTS_PROVIDER_PORT` | `tts.localhost` | [Deployment route reference](../operations/ports-and-routes.md#2-kong-hostnames) |
 | verba | apps | `VERBA_PORT` | `verba.localhost` | [Deployment route reference](../operations/ports-and-routes.md#2-kong-hostnames) |
 | vllm-metal | llm | `VLLM_METAL_LOCALHOST_PORT` | `-` | [Deployment route reference](../operations/ports-and-routes.md#2-kong-hostnames) |

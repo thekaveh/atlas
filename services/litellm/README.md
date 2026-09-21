@@ -311,6 +311,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 | lightrag ↔ | agents |
 | n8n | agents |
 | openclaw | agents |
+| trueforge | agents |
 | backend | apps |
 | jupyterhub | apps |
 | llm-graph-builder | apps |
