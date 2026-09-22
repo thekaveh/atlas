@@ -55,6 +55,46 @@ async def connect_postgres(
 _POOL_MIN = int(os.getenv("BACKEND_PG_POOL_MIN", "1"))
 _POOL_MAX = int(os.getenv("BACKEND_PG_POOL_MAX", "10"))
 _POOL_CLOSE_TIMEOUT_SECONDS = 10.0
+#: Acquisition deadline (#1171). command_timeout bounds a query, but a
+#: saturated pool queued acquisitions indefinitely before this. 5 s keeps a
+#: stalled request well inside typical client budgets while riding out brief
+#: bursts; a constant (not an env knob) — tests patch it directly.
+_POOL_ACQUIRE_TIMEOUT_SECONDS = 5.0
+
+# Saturation observability (#1171). prometheus_client ships with the backend
+# runtime (via the FastAPI instrumentator); the guard keeps this module
+# importable from environments that only stub the pool in tests.
+try:  # pragma: no cover - exercised implicitly by both import paths
+    from prometheus_client import Counter, Histogram
+
+    _POOL_SATURATED_TOTAL = Counter(
+        "backend_pg_pool_saturated_total",
+        "Pool acquisitions that timed out because every slot stayed busy",
+    )
+    _POOL_ACQUIRE_WAIT_SECONDS = Histogram(
+        "backend_pg_pool_acquire_wait_seconds",
+        "Time spent waiting to acquire a pooled Postgres connection",
+        buckets=(0.001, 0.01, 0.05, 0.25, 1.0, 2.5, 5.0),
+    )
+except ImportError:  # pragma: no cover
+    _POOL_SATURATED_TOTAL = None
+    _POOL_ACQUIRE_WAIT_SECONDS = None
+
+
+class PoolSaturatedError(RuntimeError):
+    """Every pool slot stayed busy past the acquisition deadline.
+
+    Temporary overload, NOT a database connectivity failure: readiness stays
+    green and the API layer maps this to 503 with a Retry-After. The message
+    carries pool occupancy only — never the DSN.
+    """
+
+    def __init__(self, *, deadline: float, size: int, free: int):
+        super().__init__(
+            "PostgreSQL pool saturated: no connection became free within "
+            f"{deadline:g}s (size={size}, free={free})"
+        )
+        self.deadline = deadline
 
 
 class PoolConfigurationError(ValueError):
@@ -121,10 +161,38 @@ async def acquire_conn(database_url: str, **pool_kwargs):
     Drop-in for the ``conn = await connect_postgres(...); try: ... finally:
     await conn.close()`` pattern — used as ``async with acquire_conn(url) as
     conn:``. See the pool invariant above: do NOT use this while holding the
-    connection across non-DB I/O."""
+    connection across non-DB I/O.
+
+    Acquisition is bounded (#1171): when every slot stays busy past
+    ``_POOL_ACQUIRE_TIMEOUT_SECONDS`` this raises :class:`PoolSaturatedError`
+    instead of queuing indefinitely. asyncpg owns the timeout/cancellation
+    path, so a timed-out or cancelled acquisition never leaks a slot.
+    """
     pool = await get_pg_pool(database_url, **pool_kwargs)
-    async with pool.acquire() as conn:
+    started = asyncio.get_running_loop().time()
+    try:
+        # The timeout guards ONLY the acquisition wait: a TimeoutError raised
+        # later by the caller's own queries (command_timeout) must never be
+        # misclassified as saturation.
+        conn = await pool.acquire(timeout=_POOL_ACQUIRE_TIMEOUT_SECONDS)
+    except (asyncio.TimeoutError, TimeoutError) as exc:
+        if _POOL_SATURATED_TOTAL is not None:
+            _POOL_SATURATED_TOTAL.inc()
+        size = getattr(pool, "get_size", lambda: -1)()
+        idle = getattr(pool, "get_idle_size", lambda: -1)()
+        raise PoolSaturatedError(
+            deadline=_POOL_ACQUIRE_TIMEOUT_SECONDS, size=size, free=idle
+        ) from exc
+    if _POOL_ACQUIRE_WAIT_SECONDS is not None:
+        _POOL_ACQUIRE_WAIT_SECONDS.observe(
+            asyncio.get_running_loop().time() - started
+        )
+    try:
         yield conn
+    finally:
+        # Runs on success, caller exceptions, AND caller cancellation — the
+        # checked-out slot always returns to the pool.
+        await pool.release(conn)
 
 
 async def close_pg_pools() -> None:

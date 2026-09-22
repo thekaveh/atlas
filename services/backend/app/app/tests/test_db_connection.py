@@ -63,22 +63,28 @@ class _FakePool:
         self._closed = False
         self.terminated = False
 
-    def acquire(self):
-        pool = self
+    async def acquire(self, timeout=None):
+        """Mirror asyncpg: awaitable acquisition honoring ``timeout`` by
+        raising TimeoutError, releasing nothing on expiry."""
+        import asyncio as _asyncio
 
-        class _Acq:
-            async def __aenter__(self):
-                await pool._sem.acquire()
-                pool.in_use += 1
-                pool.peak = max(pool.peak, pool.in_use)
-                return object()
+        if timeout is None:
+            await self._sem.acquire()
+        else:
+            await _asyncio.wait_for(self._sem.acquire(), timeout)
+        self.in_use += 1
+        self.peak = max(self.peak, self.in_use)
+        return object()
 
-            async def __aexit__(self, *_exc):
-                pool.in_use -= 1
-                pool._sem.release()
-                return False
+    async def release(self, _conn):
+        self.in_use -= 1
+        self._sem.release()
 
-        return _Acq()
+    def get_size(self):
+        return self.max_size
+
+    def get_idle_size(self):
+        return self.max_size - self.in_use
 
     async def close(self):
         self._closed = True
@@ -266,3 +272,150 @@ def test_pool_never_exceeds_max_size_under_concurrency():
     assert pool.peak <= 3, f"pool over-subscribed: peak={pool.peak}"
     assert pool.in_use == 0  # all released
     _reset_pools()
+
+
+# ---------------------------------------------------------------------------
+# Bounded pool acquisition (#1171)
+# ---------------------------------------------------------------------------
+
+def test_saturated_pool_fails_within_the_acquisition_deadline():
+    _reset_pools()
+    import asyncio as _asyncio
+    import db_connection
+    from db_connection import PoolSaturatedError, acquire_conn
+
+    async def _drive():
+        holder_entered = _asyncio.Event()
+        proceed = _asyncio.Event()
+
+        async def _holder():
+            async with acquire_conn("postgresql://u:p@db:5432/atlas"):
+                holder_entered.set()
+                await proceed.wait()
+
+        holder = _asyncio.create_task(_holder())
+        await holder_entered.wait()
+        loop = _asyncio.get_running_loop()
+        started = loop.time()
+        try:
+            async with acquire_conn("postgresql://u:p@db:5432/atlas"):
+                raise AssertionError("second acquisition must not succeed")
+        except PoolSaturatedError as exc:
+            elapsed = loop.time() - started
+            proceed.set()
+            await holder
+            return exc, elapsed
+
+    with patch("db_connection._POOL_MAX", 1), patch(
+        "db_connection._POOL_MIN", 0
+    ), patch.object(
+        db_connection, "_POOL_ACQUIRE_TIMEOUT_SECONDS", 0.05
+    ), _patch_create_pool([]):
+        exc, elapsed = _run(_drive())
+
+    assert "saturated" in str(exc)
+    assert "postgresql://" not in str(exc)  # never the DSN
+    assert elapsed < 1.0
+    _reset_pools()
+
+
+def test_timed_out_acquisition_leaks_no_slot():
+    _reset_pools()
+    import asyncio as _asyncio
+    import db_connection
+    from db_connection import PoolSaturatedError, acquire_conn
+
+    async def _drive(created):
+        holder_entered = _asyncio.Event()
+        proceed = _asyncio.Event()
+
+        async def _holder():
+            async with acquire_conn("postgresql://u:p@db:5432/atlas"):
+                holder_entered.set()
+                await proceed.wait()
+
+        holder = _asyncio.create_task(_holder())
+        await holder_entered.wait()
+        try:
+            async with acquire_conn("postgresql://u:p@db:5432/atlas"):
+                pass
+        except PoolSaturatedError:
+            pass
+        proceed.set()
+        await holder
+        # The slot freed by the holder must be immediately acquirable.
+        async with acquire_conn("postgresql://u:p@db:5432/atlas"):
+            pass
+        return created[0][2]
+
+    created = []
+    with patch("db_connection._POOL_MAX", 1), patch(
+        "db_connection._POOL_MIN", 0
+    ), patch.object(
+        db_connection, "_POOL_ACQUIRE_TIMEOUT_SECONDS", 0.05
+    ), _patch_create_pool(created):
+        pool = _run(_drive(created))
+
+    assert pool.in_use == 0
+    _reset_pools()
+
+
+def test_cancelled_caller_returns_its_checked_out_connection():
+    _reset_pools()
+    import asyncio as _asyncio
+    from db_connection import acquire_conn
+
+    async def _drive(created):
+        entered = _asyncio.Event()
+
+        async def _victim():
+            async with acquire_conn("postgresql://u:p@db:5432/atlas"):
+                entered.set()
+                await _asyncio.sleep(30)
+
+        victim = _asyncio.create_task(_victim())
+        await entered.wait()
+        victim.cancel()
+        try:
+            await victim
+        except _asyncio.CancelledError:
+            pass
+        # Cancellation released the slot: the next acquisition succeeds.
+        async with acquire_conn("postgresql://u:p@db:5432/atlas"):
+            pass
+        return created[0][2]
+
+    created = []
+    with patch("db_connection._POOL_MAX", 1), patch(
+        "db_connection._POOL_MIN", 0
+    ), _patch_create_pool(created):
+        pool = _run(_drive(created))
+
+    assert pool.in_use == 0
+    _reset_pools()
+
+
+def test_saturation_maps_to_503_with_retry_after(monkeypatch):
+    import os
+
+    # main.py needs these at import time; stub only when absent (#817 style).
+    for _var, _default in (
+        ("KONG_URL", "http://kong-api-gateway:8000"),
+        ("SUPABASE_SERVICE_KEY", "dummy-key"),
+        ("DATABASE_URL", "postgresql://x:x@localhost/x"),
+    ):
+        if not os.environ.get(_var):
+            monkeypatch.setenv(_var, _default)
+
+    from db_connection import PoolSaturatedError
+    import main
+
+    async def _call():
+        return await main._pg_pool_saturated(
+            None, PoolSaturatedError(deadline=5.0, size=10, free=0)
+        )
+
+    response = _run(_call())
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "1"
+
