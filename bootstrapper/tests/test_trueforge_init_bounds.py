@@ -1,4 +1,5 @@
-"""Bounds contract for trueforge-init's bootstrap HTTP calls (#1173).
+"""Contracts for trueforge-init: HTTP bounds (#1173) and managed-MCP-connector
+reconciliation when the mcp-servers family is disabled (#1174).
 
 The init script must never run (or hang a `docker compose up` dependency
 chain) indefinitely: every fetch carries an AbortSignal, one finite total
@@ -214,3 +215,136 @@ def test_sigterm_aborts_outstanding_http_work_immediately() -> None:
     assert "SIGTERM" in stderr
     for secret in SECRET_ENV.values():
         assert secret not in stdout + stderr
+
+
+class _FakeStackServer(http.server.ThreadingHTTPServer):
+    """Stateful TrueForge + LiteLLM stand-in for reconciliation tests.
+
+    Keeps an in-memory MCP-connector store keyed by manifest name, so
+    enable -> disable -> enable convergence and user-connector preservation
+    are observable without Docker or the live stack.
+    """
+
+    def __init__(self) -> None:
+        server = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def _json(self, code: int, payload: dict) -> None:
+                import json as _json
+
+                body = _json.dumps(payload).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self) -> None:
+                if self.path == "/healthz":
+                    return self._json(200, {})
+                if self.path == "/v1/models":
+                    return self._json(200, {"data": [{"id": "test-model"}]})
+                prefix = "/api/v1/settings/mcp-servers/"
+                if self.path.startswith(prefix):
+                    name = self.path[len(prefix):]
+                    manifest = server.connectors.get(name)
+                    if manifest is None:
+                        return self._json(404, {"error": "not found"})
+                    return self._json(
+                        200,
+                        {"data": {"name": name, "manifest": manifest, "auth_status": "none"}},
+                    )
+                return self._json(404, {"error": "not found"})
+
+            def do_POST(self) -> None:
+                if self.path == "/key/delete":
+                    return self._json(200, {})
+                if self.path == "/key/generate":
+                    return self._json(200, {"key": "sk-fake-virtual-key"})
+                return self._json(404, {"error": "not found"})
+
+            def do_PUT(self) -> None:
+                import json as _json
+
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = _json.loads(self.rfile.read(length) or b"{}")
+                manifest = payload.get("manifest", {})
+                if self.path == "/api/v1/settings/mcp-servers":
+                    server.connectors[manifest.get("name")] = manifest
+                    server.mcp_put_count += 1
+                    return self._json(200, {})
+                if self.path == "/api/v1/settings/model-providers":
+                    return self._json(200, {})
+                return self._json(404, {"error": "not found"})
+
+            def log_message(self, *args: object) -> None:  # noqa: D102
+                pass
+
+        super().__init__(("127.0.0.1", 0), Handler)
+        self.port = self.server_address[1]
+        self.connectors: dict[str, dict] = {}
+        self.mcp_put_count = 0
+        threading.Thread(target=self.serve_forever, daemon=True).start()
+
+
+def _run_against_fake_stack(server: _FakeStackServer, mcp_scale: str) -> subprocess.CompletedProcess:
+    result = _run_init(
+        {
+            "TRUEFORGE_URL": f"http://127.0.0.1:{server.port}",
+            "LITELLM_BASE_URL": f"http://127.0.0.1:{server.port}",
+            "MCP_SERVERS_SCALE": mcp_scale,
+            # comfortable budgets: nothing hangs in these tests
+            "TRUEFORGE_INIT_TOTAL_BUDGET_MS": "30000",
+            "TRUEFORGE_INIT_REQUEST_TIMEOUT_MS": "5000",
+        },
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    _assert_no_secret_leak(result)
+    return result
+
+
+DISABLED_CONNECTOR_URL = "http://atlas-mcp-servers.disabled.invalid/mcp"
+
+
+def test_enable_disable_enable_converges_without_stale_or_duplicate_connector() -> None:
+    server = _FakeStackServer()
+    try:
+        _run_against_fake_stack(server, "1")
+        assert server.connectors["atlas-tools"]["url"] == "http://mcp-servers:8000/mcp"
+
+        result = _run_against_fake_stack(server, "0")
+        parked = server.connectors["atlas-tools"]
+        assert parked["url"] == DISABLED_CONNECTOR_URL
+        assert "disabled" in parked["description"]
+        assert "parked" in result.stdout
+
+        # A second disabled run converges without another write.
+        puts_before = server.mcp_put_count
+        result = _run_against_fake_stack(server, "0")
+        assert server.mcp_put_count == puts_before
+        assert "already parked" in result.stdout
+
+        _run_against_fake_stack(server, "1")
+        assert server.connectors["atlas-tools"]["url"] == "http://mcp-servers:8000/mcp"
+        assert list(server.connectors).count("atlas-tools") == 1
+    finally:
+        server.shutdown()
+
+
+def test_user_created_connectors_survive_reconciliation_untouched() -> None:
+    server = _FakeStackServer()
+    user_connector = {
+        "type": "remote",
+        "name": "my-own-tools",
+        "url": "http://example.internal/mcp",
+        "description": "user-created connector",
+    }
+    server.connectors["my-own-tools"] = dict(user_connector)
+    try:
+        _run_against_fake_stack(server, "0")
+        assert server.connectors["my-own-tools"] == user_connector
+        # No managed connector was ever seeded, so none may be invented:
+        assert "atlas-tools" not in server.connectors
+    finally:
+        server.shutdown()
