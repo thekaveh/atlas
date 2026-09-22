@@ -48,6 +48,7 @@ from media_input import (
     validate_media_input_config,
 )
 import media_ledger
+from db_connection import PoolSaturatedError
 from media_request_limit import (
     BodyLimitRule,
     LimitPolicy,
@@ -453,6 +454,19 @@ async def _configured_state_unavailable(
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         content={"detail": state_store_detail()},
+    )
+
+
+@app.exception_handler(PoolSaturatedError)
+async def _pg_pool_saturated(_request: Request, exc: PoolSaturatedError):
+    """Temporary overload (#1171): every pool slot stayed busy past the
+    acquisition deadline. Distinct from a connectivity failure — readiness
+    stays green — so clients get a stable 503 + Retry-After instead of an
+    open-ended queue. The message carries occupancy only, never the DSN."""
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": str(exc)},
+        headers={"Retry-After": "1"},
     )
 
 validate_media_input_config()
