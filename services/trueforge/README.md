@@ -53,7 +53,7 @@ Model/MCP/skill/sandbox configuration deliberately does **not** go through env c
 2. Reads the gateway's live `/v1/models` catalog and seeds one `custom` model provider (`atlas-litellm` → `http://litellm:4000/v1`). Whatever Ollama or cloud models are enabled arrive through this — **Ollama needs no direct wiring**, and model availability tracks the gateway automatically on every restart.
 3. When `MCP_SERVERS_SOURCE=container`, registers the in-stack `atlas-tools` MCP connector (`http://mcp-servers:8000/mcp`, streamable HTTP, no auth on the internal network): Supabase Postgres queries, Neo4j graph queries, and SearXNG web search become agent tools behind TrueForge's per-tool-call approvals and `@write`/`@destructive` gating.
 
-Settings writes are replace-by-name, so re-runs converge instead of accumulating.
+Settings writes are replace-by-name, so re-runs converge instead of accumulating. Every bootstrap HTTP call is bounded: a per-request abort signal plus one finite total budget (5 minutes) means a hung peer fails the init container with a named operation instead of leaving it running forever, and SIGTERM aborts in-flight work immediately.
 
 ### 4.3. Security posture
 
