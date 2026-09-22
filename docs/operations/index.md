@@ -2,6 +2,8 @@
 
 ## 1. Runtime Commands
 
+Every line below is a complete, safe-to-run command:
+
 ```bash
 ./start.sh
 ./start.sh --consumer ./atlas.consumer.yml
@@ -14,17 +16,39 @@
 ./start.sh endpoints export --format env
 ./start.sh endpoints export --format json
 ./start.sh --no-tui --detach
-./start.sh --no-tui --detach --json
 ./start.sh managed-host list
-./start.sh managed-host preflight|install|start|stop|status|health|remove <name>
-./start.sh comfyui-mps preflight|install|provision|provision-nodes|start|stop|status|health|remove
-./start.sh vllm-metal preflight|install|start|stop|status|health|remove
-./start.sh blender-mcp preflight|install|start|stop|status|health|remove
 ./stop.sh
-./stop.sh --cold
-./stop.sh --clean-hosts
-./stop.sh --stop-managed-hosts
 ```
+
+The managed-host families share one lifecycle synopsis. This is **syntax, not
+shell** — the bars separate alternative actions, so pick exactly one per
+invocation (in a shell, a literal `|` would be parsed as a pipeline):
+
+```text
+./start.sh managed-host <action> <name>     actions: preflight|install|start|stop|status|health|remove
+./start.sh comfyui-mps <action>             actions: preflight|install|provision|provision-nodes|start|stop|status|health|remove
+./start.sh vllm-metal <action>              actions: preflight|install|start|stop|status|health|remove
+./start.sh blender-mcp <action>             actions: preflight|install|start|stop|status|health|remove
+```
+
+A concrete example of the synopsis form:
+
+```bash
+./start.sh comfyui-mps status
+```
+
+### 1.1. Destructive and host-mutating commands
+
+Keep these out of scripts and muscle memory — each changes state beyond the
+running containers:
+
+```bash
+./stop.sh --cold                # DELETES every named Atlas project volume (databases, workflows, models)
+./stop.sh --clean-hosts         # edits /etc/hosts (removes Atlas *.localhost entries)
+./stop.sh --stop-managed-hosts  # stops Atlas-managed processes running on the host
+```
+
+`--no-tui --detach` also accepts `--json` for machine-readable status (see §2).
 
 ## 2. Automation
 
