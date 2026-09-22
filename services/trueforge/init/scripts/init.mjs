@@ -14,6 +14,14 @@
 // TrueForge rejects agent specs that request them at session creation, which
 // keeps the v1 boundary explicit. Runs inside the server's own image (Node 24,
 // built-in fetch) — no dependencies beyond this file.
+//
+// Every HTTP call is bounded (#1173): one finite total bootstrap budget plus
+// a per-request AbortSignal, so a peer that accepts a connection but never
+// replies cannot leave this container running (or hold a stale `Up` state)
+// indefinitely. SIGTERM/SIGINT abort all outstanding work. Failures exit
+// nonzero naming the operation — never a header, credential, or body.
+// The *_MS constants are deliberately not user-facing env knobs; the env
+// override exists so the bounds tests can exercise tiny budgets.
 
 const TRUEFORGE_URL = process.env.TRUEFORGE_URL || "http://trueforge:8790";
 const TRUEFORGE_API_KEY = process.env.TRUEFORGE_API_KEY || "";
@@ -25,23 +33,99 @@ const VIRTUAL_KEY_ALIAS = "trueforge";
 const PROVIDER_NAME = "atlas-litellm";
 const MCP_CONNECTOR_NAME = "atlas-tools";
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const positiveMs = (raw, fallback) => {
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
+// Total bootstrap budget: generously above the worst honest path (healthz
+// wait through first-boot migrations + four short API calls), far below
+// "runs forever".
+const TOTAL_BUDGET_MS = positiveMs(process.env.TRUEFORGE_INIT_TOTAL_BUDGET_MS, 300_000);
+const REQUEST_TIMEOUT_MS = positiveMs(process.env.TRUEFORGE_INIT_REQUEST_TIMEOUT_MS, 15_000);
+const HEALTH_PROBE_TIMEOUT_MS = positiveMs(process.env.TRUEFORGE_INIT_HEALTH_TIMEOUT_MS, 3_000);
+const HEALTH_PROBE_INTERVAL_MS = positiveMs(process.env.TRUEFORGE_INIT_HEALTH_INTERVAL_MS, 2_000);
 
-async function waitForHealthz(attempts = 60) {
-  for (let i = 1; i <= attempts; i++) {
-    try {
-      const res = await fetch(`${TRUEFORGE_URL}/healthz`);
-      if (res.ok) return;
-    } catch {
-      // server not up yet — fall through to the retry sleep
-    }
-    await sleep(2000);
-  }
-  throw new Error(`TrueForge server never became healthy at ${TRUEFORGE_URL}`);
+const startedAt = Date.now();
+const remainingBudgetMs = () => TOTAL_BUDGET_MS - (Date.now() - startedAt);
+
+// Shutdown propagation: aborting this controller rejects every in-flight
+// fetch below, so a signal never has to wait out a hung request.
+const shutdown = new AbortController();
+let shutdownSignalName = "";
+for (const signalName of ["SIGTERM", "SIGINT"]) {
+  process.on(signalName, () => {
+    shutdownSignalName = signalName;
+    shutdown.abort(new Error(`received ${signalName}`));
+  });
 }
 
-async function litellm(path, body) {
-  const res = await fetch(`${LITELLM_BASE_URL}${path}`, {
+class BootstrapError extends Error {
+  constructor(operation, cause) {
+    // Never interpolate request bodies, headers, or credentials here — the
+    // operation name plus the transport error name is enough to reconcile.
+    super(cause?.name === "TimeoutError" ? "timed out" : String(cause?.message || cause));
+    this.operation = operation;
+  }
+}
+
+// One bounded fetch: per-request timeout, capped by what is left of the
+// total budget, and cut short by shutdown. Throws BootstrapError with the
+// operation name; secrets never appear in the message.
+async function boundedFetch(operation, url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const remaining = remainingBudgetMs();
+  if (remaining <= 0) {
+    throw new BootstrapError(operation, new Error(`total bootstrap budget (${TOTAL_BUDGET_MS} ms) exhausted`));
+  }
+  const signal = AbortSignal.any([
+    shutdown.signal,
+    AbortSignal.timeout(Math.min(timeoutMs, remaining)),
+  ]);
+  try {
+    return await fetch(url, { ...options, signal });
+  } catch (cause) {
+    if (shutdown.signal.aborted) {
+      throw new BootstrapError(operation, new Error(`aborted by ${shutdownSignalName || "shutdown"}`));
+    }
+    throw new BootstrapError(operation, cause);
+  }
+}
+
+const sleep = (ms) =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      shutdown.signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new BootstrapError("wait", new Error(`aborted by ${shutdownSignalName || "shutdown"}`)));
+    };
+    shutdown.signal.addEventListener("abort", onAbort, { once: true });
+  });
+
+// Health probes are safe reads — the one place retrying is correct. Both the
+// per-probe signal and the loop itself stay inside the total budget.
+async function waitForHealthz() {
+  while (true) {
+    try {
+      const res = await boundedFetch("healthz probe", `${TRUEFORGE_URL}/healthz`, {}, HEALTH_PROBE_TIMEOUT_MS);
+      if (res.ok) return;
+    } catch (err) {
+      if (shutdown.signal.aborted || remainingBudgetMs() <= 0) throw err;
+      // transport error or per-probe timeout — the retry sleep follows
+    }
+    if (remainingBudgetMs() <= HEALTH_PROBE_INTERVAL_MS) {
+      throw new BootstrapError(
+        "healthz wait",
+        new Error(`server never became healthy within the ${TOTAL_BUDGET_MS} ms bootstrap budget`),
+      );
+    }
+    await sleep(HEALTH_PROBE_INTERVAL_MS);
+  }
+}
+
+function litellm(operation, path, body) {
+  return boundedFetch(operation, `${LITELLM_BASE_URL}${path}`, {
     method: body === undefined ? "GET" : "POST",
     headers: {
       Authorization: `Bearer ${LITELLM_MASTER_KEY}`,
@@ -49,22 +133,25 @@ async function litellm(path, body) {
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  return res;
 }
 
 // Mint (or rotate) the dedicated virtual key. Virtual keys are not readable
 // back in plaintext, so idempotency is delete-alias-then-generate; the fresh
-// key immediately replaces the stored provider credential below. Falls back
-// to the master key with a loud warning rather than leaving agents dead.
+// key immediately replaces the stored provider credential below. Credential
+// writes are never retried within a run (#1173): a timed-out /key/generate
+// has an uncertain outcome, and retrying could mint duplicates — the
+// alias-scoped delete on the NEXT start reconciles any orphan, so this run
+// falls back to the master key with a loud warning instead.
 async function mintVirtualKey() {
   try {
-    await litellm("/key/delete", { key_aliases: [VIRTUAL_KEY_ALIAS] });
-  } catch {
+    await litellm("litellm key delete", "/key/delete", { key_aliases: [VIRTUAL_KEY_ALIAS] });
+  } catch (err) {
+    if (shutdown.signal.aborted) throw err;
     // best-effort: alias may not exist yet, or an older LiteLLM may not
     // support alias-addressed deletes — /key/generate below is the arbiter
   }
   try {
-    const res = await litellm("/key/generate", {
+    const res = await litellm("litellm key generate", "/key/generate", {
       key_alias: VIRTUAL_KEY_ALIAS,
       metadata: { service: "trueforge", managed_by: "trueforge-init" },
     });
@@ -77,20 +164,24 @@ async function mintVirtualKey() {
     }
     console.warn(`trueforge-init: WARNING /key/generate answered ${res.status}; falling back to the master key`);
   } catch (err) {
-    console.warn(`trueforge-init: WARNING /key/generate failed (${err}); falling back to the master key`);
+    if (shutdown.signal.aborted) throw err;
+    console.warn(`trueforge-init: WARNING ${err.operation || "key mint"} failed (${err.message}); falling back to the master key`);
   }
   return LITELLM_MASTER_KEY;
 }
 
 async function fetchModelIds() {
-  const res = await litellm("/v1/models");
+  const res = await litellm("litellm model catalog read", "/v1/models");
   if (!res.ok) {
-    throw new Error(`LiteLLM /v1/models answered ${res.status}`);
+    throw new BootstrapError("litellm model catalog read", new Error(`answered ${res.status}`));
   }
   const data = await res.json();
   const ids = (data.data || []).map((m) => m.id).filter(Boolean);
   if (ids.length === 0) {
-    throw new Error("LiteLLM /v1/models returned no models — cannot seed a provider with an empty catalog");
+    throw new BootstrapError(
+      "litellm model catalog read",
+      new Error("returned no models — cannot seed a provider with an empty catalog"),
+    );
   }
   return ids;
 }
@@ -112,47 +203,64 @@ function resourceName(id, taken) {
 // Settings writes: with the OIDC triple unset the server treats any caller as
 // its fixed admin identity, so an unauthenticated PUT is the expected path;
 // retry once with the service credential in case a future upstream tightens
-// the settings surface to bearer auth.
+// the settings surface to bearer auth. PUT is replace-by-name (idempotent),
+// so the auth fallback re-send is safe.
 async function putSettings(section, manifest) {
+  const operation = `settings ${section} write`;
   const url = `${TRUEFORGE_URL}/api/v1/settings/${section}`;
   const body = JSON.stringify({ manifest });
   const attempt = (headers) =>
-    fetch(url, { method: "PUT", headers: { "Content-Type": "application/json", ...headers }, body });
+    boundedFetch(operation, url, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...headers },
+      body,
+    });
   let res = await attempt({});
   if ((res.status === 401 || res.status === 403) && TRUEFORGE_API_KEY) {
     res = await attempt({ Authorization: `Bearer ${TRUEFORGE_API_KEY}` });
   }
   if (!res.ok) {
-    throw new Error(`PUT ${url} answered ${res.status}: ${(await res.text()).slice(0, 500)}`);
+    // Status code only — response bodies of failed writes stay out of logs.
+    throw new BootstrapError(operation, new Error(`answered ${res.status}`));
   }
   console.log(`trueforge-init: seeded settings/${section} (${manifest.name})`);
 }
 
-await waitForHealthz();
+async function main() {
+  await waitForHealthz();
 
-const apiKey = await mintVirtualKey();
-const modelIds = await fetchModelIds();
-const taken = new Set();
-await putSettings("model-providers", {
-  type: "custom",
-  name: PROVIDER_NAME,
-  base_url: `${LITELLM_BASE_URL}/v1`,
-  auth: { api_key: apiKey },
-  models: modelIds.map((id) => ({ model_id: id, name: resourceName(id, taken), properties: {} })),
-});
-console.log(`trueforge-init: provider ${PROVIDER_NAME} carries ${modelIds.length} gateway model(s)`);
-
-if (MCP_SERVERS_ENABLED) {
-  await putSettings("mcp-servers", {
-    type: "remote",
-    name: MCP_CONNECTOR_NAME,
-    url: "http://mcp-servers:8000/mcp",
-    description: "Atlas in-stack MCP tools: Supabase Postgres queries, Neo4j graph queries, and SearXNG web search.",
-    // no `auth` block: the in-stack endpoint is unauthenticated on the
-    // internal compose network (streamable HTTP at /mcp)
+  const apiKey = await mintVirtualKey();
+  const modelIds = await fetchModelIds();
+  const taken = new Set();
+  await putSettings("model-providers", {
+    type: "custom",
+    name: PROVIDER_NAME,
+    base_url: `${LITELLM_BASE_URL}/v1`,
+    auth: { api_key: apiKey },
+    models: modelIds.map((id) => ({ model_id: id, name: resourceName(id, taken), properties: {} })),
   });
-} else {
-  console.log("trueforge-init: mcp-servers family disabled — skipping connector seed");
+  console.log(`trueforge-init: provider ${PROVIDER_NAME} carries ${modelIds.length} gateway model(s)`);
+
+  if (MCP_SERVERS_ENABLED) {
+    await putSettings("mcp-servers", {
+      type: "remote",
+      name: MCP_CONNECTOR_NAME,
+      url: "http://mcp-servers:8000/mcp",
+      description: "Atlas in-stack MCP tools: Supabase Postgres queries, Neo4j graph queries, and SearXNG web search.",
+      // no `auth` block: the in-stack endpoint is unauthenticated on the
+      // internal compose network (streamable HTTP at /mcp)
+    });
+  } else {
+    console.log("trueforge-init: mcp-servers family disabled — skipping connector seed");
+  }
+
+  console.log("trueforge-init: done");
 }
 
-console.log("trueforge-init: done");
+try {
+  await main();
+} catch (err) {
+  const operation = err instanceof BootstrapError ? err.operation : "bootstrap";
+  console.error(`trueforge-init: FAILED at ${operation}: ${err.message}`);
+  process.exit(1);
+}
