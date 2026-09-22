@@ -22,7 +22,7 @@
       "functions_over_100_physical_lines": 85,
       "functions_over_4_parameters": 156,
       "modules_over_600_logical_lines": 21,
-      "tracked_files": 1573,
+      "tracked_files": 1572,
       "v0.1.0_tracked_files": 667
     },
     "extended_python_baseline_snapshot": {
@@ -284,7 +284,6 @@
     "refresh_notes_2026_09_16_issue_968": "Reviewed the exact #968 branch from base 4138b47b (develop after #1092): tracked_files increases 1561->1563 for exactly two required artifacts: scripts/release_notes.py (dry-run Conventional Commits release-notes generator; every function measures Radon A or B and none takes more than four parameters) and bootstrapper/tests/test_release_notes.py (synthetic-history fixtures for promotion expansion, PR de-duplication, verbatim unclassified subjects, numbering compliance, overrides, CLI selectors, and the CHANGELOG write refusal). No other file was added; the branch otherwise edits docs/deployment/releasing.md and docs/CHANGELOG.md.",
     "refresh_notes_2026_09_17_issue_1050": "Reviewed the exact #1050 branch from base 40cc344f (develop after #1105): tracked_files increases 1563->1564 for exactly one required artifact: bootstrapper/tests/test_support_tiers.py (schema shape, manifest parsing, validator rule, repo-wide tier declaration and release-evidence checks, README/catalog/reference rendering, wizard badge, and contributor-guide coverage). Other changes edit existing files: the manifest schema and loader, the validator registry, the capabilities resolver/writer, the sitegen model and catalog, the wizard discovery/integration, all 57 service manifests, and the regenerated READMEs and reference pages.",
     "refresh_notes_2026_09_20_issue_1159": "tracked_files 1564->1571 for the TrueForge service addition (#1159): seven new tracked files \u2014 services/trueforge/{service.yml, compose.yml, README.md, architecture.svg, architecture.html, init/scripts/init.mjs} plus docs/diagrams/img/service-trueforge.png (the docs pipeline's rendered PNG for the new family diagram). No Python modules were added, so every Radon/AST counter is untouched; the only baseline movement is the file count, attributed here per regression_policy.",
-    "refresh_notes_2026_09_21_issue_1173": "tracked_files 1571->1572: one new test module, bootstrapper/tests/test_trueforge_init_bounds.py, pinning #1173's bootstrap-bounds contract (hung-endpoint abort within the total budget, operation-named nonzero exit without credential leakage, SIGTERM aborting in-flight HTTP) by running the real init.mjs under node against never-replying local sockets. The module is plain test plumbing; no accepted-signal changes.",
-    "refresh_notes_2026_09_22_issue_1167": "tracked_files 1572->1573: one new test module, bootstrapper/tests/test_backend_request_limits.py, running the backend's route-class body-limit middleware and Ragas evidence bounds in-process in the required CI job (#1167). The middleware generalization itself reshaped media_request_limit.py in place (no new runtime module); Radon counters are covered by the recomputed gates."
+    "refresh_notes_2026_09_21_issue_1173": "tracked_files 1571->1572: one new test module, bootstrapper/tests/test_trueforge_init_bounds.py, pinning #1173's bootstrap-bounds contract (hung-endpoint abort within the total budget, operation-named nonzero exit without credential leakage, SIGTERM aborting in-flight HTTP) by running the real init.mjs under node against never-replying local sockets. The module is plain test plumbing; no accepted-signal changes."
   }
 }

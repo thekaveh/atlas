@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from collections import OrderedDict
 import inspect
 import os
-from typing import Annotated, Any, Callable, Dict, List, Literal, Optional
+from typing import Any, Callable, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -55,9 +54,7 @@ class RagEvaluationRecord(BaseModel):
     # contexts may be empty: answer_relevancy needs only question+answer, so a
     # contextless record (e.g. a graph-RAG answer with no exposed text chunks)
     # is still valid — context-requiring metrics are reported not_evaluable (#597).
-    contexts: List[Annotated[str, Field(max_length=32_000)]] = Field(
-        min_length=0, max_length=50
-    )
+    contexts: List[str] = Field(min_length=0, max_length=50)
     ground_truth: Optional[str] = Field(default=None, max_length=16000)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -331,54 +328,11 @@ def _result_scores(
     return scores
 
 
-#: Evidence-size bounds (#1167). Field-level caps bound each string, but 100
-#: records x 50 contexts x 32k characters still multiplies to hundreds of
-#: megabytes — these bound the whole batch and the free-form metadata, which
-#: pydantic cannot size-limit structurally. Deterministic ValueError -> the
-#: route's stable 400; constants, not env knobs.
-RAG_EVAL_MAX_TOTAL_EVIDENCE_BYTES = 8 * 1024 * 1024
-RAG_EVAL_MAX_RECORD_METADATA_BYTES = 64 * 1024
-
-
-def _record_evidence_bytes(record: RagEvaluationRecord, index: int) -> int:
-    metadata_bytes = len(
-        json.dumps(record.metadata, ensure_ascii=False, default=str).encode("utf-8")
-    )
-    if metadata_bytes > RAG_EVAL_MAX_RECORD_METADATA_BYTES:
-        raise ValueError(
-            f"records[{index}].metadata exceeds "
-            f"{RAG_EVAL_MAX_RECORD_METADATA_BYTES} bytes"
-        )
-    text_bytes = sum(
-        len(value.encode("utf-8"))
-        for value in (
-            record.question,
-            record.answer,
-            record.ground_truth or "",
-            *record.contexts,
-        )
-    )
-    return text_bytes + metadata_bytes
-
-
-def _validate_evidence_bounds(request: RagEvaluationRequest) -> None:
-    total = 0
-    for index, record in enumerate(request.records):
-        total += _record_evidence_bytes(record, index)
-        if total > RAG_EVAL_MAX_TOTAL_EVIDENCE_BYTES:
-            raise ValueError(
-                "evaluation request exceeds "
-                f"{RAG_EVAL_MAX_TOTAL_EVIDENCE_BYTES} bytes of combined "
-                f"evidence at records[{index}]"
-            )
-
-
 def evaluate_rag_records(
     request: RagEvaluationRequest,
     *,
     runner: Runner = _run_ragas_evaluation,
 ) -> RagEvaluationResponse:
-    _validate_evidence_bounds(request)
     metrics = _unique_metrics(request.metrics)
     config = _evaluation_config(request)
 
