@@ -106,6 +106,36 @@ def _memory_execution_key(task_id: str) -> str:
     return f"atlas:celery:memory-execution:{task_id}"
 
 
+#: Finite transport bounds for the coordination clients (#1172). The pinned
+#: redis-py 6.4.0 defaults both socket timeouts to None, so a blackholed
+#: Redis could hold a memory worker until the 900 s task limit; the RAG
+#: store already pins 3 s. Constants, not env knobs — tests patch them.
+_REDIS_CONNECT_TIMEOUT_SECONDS = 3
+_REDIS_SOCKET_TIMEOUT_SECONDS = 5
+
+
+def _coordination_redis():
+    """A bounded synchronous Redis client for memory-execution coordination.
+
+    Ambiguity contract on timeout: every operation here is a compare-and-set
+    on the caller's exact ownership token, so a reply lost AFTER a
+    successful write is recovered idempotently — re-claiming with
+    ``recovery_owner`` set to the same token re-acquires the caller's own
+    live lease, a completed task is answered by its ``done:`` marker instead
+    of re-running, and release/complete simply fail closed (0) when the
+    token no longer matches. Callers therefore retry with the SAME owner
+    token and never mint a new one mid-task.
+    """
+    from redis import Redis
+
+    return Redis.from_url(
+        _redis_url(),
+        decode_responses=True,
+        socket_connect_timeout=_REDIS_CONNECT_TIMEOUT_SECONDS,
+        socket_timeout=_REDIS_SOCKET_TIMEOUT_SECONDS,
+    )
+
+
 def memory_execution_lease_seconds() -> int:
     return _worker_limits["task_time_limit"] + 60
 
@@ -115,9 +145,7 @@ def claim_memory_execution(
 ) -> tuple[str, dict[str, Any] | None]:
     """Claim consolidation execution or return its completed result."""
 
-    from redis import Redis
-
-    client = Redis.from_url(_redis_url(), decode_responses=True)
+    client = _coordination_redis()
     try:
         key = _memory_execution_key(task_id)
         if client.set(
@@ -150,9 +178,7 @@ def claim_memory_execution(
 def release_memory_execution(task_id: str, owner: str) -> bool:
     """Release only the caller's live consolidation execution lease."""
 
-    from redis import Redis
-
-    client = Redis.from_url(_redis_url(), decode_responses=True)
+    client = _coordination_redis()
     try:
         return bool(
             client.eval(
@@ -172,9 +198,7 @@ def complete_memory_execution(
 ) -> bool:
     """Atomically replace the caller's lease with a bounded result marker."""
 
-    from redis import Redis
-
-    client = Redis.from_url(_redis_url(), decode_responses=True)
+    client = _coordination_redis()
     try:
         return bool(
             client.eval(
