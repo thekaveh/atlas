@@ -357,7 +357,7 @@ def test_full_stack_auth_rejection_precedes_content_length_and_receive(
         ]
         assert middleware_names[:3] == [
             "CORSMiddleware",
-            "MediaRequestLimitMiddleware",
+            "RequestLimitMiddleware",
             "PrometheusInstrumentatorMiddleware",
         ]
         if otel_enabled:
