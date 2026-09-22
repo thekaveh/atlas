@@ -49,8 +49,12 @@ from media_input import (
 )
 import media_ledger
 from media_request_limit import (
-    MediaRequestLimitMiddleware,
+    BodyLimitRule,
+    LimitPolicy,
+    MULTIPART_OVERHEAD_BYTES,
+    RequestLimitMiddleware,
     media_request_max_bytes_from_env,
+    media_rule,
 )
 from media_operation_store import (
     MediaOperationCollisionError,
@@ -473,30 +477,6 @@ Instrumentator(
     should_group_status_codes=True,
 ).instrument(app).expose(app, endpoint="/metrics")
 
-# Starlette inserts the last-added middleware outermost. Register here so the
-# effective user stack is CORS -> Media -> Prometheus; optional OTel tracing
-# wraps the completed stack separately.
-app.add_middleware(
-    MediaRequestLimitMiddleware,
-    max_bytes=media_request_max_bytes_from_env(),
-    authenticate=authenticate_backend_scope,
-)
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=BACKEND_CORS_ORIGINS,
-    allow_origin_regex=BACKEND_CORS_ALLOW_ORIGIN_REGEX,
-    # NOTE: `allow_credentials=True` with the `*` wildcard origin is rejected by
-    # all browsers (the spec forbids credentials + wildcard), so it would only
-    # silently break credentialed requests. The backend is reached server-side
-    # via Kong and does not rely on browser cookies, so credentials stay off
-    # until specific origins are configured.
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["X-Atlas-Next-Cursor", "X-Atlas-Page-Limit"],
-)
 
 # Get environment variables
 KONG_URL = os.getenv("KONG_URL")
@@ -694,6 +674,50 @@ memory_service = MemoryService()
 
 # Initialize document extractor facade (Docling first, Tika fallback)
 document_extractor = DocumentExtractor()
+
+# Starlette inserts the last-added middleware outermost. Register here so the
+# effective user stack is CORS -> RequestLimit -> Prometheus; optional OTel
+# tracing wraps the completed stack separately.
+#
+# Route-class byte envelopes (#1167), enforced BEFORE FastAPI reads bodies:
+# the media rule keeps its authenticate-then-spool-and-replay gate; the two
+# multipart routes are capped at their own documented limits plus parser
+# overhead (their UploadFile reads stay the fine-grained bound); everything
+# else falls under the default JSON envelope. Caps here must track the
+# route-level limits they mirror.
+app.add_middleware(
+    RequestLimitMiddleware,
+    policy=LimitPolicy(rules=[
+        media_rule(media_request_max_bytes_from_env()),
+        BodyLimitRule(
+            method="POST",
+            path="/storage/upload",
+            max_bytes=MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD_BYTES,
+        ),
+        BodyLimitRule(
+            method="POST",
+            path="/documents/extract",
+            max_bytes=_document_max_file_size() + MULTIPART_OVERHEAD_BYTES,
+        ),
+    ]),
+    authenticate=authenticate_backend_scope,
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=BACKEND_CORS_ORIGINS,
+    allow_origin_regex=BACKEND_CORS_ALLOW_ORIGIN_REGEX,
+    # NOTE: `allow_credentials=True` with the `*` wildcard origin is rejected by
+    # all browsers (the spec forbids credentials + wildcard), so it would only
+    # silently break credentialed requests. The backend is reached server-side
+    # via Kong and does not rely on browser cookies, so credentials stay off
+    # until specific origins are configured.
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-Atlas-Next-Cursor", "X-Atlas-Page-Limit"],
+)
 
 
 
