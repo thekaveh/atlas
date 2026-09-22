@@ -21,6 +21,8 @@ from ray_client import (
     RayDisabledError,
     RayJobAlreadyExistsError,
     RayJobSubmission,
+    RayControlPlaneTimeoutError,
+    RaySubmissionAmbiguousError,
 )
 
 logger = logging.getLogger(__name__)
@@ -127,6 +129,19 @@ async def submit_job(payload: SubmitJobRequest) -> SubmitJobResponse:
                 "through the job status or stop endpoint"
             ),
         ) from exc
+    except RaySubmissionAmbiguousError as exc:
+        # Bounded outcome for an unanswered submission (#1170): acceptance is
+        # unknown, so the stable id is the reconciliation handle. Clients must
+        # poll status or stop with the SAME id — never resubmit blindly.
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                f"Ray control plane did not answer; acceptance of "
+                f"{exc.submission_id!r} is unknown. Reconcile with "
+                f"GET /api/ray/jobs/{exc.submission_id} or stop it with "
+                f"DELETE — do not resubmit blindly."
+            ),
+        ) from exc
     except Exception:
         logger.exception("ray submit_job failed")
         raise HTTPException(status_code=500, detail="Ray job submission failed")
@@ -152,6 +167,8 @@ async def get_job_status(job_id: str) -> dict:
         return await asyncio.to_thread(RayClient.get().get_job_status, job_id)
     except RayDisabledError as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except RayControlPlaneTimeoutError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
     except Exception:
         logger.exception("ray get_job_status failed")
         raise HTTPException(status_code=500, detail="Ray job status fetch failed")
@@ -165,6 +182,8 @@ async def stop_job(job_id: str) -> dict:
         return {"stopped": stopped}
     except RayDisabledError as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except RayControlPlaneTimeoutError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
     except Exception:
         logger.exception("ray stop_job failed")
         raise HTTPException(status_code=500, detail="Ray job stop failed")
@@ -177,6 +196,8 @@ async def cluster_status() -> dict:
         return await asyncio.to_thread(RayClient.get().cluster_status)
     except RayDisabledError as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except RayControlPlaneTimeoutError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
     except Exception:
         logger.exception("ray cluster_status failed")
         raise HTTPException(status_code=500, detail="Ray cluster status fetch failed")
