@@ -55,11 +55,12 @@ dev = [
     "mkdocs>=1.6,<2",
     "mkdocs-material>=9.6,<10",
     "packaging>=23.0",      # Version parsing for tests/test_textual_floor.py; only ever
-                             # resolved transitively (via pytest) before, declare it directly.
+    # resolved transitively (via pytest) before, declare it directly.
     "python-multipart==0.0.32",
     "pytest>=7.0.0",
     "pytest-cov>=7.1,<8",
     "radon==6.0.1",         # Recomputes the committed maintenance complexity ceiling in CI.
+    "asyncpg>=0.31.0",
 ]
 
 [tool.pytest.ini_options]
