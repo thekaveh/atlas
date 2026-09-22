@@ -200,30 +200,76 @@ function resourceName(id, taken) {
   return candidate;
 }
 
-// Settings writes: with the OIDC triple unset the server treats any caller as
-// its fixed admin identity, so an unauthenticated PUT is the expected path;
-// retry once with the service credential in case a future upstream tightens
-// the settings surface to bearer auth. PUT is replace-by-name (idempotent),
-// so the auth fallback re-send is safe.
-async function putSettings(section, manifest) {
-  const operation = `settings ${section} write`;
-  const url = `${TRUEFORGE_URL}/api/v1/settings/${section}`;
-  const body = JSON.stringify({ manifest });
+// Settings requests: with the OIDC triple unset the server treats any caller
+// as its fixed admin identity, so an unauthenticated call is the expected
+// path; retry once with the service credential in case a future upstream
+// tightens the settings surface to bearer auth. Safe for reads and for PUT
+// (replace-by-name, idempotent).
+async function settingsRequest(operation, path, init = {}) {
+  const url = `${TRUEFORGE_URL}${path}`;
   const attempt = (headers) =>
-    boundedFetch(operation, url, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", ...headers },
-      body,
-    });
+    boundedFetch(operation, url, { ...init, headers: { ...(init.headers || {}), ...headers } });
   let res = await attempt({});
   if ((res.status === 401 || res.status === 403) && TRUEFORGE_API_KEY) {
     res = await attempt({ Authorization: `Bearer ${TRUEFORGE_API_KEY}` });
   }
+  return res;
+}
+
+async function putSettings(section, manifest) {
+  const operation = `settings ${section} write`;
+  const res = await settingsRequest(operation, `/api/v1/settings/${section}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ manifest }),
+  });
   if (!res.ok) {
     // Status code only — response bodies of failed writes stay out of logs.
     throw new BootstrapError(operation, new Error(`answered ${res.status}`));
   }
   console.log(`trueforge-init: seeded settings/${section} (${manifest.name})`);
+}
+
+// The pinned v0.2.0 settings API has no DELETE and no enabled flag for MCP
+// connectors (GET/POST/PUT only — verified against docs/openapi.json), so
+// "remove" is not expressible. Reconciliation therefore parks the
+// Atlas-managed connector on a reserved, guaranteed-unresolvable address
+// (RFC 2606 `.invalid`) with a marked description: the catalog clearly shows
+// it disabled instead of offering a dead-but-normal-looking tool. Keeping
+// the NAME configured is also the gentler choice for saved agents — upstream
+// rejects session creation outright when a referenced connector name is
+// absent (`Unknown MCP server … — not configured`,
+// packages/trueforge/src/runtime/sessionResources.ts:333 at the pinned
+// commit), while a parked connector lets sessions start and only the tool
+// calls fail, bounded by MCP_CONNECT_TIMEOUT_MS. Only the connector named
+// `atlas-tools` is ever touched: that name is Atlas-owned, and user-created
+// connectors under other names are never read or written.
+const DISABLED_CONNECTOR_URL = "http://atlas-mcp-servers.disabled.invalid/mcp";
+
+async function reconcileDisabledMcpConnector() {
+  const operation = "mcp connector reconcile read";
+  const res = await settingsRequest(operation, `/api/v1/settings/mcp-servers/${MCP_CONNECTOR_NAME}`);
+  if (res.status === 404) {
+    console.log("trueforge-init: mcp-servers family disabled — no managed connector to reconcile");
+    return;
+  }
+  if (!res.ok) {
+    throw new BootstrapError(operation, new Error(`answered ${res.status}`));
+  }
+  const body = await res.json();
+  const current = body?.data?.manifest;
+  if (current?.url === DISABLED_CONNECTOR_URL) {
+    console.log("trueforge-init: mcp-servers family disabled — managed connector already parked");
+    return;
+  }
+  await putSettings("mcp-servers", {
+    type: "remote",
+    name: MCP_CONNECTOR_NAME,
+    url: DISABLED_CONNECTOR_URL,
+    description:
+      "[disabled by Atlas] The mcp-servers family is disabled in this stack (MCP_SERVERS_SOURCE=disabled), so this managed connector is parked on an unresolvable address. Re-enable mcp-servers to restore it. Saved agents still start; calls to these tools fail at connect time.",
+  });
+  console.log("trueforge-init: mcp-servers family disabled — managed connector parked");
 }
 
 async function main() {
@@ -251,7 +297,7 @@ async function main() {
       // internal compose network (streamable HTTP at /mcp)
     });
   } else {
-    console.log("trueforge-init: mcp-servers family disabled — skipping connector seed");
+    await reconcileDisabledMcpConnector();
   }
 
   console.log("trueforge-init: done");
