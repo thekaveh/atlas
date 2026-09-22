@@ -166,27 +166,68 @@ def test_the_ray_job_surface_is_gated_at_the_router():
     assert all(routers.values()), f"ray router has no dependencies: {routers}"
 
 
-def test_media_request_limit_is_wired_to_header_authentication():
-    """The media auth gate must sit outside request-parsing instrumentation."""
-    tree = ast.parse((BACKEND_APP / "main.py").read_text(encoding="utf-8"))
-    registrations = []
-    cors_registrations = []
+def _add_middleware_calls(tree: ast.AST) -> dict[str, list[ast.Call]]:
+    """All ``app.add_middleware(Name, ...)`` calls, keyed by middleware name."""
+    calls: dict[str, list[ast.Call]] = {}
     for node in ast.walk(tree):
-        if not (
+        if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == "add_middleware"
             and node.args
             and isinstance(node.args[0], ast.Name)
         ):
+            calls.setdefault(node.args[0].id, []).append(node)
+    return calls
+
+
+def _ruled_paths(rules: ast.expr | None) -> set[str]:
+    """Route paths declared by a ``rules=[...]`` middleware keyword."""
+    paths: set[str] = set()
+    if not isinstance(rules, ast.List):
+        return paths
+    for element in rules.elts:
+        if not isinstance(element, ast.Call):
             continue
-        if node.args[0].id == "MediaRequestLimitMiddleware":
-            registrations.append(node)
-        elif node.args[0].id == "CORSMiddleware":
-            cors_registrations.append(node)
+        if isinstance(element.func, ast.Name) and element.func.id == "media_rule":
+            paths.add("/media/generate")
+            continue
+        for keyword in element.keywords:
+            if keyword.arg == "path" and isinstance(keyword.value, ast.Constant):
+                paths.add(keyword.value.value)
+    return paths
+
+
+def test_request_limit_middleware_is_wired_to_header_authentication():
+    """The body-limit gate must sit outside request-parsing instrumentation.
+
+    #1167 generalized the media-only middleware into route-class byte
+    envelopes; this pins the registration shape: exactly one
+    RequestLimitMiddleware, carrying the media rule plus the two multipart
+    routes, authenticated by the backend-scope header check, ordered
+    CORS -> RequestLimit -> Prometheus.
+    """
+    tree = ast.parse((BACKEND_APP / "main.py").read_text(encoding="utf-8"))
+    calls = _add_middleware_calls(tree)
+    registrations = calls.get("RequestLimitMiddleware", [])
+    cors_registrations = calls.get("CORSMiddleware", [])
 
     assert len(registrations) == 1, (
-        "expected exactly one MediaRequestLimitMiddleware registration"
+        "expected exactly one RequestLimitMiddleware registration"
+    )
+
+    policy = next(
+        (kw.value for kw in registrations[0].keywords if kw.arg == "policy"),
+        None,
+    )
+    assert isinstance(policy, ast.Call), "policy=LimitPolicy(<rules>) must be present"
+    rules = next(
+        (kw.value for kw in policy.keywords if kw.arg == "rules"),
+        None,
+    )
+    ruled_paths = _ruled_paths(rules)
+    assert {"/media/generate", "/storage/upload", "/documents/extract"} <= ruled_paths, (
+        f"route-class rules must cover the media and multipart routes; saw {ruled_paths}"
     )
     authenticate = next(
         (
