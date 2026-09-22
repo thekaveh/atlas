@@ -164,3 +164,81 @@ def test_get_job_status_succeeds_when_enabled(ray_enabled_env, mock_job_submissi
     result = RayClient.get().get_job_status("job_xyz")
     assert result["job_id"] == "job_xyz"
     assert result["status"] == "SUCCEEDED"
+
+
+# ---------------------------------------------------------------------------
+# Finite control-plane deadlines (#1170)
+# ---------------------------------------------------------------------------
+
+def test_bind_transport_deadline_injects_default_and_preserves_explicit():
+    from ray_client import (
+        _RAY_CONNECT_TIMEOUT_SECONDS,
+        _RAY_READ_TIMEOUT_SECONDS,
+        _bind_transport_deadline,
+    )
+
+    calls = []
+
+    class _Client:
+        def _do_request(self, method, endpoint, **kwargs):
+            calls.append((method, endpoint, kwargs))
+            return "ok"
+
+    client = _Client()
+    _bind_transport_deadline(client)
+    client._do_request("GET", "/api/version")
+    client._do_request("POST", "/api/jobs/", timeout=1.5)
+
+    assert calls[0][2]["timeout"] == (
+        _RAY_CONNECT_TIMEOUT_SECONDS,
+        _RAY_READ_TIMEOUT_SECONDS,
+    )
+    assert calls[1][2]["timeout"] == 1.5  # explicit values always win
+
+
+def test_bind_transport_deadline_fails_closed_without_the_seam():
+    from ray_client import _bind_transport_deadline
+
+    class _NoSeam:
+        pass
+
+    with pytest.raises(RuntimeError, match="#1170"):
+        _bind_transport_deadline(_NoSeam())
+
+
+def test_submit_timeout_is_classified_ambiguous_with_the_stable_id(
+    ray_enabled_env, mock_job_submission_client,
+):
+    import requests.exceptions
+
+    from ray_client import RaySubmissionAmbiguousError
+
+    mock_job_submission_client.return_value.submit_job.side_effect = (
+        requests.exceptions.ReadTimeout("no reply")
+    )
+    client = RayClient()
+    with pytest.raises(RaySubmissionAmbiguousError) as excinfo:
+        client.submit_job(
+            RayJobSubmission(entrypoint="echo hi", submission_id="raysubmit_amb")
+        )
+    assert excinfo.value.submission_id == "raysubmit_amb"
+    assert "raysubmit_amb" in str(excinfo.value)
+
+
+def test_stop_and_status_timeouts_map_to_control_plane_timeout(
+    ray_enabled_env, mock_job_submission_client,
+):
+    import requests.exceptions
+
+    from ray_client import RayControlPlaneTimeoutError
+
+    instance = mock_job_submission_client.return_value
+    instance.stop_job.side_effect = requests.exceptions.ConnectTimeout()
+    instance.get_job_status.side_effect = requests.exceptions.ReadTimeout()
+
+    client = RayClient()
+    with pytest.raises(RayControlPlaneTimeoutError):
+        client.stop_job("raysubmit_x")
+    with pytest.raises(RayControlPlaneTimeoutError):
+        client.get_job_status("raysubmit_x")
+

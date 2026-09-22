@@ -213,3 +213,43 @@ def test_duplicate_submission_id_returns_reconciliation_conflict(monkeypatch):
 
     assert exc_info.value.status_code == 409
     assert "status or stop endpoint" in exc_info.value.detail
+
+
+def test_submit_timeout_maps_to_504_with_the_reconcilable_id(
+    fastapi_client, mock_job_submission_client, monkeypatch,
+):
+    """#1170: an unanswered submission is AMBIGUOUS — the response is bounded,
+    names the stable id, and directs reconciliation instead of blind retry."""
+    import requests.exceptions
+
+    monkeypatch.setenv("RAY_JOB_API_TOKEN", "ray-test-token")
+    mock_job_submission_client.return_value.submit_job.side_effect = (
+        requests.exceptions.ReadTimeout("no reply")
+    )
+    resp = fastapi_client.post(
+        "/api/ray/jobs/submit",
+        json={
+            "entrypoint": "python -c 'print(1)'",
+            "submission_id": "raysubmit_amb",
+        },
+        headers=RAY_HEADERS,
+    )
+    assert resp.status_code == 504, resp.text
+    detail = resp.json()["detail"]
+    assert "raysubmit_amb" in detail
+    assert "do not resubmit" in detail
+
+
+def test_stop_timeout_maps_to_504_and_stays_reconcilable(
+    fastapi_client, mock_job_submission_client, monkeypatch,
+):
+    import requests.exceptions
+
+    monkeypatch.setenv("RAY_JOB_API_TOKEN", "ray-test-token")
+    mock_job_submission_client.return_value.stop_job.side_effect = (
+        requests.exceptions.ReadTimeout()
+    )
+    resp = fastapi_client.delete("/api/ray/jobs/raysubmit_amb", headers=RAY_HEADERS)
+    assert resp.status_code == 504
+    assert "raysubmit_amb" in resp.json()["detail"]
+
