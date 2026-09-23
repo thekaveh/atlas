@@ -668,6 +668,25 @@ def _restored_primary_defaults(original, selections: dict):
     return default_value, default_values, restored_input_value
 
 
+def _resolved_subtitle(original, options, is_loading: bool) -> str:
+    """Return a step's caption at display time.
+
+    Steps carrying a ``subtitle_provider`` derive it from the options
+    about to be rendered, so the caption can say whether the rows on
+    screen are live or a fallback (#1180). While the fetch is still in
+    flight the static ``subtitle`` is used instead: the options are a
+    loading placeholder, not an answer. A provider that raises also falls
+    back to the static text rather than blanking the caption.
+    """
+    provider = getattr(original, "subtitle_provider", None)
+    if provider is None or is_loading:
+        return original.subtitle
+    try:
+        return provider(list(options or [])) or original.subtitle
+    except Exception:  # noqa: BLE001
+        return original.subtitle
+
+
 def _restored_secondary_options(options, selections: dict):
     """Return immutable option copies with revisited inline-number defaults."""
     from dataclasses import replace
@@ -1545,6 +1564,7 @@ class WizardScreen(Screen):
                 dict(self._selections)
             )
         live_options = _restored_secondary_options(live_options, self._selections)
+        live_subtitle = _resolved_subtitle(original, live_options, is_loading)
         # ``dataclasses.replace`` carries every field on the dataclass
         # forward by default — new fields added to PromptStep show up
         # at display time automatically, no need to update this method
@@ -1554,7 +1574,7 @@ class WizardScreen(Screen):
             original,
             step_index=self._step_index + 1,
             step_total=len(self._steps),
-            subtitle=("⏳  " + original.subtitle.lstrip()) if is_loading else original.subtitle,
+            subtitle=("⏳  " + live_subtitle.lstrip()) if is_loading else live_subtitle,
             options=live_options,
             default_value=live_default_value,
             default_values=live_default_values,

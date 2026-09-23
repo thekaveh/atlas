@@ -1,18 +1,26 @@
 """
 Live cloud-provider model discovery for the wizard's multi-select.
 
-Three public functions, one per provider:
+One discovery function per provider:
 
-* ``list_openai_models(api_key)``
-* ``list_anthropic_models(api_key)``
-* ``list_openrouter_models()``        (no auth required)
+* ``discover_openai_models(api_key)``
+* ``discover_anthropic_models(api_key)``
+* ``discover_openrouter_models()``    (no auth required)
 
-Each returns a ``list[ModelInfo]``, filtered down to models that make
-sense in a chat/embedding context. The wizard's options_provider calls
-these synchronously when the user advances to the cloud multi-select
-step (timeout 5s per call). On any failure (network, auth, timeout,
-empty result post-filter) the caller falls back to the curated
-``CLOUD_CATALOG`` from ``llm_catalog.py``.
+Each returns a ``DiscoveryResult`` — the filtered ``list[ModelInfo]``
+plus a ``state`` saying whether the provider actually answered, and a
+short ``detail`` phrase with the API key scrubbed out. The wizard's
+options_provider calls these synchronously when the user advances to
+the cloud multi-select step (timeout 5s per call). On any failure
+(no key, auth, timeout, transport, malformed reply, empty result
+post-filter) the caller falls back to the curated ``CLOUD_CATALOG``
+from ``llm_catalog.py`` **and says so on screen** — see #1180; the
+older shape returned a bare ``[]`` for every failure, so the picker
+showed the catalog under a caption claiming a live listing.
+
+``list_openai_models`` / ``list_anthropic_models`` /
+``list_openrouter_models`` remain as thin wrappers returning just the
+models, for callers that do not need the provenance.
 
 Filtering rationale per provider:
 
@@ -98,6 +106,134 @@ class ModelInfo:
     description: str = ""
 
 
+# ─── Discovery outcome ───────────────────────────────────────────────
+
+# Why a provenance state and not just an empty list (#1180): every
+# failure path used to return ``[]``, so the wizard could not tell a
+# rejected key from a dropped connection from a provider that simply
+# listed nothing usable. It showed the curated catalog captioned "Live
+# from /v1/models" either way, and a row appearing in the picker looked
+# like proof the key worked. These states are what the caller renders.
+LIVE = "live"                   # provider answered; these rows are its own
+NO_KEY = "no-key"               # nothing to authenticate with
+UNAUTHORIZED = "unauthorized"   # HTTP 401 / 403 — the key was rejected
+RATE_LIMITED = "rate-limited"   # HTTP 429
+HTTP_ERROR = "http-error"       # any other HTTP status
+TIMEOUT = "timeout"             # no answer within the deadline
+UNREACHABLE = "unreachable"     # DNS / TLS / connection failure
+MALFORMED = "malformed"         # answered, but not the documented shape
+EMPTY = "empty"                 # answered, but no model survived filtering
+
+#: Every state other than :data:`LIVE`. Kept as a set so callers can ask
+#: "is this a fallback?" without re-listing the names.
+FALLBACK_STATES = frozenset({
+    NO_KEY, UNAUTHORIZED, RATE_LIMITED, HTTP_ERROR,
+    TIMEOUT, UNREACHABLE, MALFORMED, EMPTY,
+})
+
+
+@dataclass
+class DiscoveryResult:
+    """What one discovery attempt produced.
+
+    ``models`` is non-empty only when ``state`` is :data:`LIVE`; a
+    fallback result carries the reason instead of a substitute list, so
+    the caller decides what to show and can label it honestly.
+    ``detail`` is a short human phrase, already scrubbed of the API key.
+    """
+    models: list[ModelInfo]
+    state: str
+    detail: str = ""
+
+    @property
+    def is_live(self) -> bool:
+        return self.state == LIVE
+
+
+def _scrub(text: str, secret: str) -> str:
+    """Remove an API key from a message before it is shown or logged.
+
+    Nothing in this module interpolates a key into a message on purpose,
+    but ``HTTPError.reason`` and ``URLError.reason`` are provider- and
+    OS-supplied strings. This is the backstop that keeps AC "errors never
+    expose provider keys" true regardless of what upstream puts there.
+    """
+    if secret and secret in text:
+        return text.replace(secret, "***")
+    return text
+
+
+def _is_timeout(exc: BaseException) -> bool:
+    """True for a deadline miss, whether raised bare or wrapped.
+
+    ``urlopen`` raises ``socket.timeout`` directly when the read stalls
+    and ``URLError(reason=socket.timeout())`` when the connect does.
+    """
+    if isinstance(exc, socket.timeout):
+        return True
+    return isinstance(getattr(exc, "reason", None), socket.timeout)
+
+
+def _classify_transport(exc: BaseException) -> tuple[str, str]:
+    """Map a transport exception onto ``(state, detail)``.
+
+    ``urllib.error.HTTPError`` subclasses ``URLError``, so it has to be
+    tested first — catching them together is exactly what made a 401
+    indistinguishable from a timeout.
+
+    ``detail`` is empty wherever the state name already says everything;
+    it exists to add the fact the state cannot carry, such as which
+    status code came back.
+    """
+    if isinstance(exc, urllib.error.HTTPError):
+        if exc.code in (401, 403):
+            return UNAUTHORIZED, f"HTTP {exc.code}"
+        if exc.code == 429:
+            return RATE_LIMITED, "HTTP 429"
+        return HTTP_ERROR, f"HTTP {exc.code}"
+    if _is_timeout(exc):
+        return TIMEOUT, ""
+    return UNREACHABLE, _format_url_error(exc)
+
+
+def _fetch_rows(url: str, headers: dict, timeout: float,
+                secret: str) -> tuple[list, str, str]:
+    """GET ``url`` and return ``(data[] rows, state, detail)``.
+
+    ``state`` is :data:`LIVE` only when the provider answered with a JSON
+    object carrying a ``data`` list. ``secret`` is scrubbed out of every
+    detail string.
+    """
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, socket.timeout, ConnectionError, OSError,
+            http.client.HTTPException) as exc:
+        state, detail = _classify_transport(exc)
+        return [], state, _scrub(detail, secret)
+    try:
+        data = json.loads(body)
+    except (ValueError, TypeError):
+        return [], MALFORMED, "not JSON"
+    rows = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return [], MALFORMED, "no data[] array"
+    return rows, LIVE, ""
+
+
+def _fallback(on_warn: Optional[WarnFn], provider_key: str,
+              state: str, detail: str) -> DiscoveryResult:
+    """Log why discovery fell back, and return the empty result saying so.
+
+    ``detail`` carries only what ``state`` does not already say, so it is
+    often empty — the state name is the reason.
+    """
+    cause = f"{state} ({detail})" if detail else state
+    _emit(on_warn, f"[warn/{provider_key}-fetch] {cause} — falling back to catalog")
+    return DiscoveryResult(models=[], state=state, detail=detail)
+
+
 # ─── OpenAI ───────────────────────────────────────────────────────────
 
 # Allow-list: model id starts with one of these prefixes.
@@ -163,84 +299,77 @@ def _dedup_openai_snapshots(ids: list[str]) -> list[str]:
     return out
 
 
-def list_openai_models(api_key: str, timeout: float = 5.0,
-                       on_warn: Optional[WarnFn] = None) -> list[ModelInfo]:
+def discover_openai_models(api_key: str, timeout: float = 5.0,
+                           on_warn: Optional[WarnFn] = None) -> DiscoveryResult:
     """GET https://api.openai.com/v1/models with the user's key.
-    Returns filtered list. Empty on any failure (with reason emitted via
-    ``on_warn`` when supplied).
+
+    Returns a :class:`DiscoveryResult` whose ``state`` says whether the
+    rows are the provider's own list or why they are not.
     """
     if not api_key:
-        _emit(on_warn, "[warn/openai-fetch] no OPENAI_API_KEY set — falling back to catalog")
-        return []
-    try:
-        req = urllib.request.Request(
-            "https://api.openai.com/v1/models",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Accept": "application/json",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read().decode("utf-8", errors="replace")
-    except (urllib.error.URLError, socket.timeout, ConnectionError, OSError,
-            http.client.HTTPException) as exc:
-        _emit(on_warn, f"[warn/openai-fetch] live /v1/models failed — falling back to catalog (cause: {_format_url_error(exc)})")
-        return []
-    try:
-        data = json.loads(body)
-    except (ValueError, TypeError):
-        _emit(on_warn, "[warn/openai-fetch] /v1/models returned non-JSON body — falling back to catalog")
-        return []
-    rows = data.get("data") if isinstance(data, dict) else None
-    if not isinstance(rows, list):
-        _emit(on_warn, "[warn/openai-fetch] /v1/models response missing data[] — falling back to catalog")
-        return []
-    raw_ids = [r["id"] for r in rows if isinstance(r, dict) and isinstance(r.get("id"), str)]
-    filtered = [mid for mid in raw_ids if _openai_pass_filter(mid)]
-    deduped = _dedup_openai_snapshots(filtered)
+        return _fallback(on_warn, "openai", NO_KEY, "")
+    rows, state, detail = _fetch_rows(
+        "https://api.openai.com/v1/models",
+        {"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        timeout, api_key,
+    )
+    if state != LIVE:
+        return _fallback(on_warn, "openai", state, detail)
+    raw_ids = [r["id"] for r in rows
+               if isinstance(r, dict) and isinstance(r.get("id"), str)]
+    deduped = _dedup_openai_snapshots(
+        [mid for mid in raw_ids if _openai_pass_filter(mid)]
+    )
     deduped.sort()
     if not deduped:
-        _emit(on_warn, f"[warn/openai-fetch] /v1/models returned {len(raw_ids)} ids but none passed the filter — falling back to catalog")
-    return [ModelInfo(id=mid, label=mid, description="") for mid in deduped]
+        return _fallback(
+            on_warn, "openai", EMPTY, f"{len(raw_ids)} listed",
+        )
+    return DiscoveryResult(
+        models=[ModelInfo(id=mid, label=mid, description="") for mid in deduped],
+        state=LIVE,
+    )
+
+
+def list_openai_models(api_key: str, timeout: float = 5.0,
+                       on_warn: Optional[WarnFn] = None) -> list[ModelInfo]:
+    """Models only. Empty on any failure — see :func:`discover_openai_models`
+    when the caller needs to know which failure."""
+    return discover_openai_models(api_key, timeout, on_warn).models
 
 
 # ─── Anthropic ───────────────────────────────────────────────────────
 
-def list_anthropic_models(api_key: str, timeout: float = 5.0,
-                          on_warn: Optional[WarnFn] = None) -> list[ModelInfo]:
+def discover_anthropic_models(api_key: str, timeout: float = 5.0,
+                              on_warn: Optional[WarnFn] = None) -> DiscoveryResult:
     """GET https://api.anthropic.com/v1/models with the user's key.
     Anthropic's response is already clean — only minor dedup needed.
     """
     if not api_key:
-        _emit(on_warn, "[warn/anthropic-fetch] no ANTHROPIC_API_KEY set — falling back to catalog")
-        return []
-    try:
-        req = urllib.request.Request(
-            "https://api.anthropic.com/v1/models",
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "Accept": "application/json",
-            },
+        return _fallback(on_warn, "anthropic", NO_KEY, "")
+    rows, state, detail = _fetch_rows(
+        "https://api.anthropic.com/v1/models",
+        {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "Accept": "application/json",
+        },
+        timeout, api_key,
+    )
+    if state != LIVE:
+        return _fallback(on_warn, "anthropic", state, detail)
+    models = _anthropic_models(rows)
+    if not models:
+        return _fallback(
+            on_warn, "anthropic", EMPTY, f"{len(rows)} listed",
         )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read().decode("utf-8", errors="replace")
-    except (urllib.error.URLError, socket.timeout, ConnectionError, OSError,
-            http.client.HTTPException) as exc:
-        _emit(on_warn, f"[warn/anthropic-fetch] live /v1/models failed — falling back to catalog (cause: {_format_url_error(exc)})")
-        return []
-    try:
-        data = json.loads(body)
-    except (ValueError, TypeError):
-        _emit(on_warn, "[warn/anthropic-fetch] /v1/models returned non-JSON body — falling back to catalog")
-        return []
-    rows = data.get("data") if isinstance(data, dict) else None
-    if not isinstance(rows, list):
-        _emit(on_warn, "[warn/anthropic-fetch] /v1/models response missing data[] — falling back to catalog")
-        return []
-    # Each row: {id, display_name, type, created_at}. Dedup snapshots
-    # that share a display_name — keep the entry with the most recent
-    # created_at (string-sortable ISO).
+    return DiscoveryResult(models=models, state=LIVE)
+
+
+def _anthropic_models(rows: list) -> list[ModelInfo]:
+    """Each row: ``{id, display_name, type, created_at}``. Dedup snapshots
+    that share a ``display_name`` — keep the entry with the most recent
+    ``created_at`` (string-sortable ISO)."""
     by_label: dict[str, dict] = {}
     for r in rows:
         if not isinstance(r, dict):
@@ -258,34 +387,44 @@ def list_anthropic_models(api_key: str, timeout: float = 5.0,
     return out
 
 
+def list_anthropic_models(api_key: str, timeout: float = 5.0,
+                          on_warn: Optional[WarnFn] = None) -> list[ModelInfo]:
+    """Models only. Empty on any failure — see
+    :func:`discover_anthropic_models` when the caller needs to know which."""
+    return discover_anthropic_models(api_key, timeout, on_warn).models
+
+
 # ─── OpenRouter ──────────────────────────────────────────────────────
 
-def list_openrouter_models(timeout: float = 5.0, cap: int = 50,
-                           on_warn: Optional[WarnFn] = None) -> list[ModelInfo]:
+def discover_openrouter_models(timeout: float = 5.0, cap: int = 50,
+                               on_warn: Optional[WarnFn] = None) -> DiscoveryResult:
     """GET https://openrouter.ai/api/v1/models (no auth).
     OpenRouter returns 200+ models with rich metadata. Cap at ``cap``
-    so the wizard multi-select stays usable.
+    so the wizard multi-select stays usable; the cap is reported in the
+    result detail rather than applied silently.
     """
-    try:
-        req = urllib.request.Request(
-            "https://openrouter.ai/api/v1/models",
-            headers={"Accept": "application/json"},
+    rows, state, detail = _fetch_rows(
+        "https://openrouter.ai/api/v1/models",
+        {"Accept": "application/json"},
+        timeout, "",
+    )
+    if state != LIVE:
+        return _fallback(on_warn, "openrouter", state, detail)
+    out = _openrouter_models(rows)
+    if not out:
+        return _fallback(
+            on_warn, "openrouter", EMPTY, f"{len(rows)} listed",
         )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read().decode("utf-8", errors="replace")
-    except (urllib.error.URLError, socket.timeout, ConnectionError, OSError,
-            http.client.HTTPException) as exc:
-        _emit(on_warn, f"[warn/openrouter-fetch] live /api/v1/models failed — falling back to catalog (cause: {_format_url_error(exc)})")
-        return []
-    try:
-        data = json.loads(body)
-    except (ValueError, TypeError):
-        _emit(on_warn, "[warn/openrouter-fetch] /api/v1/models returned non-JSON body — falling back to catalog")
-        return []
-    rows = data.get("data") if isinstance(data, dict) else None
-    if not isinstance(rows, list):
-        _emit(on_warn, "[warn/openrouter-fetch] /api/v1/models response missing data[] — falling back to catalog")
-        return []
+    if len(out) > cap:
+        return DiscoveryResult(
+            models=out[:cap], state=LIVE,
+            detail=f"first {cap} of {len(out)}",
+        )
+    return DiscoveryResult(models=out, state=LIVE)
+
+
+def _openrouter_models(rows: list) -> list[ModelInfo]:
+    """Normalise OpenRouter rows into catalog-shaped ids, sorted by label."""
     out: list[ModelInfo] = []
     for r in rows:
         if not isinstance(r, dict):
@@ -304,8 +443,14 @@ def list_openrouter_models(timeout: float = 5.0, cap: int = 50,
         label = r.get("name") or oid
         desc = r.get("description") or ""
         if isinstance(desc, str) and len(desc) > 120:
-            desc = desc[:117] + "…"
+            desc = desc[:117] + "\u2026"
         out.append(ModelInfo(id=oid, label=str(label), description=desc))
-    # Sort alphabetically by label; cap.
     out.sort(key=lambda m: m.label.lower())
-    return out[:cap]
+    return out
+
+
+def list_openrouter_models(timeout: float = 5.0, cap: int = 50,
+                           on_warn: Optional[WarnFn] = None) -> list[ModelInfo]:
+    """Models only. Empty on any failure — see
+    :func:`discover_openrouter_models` when the caller needs to know which."""
+    return discover_openrouter_models(timeout, cap, on_warn).models
