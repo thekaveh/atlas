@@ -160,7 +160,18 @@ Each enabled cloud provider gets two consecutive steps:
 
    The default-active subset of `bootstrapper/utils/llm_catalog.py` is intersected with what your account actually returns; the result is pre-checked. Selections persist as `OPENAI_USER_MODELS`, `ANTHROPIC_USER_MODELS`, `OPENROUTER_USER_MODELS`.
 
-If the live fetch fails (network outage, key rejected, 5xx), the wizard falls back to the curated catalog so you can still proceed; the failure reason appears in the launch log (see [Troubleshooting](troubleshooting.md)).
+#### 4.4.1. Where the listed models came from
+
+The caption above the list always says which of the two sources you are looking at, so a model appearing in the picker is never mistaken for proof that your key works (#1180):
+
+- **Live from the provider; key accepted.** The provider answered and these are its own models. Each row is badged `live`.
+- **Curated catalog, credentials unverified: `<reason>`.** The provider did not answer usefully, so the list is the bundled catalog from `bootstrapper/utils/llm_catalog.py`. Each row is badged `catalog`. The reason is one of: no API key was supplied · the provider rejected the key · the provider rate-limited the request · the provider returned an error · the request timed out · the provider could not be reached · the provider's reply could not be read · the provider listed no usable models.
+
+A rejected key, a timed-out request and a successful-but-empty listing are three different captions, not one. To recover, press **Esc** to return to the key step, correct the key, and press Enter — that invalidates the cached result and refetches (§4.5). The key itself is never written to the caption or to the launch log.
+
+Models already saved in `*_USER_MODELS` that neither source lists are carried into the picker badged `saved`, and stay checked. Without that, a single failed lookup would drop them from the saved list the next time you pressed Enter.
+
+The failure reason also appears in the launch log (see [Troubleshooting](troubleshooting.md)).
 
 ### 4.5. Splash + cache + back-invalidation
 
