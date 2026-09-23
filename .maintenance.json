@@ -22,7 +22,7 @@
       "functions_over_100_physical_lines": 85,
       "functions_over_4_parameters": 156,
       "modules_over_600_logical_lines": 21,
-      "tracked_files": 1579,
+      "tracked_files": 1580,
       "v0.1.0_tracked_files": 667
     },
     "extended_python_baseline_snapshot": {
@@ -100,8 +100,8 @@
       {
         "path": "bootstrapper/start.py",
         "symbol": "main",
-        "cyclomatic_complexity": 129,
-        "rationale": "Click composition root declaring and forwarding the public CLI surface; option and startup tests cover the branches, while extraction would only relocate forwarding logic."
+        "cyclomatic_complexity": 126,
+        "rationale": "Click composition root declaring and forwarding the public CLI surface; option and startup tests cover the branches, while extraction would only relocate forwarding logic. Cyclomatic complexity fell 129 -> 126 on 2026-09-23 (#1184): the linear track prompt's inline read/validate/warn block moved into the module-level _prompt_for_track helper, removing three branches from main. No behaviour was removed \u2014 the helper is strictly stricter than the block it replaced."
       },
       {
         "path": "bootstrapper/tests/test_agents_guidance.py",
@@ -222,8 +222,8 @@
       {
         "path": "bootstrapper/start.py",
         "symbol": "main",
-        "cyclomatic_complexity": 129,
-        "rationale": "Click composition root that declares and forwards the public CLI surface; behavior is partitioned into tested AtlasStarter methods, and extracting option forwarding alone would add indirection without reducing runtime branching."
+        "cyclomatic_complexity": 126,
+        "rationale": "Click composition root that declares and forwards the public CLI surface; behavior is partitioned into tested AtlasStarter methods, and extracting option forwarding alone would add indirection without reducing runtime branching. Fell 129 -> 126 on 2026-09-23 (#1184) when the linear track prompt's inline read/validate/warn block moved into _prompt_for_track."
       },
       {
         "path": "bootstrapper/ui/textual/integration.py",
@@ -290,6 +290,7 @@
     "refresh_notes_2026_09_22_issue_1170": "tracked_files 1574->1575: one new CI test module, bootstrapper/tests/test_backend_ray_deadlines.py, pinning #1170's Ray transport-deadline seam (defaults injected at the pinned 2.56.0 _do_request boundary, fail-closed on SDK shape change), ambiguous-submission classification, and the inert-control-plane transport bound via a real accept-and-never-reply socket. No Python counters moved.",
     "refresh_notes_2026_09_22_issue_1172": "tracked_files 1575->1576: the #1172 transport-bound tests moved into their own module (services/backend/app/app/tests/test_memory_redis_timeouts.py) after CI caught test_async_jobs.py crossing the 600-logical-line module ceiling (596->668) with them appended; the split keeps test_async_jobs at 596 and the ceiling at 21 unraised. No other counters moved.",
     "refresh_notes_2026_09_22_issue_1175": "tracked_files 1576->1577: one new CI test module, bootstrapper/tests/test_env_forwarding_contract.py (#1175) \u2014 the generic manifest->Compose env forwarding parity check with its 27-entry reviewed exceptions table and bidirectional stale guards. No Python counters moved.",
-    "refresh_notes_2026_09_22_issue_1178": "tracked_files 1577->1579: bootstrapper/ui/session_log.py (the bounded rotating session-log tee, #1178 \u2014 3x32 MiB per session with pinned first segment, 5-session retention, loud disk-full degradation) and bootstrapper/tests/test_session_log_rotation.py pinning its contract. No other counters moved."
+    "refresh_notes_2026_09_22_issue_1178": "tracked_files 1577->1579: bootstrapper/ui/session_log.py (the bounded rotating session-log tee, #1178 \u2014 3x32 MiB per session with pinned first segment, 5-session retention, loud disk-full degradation) and bootstrapper/tests/test_session_log_rotation.py pinning its contract. No other counters moved.",
+    "refresh_notes_2026_09_23_issue_1184": "tracked_files 1579->1580: bootstrapper/tests/test_linear_track_prompt.py, pinning #1184's re-prompt contract. start.py::main's accepted E/F entry moves 129 -> 126 because the fix EXTRACTED branches out of main; no ceiling was raised."
   }
 }
