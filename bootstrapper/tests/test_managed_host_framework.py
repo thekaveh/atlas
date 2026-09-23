@@ -734,39 +734,10 @@ def test_remove_refuses_while_the_process_is_still_running(tmp_path: Path, monke
     assert manager.pid_file.exists(), "pid file deleted — the process is now untracked"
 
 
-def _provably_dead_pid() -> int:
-    """A PID that is definitely not running (#1237).
-
-    The constant 4242 these tests used was only *probably* dead: on a loaded
-    CI runner a real process holds it, the removal guard correctly refuses,
-    and the test fails for a reason that has nothing to do with the code
-    under test. Spawn a trivial child, reap it, and confirm through the
-    manager's own liveness probe that the PID is free.
-    """
-    import subprocess
-
-    for _ in range(10):
-        proc = subprocess.Popen([sys.executable, "-c", "pass"])
-        proc.wait()
-        if not _pid_alive_probe(proc.pid):
-            return proc.pid
-    raise AssertionError("could not obtain a dead PID after 10 attempts")
-
-
-def _pid_alive_probe(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
-def test_remove_deletes_state_once_the_process_is_gone(tmp_path: Path, monkeypatch) -> None:
+def test_remove_deletes_state_once_the_process_is_gone(tmp_path: Path, monkeypatch, dead_pid) -> None:
     manager = _manager(tmp_path, "gone", (sys.executable, "-c", "pass"))
     manager.state_dir.mkdir(parents=True, exist_ok=True)
-    manager.pid_file.write_text(f"{_provably_dead_pid()}\n", encoding="utf-8")
+    manager.pid_file.write_text(f"{dead_pid}\n", encoding="utf-8")
 
     monkeypatch.setattr(manager, "stop", lambda: True)
     monkeypatch.setattr(manager, "status", lambda: HostProcessStatus(running=False))
@@ -776,7 +747,7 @@ def test_remove_deletes_state_once_the_process_is_gone(tmp_path: Path, monkeypat
 
 
 def test_remove_succeeds_when_stop_reports_failure_for_an_already_dead_process(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch, dead_pid
 ) -> None:
     """`_signal` sees ProcessLookupError from both killpg and kill when the
     process exits mid-signal. That is an OSError, so `stop()` returns False for
@@ -784,7 +755,7 @@ def test_remove_succeeds_when_stop_reports_failure_for_an_already_dead_process(
     teardown that should succeed, and `managed-host remove` has no handler."""
     manager = _manager(tmp_path, "raced", (sys.executable, "-c", "pass"))
     manager.state_dir.mkdir(parents=True, exist_ok=True)
-    manager.pid_file.write_text(f"{_provably_dead_pid()}\n", encoding="utf-8")
+    manager.pid_file.write_text(f"{dead_pid}\n", encoding="utf-8")
 
     monkeypatch.setattr(manager, "stop", lambda: False)
     monkeypatch.setattr(manager, "status", lambda: HostProcessStatus(running=False))
