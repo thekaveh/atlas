@@ -28,7 +28,7 @@ The most recent log is always:
 ls -t /tmp/atlas-launch-*.log | head -1
 ```
 
-Inspect it after a failed launch — it captures everything the log pane showed, plus a few sources the pane filters out (e.g. cloud-fetch fallback warnings: `[warn/openai-fetch] live /v1/models returned 0 models — falling back to catalog (cause: HTTP 401)`). The file persists across reboots until your OS rotates `/tmp`; copy it elsewhere if you need to keep it.
+Inspect it after a failed launch — it captures everything the log pane showed, plus a few sources the pane filters out (e.g. cloud-fetch fallback warnings: `[warn/openai-fetch] live /v1/models returned 0 models — falling back to catalog (cause: HTTP 401)`). Session logs are bounded: 3 segments of 32 MiB per session (the first segment — session start and earliest diagnostics — is always kept; overflow rotates into numbered `.log.N` segments with truncation markers), and the 5 newest sessions are retained while older `atlas-launch-*` files are pruned at the next launch. Copy a log elsewhere if you need to keep it longer; exported copies are never touched by the pruning.
 
 ## 3. Quick Fixes
 
