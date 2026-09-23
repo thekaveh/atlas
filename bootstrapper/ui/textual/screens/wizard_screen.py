@@ -2193,36 +2193,27 @@ class WizardScreen(Screen):
         launch transition does the announce later when the pane is up.
         """
         import datetime
+        from ...session_log import SessionLogTee, retention_summary
         ts = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
-        fh = None
-        path = None
         try:
-            fh = tempfile.NamedTemporaryFile(
-                mode="w",
-                buffering=1,
-                encoding="utf-8",
+            # Bounded + rotating tee (#1178): 3 × 32 MiB per session with the
+            # first segment (session start + earliest diagnostics) pinned,
+            # older sessions pruned, and disk exhaustion degrading logging
+            # loudly instead of failing the launch.
+            tee = SessionLogTee(
                 prefix=f"atlas-launch-{ts}-",
-                suffix=".log",
-                dir=tempfile.gettempdir(),
-                delete=False,
+                on_degraded=lambda msg: self._log_pane.write_log(
+                    f"⚠ {msg}", level="warn", source="pipeline",
+                ),
             )
-            path = Path(fh.name)
-            self._launch_log_path = path
-            self._launch_log_fh = fh
-            fh.write(f"# atlas session log — started {ts}\n")
-            fh.flush()
+            self._launch_log_path = tee.base_path
+            self._launch_log_fh = tee
             if announce_in_pane:
                 self._log_pane.write_log(
-                    f"📝 session log: {path}",
+                    f"📝 session log: {tee.base_path} ({retention_summary()})",
                     level="info", source="pipeline",
                 )
         except OSError as exc:  # noqa: BLE001
-            if fh is not None:
-                with contextlib.suppress(OSError):
-                    fh.close()
-            if path is not None:
-                with contextlib.suppress(OSError):
-                    path.unlink()
             self._launch_log_fh = None
             self._launch_log_path = None
             self._log_pane.write_log(
@@ -2528,9 +2519,10 @@ class WizardScreen(Screen):
         if path is None:
             self.notify("No session log yet.", severity="warning", timeout=3)
             return
-        # The session-log tee has no cap and can grow large on a long
-        # launch — read it off the UI thread in a worker so ``Y`` can't
-        # freeze the TUI for the duration of the read. A dedicated group
+        # The session-log tee is segment-capped (#1178: 32 MiB max here —
+        # this copies segment 0, the pinned first-failure context), but a
+        # full segment is still large — read it off the UI thread in a
+        # worker so ``Y`` can't freeze the TUI for the duration of the read. A dedicated group
         # keeps this from colliding with (and cancelling) unrelated
         # exclusive=True workers — e.g. the pipeline/transition workers —
         # that run in the default group.
