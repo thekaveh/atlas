@@ -23,10 +23,12 @@ from __future__ import annotations
 
 from typing import Callable, Dict, List
 
+from utils import cloud_models
 from utils.cloud_models import (
-    list_anthropic_models,
-    list_openai_models,
-    list_openrouter_models,
+    DiscoveryResult,
+    discover_anthropic_models,
+    discover_openai_models,
+    discover_openrouter_models,
 )
 from utils.llm_catalog import (
     cloud_entries,
@@ -577,60 +579,197 @@ def build_ollama_steps(
 # ─── Cloud steps ───────────────────────────────────────────────────────
 
 
-def _make_cloud_options_provider(
-    provider_key: str,
-    secret_title: str,
-    api_key_var: str,
-    env_vars: Dict[str, str],
-    warn: Callable[[str], None],
-):
-    """Return a PromptStep options_provider that fetches the live model
-    list for the given cloud provider. Falls back to the curated
-    catalog on any failure (network, auth, empty result).
+# Provenance badges on cloud multi-select rows (#1180). ``live`` marks a
+# row the provider itself listed this run; ``catalog`` marks a curated
+# fallback row, which is evidence of nothing about the key; ``saved``
+# marks a model already in .env that neither source listed — carried so
+# a failed discovery cannot silently drop it (PromptPanel discards
+# default_values with no matching row, which then commits a shorter CSV).
+BADGE_LIVE = "live"
+BADGE_CATALOG = "catalog"
+BADGE_SAVED = "saved"
+
+# Why each state ended up showing the curated catalog. Keyed by
+# ``cloud_models`` state; the wizard prints one of these verbatim, so
+# each has to read as a finished clause after "credentials unverified".
+_FALLBACK_CAPTIONS = {
+    cloud_models.NO_KEY: "no API key was supplied",
+    cloud_models.UNAUTHORIZED: "the provider rejected the key",
+    cloud_models.RATE_LIMITED: "the provider rate-limited the request",
+    cloud_models.HTTP_ERROR: "the provider returned an error",
+    cloud_models.TIMEOUT: "the request timed out",
+    cloud_models.UNREACHABLE: "the provider could not be reached",
+    cloud_models.MALFORMED: "the provider's reply could not be read",
+    cloud_models.EMPTY: "the provider listed no usable models",
+}
+
+_PICKER_KEYS = "Space toggles, Enter confirms"
+
+_RETRY_HINT = "Esc re-enters the key and retries"
+
+# An OS-supplied error string has no length bound; the caption sits in a
+# fixed panel, so cut it rather than let it push the option list off screen.
+# The untruncated text is still in the session log.
+_MAX_DETAIL = 60
+
+
+def _provenance_subtitle(state: "str | None", detail: str) -> str:
+    """The caption above a cloud model picker, stating where its rows came from.
+
+    ``state`` is ``None`` before discovery has run (the loading splash).
+    Anything other than ``cloud_models.LIVE`` means the rows on screen are
+    the curated catalog, which proves nothing about the key — so the line
+    says that, names the cause, and points at the retry. An unrecognised
+    state still lands on the fallback wording: claiming a live listing is
+    the one thing this caption must never do by default.
+    """
+    if state is None:
+        return f"Checking the provider's model list · {_PICKER_KEYS}"
+    if state == cloud_models.LIVE:
+        head = "Live from the provider · key accepted"
+        if detail:
+            head = f"{head} ({detail})"
+        return f"{head} · {_PICKER_KEYS}"
+    cause = _FALLBACK_CAPTIONS.get(state, "discovery failed")
+    if detail:
+        if len(detail) > _MAX_DETAIL:
+            detail = detail[: _MAX_DETAIL - 1] + "…"
+        cause = f"{cause} ({detail})"
+    return (
+        f"Curated catalog · credentials unverified · {cause} · "
+        f"{_RETRY_HINT} · {_PICKER_KEYS}"
+    )
+
+
+def _discover_cloud_models(provider_key: str, api_key: str,
+                           warn: Callable[[str], None]) -> DiscoveryResult:
+    """Run the right provider's discovery call, converting a surprise
+    exception into a fallback result rather than letting it escape into
+    the options worker (which would render an empty picker)."""
+    try:
+        if provider_key == "openrouter":
+            return discover_openrouter_models(timeout=5.0, on_warn=warn)
+        if provider_key == "openai":
+            return discover_openai_models(api_key, timeout=5.0, on_warn=warn)
+        if provider_key == "anthropic":
+            return discover_anthropic_models(api_key, timeout=5.0, on_warn=warn)
+    except Exception as exc:  # noqa: BLE001
+        warn(f"[warn/{provider_key}-fetch] unexpected error: {type(exc).__name__}")
+        return DiscoveryResult(
+            models=[], state=cloud_models.UNREACHABLE,
+            detail=f"unexpected {type(exc).__name__}",
+        )
+    # A provider added to CLOUD_PROVIDERS without a discovery route lands
+    # here. NO_KEY would caption it "no API key was supplied", which is a
+    # false statement when the user supplied one; say it wasn't reached.
+    return DiscoveryResult(
+        models=[], state=cloud_models.UNREACHABLE,
+        detail=f"no discovery route for {provider_key}",
+    )
+
+
+def _live_rows(models) -> List[PromptOption]:
+    """Picker rows the provider itself listed this run."""
+    return [
+        PromptOption(value=m.id, label=m.label, hint=m.description,
+                     badges=[BADGE_LIVE])
+        for m in models
+    ]
+
+
+def _curated_rows(provider_key: str) -> List[PromptOption]:
+    """Picker rows from the bundled catalog — shown when discovery failed.
+
+    Badged ``catalog`` so no row on screen can be read as the provider
+    confirming it supports that model with this key.
+    """
+    return [
+        PromptOption(
+            value=e.name, label=e.name, hint=e.description,
+            badges=list(e.badges) + [BADGE_CATALOG],
+        )
+        for e in cloud_entries(provider_key)
+    ]
+
+
+def _with_saved_rows(rows: List[PromptOption], env_vars: Dict[str, str],
+                     user_models_var: str) -> List[PromptOption]:
+    """Append every already-saved model that the shown source didn't list.
+
+    ``PromptPanel.load_step`` drops any ``default_values`` entry with no
+    matching row, and the next Enter commits the shortened CSV — so
+    without this a live-only model id would fall out of the saved set the
+    first time discovery failed (#1180).
+    """
+    known = {r.value for r in rows}
+    saved = (env_vars.get(user_models_var, "") or "").split(",")
+    return rows + [
+        PromptOption(
+            value=mid, label=mid,
+            hint="already in .env; kept so a failed lookup can't drop it",
+            badges=[BADGE_SAVED],
+        )
+        for mid in (s.strip() for s in saved)
+        if mid and mid not in known
+    ]
+
+
+def _make_cloud_options_provider(provider, env_vars: Dict[str, str],
+                                 warn: Callable[[str], None]):
+    """Return ``(options_provider, subtitle_provider)`` for one cloud
+    provider's multi-select step.
+
+    The options provider fetches the live model list and falls back to
+    the curated catalog on any failure. The subtitle provider reports
+    what the rows on screen actually are — a static subtitle is written
+    before the fetch has run and so cannot (#1180). They share a mutable
+    cell carrying the reason for a fallback; live-vs-fallback itself is
+    read back off the rendered rows, so the two can never disagree.
 
     Resolution order for the API key:
       1. The secret-step value if it's a real key (not sentinel/empty).
       2. Existing value from .env (when secret step returned SECRET_KEEP).
-      3. None — only OpenRouter works keyless; others return [].
+      3. None — only OpenRouter works keyless; others report ``no-key``.
     """
+    provider_key = provider.key
+    secret_title = cloud_secret_title(provider.name)
+    api_key_var = provider.api_key_var
+    # ``None`` until the first fetch: the loading splash renders before
+    # the worker returns and must not claim an outcome it does not have.
+    outcome: Dict[str, object] = {"state": None, "detail": ""}
+
     def _resolve_key(selections: dict) -> str:
         v = selections.get(secret_title)
         if isinstance(v, str) and v and v not in (SECRET_KEEP, SECRET_CLEAR):
             return v
         return (env_vars.get(api_key_var, "") or "").strip()
 
-    def _curated_options() -> List[PromptOption]:
-        return [
-            PromptOption(
-                value=e.name, label=e.name,
-                hint=e.description, badges=list(e.badges),
-            )
-            for e in cloud_entries(provider_key)
-        ]
-
     def _provider(selections: dict) -> List[PromptOption]:
-        try:
-            if provider_key == "openrouter":
-                live = list_openrouter_models(timeout=5.0, on_warn=warn)
-            else:
-                api_key = _resolve_key(selections)
-                if provider_key == "openai":
-                    live = list_openai_models(api_key, timeout=5.0, on_warn=warn)
-                elif provider_key == "anthropic":
-                    live = list_anthropic_models(api_key, timeout=5.0, on_warn=warn)
-                else:
-                    live = []
-        except Exception as exc:  # noqa: BLE001
-            warn(f"[warn/{provider_key}-fetch] unexpected error: {type(exc).__name__}: {exc}")
-            live = []
-        if not live:
-            return _curated_options()
-        return [
-            PromptOption(value=m.id, label=m.label, hint=m.description, badges=[])
-            for m in live
-        ]
+        result = _discover_cloud_models(
+            provider_key, _resolve_key(selections), warn,
+        )
+        outcome["state"] = result.state
+        outcome["detail"] = result.detail
+        rows = (_live_rows(result.models) if result.is_live
+                else _curated_rows(provider_key))
+        return _with_saved_rows(rows, env_vars, provider.user_models_var)
 
-    return _provider
+    def _subtitle(options) -> str:
+        # Derived from the rows actually on screen, not from the holder
+        # alone: an options worker the wizard discarded (the user pressed
+        # Esc mid-fetch) still stamps its outcome here, and landing late
+        # it could otherwise caption a catalog list as live — precisely
+        # the claim #1180 exists to stop. The badges settle live vs
+        # fallback; the holder only supplies the reason, and is ignored
+        # when it disagrees with what is rendered.
+        if any(BADGE_LIVE in o.badges for o in options or []):
+            return _provenance_subtitle(cloud_models.LIVE, "")
+        state = outcome["state"]
+        if state not in cloud_models.FALLBACK_STATES:
+            return _provenance_subtitle("unknown", "")
+        return _provenance_subtitle(state, str(outcome["detail"]))
+
+    return _provider, _subtitle
 
 
 def _make_cloud_skip_predicate(
@@ -738,14 +877,19 @@ def build_cloud_steps(
         else:
             curated = default_active_names(provider_key)
             default_values = curated or [e.name for e in catalog_rows]
+        options_provider, subtitle_provider = _make_cloud_options_provider(
+            provider, env_vars, warn,
+        )
         cloud_steps.append(PromptStep(
             title=cloud_models_title(name),
             step_index=0, step_total=0,
             heading=f"Which {name} models do you want available?",
-            subtitle=(
-                "Live from /v1/models (filtered). Space toggles, Enter confirms. "
-                "Picks are persisted to .env and activate the model set via model_resolver on next start."
-            ),
+            # Static text is the pre-fetch placeholder only; the real
+            # caption comes from ``subtitle_provider`` at display time and
+            # names where the rows on screen actually came from (#1180).
+            subtitle=_provenance_subtitle(None, ""),
+            subtitle_provider=subtitle_provider,
+            wrap_subtitle=True,
             options=[],
             default_values=default_values,
             service_name="",
@@ -753,9 +897,7 @@ def build_cloud_steps(
             skip_if_prev=_make_cloud_skip_predicate(
                 secret_title, source_var, api_key_var, env_vars,
             ),
-            options_provider=_make_cloud_options_provider(
-                provider_key, secret_title, api_key_var, env_vars, warn,
-            ),
+            options_provider=options_provider,
         ))
     return cloud_steps
 

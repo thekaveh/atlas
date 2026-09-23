@@ -72,9 +72,11 @@ The interactive wizard's per-provider multiselects persist as comma-separated en
 |---|---|---|---|
 | `OLLAMA_USER_MODELS` | Single unified Ollama models multiselect (source-aware; localhost rows are badged `[pulled]` / `[library]`). | Default-active baseline (qwen3.8:latest, qwen3-embedding:0.6b, nomic-embed-text). | Consumed by `model_resolver` for every Ollama source. Pulled by `ollama-pull` for container sources; for `ollama-localhost` the bootstrapper pulls the declared set onto the host daemon at start (#757). |
 | `OLLAMA_CUSTOM_MODELS` | Ollama "additional models to pull" free-text step. | Empty. | Comma-separated. Pulled by `ollama-pull` for container sources; for `ollama-localhost` the bootstrapper pulls them onto the host daemon at start (#757). |
-| `OPENAI_USER_MODELS` | OpenAI multiselect (live `/v1/models` fetch). | Curated default-active intersection (gpt-5, gpt-5-mini, text-embedding-3-large) when key valid. | Requires `OPENAI_API_KEY`. |
-| `ANTHROPIC_USER_MODELS` | Anthropic multiselect (live `/v1/models` fetch). | Curated default-active intersection (claude-opus-4-7, claude-sonnet-4-6) when key valid. | Requires `ANTHROPIC_API_KEY`. |
-| `OPENROUTER_USER_MODELS` | OpenRouter multiselect (live `/api/v1/models` fetch). | `openrouter/auto` when reachable. | Requires `OPENROUTER_API_KEY`. |
+| `OPENAI_USER_MODELS` | OpenAI multiselect (live `/v1/models` fetch; falls back to the curated catalog and says so). | Curated default-active intersection (gpt-5, gpt-5-mini, text-embedding-3-large) when key valid. | Requires `OPENAI_API_KEY`. |
+| `ANTHROPIC_USER_MODELS` | Anthropic multiselect (live `/v1/models` fetch; falls back to the curated catalog and says so). | Curated default-active intersection (claude-opus-4-7, claude-sonnet-4-6) when key valid. | Requires `ANTHROPIC_API_KEY`. |
+| `OPENROUTER_USER_MODELS` | OpenRouter multiselect (live `/api/v1/models` fetch; falls back to the curated catalog and says so). | `openrouter/auto` when reachable. | Requires `OPENROUTER_API_KEY`. |
+
+A cloud multiselect never claims a live listing it did not get. The caption above the list reads either `Live from the provider; key accepted` or `Curated catalog, credentials unverified: <reason>`, and each row is badged `live` or `catalog` to match (#1180). Values already saved in a `*_USER_MODELS` var that neither source lists are carried into the picker badged `saved`, so a failed lookup cannot silently shorten the stored list. See [Interactive Setup Wizard §4.4.1](https://github.com/thekaveh/atlas/blob/main/docs/quick-start/interactive-setup-wizard.md).
 
 ## 4. Detailed SOURCE Configurations
 

@@ -298,6 +298,13 @@ class PromptStep:
     # multiselect, where the option list comes from a live ``/api/tags``
     # query that depends on the user's just-picked LLM source.
     options_provider: "Callable[[dict], list[PromptOption]] | None" = None
+    # Optional callable returning the subtitle at display time, given the
+    # options about to be rendered. Needed wherever the caption depends on
+    # what ``options_provider`` found: the static ``subtitle`` is written
+    # when the step is built, which is before any fetch has run, so it
+    # cannot tell a live provider listing from a fallback catalog (#1180).
+    # When set it wins over ``subtitle``, which stays as the pre-fetch text.
+    subtitle_provider: "Callable[[list[PromptOption]], str] | None" = None
     # The exact service-table row name this step controls. Used by the
     # wizard screen to highlight the matching row when this step loads.
     service_name: str = ""
