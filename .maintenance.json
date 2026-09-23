@@ -22,7 +22,7 @@
       "functions_over_100_physical_lines": 85,
       "functions_over_4_parameters": 156,
       "modules_over_600_logical_lines": 21,
-      "tracked_files": 1576,
+      "tracked_files": 1577,
       "v0.1.0_tracked_files": 667
     },
     "extended_python_baseline_snapshot": {
@@ -288,6 +288,7 @@
     "refresh_notes_2026_09_22_issue_1167": "tracked_files 1572->1573: one new test module, bootstrapper/tests/test_backend_request_limits.py, running the backend's route-class body-limit middleware and Ragas evidence bounds in-process in the required CI job (#1167). The middleware generalization itself reshaped media_request_limit.py in place (no new runtime module); Radon counters are covered by the recomputed gates.",
     "refresh_notes_2026_09_22_issue_1171": "tracked_files 1573->1574: one new CI test module, bootstrapper/tests/test_backend_pool_saturation.py, running the backend's bounded pool-acquisition path (#1171) in-process against asyncpg-faithful fakes (asyncpg itself joined the dev dependency group for the import). No Python counters moved.",
     "refresh_notes_2026_09_22_issue_1170": "tracked_files 1574->1575: one new CI test module, bootstrapper/tests/test_backend_ray_deadlines.py, pinning #1170's Ray transport-deadline seam (defaults injected at the pinned 2.56.0 _do_request boundary, fail-closed on SDK shape change), ambiguous-submission classification, and the inert-control-plane transport bound via a real accept-and-never-reply socket. No Python counters moved.",
-    "refresh_notes_2026_09_22_issue_1172": "tracked_files 1575->1576: the #1172 transport-bound tests moved into their own module (services/backend/app/app/tests/test_memory_redis_timeouts.py) after CI caught test_async_jobs.py crossing the 600-logical-line module ceiling (596->668) with them appended; the split keeps test_async_jobs at 596 and the ceiling at 21 unraised. No other counters moved."
+    "refresh_notes_2026_09_22_issue_1172": "tracked_files 1575->1576: the #1172 transport-bound tests moved into their own module (services/backend/app/app/tests/test_memory_redis_timeouts.py) after CI caught test_async_jobs.py crossing the 600-logical-line module ceiling (596->668) with them appended; the split keeps test_async_jobs at 596 and the ceiling at 21 unraised. No other counters moved.",
+    "refresh_notes_2026_09_22_issue_1175": "tracked_files 1576->1577: one new CI test module, bootstrapper/tests/test_env_forwarding_contract.py (#1175) \u2014 the generic manifest->Compose env forwarding parity check with its 27-entry reviewed exceptions table and bidirectional stale guards. No Python counters moved."
   }
 }

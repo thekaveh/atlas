@@ -334,6 +334,19 @@ Use these only if your service is genuinely adaptive. Today eight manifests decl
 
 <a id="11-mechanics--putting-it-all-together"></a>
 
+### 10.3. The env forwarding contract (#1175)
+
+Every variable `generate_service_environment()` writes into `.env` must be
+**consumed**: either some Compose fragment interpolates it (`${VAR}`), or it
+appears with a reviewed reason in `FORWARDING_EXCEPTIONS` inside
+`bootstrapper/tests/test_env_forwarding_contract.py` (host-only values,
+derivation inputs the bootstrapper folds into another var, consumer-contract
+exports, container-less virtual families). Adding an adaptive runtime
+variable without its consuming injection fails that generic check instead of
+silently producing an inert `.env` entry — the class behind previously-inert
+plugin/Ray settings. Stale-exception guards run in both directions, so drop
+an entry the moment the variable gains a real Compose consumer.
+
 ## 11. Mechanics — putting it all together
 
 After making the six decisions, you write two files. Here's the full result for Qdrant. Line callouts (`# ← Decision N`) point back to the decision section that explains the choice.
