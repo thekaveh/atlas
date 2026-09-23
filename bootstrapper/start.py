@@ -5585,6 +5585,66 @@ class AtlasStartGroup(click.Group):
         return False
 
 
+def _track_suggestions(entered: str, registry) -> list[str]:
+    """Valid track keys close to what the user typed, best first.
+
+    Prefix and substring matches rank first, so a truncated 'data-en'
+    suggests 'data-eng' before anything fuzzier; difflib fills the rest.
+    """
+    import difflib
+
+    entered = entered.strip().lower()
+    if not entered:
+        return []
+    keys = [track.key for track in registry.tracks]
+    ordered = [key for key in keys if key.startswith(entered) or entered in key]
+    for key in difflib.get_close_matches(entered, keys, n=3, cutoff=0.6):
+        if key not in ordered:
+            ordered.append(key)
+    return ordered[:3]
+
+
+def _prompt_for_track(registry, *, max_attempts: int = 5) -> str:
+    """Read a track key from stdin, re-prompting on invalid input (#1184).
+
+    Empty input selects the displayed default. Non-interactive stdin takes
+    the default without blocking a scripted run. Invalid non-empty input
+    re-prompts with suggestions instead of silently resolving to another
+    workload; after ``max_attempts`` the run exits non-zero rather than
+    guessing which services to disable.
+    """
+    default_key = registry.tracks[0].key
+
+    if not sys.stdin.isatty():
+        print("(non-interactive stdin — using default)", file=sys.stderr)
+        return default_key
+
+    for attempt in range(max_attempts):
+        try:
+            selected = input().strip()
+        except EOFError:
+            print("(end of input — using default)", file=sys.stderr)
+            return default_key
+        if not selected:
+            return default_key
+        if selected in registry.by_key:
+            return selected
+
+        suggestions = _track_suggestions(selected, registry)
+        hint = " Did you mean " + " or ".join(suggestions) + "?" if suggestions else ""
+        print(f"Unknown track '{selected}'.{hint}", file=sys.stderr)
+        if attempt == max_attempts - 1:
+            break
+        print(
+            f"Enter a valid track, or press Enter for the default '{default_key}': ",
+            end="", file=sys.stderr, flush=True,
+        )
+
+    valid = ", ".join(track.key for track in registry.tracks)
+    print(f"Error: no valid track selected. Available: {valid}.", file=sys.stderr)
+    sys.exit(2)
+
+
 @click.group(invoke_without_command=True, cls=AtlasStartGroup)
 @click.option('--project', '-p', 'project_name', type=str, default=None,
               help='Docker Compose project name — the container-family namespace '
@@ -6502,22 +6562,15 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     "Pick a track (Enter for default 'gen-ai-rag'): ",
                     end="", file=sys.stderr, flush=True,
                 )
-                if sys.stdin.isatty():
-                    selected = input().strip()
-                else:
-                    selected = ""
-                    print("(non-interactive stdin — using default)",
-                          file=sys.stderr)
-                if not selected:
-                    selected = _reg.tracks[0].key  # gen-ai-rag
-                if selected not in _reg.by_key:
-                    print(
-                        f"Warning: unknown track '{selected}', "
-                        f"using default 'gen-ai-rag'.",
-                        file=sys.stderr,
-                    )
-                    selected = _reg.tracks[0].key
-                track = selected
+                # A typo must never silently resolve to a different
+                # workload: the resolved track drives force-disable
+                # synthesis below, so 'data-en' becoming gen-ai-rag would
+                # disable every data-engineering service without the user
+                # ever choosing that (#1184). Re-prompt instead, with a
+                # suggestion. Empty input still takes the displayed
+                # default, and non-interactive stdin still falls back to it
+                # rather than blocking a scripted run.
+                track = _prompt_for_track(_reg)
             # Force-disable synthesis for the RESOLVED track — whether it was
             # preset via --track or just prompted above. The early-synthesis
             # block (search "Track override-set") deliberately skips this when
