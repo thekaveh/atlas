@@ -734,10 +734,10 @@ def test_remove_refuses_while_the_process_is_still_running(tmp_path: Path, monke
     assert manager.pid_file.exists(), "pid file deleted — the process is now untracked"
 
 
-def test_remove_deletes_state_once_the_process_is_gone(tmp_path: Path, monkeypatch) -> None:
+def test_remove_deletes_state_once_the_process_is_gone(tmp_path: Path, monkeypatch, dead_pid) -> None:
     manager = _manager(tmp_path, "gone", (sys.executable, "-c", "pass"))
     manager.state_dir.mkdir(parents=True, exist_ok=True)
-    manager.pid_file.write_text("4242\n", encoding="utf-8")
+    manager.pid_file.write_text(f"{dead_pid}\n", encoding="utf-8")
 
     monkeypatch.setattr(manager, "stop", lambda: True)
     monkeypatch.setattr(manager, "status", lambda: HostProcessStatus(running=False))
@@ -747,7 +747,7 @@ def test_remove_deletes_state_once_the_process_is_gone(tmp_path: Path, monkeypat
 
 
 def test_remove_succeeds_when_stop_reports_failure_for_an_already_dead_process(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch, dead_pid
 ) -> None:
     """`_signal` sees ProcessLookupError from both killpg and kill when the
     process exits mid-signal. That is an OSError, so `stop()` returns False for
@@ -755,7 +755,7 @@ def test_remove_succeeds_when_stop_reports_failure_for_an_already_dead_process(
     teardown that should succeed, and `managed-host remove` has no handler."""
     manager = _manager(tmp_path, "raced", (sys.executable, "-c", "pass"))
     manager.state_dir.mkdir(parents=True, exist_ok=True)
-    manager.pid_file.write_text("4242\n", encoding="utf-8")
+    manager.pid_file.write_text(f"{dead_pid}\n", encoding="utf-8")
 
     monkeypatch.setattr(manager, "stop", lambda: False)
     monkeypatch.setattr(manager, "status", lambda: HostProcessStatus(running=False))

@@ -182,3 +182,31 @@ def env_with_overrides(tmp_path):
         return env_path
 
     return _build
+
+
+@pytest.fixture
+def dead_pid() -> int:
+    """See _provably_dead_pid."""
+    return _provably_dead_pid()
+
+
+def _provably_dead_pid() -> int:
+    """A PID that is definitely not running (#1237).
+
+    Tests used the literal 4242 and assumed nothing owned it. On a loaded CI
+    runner a real process does, so the managed-host removal guard correctly
+    refuses to erase state and the test fails for an unrelated reason. Spawn
+    a trivial child, reap it, then confirm the PID is free.
+    """
+    import os
+    import subprocess
+    import sys
+
+    for _ in range(10):
+        proc = subprocess.Popen([sys.executable, "-c", "pass"])
+        proc.wait()
+        try:
+            os.kill(proc.pid, 0)
+        except ProcessLookupError:
+            return proc.pid
+    raise AssertionError("could not obtain a dead PID after 10 attempts")
