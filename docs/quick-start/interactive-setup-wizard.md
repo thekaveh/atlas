@@ -152,7 +152,7 @@ Shown only for `ollama-container-*` sources. Free-text comma-separated list, e.g
 
 Each enabled cloud provider gets two consecutive steps:
 
-1. **API key** (`secret` kind). The widget is a masked password Input — no sentinel rows are rendered. When a key is already saved: press **Enter** to keep it, type a new key + Enter to replace it, or type `clear` + Enter to remove it. When no key is saved: type a key + Enter to enable, or press Enter (empty) to leave the provider disabled. The hint line below the input always tells you which action Enter will take.
+1. **API key** (`secret` kind). The widget is a masked password Input — no sentinel rows are rendered. Turning a provider on or off and storing or deleting its key are **separate actions** (#1183, see §4.4.2). The hint line below the input always tells you which action Enter will take.
 2. **Models** (`multiselect`). Live fetch from the provider's models endpoint:
    - **OpenAI** — `GET /v1/models` (filtered to the chat / o-series / `text-embedding-3-*` set).
    - **Anthropic** — `GET /v1/models` (Anthropic's documented endpoint).
@@ -160,7 +160,29 @@ Each enabled cloud provider gets two consecutive steps:
 
    The default-active subset of `bootstrapper/utils/llm_catalog.py` is intersected with what your account actually returns; the result is pre-checked. Selections persist as `OPENAI_USER_MODELS`, `ANTHROPIC_USER_MODELS`, `OPENROUTER_USER_MODELS`.
 
-#### 4.4.1. Where the listed models came from
+#### 4.4.1. Turning a provider off is not the same as deleting its key
+
+`CLOUD_<PROVIDER>_SOURCE` and `<PROVIDER>_API_KEY` are two separate facts, so the key step accepts one word per intent (#1183). With a key already saved:
+
+| You type | What happens |
+|---|---|
+| **Enter** (nothing) | Nothing changes. A provider that is off stays off and keeps its key; one that is on stays on. |
+| `enable` | Turns the provider on using the saved key. The key is not rewritten. |
+| `disable` | Turns the provider off and **keeps** the key, so re-enabling later needs no re-paste. |
+| a new key | Replaces the key and turns the provider on. |
+| `remove` | Deletes the key and turns the provider off. The only action that erases a credential. |
+
+`clear` still works as a synonym for `remove`, since that is the word the wizard documented before this split. Matching is case-insensitive and surrounding whitespace is ignored.
+
+Before this change a bare **Enter** on a provider that was off but had a saved key turned it **on** — a state change nobody asked for — and the only way to turn a provider off also deleted its key. Unchecking every model in the model step did the same. Now unchecking everything turns the provider off and leaves the key in place; the step heading says so.
+
+When no key is saved, the behaviour is unchanged: type a key + Enter to enable, or press Enter (empty) to leave the provider disabled.
+
+The model step is skipped for a provider that will end up off, so you are never asked to choose models for something that will not run.
+
+Your key never appears in the command preview. Each of these actions previews as `--cloud-<provider>-source enabled` or `disabled`; setting a new key previews `--<provider>-api-key <set>`, never the key itself, because that line is meant to be copied into a shell.
+
+#### 4.4.2. Where the listed models came from
 
 The caption above the list always says which of the two sources you are looking at, so a model appearing in the picker is never mistaken for proof that your key works (#1180):
 

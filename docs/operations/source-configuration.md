@@ -76,7 +76,7 @@ The interactive wizard's per-provider multiselects persist as comma-separated en
 | `ANTHROPIC_USER_MODELS` | Anthropic multiselect (live `/v1/models` fetch; falls back to the curated catalog and says so). | Curated default-active intersection (claude-opus-4-7, claude-sonnet-4-6) when key valid. | Requires `ANTHROPIC_API_KEY`. |
 | `OPENROUTER_USER_MODELS` | OpenRouter multiselect (live `/api/v1/models` fetch; falls back to the curated catalog and says so). | `openrouter/auto` when reachable. | Requires `OPENROUTER_API_KEY`. |
 
-A cloud multiselect never claims a live listing it did not get. The caption above the list reads either `Live from the provider; key accepted` or `Curated catalog, credentials unverified: <reason>`, and each row is badged `live` or `catalog` to match (#1180). Values already saved in a `*_USER_MODELS` var that neither source lists are carried into the picker badged `saved`, so a failed lookup cannot silently shorten the stored list. See [Interactive Setup Wizard §4.4.1](https://github.com/thekaveh/atlas/blob/main/docs/quick-start/interactive-setup-wizard.md).
+A cloud multiselect never claims a live listing it did not get. The caption above the list reads either `Live from the provider; key accepted` or `Curated catalog, credentials unverified: <reason>`, and each row is badged `live` or `catalog` to match (#1180). Values already saved in a `*_USER_MODELS` var that neither source lists are carried into the picker badged `saved`, so a failed lookup cannot silently shorten the stored list. See [Interactive Setup Wizard §4.4.2](https://github.com/thekaveh/atlas/blob/main/docs/quick-start/interactive-setup-wizard.md).
 
 ### 3.5. Numeric wizard entries
 
@@ -153,7 +153,7 @@ model, port, and lifecycle requirements.
 
 #### 4.1.3. `CLOUD_OPENAI_SOURCE` / `CLOUD_ANTHROPIC_SOURCE` / `CLOUD_OPENROUTER_SOURCE` (multi-toggle)
 
-Each cloud provider is an independent `enabled` / `disabled` switch — turn on as many as you want simultaneously. Consumers request model IDs against `LITELLM_BASE_URL`; LiteLLM routes per-provider based on the active model set that `model_resolver` computes from the YAML catalogs + env on each `docker compose up`.
+Each cloud provider is an independent `enabled` / `disabled` switch — turn on as many as you want simultaneously. The switch is independent of the stored credential: `CLOUD_<PROVIDER>_SOURCE=disabled` alongside a populated `<PROVIDER>_API_KEY` is a valid, supported state, and the wizard can produce and preserve it (#1183). Only an explicit `remove` in the wizard's key step blanks a key; turning a provider off, and unchecking every one of its models, both leave the key in place. See [Interactive Setup Wizard §4.4.1](https://github.com/thekaveh/atlas/blob/main/docs/quick-start/interactive-setup-wizard.md). Consumers request model IDs against `LITELLM_BASE_URL`; LiteLLM routes per-provider based on the active model set that `model_resolver` computes from the YAML catalogs + env on each `docker compose up`.
 
 ```bash
 CLOUD_OPENAI_SOURCE=enabled          # requires OPENAI_API_KEY
