@@ -622,14 +622,32 @@ def _step_secondary_keys(step) -> set[str]:
 
 
 def _restored_free_text_input(prior: str) -> str | None:
-    """Map a committed free-text sentinel back to active input state."""
-    from wizard.model.cloud_rules import SECRET_CLEAR, SECRET_KEEP
+    """Map a committed free-text sentinel back to active input state.
+
+    Every sentinel MUST appear here. The fall-through returns ``prior``
+    verbatim, so a sentinel this map does not know is preloaded into the
+    input as literal text — and the next Enter commits ``"<DISABLE>"`` as
+    the provider's API key (#1183).
+    """
+    from wizard.model.cloud_rules import (
+        SECRET_CLEAR,
+        SECRET_DISABLE,
+        SECRET_ENABLE,
+        SECRET_KEEP,
+    )
 
     if prior == SECRET_KEEP:
         return None
-    if prior == SECRET_CLEAR:
-        return "clear"
-    return prior
+    return {
+        # "clear", not "remove": this helper also serves ``kind="text"``
+        # steps (OLLAMA_CUSTOM_MODELS), whose parser knows only "clear".
+        # Restoring a word that step cannot re-encode would commit the
+        # literal text on the next Enter. "clear" stays a valid alias on
+        # secret steps too, so it round-trips on both kinds.
+        SECRET_CLEAR: "clear",
+        SECRET_DISABLE: "disable",
+        SECRET_ENABLE: "enable",
+    }.get(prior, prior)
 
 
 def replace_step_secondary_selections(
@@ -1903,12 +1921,11 @@ class WizardScreen(Screen):
         """Live-update the Cloud APIs overview block after a cloud
         multiselect step.
 
-        Two cases mirror ``_selections_to_args``:
-          • Empty CSV ("0 selected") → user wants this provider OFF.
-          • Non-empty CSV on a previously-disabled provider whose key
-            is set → auto-promote (same path as the secret step's
-            SECRET_KEEP+disabled+key path; without this, the overview
-            would lag the launch state).
+        Mirrors ``_selections_to_args``: an empty CSV ("0 selected") turns
+        the provider off and KEEPS its key (#1183). There is no
+        auto-promotion to mirror any more — a non-empty selection on a
+        provider that stays off changes nothing, because the model picker
+        is only reachable for a provider that will be on.
         """
         from wizard.model.cloud_rules import SECRET_KEEP
         from wizard.llm_steps import cloud_models_title
@@ -1926,17 +1943,13 @@ class WizardScreen(Screen):
             # bucket too, so promoting here would make the overview lie.
             return
         csv = (value or "").strip()
-        if csv == "":
-            # Empty selection ⇒ provider gets disabled at launch.
-            target.enabled = False
-            target.key_set = False
-        elif target.key_set and not target.enabled:
-            # Non-empty selection on a previously-disabled provider with
-            # a saved key. _selections_to_args auto-promotes the source
-            # to ``enabled``; mirror that in the overview now.
-            target.enabled = True
-        else:
+        if csv != "":
             return  # no overview change required
+        # Empty selection ⇒ provider gets disabled at launch. ``key_set``
+        # is deliberately untouched: the key survives (#1183), and
+        # clearing the indicator here would tell the user their
+        # credential was deleted when it was not.
+        target.enabled = False
         self._cloud_apis_row.set_cloud_apis(self._cloud_apis)
         self._refresh_info_panel()
 
@@ -1948,7 +1961,12 @@ class WizardScreen(Screen):
         value, and refreshes the row + footer count line.
         """
         # Local imports avoid a hard dependency at module load time.
-        from wizard.model.cloud_rules import SECRET_KEEP, SECRET_CLEAR
+        from wizard.model.cloud_rules import (
+            SECRET_CLEAR,
+            SECRET_DISABLE,
+            SECRET_ENABLE,
+            SECRET_KEEP,
+        )
         from wizard.llm_steps import cloud_secret_title
 
         # Exact title match via the same helper that built the step
@@ -1962,16 +1980,19 @@ class WizardScreen(Screen):
                 break
         if target is None:
             return
+        # One arm per verdict in ``resolve_cloud_provider``. The overview
+        # must not claim a state the resolver will not write: this used to
+        # flip a disabled-but-keyed provider to enabled on SECRET_KEEP,
+        # mirroring the auto-promotion #1183 removed.
         if value == SECRET_KEEP:
-            # Auto-promote case: .env had source=disabled but a key is
-            # present. The skip predicate let the multiselect through;
-            # _selections_to_args will flip source to enabled. Mirror
-            # that in the overview so the user sees the correct state
-            # immediately instead of waiting until launch.
-            if target.key_set and not target.enabled:
-                target.enabled = True
-            else:
-                return  # truly nothing changed
+            return  # nothing changed — neither field is written
+        if value == SECRET_ENABLE:
+            if not target.key_set:
+                return  # nothing to enable with; the resolver says disabled
+            target.enabled = True
+        elif value == SECRET_DISABLE:
+            # Off, key retained — that is the whole point of the verdict.
+            target.enabled = False
         elif value == SECRET_CLEAR or value == "":
             target.enabled = False
             target.key_set = False
@@ -1982,7 +2003,12 @@ class WizardScreen(Screen):
         self._refresh_info_panel()
 
     def _refresh_command_summary(self) -> None:
-        from wizard.model.cloud_rules import SECRET_KEEP, SECRET_CLEAR
+        from wizard.model.cloud_rules import (
+            SECRET_CLEAR,
+            SECRET_DISABLE,
+            SECRET_ENABLE,
+            SECRET_KEEP,
+        )
         from wizard.llm_steps import (
             OLLAMA_CUSTOM_TITLE,
             OLLAMA_MODELS_TITLE,
@@ -2053,13 +2079,23 @@ class WizardScreen(Screen):
                 continue
 
             # Cloud secret step → equivalent --cloud-X-source +
-            # sanitized --X-api-key. Never emit the raw key string.
+            # sanitized --X-api-key. Never emit the raw key string: the
+            # summary is copy-pasteable, and a key on a command line ends
+            # up in shell history.
             if step.title in cloud_secret_titles:
                 provider = cloud_secret_titles[step.title]
                 if value == SECRET_KEEP:
-                    pass  # no flag — keeping current state
-                elif value == SECRET_CLEAR or value == "":
+                    pass  # no flag — keeping both key and on/off state
+                elif value in (SECRET_CLEAR, "", SECRET_DISABLE):
+                    # Both turn the provider off. They differ only in
+                    # whether the stored key survives, which is a .env
+                    # fact and has no flag — replaying this command
+                    # reproduces the source, never the credential (#1183).
                     flags.append((f"--cloud-{provider}-source", "disabled"))
+                elif value == SECRET_ENABLE:
+                    # Enabling with the already-saved key: no key flag,
+                    # because no key is being set.
+                    flags.append((f"--cloud-{provider}-source", "enabled"))
                 else:
                     flags.append((f"--cloud-{provider}-source", "enabled"))
                     flags.append((f"--{provider}-api-key", "<set>"))
