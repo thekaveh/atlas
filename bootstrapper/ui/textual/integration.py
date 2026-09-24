@@ -14,6 +14,8 @@ start.py just calls this and exits when it returns.
 
 from __future__ import annotations
 
+from dataclasses import replace
+from functools import partial as _partial
 from pathlib import Path
 
 from textual.app import App
@@ -26,6 +28,7 @@ _THEME_PATH = Path(__file__).parent / "theme.css"
 # truth lives in wizard/comfyui_steps.py; imported here to keep the drain
 # loop (selections.get(COMFYUI_MODELS_TITLE)) aligned with what the step
 # registers without duplicating the string literal.
+from tracks import remark_off_track_rows as _remark_off_track_rows
 from wizard.comfyui_steps import COMFYUI_MODELS_TITLE
 from wizard.model.cloud_rules import SECRET_CLEAR, SECRET_KEEP, resolve_cloud_provider
 
@@ -314,9 +317,8 @@ def _build_steps_and_rows(
     from .widgets.prompt_panel import PromptOption, PromptStep
     from .widgets.service_table import ServiceRow
     from services.manifests import load_manifests as _load_manifests, option_in_profile as _option_in_profile
-    from pathlib import Path as _Path
     try:
-        _manifests = _load_manifests(_Path(config_parser.root_dir) / "services")
+        _manifests = _load_manifests(Path(config_parser.root_dir) / "services")
     except Exception:  # noqa: BLE001
         _manifests = []
     # Build SOURCE-var → manifest-name mapping from the manifests.
@@ -445,9 +447,17 @@ def _build_steps_and_rows(
             title=PICKER_STEP_TITLE,
             step_index=1, step_total=total,
             heading="Which workload are you building?",
+            # "Asked", not "always-on": these four are exempt from
+            # track-skip filtering, so every track prompts for them — but
+            # Prometheus and Grafana still ship disabled, and a cloud key
+            # left blank leaves that provider off. Calling them always-on
+            # told users four services would run when two default to off
+            # (#1032). The genuinely always-running tier is Supabase +
+            # Kong + Redis + LiteLLM + Backend, which is not prompted at
+            # all and so has no place in this list.
             subtitle=(
-                "Always-on for every track: LLM Engine + Prometheus + "
-                "Grafana + cloud-provider keys."
+                "Asked in every track: LLM Engine + Prometheus + Grafana + "
+                "cloud-provider keys. Prometheus and Grafana default to off."
             ),
             options=picker_options,
             default_value=picker_default,
@@ -469,21 +479,27 @@ def _build_steps_and_rows(
         title=PROFILE_STEP_TITLE,
         step_index=2, step_total=total,
         heading="Dev or production hardening?",
+        # Every claim here is checked against profiles.yml by
+        # test_profile_copy_matches_the_overlay (#1032). The previous copy
+        # promised "resource limits", which the prod overlay does not set,
+        # and framed localhost-only ports as a prod feature when BOTH
+        # profiles bind 127.0.0.1 — so the one real security question a
+        # reader might have had was answered wrongly in both directions.
         subtitle=(
-            "prod: localhost-only ports, resource limits, log rotation, "
-            "observability on — and localhost sources hidden."
+            "prod: observability on, log rotation, and localhost sources "
+            "hidden. Both profiles bind ports to 127.0.0.1."
         ),
         options=[
             PromptOption(
                 value="default",
                 label="Default (dev)",
-                hint="0.0.0.0 ports; all sources available",
+                hint="127.0.0.1 ports; all sources available",
                 badges=[],
             ),
             PromptOption(
                 value="prod",
                 label="Production hardening",
-                hint="127.0.0.1 ports; localhost sources hidden",
+                hint="127.0.0.1 ports; Prometheus + Grafana on; localhost sources hidden",
                 badges=[],
             ),
         ],
@@ -758,7 +774,6 @@ def _build_steps_and_rows(
         if svc.display_name == "ComfyUI":
             _comfyui_substeps = build_comfyui_steps(env_vars, _wizard_warn)
             if _track_registry is not None:
-                from dataclasses import replace as _dc_replace
                 _track_skip_comfyui = _make_track_skip(
                     svc.key,
                     always_on=_always_on,
@@ -775,7 +790,7 @@ def _build_steps_and_rows(
                                 return bool(_a(_sel)) or bool(_b(_sel))
                             except Exception:  # noqa: BLE001
                                 return False
-                    steps.append(_dc_replace(_sub, skip_if_prev=_combined))
+                    steps.append(replace(_sub, skip_if_prev=_combined))
             else:
                 steps.extend(_comfyui_substeps)
             # Splice the FAL Cloud Media API-token (secret) step RIGHT AFTER the
@@ -786,7 +801,6 @@ def _build_steps_and_rows(
             from wizard.llm_steps import build_fal_secret_step
             _fal_steps = build_fal_secret_step(env_vars, _wizard_warn)
             if _track_registry is not None:
-                from dataclasses import replace as _dc_replace_fal
                 _track_skip_fal = _make_track_skip(
                     "fal",
                     always_on=_always_on,
@@ -794,7 +808,7 @@ def _build_steps_and_rows(
                     registry=_track_registry,
                 )
                 steps.extend(
-                    _dc_replace_fal(_fs, skip_if_prev=_track_skip_fal)
+                    replace(_fs, skip_if_prev=_track_skip_fal)
                     for _fs in _fal_steps
                 )
             else:
@@ -849,9 +863,8 @@ def _build_steps_and_rows(
     # so callers that read the seed values (e.g. one-off renders that
     # bypass WizardScreen._render_step) see correct numbers.
     total = len(steps)
-    from dataclasses import replace as _dc_replace
     steps = [
-        _dc_replace(s, step_index=i + 1, step_total=total)
+        replace(s, step_index=i + 1, step_total=total)
         for i, s in enumerate(steps)
     ]
 
@@ -1420,6 +1433,9 @@ def run_setup_flow(
             new_base, current_rows, config_parser, port_offsets,
         )
 
+    # Re-dims the service table for an interactively picked track (#1032).
+    _remark_rows = _partial(_remark_off_track_rows, services_info=services_info, overridden=overridden_services or frozenset())
+
     class _SetupApp(App):
         CSS_PATH = str(_THEME_PATH)
         # TITLE is set dynamically in on_mount so it honors BRAND_NAME
@@ -1441,6 +1457,7 @@ def run_setup_flow(
                 stack_options_resolver=_resolve,
                 on_base_port_change=_recompute_ports,
                 resolve_port_for_service=_resolve_port_for_service,
+                on_track_change=_remark_rows,
                 cloud_apis=cloud_summaries,
                 consumers=consumer_summaries,
                 prefilled_selections=(_prefilled if _prefilled else None),
