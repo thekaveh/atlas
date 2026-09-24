@@ -78,6 +78,10 @@ The interactive wizard's per-provider multiselects persist as comma-separated en
 
 A cloud multiselect never claims a live listing it did not get. The caption above the list reads either `Live from the provider; key accepted` or `Curated catalog, credentials unverified: <reason>`, and each row is badged `live` or `catalog` to match (#1180). Values already saved in a `*_USER_MODELS` var that neither source lists are carried into the picker badged `saved`, so a failed lookup cannot silently shorten the stored list. See [Interactive Setup Wizard §4.4.1](https://github.com/thekaveh/atlas/blob/main/docs/quick-start/interactive-setup-wizard.md).
 
+### 3.5. Numeric wizard entries
+
+`BASE_PORT` and the inline per-row numbers (`RAY_WORKER_COUNT`, `SPARK_WORKER_COUNT`, `PROMETHEUS_RETENTION_DAYS`, the STT provider ports) are accepted as typed or refused. The wizard does not clamp a value into range or fall back to the previous one (#1181), so nothing here is written until an accepted value exists. Empty means "keep the current value", and `auto` remains a real `BASE_PORT` value. See [Interactive Setup Wizard §7.1](https://github.com/thekaveh/atlas/blob/main/docs/quick-start/interactive-setup-wizard.md).
+
 ## 4. Detailed SOURCE Configurations
 
 ### 4.1. LLM access (LiteLLM gateway + Ollama, vLLM Metal, and cloud upstreams)

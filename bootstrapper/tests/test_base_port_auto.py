@@ -18,6 +18,8 @@ which is what reproduces the behaviour on a later run.
 """
 from __future__ import annotations
 
+import pytest
+
 from ui.textual.widgets.prompt_panel import PromptOption, PromptStep
 
 
@@ -59,19 +61,53 @@ def test_auto_is_preserved_not_clamped_to_the_default() -> None:
     assert normalize_number_entry("  auto  ", _number_step(accepts_auto=True)) == "auto"
 
 
-def test_auto_is_still_rejected_when_the_step_does_not_opt_in() -> None:
-    from ui.textual.widgets.prompt_panel import normalize_number_entry
+def test_auto_is_refused_when_the_step_does_not_opt_in() -> None:
+    """#1181: this used to return "63000" — the step's default — so typing
+    `auto` on a strictly-numeric step silently kept the old value."""
+    from ui.textual.widgets.prompt_panel import (
+        InvalidNumberEntry,
+        normalize_number_entry,
+        number_entry_error,
+    )
 
-    assert normalize_number_entry("auto", _number_step()) == "63000"
+    step = _number_step()
+    assert number_entry_error("auto", step) == (
+        "'auto' is not accepted here — choose 1024–65000"
+    )
+    with pytest.raises(InvalidNumberEntry):
+        normalize_number_entry("auto", step)
 
 
-def test_numbers_still_clamp_into_range() -> None:
-    from ui.textual.widgets.prompt_panel import normalize_number_entry
+def test_in_range_numbers_commit_unchanged() -> None:
+    from ui.textual.widgets.prompt_panel import (
+        normalize_number_entry,
+        number_entry_error,
+    )
 
     step = _number_step(accepts_auto=True)
-    assert normalize_number_entry("70000", step) == "65000"
-    assert normalize_number_entry("10", step) == "1024"
+    assert number_entry_error("63500", step) is None
     assert normalize_number_entry("63500", step) == "63500"
+
+
+def test_out_of_range_numbers_are_refused_not_clamped() -> None:
+    """#1181: `70000` used to become `65000` and `10` used to become
+    `1024`, changing the requested port without saying so."""
+    from ui.textual.widgets.prompt_panel import (
+        InvalidNumberEntry,
+        normalize_number_entry,
+        number_entry_error,
+    )
+
+    step = _number_step(accepts_auto=True)
+    assert number_entry_error("70000", step) == (
+        "70000 — choose 1024–65000, or enter auto"
+    )
+    assert number_entry_error("10", step) == (
+        "10 — choose 1024–65000, or enter auto"
+    )
+    for refused in ("70000", "10"):
+        with pytest.raises(InvalidNumberEntry):
+            normalize_number_entry(refused, step)
 
 
 def test_option_value_round_trips_through_prompt_option() -> None:
