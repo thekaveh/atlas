@@ -1020,6 +1020,10 @@ class WizardScreen(Screen):
         stack_options_resolver: Callable[[dict[str, str]], tuple[dict, dict]] | None = None,
         on_base_port_change: Callable[[int, list[ServiceRow]], list[ServiceRow]] | None = None,
         resolve_port_for_service: Callable[[str, str], str] | None = None,
+        # Recomputes which rows fall outside a newly-picked track. Supplied
+        # by integration.py, which owns the services_info / always-on /
+        # override inputs the decision needs (#1032).
+        on_track_change: Callable[[str, list[ServiceRow]], list[ServiceRow]] | None = None,
         cloud_apis: list[CloudApiSummary] | None = None,
         consumers: list[ConsumerSummary] | None = None,
         auto_launch: bool = False,
@@ -1047,6 +1051,7 @@ class WizardScreen(Screen):
         # the container port otherwise. Returns "" when no port should
         # be shown (e.g., disabled).
         self._resolve_port_for_service = resolve_port_for_service
+        self._on_track_change = on_track_change
         # Auto-launch mode: skip the wizard prompts entirely and jump
         # straight to the launch phase. Used when start.py is invoked
         # with explicit CLI flags so the user doesn't have to walk
@@ -1871,6 +1876,7 @@ class WizardScreen(Screen):
                 self._track_display_name = (
                     _t.display_name if _t is not None else None
                 )
+                self._apply_track_change(opt.value)
                 self._refresh_info_panel()
         except Exception:  # noqa: BLE001
             # A bad track lookup must not block the wizard from advancing.
@@ -1956,6 +1962,86 @@ class WizardScreen(Screen):
             body=step.subtitle,
             choices=[(opt.label, opt.hint) for opt in step.options],
         ))
+
+    def _apply_track_change(self, track_key: str) -> None:
+        """Re-mark which service rows fall outside the newly-picked track.
+
+        The off-track set used to be computed once at build time and only
+        when ``--track`` arrived on the CLI, so an interactive pick left
+        every row undimmed and the table showed a service set the launch
+        resolver would not produce (#1032). Recomputing here keeps the
+        preview and the resolver in agreement.
+        """
+        if self._on_track_change is None:
+            return
+        self._services = self._on_track_change(track_key, self._services)
+        self._service_table.set_rows(self._services)
+
+    async def _run_probe(self, name: str, probe, on_line) -> tuple[str, str, str]:
+        """Run one post-start probe and return ``(name, outcome, detail)``.
+
+        Outcomes are the vocabulary the launch summary reports:
+
+        ``verified``    the probe ran and raised nothing.
+        ``unverified``  the probe raised. The launch is NOT a clean success,
+                        and the reason is logged rather than suppressed.
+        ``skipped``     the probe is not available in this configuration,
+                        which is a real answer and is labelled as one.
+
+        A probe that cannot run is not the same as a probe that passed, and
+        neither is the same as one that blew up — collapsing all three into
+        silence is the defect this replaces (#1032).
+        """
+        if probe is None:
+            return (name, "skipped", "not available in this configuration")
+        try:
+            await asyncio.to_thread(probe, on_line=on_line)
+        except Exception as exc:  # noqa: BLE001
+            detail = f"{type(exc).__name__}: {exc}"
+            self._safe_log(
+                f"[verify/{name}] did not complete — {detail}",
+                source="verify", level="error",
+            )
+            return (name, "unverified", detail)
+        return (name, "verified", "")
+
+    def _report_verification(self, outcomes) -> None:
+        """State the launch's verification result, and qualify the headline
+        when a probe did not pass.
+
+        ``✅ All services started`` is written before these probes run, so
+        it can only ever mean "compose converged". When a probe comes back
+        unverified this appends the qualification and a next action instead
+        of leaving the unqualified claim standing as the last word (#1032).
+        """
+        unverified = [name for name, outcome, _ in outcomes if outcome == "unverified"]
+        skipped = [name for name, outcome, _ in outcomes if outcome == "skipped"]
+        for name, outcome, detail in outcomes:
+            suffix = f" — {detail}" if detail else ""
+            self._safe_log(
+                f"[verify/{name}] {outcome}{suffix}",
+                source="verify",
+                level="error" if outcome == "unverified" else "info",
+            )
+        if unverified:
+            self._write_status(
+                "⚠️  Started, but not verified: "
+                + ", ".join(unverified)
+                + " · containers are up; check the Logs tab for the reason "
+                "before relying on these",
+                style="bold yellow", source="pipeline",
+            )
+            return
+        if skipped:
+            self._write_status(
+                "✅ Verified (skipped: " + ", ".join(skipped) + ")",
+                style="bold green", source="pipeline",
+            )
+            return
+        self._write_status(
+            "✅ Post-start verification passed",
+            style="bold green", source="pipeline",
+        )
 
     def _refresh_info_panel(self) -> None:
         """Rebuild the service summaries from self._services and re-emit
@@ -3127,15 +3213,24 @@ class WizardScreen(Screen):
                 self._safe_log(msg, source="verify", level=level)
 
             async def _post_up_checks() -> None:
-                with contextlib.suppress(Exception):
-                    await asyncio.to_thread(
-                        starter.show_container_status_and_verify_ports,
-                        on_line=_on_verify_line,
-                    )
-                with contextlib.suppress(Exception):
-                    await asyncio.to_thread(
-                        starter.check_comfyui_models, on_line=_on_verify_line
-                    )
+                # Each probe reports its own outcome. Both were wrapped in
+                # a blanket ``contextlib.suppress(Exception)``, and this
+                # worker is dispatched AFTER the success line above — so a
+                # failing port check or model check was discarded with no
+                # log line, no status change and no effect on the reported
+                # result. The user was told everything started while the
+                # evidence to the contrary was thrown away (#1032).
+                outcomes = [
+                    await self._run_probe(
+                        "ports", starter.show_container_status_and_verify_ports,
+                        _on_verify_line,
+                    ),
+                    await self._run_probe(
+                        "comfyui-models", starter.check_comfyui_models,
+                        _on_verify_line,
+                    ),
+                ]
+                self._report_verification(outcomes)
 
             self.run_worker(_post_up_checks(), exclusive=False, exit_on_error=False)
 
