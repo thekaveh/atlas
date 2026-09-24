@@ -338,6 +338,9 @@ Spark worker-count inputs are wired directly in the wizard code
 The wizard also collects these stack-level (non-service-source) options — **base port first**, before any service-source prompts; the cold-start and hosts-file options come last:
 
 - **Base port** for all services (default: 63000) — collected at the very start of the wizard so all subsequent port displays reflect the chosen base.
+- **Track** prompts are labelled "asked in every track", not "always-on". The LLM Engine, Prometheus, Grafana and cloud-provider keys are exempt from track filtering so every track asks about them — but Prometheus and Grafana ship **disabled**, and a blank cloud key leaves that provider off, so being asked is not the same as running (#1032). The genuinely always-running tier is Supabase + Kong + Redis + LiteLLM + Backend, which is never prompted.
+- **Profile** descriptions are checked against `bootstrapper/profiles.yml` by a test, so the copy cannot drift from the overlay. Both shipped profiles bind published ports to `127.0.0.1:`; `prod` adds log rotation, turns Prometheus and Grafana on, and hides localhost sources. Per-service resource limits are `.env` defaults independent of the profile — the profile step no longer claims otherwise.
+- Picking a track **interactively** now re-dims the service rows that track excludes, matching what the launch resolver will produce. Previously the dimming was computed only for a `--track` passed on the CLI.
 - **Cold start** is an explicit destructive choice, defaulting to **No**. Press **Ctrl+R** to read every consequence in full before answering (§7.1). It removes this project's containers and Compose-managed volumes, including database records, object files, workflow/chat history, models and caches stored in those volumes. It also re-creates `.env` and regenerates keys/passwords. Back up needed data and configuration first. Bind-mounted files and external volumes remain.
 - **Hosts file configuration** to enable friendly URLs like `chat.localhost` and `n8n.localhost`.
 
@@ -375,6 +378,27 @@ Before launching, a configuration summary inside the same anchored info-box show
 - Color-coded source choices (container = green, localhost / cloud = cyan, off = slate).
 
 You confirm to launch (the **Launch the stack with this configuration?** step is the wizard's final question), or cancel to exit without changes.
+
+### 8.1. What "started" means, and what it does not
+
+The `All services started` line means Compose converged — every container the plan asked for was created and reported up. It does not mean the stack has been checked, because the post-start probes run after that line (#1032).
+
+Those probes now report their own outcome, and each one is one of three things:
+
+| Outcome | Meaning |
+|---|---|
+| `verified` | The probe ran and found nothing wrong. |
+| `unverified` | The probe raised. The launch is **not** a clean success, and the reason is in the Logs tab. |
+| `skipped` | The probe does not apply to this configuration. Labelled with its reason — a skip is not a pass. |
+
+When any probe comes back unverified you get a qualified headline naming which one and where to look, instead of the unqualified success line being the last word:
+
+```text
+Started, but not verified: ports · containers are up; check the Logs tab
+for the reason before relying on these
+```
+
+Before this, both probes were wrapped in a blanket exception suppressor, so a failed port check or model check was discarded with no log line and no change to the reported result.
 
 ## 9. Streaming Logs
 
