@@ -30,7 +30,9 @@ can choose that usable fallback explicitly at any size with `./start.sh
 ![Atlas wizard compact layout at the supported 60 by 20 terminal floor](../screenshots/wizard-minimum-terminal.svg)
 
 *At 60×20, the selected row, prompt, command and next/back actions all remain
-visible.*
+visible. Subtitles are capped at two rows here; on a step carrying a
+destructive warning, **Ctrl+R** opens the full text in a scrollable overlay
+(§7.1).*
 
 ![Atlas wizard normal layout at 120 by 44 terminal cells](../screenshots/wizard-normal-terminal.svg)
 
@@ -82,7 +84,7 @@ Each wizard step renders one of five prompt widgets, picked based on the questio
 | Kind | Used for | UX |
 |---|---|---|
 | `options` | Single-select with a small fixed option set — every `*_SOURCE`, the `Cold start` toggle, the `Hosts file` choice, and the three **LLM defaults** pickers (chat / embedding / vision, see §4.6). | Up/Down arrows + Enter; the current `.env` value is pre-highlighted. |
-| `number` | Numeric prompts (`Base port`). | Single-line input. A value outside the step's range, or one that is not a number, is **refused**: the hint under the input becomes the reason and you stay on the step (see §7.1). A bare Enter keeps the displayed default. |
+| `number` | Numeric prompts (`Base port`). | Single-line input. A value outside the step's range, or one that is not a number, is **refused**: the hint under the input becomes the reason and you stay on the step (see §7.2). A bare Enter keeps the displayed default. |
 | `secret` | API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`). | Masked password Input + a live char-count hint as you paste. When a key is already set, the hint shows the source-aware action: press Enter to keep the saved key, type a new key to replace, type `clear` + Enter to remove. No sentinel rows are rendered — the input field IS the prompt. |
 | `multiselect` | Cloud and Ollama model lists. | `[selected]` / `[ ]` rows in a scrollable viewport (capped height; the cursor follows the selection so a 230-row library scrape stays usable). Space toggles, Enter confirms. **Cloud** multiselect: default-active set (intersected with what your account actually returns) is pre-checked on first visit. **Ollama** multiselect: source-aware — container shows the library only, localhost shows a merged `[pulled]` + `[library]` view. Purely additive; the default-active baseline is baked into `services/ollama/models.yaml` with `default: true` and resolved by `model_resolver` on every `docker compose up`. |
 | `text` | Free-text entries — the **Project name** step (Docker Compose namespace, persisted to `PROJECT_NAME`; lower-cased + validated) and the Ollama "additional models to pull" step. | Single-line input; trimmed. The project-name step pre-fills with the current `PROJECT_NAME` and a bare Enter keeps it. |
@@ -325,7 +327,7 @@ Selections persist as a sibling env var:
 The input renders directly on the source step — no follow-up cascade — so
 the user picks both a source and a numeric refinement in one keystroke
 sequence. A value outside the listed range is refused rather than clamped
-(see §7.1). Adding a Prometheus-style manifest-driven inline input requires only
+(see §7.2). Adding a Prometheus-style manifest-driven inline input requires only
 a `secondary_number` block on the relevant `rows[]` entry in `service.yml` (the
 schema field is documented in `docs/CONTRIBUTING-services.md`); the Ray and
 Spark worker-count inputs are wired directly in the wizard code
@@ -336,10 +338,18 @@ Spark worker-count inputs are wired directly in the wizard code
 The wizard also collects these stack-level (non-service-source) options — **base port first**, before any service-source prompts; the cold-start and hosts-file options come last:
 
 - **Base port** for all services (default: 63000) — collected at the very start of the wizard so all subsequent port displays reflect the chosen base.
-- **Cold start** is an explicit destructive choice, defaulting to **No**. It removes this project's containers and Compose-managed volumes, including database records, object files, workflow/chat history, models and caches stored in those volumes. It also re-creates `.env` and regenerates keys/passwords. Back up needed data and configuration first. Bind-mounted files and external volumes remain.
+- **Cold start** is an explicit destructive choice, defaulting to **No**. Press **Ctrl+R** to read every consequence in full before answering (§7.1). It removes this project's containers and Compose-managed volumes, including database records, object files, workflow/chat history, models and caches stored in those volumes. It also re-creates `.env` and regenerates keys/passwords. Back up needed data and configuration first. Bind-mounted files and external volumes remain.
 - **Hosts file configuration** to enable friendly URLs like `chat.localhost` and `n8n.localhost`.
 
-### 7.1. Invalid numbers are refused, not adjusted
+### 7.1. Reading a destructive warning in full
+
+A step that carries a destructive warning is capped at two subtitle rows in the compact layout, and at the supported 60×20 floor the cold-start warning does not fit in two rows — so part of what you were agreeing to was off screen (#1168).
+
+Press **Ctrl+R** on any such step to open a read-only overlay that uses the whole terminal and scrolls with `↑` `↓` `PgUp` `PgDn`. It shows the complete warning followed by what each choice does, so the project and volume scope stay visible. **Esc** (or `Ctrl+R` again, or `q`) returns to the prompt.
+
+The overlay confirms nothing. Your selection is untouched while it is open and when it closes, and the safe choice stays selected — so opening the review can never be the thing that triggers a destructive action. The footer advertises `ctrl+r review` whenever the step offers it.
+
+### 7.2. Invalid numbers are refused, not adjusted
 
 Every numeric entry is either accepted as typed or refused. Nothing is clamped into range, and nothing falls back to the previous value (#1181) — a typo used to become a working but different setting, with no indication that the wizard had changed it.
 
@@ -426,6 +436,7 @@ does not delete data.
 | `Esc` | Return to the previous step (and from the first step, exit) |
 | `1` / `2` | Jump to the Setup / Logs tab (Logs only after launch begins) |
 | `Shift+Tab` | Cycle to the previous tab |
+| `Ctrl+R` | Review the full warning on a destructive step (§7.1) |
 | `Ctrl+Q` | Quit the wizard |
 
 ## 11. Progress Tracking
