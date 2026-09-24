@@ -54,7 +54,12 @@ from textual.containers import Container, VerticalScroll
 from textual.widgets import Input, Static
 
 from .. import palette as P
-from wizard.model.cloud_rules import SECRET_CLEAR, SECRET_KEEP
+from wizard.model.cloud_rules import (
+    SECRET_CLEAR,
+    SECRET_DISABLE,
+    SECRET_ENABLE,
+    SECRET_KEEP,
+)
 from .dependency_conflict import ConflictAction, DependencyConflict
 from .multiselect_filter_chips import (
     ALL_KEY as FILTER_ALL_KEY,
@@ -186,6 +191,23 @@ def _row_variants(row_value: str, checked: set[str]) -> frozenset[str]:
         if v.startswith(prefix):
             out.add(v[len(prefix):])
     return frozenset(out)
+
+
+# Control words a secret step accepts instead of a key, mapped to
+# (sentinel, committed label). Each names exactly ONE intent, so turning a
+# provider off and deleting its credential are no longer the same
+# keystroke (#1183). "clear" stays as an alias for "remove" because it is
+# the word the wizard documented before that split.
+#
+# A real API key from any of these providers is a long prefixed token, so
+# it cannot collide with a bare control word; "clear" already relied on
+# that same property.
+SECRET_CONTROL_WORDS: dict[str, tuple[str, str]] = {
+    "enable": (SECRET_ENABLE, "enabled with the saved key"),
+    "disable": (SECRET_DISABLE, "turned off, key kept"),
+    "remove": (SECRET_CLEAR, "key removed"),
+    "clear": (SECRET_CLEAR, "key removed"),
+}
 
 
 def _mask_secret(value: str) -> str:
@@ -792,8 +814,10 @@ class PromptPanel(Container):
             # Masked free-text input for an API key. Reuses the
             # persistent Input/Static pair across providers.
             #   empty + no existing key  → leave provider disabled
-            #   empty + existing key set → keep current key (no change)
-            #   "clear"                  → wipe key, set provider disabled
+            #   empty + existing key set → keep BOTH the key and the
+            #                              current on/off state (#1183)
+            #   "enable" / "disable"     → change the on/off state only
+            #   "remove" (or "clear")    → delete the key and turn off
             #   any other text           → enable provider, store as key
             self._option_list.remove_children()
             self._hide_number_widgets()
@@ -1782,8 +1806,9 @@ class PromptPanel(Container):
                 if has_existing:
                     return PromptOption(value=SECRET_KEEP, label="kept current")
                 return PromptOption(value="", label="(disabled)")
-            if raw.lower() == "clear":
-                return PromptOption(value=SECRET_CLEAR, label="cleared")
+            word = SECRET_CONTROL_WORDS.get(raw.lower())
+            if word is not None:
+                return PromptOption(value=word[0], label=word[1])
             return PromptOption(value=raw, label="enabled")
         if not self._step.options:
             return None

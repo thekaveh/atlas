@@ -31,12 +31,13 @@ def test_new_key_with_models_enables():
     assert r.api_key == "sk-test"
 
 
-def test_zero_models_disables_even_with_a_valid_key():
+def test_zero_models_disables_but_keeps_the_key():
     """Selecting no models is an explicit override, not an omission.
 
-    It also wipes the just-entered key -- "for symmetry with
-    SECRET_CLEAR (otherwise .env would keep a stale key for a
-    disabled provider, which is misleading)", per the original.
+    Until #1183 it also wiped the key, "for symmetry with SECRET_CLEAR",
+    so unchecking every model silently deleted a working credential.
+    Turning the provider off is what the user asked for; deleting the key
+    is a separate request with its own verdict.
     """
     r = resolve_cloud_provider(
         provider_key="openai",
@@ -46,15 +47,17 @@ def test_zero_models_disables_even_with_a_valid_key():
         existing_source="disabled",  # not-KEEP branch: existing_source is unread
     )
     assert r.source == "disabled"
-    assert r.api_key == "", "zero models must wipe the key, not keep it"
+    assert r.api_key is None, "zero models must keep the key, not wipe it"
 
 
-def test_secret_keep_with_existing_key_promotes_to_enabled():
-    """User pressed Enter past an existing key: keep it, and enable.
+def test_secret_keep_with_existing_key_leaves_a_disabled_provider_off():
+    """Enter past the step changes nothing at all (#1183).
 
-    Models a provider that is NOT currently enabled -- that's what
-    lets the original's auto-promote guard
-    (``existing_source != 'enabled' and existing_key``) fire.
+    This used to assert ``source == "enabled"``: the auto-promote guard
+    (``existing_source != 'enabled' and existing_key``) turned a bare
+    Enter into a state change the user never asked for. KEEP is now a
+    no-verdict on both fields, so a disabled provider with a saved key
+    stays disabled and keeps its key.
     """
     r = resolve_cloud_provider(
         provider_key="openai",
@@ -63,18 +66,17 @@ def test_secret_keep_with_existing_key_promotes_to_enabled():
         existing_key_set=True,
         existing_source="disabled",
     )
-    assert r.source == "enabled"
+    assert r.source is None, "KEEP must not change the provider's state"
     assert r.api_key is None, "KEEP must not rewrite the stored key"
 
 
 def test_secret_keep_without_existing_key_does_not_enable():
     """Nothing to keep means nothing to enable.
 
-    ``existing_source="disabled"`` matches the original's own default
-    fill (``env_vars.get(source_var, 'disabled')``) for a provider
-    that was never enabled and never had a key -- the guard's
-    ``existing_key`` half is False, so it stays at the "disabled" it
-    already was.
+    Since #1183 this resolves to no verdict rather than a literal
+    "disabled". The observable result is the same for the case that
+    matters -- .env already says disabled, and a no-verdict leaves it
+    there -- but it no longer writes a value the user did not ask for.
     """
     r = resolve_cloud_provider(
         provider_key="openai",
@@ -83,7 +85,8 @@ def test_secret_keep_without_existing_key_does_not_enable():
         existing_key_set=False,
         existing_source="disabled",
     )
-    assert r.source == "disabled"
+    assert r.source is None
+    assert r.api_key is None
 
 
 def test_secret_clear_disables_and_blanks_the_key():
@@ -218,7 +221,7 @@ def test_secret_step_never_visited_with_zero_models_still_disables():
         existing_source="disabled",  # None branch: existing_source is unread
     )
     assert r.source == "disabled"
-    assert r.api_key == ""
+    assert r.api_key is None, "the override disables; only CLEAR erases a key"
 
 
 def test_explicit_empty_secret_disables_and_blanks_even_with_models_selected():
@@ -307,8 +310,9 @@ def test_no_answer_this_session_does_not_trigger_zero_models_override():
 def test_explicit_empty_selection_still_triggers_zero_models_override():
     """The counterpart to the test above, with everything else held
     equal: an actual empty sequence -- the step rendered and the user
-    unchecked every model -- still disables and wipes the key. This is
-    what distinguishes None (no answer) from [] (an explicit zero)."""
+    unchecked every model -- still disables. This is what distinguishes
+    None (no answer) from [] (an explicit zero). Since #1183 it keeps the
+    key rather than wiping it."""
     r = resolve_cloud_provider(
         provider_key="openai",
         secret_value="sk-test",
@@ -317,4 +321,4 @@ def test_explicit_empty_selection_still_triggers_zero_models_override():
         existing_source="disabled",
     )
     assert r.source == "disabled"
-    assert r.api_key == "", "explicit zero models must wipe the key, not keep it"
+    assert r.api_key is None, "explicit zero models must keep the key"
