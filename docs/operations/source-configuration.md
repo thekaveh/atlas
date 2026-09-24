@@ -80,7 +80,7 @@ A cloud multiselect never claims a live listing it did not get. The caption abov
 
 ### 3.5. Numeric wizard entries
 
-`BASE_PORT` and the inline per-row numbers (`RAY_WORKER_COUNT`, `SPARK_WORKER_COUNT`, `PROMETHEUS_RETENTION_DAYS`, the STT provider ports) are accepted as typed or refused. The wizard does not clamp a value into range or fall back to the previous one (#1181), so nothing here is written until an accepted value exists. Empty means "keep the current value", and `auto` remains a real `BASE_PORT` value. See [Interactive Setup Wizard §7.1](https://github.com/thekaveh/atlas/blob/main/docs/quick-start/interactive-setup-wizard.md).
+`BASE_PORT` and the inline per-row numbers (`RAY_WORKER_COUNT`, `SPARK_WORKER_COUNT`, `PROMETHEUS_RETENTION_DAYS`, the STT provider ports) are accepted as typed or refused. The wizard does not clamp a value into range or fall back to the previous one (#1181), so nothing here is written until an accepted value exists. Empty means "keep the current value", and `auto` remains a real `BASE_PORT` value. See [Interactive Setup Wizard §7.2](https://github.com/thekaveh/atlas/blob/main/docs/quick-start/interactive-setup-wizard.md).
 
 ## 4. Detailed SOURCE Configurations
 
