@@ -375,6 +375,42 @@ def synthesize_track_source_args(
 # Human-readable list (--list-tracks)
 # ────────────────────────────────────────────────────────────────────
 
+def remark_off_track_rows(
+    track_key: str,
+    rows,
+    *,
+    services_info,
+    overridden: frozenset[str] = frozenset(),
+):
+    """Return ``rows`` with ``off_track`` recomputed for ``track_key``.
+
+    Before #1032 the wizard computed this once while building its steps,
+    and only when ``--track`` arrived on the CLI — so an interactive pick
+    left every row undimmed and the table advertised a service set the
+    launch resolver would not produce. Both paths now share this rule, so
+    the preview and the resolver cannot diverge.
+
+    An unknown track, or one naming no service list, excludes nothing:
+    with no list to exclude against, that is the honest answer rather than
+    a guess. Services the user explicitly re-enabled are never excluded.
+    """
+    try:
+        registry = load_tracks()
+        track = registry.by_key.get(track_key)
+    except Exception:  # noqa: BLE001
+        track = None
+    from dataclasses import replace
+
+    if track is None or track.services is None:
+        return [replace(row, off_track=False) for row in rows]
+    excluded = frozenset(
+        svc.display_name for svc in services_info
+        if not is_in_track(track, svc.key, always_on=registry.always_on)
+        and normalize_service_key(svc.key) not in overridden
+    )
+    return [replace(row, off_track=row.name in excluded) for row in rows]
+
+
 def format_track_list(registry: TrackRegistry) -> str:
     """Rich-formatted table for ``--list-tracks`` output and the no-TTY
     stdin prompt fallback. Returns a plain string (Rich renders into a
