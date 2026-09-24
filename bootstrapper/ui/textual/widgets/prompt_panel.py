@@ -365,31 +365,158 @@ def _progress_braille(step: int, total: int, width: int = 10) -> str:
 AUTO_PORT = "auto"
 
 
-def normalize_number_entry(raw: str, step: "PromptStep") -> str:
-    """Validate a ``kind="number"`` entry into the value to commit.
+class InvalidNumberEntry(ValueError):
+    """A numeric entry the wizard must refuse rather than reinterpret.
 
-    Numbers clamp into ``[number_min, number_max]``; anything unparseable
-    falls back to the step's ``default_value``. When the step sets
-    ``accepts_auto``, the literal ``"auto"`` (any case, surrounding
-    whitespace ignored) is a valid answer and passes through unchanged —
-    without that opt-in the ``int()`` below would quietly swap it for the
-    default, which is exactly why the base-port step could not express a
-    value the CLI and consumer manifests both accept.
+    Raised by :func:`normalize_number_entry` so no caller can commit a
+    value the user did not type. The message is the text shown under the
+    input (#1181).
+    """
+
+
+# Longest echo of a rejected entry. The hint is a single line, so a long
+# paste would otherwise push the corrective clause off the panel.
+_MAX_ECHO = 24
+
+
+def _clipped(text: str) -> str:
+    """``text`` short enough to quote back inside a one-line hint."""
+    if len(text) <= _MAX_ECHO:
+        return text
+    return text[: _MAX_ECHO - 1] + "\u2026"
+
+
+def _number_range_hint(step: "PromptStep") -> str:
+    """The corrective clause: which values this step will accept."""
+    hint = f"choose {step.number_min}\u2013{step.number_max}"
+    return f"{hint}, or enter {AUTO_PORT}" if step.accepts_auto else hint
+
+
+def _range_error(text: str, low: int, high: int) -> str | None:
+    """Why ``text`` is not an integer in ``[low, high]``, or None.
+
+    The shared rule behind both numeric surfaces — the ``kind="number"``
+    step and the inline per-row inputs — so the two cannot drift.
+
+    The out-of-range message echoes what was typed rather than what
+    ``int()`` made of it. The two differ for input Python accepts but a
+    reader would not recognise back (``+70000``, fullwidth digits), and
+    quoting the user's own text is the point of refusing. The echo is
+    capped: the hint is one line, and ``int()`` happily parses a
+    thousand-digit paste (and raises on one past its own digit limit,
+    which lands in the same message).
+    """
+    shown = _clipped(text)
+    try:
+        value = int(text)
+    except ValueError:
+        return f"'{shown}' is not a number"
+    if value < low or value > high:
+        return shown
+    return None
+
+
+def number_entry_error(raw: str, step: "PromptStep") -> str | None:
+    """Why a ``kind="number"`` entry cannot be committed, or None.
+
+    Atlas used to clamp an out-of-range number and swap an unparseable
+    one for the step's default, so a typo became a different base port
+    without saying so (#1181). Refusing is the whole point: the caller
+    keeps the user on the step and shows this message.
+
+    Two entries stay valid and keep their documented meanings: empty
+    means "keep the displayed default", and the literal ``auto`` (any
+    case, surrounding whitespace ignored) is an answer on the steps that
+    opt in with ``accepts_auto``.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return None
+    if text.lower() == AUTO_PORT:
+        if step.accepts_auto:
+            return None
+        return f"'{text}' is not accepted here \u2014 {_number_range_hint(step)}"
+    problem = _range_error(text, step.number_min, step.number_max)
+    if problem is None:
+        return None
+    return f"{problem} \u2014 {_number_range_hint(step)}"
+
+
+def normalize_number_entry(raw: str, step: "PromptStep") -> str:
+    """Return the value a ``kind="number"`` entry commits.
+
+    Raises :class:`InvalidNumberEntry` when :func:`number_entry_error`
+    refuses the entry, so the pre-#1181 silent clamp-or-default cannot
+    come back through any caller. Empty returns the step's
+    ``default_value`` verbatim; ``auto`` passes through on the steps that
+    accept it.
 
     Extracted from ``PromptPanel.selected_option`` so the rule is
     testable without mounting a widget.
     """
+    error = number_entry_error(raw, step)
+    if error is not None:
+        raise InvalidNumberEntry(error)
     text = (raw or "").strip()
+    if not text:
+        return str(step.default_value or "")
     if step.accepts_auto and text.lower() == AUTO_PORT:
         return AUTO_PORT
-    try:
-        value = int(text) if text else int(step.default_value or 0)
-    except ValueError:
+    return str(int(text))
+
+
+def secondary_entry_error(raw: str, cfg: "SecondaryNumberInput") -> str | None:
+    """Why an inline per-row numeric entry cannot be committed, or None.
+
+    Same contract as :func:`number_entry_error`, minus ``auto`` — no
+    secondary field accepts it. Empty means "keep the shown default".
+    """
+    text = (raw or "").strip()
+    if not text:
+        return None
+    problem = _range_error(text, cfg.number_min, cfg.number_max)
+    if problem is None:
+        return None
+    label = f"{cfg.unit_suffix} " if cfg.unit_suffix else ""
+    return (
+        f"{label}{problem} \u2014 choose {cfg.number_min}\u2013{cfg.number_max}"
+    ).strip()
+
+
+def _number_input_hint(step: "PromptStep") -> str:
+    """The resting hint under a ``kind="number"`` input.
+
+    Extracted so ``on_input_changed`` can put it back the moment the user
+    starts correcting a refused entry (#1181).
+    """
+    auto_hint = " or auto" if step.accepts_auto else ""
+    default = (step.default_value or "").strip()
+    text = f"type a value in {step.number_min}\u2013{step.number_max}{auto_hint}"
+    if default:
+        text = f"{text}, or press Enter to keep {default}"
+    return text
+
+
+def secondary_input_for(step: "PromptStep", inputs: list, sel: "PromptOption"):
+    """The mounted Input belonging to ``sel``, or None.
+
+    ``PromptPanel.load_step`` mounts one Input per eligible option in
+    option order, so walking both lists in lockstep pairs them. Module
+    level rather than a method so the two callers share one walk.
+    """
+    if step is None:
+        return None
+    input_iter = iter(inputs)
+    for opt in step.options:
+        if opt.secondary_number is None:
+            continue
         try:
-            value = int(step.default_value or 0)
-        except ValueError:
-            return str(step.default_value or "")
-    return str(max(step.number_min, min(step.number_max, value)))
+            inp = next(input_iter)
+        except StopIteration:
+            return None
+        if opt is sel:
+            return inp
+    return None
 
 
 def _secret_input_hint(step: "PromptStep", *, include_restored: bool = True) -> str:
@@ -639,20 +766,7 @@ class PromptPanel(Container):
             self._option_list.remove_children()
             self._hide_secret_widgets()
             default = step.default_value or ""
-            # Only the opted-in step advertises "auto" — every other
-            # number step stays strictly numeric, so its hint must not
-            # promise a value it will reject.
-            auto_hint = " or auto" if step.accepts_auto else ""
-            if default:
-                hint_text = (
-                    f"type a value in {step.number_min}–{step.number_max}"
-                    f"{auto_hint}, or press Enter to keep {default}"
-                )
-            else:
-                hint_text = (
-                    f"type a value in {step.number_min}–{step.number_max}"
-                    f"{auto_hint}"
-                )
+            hint_text = _number_input_hint(step)
             if self._number_input is None:
                 self._number_input = Input(
                     value="",
@@ -1554,9 +1668,11 @@ class PromptPanel(Container):
         is not written with the abandoned row's value. This mirrors
         the pre-refactor ``show_when`` filter behaviour.
 
-        Per-input clamping into the configured ``[number_min,
-        number_max]`` range; non-numeric input falls back to
-        ``default_value``.
+        An entry outside ``[number_min, number_max]``, or one that is not
+        a number, is refused rather than clamped or replaced by
+        ``default_value`` (#1181) — this returns ``[]`` for it, and
+        ``action_confirm`` keeps the user on the step. Empty still means
+        "keep the shown default".
         """
         if self._step is None or self._step.kind != "options":
             return []
@@ -1564,28 +1680,45 @@ class PromptPanel(Container):
         if sel is None or sel.secondary_number is None:
             return []
         cfg = sel.secondary_number
-        # Find the mounted Input for this option in mount order. The
-        # mount-order pairing convention from load_step: each eligible
-        # option contributes one Input to ``_secondary_inputs`` in the
-        # same order as ``step.options``. Walk both lists in lockstep
-        # to find the input matching the selected option.
-        input_iter = iter(self._secondary_inputs)
-        for opt in self._step.options:
-            if opt.secondary_number is None:
-                continue
-            try:
-                inp = next(input_iter)
-            except StopIteration:
-                return []
-            if opt is sel:
-                raw = (inp.value or "").strip()
-                try:
-                    value = int(raw) if raw else int(cfg.default_value)
-                except ValueError:
-                    value = int(cfg.default_value)
-                value = max(cfg.number_min, min(cfg.number_max, value))
-                return [(cfg.env_var, str(value))]
-        return []
+        inp = secondary_input_for(self._step, self._secondary_inputs, sel)
+        if inp is None:
+            return []
+        raw = (inp.value or "").strip()
+        # A refused entry writes nothing rather than a clamped or defaulted
+        # substitute (#1181). Callers check ``current_secondary_error``
+        # first and never reach here with an invalid entry; returning []
+        # keeps this total either way.
+        if secondary_entry_error(raw, cfg) is not None:
+            return []
+        return [(cfg.env_var, str(int(raw) if raw else int(cfg.default_value)))]
+
+    def current_number_error(self) -> str | None:
+        """Why the ``kind="number"`` entry on screen can't be committed.
+
+        None when the step isn't a number step or the entry is acceptable.
+        """
+        if self._step is None or self._step.kind != "number":
+            return None
+        raw = self._number_input.value if self._number_input else ""
+        return number_entry_error(raw, self._step)
+
+    def current_secondary_error(self) -> str | None:
+        """Why the selected row's inline numeric entry can't be committed."""
+        if self._step is None or self._step.kind != "options":
+            return None
+        sel = self.selected_option
+        if sel is None or sel.secondary_number is None:
+            return None
+        inp = secondary_input_for(self._step, self._secondary_inputs, sel)
+        if inp is None:
+            return None
+        return secondary_entry_error(inp.value or "", sel.secondary_number)
+
+    def show_number_error(self, message: str) -> None:
+        """Replace the number hint with a refusal the user can act on."""
+        if self._number_hint is not None:
+            self._number_hint.update(message)
+            self._number_hint.display = True
 
     @property
     def selected_option(self) -> PromptOption | None:
@@ -1593,9 +1726,16 @@ class PromptPanel(Container):
             return None
         if self._step.kind == "number":
             # Build a synthetic option with the validated number value
-            # (or the literal "auto" when the step opts in).
+            # (or the literal "auto" when the step opts in). An entry the
+            # rule refuses yields None rather than a substitute value, so
+            # nothing downstream can commit a number the user never typed
+            # (#1181). ``action_confirm`` renders the reason and keeps the
+            # user on the step.
             raw = self._number_input.value if self._number_input else ""
-            value = normalize_number_entry(raw, self._step)
+            try:
+                value = normalize_number_entry(raw, self._step)
+            except InvalidNumberEntry:
+                return None
             return PromptOption(value=value, label=value)
         if self._step.kind == "text":
             # Same keep-current/clear sentinels as ``kind="secret"`` so an
@@ -1716,6 +1856,9 @@ class PromptPanel(Container):
         # options step that has ``secondary_number`` set. Checked first
         # because it's the cheapest discriminator (membership test).
         if event.input in self._secondary_inputs:
+            # Drop any standing "Value out of range" panel: the entry the
+            # refusal described is no longer what is on screen (#1181).
+            self.clear_conflict()
             self._sync_secondary_inputs(event.input)
             return
         # Search-input branch — fires for the Ollama multiselect.
@@ -1729,6 +1872,17 @@ class PromptPanel(Container):
                 prev_identity = self._visible[self._selected_index].identity()
             self._search_query = event.value or ""
             self._mount_visible_rows(restore_identity=prev_identity)
+            return
+        # Number step: the moment the user starts correcting a refused
+        # entry, put the resting hint back so a stale refusal does not sit
+        # under a value that is now fine (#1181).
+        if (
+            self._step.kind == "number"
+            and self._number_input is not None
+            and self._number_hint is not None
+            and event.input is self._number_input
+        ):
+            self._number_hint.update(_number_input_hint(self._step))
             return
         if (
             self._step.kind == "text"

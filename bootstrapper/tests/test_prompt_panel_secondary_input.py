@@ -19,6 +19,7 @@ from ui.textual.widgets.prompt_panel import (
     PromptPanel,
     PromptStep,
     SecondaryNumberInput,
+    secondary_entry_error,
 )
 
 
@@ -117,21 +118,29 @@ def test_secondary_values_distinct_env_vars_only_selected_persists():
     assert panel.secondary_values() == [("WHISPER", "63025")]
 
 
-def test_secondary_values_clamps_selected_to_its_range():
-    """Clamping uses the selected option's own min/max. A value above
-    number_max snaps to number_max."""
+def test_secondary_values_refuses_an_out_of_range_value(  # was: clamped to number_max
+):
+    """#1181 replaced clamping with refusal. A value above number_max used
+    to snap to number_max, silently writing a port the user never chose;
+    now nothing is written and the caller keeps the user on the step."""
     cfg = SecondaryNumberInput(env_var="A", default_value=8000,
                                number_min=1024, number_max=65535)
     panel = _PanelStub(_step([_opt("a", secondary=cfg)]))
     panel._secondary_inputs = [_InputStub(value="99999", associated_env_var="A")]
-    assert panel.secondary_values() == [("A", "65535")]
+    assert panel.secondary_values() == []
+    assert secondary_entry_error("99999", cfg) == "99999 — choose 1024–65535"
 
 
-def test_secondary_values_falls_back_to_default_on_garbage_input():
+def test_secondary_values_refuses_garbage_rather_than_using_the_default(
+):
+    """#1181: non-numeric input used to become default_value."""
     cfg = SecondaryNumberInput(env_var="X", default_value=8000, number_min=1024, number_max=65535)
     panel = _PanelStub(_step([_opt("a", secondary=cfg)]))
     panel._secondary_inputs = [_InputStub(value="not-a-number", associated_env_var="X")]
-    assert panel.secondary_values() == [("X", "8000")]
+    assert panel.secondary_values() == []
+    assert secondary_entry_error("not-a-number", cfg) == (
+        "'not-a-number' is not a number — choose 1024–65535"
+    )
 
 
 def test_secondary_values_empty_input_uses_default():

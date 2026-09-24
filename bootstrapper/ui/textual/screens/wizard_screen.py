@@ -1714,6 +1714,55 @@ class WizardScreen(Screen):
             return
         self._prompt.toggle_search_focus()
 
+    def _refuse_invalid_numeric_entry(self) -> bool:
+        """Render why a numeric entry can't be committed; True if refused.
+
+        Confirmation used to consume a clamped or defaulted substitute, so
+        a typo became a different base port or worker count without the
+        user being told (#1181). Refusing here keeps them on the step with
+        the accepted range in front of them.
+        """
+        number_error = self._prompt.current_number_error()
+        if number_error is not None:
+            self._prompt.show_number_error(number_error)
+            return True
+        secondary_error = self._prompt.current_secondary_error()
+        if secondary_error is not None:
+            self._prompt.show_conflict(
+                title="Value out of range",
+                body=secondary_error,
+                actions=[],
+            )
+            return True
+        return False
+
+    def _apply_base_port_change(self, step: PromptStep, value: str) -> None:
+        """Recompute every service row's port from a newly-confirmed base.
+
+        No-op for any step that isn't the base-port step, or when the
+        screen was built without a recompute callback.
+        """
+        if "base port" not in step.title.lower():
+            return
+        if self._on_base_port_change is None:
+            return
+        if str(value).strip().lower() == "auto":
+            # Preview the block "auto" would actually take, so the
+            # overview doesn't keep showing the previous base port's
+            # numbers. Launch re-resolves independently — and should,
+            # since availability can change in between.
+            from ..integration import _resolve_auto_base_port
+            from core.config_parser import DEFAULT_BASE_PORT
+            new_base = _resolve_auto_base_port(DEFAULT_BASE_PORT)
+        else:
+            try:
+                new_base = int(value)
+            except ValueError:
+                return
+        self._services = self._on_base_port_change(new_base, self._services)
+        self._service_table.set_rows(self._services)
+        self._refresh_info_panel()
+
     def action_confirm(self) -> None:
         if self._phase != "setup":
             return
@@ -1735,6 +1784,9 @@ class WizardScreen(Screen):
             and getattr(step, "options_provider", None) is not None
             and not self._provider_done.get(self._step_index, False)
         ):
+            return
+        # Numeric entries are refused, never reinterpreted (#1181).
+        if self._refuse_invalid_numeric_entry():
             return
         opt = self._prompt.selected_option
         if opt is None:
@@ -1804,25 +1856,7 @@ class WizardScreen(Screen):
                 self._service_table.set_rows(self._services)
                 self._refresh_info_panel()
                 break
-        # Base-port step: recompute every row's port from the new base.
-        if "base port" in step.title.lower() and self._on_base_port_change is not None:
-            if str(opt.value).strip().lower() == "auto":
-                # Preview the block "auto" would actually take, so the
-                # overview doesn't keep showing the previous base port's
-                # numbers. Launch re-resolves independently — and should,
-                # since availability can change in between.
-                from ..integration import _resolve_auto_base_port
-                from core.config_parser import DEFAULT_BASE_PORT
-                new_base = _resolve_auto_base_port(DEFAULT_BASE_PORT)
-            else:
-                try:
-                    new_base = int(opt.value)
-                except ValueError:
-                    new_base = None
-            if new_base is not None:
-                self._services = self._on_base_port_change(new_base, self._services)
-                self._service_table.set_rows(self._services)
-                self._refresh_info_panel()
+        self._apply_base_port_change(step, opt.value)
         self._refresh_command_summary()
         if self._step_index + 1 < len(self._steps):
             self._step_index += 1
