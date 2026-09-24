@@ -49,6 +49,7 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.worker import Worker, WorkerState
 
+from .consequence_review import ConsequenceReview
 from ..widgets import (
     BrandInfo,
     BrandPanel,
@@ -478,6 +479,30 @@ async def _capture_bounded_process_output(
     return returncode, [line for line, _size in captured]
 
 
+# Shown on any step whose warning must be fully readable before
+# confirming — see ``action_review_consequences`` (#1168).
+_REVIEW_HINT = (("ctrl+r",), "review")
+
+#: Named so a destructive step can swap it out for the review hint — see
+#: ``_setup_hints_with_review``. Inert on every step that mounts no
+#: search input.
+_SEARCH_HINT = (("tab", "/"), "search")
+
+
+def _setup_hints_with_review() -> list:
+    """The full-size setup hints with the review hint in place of search.
+
+    It REPLACES rather than appends: the footer silently drops whatever
+    does not fit the width, so an appended hint is the first thing lost —
+    and on a destructive step the review is the last thing that should go.
+    Search is the honest one to give up, being inert on every step but the
+    Ollama models picker.
+    """
+    return [
+        _REVIEW_HINT if hint == _SEARCH_HINT else hint
+        for hint in _SETUP_HINTS
+    ]
+
 _SETUP_HINTS = [
     (("↑", "↓"), "navigate"),
     (("space",), "toggle"),
@@ -487,7 +512,7 @@ _SETUP_HINTS = [
     # steps but the hint stays visible so users know the search box is
     # keyboard-reachable. Tab again (or Esc) returns focus to the
     # option list.
-    (("tab", "/"), "search"),
+    _SEARCH_HINT,
     # `f` cycles capability filter chips when the active step exposes
     # them (today: only ``Ollama  ·  models``). No-op on other steps;
     # hint stays visible so users on terminals without mouse passthrough
@@ -892,6 +917,10 @@ class WizardScreen(Screen):
         # keystroke that removes containers must not sit one fat-finger
         # away from one that changes a filter. Each ARMS on first press
         # and only commits on a second press of the same key.
+        # Opens the full, scrollable consequence review on a destructive
+        # step (#1168). Ctrl-modified rather than a bare letter because the
+        # launch screen binds bare letters to log filters. No-op elsewhere.
+        Binding("ctrl+r", "review_consequences", "Review", show=False, priority=True),
         Binding("ctrl+s", "stop_stack", "Stop stack", show=False, priority=True),
         Binding("ctrl+x", "stop_stack_cold", "Cold stop", show=False, priority=True),
     ]
@@ -1194,6 +1223,8 @@ class WizardScreen(Screen):
         """
         if self._compact_footer:
             return self._compact_footer_hints()
+        if self._on_destructive_step():
+            return _setup_hints_with_review()
         if self._active_tab == BrandPanel.TAB_LOGS:
             hints = list(_LAUNCH_HINTS if self._launch_detach_ready else _STARTUP_HINTS)
         elif self._phase != "setup":
@@ -1218,9 +1249,13 @@ class WizardScreen(Screen):
         """Prioritize the actions that fit the short-screen footer."""
         if self._phase == "setup":
             kind = self._steps[self._step_index].kind if self._steps else "options"
-            return list(
+            hints = list(
                 _COMPACT_SETUP_HINTS_BY_KIND.get(kind, _COMPACT_OPTION_HINTS)
             )
+            # Compact height is exactly where the warning gets clipped, so
+            # this is exactly where the way to read it has to be advertised
+            # (#1168). The compact set is short enough to append to.
+            return hints + [_REVIEW_HINT] if self._on_destructive_step() else hints
         if self._active_tab == BrandPanel.TAB_LOGS:
             if self._launch_succeeded:
                 return [
@@ -1892,6 +1927,35 @@ class WizardScreen(Screen):
                 # Esc/Ctrl+Q could leave the screen).
                 self._close_launch_log_tee()
                 self.app.exit()
+
+    def _on_destructive_step(self) -> bool:
+        """True while the wizard is showing a step whose warning must be
+        fully readable before confirming.
+
+        ``wrap_subtitle`` is that contract's flag, so it is also what
+        decides whether the review overlay and its hint exist (#1168).
+        """
+        if self._phase != "setup" or not self._steps:
+            return False
+        return bool(getattr(self._steps[self._step_index], "wrap_subtitle", False))
+
+    def action_review_consequences(self) -> None:
+        """Open the scrollable consequence review for a destructive step.
+
+        Destructive steps are the ones that set ``wrap_subtitle`` — the flag
+        whose documented contract is that the warning must be fully readable
+        before confirming. Compact-height CSS caps the subtitle at two rows
+        with hidden overflow, so at 60x20 the rest of the warning lives here
+        (#1168). A no-op on every other step.
+        """
+        if not self._on_destructive_step():
+            return
+        step = self._steps[self._step_index]
+        self.app.push_screen(ConsequenceReview(
+            heading=step.heading,
+            body=step.subtitle,
+            choices=[(opt.label, opt.hint) for opt in step.options],
+        ))
 
     def _refresh_info_panel(self) -> None:
         """Rebuild the service summaries from self._services and re-emit
