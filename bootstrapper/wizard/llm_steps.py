@@ -50,6 +50,8 @@ from utils.cloud_providers import CLOUD_PROVIDERS
 
 from ui.textual.widgets.prompt_panel import (
     SECRET_CLEAR,
+    SECRET_DISABLE,
+    SECRET_ENABLE,
     SECRET_KEEP,
     PromptOption,
     PromptStep,
@@ -778,40 +780,46 @@ def _make_cloud_skip_predicate(
     api_key_var: str,
     env_vars: Dict[str, str],
 ):
-    """skip_if_prev: True when the user's secret-step result says the
-    provider should stay disabled.
+    """skip_if_prev: True when the provider will not be on, so there is
+    nothing to pick models for.
+
+    The predicate mirrors ``resolve_cloud_provider``'s verdict rather
+    than guessing separately — showing a model picker for a provider
+    that stays off is how the pre-#1183 auto-promotion justified itself.
 
     Decision matrix (secret-step result × .env source × .env key):
 
+      result is None
+          → step not answered this session. Leave the step visible; the
+          launch-time prune decides from .env.
       result == SECRET_CLEAR or ""
-          → user explicitly disabled. Skip multiselect.
-      result == SECRET_KEEP and .env source == 'enabled'
-          → already enabled. Show multiselect.
-      result == SECRET_KEEP and .env source != 'enabled' and key set
-          → AMBIGUOUS. The user pressed Enter past a step that already
-          had a key in .env but a disabled source. We treat that as
-          "use existing key + enable provider" (the integration layer
-          auto-promotes the source flag in _selections_to_args). Show
-          multiselect so they can pick models.
-      result == SECRET_KEEP and .env source != 'enabled' and no key
-          → freshly disabled provider, nothing to enable with. Skip.
+          → key deleted and provider off. Skip.
+      result == SECRET_DISABLE
+          → provider off, key kept. Skip — nothing will be routed.
+      result == SECRET_ENABLE
+          → provider on with the saved key. Show multiselect.
+      result == SECRET_KEEP
+          → no change to either field, so .env decides: show only when
+          the provider is ALREADY enabled there. Before #1183 a saved
+          key plus a disabled source also showed this step, because
+          Enter promoted the provider; Enter no longer changes state, so
+          a provider that is off stays off and its picker is skipped.
       result == real key string
-          → user typed a new key. Show multiselect.
+          → user typed a new key, which enables. Show multiselect.
     """
     def _skip(selections: dict) -> bool:
         v = selections.get(secret_title)
         if v is None:
             return False
-        if v == SECRET_CLEAR or v == "":
+        if v in (SECRET_CLEAR, "", SECRET_DISABLE):
             return True
+        if v == SECRET_ENABLE:
+            # Enabling needs a key to enable WITH; without one the
+            # resolution lands on "disabled" and there is nothing to pick.
+            return not (env_vars.get(api_key_var, '') or '').strip()
         if v == SECRET_KEEP:
             existing_source = (env_vars.get(source_var, 'disabled') or '').strip().lower()
-            existing_key = (env_vars.get(api_key_var, '') or '').strip()
-            if existing_source == 'enabled':
-                return False
-            # Disabled in .env. Skip unless there's an existing key to
-            # auto-promote with.
-            return not existing_key
+            return existing_source != 'enabled'
         # Real key typed in.
         return False
     return _skip
@@ -831,22 +839,28 @@ def build_cloud_steps(
         secret_title = cloud_secret_title(name)
         if existing_key and existing_source == "enabled":
             secret_subtitle = (
-                f"{name} is already enabled. Press Enter to keep the saved key, "
-                "type a replacement key, or type 'clear' to disable."
+                f"{name} is on and its key is saved. Press Enter to leave it that "
+                "way, type 'disable' to turn it off and keep the key, type a "
+                "replacement key, or type 'remove' to delete the key."
             )
             secret_keep_hint = (
-                "key saved and provider enabled  ·  Enter keeps enabled  ·  "
-                "type a new key to replace  ·  type \"clear\" + Enter to disable"
+                "key saved  ·  provider on  ·  Enter keeps it on  ·  "
+                "\"disable\" turns it off and keeps the key  ·  "
+                "type a new key to replace  ·  \"remove\" deletes the key"
             )
         elif existing_key:
+            # #1183: Enter no longer promotes this provider. Turning it on
+            # is its own word, so a bare Enter cannot change the state.
             secret_subtitle = (
-                f"A {name} key is saved but {source_var} is disabled. "
-                "Press Enter to enable with the saved key, type a replacement key, "
-                "or type 'clear' to remove it."
+                f"A {name} key is saved but {source_var} is off. Press Enter to "
+                "leave it off and keep the key, type 'enable' to turn it on with "
+                "the saved key, type a replacement key, or type 'remove' to "
+                "delete the key."
             )
             secret_keep_hint = (
-                "key saved but provider disabled  ·  Enter enables with saved key  ·  "
-                "type a new key to replace  ·  type \"clear\" + Enter to remove"
+                "key saved  ·  provider off  ·  Enter leaves it off and keeps the key  ·  "
+                "\"enable\" turns it on with the saved key  ·  "
+                "type a new key to replace  ·  \"remove\" deletes the key"
             )
         else:
             secret_subtitle = (
@@ -883,7 +897,9 @@ def build_cloud_steps(
         cloud_steps.append(PromptStep(
             title=cloud_models_title(name),
             step_index=0, step_total=0,
-            heading=f"Which {name} models do you want available?",
+            # The parenthetical states what an empty selection does, which
+            # used to be silent — and used to also delete the key (#1183).
+            heading=f"Which {name} models do you want available? (none = {name} off)",
             # Static text is the pre-fetch placeholder only; the real
             # caption comes from ``subtitle_provider`` at display time and
             # names where the rows on screen actually came from (#1180).

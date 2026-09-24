@@ -73,9 +73,14 @@ def test_spaced_double_comma_csv_does_not_trigger_zero_models_override():
 
 def test_genuinely_empty_csv_still_triggers_the_override():
     """Contrast case: a real explicit "" commit is still the true
-    zero-models override and must still disable + wipe the key."""
+    zero-models override and must still disable the provider.
+
+    It no longer wipes the key (#1183): unchecking every model says
+    "turn this off", not "delete my credential". The key is left
+    unwritten, so whatever .env holds survives.
+    """
     source_args, stack_options = _selections_to_args(
         _selections(""), services_info=[], current_base_port=63000, env_vars={},
     )
     assert source_args.get(_SOURCE_KEY) == "disabled", source_args
-    assert stack_options["cloud_api_keys"].get(_PROVIDER.api_key_var) == ""
+    assert _PROVIDER.api_key_var not in stack_options["cloud_api_keys"]

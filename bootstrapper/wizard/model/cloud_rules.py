@@ -81,6 +81,13 @@ from utils.cloud_providers import CLOUD_PROVIDERS
 # without exposing the actual key. (Moved from prompt_panel.py.)
 SECRET_KEEP = "<KEEP>"
 SECRET_CLEAR = "<CLEAR>"
+# Added by #1183. A provider's SOURCE and its stored credential are two
+# separate facts, so the protocol needs a verdict for each combination the
+# user can actually want. Before these existed, "stay off but keep my key"
+# was unreachable: a bare Enter promoted a disabled provider to enabled,
+# and the only way to turn one off also deleted its key.
+SECRET_ENABLE = "<ENABLE>"    # turn on using the stored key; don't rewrite it
+SECRET_DISABLE = "<DISABLE>"  # turn off; keep the stored key
 
 _PROVIDER_KEYS = frozenset(p.key for p in CLOUD_PROVIDERS)
 
@@ -97,9 +104,10 @@ class CloudResolution:
     note; that coercion is the bug this shape now prevents.
 
     ``api_key`` is symmetric with ``source``: ``None`` means "don't
-    rewrite the stored key" (a KEEP with nothing to promote, or the
-    secret step was never visited); ``""`` means "actively blank it"
-    (CLEAR, an empty secret, or the zero-models disable override).
+    rewrite the stored key" (a KEEP, an explicit disable, or the secret
+    step was never visited); ``""`` means "actively blank it". Since
+    #1183 only ``SECRET_CLEAR`` and an empty secret blank a key -- a
+    disable verdict and a zero-models selection both keep it.
 
     Fix-round-4 note (#535 Pass 1 followups review, finding C5): this
     dataclass used to also carry ``models: list[str]``, an echo of
@@ -178,41 +186,40 @@ def resolve_cloud_provider(
     api_key: str | None
 
     # ─── Secret-step intent ────────────────────────────────────────
-    #   None                 -> step never visited. NO VERDICT: leave
-    #                           .env alone -- the original's bare
-    #                           ``pass`` path.
-    #   SECRET_KEEP          -> already enabled -> no-op (no verdict,
-    #                           forcing one would be destructive).
-    #                           Not already enabled and a key exists
-    #                           to keep -> promote to enabled. Not
-    #                           already enabled and no key -> resolves
-    #                           to "disabled" here (this is what
-    #                           ``test_secret_keep_without_existing_key_does_not_enable``
-    #                           pins down) -- but this is a KNOWN,
-    #                           DELIBERATELY CARRIED divergence from
-    #                           the original, which writes nothing to
-    #                           source_args on this branch at all. It
-    #                           is unreachable on the live path today:
-    #                           ``PromptPanel`` only ever emits
-    #                           SECRET_KEEP when a key already exists,
-    #                           so `existing_key_set` is always True
-    #                           whenever this branch's sibling
-    #                           (`existing_key_set` false) could fire.
-    #                           The key itself is never rewritten
-    #                           (api_key stays None).
-    #   SECRET_CLEAR / ""    -> disable + blank the key.
-    #   a real key string    -> enable + persist the key.
-    if secret_value is None:
+    # One verdict per thing the user can mean. SOURCE and credential are
+    # decided independently, which is the whole point of #1183.
+    #
+    #   None              -> step never visited. NO VERDICT: leave .env
+    #                        alone -- the original's bare ``pass`` path.
+    #   SECRET_KEEP       -> Enter past the step. NO VERDICT on either
+    #                        field: whatever .env holds stands. A
+    #                        disabled provider with a saved key stays
+    #                        disabled and keeps its key.
+    #   SECRET_ENABLE     -> turn on using the stored key. Without a
+    #                        stored key there is nothing to turn on
+    #                        with, so it resolves to "disabled" rather
+    #                        than writing an enabled source that
+    #                        ``source_validator`` would auto-disable
+    #                        moments later.
+    #   SECRET_DISABLE    -> turn off, keep the key (api_key stays
+    #                        None, so the stored value is untouched).
+    #   SECRET_CLEAR / "" -> turn off AND delete the key. The only
+    #                        verdict that erases a credential.
+    #   a real key string -> enable + persist the key.
+    #
+    # Before #1183, SECRET_KEEP promoted a disabled-but-keyed provider
+    # to enabled so the model picks "weren't inert". That made a bare
+    # Enter change the provider's state, which is the behaviour this
+    # ticket removes; the model picker is now skipped for a provider
+    # that will stay off (see ``_make_cloud_skip_predicate``).
+    if secret_value is None or secret_value == SECRET_KEEP:
         source = None
         api_key = None
-    elif secret_value == SECRET_KEEP:
-        existing_source_norm = (existing_source or "disabled").strip().lower()
-        if existing_source_norm == "enabled":
-            source = None
-        elif existing_key_set:
-            source = "enabled"
-        else:
-            source = "disabled"
+    elif secret_value == SECRET_ENABLE:
+        source = "enabled" if existing_key_set else "disabled"
+        api_key = None
+    elif secret_value == SECRET_DISABLE:
+        source = "disabled"
         api_key = None
     elif secret_value == SECRET_CLEAR or secret_value == "":
         source = "disabled"
@@ -234,7 +241,13 @@ def resolve_cloud_provider(
     # ONLY when it actually ran.
     if zero_models_override:
         source = "disabled"
-        api_key = ""
+        # #1183: this used to blank the key as well, so unchecking every
+        # model silently deleted a working credential. Turning the
+        # provider off is what the user asked for; deleting the key is a
+        # separate request with its own verdict (SECRET_CLEAR). Keeping
+        # it means re-enabling later restores the prior state instead of
+        # demanding the key again.
+        api_key = None
 
     return CloudResolution(source=source, api_key=api_key)
 
