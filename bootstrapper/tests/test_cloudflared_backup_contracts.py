@@ -4820,6 +4820,35 @@ def test_backup_observes_busy_status_after_lock_process_exits(tmp_path: Path) ->
     assert "another backup publication is already in progress" in result.stderr
 
 
+@pytest.mark.parametrize(
+    "status_file", ('"$BACKUP_LOCK_STATUS"', '"$WORK/postgres.snapshot"'),
+)
+def test_backup_creates_each_polled_status_file_before_its_session_starts(
+    status_file: str,
+) -> None:
+    """#1237: both psql sessions run in the background with their stdout
+    redirected into the file the foreground loop then polls with sed. The
+    redirection is performed by the forked job, so on a contended runner the
+    first poll could run before the file existed; sed failed and set -e
+    aborted the backup (`sed: .../publication-lock.status: No such file or
+    directory`, seen in the opted-in image test). The file must exist before
+    the session is launched, and an empty file is the loop's pending state.
+    """
+    lines = (REPO / "services/backup/init/scripts/backup-all.sh").read_text(
+        encoding="utf-8"
+    ).splitlines()
+    launch = next(
+        i for i, line in enumerate(lines)
+        if f">{status_file}" in line and line.rstrip().endswith("&")
+    )
+    created = [i for i, line in enumerate(lines) if line.strip() == f": >{status_file}"]
+    first_poll = next(
+        i for i, line in enumerate(lines)
+        if "sed -n '1p'" in line and status_file in line
+    )
+    assert created and created[-1] < launch < first_poll
+
+
 @pytest.mark.parametrize("kind", ("container", "volume"))
 @pytest.mark.parametrize(
     "launch_failure",

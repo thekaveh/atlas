@@ -47,6 +47,14 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# Hang guard for the parse-only subprocesses below, not a performance budget:
+# `node --check` and `bash -n` finish in well under a second, but the first
+# `node` start on a cold, contended CI runner exceeded the old 10s and failed a
+# required job whose diff touched no script (#1237, same class as the
+# #850-era 5s budget). A parse error still fails on its return code; only a
+# genuinely wedged interpreter reaches this timeout.
+_PARSE_TIMEOUT_SECONDS = 30
+
 
 def _discover_init_scripts() -> list[Path]:
     # Recursive: every *.py under ANY services/<svc>/.../scripts/ directory —
@@ -146,7 +154,8 @@ def test_shell_init_script_parses(script_path: Path) -> None:
         pytest.skip("bash not on PATH")
     result = subprocess.run(
         [bash, "-n", str(script_path)],
-        capture_output=True, text=True, check=False, timeout=10,
+        capture_output=True, text=True, check=False,
+        timeout=_PARSE_TIMEOUT_SECONDS,
         encoding="utf-8", errors="replace",
     )
     assert result.returncode == 0, (
@@ -172,7 +181,8 @@ def test_node_init_script_parses(script_path: Path) -> None:
         pytest.skip("node not on PATH")
     result = subprocess.run(
         [node, "--check", str(script_path)],
-        capture_output=True, text=True, check=False, timeout=10,
+        capture_output=True, text=True, check=False,
+        timeout=_PARSE_TIMEOUT_SECONDS,
         encoding="utf-8", errors="replace",
     )
     assert result.returncode == 0, (
