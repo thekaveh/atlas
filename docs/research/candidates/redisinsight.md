@@ -1,10 +1,13 @@
 ---
 category-fit: data
+decided: 2026-07-04
 generated: 2026-07-04
 license: SSPL-1.0 / Redis agreement terms
+lifecycle: deferred
 name: RedisInsight
 referenced-by: [redis]
 slug: redisinsight
+superseded-by: https://github.com/thekaveh/atlas/issues/239
 type: external-service
 upstream: https://github.com/RedisInsight/RedisInsight
 ---

@@ -6,6 +6,8 @@ This is an **evaluation artifact**: it records a go/no-go decision and the evide
 
 ## 1. Decision
 
+> **Status, 2026-07-14: implementation transferred downstream.** The implementation ticket this evaluation called for, [#565](https://github.com/thekaveh/atlas/issues/565), was closed as not planned after its [closing decision](https://github.com/thekaveh/atlas/issues/565#issuecomment-4964093037) moved the matrix orchestration, datasets, judge policy and rankings to [rag-showcase#24](https://github.com/thekaveh/rag-showcase/issues/24). Atlas keeps only the generic contracts that consumer uses: OpenAI-compatible approach aliases, the approach-evidence boundary, and per-record `POST /api/rag/evaluate`. The decision and analysis below are the original #416 evaluation, kept unchanged as the record. Read "Atlas should add" as that evaluation's recommendation, not as current Atlas scope. An Atlas-side runner would need a new proposal backed by more than one consumer with the same generic need.
+
 Atlas **should** add a reusable **RAG approach-by-dataset evaluation matrix** as a **headless CLI/library orchestration layer** on top of the already-landed Ragas surface (#378), the consumer LiteLLM approach aliases (#411), and the reproducible ingestion profiles (#413). The matrix layer is an **orchestrator and result schema**, **not a new evaluator**: it reuses the backend `POST /api/rag/evaluate` surface for Ragas scoring and calls each approach through LiteLLM/OpenAI-compatible APIs, rather than duplicating evaluator configuration.
 
 The **evidence and ranking contract is the product**. The first slice must be conservative:
@@ -133,3 +135,5 @@ Every run and every row records enough to make longitudinal comparison valid:
 ## 12. Recommendation
 
 Close #416 as an evaluation artifact once this document lands. Create a separate **implementation** issue for the matrix runner that builds to §11, starting with the headless CLI/library that orchestrates the existing #378 Ragas surface and LiteLLM approach aliases. Keep the first slice narrow: schema + evidence contract + JSONL/summary output + rankings-with-coverage + tests, with the optional backend route and Langfuse correlation as explicit follow-ups. The downstream payoff is that `rag-showcase` (tracked in `thekaveh/rag-showcase#24`) can retire its bespoke comparison runner and result schema in favor of the Atlas matrix outputs while keeping its dataset-specific narrative and reporting.
+
+> **Outcome (2026-07-14):** #416 closed as recommended, and the implementation issue was opened as #565. #565 was then closed as transferred downstream to `thekaveh/rag-showcase#24`, not implemented in Atlas (see the §1 status note).

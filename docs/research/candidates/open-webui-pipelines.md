@@ -1,10 +1,13 @@
 ---
 category-fit: apps
+decided: 2026-07-03
 generated: 2026-05-19
 license: MIT
+lifecycle: rejected
 name: Open WebUI Pipelines
 referenced-by: [open-webui]
 slug: open-webui-pipelines
+superseded-by: https://github.com/thekaveh/atlas/issues/207
 type: external-service
 upstream: https://github.com/open-webui/pipelines
 ---
@@ -22,23 +25,27 @@ Open WebUI's current documentation marks Pipelines as legacy for new deployments
 
 The function path preserves the useful part of this candidate - a middleware hook for redaction before Open WebUI calls LiteLLM - without adding a Pipelines SOURCE env var, a new compose service, a new port, or a Kong alias. LiteLLM + Langfuse remains the stack-wide observability path, and OpenLIT remains deferred as a standalone service/UI.
 
-## 4. Stack wiring sketch
+## 4. Historical proposal (rejected 2026-07-03)
+
+The subsections below are the original 2026-05-19 proposal, kept verbatim for the record. They are not a plan: Atlas rejected standalone Pipelines on 2026-07-03 (§3, [#207](https://github.com/thekaveh/atlas/issues/207)) in favour of the Open WebUI Filter Function path.
+
+### 4.1. Stack wiring sketch
 - open-webui → pipelines via `OPENAI_API_BASE_URLS=http://pipelines:9099` (added alongside the existing LiteLLM URL, or fronted by litellm)
 - litellm → pipelines as a regular `openai`-compatible upstream so Hermes and other LiteLLM consumers get the same filter chain
 - pipelines → langfuse for trace export (companion candidate)
 - kong → pipelines via a `pipelines.localhost` alias for admin UI
 
-## 5. Effort
+### 4.2. Effort
 medium — new compose fragment, new SOURCE variants (container, disabled), Kong alias, and an init step to drop curated pipeline scripts into the pipelines volume; minimal env wiring beyond that.
 
-## 6. Risks & open questions
+### 4.3. Risks & open questions
 - Decide whether pipelines fronts LiteLLM or sits behind it — affects which service "owns" the gateway role.
 - Pipelines is single-tenant: scaling needs sticky sessions or a queue.
 - Filter pipelines require explicit client support — Hermes (non-WebUI client) gets pipe-type only.
 
-## 7. Why now (and why not sooner)
+### 4.4. Why now (and why not sooner)
 The stack already has the natural consumers (Open WebUI, LiteLLM, Hermes) and an obvious tracing target (Langfuse, also proposed). Earlier, the stack lacked a unified gateway role — LiteLLM filled it in 2025, and Pipelines slots in as the request-time middleware layer next to it.
 
-## 8. Upstream evidence
+## 5. Upstream evidence
 - https://github.com/open-webui/pipelines — repo, `ghcr.io/open-webui/pipelines:main`, port 9099, MIT license.
 - https://docs.openwebui.com/features/ — "Pipelines: Modular plugin framework for filters, providers, and custom logic."

@@ -1,10 +1,13 @@
 ---
 category-fit: apps
+decided: 2026-07-04
 generated: 2026-07-04
 license: Apache-2.0
+lifecycle: deferred
 name: NeoDash
 referenced-by: [neo4j]
 slug: neodash
+superseded-by: https://github.com/thekaveh/atlas/issues/222
 type: external-service
 upstream: https://github.com/neo4j-labs/neodash
 ---

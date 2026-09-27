@@ -179,7 +179,7 @@ _No upstream calls._
 
 ### 10.5. Future — Candidate new services
 
-- **DuckDB** ([details](../../docs/research/candidates/iceberg-duckdb.md)) — *Headline:* embedded analytics engine that queries the shipped `iceberg-rest` tables on MinIO directly, giving the stack a fast in-process SQL tier over object storage. *Wires into:* jupyterhub, backend, n8n.
+_No high-confidence opportunities identified._
 
 ### 10.6. Future — Unused features in this service
 

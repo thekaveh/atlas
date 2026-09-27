@@ -259,9 +259,9 @@ Service READMEs use hierarchical numbered sections (`## 1. Overview`, `## 2. Acc
 The Dependencies & Integrations block is **auto-generated** by `bootstrapper/docs/regen.py`. It contains:
 - `### N.1 Current — Upstream` and `### N.2 Current — Downstream` tables (from `data_flow.calls` in the manifests)
 - `### N.3 Architecture diagram` (embeds `./architecture.svg`)
-- `### N.4 / N.5 / N.6` Future-* subsections (user-authored Phase C content, preserved across regen passes by `_render_section_with_future`)
+- `### N.4 / N.5 / N.6` Future-* subsections (user-authored Phase C content, preserved across regen passes by `_render_section_with_future`). One exception: an `N.5 Future — Candidate new services` bullet that links a `docs/research/candidates/<slug>.md` record whose `lifecycle` is `shipped` or `rejected` is dropped. The placeholder line replaces the block if nothing is left.
 
-After changing a `data_flow.calls` list, re-run `PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen <service>` (or `--all`). The drift gate in `bootstrapper/tests/test_docs_drift.py` enforces that committed READMEs/SVGs/HTMLs match what regen would produce.
+After changing a `data_flow.calls` list, re-run `PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen <service>` (or `--all`). `--all` also runs `merge_research`. That regenerates `docs/research/integration-matrix.md` and normalizes each `docs/research/candidates/*.md` front matter (sorted keys, reconciled `referenced-by`), so a candidate's lifecycle change leaves every derived index in one pass. The drift gate in `bootstrapper/tests/test_docs_drift.py` enforces that the committed READMEs/SVGs/HTMLs, the matrix and the candidate front matter all match what regen would produce. After adding or editing a research record, run `regen --all`.
 
 ## Configuration
 

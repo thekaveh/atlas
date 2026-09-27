@@ -1,10 +1,13 @@
 ---
 category-fit: apps
+decided: 2026-07-04
 generated: 2026-07-04
 license: Apache-2.0
+lifecycle: deferred
 name: Apache Superset
 referenced-by: [minio]
 slug: superset
+superseded-by: https://github.com/thekaveh/atlas/issues/226
 type: external-service
 upstream: https://github.com/apache/superset
 ---

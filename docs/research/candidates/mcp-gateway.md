@@ -1,10 +1,13 @@
 ---
 category-fit: agents
+decided: 2026-07-03
 generated: 2026-05-19
 license: MIT
+lifecycle: shipped
 name: MCP Gateway
 referenced-by: [hermes]
 slug: mcp-gateway
+superseded-by: services/mcp-servers/README.md
 type: external-service
 upstream: https://github.com/modelcontextprotocol/servers
 ---

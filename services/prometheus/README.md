@@ -110,9 +110,6 @@ _No high-confidence opportunities identified._
 ### 5.5. Future — Candidate new services
 
 - **Alertmanager** — pair with Prometheus's alerting rules for paging/routing. Today the bundle uses Grafana's unified alerting; a separate Alertmanager would matter only if clustered HA alerting becomes a requirement.
-- **Loki** — log aggregation companion. Same operational pattern as Prometheus (scrape-then-store-then-query).
-- **Tempo** — distributed tracing companion. Closes the metrics + logs + traces triangle for full observability.
-- **OpenTelemetry collector** — neutral collection plane for metrics + logs + traces, replacing per-service exporters where applicable.
 
 ### 5.6. Future — Unused features in this service
 

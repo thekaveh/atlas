@@ -1,10 +1,13 @@
 ---
 category-fit: media
+decided: 2026-07-04
 generated: 2026-07-04
 license: MIT
+lifecycle: deferred
 name: Unmute (Kyutai)
 referenced-by: [tts-provider]
 slug: unmute
+superseded-by: https://github.com/thekaveh/atlas/issues/237
 type: external-service
 upstream: https://github.com/kyutai-labs/unmute
 ---

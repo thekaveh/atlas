@@ -1,10 +1,13 @@
 ---
 category-fit: media
+decided: 2026-07-04
 generated: 2026-07-04
 license: BSD-2-Clause
+lifecycle: deferred
 name: WhisperX
 referenced-by: [stt-provider]
 slug: whisperx
+superseded-by: https://github.com/thekaveh/atlas/issues/223
 type: external-service
 upstream: https://github.com/m-bain/whisperx
 ---

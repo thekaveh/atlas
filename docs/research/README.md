@@ -58,9 +58,23 @@ category-fit: agents | data | media | infra | llm | apps
 generated: YYYY-MM-DD
 upstream: <URL>
 license: <SPDX identifier or "unknown">
+lifecycle: proposed | planned | deferred | rejected | shipped
+decided: YYYY-MM-DD                  # required unless lifecycle is proposed
+superseded-by: <URL or repo path>    # optional: the issue, decision doc or service that settled it
 referenced-by: [<service>, ...]      # maintained by merge script, not by author
 ---
 ```
+
+`lifecycle` records where the proposal stands. `proposed` is the only
+undecided value. `planned` and `deferred` keep the record a live candidate,
+listed in `integration-matrix.md` and eligible for a service README's
+`Future — Candidate new services` block. `shipped` and `rejected` close it:
+`python -m bootstrapper.docs.regen --all` drops it from both of those derived
+indexes in the same pass, and the file stays here as history. A closed record
+may keep its original wiring sketch, effort and risks under a
+`## Historical proposal (<lifecycle> YYYY-MM-DD)` heading, as `###`
+subsections, instead of presenting them as a live plan (see
+`candidates/open-webui-pipelines.md`).
 
 Six required sections:
 
@@ -94,7 +108,12 @@ Exit 0 = valid, 1 = errors (printed with file:line refs).
 
 `python -m bootstrapper.docs.merge_research` reads all rows + candidates,
 emits `integration-matrix.md`, and reconciles `referenced-by:` on each
-candidate. Deterministic and idempotent.
+candidate. Deterministic and idempotent. `--check` reports the files it would
+rewrite and exits 2 without writing. `python -m bootstrapper.docs.regen --all`
+runs the same merge, so the service READMEs and the matrix change together.
+The docs drift gate (`regen --all --check`) covers the matrix and each
+candidate's normalized front matter too. After adding or editing a record, run
+`python -m bootstrapper.docs.regen --all` and commit what it rewrites.
 
 ## 6. Dispatch pattern (how Phase B was produced)
 

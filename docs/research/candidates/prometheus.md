@@ -1,10 +1,13 @@
 ---
 category-fit: infra
+decided: 2026-05-31
 generated: 2026-05-19
 license: Apache-2.0
+lifecycle: shipped
 name: Prometheus
 referenced-by: [kong]
 slug: prometheus
+superseded-by: services/prometheus/README.md
 type: external-service
 upstream: https://prometheus.io/docs/introduction/overview/
 ---
