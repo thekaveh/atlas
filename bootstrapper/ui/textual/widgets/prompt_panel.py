@@ -294,6 +294,9 @@ class PromptOption:
 @dataclass
 class PromptStep:
     title: str
+    # Display ordinal and total. The wizard screen overwrites both at render
+    # time with counts over REACHABLE steps only (#1182); the values a step
+    # is built with are placeholders.
     step_index: int
     step_total: int
     heading: str
@@ -370,9 +373,27 @@ class PromptStep:
     # Destructive-choice warnings must be fully readable before selection.
     # Ordinary prompts retain their existing one-line subtitle layout.
     wrap_subtitle: bool = False
+    # Steps the current answers hide (track, disabled provider, ...), set at
+    # render time alongside step_index/step_total (#1182). They are neither
+    # completed nor remaining, so the caption reports them separately.
+    steps_skipped: int = 0
     # secondary_number REMOVED 2026-05-25 — config now lives on each
     # PromptOption (see PromptOption.secondary_number). Eligibility is
     # "option carries a config" instead of "step-level show_when filter."
+
+
+def _progress_title(step: "PromptStep") -> str:
+    """The prompt panel's border caption: title, counter, bar, skipped.
+
+    ``step_index / step_total`` counts reachable decisions only, so
+    ``step_index - 1`` are done and ``step_total - step_index`` follow this
+    one; hidden steps are reported on their own and never as remaining
+    (#1182). The skipped segment goes last, so a narrow panel truncates it
+    before it truncates the counter or the bar.
+    """
+    bar = _progress_braille(step.step_index, step.step_total)
+    skipped = f"  ·  {step.steps_skipped} skipped" if step.steps_skipped else ""
+    return f" {step.title}  ·  {step.step_index} / {step.step_total}  {bar}{skipped} "
 
 
 def _progress_braille(step: int, total: int, width: int = 10) -> str:
@@ -773,10 +794,7 @@ class PromptPanel(Container):
         self._secondary_inputs = []
         # All caption info on the top border title — service name +
         # step counter + a small progress bar.
-        bar = _progress_braille(step.step_index, step.step_total)
-        self.border_title = (
-            f" {step.title}  ·  {step.step_index} / {step.step_total}  {bar} "
-        )
+        self.border_title = _progress_title(step)
         self.border_subtitle = ""
         self._render_step_caption(step)
         # Hide the persistent search input by default — the multiselect

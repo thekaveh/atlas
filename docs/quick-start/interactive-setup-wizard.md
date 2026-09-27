@@ -467,7 +467,7 @@ does not delete data.
 
 ## 11. Progress Tracking
 
-A progress bar at the top of each screen shows how far you are through the configuration process. It starts at 0% and reaches 100% after all steps (services + stack options) are completed.
+The prompt panel's top border shows the step title, a counter and a small progress bar, for example `Weaviate  ·  source  ·  4 / 12  ⣿⣿⣿⣀⣀⣀⣀⣀⣀⣀  ·  9 skipped`. The counter counts only the decisions this run will actually ask (#1182): `4 / 12` means three are done and eight follow the current one. Steps that a narrower track or an earlier answer hides (a provider you turned off, for instance) are not in the total and never count as remaining; they are reported on their own as `N skipped`, a segment that appears only when something is hidden and is the first part cut on a narrow terminal. The count is recomputed on every step, so it shrinks the moment an answer hides later steps, and going back or changing the track never puts the position past the total. An unanswered later step is counted until an answer hides it.
 
 ## 12. When to Use the Wizard vs CLI Flags
 
