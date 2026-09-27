@@ -292,13 +292,16 @@ jobs:
       - name: Cache MkDocs privacy-plugin external assets
         # `make docs-check` runs `mkdocs build --strict`, and the Material
         # `privacy` plugin self-hosts external assets by DOWNLOADING them at
-        # build time (~20 files: Google Fonts + unpkg mermaid). `.cache` is
-        # gitignored, so without this the job refetched all of them on every
-        # run and a single transient failure became a hard `--strict` error --
-        # which is exactly how #934 and #941 failed on diffs that touched no
-        # external URL. Restoring the cache means the steady state performs no
-        # third-party fetches at all. Keyed on the files that decide WHICH
-        # assets are needed, so a font/theme change re-primes it.
+        # build time: the 20 files recorded in docs/external-assets.yaml
+        # (Google Fonts + unpkg mermaid; policy in docs/development.md §3.1).
+        # `.cache` is gitignored, so without this the job refetched all of them
+        # on every run and a single transient failure became a hard `--strict`
+        # error -- which is exactly how #934 and #941 failed on diffs that
+        # touched no external URL. Restoring the cache means the steady state
+        # performs no third-party fetches at all, and the docs-check preflight
+        # names any asset a cold cache cannot fetch. Keyed on the files that
+        # decide WHICH assets are needed, so a font/theme change or an
+        # inventory refresh re-primes it.
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache
@@ -308,7 +311,7 @@ jobs:
           # the stylesheets can pull further external faces. Hashing the
           # generated mkdocs.yml instead silently yields an EMPTY hash and a
           # constant key that never re-primes.
-          key: mkdocs-privacy-${{ hashFiles('scripts/docs/build_docs.py', 'docs/assets/stylesheets/**') }}
+          key: mkdocs-privacy-${{ hashFiles('scripts/docs/build_docs.py', 'docs/assets/stylesheets/**', 'docs/external-assets.yaml') }}
           restore-keys: |
             mkdocs-privacy-
 
