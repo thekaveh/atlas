@@ -1,10 +1,13 @@
 ---
 category-fit: infra
+decided: 2026-07-03
 generated: 2026-05-19
 license: AGPL-3.0
+lifecycle: shipped
 name: Grafana Loki
 referenced-by: [kong]
 slug: grafana-loki
+superseded-by: services/loki/README.md
 type: external-service
 upstream: https://grafana.com/docs/loki/latest/
 ---

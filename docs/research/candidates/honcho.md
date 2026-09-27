@@ -1,10 +1,13 @@
 ---
 category-fit: data
+decided: 2026-07-04
 generated: 2026-07-04
 license: AGPL-3.0
+lifecycle: deferred
 name: Honcho
 referenced-by: [openclaw]
 slug: honcho
+superseded-by: https://github.com/thekaveh/atlas/issues/238
 type: external-service
 upstream: https://github.com/plastic-labs/honcho
 ---

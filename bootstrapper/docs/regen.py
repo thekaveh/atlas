@@ -12,6 +12,12 @@ README plus the two diagram files, preserving any user-authored content in the
 README (including the three `Future — ...` subsections under "Dependencies &
 Integrations").
 
+Candidate bullets that link a shipped or rejected record under
+`docs/research/candidates/` are dropped from those Future blocks, and `--all`
+also regenerates `docs/research/integration-matrix.md` (unless `--out-root`
+points elsewhere), so a candidate's `lifecycle` change reaches every derived
+index in one pass (#1190).
+
 Exit codes:
   0 — success.
   1 — manifest error.
@@ -43,6 +49,9 @@ from .capabilities_section_writer import (
 from .deps_section_writer import render_section
 from .diagram_renderer import render_html, render_svg
 from .markdown_blocks import fenced_code_spans as _fenced_spans
+from .markdown_blocks import top_level_list_items
+from .merge_research import DEFAULT_ROOT as RESEARCH_ROOT
+from .merge_research import closed_candidate_slugs, run_merge
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SERVICES_DIR = REPO_ROOT / "services"
@@ -55,6 +64,7 @@ FUTURE_HEADER_RE = re.compile(
     re.MULTILINE,
 )
 PLACEHOLDER_LINE = "_No high-confidence opportunities identified._"
+_CANDIDATE_LINK_RE = re.compile(r"research/candidates/([\w-]+)\.md")
 
 def _in_fence(pos: int, spans: list[tuple[int, int]]) -> bool:
     return any(a <= pos < b for a, b in spans)
@@ -152,9 +162,49 @@ def _detect_position(readme_text: str) -> int:
     return 5
 
 
-def _render_section_with_future(graph, existing_readme: str) -> str:
+def _drop_closed_candidates(body: str, closed: frozenset[str]) -> str:
+    """Remove the bullets of a Candidate-new-services block whose research
+    records are all shipped or rejected (#1190).
+
+    Items come from the CommonMark parse, so a bullet's continuation lines,
+    loose paragraphs and nested fences go with it, while a fence or paragraph
+    outside the list is never touched. A bullet that also links an open record
+    stays. Returns "" when nothing is left, so the caller falls back to the
+    placeholder.
+    """
+    lines = body.split("\n")
+    drop = _closed_item_lines(body, lines, closed)
+    if not drop:
+        return body
+    kept: list[str] = []
+    for number, line in enumerate(lines):
+        if number in drop:
+            continue
+        if number - 1 in drop and not line.strip() and kept and not kept[-1].strip():
+            continue  # the dropped item's blank separator; keep one, not two
+        kept.append(line)
+    return "\n".join(kept).strip("\n")
+
+
+def _closed_item_lines(body: str, lines: list[str], closed: frozenset[str]) -> set[int]:
+    """Line numbers of the list items whose every candidate link is closed."""
+    drop: set[int] = set()
+    for first, end in top_level_list_items(body):
+        slugs = set(_CANDIDATE_LINK_RE.findall("\n".join(lines[first:end])))
+        if slugs and slugs <= closed:
+            drop.update(range(first, end))
+    return drop
+
+
+def _render_section_with_future(
+    graph, existing_readme: str, closed_candidates: frozenset[str] | None = None,
+) -> str:
     """Generate the auto-block, splicing in any user-authored Future content
-    found in the existing README."""
+    found in the existing README.
+
+    Candidate bullets that link a shipped or rejected research record are
+    dropped; ``closed_candidates`` defaults to the committed records' set.
+    """
 
     position = _detect_position(existing_readme)
     auto_section = render_section(graph, position=position)
@@ -162,6 +212,11 @@ def _render_section_with_future(graph, existing_readme: str) -> str:
     if sl is None:
         return auto_section
     future = _extract_future_blocks(existing_readme[sl[0]: sl[1]])
+    if closed_candidates is None:
+        closed_candidates = closed_candidate_slugs(RESEARCH_ROOT)
+    future["Candidate new services"] = _drop_closed_candidates(
+        future["Candidate new services"], closed_candidates
+    )
     # Replace each `### Future — X\n\n_No high-confidence opportunities identified._`
     # in auto_section with the preserved body.
     for heading_suffix, body in future.items():
@@ -218,6 +273,7 @@ def _process(
     section_only: bool,
     check: bool,
     manifests: Iterable[Manifest] | None = None,
+    closed_candidates: frozenset[str] | None = None,
 ) -> int:
     manifest_snapshot = tuple(manifests) if manifests is not None else tuple(
         load_manifests(SERVICES_DIR)
@@ -232,7 +288,7 @@ def _process(
     readme_path = target_dir / "README.md"
     existing_readme = readme_path.read_text(encoding="utf-8") if readme_path.exists() else ""
 
-    section = _render_section_with_future(graph, existing_readme)
+    section = _render_section_with_future(graph, existing_readme, closed_candidates)
     new_readme = _upsert_section(existing_readme, section)
     if capability_rows is not None:
         new_readme = upsert_capabilities_section(
@@ -250,6 +306,26 @@ def _process(
     return _apply_artifacts(artifacts, dry_run=dry_run, check=check)
 
 
+def _merge_research_index(args: argparse.Namespace) -> int:
+    """Regenerate docs/research's integration matrix with the READMEs, so a
+    candidate's lifecycle change reaches every derived index in one pass.
+
+    Runs for ``--all`` against the repo's research tree, or against an
+    explicit ``--research-root``; a scratch ``--out-root`` alone leaves the
+    committed tree untouched.
+    """
+    if not args.all or not (
+        args.research_root or args.out_root.resolve() == SERVICES_DIR.resolve()
+    ):
+        return 0
+    preview = args.check or args.dry_run
+    changed = run_merge(args.research_root or RESEARCH_ROOT, check=preview)
+    if preview:
+        for path in changed:
+            print(f"DRIFT: {path}" if args.check else f"would write {path}")
+    return len(changed) if args.check else 0
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="bootstrapper.docs.regen")
     grp = ap.add_mutually_exclusive_group(required=True)
@@ -263,12 +339,24 @@ def main(argv: list[str]) -> int:
         help="Only write generated README sections; skip HTML+SVG.",
     )
     ap.add_argument("--check", action="store_true", help="Exit 2 if any artifact would change. Implies --dry-run.")
+    ap.add_argument(
+        "--research-root",
+        type=Path,
+        default=None,
+        help="docs/research tree whose candidate lifecycles filter the output; "
+        "--all regenerates its integration matrix (default: the repo's, and "
+        "only when --out-root is services/).",
+    )
     args = ap.parse_args(argv)
 
+    if args.research_root is not None and not args.research_root.is_dir():
+        print(f"error: research root not found: {args.research_root}", file=sys.stderr)
+        return 1
     targets = _enumerate_doc_folders() if args.all else [args.service]
     manifest_snapshot = tuple(load_manifests(SERVICES_DIR))
+    closed_candidates = closed_candidate_slugs(args.research_root or RESEARCH_ROOT)
 
-    total_drift = 0
+    total_drift = _merge_research_index(args)
     for name in targets:
         try:
             total_drift += _process(
@@ -278,6 +366,7 @@ def main(argv: list[str]) -> int:
                 args.section_only,
                 args.check,
                 manifest_snapshot,
+                closed_candidates,
             )
         except KeyError as e:
             print(f"manifest error for {name}: {e}", file=sys.stderr)

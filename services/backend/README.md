@@ -356,7 +356,7 @@ curl -X POST http://localhost:${BACKEND_PORT}/lightrag/rerank \
 
 ### 6.5. Future — Candidate new services
 
-- **Celery + Flower** ([details](../../docs/research/candidates/celery-flower.md)) — *Headline:* Redis-backed async worker tier so long-running research/memory-consolidate/ComfyUI calls stop blocking the FastAPI request loop. *Wires into:* redis, supabase, comfyui, local-deep-researcher.
+_No high-confidence opportunities identified._
 
 ### 6.6. Future — Unused features in this service
 

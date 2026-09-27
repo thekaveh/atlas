@@ -1,10 +1,13 @@
 ---
 category-fit: agents
+decided: 2026-07-03
 generated: 2026-05-19
 license: MIT
+lifecycle: deferred
 name: mcpo (MCP-to-OpenAPI Proxy)
 referenced-by: [open-webui]
 slug: mcpo
+superseded-by: https://github.com/thekaveh/atlas/issues/195
 type: external-service
 upstream: https://github.com/open-webui/mcpo
 ---

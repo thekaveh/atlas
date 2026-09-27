@@ -1,7 +1,9 @@
 ---
 category-fit: agents
+decided: 2026-07-03
 generated: 2026-05-19
 license: MIT
+lifecycle: shipped
 name: Langfuse
 referenced-by:
   - backend
@@ -14,6 +16,7 @@ referenced-by:
   - ollama
   - open-webui
 slug: langfuse
+superseded-by: services/langfuse/README.md
 type: external-service
 upstream: https://github.com/langfuse/langfuse
 ---

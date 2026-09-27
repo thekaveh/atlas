@@ -1,10 +1,13 @@
 ---
 category-fit: media
+decided: 2026-07-04
 generated: 2026-07-04
 license: MIT
+lifecycle: deferred
 name: Voicebox (jamiepine)
 referenced-by: []
 slug: voicebox
+superseded-by: https://github.com/thekaveh/atlas/issues/237
 type: external-service
 upstream: https://github.com/jamiepine/voicebox
 ---

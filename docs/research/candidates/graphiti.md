@@ -1,10 +1,13 @@
 ---
 category-fit: agents
+decided: 2026-07-04
 generated: 2026-05-19
 license: Apache-2.0
+lifecycle: deferred
 name: Graphiti
 referenced-by: [neo4j]
 slug: graphiti
+superseded-by: https://github.com/thekaveh/atlas/issues/215
 type: external-service
 upstream: https://github.com/getzep/graphiti
 ---

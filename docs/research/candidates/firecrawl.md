@@ -1,10 +1,13 @@
 ---
 category-fit: media
+decided: 2026-07-04
 generated: 2026-07-04
 license: AGPL-3.0
+lifecycle: deferred
 name: Firecrawl
 referenced-by: [local-deep-researcher]
 slug: firecrawl
+superseded-by: https://github.com/thekaveh/atlas/issues/230
 type: external-service
 upstream: https://github.com/firecrawl/firecrawl
 ---

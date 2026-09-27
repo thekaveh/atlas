@@ -1,10 +1,13 @@
 ---
 category-fit: agents
+decided: 2026-07-04
 generated: 2026-07-04
 license: Apache-2.0 / GPL-3.0 / LGPL-3.0
+lifecycle: rejected
 name: Live Trading Services
 referenced-by: []
 slug: live-trading-services
+superseded-by: https://github.com/thekaveh/atlas/issues/234
 type: external-service
 upstream: https://hummingbot.org/docs/
 ---

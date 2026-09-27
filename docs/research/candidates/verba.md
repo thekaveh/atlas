@@ -1,10 +1,13 @@
 ---
 category-fit: apps
+decided: 2026-07-03
 generated: 2026-05-19
 license: BSD-3-Clause
+lifecycle: shipped
 name: Verba
 referenced-by: [weaviate]
 slug: verba
+superseded-by: services/verba/README.md
 type: external-service
 upstream: https://github.com/weaviate/Verba
 ---

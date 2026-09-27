@@ -42,7 +42,18 @@ _CAND_SECTIONS = (
 )
 
 _ROW_FRONTMATTER_KEYS = {"service", "category", "generated", "generator", "sources_consulted"}
-_CAND_FRONTMATTER_KEYS = {"slug", "name", "type", "category-fit", "generated", "upstream", "license", "referenced-by"}
+_CAND_FRONTMATTER_KEYS = {
+    "slug", "name", "type", "category-fit", "generated", "upstream", "license",
+    "referenced-by", "lifecycle",
+}
+
+# Where a candidate stands (#1190). `proposed` is the only undecided value;
+# every other one needs the `decided` date, and may name what superseded the
+# proposal in `superseded-by` (an issue/PR URL or a repository path).
+# Closed candidates are no longer candidates: derived indexes drop them, and
+# their original proposal sections may sit under a historical heading.
+_LIFECYCLES = ("proposed", "planned", "deferred", "rejected", "shipped")
+_CLOSED_LIFECYCLES = frozenset({"rejected", "shipped"})
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _URL_RE = re.compile(r"https?://\S+")
@@ -59,19 +70,46 @@ def _parse_frontmatter(text: str) -> tuple[dict, str] | None:
         return None
     try:
         fm = yaml.safe_load(m.group(1)) or {}
-    except yaml.YAMLError:
+    except (yaml.YAMLError, ValueError):  # ValueError: an impossible date
         return None
     if not isinstance(fm, dict):
         return None
     return fm, m.group(2)
 
 
-def _section_match(body: str, title: str) -> re.Match[str] | None:
+def _section_match(body: str, title: str, *, nested: bool = False) -> re.Match[str] | None:
+    level = "#{2,3}" if nested else "##"
     return re.search(
-        rf"^##\s+(?:\d+(?:\.\d+)*\.\s+)?{re.escape(title)}\s*$",
+        rf"^{level}\s+(?:\d+(?:\.\d+)*\.\s+)?{re.escape(title)}\s*$",
         body,
         re.MULTILINE,
     )
+
+
+def _lifecycle_errors(path: Path, fm: dict) -> list[str]:
+    lifecycle = fm.get("lifecycle")
+    if lifecycle not in _LIFECYCLES:
+        return [f"{path}: frontmatter `lifecycle` must be one of {list(_LIFECYCLES)}"]
+    errors: list[str] = []
+    decided = fm.get("decided")
+    if lifecycle != "proposed" and decided is None:
+        errors.append(f"{path}: a {lifecycle} candidate needs `decided: YYYY-MM-DD`")
+    elif decided is not None and not _DATE_RE.match(str(decided)):
+        errors.append(f"{path}: frontmatter `decided` must be YYYY-MM-DD")
+    superseded = fm.get("superseded-by")
+    if superseded is not None and not (
+        _URL_RE.match(str(superseded)) or _is_repo_file(str(superseded))
+    ):
+        errors.append(f"{path}: `superseded-by` must be an http(s) URL or an existing repo path")
+    return errors
+
+
+def _is_repo_file(value: str) -> bool:
+    """A relative path that exists inside the repository."""
+    if not value.strip() or Path(value).is_absolute():
+        return False
+    target = (REPO_ROOT / value).resolve()
+    return target != REPO_ROOT and target.is_relative_to(REPO_ROOT) and target.exists()
 
 
 def _validate_row(path: Path, text: str) -> list[str]:
@@ -147,9 +185,12 @@ def _validate_candidate(path: Path, text: str) -> list[str]:
     if not isinstance(rb, list):
         errors.append(f"{path}: frontmatter `referenced-by` must be a list (may be empty)")
 
+    if "lifecycle" in fm:
+        errors.extend(_lifecycle_errors(path, fm))
+    nested = fm.get("lifecycle") in _CLOSED_LIFECYCLES
     last_idx = -1
     for sec in _CAND_SECTIONS:
-        match = _section_match(body, sec)
+        match = _section_match(body, sec, nested=nested)
         if match is None:
             errors.append(f"{path}: missing required section: ## {sec}")
             continue
@@ -158,7 +199,7 @@ def _validate_candidate(path: Path, text: str) -> list[str]:
             errors.append(f"{path}: section out of order: ## {sec}")
         last_idx = idx
 
-    upstream_evidence = _section_match(body, "Upstream evidence")
+    upstream_evidence = _section_match(body, "Upstream evidence", nested=nested)
     ue_start = upstream_evidence.start() if upstream_evidence else -1
     if ue_start != -1:
         # Skip past the heading line itself, then search for the next heading.
