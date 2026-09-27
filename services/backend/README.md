@@ -314,7 +314,6 @@ curl -X POST http://localhost:${BACKEND_PORT}/lightrag/rerank \
 | otel-collector | infra |
 | ray | infra |
 | minio | data |
-| neo4j | data |
 | redis | data |
 | supabase | data |
 | supavisor | data |

@@ -823,3 +823,68 @@ def test_aggregate_doc_folder_names_match_deps_resolver():
     from docs.deps_resolver import _AGGREGATE_DOC_FOLDERS
 
     assert _AGGREGATE_DOC_FOLDER_NAMES == set(_AGGREGATE_DOC_FOLDERS.keys())
+
+
+# ─── #1054: sampled review of data_flow.calls claims ────────────────
+
+
+def _ledger_sections() -> tuple[list[list[str]], list[list[str]], str]:
+    """The sampled-edge rows, the unsampled-by-caller rows, and the text of
+    docs/maintenance/integration-claims-ledger.md."""
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parents[2] / "docs" / "maintenance"
+            / "integration-claims-ledger.md").read_text(encoding="utf-8")
+    sampled_block = text[text.index("### 2.1."):text.index("### 2.2.")]
+    unsampled_block = text[text.index("## 3."):]
+
+    def rows(block: str) -> list[list[str]]:
+        return [
+            [cell.strip() for cell in line.strip().strip("|").split("|")]
+            for line in block.splitlines() if line.startswith("| `")
+        ]
+
+    return rows(sampled_block), rows(unsampled_block), text
+
+
+def test_integration_claims_ledger_covers_its_stated_sample() -> None:
+    """#1054 AC1/AC2/AC3/AC6: the ledger states its rule and coverage, every
+    sampled row fills every evidence column, the verdict column really uses
+    `unconfirmed`, and sampled + unsampled edges add up to the stated total."""
+    sampled, unsampled, text = _ledger_sections()
+    verdicts = {row[7] for row in sampled}
+    unsampled_total = sum(int(row[1]) for row in unsampled)
+
+    assert {
+        "rule_stated": "That makes 37 of 207 edges (17.9%)." in text,
+        "sampled_rows": len(sampled),
+        "all_cells_filled": all(len(row) == 9 and all(row) for row in sampled),
+        "statuses": {row[6] for row in sampled} <= {"current", "optional", "future"},
+        "verdicts": verdicts,
+        "every_caller_listed_once": len({row[0] for row in unsampled}) == len(unsampled),
+        "total": len(sampled) + unsampled_total,
+    } == {
+        "rule_stated": True,
+        "sampled_rows": 37,
+        "all_cells_filled": True,
+        "statuses": True,
+        "verdicts": {"confirmed", "unconfirmed", "incorrect"},
+        "every_caller_listed_once": True,
+        "total": 207,
+    }
+
+
+def test_integration_claims_ledger_corrections_live_in_the_manifests() -> None:
+    """#1054 AC4/AC5: an edge the review found incorrect is gone from its
+    caller's manifest (the regenerated docs follow via the drift gate), and
+    the schema gap is recorded with its follow-up issue."""
+    from pathlib import Path
+
+    sampled, _unsampled, text = _ledger_sections()
+    manifests = {m.name: m for m in load_manifests(Path(__file__).resolve().parents[2] / "services")}
+    incorrect = [row[0].strip("`").split(" → ") for row in sampled if row[7] == "incorrect"]
+
+    assert incorrect == [["backend", "neo4j"]]
+    for caller, target in incorrect:
+        assert target not in (manifests[caller].data_flow or {}).get("calls", [])
+    assert "https://github.com/thekaveh/atlas/issues/1273" in text

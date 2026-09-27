@@ -41,7 +41,7 @@ GRAFANA_ENDPOINT=...                    # not consumed externally; written for s
 GRAFANA_SCALE
 ```
 
-The provisioned datasource reads `${PROMETHEUS_ENDPOINT}` — when Prometheus is `disabled`, this interpolates to empty and Grafana shows "datasource unreachable" until Prometheus is turned on.
+The provisioned datasource reads `${PROMETHEUS_ENDPOINT}`. When Prometheus is `disabled` the value in `.env` is empty, but `compose.yml` passes `${PROMETHEUS_ENDPOINT:-http://prometheus:9090}`, and `:-` also replaces an empty value. The datasource therefore still points at `http://prometheus:9090`, which does not resolve, and Grafana shows "datasource unreachable" until Prometheus is turned on.
 
 ## 4. Dashboards (7 shipped)
 
