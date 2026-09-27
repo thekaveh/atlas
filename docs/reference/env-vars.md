@@ -427,9 +427,11 @@
 | LIGHTRAG_EXTRACT_LLM_BINDING_HOST | lightrag |  | Optional EXTRACT role provider endpoint. Empty = inherit LLM_BINDING_HOST. |
 | LIGHTRAG_KEYWORD_LLM_BINDING_HOST | lightrag |  | Optional KEYWORD role provider endpoint. Empty = inherit LLM_BINDING_HOST. |
 | LIGHTRAG_QUERY_LLM_BINDING_HOST | lightrag |  | Optional QUERY role provider endpoint. Empty = inherit LLM_BINDING_HOST. |
-| LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY | lightrag |  | Optional EXTRACT role provider API key. Empty = inherit LLM_BINDING_API_KEY for same-provider roles. |
+| LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY | lightrag |  | Optional EXTRACT role provider API key. Empty = defaults to ${LITELLM_MASTER_KEY} at compose (#796, as KEYWORD/QUERY do since #721) so a LiteLLM-routed EXTRACT needs no key wiring. Set it before pointing EXTRACT at a provider outside Atlas, or that provider receives the LiteLLM master key. |
 | LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY | lightrag |  | Optional KEYWORD role provider API key. Empty = defaults to ${LITELLM_MASTER_KEY} at compose (#721) so LiteLLM-routed roles need no key wiring. |
 | LIGHTRAG_QUERY_LLM_BINDING_API_KEY | lightrag |  | Optional QUERY role provider API key. Empty = defaults to ${LITELLM_MASTER_KEY} at compose (#721) so LiteLLM-routed roles need no key wiring. |
+| LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT | lightrag | 3072 | EXTRACT role output cap in tokens when EXTRACT is bound to native Ollama (LightRAG EXTRACT_OLLAMA_LLM_NUM_PREDICT, #796). A role on a different binding than the base sends no Ollama options otherwise, and Ollama's own default is unbounded. Must be an integer; ignored by other bindings. |
+| LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX | lightrag | 8192 | EXTRACT role context window in tokens when EXTRACT is bound to native Ollama (LightRAG EXTRACT_OLLAMA_LLM_NUM_CTX, #796). Holds the ~3.5k-token extraction prompt plus the output cap. Must be an integer; ignored by other bindings. |
 | LIGHTRAG_EXTRACT_MAX_ASYNC_LLM | lightrag |  | Optional EXTRACT role LLM concurrency. Empty = inherit MAX_ASYNC_LLM. |
 | LIGHTRAG_KEYWORD_MAX_ASYNC_LLM | lightrag |  | Optional KEYWORD role LLM concurrency. Empty = inherit MAX_ASYNC_LLM. |
 | LIGHTRAG_QUERY_MAX_ASYNC_LLM | lightrag |  | Optional QUERY role LLM concurrency. Empty = inherit MAX_ASYNC_LLM. |

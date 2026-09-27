@@ -26,7 +26,12 @@ ROLE_INPUTS = {
     "LIGHTRAG_EXTRACT_LLM_BINDING_HOST": {"native": "EXTRACT_LLM_BINDING_HOST", "secret": False},
     "LIGHTRAG_KEYWORD_LLM_BINDING_HOST": {"native": "KEYWORD_LLM_BINDING_HOST", "secret": False},
     "LIGHTRAG_QUERY_LLM_BINDING_HOST": {"native": "QUERY_LLM_BINDING_HOST", "secret": False},
-    "LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY": {"native": "EXTRACT_LLM_BINDING_API_KEY", "secret": True},
+    "LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY": {
+        "native": "EXTRACT_LLM_BINDING_API_KEY",
+        "secret": True,
+        # #796: EXTRACT joins KEYWORD/QUERY (#721) on the LiteLLM master key.
+        "compose": "${LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}",
+    },
     "LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY": {
         "native": "KEYWORD_LLM_BINDING_API_KEY",
         "secret": True,
@@ -44,6 +49,22 @@ ROLE_INPUTS = {
     "LIGHTRAG_EXTRACT_LLM_TIMEOUT": {"native": "EXTRACT_LLM_TIMEOUT", "secret": False},
     "LIGHTRAG_KEYWORD_LLM_TIMEOUT": {"native": "KEYWORD_LLM_TIMEOUT", "secret": False},
     "LIGHTRAG_QUERY_LLM_TIMEOUT": {"native": "QUERY_LLM_TIMEOUT", "secret": False},
+}
+
+# #796: EXTRACT generation caps for a native-Ollama EXTRACT binding. LightRAG
+# 1.5.4 forwards a non-integer value (even "") to Ollama as a string, which
+# rejects every call, so each default and Compose fallback must be an integer.
+EXTRACT_OLLAMA_CAPS = {
+    "LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT": {
+        "native": "EXTRACT_OLLAMA_LLM_NUM_PREDICT",
+        "default": "3072",
+        "compose": "${LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT:-3072}",
+    },
+    "LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX": {
+        "native": "EXTRACT_OLLAMA_LLM_NUM_CTX",
+        "default": "8192",
+        "compose": "${LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX:-8192}",
+    },
 }
 
 QUERY_INPUTS = {
@@ -108,22 +129,35 @@ def test_lightrag_compose_maps_role_inputs_to_native_env_names():
         assert env[native_name] == expected
 
 
-def test_lightrag_keyword_query_api_keys_default_to_litellm_master_key():
-    """#721: KEYWORD/QUERY role API keys fall back to the in-network LiteLLM
-    master key when the LIGHTRAG_* override is unset, so a consumer pointing
-    those roles at LiteLLM needs zero key wiring. EXTRACT stays opt-in (empty)."""
+def test_lightrag_role_api_keys_default_to_litellm_master_key():
+    """#721 (KEYWORD/QUERY) and #796 (EXTRACT): every role API key falls back
+    to the in-network LiteLLM master key when the LIGHTRAG_* override is
+    unset, so a consumer pointing a role at LiteLLM needs zero key wiring."""
     env = _compose_lightrag_environment()
 
-    assert env["KEYWORD_LLM_BINDING_API_KEY"] == (
-        "${LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}"
-    )
-    assert env["QUERY_LLM_BINDING_API_KEY"] == (
-        "${LIGHTRAG_QUERY_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}"
-    )
-    # EXTRACT remains empty-default (out of scope for #721).
-    assert env["EXTRACT_LLM_BINDING_API_KEY"] == "${LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY:-}"
-    # The base binding uses the same master key the KEYWORD/QUERY roles now inherit.
+    for role in ("EXTRACT", "KEYWORD", "QUERY"):
+        assert env[f"{role}_LLM_BINDING_API_KEY"] == (
+            f"${{LIGHTRAG_{role}_LLM_BINDING_API_KEY:-${{LITELLM_MASTER_KEY}}}}"
+        )
+    # The base binding uses the same master key the roles inherit.
     assert env["LLM_BINDING_API_KEY"] == "${LITELLM_MASTER_KEY}"
+
+
+def test_extract_ollama_caps_are_declared_in_all_three_files():
+    """#796 AC1/AC2: the caps reach a native-Ollama EXTRACT binding as
+    EXTRACT_OLLAMA_LLM_NUM_PREDICT / _NUM_CTX from the manifest, Compose and
+    .env.example alike, with an integer output cap inside 2k-4k."""
+    env_by_name = _manifest_env_by_name()
+    compose = _compose_lightrag_environment()
+    example = ENV_EXAMPLE.read_text(encoding="utf-8")
+
+    for atlas_name, meta in EXTRACT_OLLAMA_CAPS.items():
+        assert env_by_name[atlas_name]["default"] == meta["default"]
+        assert compose[meta["native"]] == meta["compose"]
+        assert f"\n{atlas_name}={meta['default']}\n" in example
+    assert 2048 <= int(EXTRACT_OLLAMA_CAPS["LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT"]["default"]) <= 4096
+    for path in (LIGHTRAG_COMPOSE, LIGHTRAG_MANIFEST, ENV_EXAMPLE):
+        assert "OLLAMA_LLM_NUM_PREDICT" in path.read_text(encoding="utf-8"), path
 
 
 def test_lightrag_compose_maps_query_controls_to_native_env_names():
@@ -155,28 +189,15 @@ def _docker_available() -> bool:
     return shutil.which("docker") is not None
 
 
-@pytest.mark.skipif(
+_needs_docker = pytest.mark.skipif(
     not _docker_available() or not ENV_EXAMPLE.is_file(),
     reason="docker not on PATH or .env.example missing",
 )
-def test_lightrag_role_models_render_into_container_environment(tmp_path: Path):
-    env_file = tmp_path / ".env"
-    overrides = {
-        "PROJECT_NAME": "atlas",
-        "LIGHTRAG_SOURCE": "container",
-        "LIGHTRAG_SCALE": "1",
-        "LIGHTRAG_INIT_SCALE": "1",
-        "LIGHTRAG_EXTRACT_LLM_MODEL": "mistral-small3.2:24b",
-        "LIGHTRAG_KEYWORD_LLM_MODEL": "mistral-small3.2:24b",
-        "LIGHTRAG_QUERY_LLM_MODEL": "qwen3.8:latest",
-        "LIGHTRAG_EXTRACT_MAX_ASYNC_LLM": "1",
-        "LIGHTRAG_QUERY_LLM_TIMEOUT": "900",
-        "LIGHTRAG_QUERY_ENABLE_RERANK": "false",
-        "LIGHTRAG_QUERY_TOP_K": "10",
-        "LIGHTRAG_QUERY_CHUNK_TOP_K": "5",
-        "LIGHTRAG_QUERY_MAX_TOTAL_TOKENS": "12000",
-    }
 
+
+def _render_lightrag_environment(tmp_path: Path, overrides: dict[str, str]) -> dict[str, str]:
+    """``docker compose config`` over .env.example with ``overrides`` applied."""
+    env_file = tmp_path / ".env"
     out_lines = []
     seen = set()
     for line in ENV_EXAMPLE.read_text(encoding="utf-8").splitlines():
@@ -212,7 +233,31 @@ def test_lightrag_role_models_render_into_container_environment(tmp_path: Path):
     )
     assert result.returncode == 0, result.stderr
     rendered = yaml.safe_load(result.stdout)
-    env = rendered["services"]["lightrag"]["environment"]
+    return rendered["services"]["lightrag"]["environment"]
+
+
+_LIGHTRAG_ON = {
+    "PROJECT_NAME": "atlas",
+    "LIGHTRAG_SOURCE": "container",
+    "LIGHTRAG_SCALE": "1",
+    "LIGHTRAG_INIT_SCALE": "1",
+}
+
+
+@_needs_docker
+def test_lightrag_role_models_render_into_container_environment(tmp_path: Path):
+    env = _render_lightrag_environment(tmp_path, {
+        **_LIGHTRAG_ON,
+        "LIGHTRAG_EXTRACT_LLM_MODEL": "mistral-small3.2:24b",
+        "LIGHTRAG_KEYWORD_LLM_MODEL": "mistral-small3.2:24b",
+        "LIGHTRAG_QUERY_LLM_MODEL": "qwen3.8:latest",
+        "LIGHTRAG_EXTRACT_MAX_ASYNC_LLM": "1",
+        "LIGHTRAG_QUERY_LLM_TIMEOUT": "900",
+        "LIGHTRAG_QUERY_ENABLE_RERANK": "false",
+        "LIGHTRAG_QUERY_TOP_K": "10",
+        "LIGHTRAG_QUERY_CHUNK_TOP_K": "5",
+        "LIGHTRAG_QUERY_MAX_TOTAL_TOKENS": "12000",
+    })
 
     assert env["EXTRACT_LLM_MODEL"] == "mistral-small3.2:24b"
     assert env["KEYWORD_LLM_MODEL"] == "mistral-small3.2:24b"
@@ -224,3 +269,42 @@ def test_lightrag_role_models_render_into_container_environment(tmp_path: Path):
     assert env["TOP_K"] == "10"
     assert env["CHUNK_TOP_K"] == "5"
     assert env["MAX_TOTAL_TOKENS"] == "12000"
+
+
+@_needs_docker
+def test_native_ollama_extract_renders_caps_and_key_with_no_extra_wiring(tmp_path: Path):
+    """#796 AC2/AC5: with only the EXTRACT binding and host set, and the cap
+    variables left blank, Compose still renders numeric caps and a non-empty
+    EXTRACT API key (the LiteLLM master key)."""
+    env = _render_lightrag_environment(tmp_path, {
+        **_LIGHTRAG_ON,
+        "LITELLM_MASTER_KEY": "sk-atlas-master-796",
+        "LIGHTRAG_EXTRACT_LLM_BINDING": "ollama",
+        "LIGHTRAG_EXTRACT_LLM_BINDING_HOST": "http://host.docker.internal:11434",
+        "LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT": "",
+        "LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX": "",
+    })
+
+    assert (
+        env["EXTRACT_LLM_BINDING"], env["EXTRACT_LLM_BINDING_API_KEY"],
+        env["EXTRACT_OLLAMA_LLM_NUM_PREDICT"], env["EXTRACT_OLLAMA_LLM_NUM_CTX"],
+    ) == ("ollama", "sk-atlas-master-796", "3072", "8192")
+
+
+def test_extract_generation_caps_are_documented():
+    """#796 AC6 (and the upstream findings for AC3/AC4): the README, the
+    consumer guide and the generated env reference name the caps."""
+    readme = (REPO_ROOT / "services" / "lightrag" / "README.md").read_text(encoding="utf-8")
+    guide = (REPO_ROOT / "docs" / "operations" / "reusing-atlas.md").read_text(encoding="utf-8")
+    reference = (REPO_ROOT / "docs" / "reference" / "env-vars.md").read_text(encoding="utf-8")
+
+    for text in (readme, guide, reference):
+        assert "LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT" in text
+        assert "LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX" in text
+    for fact in (
+        "LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT=3072",
+        "blob/v1.5.4/lightrag/utils.py#L1274-L1277",
+        "blob/v1.5.4/lightrag/operate.py#L3746-L3779",
+        "not configurable in 1.5.4",
+    ):
+        assert fact in readme
