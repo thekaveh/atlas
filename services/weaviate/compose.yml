@@ -64,8 +64,9 @@ services:
       RAFT_BOOTSTRAP_EXPECT: 1
       RAFT_JOIN: weaviate
       # Weaviate's text2vec-openai talks to LiteLLM. The collection-level
-      # base URL is set by weaviate-init. OPENAI_APIKEY here is the master
-      # key Weaviate sends to LiteLLM for authentication.
+      # base URL is set by the Backend when it creates its collection
+      # (memory_store.py). OPENAI_APIKEY here is the master key Weaviate
+      # sends to LiteLLM for authentication.
       OPENAI_APIKEY: ${LITELLM_MASTER_KEY:-}
       CLIP_INFERENCE_API: ${CLIP_INFERENCE_API-http://multi2vec-clip:8080}
       # Prometheus metrics — surfaces /metrics on port 2112 (exposed
