@@ -2454,6 +2454,32 @@ class AtlasStarter:
             raise
         return True
 
+    def _leave_legacy_managed_host(self, label: str, exc: BaseException) -> bool:
+        """Warn and carry on when ``exc`` is the stamp-less pid refusal (#990).
+
+        A pid file from an Atlas pin older than the managed-host framework has
+        no identity stamp, so the guard cannot prove the live process is
+        Atlas's and will not signal it. That refusal stands. What changes is
+        its cost: it no longer aborts the whole bring-up before Compose runs.
+        The process is left exactly as found (typically the previous pin's
+        host, still serving) and nothing is added to rollback ownership,
+        because this run created nothing. Every other ownership refusal,
+        including a stamped record whose identity does not match, stays fatal.
+        """
+        from services import legacy_pid_refusal_file
+
+        if legacy_pid_refusal_file(exc) is None:
+            return False
+        # The remediation commands end the message, so nothing is appended
+        # after them that could be pasted into a shell with the path.
+        self.banner.show_status_message(
+            f"Managed {label} host left as found; the rest of the stack starts, "
+            f"and once the old process is stopped the next ./start.sh launches "
+            f"a fresh, identity-stamped {label} process. {exc}",
+            "warning",
+        )
+        return True
+
     def rollback_managed_host_processes(self) -> bool:
         """Stop native hosts started by this invocation, in reverse order."""
         from services import tracked_process_may_survive
@@ -2519,6 +2545,8 @@ class AtlasStarter:
             manager = manager_from_env(env)
             status, created = manager.ensure_running()
         except BlenderMcpError as exc:
+            if self._leave_legacy_managed_host("Blender MCP", exc):
+                return True
             if exc.surviving_process:
                 self._managed_hosts_started_this_run.append(
                     ("Blender MCP", manager)
@@ -2706,6 +2734,8 @@ class AtlasStarter:
         try:
             status, created = manager.ensure_running_with_ownership()
         except ComfyUiMpsError as exc:
+            if self._leave_legacy_managed_host("ComfyUI (MPS)", exc):
+                return True
             if exc.surviving_process:
                 self._managed_hosts_started_this_run.append(
                     ("ComfyUI (MPS)", manager)
@@ -2774,6 +2804,8 @@ class AtlasStarter:
         try:
             status, created = manager.ensure_running_with_ownership()
         except VllmMetalError as exc:
+            if self._leave_legacy_managed_host("vLLM (Metal)", exc):
+                return True
             if exc.surviving_process:
                 self._managed_hosts_started_this_run.append(
                     ("vLLM (Metal)", manager)
