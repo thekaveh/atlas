@@ -1,6 +1,6 @@
 # 7.2. Troubleshooting
 
-Common startup and shutdown problems and their fixes. If you hit something not covered here, open an issue.
+Common startup and shutdown problems and their fixes. If you hit something not covered here, open an issue. Attach a redacted support bundle from `./start.sh doctor --bundle ./atlas-support.tar.gz`, or re-run the failing start with `--support-bundle ./atlas-support.tar.gz`, after reading its preview ([Operations §4.1](operations/index.md#41-support-bundle)).
 
 ## 1. "Refusing to run as root"
 

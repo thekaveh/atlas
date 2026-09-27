@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 from tests.three_surface_test_utils import surface_text
 
@@ -1196,3 +1197,645 @@ def test_doctor_unpullable_models_skips_mps_unsafe_custom_nodes(monkeypatch, tmp
     joined = " ".join(r["details"].get("warnings", []))
     assert "cuda-only-node" not in joined
     assert "provision-nodes" not in joined
+
+
+# ─── Redacted support bundle (#1057) ────────────────────────────────
+
+_CANARIES = {
+    "env": "canary-env-value-6f1c9a2b",
+    "url": "canary-url-cred-83b2d4e1",
+    "bearer": "canary-bearer-tok-5d7e0c93",
+    "pem": "canary-pem-body-1a2b3c4d",
+    "json": "canary-json-pass-9e8f7a6b",
+    "assign": "canary-assign-val-4c3d2e1f",
+}
+
+
+def _bundle_module():
+    from core import support_bundle
+
+    return support_bundle
+
+
+def _canary_log() -> str:
+    c = _CANARIES
+    return (
+        "12:00:01 starting litellm\n"
+        f"12:00:02 connecting to postgres://atlas:{c['url']}@supabase-db:5432/atlas\n"
+        f"12:00:03 > POST /v1/chat/completions\n> Authorization: Bearer {c['bearer']}\n"
+        f"12:00:04 curl -H 'Authorization: Bearer {c['bearer']}' http://litellm:4000\n"
+        "-----BEGIN RSA PRIVATE KEY-----\n"
+        f"MIIEow{c['pem']}AAAA\n{c['pem']}BBBB\n"
+        "-----END RSA PRIVATE KEY-----\n"
+        f'{{"user": "atlas",\n "password": "{c["json"]}"}}\n'
+        f"OPENAI_API_KEY={c['assign']}\n"
+        f"echoed secret value {c['env']} from the environment\n"
+        "12:00:05 ERROR compose up failed: service litellm exited 1\n"
+    )
+
+
+def _canary_request(tmp_path: Path, *, include_unlisted: bool):
+    sb = _bundle_module()
+    log_file = tmp_path / "session.log"
+    log_file.write_text(_canary_log(), encoding="utf-8")
+    c = _CANARIES
+    env = {
+        "SUPABASE_DB_PASSWORD": c["env"],
+        "LITELLM_URL": f"http://proxy:{c['url']}@litellm:4000",
+        "LITELLM_SOURCE": "container",
+        "BASE_PORT": "63000",
+    }
+    checks = [
+        {"id": "compose", "status": "fail",
+         "message": f"compose failed reaching postgres://atlas:{c['url']}@db",
+         "details": {"output": _canary_log(), "api_key": c["assign"]}},
+        {"id": "endpoints", "status": "pass", "message": "ok", "details": {}},
+    ]
+    return sb.BundleRequest(
+        env=env, env_file=None, checks=checks, include_unlisted=include_unlisted,
+        logs=[sb.LogSource("session.log", path=log_file),
+              sb.LogSource("transcript.log", text=_canary_log())],
+        context={"command": "start", "note": f"Bearer {c['bearer']}"},
+    )
+
+
+def _archive_payloads(bundle) -> list[bytes]:
+    """The .tar.gz as written, its decompressed tar stream (member headers and
+    contents), and each member's bytes."""
+    import gzip
+    import io
+    import tarfile
+
+    sb = _bundle_module()
+    archive = sb.archive_bytes(bundle)
+    raw_tar = gzip.decompress(archive)
+    members = []
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
+        for info in tar.getmembers():
+            members.append(f"{info.name} {info.uname} {info.gname}".encode())
+            members.append(tar.extractfile(info).read())
+    return [archive, raw_tar, *members]
+
+
+
+@pytest.mark.parametrize("include_unlisted", [False, True])
+def test_support_bundle_leaks_no_planted_canary(tmp_path, include_unlisted) -> None:
+    """#1057 AC1: canaries in an env value, a URL credential, a bearer header
+    and a multiline log are absent from every file, the archive metadata and
+    the preview — in the default bundle and with every opt-in field."""
+    sb = _bundle_module()
+    bundle = sb.build_bundle(_canary_request(tmp_path, include_unlisted=include_unlisted))
+    preview = "\n".join(sb.preview_lines(bundle)).encode()
+
+    for blob in [*_archive_payloads(bundle), preview]:
+        for name, canary in _CANARIES.items():
+            assert canary.encode() not in blob, f"{name} canary leaked"
+    # Redaction keeps the diagnosis readable.
+    assert b"ERROR compose up failed: service litellm exited 1" in preview
+    assert b"[REDACTED]" in preview
+
+
+_LEAKS = [
+    # (text, secret that must not survive)
+    ("redis://:p4ssw0rd-x@redis:6379/0", "p4ssw0rd-x"),
+    ("https://h/x?access_token=abc123def&page=2", "abc123def"),
+    ("x-api-key: zzzzzzzzzzz", "zzzzzzzzzzz"),
+    ("ghp_" + "a" * 36, "a" * 36),
+    ("sk-ant-" + "b" * 30, "b" * 30),
+    ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJlLXZhbHVl", "c2lnbmF0dXJlLXZhbHVl"),
+    ("value n8n-key-value-123 echoed", "n8n-key-value-123"),
+    ("value n8n-key-value-123 urlencoded%3A", "n8n-key-value-123"),
+    # Found by review: each of these leaked before the fix.
+    ('{"password": "hunter2-leaked-pw"}', "hunter2-leaked-pw"),
+    ("password=hunter2-leaked-pw", "hunter2-leaked-pw"),
+    ("{'password': 'hunter2-prod-pw'}", "hunter2-prod-pw"),
+    ("litellm-1  | Cookie: session=c00kie-val", "c00kie-val"),
+    ("> Cookie: session=c00kie-val", "c00kie-val"),
+    ("12:00 Authorization: Token t0ken-VALUE-99", "t0ken-VALUE-99"),
+    ("N8N_ENCRYPTION_KEY=enc-Key-4411", "enc-Key-4411"),
+    ("SUPABASE_SERVICE_ROLE_KEY=svc-Role-9988", "svc-Role-9988"),
+    ("postgres://atlas:Ab3/xY+9Qz==@db:5432/atlas", "Ab3/xY+9Qz=="),
+    ("password: 'correct horse battery staple'", "horse battery staple"),
+    ("-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0rphan\n", "MIIEowIBAAKCAQEA0rphan"),
+    ("MIIEowIBAAKCAQEAtail\n-----END RSA PRIVATE KEY-----\nafter", "MIIEowIBAAKCAQEAtail"),
+    ("POSTGRES_PASSWORD=abc-\x1b[1;36m123\x1b[0m-def-456", "abc-123-def-456"),
+    ("export key AIzaSyA1234567890abcdefghijklmnopqrstuv", "AIzaSyA1234567890abcdefghijklmnopqrstuv"),
+    ("shell-exported Sh3ll-Exported-K3y", "Sh3ll-Exported-K3y"),
+]
+_KEPT = [
+    # (text, content redaction must not destroy)
+    ("vllm | tokenizer=meta-llama/Llama-3.1-8B", "meta-llama/Llama-3.1-8B"),
+    ("max_tokens=4096 temperature=0.2", "max_tokens=4096"),
+    ("Kong basic authentication gates this route", "basic authentication"),
+    ('SUPABASE_JWT_SECRET: variable is not set', "variable is not set"),
+    ("?access_token=x&model=llama3.2&port=11434", "&model=llama3.2&port=11434"),
+    ("COMFYUI_SOURCE is disabled; check not required.", "is disabled; check not required."),
+    ("token rotation happened", "token rotation happened"),
+]
+
+
+def _stock_redactor():
+    """A redactor built the way a real stack builds it: from the shipped
+    .env.example (toggles, placeholders) plus a key exported in the shell."""
+    sb = _bundle_module()
+    stock: dict[str, str] = {}
+    for line in (REPO_ROOT / ".env.example").read_text(encoding="utf-8").splitlines():
+        key, sep, value = line.partition("=")
+        if sep and not key.startswith("#"):
+            stock[key.strip()] = value.split(" #", 1)[0].strip()
+    shell = {"OPENAI_API_KEY": "Sh3ll-Exported-K3y"}
+    return sb.Redactor(shell, {**stock, "N8N_API_KEY": "n8n-key-value-123"})
+
+
+@pytest.mark.parametrize(("text", "secret"), _LEAKS)
+def test_support_bundle_redactor_removes_secret(text, secret) -> None:
+    assert secret not in _stock_redactor().text(text)
+
+
+@pytest.mark.parametrize(("text", "kept"), _KEPT)
+def test_support_bundle_redactor_keeps_diagnostics(text, kept) -> None:
+    assert kept in _stock_redactor().text(text)
+
+
+def test_support_bundle_redactor_scrubs_keys_and_secret_named_values() -> None:
+    redactor = _stock_redactor()
+
+    assert redactor.value({
+        "DB_PASSWORD": "short", "PORT": "5432",
+        "postgres://atlas:hunter22@db/x": "seen",
+    }) == {"DB_PASSWORD": "[REDACTED]", "PORT": "5432", "postgres://[REDACTED]@db/x": "seen"}
+
+
+def test_support_bundle_redaction_stays_linear_on_long_lines() -> None:
+    """Review found an unbounded pattern that took ~1 minute on one 40k-char
+    line; every pattern is now length-bounded."""
+    import time
+
+    redactor = _stock_redactor()
+    adversarial = [("a-" * 131072), ("aB3_" * 65536), ("x://" + "a" * 262140)]
+    started = time.monotonic()
+    for line in adversarial:
+        redactor.text(line)
+
+    assert time.monotonic() - started < 10
+
+
+def _manifest_stack(tmp_path: Path, monkeypatch) -> Path:
+    import start as start_module
+
+    _write_base_env(tmp_path, extra="BASE_PORT=63000\nLITELLM_DEFAULT_MODEL=base-model\n")
+    manifest = tmp_path / "atlas.consumer.yml"
+    manifest.write_text(
+        "name: showcase\nproject_name: showcase\n"
+        "env:\n  values:\n    BASE_PORT: 63000\n    LITELLM_DEFAULT_MODEL: wrong-model\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager, "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+    return manifest
+
+
+def _read_bundle(path: Path) -> dict:
+    import io
+    import tarfile
+
+    with tarfile.open(path, mode="r:gz") as tar:
+        body = tar.extractfile("atlas-support-bundle/bundle.json").read()
+        names = tar.getnames()
+    return {"body": json.loads(body), "names": names}
+
+
+def _by_key(entries: list[dict], field: str) -> dict[str, dict]:
+    return {entry[field]: entry for entry in entries}
+
+
+def test_doctor_bundle_names_the_manifest_that_set_a_wrong_key(tmp_path, monkeypatch) -> None:
+    """#1057 AC2: a port (and a model) set from a consumer manifest is reported
+    with that manifest as its origin and an action that edits it there."""
+    import start as start_module
+
+    manifest = _manifest_stack(tmp_path, monkeypatch)
+    out = tmp_path / "bundle.tar.gz"
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--bundle", str(out)])
+
+    assert out.is_file(), result.output
+    body = _read_bundle(out)["body"]
+    finding = _by_key(body["findings"], "id")["base-port"]
+    port = _by_key(finding["keys"], "key")["BASE_PORT"]
+    config = _by_key(body["config"], "key")
+    assert port["origin"] == str(manifest)
+    assert f"Change `env.values.BASE_PORT` in {manifest}" in port["action"]
+    model = config["LITELLM_DEFAULT_MODEL"]
+    assert (model["value"], model["origin"]) == ("wrong-model", str(manifest))
+    assert "LITELLM_URL" not in config  # not allowlisted
+
+
+def test_doctor_bundle_opt_in_only_adds_unlisted_fields(tmp_path, monkeypatch) -> None:
+    """#1057 AC3: the default bundle is the allowlist; --include-unlisted adds
+    check details and every other key, and removes nothing."""
+    import start as start_module
+
+    _manifest_stack(tmp_path, monkeypatch)
+    default, opted = tmp_path / "default.tar.gz", tmp_path / "opted.tar.gz"
+    runner = CliRunner()
+    runner.invoke(start_module.main, ["doctor", "--bundle", str(default)])
+    runner.invoke(start_module.main, ["doctor", "--bundle", str(opted), "--include-unlisted"])
+    base, full = _read_bundle(default)["body"], _read_bundle(opted)["body"]
+
+    base_keys = {e["key"] for e in base["config"]}
+    full_keys = {e["key"] for e in full["config"]}
+    assert base_keys < full_keys
+    assert "LITELLM_URL" in full_keys - base_keys
+    assert all("details" not in check for check in base["checks"])
+    assert all("details" in check for check in full["checks"])
+    assert [c["id"] for c in base["checks"]] == [c["id"] for c in full["checks"]]
+    assert base["omitted"] == {
+        "config_keys": len(full_keys) - len(base_keys),
+        "check_details": len(base["checks"]),
+        "opt_in": "--include-unlisted",
+    }
+    assert full["omitted"]["opt_in"] is None
+
+
+def test_doctor_include_unlisted_requires_bundle(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--include-unlisted"])
+
+    assert result.exit_code == 2
+    assert "--include-unlisted needs --bundle PATH" in result.output
+
+
+def test_doctor_bundle_records_checks_that_could_not_run(tmp_path, monkeypatch) -> None:
+    """#1057 AC4: a disabled service's check is kept as skipped/unavailable,
+    and a check that raises is recorded rather than dropped."""
+    import start as start_module
+
+    _write_base_env(tmp_path, extra="COMFYUI_SOURCE=disabled\n")
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager, "validate_compose_config",
+        lambda self: (_ for _ in ()).throw(RuntimeError("Docker is not installed")),
+    )
+
+    def broken(_starter):
+        raise RuntimeError("probe exploded")
+
+    broken.__name__ = "_doctor_check_broken_probe"
+    monkeypatch.setattr(start_module, "DOCTOR_CHECKS", [*start_module.DOCTOR_CHECKS, broken])
+    out = tmp_path / "bundle.tar.gz"
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--bundle", str(out), "--format", "json"])
+
+    checks = {c["id"]: c for c in _read_bundle(out)["body"]["checks"]}
+    assert len(checks) == len(start_module.DOCTOR_CHECKS)
+    assert (checks["comfyui-mps"]["status"], checks["comfyui-mps"]["available"],
+            checks["comfyui-mps"]["message"]) == (
+        "skipped", False, "COMFYUI_SOURCE is not managed-localhost-mps.")
+    assert (checks["compose"]["status"], checks["compose"]["available"]) == ("skipped", False)
+    assert checks["broken-probe"]["status"] == "unavailable"
+    assert "RuntimeError: probe exploded" in checks["broken-probe"]["message"]
+    # The JSON on stdout stays machine-clean; the preview went to stderr.
+    assert json.loads(result.stdout)["checks"][-1]["id"] == "broken-probe"
+    assert "Support bundle preview" in result.stderr
+
+
+def _timed_checks(release):
+    def _doctor_check_fast(_starter):
+        return {"id": "fast", "status": "pass", "message": "ok", "details": {}}
+
+    def _doctor_check_hangs(_starter):
+        release.wait(5)
+        return {"id": "hangs", "status": "pass", "message": "late", "details": {}}
+
+    def _doctor_check_after(_starter):
+        return {"id": "after", "status": "pass", "message": "ok", "details": {}}
+
+    return [_doctor_check_fast, _doctor_check_hangs, _doctor_check_after]
+
+
+def test_support_bundle_caps_logs_and_time_and_says_so(tmp_path) -> None:
+    """#1057 AC5: an oversized log keeps only its tail under the cap, checks
+    past the wall-time budget are recorded unavailable, and both
+    truncations are written into the bundle."""
+    import threading
+
+    sb = _bundle_module()
+    limits = sb.BundleLimits(max_log_bytes=2048, max_seconds=0.3)
+    big = "".join(f"line {n:06d} filler filler filler\n" for n in range(20000))
+    release = threading.Event()
+    try:
+        results, notes = sb.run_checks(_timed_checks(release), None, limits)
+    finally:
+        release.set()
+    bundle = sb.build_bundle(sb.BundleRequest(
+        env={}, checks=results, notes=notes, limits=limits,
+        logs=[sb.LogSource("big.log", text=big)],
+    ))
+
+    log = bundle.body["logs"][0]
+    kept = bundle.logs["big.log"]
+    truncation = "\n".join(bundle.body["truncation"])
+    assert {
+        "statuses": [r["status"] for r in results],
+        "hung": "did not finish" in results[1]["message"],
+        "never_started": results[2]["message"].startswith("not run:"),
+        "truncated": log["truncated"],
+        "recorded_under_cap": log["kept_bytes"] <= 2048,
+        "written_under_cap": len(kept.encode()) <= 2048,
+        "original_bytes": log["original_bytes"],
+        "tail_kept": kept.endswith("line 019999 filler filler filler\n"),
+        "log_note": "log big.log: kept the last" in truncation,
+        "time_note": "1 check(s) not run: after" in truncation,
+    } == {
+        "statuses": ["pass", "unavailable", "unavailable"],
+        "hung": True, "never_started": True, "truncated": True,
+        "recorded_under_cap": True, "written_under_cap": True,
+        "original_bytes": len(big.encode()), "tail_kept": True,
+        "log_note": True, "time_note": True,
+    }
+
+
+def _outbound_recorder(monkeypatch) -> list:
+    """Record every socket connection that reaches the network stack, and make
+    urllib/requests calls observable too."""
+    import socket
+    import urllib.request
+
+    attempts: list = []
+    real_connect = socket.socket.connect
+
+    def connect(sock, address):
+        attempts.append(address)
+        return real_connect(sock, address)
+
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    monkeypatch.setattr(
+        urllib.request, "urlopen",
+        lambda *a, **k: attempts.append(("urlopen", a)) or (_ for _ in ()).throw(OSError("blocked")),
+    )
+    return attempts
+
+
+def _phone_home_check(_starter):
+    import socket
+
+    try:
+        socket.create_connection(("203.0.113.9", 443), timeout=1)
+    except OSError as exc:
+        return {"id": "phone-home", "status": "warn", "message": str(exc), "details": {}}
+    return {"id": "phone-home", "status": "fail", "message": "connected out", "details": {}}
+
+
+def _bundle_starter(tmp_path, monkeypatch, destination: Path):
+    import start as start_module
+
+    _write_base_env(tmp_path, extra=f"SUPABASE_DB_PASSWORD={_CANARIES['env']}\n")
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager, "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+    monkeypatch.setattr(start_module, "DOCTOR_CHECKS", [_phone_home_check])
+    starter = start_module.AtlasStarter()
+    starter.support_bundle_path = destination
+    return starter
+
+
+def _failing_linear_start(_starter, _options):
+    print("Starting Atlas…")
+    print(f"ERROR: litellm exited; DATABASE_URL=postgres://a:{_CANARIES['url']}@db")
+    return 1
+
+
+def test_no_tui_failed_start_previews_then_writes_locally(tmp_path, monkeypatch, capsys) -> None:
+    """#1057 AC6 + AC7 (--no-tui): a failing linear start previews the whole
+    bundle in its transcript, then writes it locally; collection never
+    reaches the network."""
+    import start as start_module
+
+    out = tmp_path / "support.tar.gz"
+    starter = _bundle_starter(tmp_path, monkeypatch, out)
+    attempts = _outbound_recorder(monkeypatch)
+    monkeypatch.setattr(start_module, "run_linear_startup", _failing_linear_start)
+
+    assert start_module._run_linear_with_support_bundle(starter, object()) == 1
+
+    err = capsys.readouterr().err
+    preview = err[err.index("Support bundle preview"):err.index("Wrote support bundle")]
+    body = _read_bundle(out)
+    assert {
+        "mode": oct(out.stat().st_mode & 0o777),
+        "log_previewed": "── atlas-support-bundle/logs/transcript.log" in preview,
+        "failure_previewed": "ERROR: litellm exited" in preview,
+        "canary_in_output": _CANARIES["url"] in err,
+        "outbound_connections": attempts,
+        "members": body["names"],
+        "context": body["body"]["context"],
+        "phone_home_refused": "collection is offline" in body["body"]["checks"][0]["message"],
+    } == {
+        "mode": "0o600", "log_previewed": True, "failure_previewed": True,
+        "canary_in_output": False, "outbound_connections": [],
+        "members": ["atlas-support-bundle/bundle.json",
+                    "atlas-support-bundle/logs/transcript.log"],
+        "context": {"command": "start", "interface": "no-tui", "exit_code": 1},
+        "phone_home_refused": True,
+    }
+
+
+def test_no_tui_successful_start_writes_no_bundle(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    out = tmp_path / "support.tar.gz"
+    starter = _bundle_starter(tmp_path, monkeypatch, out)
+    monkeypatch.setattr(start_module, "run_linear_startup", lambda _s, _o: 0)
+
+    assert start_module._run_linear_with_support_bundle(starter, object()) == 0
+    assert not out.exists()
+
+
+def test_textual_failed_launch_previews_then_writes_locally(tmp_path, monkeypatch) -> None:
+    """#1057 AC6 (Textual): the launch screen's failure hook exports once,
+    streams the preview into the log pane before writing, and never reaches
+    the network."""
+    import asyncio
+
+    from ui.textual.screens.wizard_screen import WizardScreen
+
+    out = tmp_path / "support.tar.gz"
+    starter = _bundle_starter(tmp_path, monkeypatch, out)
+    screen = WizardScreen(steps=[], services=[], starter=starter)
+    lines: list[str] = []
+    workers: list = []
+    monkeypatch.setattr(screen, "_safe_log", lambda msg, **_kw: lines.append(msg))
+    monkeypatch.setattr(screen, "run_worker", lambda coro, **_kw: workers.append(coro))
+    attempts = _outbound_recorder(monkeypatch)
+    try:
+        screen._tee_to_log(f"compose: Authorization: Bearer {_CANARIES['bearer']}", source="pipeline", level="error")
+        screen._start_support_bundle_export()
+        screen._start_support_bundle_export()
+        assert len(workers) == 1
+        asyncio.run(workers[0])
+    finally:
+        path = screen._launch_log_path
+        screen._close_launch_log_tee()
+        if path is not None:
+            Path(path).unlink(missing_ok=True)
+
+    text = "\n".join(lines)
+    assert out.is_file()
+    assert text.index("Support bundle preview") < text.index("Wrote support bundle")
+    assert "atlas-support-bundle/logs/session.log" in text
+    assert _CANARIES["bearer"] not in text
+    assert attempts == []
+    assert _read_bundle(out)["body"]["context"]["interface"] == "textual"
+
+
+def test_support_bundle_docs_are_published_on_all_surfaces() -> None:
+    """#1057 AC8: schema version, allowlist and best-effort redaction are
+    documented on every surface."""
+    sb = _bundle_module()
+    for text in (
+        (REPO_ROOT / "docs/operations/index.md").read_text(encoding="utf-8"),
+        surface_text("docs/operations/index.md", "site"),
+        surface_text("docs/operations/index.md", "wiki"),
+    ):
+        assert "./start.sh doctor --bundle" in text
+        assert "--support-bundle" in text
+        assert sb.SCHEMA_VERSION in text
+        assert "best-effort" in text
+        assert "--include-unlisted" in text
+        for pattern in ("_SOURCE", "_PORT", "MODEL"):
+            assert pattern in text
+
+
+def test_doctor_bundle_from_the_stock_env_keeps_its_diagnostics(tmp_path, monkeypatch) -> None:
+    """Review: a .env copied from .env.example turned 39 of 70 *_SOURCE values
+    into [REDACTED], because toggles such as BACKEND_KONG_AUTH=disabled made
+    'disabled' a known secret."""
+    import start as start_module
+
+    (tmp_path / ".env.example").write_text(
+        (REPO_ROOT / ".env.example").read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / ".env").write_text(
+        (REPO_ROOT / ".env.example").read_text(encoding="utf-8"), encoding="utf-8")
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager, "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+    out = tmp_path / "bundle.tar.gz"
+
+    CliRunner().invoke(start_module.main, ["doctor", "--bundle", str(out)])
+
+    body = _read_bundle(out)["body"]
+    sources = {e["key"]: e["value"] for e in body["config"] if e["key"].endswith("_SOURCE")}
+    messages = " ".join(check["message"] for check in body["checks"])
+    shipped = {line.split("=", 1)[0]: line.split("=", 1)[1].split(" #")[0].strip()
+               for line in (tmp_path / ".env").read_text(encoding="utf-8").splitlines()
+               if line.endswith("_SOURCE=disabled") or line.startswith("COMFYUI_SOURCE=")}
+    assert (len(sources) > 30, [k for k, v in sources.items() if v == "[REDACTED]"],
+            {k: sources[k] for k in shipped}, "[REDACTED]" in messages) == (True, [], shipped, False)
+
+
+def test_bundle_paths_resolve_against_the_invoking_directory(tmp_path, monkeypatch) -> None:
+    """Review: ./start.sh runs the bootstrapper from bootstrapper/, so a
+    relative --bundle path landed there instead of where the user ran it."""
+    import start as start_module
+
+    _manifest_stack(tmp_path, monkeypatch)
+    invoker = tmp_path / "invoker"
+    invoker.mkdir()
+    monkeypatch.setenv("ATLAS_INVOKER_CWD", str(invoker))
+    monkeypatch.chdir(REPO_ROOT / "bootstrapper")
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--bundle", "./rel.tar.gz"])
+
+    assert ((invoker / "rel.tar.gz").is_file(), f"Wrote support bundle {invoker / 'rel.tar.gz'}"
+            in result.output, (REPO_ROOT / "bootstrapper" / "rel.tar.gz").exists()) == (True, True, False)
+
+
+def test_no_tui_log_follow_exit_after_success_writes_no_bundle(tmp_path, monkeypatch) -> None:
+    """Review: Ctrl+C on the log stream after a successful start returns 130;
+    that is not a failed start and must not produce a bundle."""
+    import start as start_module
+
+    out = tmp_path / "support.tar.gz"
+    starter = _bundle_starter(tmp_path, monkeypatch, out)
+
+    def followed_then_interrupted(started, _options):
+        started.startup_reached_log_follow = True
+        return 130
+
+    monkeypatch.setattr(start_module, "run_linear_startup", followed_then_interrupted)
+
+    assert start_module._run_linear_with_support_bundle(starter, object()) == 130
+    assert not out.exists()
+
+
+def test_support_bundle_fails_closed_without_env_and_reports_honestly(tmp_path, monkeypatch) -> None:
+    """Review: an unreadable .env meant no known secrets were scrubbed while
+    logs still went in; a small log holding a key block was also reported as
+    truncated although nothing was cut."""
+    sb = _bundle_module()
+    starter = _bundle_starter(tmp_path, monkeypatch, tmp_path / "unused.tar.gz")
+    monkeypatch.setattr(starter.config_parser, "parse_env_file",
+                        lambda: (_ for _ in ()).throw(UnicodeDecodeError("utf-8", b"\xff", 0, 1, "bad")))
+    closed = starter.build_support_bundle(sb.BundleOptions(logs=(sb.LogSource("x.log", text="secret"),)))
+    pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEow\n-----END RSA PRIVATE KEY-----\nok\n"
+    honest = sb.build_bundle(sb.BundleRequest(env={}, logs=[sb.LogSource("k.log", text=pem)]))
+
+    assert (closed.logs, "log excerpts left out" in " ".join(closed.body["truncation"]),
+            honest.body["logs"][0]["truncated"], honest.body["truncation"]) == ({}, True, False, [])
+
+
+def test_transcript_ignores_byte_probes_and_known_ids_survive(tmp_path) -> None:
+    """Review: click's b"" stream probe broke Transcript.text(); and a check
+    that never returns must keep the id its results use."""
+    import io
+
+    import start as start_module
+
+    sb = _bundle_module()
+    transcript = sb.Transcript()
+    sink = io.StringIO()
+    tee = sb._Tee(sink, transcript)
+    tee.write("hello\n")
+    try:
+        tee.write(b"")
+    except TypeError:
+        pass  # StringIO rejects bytes; the transcript must still be intact
+
+    assert (transcript.text(), sb.check_id(start_module._doctor_check_submodule_clean)) == (
+        "hello\n", "submodule-cleanliness")
+
+
+def test_textual_quit_waits_for_a_running_bundle_export(tmp_path, monkeypatch) -> None:
+    """Review: Ctrl+Q right after a failure cancelled the export silently."""
+    from ui.textual.screens.wizard_screen import WizardScreen
+
+    starter = _bundle_starter(tmp_path, monkeypatch, tmp_path / "support.tar.gz")
+    screen = WizardScreen(steps=[], services=[], starter=starter)
+    notices: list[str] = []
+    lines: list[str] = []
+    monkeypatch.setattr(screen, "notify", lambda message, **_kw: notices.append(message))
+    monkeypatch.setattr(screen, "_safe_log", lambda msg, **_kw: lines.append(msg))
+    monkeypatch.setattr(screen, "run_worker", lambda coro, **_kw: coro.close())
+    try:
+        screen._phase = "launch"
+        screen._launch_detach_ready = True
+        screen._start_support_bundle_export()
+        screen.action_quit_wizard()
+    finally:
+        path = screen._launch_log_path
+        screen._close_launch_log_tee()
+        if path is not None:
+            Path(path).unlink(missing_ok=True)
+
+    assert (lines[0].startswith("📦 Launch failed; collecting the support bundle"),
+            notices) == (True, ["Writing the support bundle; Ctrl+Q works again when it is done."])

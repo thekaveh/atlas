@@ -477,6 +477,10 @@ class ConsumerRecord:
 class ConsumerConfig:
     consumers: tuple[ConsumerRecord, ...] = ()
     env_overrides: dict[str, str] = field(default_factory=dict)
+    # Which file set each ``env_overrides`` key: the manifest path, or the
+    # manifest's ``env.file``. The support bundle (#1057) reports it as the
+    # place to change a wrong value.
+    env_origins: dict[str, str] = field(default_factory=dict)
     # Deployment-profile defaults (#755): the consumer's named default profile
     # (canonical id; `dev` is normalized to `default`) and per-profile field
     # overrides merged over bootstrapper/profiles.yml by the applier.
@@ -3305,6 +3309,7 @@ def load_consumer_config(
     return ConsumerConfig(
         consumers=tuple(consumers),
         env_overrides=env_overrides,
+        env_origins=env_origins,
         profile=declared_profile,
         profile_overrides=profile_overrides_acc,
         compose_overlays=compose_overlays,
