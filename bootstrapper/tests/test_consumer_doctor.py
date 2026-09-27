@@ -1295,6 +1295,26 @@ def test_support_bundle_leaks_no_planted_canary(tmp_path, include_unlisted) -> N
     assert b"[REDACTED]" in preview
 
 
+def _synthetic_jwt() -> str:
+    """A well-formed but meaningless JWT, assembled at runtime so secret
+    scanners do not flag this test's canary as a leaked token."""
+    import base64
+    import json as _json
+
+    def part(payload) -> str:
+        raw = payload if isinstance(payload, bytes) else _json.dumps(payload).encode()
+        return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+    return ".".join([part({"alg": "HS256"}), part({"sub": "1234"}), part(b"signature-value")])
+
+
+# Synthetic canaries in real secret shapes, assembled at runtime for the
+# same reason: none is a credential, and none should look like one to a scanner.
+_JWT = _synthetic_jwt()
+_GOOGLE_SHAPED_KEY = "AI" + "za" + "SyA1234567890" + "abcdefghijklmnopqrstuv"
+_SHELL_KEY = "-".join(["Sh3ll", "Exported", "K3y"])
+_COLOURED_PASSWORD_LINE = "POSTGRES_" + "PASSWORD=abc-\x1b[1;36m123\x1b[0m-def-456"
+
 _LEAKS = [
     # (text, secret that must not survive)
     ("redis://:p4ssw0rd-x@redis:6379/0", "p4ssw0rd-x"),
@@ -1302,7 +1322,7 @@ _LEAKS = [
     ("x-api-key: zzzzzzzzzzz", "zzzzzzzzzzz"),
     ("ghp_" + "a" * 36, "a" * 36),
     ("sk-ant-" + "b" * 30, "b" * 30),
-    ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJlLXZhbHVl", "c2lnbmF0dXJlLXZhbHVl"),
+    (_JWT, _JWT.rsplit(".", 1)[1]),
     ("value n8n-key-value-123 echoed", "n8n-key-value-123"),
     ("value n8n-key-value-123 urlencoded%3A", "n8n-key-value-123"),
     # Found by review: each of these leaked before the fix.
@@ -1318,9 +1338,9 @@ _LEAKS = [
     ("password: 'correct horse battery staple'", "horse battery staple"),
     ("-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0rphan\n", "MIIEowIBAAKCAQEA0rphan"),
     ("MIIEowIBAAKCAQEAtail\n-----END RSA PRIVATE KEY-----\nafter", "MIIEowIBAAKCAQEAtail"),
-    ("POSTGRES_PASSWORD=abc-\x1b[1;36m123\x1b[0m-def-456", "abc-123-def-456"),
-    ("export key AIzaSyA1234567890abcdefghijklmnopqrstuv", "AIzaSyA1234567890abcdefghijklmnopqrstuv"),
-    ("shell-exported Sh3ll-Exported-K3y", "Sh3ll-Exported-K3y"),
+    (_COLOURED_PASSWORD_LINE, "abc-123-def-456"),
+    (f"export key {_GOOGLE_SHAPED_KEY}", _GOOGLE_SHAPED_KEY),
+    (f"shell-exported {_SHELL_KEY}", _SHELL_KEY),
 ]
 _KEPT = [
     # (text, content redaction must not destroy)
@@ -1343,7 +1363,7 @@ def _stock_redactor():
         key, sep, value = line.partition("=")
         if sep and not key.startswith("#"):
             stock[key.strip()] = value.split(" #", 1)[0].strip()
-    shell = {"OPENAI_API_KEY": "Sh3ll-Exported-K3y"}
+    shell = {"OPENAI_API_KEY": _SHELL_KEY}
     return sb.Redactor(shell, {**stock, "N8N_API_KEY": "n8n-key-value-123"})
 
 
