@@ -48,10 +48,12 @@ services:
       EXTRACT_LLM_BINDING_HOST: ${LIGHTRAG_EXTRACT_LLM_BINDING_HOST:-}
       KEYWORD_LLM_BINDING_HOST: ${LIGHTRAG_KEYWORD_LLM_BINDING_HOST:-}
       QUERY_LLM_BINDING_HOST: ${LIGHTRAG_QUERY_LLM_BINDING_HOST:-}
-      EXTRACT_LLM_BINDING_API_KEY: ${LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY:-}
-      # KEYWORD/QUERY role keys default to the in-network LiteLLM master key so a
-      # consumer pointing these roles at LiteLLM needs zero key wiring (#721);
-      # set the LIGHTRAG_* override only to target a different provider.
+      # Role keys default to the in-network LiteLLM master key so a consumer
+      # pointing a role at LiteLLM needs zero key wiring (#721 KEYWORD/QUERY,
+      # #796 EXTRACT). Set the LIGHTRAG_* override whenever a role is not bound
+      # to LiteLLM (a placeholder such as `ollama` for native Ollama), or that
+      # endpoint receives the master key.
+      EXTRACT_LLM_BINDING_API_KEY: ${LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}
       KEYWORD_LLM_BINDING_API_KEY: ${LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}
       QUERY_LLM_BINDING_API_KEY: ${LIGHTRAG_QUERY_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}
       EXTRACT_MAX_ASYNC_LLM: ${LIGHTRAG_EXTRACT_MAX_ASYNC_LLM:-}
@@ -60,6 +62,13 @@ services:
       EXTRACT_LLM_TIMEOUT: ${LIGHTRAG_EXTRACT_LLM_TIMEOUT:-}
       KEYWORD_LLM_TIMEOUT: ${LIGHTRAG_KEYWORD_LLM_TIMEOUT:-}
       QUERY_LLM_TIMEOUT: ${LIGHTRAG_QUERY_LLM_TIMEOUT:-}
+      # EXTRACT generation caps for a native-Ollama EXTRACT binding (#796).
+      # LightRAG 1.5.4 sends a role on a different binding than the base no
+      # provider options, so without these Ollama generates unbounded. The
+      # fallbacks stay numeric: LightRAG forwards a non-integer (even "") as a
+      # string and Ollama then rejects every extract call.
+      EXTRACT_OLLAMA_LLM_NUM_PREDICT: ${LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT:-4096}
+      EXTRACT_OLLAMA_LLM_NUM_CTX: ${LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX:-16384}
       # Query defaults. Numeric values must stay concrete because LightRAG
       # parses the env vars as ints. Rerank defaults false because Atlas's TEI
       # /rerank endpoint expects `{query, texts}`, while LightRAG's direct
