@@ -10,7 +10,7 @@ This first slice is intentionally narrow: notebooks can log experiments and arti
 
 | Surface | URL | Notes |
 | --- | --- | --- |
-| Kong | `http://mlflow.localhost:${KONG_HTTP_PORT}` | Routed only when `MLFLOW_SOURCE=container`. |
+| Kong | `http://mlflow.localhost:${KONG_HTTP_PORT}` | Routed only when `MLFLOW_SOURCE=container`; guarded by the Kong dashboard basic-auth (`DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`). MLflow itself has no login. |
 | Direct | `http://localhost:${MLFLOW_PORT}` | Bound through `HOST_BIND_IP`; the default is loopback-only, while an explicit non-empty value enables deliberate remote access. |
 | In-network | `http://mlflow:5000` | Used by JupyterHub and future service consumers. |
 

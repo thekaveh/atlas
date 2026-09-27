@@ -19,7 +19,7 @@ This deliberately trades friendly Docker names and labels for isolation: contain
 | Surface | URL | Auth |
 |---|---|---|
 | Prometheus UI + API (direct) | `http://localhost:${PROMETHEUS_PORT}` | None |
-| Prometheus UI + API (Kong) | `http://prometheus.localhost:${KONG_HTTP_PORT}` | None (intentional — Kong-gated, internal-only scrape paths) |
+| Prometheus UI + API (Kong) | `http://prometheus.localhost:${KONG_HTTP_PORT}` | None (intentional — the Kong route adds no login; the scrape paths stay internal-only) |
 | Direct (internal) | `http://prometheus:9090` | None — backend-network only |
 | node-exporter (direct) | `http://localhost:${NODE_EXPORTER_PORT}/metrics` | None |
 | cAdvisor (direct) | `http://localhost:${CADVISOR_PORT}` | None |
