@@ -22,8 +22,10 @@ the file is written.
 from __future__ import annotations
 
 import datetime
+import errno
 import gzip
 import io
+import ipaddress
 import json
 import os
 import platform
@@ -61,32 +63,53 @@ ALLOWLIST = {
 
 _SECRET_NAME = re.compile(
     r"(PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|ACCESS_KEY|PRIVATE_KEY|"
-    r"CREDENTIAL|SALT|JWT|COOKIE|_KEY$|^KEY$|_AUTH$)",
+    r"CREDENTIAL|SALT|JWT|COOKIE|_KEY$|^KEY$)",
     re.IGNORECASE,
 )
 _MIN_SECRET_LEN = 6
+#: A value made only of these is an enum toggle or a public .env.example
+#: placeholder (``disabled``, ``atlas-db-password``), not a secret worth
+#: matching by value; the patterns still catch it as ``KEY=value``.
+_WORDLIKE = re.compile(r"^[a-z_-]+$")
+_ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+# Every quantifier is bounded: an unbounded prefix class made one long log
+# line quadratic (a 40k-character line took about a minute).
+_W = r"[A-Za-z0-9_.-]{0,64}"
 _SECRET_WORD = (
-    r"[A-Za-z0-9_.-]*(?:password|passwd|secret|token|api[_-]?key|access[_-]?key"
-    r"|private[_-]?key|credential|salt)[A-Za-z0-9_.-]*"
+    rf"{_W}(?:password|passwd|secret|token(?![a-z])|api[_-]?key|access[_-]?key"
+    rf"|private[_-]?key|[_-]key(?![a-z])|credential|salt){_W}"
 )
 _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    # A key block, including one cut off at either end of a log window.
     (re.compile(
-        r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----",
+        r"-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY-----.*?"
+        r"(?:-----END [A-Z0-9 ]{0,40}PRIVATE KEY-----|\Z)",
         re.DOTALL,
     ), REDACTED),
-    (re.compile(r"\b([a-zA-Z][a-zA-Z0-9+.-]*://)[^/\s@]+@"), rf"\1{REDACTED}@"),
+    (re.compile(r"\A(?:(?!-----BEGIN ).)*?-----END [A-Z0-9 ]{0,40}PRIVATE KEY-----", re.DOTALL),
+     REDACTED),
+    # URL credentials: user:password (the password may contain '/') or a token.
+    (re.compile(r"\b([a-zA-Z][a-zA-Z0-9+.-]{0,31}://)[^/\s@:]{0,256}:[^\s@]{1,256}@"),
+     rf"\1{REDACTED}@"),
+    (re.compile(r"\b([a-zA-Z][a-zA-Z0-9+.-]{0,31}://)[^/\s@:]{1,256}@"), rf"\1{REDACTED}@"),
     (re.compile(
-        r"(?im)^(\s*(?:proxy-)?(?:authorization|x-api-key|api-key|apikey|x-auth-token|"
-        r"cookie|set-cookie)\s*:\s*).+$"
+        r"(?im)\b((?:proxy-)?(?:authorization|x-api-key|api-key|apikey|x-auth-token|"
+        r"cookie|set-cookie)\s*:\s*)(?!\[REDACTED\]).+$"
     ), rf"\1{REDACTED}"),
-    (re.compile(r"(?i)\b(bearer|basic)(\s+)[A-Za-z0-9._~+/=-]{8,}"), rf"\1\2{REDACTED}"),
-    (re.compile(rf"(?i)([?&]{_SECRET_WORD}=)[^&\s#\"']+"), rf"\1{REDACTED}"),
-    (re.compile(rf"(?i)(\"{_SECRET_WORD}\"\s*:\s*)\"[^\"]*\""), rf'\1"{REDACTED}"'),
-    (re.compile(rf"(?i)\b({_SECRET_WORD}\s*[=:]\s*)(['\"]?)[^\s'\",;]+"), rf"\1\2{REDACTED}"),
+    (re.compile(r"\b((?i:bearer|basic|token))(\s+)(?=[A-Za-z0-9._~+/=-]{0,4096}[0-9A-Z])"
+                r"[A-Za-z0-9._~+/=-]{8,4096}"), rf"\1\2{REDACTED}"),
+    (re.compile(rf"(?i)([?&]{_SECRET_WORD}=)(?!\[REDACTED\])[^&\s#\"']{{1,4096}}"),
+     rf"\1{REDACTED}"),
+    (re.compile(rf"(?i)(([\"']){_SECRET_WORD}\2\s*:\s*)([\"'])(?!\[REDACTED\])[^\"'\n]{{0,4096}}\3"),
+     rf"\1\3{REDACTED}\3"),
     (re.compile(
-        r"\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}"
-        r"|hf_[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}"
-        r"|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})"
+        rf"(?i)\b({_SECRET_WORD}\s*[=:]\s*)(?!\[REDACTED\]|variable is not set)"
+        r"(\"[^\"\n]{0,4096}\"|'[^'\n]{0,4096}'|[^\s'\",;&]{1,4096})"
+    ), rf"\1{REDACTED}"),
+    (re.compile(
+        r"\b(?:sk-[A-Za-z0-9_-]{16,4096}|gh[pousr]_[A-Za-z0-9]{20,255}|github_pat_[A-Za-z0-9_]{20,255}"
+        r"|hf_[A-Za-z0-9]{20,255}|xox[abprs]-[A-Za-z0-9-]{10,255}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}"
+        r"|eyJ[A-Za-z0-9_-]{8,4096}\.[A-Za-z0-9_-]{8,4096}\.[A-Za-z0-9_-]{8,4096})"
     ), REDACTED),
 )
 
@@ -95,22 +118,37 @@ def is_secret_name(key: str) -> bool:
     return bool(_SECRET_NAME.search(key))
 
 
-class Redactor:
-    """Best-effort secret scrubbing for text and nested values."""
+def _secret_values(mapping: dict[str, str]) -> set[str]:
+    values: set[str] = set()
+    for key, value in mapping.items():
+        text = str(value or "").strip()
+        if is_secret_name(key) and len(text) >= _MIN_SECRET_LEN and not _WORDLIKE.match(text):
+            values.update({text, quote(text, safe="")})
+    return values
 
-    def __init__(self, env: dict[str, str] | None = None) -> None:
+
+class Redactor:
+    """Best-effort secret scrubbing for text and nested values.
+
+    Every mapping passed in contributes its secret-named values, so a key
+    exported in the shell is scrubbed even when ``.env`` holds it blank.
+    """
+
+    def __init__(self, *envs: dict[str, str] | None) -> None:
         values: set[str] = set()
-        for key, value in (env or {}).items():
-            text = str(value or "").strip()
-            if is_secret_name(key) and len(text) >= _MIN_SECRET_LEN:
-                values.update({text, quote(text, safe="")})
+        for env in envs:
+            values |= _secret_values(dict(env or {}))
         self._values = sorted(values, key=len, reverse=True)
 
     def text(self, value: str) -> str:
-        for secret in self._values:
-            value = value.replace(secret, REDACTED)
+        # Terminal colour codes can sit inside a secret; drop them first.
+        # The patterns run before the known values, so a secret that is
+        # itself a key word ("password") cannot hide the key a pattern needs.
+        value = _ANSI.sub("", value)
         for pattern, replacement in _PATTERNS:
             value = pattern.sub(replacement, value)
+        for secret in self._values:
+            value = value.replace(secret, REDACTED)
         return value
 
     def value(self, value: Any, key: str = "") -> Any:
@@ -119,7 +157,7 @@ class Redactor:
         if isinstance(value, str):
             return self.text(value)
         if isinstance(value, dict):
-            return {str(k): self.value(v, str(k)) for k, v in value.items()}
+            return {self.text(str(k)): self.value(v, str(k)) for k, v in value.items()}
         if isinstance(value, (list, tuple)):
             return [self.value(item) for item in value]
         return value
@@ -180,36 +218,51 @@ class BundleRequest:
 def _is_local_address(address: Any) -> bool:
     if not isinstance(address, tuple):  # AF_UNIX path (e.g. the Docker socket)
         return True
-    host = str(address[0])
-    return host in ("localhost", "::1") or host.startswith("127.")
+    host = str(address[0]).split("%", 1)[0]
+    if host == "localhost":
+        return True
+    try:
+        parsed = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    mapped = getattr(parsed, "ipv4_mapped", None)
+    return parsed.is_loopback or bool(mapped and mapped.is_loopback)
 
 
 @contextmanager
 def offline() -> Iterator[None]:
-    """Refuse every socket connection that would leave this machine.
+    """Refuse Python socket connections that would leave this machine.
 
     Loopback and Unix sockets stay usable, so checks that read a local
-    daemon still run; anything else raises and the check reports it.
+    daemon still run; anything else fails and the check reports it. This
+    patches the socket class for every thread while it is active, and does
+    not reach subprocesses (``docker compose config``) or DNS lookups.
     """
-    original = socket.socket.connect, socket.socket.connect_ex
+    original_connect, original_connect_ex = socket.socket.connect, socket.socket.connect_ex
 
-    def guard(method: Callable) -> Callable:
-        def connect(sock: socket.socket, address: Any) -> Any:
-            if not _is_local_address(address):
-                raise OSError(
-                    f"support-bundle collection is offline; refused {address!r}"
-                )
-            return method(sock, address)
-        return connect
+    def connect(sock: socket.socket, address: Any) -> Any:
+        if not _is_local_address(address):
+            raise OSError(errno.ENETUNREACH,
+                          f"support-bundle collection is offline; refused {address!r}")
+        return original_connect(sock, address)
 
-    socket.socket.connect, socket.socket.connect_ex = map(guard, original)
+    def connect_ex(sock: socket.socket, address: Any) -> int:
+        if not _is_local_address(address):
+            return errno.ENETUNREACH
+        return original_connect_ex(sock, address)
+
+    socket.socket.connect, socket.socket.connect_ex = connect, connect_ex
     try:
         yield
     finally:
-        socket.socket.connect, socket.socket.connect_ex = original
+        socket.socket.connect, socket.socket.connect_ex = original_connect, original_connect_ex
 
 
 def check_id(check: Callable) -> str:
+    """The id a check reports, for a check that never returned one."""
+    explicit = getattr(check, "doctor_id", None)
+    if explicit:
+        return str(explicit)
     name = getattr(check, "__name__", "check")
     return name.removeprefix("_doctor_check_").replace("_", "-")
 
@@ -282,7 +335,8 @@ def _action(key: str, origin: str, env_file: Path | None) -> str:
         return f"Set {key} in .env; it currently takes the .env.example default."
     if env_file is not None and origin == str(env_file):
         return f"Change {key} in {origin} (or pass the matching ./start.sh flag), then restart."
-    return f"Change {key} in {origin}, the consumer env file that sets it, then restart."
+    return (f"Change {key} in {origin}, the env file that sets it; it is applied "
+            "over .env on every start.")
 
 
 def _origin(key: str, request: BundleRequest, file_keys: set[str]) -> str:
@@ -346,8 +400,11 @@ def _clip(value: Any, limit: int, notes: list[str], where: str) -> Any:
     return value
 
 
-def _read_tail(source: LogSource, limit: int) -> tuple[str, int]:
-    """Up to ``limit`` + a margin of trailing bytes, cut at a line boundary."""
+def _read_tail(source: LogSource, limit: int) -> tuple[str, int, bool]:
+    """Up to ``limit`` + a margin of trailing bytes, cut at a line boundary.
+
+    Returns the text, the source's full size and whether the head was cut.
+    """
     if source.path is None:
         data = (source.text or "").encode("utf-8", errors="replace")
         total = len(data)
@@ -357,28 +414,33 @@ def _read_tail(source: LogSource, limit: int) -> tuple[str, int]:
         with source.path.open("rb") as handle:
             handle.seek(max(0, total - limit - 4096))
             data = handle.read()
-    if len(data) < total and b"\n" in data:
+    cut = len(data) < total
+    if cut and b"\n" in data:
         data = data[data.index(b"\n") + 1:]
-    return data.decode("utf-8", errors="replace"), total
+    return data.decode("utf-8", errors="replace"), total, cut
 
 
 def log_entry(source: LogSource, limits: BundleLimits, redactor: Redactor) -> dict:
-    """A redacted log tail. Redaction runs before the cut, so a secret is
-    never split into an unrecognisable fragment by the size cap."""
+    """A redacted log tail.
+
+    The read window starts at a line boundary, and a private-key block cut
+    by it is still recognised. Redaction runs before the final size cut, so
+    that cut cannot split a secret into an unrecognisable fragment.
+    """
     try:
-        text, total = _read_tail(source, limits.max_log_bytes)
+        text, total, cut = _read_tail(source, limits.max_log_bytes)
     except OSError as exc:
         return {"name": source.name, "available": False, "error": redactor.text(str(exc))}
     text = redactor.text(text)
     data = text.encode("utf-8")
-    truncated = total > len(data) or len(data) > limits.max_log_bytes
     if len(data) > limits.max_log_bytes:
+        cut = True
         data = data[-limits.max_log_bytes:]
         data = data[data.find(b"\n") + 1:] if b"\n" in data else data
         text = data.decode("utf-8", errors="ignore")
     return {
         "name": source.name, "available": True, "original_bytes": total,
-        "kept_bytes": len(text.encode("utf-8")), "truncated": truncated, "text": text,
+        "kept_bytes": len(text.encode("utf-8")), "truncated": cut, "text": text,
     }
 
 
@@ -414,7 +476,7 @@ def _timestamp(now: datetime.datetime | None) -> str:
 def build_bundle(request: BundleRequest, *, now: datetime.datetime | None = None) -> SupportBundle:
     """Assemble the redacted bundle. Secrets known to the process environment
     are scrubbed as well as those in ``request.env``."""
-    redactor = Redactor({**os.environ, **request.env})
+    redactor = Redactor(dict(os.environ), request.env)
     notes = list(request.notes)
     config, omitted_keys = config_entries(request, redactor)
     checks = [_check_entry(check, request, redactor) for check in request.checks]
@@ -456,15 +518,28 @@ def _safe_name(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", name) or "log"
 
 
-def preview_lines(bundle: SupportBundle) -> list[str]:
-    """Every file the archive will hold, in full, shown before it is written."""
+def preview_lines(bundle: SupportBundle, log_lines: int | None = None) -> list[str]:
+    """Every file the archive will hold, shown before it is written.
+
+    ``bundle.json`` is always shown in full. ``log_lines`` limits each log
+    excerpt to its first and last ``log_lines`` lines, for a surface (the
+    Textual log pane) that already shows the log being excerpted.
+    """
     lines = [f"Support bundle preview ({bundle.body['schema']}): the archive will "
              "contain exactly these files."]
     for name, data in _members(bundle):
         lines.append(f"── {name} ({len(data)} bytes) ──")
-        lines.extend(data.decode("utf-8").splitlines())
+        lines.extend(_preview_body(name, data.decode("utf-8").splitlines(), log_lines))
     lines.append("── end of preview ── Redaction is best-effort: read it before you share the file.")
     return lines
+
+
+def _preview_body(name: str, body: list[str], log_lines: int | None) -> list[str]:
+    if log_lines is None or name.endswith("bundle.json") or len(body) <= 2 * log_lines:
+        return body
+    hidden = len(body) - 2 * log_lines
+    return [*body[:log_lines], f"… {hidden} more redacted lines, as shown in the log pane …",
+            *body[-log_lines:]]
 
 
 def archive_bytes(bundle: SupportBundle) -> bytes:
@@ -482,9 +557,12 @@ def archive_bytes(bundle: SupportBundle) -> bytes:
     return raw.getvalue()
 
 
-def export(bundle: SupportBundle, destination: Path, echo: Callable[[str], None]) -> Path:
-    """Show the full preview through ``echo``, then write the archive."""
-    for line in preview_lines(bundle):
+def export(
+    bundle: SupportBundle, destination: Path, echo: Callable[[str], None],
+    log_lines: int | None = None,
+) -> Path:
+    """Show the preview through ``echo``, then write the archive."""
+    for line in preview_lines(bundle, log_lines):
         echo(line)
     path = write_bundle(bundle, destination)
     echo(
@@ -496,7 +574,7 @@ def export(bundle: SupportBundle, destination: Path, echo: Callable[[str], None]
 
 def write_bundle(bundle: SupportBundle, destination: Path) -> Path:
     """Write the archive owner-only, replacing ``destination`` atomically."""
-    path = Path(destination).expanduser()
+    path = Path(destination).expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
@@ -557,8 +635,9 @@ class _Tee:
         self._stream = stream
         self._sink = sink
 
-    def write(self, text: str) -> int:
-        self._sink.write(text)
+    def write(self, text: Any) -> int:
+        if isinstance(text, str):  # a bytes probe (click) is passed through only
+            self._sink.write(text)
         return self._stream.write(text)
 
     def __getattr__(self, name: str) -> Any:

@@ -851,29 +851,44 @@ class AtlasStarter:
 
         results, notes = checks or sb.run_checks(DOCTOR_CHECKS, self, options.limits)
         notes = list(notes)
+        logs = list(options.logs)
         try:
             env = self.config_parser.parse_env_file()
         except Exception as exc:  # noqa: BLE001 - recorded in the bundle
-            env = {}
-            notes.append(f"could not read .env: {exc}")
+            # Fail closed: without .env the known secret values cannot be
+            # scrubbed, so no log text goes in.
+            env, logs = {}, []
+            notes.append(f"could not read .env ({exc}); log excerpts left out")
         return sb.build_bundle(sb.BundleRequest(
             env=env,
-            env_origins=self._consumer_env_origins(),
+            env_origins=self._env_origins(),
             env_file=Path(self.config_parser.env_file_path),
             checks=results,
-            logs=list(options.logs),
+            logs=logs,
             context=dict(options.context),
             include_unlisted=options.include_unlisted,
             limits=options.limits,
             notes=notes,
         ))
 
-    def _consumer_env_origins(self) -> Dict[str, str]:
-        """The consumer manifest (or its env file) that set each env key."""
+    def _env_origins(self) -> Dict[str, str]:
+        """The file that sets each overridden env key, in the order a start
+        applies them: .env.user, ATLAS_ENV_USER_FILE, then consumer
+        manifests (or their env files). The last one wins."""
+        origins: Dict[str, str] = {}
+        for overlay in (self._env_user_overlay_path(), self._external_env_user_overlay_path()):
+            if overlay is None or not overlay.is_file():
+                continue
+            try:
+                keys = self._parse_env_overlay_file(overlay)
+            except Exception:  # noqa: BLE001 - an unreadable overlay sets nothing
+                continue
+            origins.update(dict.fromkeys(keys, str(overlay)))
         try:
-            return dict(self.config_parser.load_consumer_config().env_origins)
+            origins.update(self.config_parser.load_consumer_config().env_origins)
         except Exception:  # noqa: BLE001 - a broken manifest has its own check
-            return {}
+            pass
+        return origins
 
     def materialize_consumer_env_for_preflight(self) -> Dict[str, str]:
         """Persist the consumer manifest's derived ``env_overrides`` into ``.env``
@@ -5537,6 +5552,11 @@ def _doctor_check_managed_host_services(starter: "AtlasStarter") -> dict:
     )
 
 
+# Its result id predates the function name; the bundle needs it for a check
+# that never returns a result (#1057).
+_doctor_check_submodule_clean.doctor_id = "submodule-cleanliness"
+
+
 DOCTOR_CHECKS = [
     _doctor_check_consumer_manifests,
     _doctor_check_base_port,
@@ -5564,18 +5584,31 @@ DOCTOR_CHECKS = [
 ]
 
 
+def _invoker_path(path: Optional[Path]) -> Optional[Path]:
+    """Resolve a user-supplied path against the directory ./start.sh was run
+    from (ATLAS_INVOKER_CWD); the bootstrapper itself runs elsewhere."""
+    if path is None:
+        return None
+    path = Path(path).expanduser()
+    if not path.is_absolute():
+        invoker_cwd = os.environ.get("ATLAS_INVOKER_CWD", "").strip()
+        path = (Path(invoker_cwd).expanduser() if invoker_cwd else Path.cwd()) / path
+    return path.resolve()
+
+
 def _export_failed_start_bundle(starter: "AtlasStarter", transcript, exit_code) -> None:
     """Preview, then write, the --support-bundle archive for a failed
     ``--no-tui`` start (#1057). A bundle problem never masks the start's own
     failure, so it is reported and swallowed."""
     from core import support_bundle as sb
 
-    options = sb.BundleOptions(
-        context={"command": "start", "interface": "no-tui", "exit_code": exit_code},
-        logs=(sb.LogSource("transcript.log", text=transcript.text()),),
-    )
     echo = lambda line: print(line, file=sys.stderr)  # noqa: E731
+    echo("📦 Start failed; collecting the support bundle (--support-bundle)…")
     try:
+        options = sb.BundleOptions(
+            context={"command": "start", "interface": "no-tui", "exit_code": exit_code},
+            logs=(sb.LogSource("transcript.log", text=transcript.text()),),
+        )
         sb.export(starter.build_support_bundle(options), starter.support_bundle_path, echo)
     except Exception as exc:  # noqa: BLE001
         echo(f"⚠ support bundle not written: {exc}")
@@ -5598,7 +5631,9 @@ def _run_linear_with_support_bundle(starter: "AtlasStarter", options) -> int:
         transcript.write(traceback.format_exc())
         _export_failed_start_bundle(starter, transcript, None)
         raise
-    if exit_code != 0:
+    # Once startup hands over to following the logs, it has succeeded: a
+    # nonzero code there (Ctrl+C is 130) is not a failed start.
+    if exit_code != 0 and not getattr(starter, "startup_reached_log_follow", False):
         _export_failed_start_bundle(starter, transcript, exit_code)
     return exit_code
 
@@ -6252,7 +6287,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
             sys.exit(2)
 
     starter = AtlasStarter()
-    starter.support_bundle_path = support_bundle
+    starter.support_bundle_path = _invoker_path(support_bundle)
 
     try:
         # Explicit consumer paths are command-line input. Validate them before
@@ -6917,6 +6952,7 @@ def doctor_command(output_format: str, bundle_path, include_unlisted: bool) -> N
     """Run headless consumer preflight checks without starting services."""
     if include_unlisted and bundle_path is None:
         raise click.UsageError("--include-unlisted needs --bundle PATH")
+    bundle_path = _invoker_path(bundle_path)
     starter = AtlasStarter()
     # Materialize the consumer manifest's derived env (#451) before the checks
     # (which validate the assembled compose) so ${BACKEND_PLUGINS_DIR}-style
@@ -6938,7 +6974,10 @@ def doctor_command(output_format: str, bundle_path, include_unlisted: bool) -> N
         echo = lambda line: click.echo(line, err=output_format == "json")  # noqa: E731
         from core.support_bundle import export
 
-        export(starter.build_support_bundle(options, checks), bundle_path, echo)
+        try:
+            export(starter.build_support_bundle(options, checks), bundle_path, echo)
+        except OSError as exc:
+            raise click.ClickException(f"support bundle not written: {exc}") from exc
 
     if not ok:
         raise click.exceptions.Exit(1)

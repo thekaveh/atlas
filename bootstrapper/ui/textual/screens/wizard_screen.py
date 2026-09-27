@@ -1227,8 +1227,10 @@ class WizardScreen(Screen):
         self._launch_log_fh = None
         self._launch_log_path = None
         self._open_launch_log_tee(announce_in_pane=False)
-        # --support-bundle (#1057): a failed launch exports at most once.
+        # --support-bundle (#1057): a failed launch exports at most once, and
+        # quitting waits for that export instead of cancelling it silently.
         self._support_bundle_started = False
+        self._support_bundle_running = False
 
     def compose(self) -> ComposeResult:
         with Vertical(id="wizard-body"):
@@ -1543,6 +1545,11 @@ class WizardScreen(Screen):
         if destination is None or self._support_bundle_started:
             return
         self._support_bundle_started = True
+        self._support_bundle_running = True
+        self._safe_log(
+            "📦 Launch failed; collecting the support bundle (--support-bundle)…",
+            source="pipeline",
+        )
         self.run_worker(
             self._export_support_bundle(Path(destination)),
             exclusive=False, exit_on_error=False, group="support_bundle",
@@ -1565,11 +1572,15 @@ class WizardScreen(Screen):
         emit = lambda line: self._safe_log(line, source="pipeline")  # noqa: E731
         try:
             bundle = await asyncio.to_thread(self._starter.build_support_bundle, options)
-            await asyncio.to_thread(sb.export, bundle, destination, emit)
+            # The pane already shows the session log, so each excerpt's preview
+            # is its first and last lines; bundle.json is shown in full.
+            await asyncio.to_thread(sb.export, bundle, destination, emit, 20)
         except Exception as exc:  # noqa: BLE001
             self._safe_log(
                 f"⚠ support bundle not written: {exc}", source="pipeline", level="warn",
             )
+        finally:
+            self._support_bundle_running = False
 
     # ─── setup phase ─────────────────────────────────────────────────
 
@@ -2466,6 +2477,13 @@ class WizardScreen(Screen):
         if self._phase == "launch" and not self._launch_detach_ready:
             self.notify(
                 "Startup is still running; Ctrl+C cancels it.",
+                severity="warning",
+                timeout=6,
+            )
+            return
+        if getattr(self, "_support_bundle_running", False):
+            self.notify(
+                "Writing the support bundle; Ctrl+Q works again when it is done.",
                 severity="warning",
                 timeout=6,
             )

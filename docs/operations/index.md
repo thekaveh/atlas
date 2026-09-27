@@ -86,24 +86,40 @@ check exits non-zero.
 ### 4.1. Support bundle
 
 A support bundle packages the doctor results, the effective configuration, and
-a log excerpt into one local `.tar.gz` you can attach to an issue:
+a log excerpt into one local `.tar.gz` you can attach to an issue. A relative
+`PATH` is resolved against the directory you ran `./start.sh` from.
 
 - `./start.sh doctor --bundle PATH` runs the checks and writes the bundle.
-- `./start.sh --support-bundle PATH` writes one only if the start fails. It
-  works in the Textual launch screen, where the log excerpt is the session log,
-  and under `--no-tui`, where it is what the run printed. Docker Compose output
-  that goes straight to the terminal is not captured there.
+- `./start.sh --support-bundle PATH` writes one only if the startup pipeline
+  fails:
+  - In the Textual app, that is the launch; the log excerpt is the session log.
+  - Under `--no-tui`, that is the startup steps; the log excerpt is what the run
+    printed. Docker Compose output that goes straight to the terminal is not
+    captured.
+  - A failure before the pipeline starts (Docker missing, an invalid flag)
+    leaves no bundle; run `./start.sh doctor --bundle PATH` then.
+  - Stopping the log stream after a successful start (Ctrl+C) is not a failure
+    and writes nothing.
 
-**Before anything is written**, the full contents are printed: the terminal
-under `--no-tui` and `doctor` (standard error with `--format json`), or the
-log pane in the Textual app. The file is created owner-only (`0600`). **Nothing
-is sent anywhere.** Collection refuses any network connection that would leave
-the machine; local daemons and the Docker socket still answer.
+**Before anything is written**, the contents are shown:
+
+- **Under `--no-tui` and `doctor`**, in the terminal. With `--format json` the
+  preview goes to standard error, so standard output stays clean JSON.
+- **In the Textual app**, in the log pane. `bundle.json` is shown in full; each
+  log excerpt shows its first and last 20 lines, since the pane already holds
+  that log. Ctrl+Q waits until the bundle is written.
+
+The file is created owner-only (`0600`). **Nothing is sent anywhere.** While the
+checks run, Python socket connections to anything but loopback or a Unix socket
+are refused. That guard does not cover subprocesses such as
+`docker compose config`. It also means a check that probes a non-local address
+reports that it could not connect, so `doctor --bundle` can differ from plain
+`doctor` there.
 
 **Format.** The archive holds `atlas-support-bundle/bundle.json` (schema
 `atlas-support-bundle/1`), one `atlas-support-bundle/logs/<name>` file per log
-excerpt, and nothing else. Member owner, timestamps and names are fixed, so
-archive metadata carries no user or host names.
+excerpt, and nothing else. The members' owner is fixed and their timestamps are
+the bundle's generation time, so archive metadata carries no user or host names.
 
 `bundle.json` contains:
 
@@ -112,8 +128,9 @@ archive metadata carries no user or host names.
   `unavailable` (it raised, ran past the time budget, or never started) is
   recorded, not dropped.
 - `findings`: each failing or warning check, with the configuration keys it
-  names. Each key has its `value`, `origin` (the consumer manifest or env file
-  that set it, `.env`, or `default`), and an `action` saying where to change it.
+  names. Each key has its `value`, `origin` and an `action` saying where to
+  change it. The origin is the file that sets the key: a consumer manifest or
+  its env file, `ATLAS_ENV_USER_FILE`, `.env.user`, or `.env`.
 - `config`: the allowlisted keys, with the same `value` / `origin` / `action`.
 - `logs`: per excerpt, its original and kept size and whether it was cut.
 - `truncation`: every cut the caps forced.
@@ -134,23 +151,33 @@ configuration key. It only adds fields, and they are redacted too.
 **Bounds.** Collection is bounded in size and time:
 
 - Each log excerpt keeps its last 256 KiB.
-- Each text field keeps 8 KiB.
+- Each text field keeps 8,192 characters.
 - All checks together get a 60-second wall-time budget.
+- Redaction patterns are length-bounded, so long log lines stay fast.
 
-Each cut is recorded in `truncation`.
+Each cut is recorded in `truncation`. If `.env` cannot be read, log excerpts are
+left out, because their known secret values could not be scrubbed.
 
-**Redaction is best-effort.** Every string is scrubbed of:
+**Redaction is best-effort.** Terminal colour codes are stripped first. Then
+every string is scrubbed of:
 
-- values of secret-named environment keys (`*PASSWORD*`, `*SECRET*`, `*TOKEN*`,
-  `*_KEY`, and so on), from `.env` and the process environment;
 - URL credentials (`scheme://user:pass@host`);
-- `Authorization`, `Cookie` and API-key headers, and `Bearer` / `Basic` tokens;
-- `key=value` and JSON pairs whose key names a secret;
-- PEM private keys;
-- common token shapes (OpenAI, GitHub, Hugging Face, Slack, AWS, JWT).
+- `Authorization`, `Cookie` and API-key headers, and `Bearer` / `Basic` /
+  `Token` credentials;
+- `key=value`, `key: value`, JSON and Python-dict pairs whose key names a
+  secret (`password`, `secret`, `token`, `*_key`, and so on);
+- PEM private keys, including a block cut off by the log window;
+- common token shapes (OpenAI, GitHub, Hugging Face, Slack, AWS, Google, JWT);
+- the literal values of secret-named environment keys, from `.env` and from
+  the shell environment.
 
-A secret in an unusual shape can still get through. Read the preview before you
-share the file.
+Values made only of lowercase letters, `-` and `_` are not matched by value.
+Those are enum toggles such as `disabled`, and the public `.env.example`
+placeholders; a pattern above still catches them as `KEY=value`, in a URL or
+in a header.
+
+A secret in an unusual shape can still get through, and so can one the
+terminal wrapped across lines. Read the preview before you share the file.
 
 ## 5. Endpoint Contract Export
 
