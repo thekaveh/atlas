@@ -249,7 +249,6 @@ _No upstream calls._
 | airflow | agents |
 | lightrag | agents |
 | mcp-servers | agents |
-| backend | apps |
 | jupyterhub | apps |
 | llm-graph-builder | apps |
 

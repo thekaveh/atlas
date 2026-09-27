@@ -7,7 +7,7 @@
 | airflow | supabase, litellm, redis | spark, minio, iceberg-rest, redpanda, weaviate, neo4j | supabase, spark, redpanda, minio, iceberg-rest, litellm, weaviate, neo4j, redis |
 | asset-baker | minio | backend, comfyui, fal, blender-mcp, asset-worker | minio |
 | asset-worker | minio | backend, comfyui, fal, blender-mcp | minio |
-| backend | supabase, redis, litellm | weaviate, kong, celery, supavisor | supabase, weaviate, litellm, comfyui, fal, n8n, ray, local-deep-researcher, celery, supavisor, tika, docling, lightrag, tei-reranker, minio, redis, otel-collector, kong, neo4j |
+| backend | supabase, redis, litellm | weaviate, kong, celery, supavisor | supabase, weaviate, litellm, comfyui, fal, n8n, ray, local-deep-researcher, celery, supavisor, tika, docling, lightrag, tei-reranker, minio, redis, otel-collector, kong |
 | backup | supabase | minio | supabase, minio, neo4j, weaviate |
 | blender-mcp | - | - | - |
 | celery | redis, backend, supabase, litellm | weaviate, supavisor, docling, tika, lightrag, minio, otel-collector | redis, supabase, litellm, weaviate, supavisor, docling, tika, lightrag, minio, otel-collector |
