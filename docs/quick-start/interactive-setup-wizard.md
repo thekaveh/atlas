@@ -184,6 +184,8 @@ The model step is skipped for a provider that will end up off, so you are never 
 
 Your key never appears in the command preview. Each of these actions previews as `--cloud-<provider>-source enabled` or `disabled`; setting a new key previews `--<provider>-api-key <set>`, never the key itself, because that line is meant to be copied into a shell.
 
+The **fal.ai** key step (the FAL Cloud Media step right after ComfyUI) follows the same table (#1255): `FAL_SOURCE` and `FAL_API_KEY` are decided independently, Enter changes neither, `enable` / `disable` flip `FAL_SOURCE` and keep the saved key, and only `remove` blanks it. It has no model step. Its actions preview as `--fal-source enabled` or `disabled`, and a new key as `--fal-api-key <set>`; the FAL Cloud Media row in the overview shows the resulting source as soon as you answer. Before this change a bare Enter on a keyed-but-disabled fal turned it on, and typing `disable` or `enable` was saved as the key itself.
+
 #### 4.4.2. Where the listed models came from
 
 The caption above the list always says which of the two sources you are looking at, so a model appearing in the picker is never mistaken for proof that your key works (#1180):

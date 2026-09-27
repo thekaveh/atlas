@@ -547,6 +547,11 @@ def _secret_input_hint(step: "PromptStep", *, include_restored: bool = True) -> 
     placeholder = _mask_secret(existing) if existing else "paste API key here…"
     if restored.lower() == "clear":
         return "pending removal  ·  Enter to confirm removal  ·  edit to change"
+    if restored.lower() in ("enable", "disable"):
+        # Back onto a step answered with a control word restores the WORD
+        # (#1183); calling it a "replacement" read as if it were a new key.
+        label = SECRET_CONTROL_WORDS[restored.lower()][1]
+        return f"pending: {label}  ·  Enter to confirm  ·  edit to change"
     if restored:
         return "pending replacement loaded  ·  Enter to confirm replacement"
     if existing:
