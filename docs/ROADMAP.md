@@ -618,7 +618,7 @@ Tier 3 is organized into four named sub-sections so the use-case tracks are scan
 
 #### 2.5.1. General-purpose
 
-**Apache Airflow integration** — **Shipped 2026-06-04** (PR #35; currently Apache Airflow 3.3.1, LocalExecutor)
+**Apache Airflow integration** — **Shipped 2026-06-04** (PR #35; currently Apache Airflow 3.3.2, LocalExecutor)
 - Workflow orchestration
 - Data pipeline management
 - Scheduled AI processing jobs

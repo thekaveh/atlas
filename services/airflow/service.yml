@@ -37,7 +37,7 @@ containers:
 
 images:
   - var: AIRFLOW_IMAGE
-    default: "apache/airflow:3.3.1"
+    default: "apache/airflow:3.3.2"
     container: airflow-webserver
 
 sources:
