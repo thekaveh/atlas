@@ -1885,6 +1885,8 @@ class WizardScreen(Screen):
         # overview to reflect the user's choice.
         if step.kind == "secret" and self._cloud_apis:
             self._apply_secret_step_to_cloud_apis(step, opt.value)
+        # fal.ai's secret step decides its service row's source (#1255).
+        self._apply_secret_step_to_fal_row(step, opt.value)
         # Cloud multiselect step: an empty CSV ("0 selected") means
         # the user explicitly de-selected every model. Match the
         # _selections_to_args policy ("disable provider + wipe key")
@@ -2103,6 +2105,35 @@ class WizardScreen(Screen):
         self._cloud_apis_row.set_cloud_apis(self._cloud_apis)
         self._refresh_info_panel()
 
+    def _apply_secret_step_to_fal_row(self, step: PromptStep, value: str) -> None:
+        """Reflect fal.ai's secret-step verdict on its service-table row.
+
+        fal's step deliberately has no ``service_name`` (so the raw key can
+        never be written into a row), which left the generic row update
+        below unable to reach it: the row stayed pending with its .env
+        source whatever the user answered. It resolves through the same
+        ``resolve_secret_verdict`` that ``_selections_to_args`` writes from
+        (#1255), so the overview cannot show a state the launch won't
+        apply. The step's prefilled ``default_value`` is the saved key,
+        which is all "enable" needs to know.
+        """
+        from wizard.llm_steps import FAL_DISPLAY_NAME, fal_secret_title
+        from wizard.model.cloud_rules import resolve_secret_verdict
+
+        if step.title != fal_secret_title():
+            return
+        verdict = resolve_secret_verdict(
+            value, existing_key_set=bool((step.default_value or "").strip()),
+        )
+        for row in self._services:
+            if row.name == FAL_DISPLAY_NAME:
+                if verdict.source is not None:
+                    row.source = verdict.source
+                row.pending = False
+                self._service_table.set_rows(self._services)
+                self._refresh_info_panel()
+                return
+
     def _apply_secret_step_to_cloud_apis(self, step: PromptStep, value: str) -> None:
         """Live-update the Cloud APIs overview block after a secret step.
 
@@ -2164,6 +2195,7 @@ class WizardScreen(Screen):
             OLLAMA_MODELS_TITLE,
             cloud_models_title,
             cloud_secret_title,
+            fal_secret_title,
         )
 
         flags: list[tuple[str, str]] = []
@@ -2191,9 +2223,16 @@ class WizardScreen(Screen):
         # for every step. Iterate the canonical CLOUD_PROVIDERS list so
         # adding a 4th provider doesn't silently miss this site.
         from utils.cloud_providers import CLOUD_PROVIDERS
-        cloud_secret_titles = {
-            cloud_secret_title(p.name): p.key for p in CLOUD_PROVIDERS
+        # Secret step title -> (source flag, key flag). fal.ai resolves
+        # through the same verdict table as the cloud providers (#1255), so
+        # its step projects onto its own two flags the same way.
+        secret_flags = {
+            cloud_secret_title(p.name): (
+                f"--cloud-{p.key}-source", f"--{p.key}-api-key",
+            )
+            for p in CLOUD_PROVIDERS
         }
+        secret_flags[fal_secret_title()] = ("--fal-source", "--fal-api-key")
         cloud_models_titles = {
             cloud_models_title(p.name): p.key for p in CLOUD_PROVIDERS
         }
@@ -2228,12 +2267,12 @@ class WizardScreen(Screen):
             if "base port" in title_low:
                 continue
 
-            # Cloud secret step → equivalent --cloud-X-source +
-            # sanitized --X-api-key. Never emit the raw key string: the
+            # Cloud or fal.ai secret step → its source flag + sanitized
+            # key flag. Never emit the raw key string: the
             # summary is copy-pasteable, and a key on a command line ends
             # up in shell history.
-            if step.title in cloud_secret_titles:
-                provider = cloud_secret_titles[step.title]
+            if step.title in secret_flags:
+                source_flag, key_flag = secret_flags[step.title]
                 if value == SECRET_KEEP:
                     pass  # no flag — keeping both key and on/off state
                 elif value in (SECRET_CLEAR, "", SECRET_DISABLE):
@@ -2241,14 +2280,14 @@ class WizardScreen(Screen):
                     # whether the stored key survives, which is a .env
                     # fact and has no flag — replaying this command
                     # reproduces the source, never the credential (#1183).
-                    flags.append((f"--cloud-{provider}-source", "disabled"))
+                    flags.append((source_flag, "disabled"))
                 elif value == SECRET_ENABLE:
                     # Enabling with the already-saved key: no key flag,
                     # because no key is being set.
-                    flags.append((f"--cloud-{provider}-source", "enabled"))
+                    flags.append((source_flag, "enabled"))
                 else:
-                    flags.append((f"--cloud-{provider}-source", "enabled"))
-                    flags.append((f"--{provider}-api-key", "<set>"))
+                    flags.append((source_flag, "enabled"))
+                    flags.append((key_flag, "<set>"))
                 continue
 
             # Cloud multiselect → --X-models with truncated CSV /
