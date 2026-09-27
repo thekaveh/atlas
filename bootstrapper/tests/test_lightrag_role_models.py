@@ -57,13 +57,13 @@ ROLE_INPUTS = {
 EXTRACT_OLLAMA_CAPS = {
     "LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT": {
         "native": "EXTRACT_OLLAMA_LLM_NUM_PREDICT",
-        "default": "3072",
-        "compose": "${LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT:-3072}",
+        "default": "4096",
+        "compose": "${LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT:-4096}",
     },
     "LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX": {
         "native": "EXTRACT_OLLAMA_LLM_NUM_CTX",
-        "default": "8192",
-        "compose": "${LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX:-8192}",
+        "default": "16384",
+        "compose": "${LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX:-16384}",
     },
 }
 
@@ -272,23 +272,41 @@ def test_lightrag_role_models_render_into_container_environment(tmp_path: Path):
 
 
 @_needs_docker
-def test_native_ollama_extract_renders_caps_and_key_with_no_extra_wiring(tmp_path: Path):
-    """#796 AC2/AC5: with only the EXTRACT binding and host set, and the cap
-    variables left blank, Compose still renders numeric caps and a non-empty
-    EXTRACT API key (the LiteLLM master key)."""
+def test_litellm_routed_extract_needs_no_key_wiring(tmp_path: Path):
+    """#796 AC5: setting only the EXTRACT binding and host (here LiteLLM
+    itself) renders a non-empty EXTRACT key, the LiteLLM master key, as
+    KEYWORD and QUERY already do (#721)."""
     env = _render_lightrag_environment(tmp_path, {
         **_LIGHTRAG_ON,
         "LITELLM_MASTER_KEY": "sk-atlas-master-796",
+        "LIGHTRAG_EXTRACT_LLM_BINDING": "openai",
+        "LIGHTRAG_EXTRACT_LLM_BINDING_HOST": "http://litellm:4000/v1",
+    })
+
+    assert (env["EXTRACT_LLM_BINDING"], env["EXTRACT_LLM_BINDING_API_KEY"]) == (
+        "openai", "sk-atlas-master-796")
+
+
+@_needs_docker
+def test_native_ollama_extract_renders_numeric_caps_and_its_own_key(tmp_path: Path):
+    """#796 AC1/AC2: with the documented native-Ollama settings and the cap
+    variables left blank, Compose renders numeric caps, and the placeholder
+    key keeps the LiteLLM master key away from Ollama."""
+    env = _render_lightrag_environment(tmp_path, {
+        **_LIGHTRAG_ON,
+        "LITELLM_MASTER_KEY": "sk-atlas-master-796",
+        "LIGHTRAG_EXTRACT_LLM_MODEL": "mistral-small3.2:24b",
         "LIGHTRAG_EXTRACT_LLM_BINDING": "ollama",
         "LIGHTRAG_EXTRACT_LLM_BINDING_HOST": "http://host.docker.internal:11434",
+        "LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY": "ollama",
         "LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT": "",
         "LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX": "",
     })
 
     assert (
-        env["EXTRACT_LLM_BINDING"], env["EXTRACT_LLM_BINDING_API_KEY"],
+        env["EXTRACT_LLM_BINDING_API_KEY"],
         env["EXTRACT_OLLAMA_LLM_NUM_PREDICT"], env["EXTRACT_OLLAMA_LLM_NUM_CTX"],
-    ) == ("ollama", "sk-atlas-master-796", "3072", "8192")
+    ) == ("ollama", "4096", "16384")
 
 
 def test_extract_generation_caps_are_documented():
@@ -302,9 +320,14 @@ def test_extract_generation_caps_are_documented():
         assert "LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT" in text
         assert "LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX" in text
     for fact in (
-        "LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT=3072",
+        "LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT=4096",
+        "LIGHTRAG_EXTRACT_LLM_MODEL=",
+        "LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY=ollama",
+        "POST /documents/clear_cache",
         "blob/v1.5.4/lightrag/utils.py#L1274-L1277",
         "blob/v1.5.4/lightrag/operate.py#L3746-L3779",
         "not configurable in 1.5.4",
     ):
         assert fact in readme
+    assert "LIGHTRAG_EXTRACT_LLM_MODEL" in guide
+    assert "placeholder such as `ollama`" in guide

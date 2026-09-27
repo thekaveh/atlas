@@ -121,7 +121,7 @@ env:
   - name: LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY
     default: ""
     secret: true
-    description: "Optional EXTRACT role provider API key. Empty = defaults to ${LITELLM_MASTER_KEY} at compose (#796, as KEYWORD/QUERY do since #721) so a LiteLLM-routed EXTRACT needs no key wiring. Set it before pointing EXTRACT at a provider outside Atlas, or that provider receives the LiteLLM master key."
+    description: "Optional EXTRACT role provider API key. Empty = defaults to ${LITELLM_MASTER_KEY} at compose (#796, as KEYWORD/QUERY do since #721) so a LiteLLM-routed EXTRACT needs no key wiring. Set it whenever EXTRACT is not bound to LiteLLM, for native Ollama a placeholder such as `ollama` (Ollama ignores it), or that endpoint receives the LiteLLM master key."
   - name: LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY
     default: ""
     secret: true
@@ -131,11 +131,11 @@ env:
     secret: true
     description: "Optional QUERY role provider API key. Empty = defaults to ${LITELLM_MASTER_KEY} at compose (#721) so LiteLLM-routed roles need no key wiring."
   - name: LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT
-    default: "3072"
-    description: "EXTRACT role output cap in tokens when EXTRACT is bound to native Ollama (LightRAG EXTRACT_OLLAMA_LLM_NUM_PREDICT, #796). A role on a different binding than the base sends no Ollama options otherwise, and Ollama's own default is unbounded. Must be an integer; ignored by other bindings."
+    default: "4096"
+    description: "EXTRACT role output cap in tokens when EXTRACT is bound to native Ollama (LightRAG EXTRACT_OLLAMA_LLM_NUM_PREDICT, #796). A role on a different binding than the base sends no Ollama options otherwise, and Ollama's own default is unbounded. A dense chunk can legitimately need several thousand tokens; cached extractions keep any truncation, so clear the LightRAG LLM cache after raising it. Must be an integer; ignored by other bindings."
   - name: LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX
-    default: "8192"
-    description: "EXTRACT role context window in tokens when EXTRACT is bound to native Ollama (LightRAG EXTRACT_OLLAMA_LLM_NUM_CTX, #796). Holds the ~3.5k-token extraction prompt plus the output cap. Must be an integer; ignored by other bindings."
+    default: "16384"
+    description: "EXTRACT role context window in tokens when EXTRACT is bound to native Ollama (LightRAG EXTRACT_OLLAMA_LLM_NUM_CTX, #796). Sized for the extraction prompt with a 2000-token paragraph chunk, the gleaning pass that resends the first answer, and merge summaries of up to 12000 input tokens, plus the output cap. Overrides Ollama's VRAM-based default and any OLLAMA_CONTEXT_LENGTH for these calls. Must be an integer; ignored by other bindings."
   - name: LIGHTRAG_EXTRACT_MAX_ASYNC_LLM
     default: ""
     description: "Optional EXTRACT role LLM concurrency. Empty = inherit MAX_ASYNC_LLM."

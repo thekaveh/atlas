@@ -50,8 +50,9 @@ services:
       QUERY_LLM_BINDING_HOST: ${LIGHTRAG_QUERY_LLM_BINDING_HOST:-}
       # Role keys default to the in-network LiteLLM master key so a consumer
       # pointing a role at LiteLLM needs zero key wiring (#721 KEYWORD/QUERY,
-      # #796 EXTRACT); set the LIGHTRAG_* override only to target a different
-      # provider, which would otherwise receive the master key.
+      # #796 EXTRACT). Set the LIGHTRAG_* override whenever a role is not bound
+      # to LiteLLM (a placeholder such as `ollama` for native Ollama), or that
+      # endpoint receives the master key.
       EXTRACT_LLM_BINDING_API_KEY: ${LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}
       KEYWORD_LLM_BINDING_API_KEY: ${LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}
       QUERY_LLM_BINDING_API_KEY: ${LIGHTRAG_QUERY_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}
@@ -66,8 +67,8 @@ services:
       # provider options, so without these Ollama generates unbounded. The
       # fallbacks stay numeric: LightRAG forwards a non-integer (even "") as a
       # string and Ollama then rejects every extract call.
-      EXTRACT_OLLAMA_LLM_NUM_PREDICT: ${LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT:-3072}
-      EXTRACT_OLLAMA_LLM_NUM_CTX: ${LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX:-8192}
+      EXTRACT_OLLAMA_LLM_NUM_PREDICT: ${LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT:-4096}
+      EXTRACT_OLLAMA_LLM_NUM_CTX: ${LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX:-16384}
       # Query defaults. Numeric values must stay concrete because LightRAG
       # parses the env vars as ints. Rerank defaults false because Atlas's TEI
       # /rerank endpoint expects `{query, texts}`, while LightRAG's direct

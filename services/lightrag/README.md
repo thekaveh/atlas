@@ -68,20 +68,34 @@ LIGHTRAG_QUERY_LLM_MODEL=qwen3.8:latest
 
 Atlas intentionally does not ship those model names as defaults; deployments that do not set role variables keep the existing single-model behavior.
 
-**Extract-role generation caps on native Ollama (#796).** In LightRAG v1.5.4, a role whose binding differs from the base binding sends no provider options unless you set role-scoped ones. The base binding is `openai`, through LiteLLM, so `LIGHTRAG_EXTRACT_LLM_BINDING=ollama` counts. Atlas therefore sets two caps, which LightRAG reads as `EXTRACT_OLLAMA_LLM_*`:
+**Extract-role generation caps on native Ollama (#796).** To run the EXTRACT role on native Ollama while the other roles stay on LiteLLM, set the model, binding, host and a placeholder key:
 
 ```env
-LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT=3072   # max output tokens per extract call
-LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX=8192       # context window for each extract call
+LIGHTRAG_EXTRACT_LLM_MODEL=mistral-small3.2:24b          # required for a role on its own binding
+LIGHTRAG_EXTRACT_LLM_BINDING=ollama
+LIGHTRAG_EXTRACT_LLM_BINDING_HOST=http://host.docker.internal:11434
+LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY=ollama              # placeholder; see the key note below
+LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT=4096              # max output tokens per extract call
+LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX=16384                 # context window for each extract call
 ```
 
+In LightRAG v1.5.4, a role whose binding differs from the base binding (`openai`, through LiteLLM) sends no provider options unless you set role-scoped ones. Atlas sets the last two lines by default, and LightRAG reads them as `EXTRACT_OLLAMA_LLM_*`.
+
 - **Why the caps matter.** Without them a degenerate extraction generates until a timeout fires, because Ollama's own `num_predict` default is unbounded.
-- **Choosing values.**
-  - `NUM_PREDICT` must stay well above a real extraction, which is a few hundred tokens. Set it too low and entities are cut off silently.
-  - `NUM_CTX` must hold the roughly 3.5k-token extraction prompt at LightRAG's default 1200-token chunks, plus the output. Ollama's smaller default context truncates the prompt instead.
+- **Choosing `NUM_PREDICT`.**
+  - A dense chunk can legitimately need several thousand output tokens, and a cap that cuts one off loses entities without any error.
+  - Extraction results are cached, and the cache key ignores these options, so after raising the cap clear LightRAG's LLM cache (`POST /documents/clear_cache`) to re-extract.
+- **Choosing `NUM_CTX`.** The same role runs three kinds of call, so the context window has to fit the largest:
+  - the extraction prompt, about 1.75k tokens, with a paragraph chunk of up to 2000 tokens;
+  - the gleaning pass, which resends the first answer;
+  - merge summaries of up to 12000 input tokens.
+
+  16384 covers all three plus the output cap. It overrides Ollama's VRAM-based default and any `OLLAMA_CONTEXT_LENGTH` for these calls. If other callers load the same model at a different context length, Ollama reloads it on each switch.
 - **Keep them numeric.** LightRAG sends a non-integer value, including an empty one, as a string, and Ollama then rejects every extract call. Compose falls back to the defaults above when a value is empty.
 - **When they apply.** Both caps take effect only while `EXTRACT` is bound to Ollama. Other bindings ignore them.
-- **EXTRACT API key.** `LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY` defaults to `${LITELLM_MASTER_KEY}`, as KEYWORD and QUERY already do (#721). Routing `EXTRACT` through LiteLLM needs only the binding and its host. Set an explicit key before pointing `EXTRACT` at a provider outside Atlas, otherwise the LiteLLM master key is sent there.
+- **EXTRACT API key.**
+  - An empty `LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY` defaults to `${LITELLM_MASTER_KEY}`, as KEYWORD and QUERY already do (#721), so an EXTRACT role routed to LiteLLM needs no key wiring.
+  - Set it whenever EXTRACT points elsewhere, or that endpoint receives the LiteLLM master key as a bearer token. For native Ollama, a placeholder such as `ollama` is enough, because Ollama ignores it.
 
 **Timeouts and failed chunks are upstream behaviour.** Checked against the pinned `lightrag-hku` 1.5.4 source:
 
@@ -89,7 +103,7 @@ LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX=8192       # context window for each extract
   - `LIGHTRAG_EXTRACT_LLM_TIMEOUT` (`EXTRACT_LLM_TIMEOUT`, default `LLM_TIMEOUT`, which is 240 s) reaches the Ollama client as its HTTP timeout ([`lightrag_server.py#L1639-L1643`](https://github.com/HKUDS/LightRAG/blob/v1.5.4/lightrag/api/lightrag_server.py#L1639-L1643), [`ollama.py#L157`](https://github.com/HKUDS/LightRAG/blob/v1.5.4/lightrag/llm/ollama.py#L157)).
   - That timeout is per read, not per request. It works as a per-call deadline here only because extraction calls do not stream, so Ollama sends nothing until it finishes.
   - The hard wall-clock cap is the worker's `asyncio.wait_for` at twice the timeout ([`utils.py#L929-L938`](https://github.com/HKUDS/LightRAG/blob/v1.5.4/lightrag/utils.py#L929-L938), [`#L1274-L1277`](https://github.com/HKUDS/LightRAG/blob/v1.5.4/lightrag/utils.py#L1274-L1277)).
-  - So a runaway call is bounded by `num_predict` first, then by roughly T, then by 2T.
+  - `num_predict` only stops a runaway before the timeout does when the model produces `NUM_PREDICT` tokens within it. At the defaults that means roughly 17 tokens per second (4096 in 240 s). On slower hosts, raise `LIGHTRAG_EXTRACT_LLM_TIMEOUT` too.
 - **A failed chunk fails its document.**
   - One chunk that times out cancels the document's other chunk tasks ([`operate.py#L3746-L3779`](https://github.com/HKUDS/LightRAG/blob/v1.5.4/lightrag/operate.py#L3746-L3779)).
   - The whole document is marked `FAILED` with nothing merged into the graph ([`pipeline.py#L2534-L2554`](https://github.com/HKUDS/LightRAG/blob/v1.5.4/lightrag/pipeline.py#L2534-L2554)).

@@ -1060,16 +1060,18 @@ On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it
 
 **How this differs from role-specific model settings.** The `LIGHTRAG_EXTRACT_*` / `LIGHTRAG_KEYWORD_*` / `LIGHTRAG_QUERY_*` env vars pick **which model runs each LightRAG role** for the single deployment-wide default — one active configuration at a time. A query profile is a **named, per-query flavor** you select at call time; many coexist, so you can compare modes/retrieval bounds across the same corpus without editing Atlas-tracked env. Profiles never replace those env defaults — they layer on top of them (see precedence below).
 
-**Extract-role generation caps.** Pointing the EXTRACT role at native Ollama (`LIGHTRAG_EXTRACT_LLM_BINDING=ollama` plus its `_BINDING_HOST`) takes it off LiteLLM. In LightRAG 1.5.4 such a role sends no generation options of its own, so Atlas caps it (#796):
-
-- `LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT` (default `3072` output tokens), passed through as `EXTRACT_OLLAMA_LLM_NUM_PREDICT`;
-- `LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX` (default `8192`), passed through as `EXTRACT_OLLAMA_LLM_NUM_CTX`.
-
-Keep both numeric. Leave `LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY` empty to route EXTRACT through LiteLLM with the master key, as KEYWORD and QUERY do. How `LIGHTRAG_EXTRACT_LLM_TIMEOUT` bounds a call, and why one failed chunk fails its document, are covered in the [LightRAG service guide](../../services/lightrag/README.md).
-
 **What the contract enforces.** `mode` is required (`local | global | hybrid | mix | naive`); `top_k`, `chunk_top_k`, and `max_total_tokens` are optional strictly-positive integers, and an omitted bound falls through to the deployment's `LIGHTRAG_QUERY_*` env default via an explicit request-then-profile-then-env-default precedence. `enable_rerank: true` is rejected at load unless the deployment has opted the LightRAG rerank adapter in with `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` (and `TEI_RERANKER_SOURCE` enabled) — see [`services/backend/README.md` §5.1](https://github.com/thekaveh/atlas/blob/main/services/backend/README.md#51-lightrag--tei-rerank-adapter-post-lightragrerank-415) for why LightRAG's rerank wire shape needs a backend adapter. Profile names are globally unique and ownership is manifest-derived, so a removed manifest drops exactly its own profiles and a deployment with no profiles stays behavior-compatible with the single-default LightRAG. The registry holds only flavor knobs and model-name references — never credentials. A profile that sets `litellm_alias` also emits a consumer-owned [`litellm_models`](#632-exposing-plugin-models-to-litellm-with-litellm_models) row so the flavor appears as a selectable model in Open WebUI / LiteLLM.
 
 Downstream payoff: `rag-showcase` moves its graph-RAG flavor definitions out of bespoke code/config into a reusable Atlas profile contract — comparable, documentable, and visible to Open WebUI users.
+
+**Extract-role generation caps.** Running the EXTRACT role on native Ollama takes it off LiteLLM. Set `LIGHTRAG_EXTRACT_LLM_MODEL` (required for a role on its own binding), `LIGHTRAG_EXTRACT_LLM_BINDING=ollama` and its `_BINDING_HOST`. Also set `LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY` to a placeholder such as `ollama`: left empty, it defaults to the LiteLLM master key, as KEYWORD and QUERY do, and Ollama would receive that key.
+
+In LightRAG 1.5.4 such a role sends no generation options of its own, so Atlas caps it (#796):
+
+- `LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT` (default `4096` output tokens), passed through as `EXTRACT_OLLAMA_LLM_NUM_PREDICT`;
+- `LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX` (default `16384`), passed through as `EXTRACT_OLLAMA_LLM_NUM_CTX`.
+
+Keep both numeric. The [LightRAG service guide](../../services/lightrag/README.md) explains how the defaults were sized, how `LIGHTRAG_EXTRACT_LLM_TIMEOUT` bounds a call, and why one failed chunk fails its document.
 
 ### 6.4. Consuming auto-managed endpoint variables
 
