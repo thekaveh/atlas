@@ -854,6 +854,46 @@ def _permission_recovery_hints(joined: str) -> list[str]:
     ]
 
 
+def _predicate_skips(step: PromptStep, selections: dict) -> bool:
+    """Run one step's ``skip_if_prev`` predicate against ``selections``.
+
+    Exceptions are caught and treated as "don't skip" so a buggy predicate
+    can't crash the wizard. The single skip rule for navigation, the
+    launch-time prune and the progress counter alike.
+    """
+    skip = getattr(step, "skip_if_prev", None)
+    if skip is None:
+        return False
+    try:
+        return bool(skip(selections))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _reachable_progress(
+    steps: list[PromptStep], current: int, selections: dict,
+) -> tuple[int, int, int]:
+    """``(ordinal, total, skipped)`` over the steps this run will ask.
+
+    The counter used to show the raw list position over the full step
+    catalogue, so a narrow track counted prompts the user would never see
+    and the ordinal jumped several numbers at once (#1182). Both numbers now
+    count only reachable steps, judged by the same ``skip_if_prev``
+    predicates navigation uses, so the display cannot disagree with what is
+    asked. The current step always counts (a boundary step is shown even
+    when its predicate says skip), which keeps ``ordinal <= total``.
+    Predicates are re-run on every render, so answering a step (disabling a
+    provider, picking a narrower track) updates the count at once; an
+    unanswered future step is counted until its predicate says otherwise.
+    Display only: step identity and answers are untouched.
+    """
+    reachable = [
+        idx for idx, step in enumerate(steps)
+        if idx == current or not _predicate_skips(step, selections)
+    ]
+    return reachable.index(current) + 1, len(reachable), len(steps) - len(reachable)
+
+
 class WizardScreen(Screen):
     """Setup wizard + in-place log streaming."""
 
@@ -1503,13 +1543,7 @@ class WizardScreen(Screen):
         """
         if not (0 <= idx < len(self._steps)):
             return False
-        skip = getattr(self._steps[idx], "skip_if_prev", None)
-        if skip is None:
-            return False
-        try:
-            return bool(skip(self._selections))
-        except Exception:  # noqa: BLE001
-            return False
+        return _predicate_skips(self._steps[idx], self._selections)
 
     def _advance_past_skipped(self, direction: int) -> None:
         """Walk ``self._step_index`` in ``direction`` (+1 forward, -1 backward)
@@ -1628,10 +1662,14 @@ class WizardScreen(Screen):
         # at display time automatically, no need to update this method
         # in lock-step. Only the fields that change at render time get
         # an explicit override.
+        ordinal, total, skipped = _reachable_progress(
+            self._steps, self._step_index, self._selections,
+        )
         step = replace(
             original,
-            step_index=self._step_index + 1,
-            step_total=len(self._steps),
+            step_index=ordinal,
+            step_total=total,
+            steps_skipped=skipped,
             subtitle=("⏳  " + live_subtitle.lstrip()) if is_loading else live_subtitle,
             options=live_options,
             default_value=live_default_value,
