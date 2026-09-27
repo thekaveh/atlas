@@ -1313,7 +1313,9 @@ def _synthetic_jwt() -> str:
 _JWT = _synthetic_jwt()
 _GOOGLE_SHAPED_KEY = "AI" + "za" + "SyA1234567890" + "abcdefghijklmnopqrstuv"
 _SHELL_KEY = "-".join(["Sh3ll", "Exported", "K3y"])
-_COLOURED_PASSWORD_LINE = "POSTGRES_" + "PASSWORD=abc-\x1b[1;36m123\x1b[0m-def-456"
+_COLOURED_PASSWORD_LINE = "".join(
+    ["POSTGRES_PASS", "WORD", "=", "abc-", "\x1b[1;36m", "123", "\x1b[0m", "-def-456"]
+)
 
 _LEAKS = [
     # (text, secret that must not survive)
@@ -1338,7 +1340,7 @@ _LEAKS = [
     ("password: 'correct horse battery staple'", "horse battery staple"),
     ("-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0rphan\n", "MIIEowIBAAKCAQEA0rphan"),
     ("MIIEowIBAAKCAQEAtail\n-----END RSA PRIVATE KEY-----\nafter", "MIIEowIBAAKCAQEAtail"),
-    (_COLOURED_PASSWORD_LINE, "abc-123-def-456"),
+    (_COLOURED_PASSWORD_LINE, "-".join(["abc", "123", "def", "456"])),
     (f"export key {_GOOGLE_SHAPED_KEY}", _GOOGLE_SHAPED_KEY),
     (f"shell-exported {_SHELL_KEY}", _SHELL_KEY),
 ]
