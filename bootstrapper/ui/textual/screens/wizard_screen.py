@@ -1227,6 +1227,8 @@ class WizardScreen(Screen):
         self._launch_log_fh = None
         self._launch_log_path = None
         self._open_launch_log_tee(announce_in_pane=False)
+        # --support-bundle (#1057): a failed launch exports at most once.
+        self._support_bundle_started = False
 
     def compose(self) -> ComposeResult:
         with Vertical(id="wizard-body"):
@@ -1531,6 +1533,42 @@ class WizardScreen(Screen):
             self._log_pane.set_title(
                 " Live docker logs ",
                 subtitle=" ctrl+q to detach ",
+            )
+            self._start_support_bundle_export()
+
+    def _start_support_bundle_export(self) -> None:
+        """With ``--support-bundle PATH``, a failed launch previews and then
+        writes the redacted bundle in the background (#1057)."""
+        destination = getattr(self._starter, "support_bundle_path", None)
+        if destination is None or self._support_bundle_started:
+            return
+        self._support_bundle_started = True
+        self.run_worker(
+            self._export_support_bundle(Path(destination)),
+            exclusive=False, exit_on_error=False, group="support_bundle",
+        )
+
+    async def _export_support_bundle(self, destination: Path) -> None:
+        """Build the bundle off the UI thread from the doctor checks and the
+        session log, stream its full preview into the log pane, then write
+        it. A bundle failure is reported, never raised into the launch."""
+        from core import support_bundle as sb
+
+        logs: tuple = ()
+        if self._launch_log_path is not None:
+            if self._launch_log_fh is not None:
+                self._launch_log_fh.flush()
+            logs = (sb.LogSource("session.log", path=Path(self._launch_log_path)),)
+        options = sb.BundleOptions(
+            context={"command": "start", "interface": "textual"}, logs=logs,
+        )
+        emit = lambda line: self._safe_log(line, source="pipeline")  # noqa: E731
+        try:
+            bundle = await asyncio.to_thread(self._starter.build_support_bundle, options)
+            await asyncio.to_thread(sb.export, bundle, destination, emit)
+        except Exception as exc:  # noqa: BLE001
+            self._safe_log(
+                f"⚠ support bundle not written: {exc}", source="pipeline", level="warn",
             )
 
     # ─── setup phase ─────────────────────────────────────────────────

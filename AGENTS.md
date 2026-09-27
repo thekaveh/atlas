@@ -127,6 +127,7 @@ Key modules:
 - `start.py` — main entry point, `AtlasStarter` class. Routes to the Textual TUI when the terminal can host it; falls back to a linear stdout flow otherwise.
 - `stop.py` — shutdown with optional volume cleanup
 - `core/config_parser.py` — env parsing + manifest synthesis entry point; exports `DEFAULT_BASE_PORT` (the single source for the 63000 default base port; consumed by `start.py` and the Textual wizard). `load_yaml_config()` returns the synthesized dict by delegating to `services/manifests.py` + `services/sc_synthesizer.py`.
+- `core/support_bundle.py` — the redacted, versioned support bundle (#1057) behind `./start.sh doctor --bundle PATH` and `./start.sh --support-bundle PATH`: best-effort `Redactor`, offline, time-bounded `run_checks`, allowlisted `build_bundle`, and a preview-then-write `export`. `AtlasStarter.build_support_bundle` feeds it the doctor checks and consumer env origins; the linear flow and the Textual launch screen each call it on a failed start.
 - `core/docker_manager.py` — compose execution; `execute_compose_command` for the linear flow, `stream_compose` for line-by-line piping into the Textual log pane
 - `services/topology.py` — single source of truth for service rows (category, deps, aliases, port defaults, display name, description). `get_topology()` accessor; `build_topology()` for tests with synthetic services dirs.
 - `services/manifests.py` — loads `services/<name>/service.yml` files into `Manifest` dataclasses (env vars, source variants, runtime_sc slices).
