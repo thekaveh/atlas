@@ -90,6 +90,19 @@ jobs:
           timeout 5m docker pull postgres:17.10-alpine
           timeout 5m docker pull pgsty/silo:RELEASE.2026-09-16T00-00-00Z
           timeout 5m docker pull pgsty/mc:RELEASE.2026-09-16T00-00-00Z
+          # The backup image installs its own pinned mc from the official
+          # release, verified by SHA-256 (services/backup/init/scripts/
+          # entrypoint.sh). The integration tests need that exact binary, which
+          # the newer pgsty/mc client image no longer carries, so provision it
+          # the same way and hand its directory to every later step.
+          pinned_mc_dir="${RUNNER_TEMP}/atlas-pinned-mc"
+          pinned_mc="mc.linux-amd64.RELEASE.2025-08-13T08-35-41Z"
+          mkdir -p "$pinned_mc_dir"
+          timeout 5m curl -fsSL --retry 3 -o "$pinned_mc_dir/$pinned_mc" \
+            "https://github.com/minio/mc/releases/download/RELEASE.2025-08-13T08-35-41Z/$pinned_mc"
+          echo "01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891  $pinned_mc_dir/$pinned_mc" \
+            | sha256sum -c -
+          echo "ATLAS_BACKUP_PINNED_MC_DIR=$pinned_mc_dir" >> "$GITHUB_ENV"
           timeout 5m docker pull neo4j:5.26.30
           timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.13
           timeout 5m docker pull alpine:3.24.1
