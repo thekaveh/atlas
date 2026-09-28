@@ -463,7 +463,19 @@ does not delete data.
 | `1` / `2` | Jump to the Setup / Logs tab (Logs only after launch begins) |
 | `Shift+Tab` | Cycle to the previous tab |
 | `Ctrl+R` | Review the full warning on a destructive step (§7.1) |
+| `Ctrl+O` | Review the whole command and every service's details (§10.1) |
 | `Ctrl+Q` | Quit the wizard |
+
+### 10.1. Reviewing the command and service details by keyboard
+
+The command summary shows at most four rows, and the service table shows a row's source options, dependencies and URLs only in a mouse-hover tooltip. Neither takes keyboard focus (#1179).
+
+Press **Ctrl+O** to open a read-only overlay that uses the whole terminal, at any size down to the 60×20 floor. It has two pages; **Tab** switches between them.
+
+- **Command** lists the generated `./start.sh` command one flag per line, in copyable shell form. Scroll it with `↑` `↓` `PgUp` `PgDn`.
+- **Services** lists every service. Moving the selection with `↑` `↓` shows that service's card, which is the same text as its hover tooltip.
+
+Press **y** to send the command to the terminal clipboard (OSC 52; a terminal without it leaves the clipboard unchanged). Any flag named like a secret (a password, secret, token or key) shows and copies as `'<set>'`, never with its value. **Esc** (or `Ctrl+O` again, or `q`) closes the overlay with the step, cursor and selections exactly as you left them. The command summary's border title advertises `ctrl+o details`, on the panel the overlay expands, so the footer's actions are unchanged.
 
 ## 11. Progress Tracking
 
