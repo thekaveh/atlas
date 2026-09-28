@@ -1,10 +1,13 @@
 ---
 category-fit: infra
+decided: 2026-07-04
 generated: 2026-07-04
 license: MPL-2.0
+lifecycle: deferred
 name: OpenBao
 referenced-by: [kong]
 slug: openbao
+superseded-by: https://github.com/thekaveh/atlas/issues/228
 type: external-service
 upstream: https://github.com/openbao/openbao
 ---

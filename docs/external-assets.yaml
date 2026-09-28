@@ -1,0 +1,141 @@
+# Every external asset a clean-cache documentation build downloads (#1053).
+#
+# The Material `privacy` plugin (enabled by scripts/docs/build_docs.py) self-hosts
+# these at build time, caching them under `cache_root`. Nothing is vendored: the
+# build is online-only on a cold cache and runs offline from a warm one. The
+# policy, and why it was chosen over vendoring or a seeded cache, is in
+# docs/development.md §3.1. scripts/docs/external_assets.py reads this file:
+#   --preflight     before the strict build; names any asset that is neither
+#                   cached nor reachable, instead of a bare strict-mode abort
+#   --verify-cache  after a clean-cache build; diffs the cache against this list
+#
+# `sha256: null` marks an asset whose URL does not pin its content (the Google
+# Fonts stylesheet is served per user agent; unpkg resolves `mermaid@11` to the
+# newest 11.x). Every font file is versioned in its URL and pinned here.
+#
+# Refresh after a theme-font or mkdocs-material change: delete `cache_root`, run
+# `make docs-check` with network access, then `python -m scripts.docs.external_assets
+# --print-inventory` and review the diff.
+cache_root: .cache/plugin/privacy
+recorded_with: mkdocs-material 9.7.7
+assets:
+- name: Google Fonts stylesheet (Public Sans, JetBrains Mono)
+  kind: stylesheet
+  version: unversioned
+  url: https://fonts.googleapis.com/css?family=Public+Sans:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback
+  path: assets/external/fonts.googleapis.com/css.2c37b477.css
+  sha256: null
+- name: JetBrains Mono italic 400-700, cyrillic
+  kind: font
+  version: JetBrains Mono v24
+  url: https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbp2o-flEEny0FZhsfKu5WU4xD-IQ-PuZJJXxfpAO-LfjGbsVNLG7DGdF6OZ1PsxAMgo-8.woff2
+  path: assets/external/fonts.gstatic.com/s/jetbrainsmono/v24/tDbp2o-flEEny0FZhsfKu5WU4xD-IQ-PuZJJXxfpAO-LfjGbsVNLG7DGdF6OZ1PsxAMgo-8.woff2
+  sha256: 792ab8266754462e556797cc7fe36b84ba6615d64d01857a81e285e065c53b0e
+- name: JetBrains Mono italic 400-700, cyrillic-ext
+  kind: font
+  version: JetBrains Mono v24
+  url: https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbp2o-flEEny0FZhsfKu5WU4xD-IQ-PuZJJXxfpAO-LfjGbsVNLG7DGdF6OZ1PszQMgo-8.woff2
+  path: assets/external/fonts.gstatic.com/s/jetbrainsmono/v24/tDbp2o-flEEny0FZhsfKu5WU4xD-IQ-PuZJJXxfpAO-LfjGbsVNLG7DGdF6OZ1PszQMgo-8.woff2
+  sha256: d9bec114b67fdd9069cc4474d768efc157ff92cbd34ade067812db79a6bb6e07
+- name: JetBrains Mono italic 400-700, greek
+  kind: font
+  version: JetBrains Mono v24
+  url: https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbp2o-flEEny0FZhsfKu5WU4xD-IQ-PuZJJXxfpAO-LfjGbsVNLG7DGdF6OZ1PswwMgo-8.woff2
+  path: assets/external/fonts.gstatic.com/s/jetbrainsmono/v24/tDbp2o-flEEny0FZhsfKu5WU4xD-IQ-PuZJJXxfpAO-LfjGbsVNLG7DGdF6OZ1PswwMgo-8.woff2
+  sha256: 0a3342ea2c45e14c6b6b83c0d2a06cc5b916845a1236e856d5cb233ebc2379f5
+- name: JetBrains Mono italic 400-700, latin
+  kind: font
+  version: JetBrains Mono v24
+  url: https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbp2o-flEEny0FZhsfKu5WU4xD-IQ-PuZJJXxfpAO-LfjGbsVNLG7DGdF6OZ1PswAMg.woff2
+  path: assets/external/fonts.gstatic.com/s/jetbrainsmono/v24/tDbp2o-flEEny0FZhsfKu5WU4xD-IQ-PuZJJXxfpAO-LfjGbsVNLG7DGdF6OZ1PswAMg.woff2
+  sha256: 89d4f8e433fee8bccca552bda7cbeefd44c2406f454d17593811344088bbeabb
+- name: JetBrains Mono italic 400-700, latin-ext
+  kind: font
+  version: JetBrains Mono v24
+  url: https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbp2o-flEEny0FZhsfKu5WU4xD-IQ-PuZJJXxfpAO-LfjGbsVNLG7DGdF6OZ1PszgMgo-8.woff2
+  path: assets/external/fonts.gstatic.com/s/jetbrainsmono/v24/tDbp2o-flEEny0FZhsfKu5WU4xD-IQ-PuZJJXxfpAO-LfjGbsVNLG7DGdF6OZ1PszgMgo-8.woff2
+  sha256: 79cb4c6bad393a7651b9fbd1275e4117009ac45d40bb4b4b4c0cdd20bf4a455f
+- name: JetBrains Mono italic 400-700, vietnamese
+  kind: font
+  version: JetBrains Mono v24
+  url: https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbp2o-flEEny0FZhsfKu5WU4xD-IQ-PuZJJXxfpAO-LfjGbsVNLG7DGdF6OZ1PszwMgo-8.woff2
+  path: assets/external/fonts.gstatic.com/s/jetbrainsmono/v24/tDbp2o-flEEny0FZhsfKu5WU4xD-IQ-PuZJJXxfpAO-LfjGbsVNLG7DGdF6OZ1PszwMgo-8.woff2
+  sha256: c19993a94ad3eb84502a02bce48b8ed24be23df4ebaa129589334d5cd222ba35
+- name: JetBrains Mono normal 400-700, cyrillic
+  kind: font
+  version: JetBrains Mono v24
+  url: https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxTcwhsk.woff2
+  path: assets/external/fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxTcwhsk.woff2
+  sha256: e17cfd15fb96909d64095015f958207063a0c07191da3512df7d560a781aebdf
+- name: JetBrains Mono normal 400-700, cyrillic-ext
+  kind: font
+  version: JetBrains Mono v24
+  url: https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPx3cwhsk.woff2
+  path: assets/external/fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPx3cwhsk.woff2
+  sha256: 62213be8a78b42f1e29d1452d91e2f8b3e745572a9dd98d3941e39fa00b37d76
+- name: JetBrains Mono normal 400-700, greek
+  kind: font
+  version: JetBrains Mono v24
+  url: https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxPcwhsk.woff2
+  path: assets/external/fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxPcwhsk.woff2
+  sha256: 0a557721b1f8b36d3f3f84442689a71ca4a744300abcb46a1953f51bfc663b66
+- name: JetBrains Mono normal 400-700, latin
+  kind: font
+  version: JetBrains Mono v24
+  url: https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxDcwg.woff2
+  path: assets/external/fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxDcwg.woff2
+  sha256: 83c005d49d8a6a50474c73a5a36ac0468076e9c4a29da7bdb14995d80560a5be
+- name: JetBrains Mono normal 400-700, latin-ext
+  kind: font
+  version: JetBrains Mono v24
+  url: https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPx7cwhsk.woff2
+  path: assets/external/fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPx7cwhsk.woff2
+  sha256: db5ff4db83e580426280e9337a58dc57d3a83784a1b03ad80914651594441d52
+- name: JetBrains Mono normal 400-700, vietnamese
+  kind: font
+  version: JetBrains Mono v24
+  url: https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPx_cwhsk.woff2
+  path: assets/external/fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPx_cwhsk.woff2
+  sha256: c89b9cc0bc6262bd4f8d8494b6961601f3aefa829d08c2e3635f4d501d3a47c2
+- name: Public Sans italic 300-700, latin
+  kind: font
+  version: Public Sans v21
+  url: https://fonts.gstatic.com/s/publicsans/v21/ijwTs572Xtc6ZYQws9YVwnNDTJzaxw.woff2
+  path: assets/external/fonts.gstatic.com/s/publicsans/v21/ijwTs572Xtc6ZYQws9YVwnNDTJzaxw.woff2
+  sha256: 16dc93252adb78785ae56a6465494f73b604b39817760ea92bd4046521bb5a35
+- name: Public Sans italic 300-700, latin-ext
+  kind: font
+  version: Public Sans v21
+  url: https://fonts.gstatic.com/s/publicsans/v21/ijwTs572Xtc6ZYQws9YVwnNDTJLax9k0.woff2
+  path: assets/external/fonts.gstatic.com/s/publicsans/v21/ijwTs572Xtc6ZYQws9YVwnNDTJLax9k0.woff2
+  sha256: a071e35bbfc9c62756e0beb2475bff387d456dbfb2ec7e0d4e90cadeb543b54a
+- name: Public Sans italic 300-700, vietnamese
+  kind: font
+  version: Public Sans v21
+  url: https://fonts.gstatic.com/s/publicsans/v21/ijwTs572Xtc6ZYQws9YVwnNDTJPax9k0.woff2
+  path: assets/external/fonts.gstatic.com/s/publicsans/v21/ijwTs572Xtc6ZYQws9YVwnNDTJPax9k0.woff2
+  sha256: fadef399b5845ca0486e0eafb76b433fd0a0794d57b13c62b2f17c657a00f9ba
+- name: Public Sans normal 300-700, latin
+  kind: font
+  version: Public Sans v21
+  url: https://fonts.gstatic.com/s/publicsans/v21/ijwRs572Xtc6ZYQws9YVwnNGfJ4.woff2
+  path: assets/external/fonts.gstatic.com/s/publicsans/v21/ijwRs572Xtc6ZYQws9YVwnNGfJ4.woff2
+  sha256: 5ed4d31c988e73b258894244f209069ebe77dc7e564861954b21198b6de90d68
+- name: Public Sans normal 300-700, latin-ext
+  kind: font
+  version: Public Sans v21
+  url: https://fonts.gstatic.com/s/publicsans/v21/ijwRs572Xtc6ZYQws9YVwnNIfJ7Cww.woff2
+  path: assets/external/fonts.gstatic.com/s/publicsans/v21/ijwRs572Xtc6ZYQws9YVwnNIfJ7Cww.woff2
+  sha256: 3a00a32f0242b723dcea79935747d6d27dd93675d03ef23f470dfe274e79586a
+- name: Public Sans normal 300-700, vietnamese
+  kind: font
+  version: Public Sans v21
+  url: https://fonts.gstatic.com/s/publicsans/v21/ijwRs572Xtc6ZYQws9YVwnNJfJ7Cww.woff2
+  path: assets/external/fonts.gstatic.com/s/publicsans/v21/ijwRs572Xtc6ZYQws9YVwnNJfJ7Cww.woff2
+  sha256: 94593e69fad0885b2b0b74cd18d036c7e9cd6051b2256ab281a20f5bc9ccb46f
+- name: Mermaid bundle (referenced by the mkdocs-material JavaScript bundle)
+  kind: script
+  version: 11 (floating major)
+  url: https://unpkg.com/mermaid@11/dist/mermaid.min.js
+  path: assets/external/unpkg.com/mermaid@11/dist/mermaid.min.js
+  sha256: null

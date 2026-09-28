@@ -854,6 +854,46 @@ def _permission_recovery_hints(joined: str) -> list[str]:
     ]
 
 
+def _predicate_skips(step: PromptStep, selections: dict) -> bool:
+    """Run one step's ``skip_if_prev`` predicate against ``selections``.
+
+    Exceptions are caught and treated as "don't skip" so a buggy predicate
+    can't crash the wizard. The single skip rule for navigation, the
+    launch-time prune and the progress counter alike.
+    """
+    skip = getattr(step, "skip_if_prev", None)
+    if skip is None:
+        return False
+    try:
+        return bool(skip(selections))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _reachable_progress(
+    steps: list[PromptStep], current: int, selections: dict,
+) -> tuple[int, int, int]:
+    """``(ordinal, total, skipped)`` over the steps this run will ask.
+
+    The counter used to show the raw list position over the full step
+    catalogue, so a narrow track counted prompts the user would never see
+    and the ordinal jumped several numbers at once (#1182). Both numbers now
+    count only reachable steps, judged by the same ``skip_if_prev``
+    predicates navigation uses, so the display cannot disagree with what is
+    asked. The current step always counts (a boundary step is shown even
+    when its predicate says skip), which keeps ``ordinal <= total``.
+    Predicates are re-run on every render, so answering a step (disabling a
+    provider, picking a narrower track) updates the count at once; an
+    unanswered future step is counted until its predicate says otherwise.
+    Display only: step identity and answers are untouched.
+    """
+    reachable = [
+        idx for idx, step in enumerate(steps)
+        if idx == current or not _predicate_skips(step, selections)
+    ]
+    return reachable.index(current) + 1, len(reachable), len(steps) - len(reachable)
+
+
 class WizardScreen(Screen):
     """Setup wizard + in-place log streaming."""
 
@@ -1187,6 +1227,10 @@ class WizardScreen(Screen):
         self._launch_log_fh = None
         self._launch_log_path = None
         self._open_launch_log_tee(announce_in_pane=False)
+        # --support-bundle (#1057): a failed launch exports at most once, and
+        # quitting waits for that export instead of cancelling it silently.
+        self._support_bundle_started = False
+        self._support_bundle_running = False
 
     def compose(self) -> ComposeResult:
         with Vertical(id="wizard-body"):
@@ -1492,6 +1536,51 @@ class WizardScreen(Screen):
                 " Live docker logs ",
                 subtitle=" ctrl+q to detach ",
             )
+            self._start_support_bundle_export()
+
+    def _start_support_bundle_export(self) -> None:
+        """With ``--support-bundle PATH``, a failed launch previews and then
+        writes the redacted bundle in the background (#1057)."""
+        destination = getattr(self._starter, "support_bundle_path", None)
+        if destination is None or self._support_bundle_started:
+            return
+        self._support_bundle_started = True
+        self._support_bundle_running = True
+        self._safe_log(
+            "📦 Launch failed; collecting the support bundle (--support-bundle)…",
+            source="pipeline",
+        )
+        self.run_worker(
+            self._export_support_bundle(Path(destination)),
+            exclusive=False, exit_on_error=False, group="support_bundle",
+        )
+
+    async def _export_support_bundle(self, destination: Path) -> None:
+        """Build the bundle off the UI thread from the doctor checks and the
+        session log, stream its full preview into the log pane, then write
+        it. A bundle failure is reported, never raised into the launch."""
+        from core import support_bundle as sb
+
+        logs: tuple = ()
+        if self._launch_log_path is not None:
+            if self._launch_log_fh is not None:
+                self._launch_log_fh.flush()
+            logs = (sb.LogSource("session.log", path=Path(self._launch_log_path)),)
+        options = sb.BundleOptions(
+            context={"command": "start", "interface": "textual"}, logs=logs,
+        )
+        emit = lambda line: self._safe_log(line, source="pipeline")  # noqa: E731
+        try:
+            bundle = await asyncio.to_thread(self._starter.build_support_bundle, options)
+            # The pane already shows the session log, so each excerpt's preview
+            # is its first and last lines; bundle.json is shown in full.
+            await asyncio.to_thread(sb.export, bundle, destination, emit, 20)
+        except Exception as exc:  # noqa: BLE001
+            self._safe_log(
+                f"⚠ support bundle not written: {exc}", source="pipeline", level="warn",
+            )
+        finally:
+            self._support_bundle_running = False
 
     # ─── setup phase ─────────────────────────────────────────────────
 
@@ -1503,13 +1592,7 @@ class WizardScreen(Screen):
         """
         if not (0 <= idx < len(self._steps)):
             return False
-        skip = getattr(self._steps[idx], "skip_if_prev", None)
-        if skip is None:
-            return False
-        try:
-            return bool(skip(self._selections))
-        except Exception:  # noqa: BLE001
-            return False
+        return _predicate_skips(self._steps[idx], self._selections)
 
     def _advance_past_skipped(self, direction: int) -> None:
         """Walk ``self._step_index`` in ``direction`` (+1 forward, -1 backward)
@@ -1628,10 +1711,14 @@ class WizardScreen(Screen):
         # at display time automatically, no need to update this method
         # in lock-step. Only the fields that change at render time get
         # an explicit override.
+        ordinal, total, skipped = _reachable_progress(
+            self._steps, self._step_index, self._selections,
+        )
         step = replace(
             original,
-            step_index=self._step_index + 1,
-            step_total=len(self._steps),
+            step_index=ordinal,
+            step_total=total,
+            steps_skipped=skipped,
             subtitle=("⏳  " + live_subtitle.lstrip()) if is_loading else live_subtitle,
             options=live_options,
             default_value=live_default_value,
@@ -1885,6 +1972,8 @@ class WizardScreen(Screen):
         # overview to reflect the user's choice.
         if step.kind == "secret" and self._cloud_apis:
             self._apply_secret_step_to_cloud_apis(step, opt.value)
+        # fal.ai's secret step decides its service row's source (#1255).
+        self._apply_secret_step_to_fal_row(step, opt.value)
         # Cloud multiselect step: an empty CSV ("0 selected") means
         # the user explicitly de-selected every model. Match the
         # _selections_to_args policy ("disable provider + wipe key")
@@ -2103,6 +2192,35 @@ class WizardScreen(Screen):
         self._cloud_apis_row.set_cloud_apis(self._cloud_apis)
         self._refresh_info_panel()
 
+    def _apply_secret_step_to_fal_row(self, step: PromptStep, value: str) -> None:
+        """Reflect fal.ai's secret-step verdict on its service-table row.
+
+        fal's step deliberately has no ``service_name`` (so the raw key can
+        never be written into a row), which left the generic row update
+        below unable to reach it: the row stayed pending with its .env
+        source whatever the user answered. It resolves through the same
+        ``resolve_secret_verdict`` that ``_selections_to_args`` writes from
+        (#1255), so the overview cannot show a state the launch won't
+        apply. The step's prefilled ``default_value`` is the saved key,
+        which is all "enable" needs to know.
+        """
+        from wizard.llm_steps import FAL_DISPLAY_NAME, fal_secret_title
+        from wizard.model.cloud_rules import resolve_secret_verdict
+
+        if step.title != fal_secret_title():
+            return
+        verdict = resolve_secret_verdict(
+            value, existing_key_set=bool((step.default_value or "").strip()),
+        )
+        for row in self._services:
+            if row.name == FAL_DISPLAY_NAME:
+                if verdict.source is not None:
+                    row.source = verdict.source
+                row.pending = False
+                self._service_table.set_rows(self._services)
+                self._refresh_info_panel()
+                return
+
     def _apply_secret_step_to_cloud_apis(self, step: PromptStep, value: str) -> None:
         """Live-update the Cloud APIs overview block after a secret step.
 
@@ -2164,6 +2282,7 @@ class WizardScreen(Screen):
             OLLAMA_MODELS_TITLE,
             cloud_models_title,
             cloud_secret_title,
+            fal_secret_title,
         )
 
         flags: list[tuple[str, str]] = []
@@ -2191,9 +2310,16 @@ class WizardScreen(Screen):
         # for every step. Iterate the canonical CLOUD_PROVIDERS list so
         # adding a 4th provider doesn't silently miss this site.
         from utils.cloud_providers import CLOUD_PROVIDERS
-        cloud_secret_titles = {
-            cloud_secret_title(p.name): p.key for p in CLOUD_PROVIDERS
+        # Secret step title -> (source flag, key flag). fal.ai resolves
+        # through the same verdict table as the cloud providers (#1255), so
+        # its step projects onto its own two flags the same way.
+        secret_flags = {
+            cloud_secret_title(p.name): (
+                f"--cloud-{p.key}-source", f"--{p.key}-api-key",
+            )
+            for p in CLOUD_PROVIDERS
         }
+        secret_flags[fal_secret_title()] = ("--fal-source", "--fal-api-key")
         cloud_models_titles = {
             cloud_models_title(p.name): p.key for p in CLOUD_PROVIDERS
         }
@@ -2228,12 +2354,12 @@ class WizardScreen(Screen):
             if "base port" in title_low:
                 continue
 
-            # Cloud secret step → equivalent --cloud-X-source +
-            # sanitized --X-api-key. Never emit the raw key string: the
+            # Cloud or fal.ai secret step → its source flag + sanitized
+            # key flag. Never emit the raw key string: the
             # summary is copy-pasteable, and a key on a command line ends
             # up in shell history.
-            if step.title in cloud_secret_titles:
-                provider = cloud_secret_titles[step.title]
+            if step.title in secret_flags:
+                source_flag, key_flag = secret_flags[step.title]
                 if value == SECRET_KEEP:
                     pass  # no flag — keeping both key and on/off state
                 elif value in (SECRET_CLEAR, "", SECRET_DISABLE):
@@ -2241,14 +2367,14 @@ class WizardScreen(Screen):
                     # whether the stored key survives, which is a .env
                     # fact and has no flag — replaying this command
                     # reproduces the source, never the credential (#1183).
-                    flags.append((f"--cloud-{provider}-source", "disabled"))
+                    flags.append((source_flag, "disabled"))
                 elif value == SECRET_ENABLE:
                     # Enabling with the already-saved key: no key flag,
                     # because no key is being set.
-                    flags.append((f"--cloud-{provider}-source", "enabled"))
+                    flags.append((source_flag, "enabled"))
                 else:
-                    flags.append((f"--cloud-{provider}-source", "enabled"))
-                    flags.append((f"--{provider}-api-key", "<set>"))
+                    flags.append((source_flag, "enabled"))
+                    flags.append((key_flag, "<set>"))
                 continue
 
             # Cloud multiselect → --X-models with truncated CSV /
@@ -2351,6 +2477,13 @@ class WizardScreen(Screen):
         if self._phase == "launch" and not self._launch_detach_ready:
             self.notify(
                 "Startup is still running; Ctrl+C cancels it.",
+                severity="warning",
+                timeout=6,
+            )
+            return
+        if getattr(self, "_support_bundle_running", False):
+            self.notify(
+                "Writing the support bundle; Ctrl+Q works again when it is done.",
                 severity="warning",
                 timeout=6,
             )

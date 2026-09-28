@@ -44,3 +44,18 @@ def fenced_code_spans(text: str) -> list[tuple[int, int]]:
         start_line, end_line = token.map
         spans.append((line_offsets[start_line], line_offsets[end_line]))
     return spans
+
+
+def top_level_list_items(text: str) -> list[tuple[int, int]]:
+    """Return ``(first_line, end_line)`` for each item of a root-level list.
+
+    Line numbers are 0-based and ``end_line`` is exclusive. A CommonMark item
+    includes its lazy and indented continuation lines, the paragraphs of a
+    loose item, and any code fence nested in it; a fence or paragraph outside
+    a list is never part of an item.
+    """
+    return [
+        (token.map[0], token.map[1])
+        for token in _MARKDOWN.parse(text)
+        if token.type == "list_item_open" and token.level == 1 and token.map
+    ]

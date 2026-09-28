@@ -1,10 +1,13 @@
 ---
 category-fit: media
+decided: 2026-07-03
 generated: 2026-07-03
 license: Apache-2.0
+lifecycle: shipped
 name: Crawl4AI
 referenced-by: [local-deep-researcher]
 slug: crawl4ai
+superseded-by: services/crawl4ai/README.md
 type: external-service
 upstream: https://github.com/unclecode/crawl4ai
 ---

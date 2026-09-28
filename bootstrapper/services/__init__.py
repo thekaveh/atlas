@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import ipaddress
 import os
 from pathlib import Path
+import shlex
 import shutil
 import socket
 import subprocess
@@ -603,10 +604,54 @@ def refuse_untrusted_tracked_pid(
         return
     if not alive_probe(pid) or not ownership_probe(pid):
         return
+    if _is_unstamped_legacy_record(pid, pid_file):
+        error = error_type(_legacy_record_refusal(pid, pid_file, description))
+        # Marks the one refusal a bring-up may survive (#990): nothing is
+        # signalled either way, but a record from before the identity stamp
+        # existed is expected after an upgrade, not evidence of a stranger.
+        error.legacy_pid_file = pid_file
+        raise error
     raise error_type(
         f"refusing to replace tracked pid {pid} for {description}: ownership is "
         "mismatched or unknown; inspect the pid file and process manually"
     )
+
+
+def _is_unstamped_legacy_record(pid: int, pid_file: Path) -> bool:
+    """True when ``pid_file`` names ``pid`` but carries no ``start_utc=`` stamp.
+
+    That is the record an Atlas pin older than the managed-host framework
+    (#795) left behind: identity proof did not exist yet, so the process may
+    well be Atlas's own. It stays UNKNOWN -- only the caller's reaction
+    differs. A stamped record that fails to match is a different case and
+    keeps the fatal refusal.
+    """
+    try:
+        lines = pid_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    if not lines or lines[0].strip() != str(pid):
+        return False
+    return not any(line.startswith("start_utc=") for line in lines[1:])
+
+
+def _legacy_record_refusal(pid: int, pid_file: Path, description: str) -> str:
+    quoted = shlex.quote(str(pid_file))
+    return (
+        f"refusing to replace tracked pid {pid} for {description}: ownership is "
+        f"mismatched or unknown. The pid file {pid_file} has no start_utc "
+        "identity stamp -- it was written by an Atlas version older than the "
+        f"managed-host framework -- so Atlas cannot prove pid {pid} is the "
+        f"process it launched and will not signal it. If `ps -p {pid} -o "
+        f"command=` shows the old {description} process, stop it and clear the "
+        f"record: kill -TERM {pid} && rm -f {quoted}"
+    )
+
+
+def legacy_pid_refusal_file(exc: BaseException) -> Path | None:
+    """The stamp-less pid file behind ``exc``, when it is that refusal (#990)."""
+    pid_file = getattr(exc, "legacy_pid_file", None)
+    return pid_file if isinstance(pid_file, Path) else None
 
 
 def _evidence_message(outcome: LaunchCompensation) -> str:

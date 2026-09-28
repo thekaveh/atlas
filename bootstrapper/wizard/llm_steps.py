@@ -98,6 +98,12 @@ def cloud_models_title(provider_name: str) -> str:
     return f"{provider_name} Cloud  ·  models"
 
 
+# The fal manifest's display_name, which is also its service-table row name.
+# The secret step below carries no service_name (so the raw key can never
+# reach a row), so the overview finds fal's row by this name instead (#1255).
+FAL_DISPLAY_NAME = "FAL Cloud Media"
+
+
 def fal_secret_title() -> str:
     """Wizard step title for the FAL Cloud Media API-key (secret) step (#517).
 
@@ -106,7 +112,7 @@ def fal_secret_title() -> str:
     blank to keep disabled) instead of a plain enabled/disabled source tile.
     The apply side in integration._selections_to_args matches this exact title.
     """
-    return "FAL Cloud Media  ·  API key"
+    return f"{FAL_DISPLAY_NAME}  ·  API key"
 
 
 # ─── Ollama steps ──────────────────────────────────────────────────────
@@ -924,31 +930,39 @@ def build_fal_secret_step(
 ) -> List[PromptStep]:
     """Build the single masked API-token step for FAL Cloud Media (#517).
 
-    Mirrors the cloud-provider secret step (`kind="secret"`, KEEP/CLEAR
-    sentinels) but for a media provider: entering a key enables fal and
-    persists the key; leaving it blank keeps fal disabled. There is no model
-    multiselect (fal uses FAL_MODEL). ``service_name`` is intentionally empty
-    so the grid-row source handler never writes the raw key into a row.
+    Mirrors the cloud-provider secret step (`kind="secret"`) and resolves
+    through the same verdict table (``resolve_secret_verdict``, #1255) but
+    for a media provider: Enter changes nothing, "enable" / "disable" flip
+    FAL_SOURCE and keep the saved key, a typed key enables and replaces it,
+    and only "remove" deletes it. There is no model multiselect (fal uses
+    FAL_MODEL). ``service_name`` is intentionally empty so the grid-row
+    source handler never writes the raw key into a row.
     """
     existing_key = (env_vars.get("FAL_API_KEY", "") or "").strip()
     existing_source = (env_vars.get("FAL_SOURCE", "disabled") or "").strip().lower()
     if existing_key and existing_source == "enabled":
         subtitle = (
-            "fal.ai is already enabled. Press Enter to keep the saved key, "
-            "type a replacement key, or type 'clear' to disable."
+            "fal.ai is on and its key is saved. Press Enter to leave it that "
+            "way, type 'disable' to turn it off and keep the key, type a "
+            "replacement key, or type 'remove' to delete the key."
         )
         keep_hint = (
-            "key saved and fal enabled  ·  Enter keeps enabled  ·  "
-            "type a new key to replace  ·  type \"clear\" + Enter to disable"
+            "key saved  ·  fal on  ·  Enter keeps it on  ·  "
+            "\"disable\" turns it off and keeps the key  ·  "
+            "type a new key to replace  ·  \"remove\" deletes the key"
         )
     elif existing_key:
+        # #1255: Enter no longer promotes fal. Turning it on is its own
+        # word, so a bare Enter cannot change the state.
         subtitle = (
-            "A fal.ai key is saved but FAL_SOURCE is disabled. Press Enter to "
-            "enable with the saved key, type a replacement key, or 'clear' to remove it."
+            "A fal.ai key is saved but FAL_SOURCE is off. Press Enter to leave "
+            "it off and keep the key, type 'enable' to turn it on with the "
+            "saved key, type a replacement key, or type 'remove' to delete the key."
         )
         keep_hint = (
-            "key saved but fal disabled  ·  Enter enables with saved key  ·  "
-            "type a new key to replace  ·  type \"clear\" + Enter to remove"
+            "key saved  ·  fal off  ·  Enter leaves it off and keeps the key  ·  "
+            "\"enable\" turns it on with the saved key  ·  "
+            "type a new key to replace  ·  \"remove\" deletes the key"
         )
     else:
         subtitle = (

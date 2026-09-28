@@ -238,4 +238,6 @@ def _run_linear_startup(
             summary_payload[0] = capture.getvalue()
             return 0 if ok else 1
         return 0 if starter.show_detached_status_summary(json_output=False) else 1
+    # Startup succeeded; what follows is the log stream (Ctrl+C returns 130).
+    starter.startup_reached_log_follow = True
     return starter.show_container_logs()

@@ -1,10 +1,13 @@
 ---
 category-fit: apps
+decided: 2026-07-04
 generated: 2026-07-04
 license: AGPL-3.0
+lifecycle: deferred
 name: NocoDB
 referenced-by: [n8n]
 slug: nocodb
+superseded-by: https://github.com/thekaveh/atlas/issues/221
 type: external-service
 upstream: https://github.com/nocodb/nocodb
 ---

@@ -1,10 +1,13 @@
 ---
 category-fit: data
+decided: 2026-07-03
 generated: 2026-05-19
 license: Apache-2.0
+lifecycle: shipped
 name: Apache Iceberg + DuckDB
 referenced-by: [minio]
 slug: iceberg-duckdb
+superseded-by: https://github.com/thekaveh/atlas/issues/201
 type: external-service
 upstream: https://iceberg.apache.org/
 ---
@@ -39,3 +42,6 @@ This only becomes interesting once the artifact buckets actually have content. W
 - https://iceberg.apache.org/ — spec + REST catalog reference.
 - https://duckdb.org/docs/extensions/iceberg.html — DuckDB Iceberg extension docs.
 - https://min.io/blog/iceberg-on-minio/ — MinIO's own Iceberg integration write-up.
+
+## 8. Atlas status (2026-07-03)
+Shipped in two parts. [#201](https://github.com/thekaveh/atlas/issues/201) added the Iceberg REST catalog and lakehouse buckets on MinIO (`services/iceberg-rest/`). DuckDB ships as the embedded client in the JupyterHub image (`services/jupyterhub/build/requirements.txt`), pre-wired to MinIO and the Iceberg catalog. No Backend or n8n DuckDB tier was decided. [#1210](https://github.com/thekaveh/atlas/issues/1210) tracks a notebook recipe on the existing client, not a new service.

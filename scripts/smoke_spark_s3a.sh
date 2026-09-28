@@ -8,8 +8,8 @@ fi
 
 spark_image="$1"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-minio_image="quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
-mc_image="quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z"
+minio_image="pgsty/silo:RELEASE.2026-09-16T00-00-00Z"
+mc_image="pgsty/mc:RELEASE.2026-09-16T00-00-00Z"
 access_key="atlasS3aAccess"
 secret_key="atlasS3aSecret123"
 overall_timeout="${ATLAS_S3A_SMOKE_TIMEOUT_SECONDS:-600}"

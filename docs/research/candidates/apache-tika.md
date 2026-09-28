@@ -1,10 +1,13 @@
 ---
 category-fit: media
+decided: 2026-07-03
 generated: 2026-05-19
 license: Apache-2.0
+lifecycle: shipped
 name: Apache Tika
 referenced-by: [doc-processor]
 slug: apache-tika
+superseded-by: services/tika/README.md
 type: external-service
 upstream: https://tika.apache.org/
 ---

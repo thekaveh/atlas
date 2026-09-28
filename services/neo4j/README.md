@@ -155,7 +155,7 @@ The backend declares a disabled Graphiti temporal graph memory experiment with `
 ## 9. Integration with Other Services
 
 ### 9.1. Backend API
-The FastAPI backend can connect to Neo4j for:
+The FastAPI backend does not connect to Neo4j today. `NEO4J_*` is injected for planned graph endpoints, but no Backend code opens a Bolt connection (see the [integration claims ledger](../../docs/maintenance/integration-claims-ledger.md), #1054). Planned uses:
 - Storing user relationships
 - Knowledge graph operations
 - Recommendation systems
@@ -249,7 +249,6 @@ _No upstream calls._
 | airflow | agents |
 | lightrag | agents |
 | mcp-servers | agents |
-| backend | apps |
 | jupyterhub | apps |
 | llm-graph-builder | apps |
 

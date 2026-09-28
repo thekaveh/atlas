@@ -1,10 +1,13 @@
 ---
 category-fit: media
+decided: 2026-07-04
 generated: 2026-07-04
 license: mixed
+lifecycle: deferred
 name: Heavy 3D Game Infrastructure
 referenced-by: []
 slug: heavy-3d-game-infrastructure
+superseded-by: https://github.com/thekaveh/atlas/issues/236
 type: external-service
 upstream: https://github.com/tencent-hunyuan/hunyuan3d-2.1
 ---

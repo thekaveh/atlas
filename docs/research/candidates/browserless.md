@@ -1,10 +1,13 @@
 ---
 category-fit: media
+decided: 2026-07-04
 generated: 2026-07-04
 license: SSPL-1.0
+lifecycle: deferred
 name: Browserless
 referenced-by: [n8n, searxng]
 slug: browserless
+superseded-by: https://github.com/thekaveh/atlas/issues/231
 type: external-service
 upstream: https://github.com/browserless/browserless
 ---

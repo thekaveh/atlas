@@ -85,8 +85,9 @@ def test_merge_groups_by_category(tmp_path):
 
     run_merge(root)
     text = (root / "integration-matrix.md").read_text()
-    assert "## Category: agents" in text or "### agents" in text
-    assert "## Category: media" in text or "### media" in text
+    assert "## 2. By category" in text
+    assert "### 2.1. agents" in text
+    assert "### 2.2. media" in text
 
 
 def test_cli_entry(tmp_path):
@@ -105,3 +106,82 @@ def test_cli_entry(tmp_path):
     )
     assert r.returncode == 0, r.stdout + r.stderr
     assert (root / "integration-matrix.md").is_file()
+
+
+# --- #1190: lifecycle-aware index -----------------------------------------
+
+
+def _candidate_tree(tmp_path: Path, lifecycle: str) -> Path:
+    row = (FIXTURE_DIR / "example_row.md").read_text()
+    cand = (FIXTURE_DIR / "example_candidate.md").read_text().replace(
+        "lifecycle: proposed\n", f"lifecycle: {lifecycle}\ndecided: 2026-07-03\n"
+    )
+    return _build_research_tree(
+        tmp_path, rows={"example-service": row}, candidates={"example-candidate": cand}
+    )
+
+
+@pytest.mark.parametrize(
+    ("lifecycle", "listed"),
+    [("proposed", True), ("planned", True), ("deferred", True),
+     ("rejected", False), ("shipped", False)],
+)
+def test_matrix_lists_only_open_candidates(tmp_path, lifecycle, listed):
+    from docs.merge_research import closed_candidate_slugs, run_merge
+
+    root = _candidate_tree(tmp_path, lifecycle)
+    run_merge(root)
+    text = (root / "integration-matrix.md").read_text()
+
+    row = "| Example Candidate | agents | example-service | [candidates/example-candidate.md]"
+    assert (row in text) is listed
+    assert (root / "candidates" / "example-candidate.md").is_file()
+    assert ("example-candidate" in closed_candidate_slugs(root)) is not listed
+    note = "Shipped and rejected candidates are not listed"
+    assert (note in text) is not listed
+
+
+def test_matrix_headings_match_the_committed_numbering(tmp_path):
+    from docs.merge_research import run_merge
+
+    root = _candidate_tree(tmp_path, "proposed")
+    run_merge(root)
+    text = (root / "integration-matrix.md").read_text()
+
+    for heading in ("## 1. By service", "## 2. By category", "### 2.1. data",
+                    "## 3. Candidate new services"):
+        assert f"\n{heading}\n" in text
+
+
+def test_check_mode_reports_drift_without_writing(tmp_path):
+    from docs.merge_research import run_merge
+
+    root = _candidate_tree(tmp_path, "proposed")
+    run_merge(root)
+    candidate = root / "candidates" / "example-candidate.md"
+    matrix = root / "integration-matrix.md"
+    assert run_merge(root, check=True) == []
+
+    candidate.write_text(candidate.read_text().replace(
+        "lifecycle: proposed", "lifecycle: rejected"
+    ))
+    before = matrix.read_text()
+
+    assert run_merge(root, check=True) == [matrix]
+    assert matrix.read_text() == before
+    assert run_merge(root) == [matrix]
+    assert "Example Candidate |" not in matrix.read_text()
+
+
+def test_cli_check_exits_2_on_drift(tmp_path):
+    import os
+    import subprocess
+
+    root = _candidate_tree(tmp_path, "proposed")
+    cmd = [sys.executable, "-m", "docs.merge_research", "--research-root", str(root), "--check"]
+    env = {**os.environ, "PYTHONPATH": str(REPO_ROOT / "bootstrapper")}
+
+    drift = subprocess.run(cmd, capture_output=True, text=True, cwd=REPO_ROOT, env=env)
+    assert drift.returncode == 2
+    assert "integration-matrix.md" in drift.stderr
+    assert not (root / "integration-matrix.md").exists()

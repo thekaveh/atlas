@@ -50,6 +50,9 @@ driver_calls = {
         provider_key="openai", secret_value=None, selected_models=None,
         existing_key_set=False, existing_source="disabled",
     ),
+    ("cloud_rules", "resolve_secret_verdict"): lambda f: f(
+        "<DISABLE>", existing_key_set=True,
+    ),
     ("state_builder", "lookup_service_meta"): lambda f: f("weaviate"),
     ("state_builder", "service_extras"): lambda f: f("weaviate"),
     ("state_builder", "resolve_localhost_port"): lambda f: f(None, {}),

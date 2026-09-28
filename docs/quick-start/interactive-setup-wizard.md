@@ -184,6 +184,8 @@ The model step is skipped for a provider that will end up off, so you are never 
 
 Your key never appears in the command preview. Each of these actions previews as `--cloud-<provider>-source enabled` or `disabled`; setting a new key previews `--<provider>-api-key <set>`, never the key itself, because that line is meant to be copied into a shell.
 
+The **fal.ai** key step (the FAL Cloud Media step right after ComfyUI) follows the same table (#1255): `FAL_SOURCE` and `FAL_API_KEY` are decided independently, Enter changes neither, `enable` / `disable` flip `FAL_SOURCE` and keep the saved key, and only `remove` blanks it. It has no model step. Its actions preview as `--fal-source enabled` or `disabled`, and a new key as `--fal-api-key <set>`; the FAL Cloud Media row in the overview shows the resulting source as soon as you answer. Before this change a bare Enter on a keyed-but-disabled fal turned it on, and typing `disable` or `enable` was saved as the key itself.
+
 #### 4.4.2. Where the listed models came from
 
 The caption above the list always says which of the two sources you are looking at, so a model appearing in the picker is never mistaken for proof that your key works (#1180):
@@ -465,7 +467,7 @@ does not delete data.
 
 ## 11. Progress Tracking
 
-A progress bar at the top of each screen shows how far you are through the configuration process. It starts at 0% and reaches 100% after all steps (services + stack options) are completed.
+The prompt panel's top border shows the step title, a counter and a small progress bar, for example `Weaviate  ·  source  ·  4 / 12  ⣿⣿⣿⣀⣀⣀⣀⣀⣀⣀  ·  9 skipped`. The counter counts only the decisions this run will actually ask (#1182): `4 / 12` means three are done and eight follow the current one. Steps that a narrower track or an earlier answer hides (a provider you turned off, for instance) are not in the total and never count as remaining; they are reported on their own as `N skipped`, a segment that appears only when something is hidden and is the first part cut on a narrow terminal. The count is recomputed on every step, so it shrinks the moment an answer hides later steps, and going back or changing the track never puts the position past the total. An unanswered later step is counted until an answer hides it.
 
 ## 12. When to Use the Wizard vs CLI Flags
 

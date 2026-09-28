@@ -191,7 +191,8 @@ data_flow:
   # (lakehouse Python clients), backend + searxng (00 env check), hermes
   # (direct-path env for user code), redis (REDIS_URL cache/queue on db 3),
   # docling + stt-provider + tts-provider (DOCLING_ENDPOINT/STT_ENDPOINT/
-  # TTS_ENDPOINT injected for notebook document/audio use, compose.yml:43-45).
+  # TTS_ENDPOINT injected for notebook document/audio use, compose.yml
+  # jupyterhub environment).
   calls:
     - litellm
     - hermes

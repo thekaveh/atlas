@@ -39,12 +39,12 @@
 
 Atlas is a self-hosted engineering platform that bundles 30+ services — LLM inference and a gateway, vector and graph databases, workflow and DAG automation, distributed compute, object storage, notebooks, and observability — behind a Kong gateway and an adaptive FastAPI backend.
 
-It's not a catalog of independent containers: the services are integrated out of the box. Kong routes every `*.localhost` host, LiteLLM unifies local and cloud models behind one API, an adaptive FastAPI backend auto-wires to whichever vector, graph, workflow, and media services you enable, Supabase provides shared auth and storage, and one observability pipeline plus declared dependency ordering tie it all together.
+It's not a catalog of independent containers: the services are integrated out of the box. Kong routes every `*.localhost` host, LiteLLM unifies local and cloud models behind one API, an adaptive FastAPI backend auto-wires to whichever vector, graph, workflow, and media services you enable, Supabase provides the shared database and storage plus the user identity the backend's APIs accept, and one observability pipeline plus declared dependency ordering tie it all together. Bundled dashboards keep their own logins — there is no single sign-on; [Access and Credentials](docs/operations/access-and-credentials.md) says what opens each one.
 
 Source-configurable services expose the deployment variants each family supports — commonly `container`, `localhost`, or `disabled` — so the same stack scales from a CPU starter to a multi-GPU lab. Seven tracks — Generative AI · RAG, Generative AI · Engineering, Generative AI · Creative, ML Engineering, Data Engineering, Trading / Financial Research, and All / Custom — preselect a working subset per workflow, and a `--profile` switch (`dev`/`default` vs `prod`) applies the matching source and observability bundle. Both profiles keep published service ports loopback-bound by default; an explicit `HOST_BIND_IP` remains an operator choice. The always-on core is Kong, Supabase, Redis, LiteLLM, and the Backend API.
 
 - **30+ services across 7 tracks**, all ports derived from one `BASE_PORT`
-- **Integrated, not just launched:** Kong routing, the LiteLLM model gateway, an adaptive backend, shared Supabase auth, and one observability pipeline
+- **Integrated, not just launched:** Kong routing, the LiteLLM model gateway, an adaptive backend, a shared Supabase database, storage and API identity (each dashboard keeps its own login), and one observability pipeline
 - **Always-on core:** Kong, Supabase, Redis, LiteLLM, Backend
 - **Per-service SOURCE:** family-specific variants, commonly `container` / `localhost` / `disabled`
 - **Profiles:** `--profile dev` (default, loopback-bound) or `--profile prod` (also loopback-bound, observability on)

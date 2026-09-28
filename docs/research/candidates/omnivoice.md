@@ -1,10 +1,13 @@
 ---
 category-fit: media
+decided: 2026-07-04
 generated: 2026-07-04
 license: Apache-2.0 (OSS) / proprietary (SaaS at omnivoice.app)
+lifecycle: deferred
 name: OmniVoice (k2-fsa)
 referenced-by: []
 slug: omnivoice
+superseded-by: https://github.com/thekaveh/atlas/issues/237
 type: external-service
 upstream: https://github.com/k2-fsa/OmniVoice
 ---

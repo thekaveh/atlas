@@ -55,6 +55,23 @@ uv run --project bootstrapper python scripts/check-track-membership.py
 (cd services/docling/provider/localhost && uv lock --locked)
 ```
 
+### 3.1. Documentation build assets
+
+The site build downloads external assets. The Material `privacy` plugin, which `scripts/docs/build_docs.py` enables so rendered pages make no third-party requests (#841), self-hosts the theme fonts and the Mermaid bundle by fetching them during `mkdocs build` and caching them under `.cache/plugin/privacy` (gitignored). `docs/external-assets.yaml` records all 20 of them: the Google Fonts stylesheet, 18 versioned font files, and `mermaid@11` from unpkg, each with its URL and, where the URL pins the content, a sha256.
+
+**Policy: online-only on a cold cache, offline from a warm one.** A clean checkout needs network access to `fonts.googleapis.com`, `fonts.gstatic.com` and `unpkg.com` for its first build; every later build reuses the cache and fetches nothing, which is also how CI runs (its `actions/cache` step is keyed on the files that decide the asset set, including the inventory). The two alternatives were rejected:
+
+- **Vendoring** would commit about 3.8 MB of binaries (the Mermaid bundle alone is 3.6 MB), require replacing Material's font loading with hand-written `@font-face` rules, and still leave the Mermaid URL, which mkdocs-material's own JavaScript bundle chooses, to be tracked by hand on every theme upgrade.
+- **A seeded cache** would need a script that writes files where the plugin expects them, but those paths are plugin-internal (the stylesheet is stored as `css.<hash>.css` behind a symlink) and can change with any mkdocs-material release; the seed step would itself be online, so it would add a second fetcher without removing the network requirement.
+
+What makes the online requirement acceptable is that it is now explicit and checked:
+
+- `make docs-build`, `make docs-check` and `make docs-serve` run `python -m scripts.docs.external_assets --preflight` before MkDocs. A cached asset needs no network. A missing one is probed, and if it cannot be fetched the build stops there with the asset's name and URL, rather than a bare `Aborted with 1 warnings in strict mode` after the build.
+- `make docs-assets-verify` diffs the cache against the inventory: missing, unexpected and checksum-mismatched files. After deleting `.cache/plugin/privacy` and running `make docs-check`, it proves the inventory is still the complete list.
+- After changing the theme fonts or upgrading mkdocs-material, rebuild from a cold cache, run `uv run --project bootstrapper python -m scripts.docs.external_assets --print-inventory`, and review the difference against `docs/external-assets.yaml` before committing it.
+
+The built pages themselves make no third-party requests: the plugin rewrites every reference to the self-hosted copy.
+
 ## 4. Repository layout
 
 The top-level repository layout is as follows, with `services/` limited to a representative subset (see `services/` for the full list):

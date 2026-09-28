@@ -1,10 +1,13 @@
 ---
 category-fit: apps
+decided: 2026-07-03
 generated: 2026-05-19
 license: Apache-2.0
+lifecycle: shipped
 name: Neo4j LLM Knowledge Graph Builder
 referenced-by: [neo4j]
 slug: neo4j-llm-graph-builder
+superseded-by: services/llm-graph-builder/README.md
 type: external-service
 upstream: https://github.com/neo4j-labs/llm-graph-builder
 ---

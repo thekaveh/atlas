@@ -1420,3 +1420,172 @@ def test_a_real_spawn_is_reported_running(tmp_path, monkeypatch):
     finally:
         child.kill()
         child.wait()
+
+
+# ── #990: a stamp-less pid file from before the managed-host framework ──────
+#
+# A pin older than #795 wrote the pid file as a bare pid, with no start_utc
+# identity stamp. The shared guard in services.refuse_untrusted_tracked_pid
+# still refuses to signal or replace the live process it names (it cannot be
+# proven Atlas's), but that one refusal no longer aborts the bring-up. The
+# guard is shared by all three managed hosts, so these cover all three.
+
+
+class _BringUpManager:
+    """Minimal manager for driving AtlasStarter.start_managed_host_processes."""
+
+    def __init__(self, failure: Exception):
+        self.failure = failure
+        self.stop_calls = 0
+
+    def ensure_running_with_ownership(self):
+        raise self.failure
+
+    def ensure_running(self):
+        raise self.failure
+
+    def stop(self) -> bool:
+        self.stop_calls += 1
+        return False
+
+
+def _bring_up(monkeypatch, env: dict, manager) -> tuple[object, list]:
+    import start as start_module
+    from services import blender_mcp_manager, vllm_metal_manager
+
+    for module in (mod, vllm_metal_manager, blender_mcp_manager):
+        monkeypatch.setattr(module, "manager_from_env", lambda _env: manager)
+    monkeypatch.setattr(start_module, "_resolved_comfyui_model_rows", lambda _env: [])
+    monkeypatch.setattr(start_module, "_resolved_comfyui_custom_nodes", lambda _env: [])
+    starter = start_module.AtlasStarter()
+    monkeypatch.setattr(starter.config_parser, "parse_env_file", lambda: env)
+    messages: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        starter.banner, "show_status_message",
+        lambda message, level: messages.append((message, level)),
+    )
+    return starter, messages
+
+
+def _refusal_for(pid_file: Path, pid: int, error_type, body: str | None = None):
+    import services
+
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text(f"{pid}\n" if body is None else body, encoding="utf-8")
+    with pytest.raises(error_type) as raised:
+        services.refuse_untrusted_tracked_pid(
+            (pid, pid_file), lambda _pid: True, lambda _pid: True,
+            ("ComfyUI MPS", error_type),
+        )
+    return raised.value
+
+
+def test_stampless_legacy_record_does_not_abort_the_bring_up(tmp_path, monkeypatch):
+    """#990 AC1/AC2 through the real ComfyUI manager: the unproven process is
+    left exactly as found -- not signalled, not replaced, its record intact,
+    nothing added to rollback ownership -- and the bring-up continues."""
+    live = subprocess.Popen(["sleep", "60"], start_new_session=True)
+    try:
+        mgr = _mgr(tmp_path)
+        mgr.state_dir.mkdir(parents=True)
+        mgr.pid_file.write_text(f"{live.pid}\n", encoding="utf-8")
+        before = mgr.pid_file.read_bytes()
+        monkeypatch.setattr(mgr, "preflight", lambda: SimpleNamespace(ok=True, checks=[]))
+        monkeypatch.setattr(mgr, "_install_locked", lambda: None)
+        monkeypatch.setattr(
+            mod.subprocess, "Popen",
+            lambda *_a, **_k: pytest.fail("a replacement must not be launched"),
+        )
+        starter, messages = _bring_up(
+            monkeypatch,
+            {"COMFYUI_SOURCE": "managed-localhost-mps", "VLLM_METAL_SOURCE": "disabled"},
+            mgr,
+        )
+
+        assert starter.start_managed_host_processes() is True
+        assert live.poll() is None, "the unproven process was signalled"
+        assert mgr.pid_file.read_bytes() == before
+        assert starter._managed_hosts_started_this_run == []
+        assert not [m for m, level in messages if level == "error"]
+        warnings = [m for m, level in messages if level == "warning"]
+        assert any(str(mgr.pid_file) in m and "start_utc" in m for m in warnings)
+        # The command ends the line, so copying it cannot drag trailing prose
+        # or punctuation into the path.
+        assert any(m.endswith(f"rm -f {mgr.pid_file}") for m in warnings), warnings
+    finally:
+        live.kill()
+        live.wait()
+
+
+@pytest.mark.parametrize("kind", ["comfyui", "vllm", "blender"])
+def test_every_managed_host_survives_its_own_legacy_record(tmp_path, monkeypatch, kind):
+    from services import blender_mcp_manager, vllm_metal_manager
+
+    error_type = {
+        "comfyui": ComfyUiMpsError,
+        "vllm": vllm_metal_manager.VllmMetalError,
+        "blender": blender_mcp_manager.BlenderMcpError,
+    }[kind]
+    manager = _BringUpManager(_refusal_for(tmp_path / "host.pid", 4242, error_type))
+    starter, _messages = _bring_up(monkeypatch, {
+        "COMFYUI_SOURCE": "managed-localhost-mps" if kind == "comfyui" else "disabled",
+        "VLLM_METAL_SOURCE": "managed-localhost" if kind == "vllm" else "disabled",
+        "VLLM_METAL_MODEL": "example/model",
+        "BLENDER_MCP_SOURCE": "managed-localhost" if kind == "blender" else "disabled",
+    }, manager)
+
+    assert starter.start_managed_host_processes() is True
+    assert manager.stop_calls == 0
+    assert starter._managed_hosts_started_this_run == []
+
+
+def test_a_stamped_record_that_fails_to_match_is_still_fatal(tmp_path, monkeypatch):
+    """#990 AC4 at the bring-up level: only the stamp-less legacy record is
+    tolerated. A stamped record whose identity does not match (a recycled
+    pid) is a stranger and still stops the bring-up."""
+    import services
+
+    failure = _refusal_for(
+        tmp_path / "host.pid", 4242, ComfyUiMpsError,
+        body="4242\nstart_utc=linux-proc-start-v1:1\n",
+    )
+    assert services.legacy_pid_refusal_file(failure) is None
+    starter, _messages = _bring_up(
+        monkeypatch,
+        {"COMFYUI_SOURCE": "managed-localhost-mps", "VLLM_METAL_SOURCE": "disabled"},
+        _BringUpManager(failure),
+    )
+
+    assert starter.start_managed_host_processes() is False
+
+
+def test_a_stampless_legacy_record_explains_itself_and_its_remedy(tmp_path):
+    """#990 AC3: name the file, say the stamp is missing, give the exact
+    commands -- and keep the wording the ownership tests match on."""
+    import shlex
+
+    import services
+
+    pid_file = tmp_path / "state dir" / "comfyui-mps.pid"
+    failure = _refusal_for(pid_file, 88428, ComfyUiMpsError)
+
+    message = str(failure)
+    assert "ownership is mismatched or unknown" in message
+    assert str(pid_file) in message
+    assert "no start_utc identity stamp" in message
+    assert "kill -TERM 88428" in message
+    assert message.endswith(f"rm -f {shlex.quote(str(pid_file))}")
+    assert services.legacy_pid_refusal_file(failure) == pid_file
+
+
+@pytest.mark.parametrize(
+    "body",
+    ["88428\nstart_utc=linux-proc-start-v1:1\n", "4242\n", ""],
+    ids=["stamped", "names-another-pid", "empty"],
+)
+def test_only_a_stampless_record_naming_the_pid_is_legacy(tmp_path, body):
+    import services
+
+    failure = _refusal_for(tmp_path / "host.pid", 88428, ComfyUiMpsError, body=body)
+    assert services.legacy_pid_refusal_file(failure) is None
+    assert "inspect the pid file and process manually" in str(failure)

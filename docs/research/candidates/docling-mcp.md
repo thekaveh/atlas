@@ -1,10 +1,13 @@
 ---
 category-fit: agents
+decided: 2026-07-03
 generated: 2026-05-19
 license: MIT
+lifecycle: planned
 name: Docling MCP Server
 referenced-by: [doc-processor]
 slug: docling-mcp
+superseded-by: https://github.com/thekaveh/atlas/issues/195
 type: external-service
 upstream: https://github.com/docling-project/docling-mcp
 ---
