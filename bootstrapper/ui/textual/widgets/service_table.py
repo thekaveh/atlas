@@ -502,35 +502,42 @@ class ServiceTable(Widget):
 
     @staticmethod
     def _build_tooltip(row: ServiceRow) -> Text:
-        """A clean, aligned key/value card for a row's hover tooltip.
-
-        Title line (the service name) over one ``label  value`` row per
-        field — labels left-aligned in a fixed column, URLs accented, and
-        the active source highlighted within the 'Source options' list.
-        """
-        pairs = ServiceTable._tooltip_pairs(row)
-        label_w = max((len(k) for k, _ in pairs), default=0)
-        card = Text(no_wrap=True)
-        card.append(row.name, style=f"bold {P.TEXT_BRIGHT}")
-        for label, value in pairs:
-            card.append("\n")
-            card.append(label.ljust(label_w), style=P.TEXT_MUTED)
-            card.append("  ")
-            if label == "Source options" and row.source_options:
-                # Accent the selected/active source; dim the rest.
-                for i, opt in enumerate(row.source_options):
-                    if i:
-                        card.append(", ", style=P.TEXT_MUTED)
-                    if opt == row.source:
-                        card.append(opt, style=f"bold {P.ACCENT}")
-                    else:
-                        card.append(opt, style=P.TEXT_MUTED)
-            else:
-                is_url = value.startswith(("http://", "https://", "sc://"))
-                card.append(value, style=P.ACCENT if is_url else P.TEXT_BRIGHT)
-        return card
+        """The row's hover tooltip: see ``service_card``."""
+        return service_card(row)
 
     def on_mouse_move(self, event) -> None:
         """Update the hover tooltip to the service under the cursor."""
         row = self._row_at(event.x, event.y)
         self.tooltip = self._build_tooltip(row) if row is not None else None
+
+
+def service_card(row: ServiceRow) -> Text:
+    """A row's details card, shared by the hover tooltip and the keyboard
+    review (#1179) so the two can never show different details.
+
+    Title line (the service name) over one ``label  value`` row per
+    field — labels left-aligned in a fixed column, URLs accented, and
+    the active source highlighted within the 'Source options' list.
+    """
+    pairs = ServiceTable._tooltip_pairs(row)
+    label_w = max((len(k) for k, _ in pairs), default=0)
+    card = Text(no_wrap=True)
+    card.append(row.name, style=f"bold {P.TEXT_BRIGHT}")
+    for label, value in pairs:
+        card.append("\n")
+        card.append(label.ljust(label_w), style=P.TEXT_MUTED)
+        card.append("  ")
+        if label == "Source options" and row.source_options:
+            # Accent the selected/active source; dim the rest.
+            for i, opt in enumerate(row.source_options):
+                if i:
+                    card.append(", ", style=P.TEXT_MUTED)
+                if opt == row.source:
+                    card.append(opt, style=f"bold {P.ACCENT}")
+                else:
+                    card.append(opt, style=P.TEXT_MUTED)
+        else:
+            is_url = value.startswith(("http://", "https://", "sc://"))
+            card.append(value, style=P.ACCENT if is_url else P.TEXT_BRIGHT)
+    return card
+

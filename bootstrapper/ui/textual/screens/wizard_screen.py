@@ -50,6 +50,7 @@ from textual.screen import Screen
 from textual.worker import Worker, WorkerState
 
 from .consequence_review import ConsequenceReview
+from .review_details import ReviewDetails
 from ..widgets import (
     BrandInfo,
     BrandPanel,
@@ -961,6 +962,11 @@ class WizardScreen(Screen):
         # step (#1168). Ctrl-modified rather than a bare letter because the
         # launch screen binds bare letters to log filters. No-op elsewhere.
         Binding("ctrl+r", "review_consequences", "Review", show=False, priority=True),
+        # Opens the keyboard route to the whole command and every service's
+        # hover details (#1179). Ctrl-modified for the same reason as ctrl+r:
+        # bare letters are taken by log filters and by typing in search. Not
+        # ctrl+d, which every Input binds to delete-forward.
+        Binding("ctrl+o", "review_details", "Details", show=False, priority=True),
         Binding("ctrl+s", "stop_stack", "Stop stack", show=False, priority=True),
         Binding("ctrl+x", "stop_stack_cold", "Cold stop", show=False, priority=True),
     ]
@@ -2050,6 +2056,19 @@ class WizardScreen(Screen):
             heading=step.heading,
             body=step.subtitle,
             choices=[(opt.label, opt.hint) for opt in step.options],
+        ))
+
+    def action_review_details(self) -> None:
+        """Open the keyboard-reachable review of the command and services.
+
+        The command summary caps itself at four rows and the service table
+        shows a row's details only on hover; neither takes focus, so this
+        read-only overlay is the keyboard route to both (#1179). Dismissing
+        it leaves the step, cursor and selections exactly as they were.
+        """
+        summary = self._command_summary
+        self.app.push_screen(ReviewDetails(
+            program=summary.program, flags=summary.flags, rows=self._services,
         ))
 
     def _apply_track_change(self, track_key: str) -> None:

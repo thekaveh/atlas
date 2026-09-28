@@ -29,7 +29,25 @@ from textual.app import ComposeResult
 from textual.containers import Container
 from textual.widgets import Static
 
+from core.support_bundle import is_secret_name
+
 from .. import palette as P
+
+#: What a secret-named flag shows instead of its value.
+SECRET_MASK = "<set>"
+
+
+def masked_flags(flags: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
+    """``flags`` with every secret-named flag's value replaced (#1179).
+
+    One rule for every surface that shows or copies the command: the name
+    test is the support bundle's (``--openai-api-key`` -> ``OPENAI_API_KEY``),
+    so a copied command can never carry a password, secret, key or token.
+    """
+    return [
+        (flag, SECRET_MASK if value and is_secret_name(flag.lstrip("-").replace("-", "_")) else value)
+        for flag, value in flags
+    ]
 
 
 def _build_text(program: str, flags: list[tuple[str, str]]) -> Text:
@@ -95,15 +113,18 @@ class CommandSummary(Container):
     ) -> None:
         super().__init__(id=id)
         self.program = program
-        self.flags: list[tuple[str, str]] = list(flags or [])
+        self.flags: list[tuple[str, str]] = masked_flags(flags or [])
         self._body = Static(_build_text(self.program, self.flags))
 
     def on_mount(self) -> None:
-        self.border_title = " Command summary "
+        # The ctrl+o overlay (#1179) is the keyboard route past the four-row
+        # cap, so it is advertised on the panel it expands. The footer is full
+        # at every width, and an appended hint there would push quit off it.
+        self.border_title = " Command summary · ctrl+o details "
 
     def compose(self) -> ComposeResult:
         yield self._body
 
     def set_flags(self, flags: Iterable[tuple[str, str]]) -> None:
-        self.flags = list(flags)
+        self.flags = masked_flags(flags)
         self._body.update(_build_text(self.program, self.flags))
