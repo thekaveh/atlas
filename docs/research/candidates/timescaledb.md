@@ -1,10 +1,13 @@
 ---
 category-fit: data
+decided: 2026-07-04
 generated: 2026-07-04
 license: Apache-2.0 / Timescale License
+lifecycle: deferred
 name: TimescaleDB
 referenced-by: [supabase]
 slug: timescaledb
+superseded-by: https://github.com/thekaveh/atlas/issues/227
 type: external-service
 upstream: https://github.com/timescale/timescaledb
 ---

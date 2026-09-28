@@ -4,6 +4,8 @@
 
 S3-compatible object storage for the artifact tier of the stack. Complements Supabase Storage rather than replacing it: Supabase Storage stays the app-tier surface (row-level-security uploads, signed URLs, ≤50 MB files); MinIO is the artifact-tier surface for high-throughput, large-blob workloads.
 
+The container runs [Silo](https://github.com/pgsty/silo) (`pgsty/silo` and `pgsty/mc`), the Pigsty-maintained fork of the archived MinIO community server. MinIO no longer publishes community images, and `quay.io/minio` has refused anonymous pulls since 2026-09-24. Silo keeps MinIO's S3 API, `MINIO_*` environment, `/minio/*` routes and `mc admin` surface, so everything below applies unchanged. The long-term server choice is tracked in #1277.
+
 ## 2. Endpoints
 
 | Surface | URL | Notes |
@@ -179,7 +181,7 @@ _No upstream calls._
 
 ### 10.5. Future — Candidate new services
 
-- **DuckDB** ([details](../../docs/research/candidates/iceberg-duckdb.md)) — *Headline:* embedded analytics engine that queries the shipped `iceberg-rest` tables on MinIO directly, giving the stack a fast in-process SQL tier over object storage. *Wires into:* jupyterhub, backend, n8n.
+_No high-confidence opportunities identified._
 
 ### 10.6. Future — Unused features in this service
 

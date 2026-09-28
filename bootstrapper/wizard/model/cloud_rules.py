@@ -126,6 +126,49 @@ class CloudResolution:
     api_key: str | None
 
 
+def resolve_secret_verdict(
+    secret_value: str | None,
+    *,
+    existing_key_set: bool,
+) -> CloudResolution:
+    """Map one secret-step answer to its SOURCE and credential verdicts.
+
+    Shared by every provider whose on/off state and stored key are
+    prompted through one masked step: the cloud LLM providers (through
+    ``resolve_cloud_provider``, which adds the models-step override) and
+    fal.ai (#1255), which has no model picker. SOURCE and credential are
+    decided independently, which is the whole point of #1183:
+
+      None              -> step never visited. NO VERDICT: leave .env
+                           alone.
+      SECRET_KEEP       -> Enter past the step. NO VERDICT on either
+                           field: whatever .env holds stands. A disabled
+                           provider with a saved key stays disabled and
+                           keeps its key.
+      SECRET_ENABLE     -> turn on using the stored key. Without a stored
+                           key there is nothing to turn on with, so it
+                           resolves to "disabled" rather than writing an
+                           enabled source that ``source_validator`` would
+                           reject moments later.
+      SECRET_DISABLE    -> turn off, keep the key (api_key stays None, so
+                           the stored value is untouched).
+      SECRET_CLEAR / "" -> turn off AND delete the key. The only verdict
+                           that erases a credential.
+      a real key string -> enable + persist the key.
+    """
+    if secret_value is None or secret_value == SECRET_KEEP:
+        return CloudResolution(source=None, api_key=None)
+    if secret_value == SECRET_ENABLE:
+        return CloudResolution(
+            source="enabled" if existing_key_set else "disabled", api_key=None,
+        )
+    if secret_value == SECRET_DISABLE:
+        return CloudResolution(source="disabled", api_key=None)
+    if secret_value in (SECRET_CLEAR, ""):
+        return CloudResolution(source="disabled", api_key="")
+    return CloudResolution(source="enabled", api_key=secret_value)
+
+
 def resolve_cloud_provider(
     *,
     provider_key: str,
@@ -182,51 +225,22 @@ def resolve_cloud_provider(
         raise ValueError(f"Unknown cloud provider key: {provider_key!r}")
 
     zero_models_override = _is_zero_models_override(selected_models)
-    source: str | None
-    api_key: str | None
 
     # ─── Secret-step intent ────────────────────────────────────────
-    # One verdict per thing the user can mean. SOURCE and credential are
-    # decided independently, which is the whole point of #1183.
-    #
-    #   None              -> step never visited. NO VERDICT: leave .env
-    #                        alone -- the original's bare ``pass`` path.
-    #   SECRET_KEEP       -> Enter past the step. NO VERDICT on either
-    #                        field: whatever .env holds stands. A
-    #                        disabled provider with a saved key stays
-    #                        disabled and keeps its key.
-    #   SECRET_ENABLE     -> turn on using the stored key. Without a
-    #                        stored key there is nothing to turn on
-    #                        with, so it resolves to "disabled" rather
-    #                        than writing an enabled source that
-    #                        ``source_validator`` would auto-disable
-    #                        moments later.
-    #   SECRET_DISABLE    -> turn off, keep the key (api_key stays
-    #                        None, so the stored value is untouched).
-    #   SECRET_CLEAR / "" -> turn off AND delete the key. The only
-    #                        verdict that erases a credential.
-    #   a real key string -> enable + persist the key.
+    # One verdict per thing the user can mean; the table lives on
+    # ``resolve_secret_verdict`` because fal.ai's secret step obeys the
+    # same policy (#1255) and must not keep a second copy of it.
     #
     # Before #1183, SECRET_KEEP promoted a disabled-but-keyed provider
     # to enabled so the model picks "weren't inert". That made a bare
     # Enter change the provider's state, which is the behaviour this
     # ticket removes; the model picker is now skipped for a provider
     # that will stay off (see ``_make_cloud_skip_predicate``).
-    if secret_value is None or secret_value == SECRET_KEEP:
-        source = None
-        api_key = None
-    elif secret_value == SECRET_ENABLE:
-        source = "enabled" if existing_key_set else "disabled"
-        api_key = None
-    elif secret_value == SECRET_DISABLE:
-        source = "disabled"
-        api_key = None
-    elif secret_value == SECRET_CLEAR or secret_value == "":
-        source = "disabled"
-        api_key = ""
-    else:
-        source = "enabled"
-        api_key = secret_value
+    verdict = resolve_secret_verdict(
+        secret_value, existing_key_set=existing_key_set,
+    )
+    source = verdict.source
+    api_key = verdict.api_key
 
     # ─── Models-step override ──────────────────────────────────────
     # ``zero_models_override`` is true only when the multiselect was

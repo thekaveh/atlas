@@ -6,7 +6,7 @@ tracks the latest patch).
 A floating tag means rebuilds can pick up a future supply-chain-compromised
 or behaviorally-changed base image without lockstep visibility. Today the
 stack uses patch-version tags everywhere (e.g. `python:3.12.13-slim`,
-`apache/airflow:3.3.1`, `pytorch/pytorch:2.13.0-cuda12.6-cudnn9-runtime`).
+`apache/airflow:3.3.2`, `pytorch/pytorch:2.13.0-cuda12.6-cudnn9-runtime`).
 This test locks that posture in CI so a future contributor can't
 re-introduce a floating tag silently.
 

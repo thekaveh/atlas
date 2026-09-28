@@ -35,7 +35,7 @@ def test_airflow_fragment_renders():
 
 
 def test_airflow_init_uses_bash_passthrough():
-    """apache/airflow:3.3.1's ENTRYPOINT is entrypoint_prod.sh, which
+    """apache/airflow:3.3.2's ENTRYPOINT is entrypoint_prod.sh, which
     treats the first arg as an `airflow` subcommand and exec's
     `airflow "$@"`. Without the `bash` prefix, our
     `["/scripts/init-airflow.sh"]` becomes `exec airflow
@@ -192,7 +192,7 @@ def test_airflow_jwt_secret_generator_is_idempotent(tmp_path):
 
 
 def test_airflow_scheduler_and_dag_processor_set_execution_api_server_url():
-    """#791: Airflow 3.3.1's Task-SDK supervisor resolves the Execution API per
+    """#791: Airflow 3.3.2's Task-SDK supervisor resolves the Execution API per
     task via get_execution_api_server_url(), falling back to
     http://localhost:8080/execution/ when unset. Atlas runs `airflow api-server`
     only in the separate airflow-webserver container, so on the scheduler /
@@ -208,7 +208,7 @@ def test_airflow_scheduler_and_dag_processor_set_execution_api_server_url():
         assert env.get("AIRFLOW__CORE__EXECUTION_API_SERVER_URL") == expected, (
             f"{svc_name} must set AIRFLOW__CORE__EXECUTION_API_SERVER_URL to "
             f"{expected!r} (compose DNS, not localhost) — else every DAG task "
-            f"dies at Pre-Execute under Airflow 3.3.1."
+            f"dies at Pre-Execute under Airflow 3.3.2."
         )
     # The webserver hosts the api-server itself — it must not carry the override.
     ws_env = doc["services"]["airflow-webserver"]["environment"]

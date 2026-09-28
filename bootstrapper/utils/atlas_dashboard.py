@@ -60,8 +60,14 @@ def build_dashboard_model(
     track_key: str | None = None,
     overridden_services: frozenset[str] | None = None,
     hosts_configured: bool = True,
+    basic_auth_hosts: frozenset[str] = frozenset(),
 ) -> DashboardModel:
-    """Build a dashboard snapshot from topology + resolved env state."""
+    """Build a dashboard snapshot from topology + resolved env state.
+
+    ``basic_auth_hosts`` are the Kong hosts the generated routes gate with the
+    dashboard-user basic-auth; the Kong config generator passes them so a
+    card's auth note states that gate from the routes themselves (#1189).
+    """
     env = config_parser.parse_env_file()
     service_sources = config_parser.parse_service_sources()
     kong_port = (env.get("KONG_HTTP_PORT") or str(DEFAULT_BASE_PORT)).strip()
@@ -114,7 +120,7 @@ def build_dashboard_model(
             status=status,
             kong_url=kong_url,
             direct_url=direct_url,
-            auth_note=_auth_note(row.display_name, row.alias),
+            auth_note=_auth_note(row.display_name, row.alias, basic_auth_hosts),
             disabled_reason=disabled_reason,
             health_url=health_url if status != "disabled" else None,
             category_key=row.category,
@@ -496,25 +502,39 @@ def _disabled_reason(
     return "manually-disabled"
 
 
-def _auth_note(name: str, alias: str | None) -> str:
-    name_l = name.lower()
-    if alias == "supabase-studio.localhost" or alias == "ray.localhost":
-        return "Kong basic-auth"
+def _auth_note(
+    name: str, alias: str | None, basic_auth_hosts: frozenset[str] = frozenset(),
+) -> str:
+    """The card's one-line answer to "what opens this?".
+
+    The dashboard-user basic-auth gate comes from the generated Kong routes;
+    the service's own credential from what that service actually uses. The
+    full per-service table is docs/operations/access-and-credentials.md.
+    """
+    own = _own_credential_note(name.lower(), name)
+    if alias and alias in basic_auth_hosts:
+        return "Kong basic-auth" if own is None else f"Kong basic-auth + {own}"
+    if own is not None:
+        return own
+    return "Service-specific" if alias else "Internal"
+
+
+def _own_credential_note(name_l: str, name: str) -> str | None:
     if "minio" in name_l:
         return "MinIO credentials"
     if "neo4j" in name_l:
         return "Neo4j credentials"
     if "jupyter" in name_l:
-        return "JupyterHub login"
+        # A Jupyter token, printed in the container log -- there is no Hub
+        # login page (#1189).
+        return "Jupyter token"
     if name == "n8n":
         return "n8n owner account"
     if "grafana" in name_l:
         return "Grafana login"
     if "litellm" in name_l:
         return "LiteLLM admin key"
-    if alias:
-        return "Service-specific"
-    return "Internal"
+    return None
 
 
 def _dependency_warnings(rows, service_sources: dict[str, str], env: dict[str, str]) -> list[str]:

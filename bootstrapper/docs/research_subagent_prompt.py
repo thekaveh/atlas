@@ -189,7 +189,9 @@ sources_consulted:
 
 ## Candidate one-pager schema (write to `docs/research/candidates/<slug>.md`)
 
-If a one-pager already exists at that path, do NOT overwrite it — instead, append a `## Cross-references` line to it linking from your row. The merge step will reconcile `referenced-by:` later.
+If a one-pager already exists at that path, do NOT overwrite it — instead, append a `## Cross-references` line to it linking from your row. The merge step will reconcile `referenced-by:` later. Do NOT re-propose a candidate whose existing one-pager has `lifecycle: shipped` or `lifecycle: rejected`: that proposal is closed, and its record is history.
+
+A new one-pager starts at `lifecycle: proposed`. Only a maintainer decision moves it to `planned`, `deferred`, `rejected` or `shipped`, adding `decided: YYYY-MM-DD` and, where one exists, `superseded-by: <issue URL or repo path>`.
 
 ```markdown
 ---
@@ -200,6 +202,7 @@ category-fit: <one of: infra | data | llm | media | agents | apps>
 generated: 2026-05-18
 upstream: <URL>
 license: <SPDX or "unknown">
+lifecycle: proposed
 referenced-by: [{doc_folder}]
 ---
 
@@ -254,7 +257,7 @@ referenced-by: [{doc_folder}]
 4. Identify 0-N per-service feature gaps from upstream docs.
 5. Write the row file at the path above following the schema EXACTLY.
 6. For each candidate, write the one-pager (or append `## Cross-references` if it exists).
-7. Validate yourself: run `python scripts/validate_research_schema.py docs/research/rows/{doc_folder}.md` from the repo root. Exit 0 = pass.
+7. Validate yourself: run `python scripts/validate_research_schema.py docs/research/rows/{doc_folder}.md` from the repo root, then the same command on each candidate file you wrote. Exit 0 = pass.
 
 ## When you are done
 

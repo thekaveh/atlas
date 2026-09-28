@@ -1,10 +1,13 @@
 ---
 category-fit: data
+decided: 2026-07-04
 generated: 2026-07-04
 license: RSALv2 / SSPLv1 / AGPLv3 depending on Redis version/distribution
+lifecycle: deferred
 name: Redis Stack (redis-stack-server)
 referenced-by: [redis]
 slug: redis-stack
+superseded-by: https://github.com/thekaveh/atlas/issues/239
 type: external-service
 upstream: https://redis.io/docs/latest/operate/oss_and_stack/stack-with-enterprise/
 ---

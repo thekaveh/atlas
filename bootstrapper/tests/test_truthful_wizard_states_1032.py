@@ -352,3 +352,158 @@ def test_the_service_table_never_words_a_source_as_running_or_healthy():
     lowered = table.lower()
     for forbidden in ("healthy", "is running", "running ✓"):
         assert forbidden not in lowered, forbidden
+
+
+# ─── Progress counts only the decisions this run will ask (#1182) ────
+#
+# The counter used to render the raw list position over the whole step
+# catalogue, so a narrow track counted prompts the user would never see.
+# These live here because they are the same kind of claim #1032 fixed:
+# the wizard telling the user something about its state that is not true.
+
+from dataclasses import replace  # noqa: E402
+
+from ui.textual.screens.wizard_screen import _reachable_progress  # noqa: E402
+from ui.textual.widgets.prompt_panel import _progress_title  # noqa: E402
+from wizard.llm_steps import cloud_models_title, cloud_secret_title  # noqa: E402
+from wizard.model.cloud_rules import SECRET_DISABLE, SECRET_ENABLE  # noqa: E402
+
+
+def _position(steps, selections, index):
+    return _reachable_progress(steps, index, dict(selections))
+
+
+def _reachable(steps, selections, index=None):
+    return [
+        i for i, step in enumerate(steps)
+        if i == index
+        or not (step.skip_if_prev is not None and step.skip_if_prev(selections))
+    ]
+
+
+def _plain(title, skip=None):
+    return PromptStep(title=title, step_index=0, step_total=0, heading=title,
+                      skip_if_prev=skip)
+
+
+def test_a_narrow_track_counts_only_its_own_prompts():
+    """AC1: build the real step list, pick a narrow track, and the total is
+    the number of prompts that track leaves -- not the catalogue length."""
+    steps = _steps()
+    selections = {I.PICKER_STEP_TITLE: "gen-ai-rag"}
+    reachable = _reachable(steps, selections)
+    assert len(reachable) < len(steps), "the premise: this track hides steps"
+
+    for index in reachable:
+        ordinal, total, skipped = _position(steps, selections, index)
+        assert total == len(reachable)
+        assert skipped == len(steps) - len(reachable)
+        assert ordinal == reachable.index(index) + 1
+
+
+def test_disabling_a_provider_updates_the_count_on_the_next_render():
+    """AC2 + AC4: the provider's model picker stops counting as a remaining
+    decision the moment its key step says "disable", without restarting."""
+    from wizard.llm_steps import build_cloud_steps
+
+    env = {"CLOUD_OPENAI_SOURCE": "enabled", "OPENAI_API_KEY": "sk-saved"}
+    cloud = build_cloud_steps(env, lambda _msg: None)[:2]
+    steps = [_plain("First"), *cloud, _plain("Last")]
+    secret, picker = cloud_secret_title("OpenAI"), cloud_models_title("OpenAI")
+    assert [s.title for s in steps[1:3]] == [secret, picker]
+
+    before = _position(steps, {secret: SECRET_ENABLE}, 1)
+    after = _position(steps, {secret: SECRET_DISABLE}, 1)
+    assert before == (2, 4, 0)
+    assert after == (2, 3, 1)
+    # Remaining decisions from here (this one included) are exactly the
+    # still-reachable steps -- the skipped picker is not among them.
+    ordinal, total, _ = after
+    selections = {secret: SECRET_DISABLE}
+    assert total - ordinal + 1 == len([i for i in _reachable(steps, selections, 1) if i >= 1])
+
+
+def test_back_and_a_track_change_never_put_the_ordinal_past_the_total():
+    """AC3: walk forward, change the track, walk back, and check every
+    rendered position -- the ordinal can never exceed the total."""
+    steps = _steps()
+    picker_at = next(i for i, s in enumerate(steps) if s.title == I.PICKER_STEP_TITLE)
+    for track in ("all", "gen-ai-rag", "data-eng", "all"):
+        selections = {I.PICKER_STEP_TITLE: track}
+        walk = list(range(picker_at, len(steps))) + list(range(len(steps) - 1, -1, -1))
+        for index in walk:
+            ordinal, total, skipped = _position(steps, selections, index)
+            assert 1 <= ordinal <= total, (track, index, ordinal, total)
+            assert total + skipped <= len(steps) + 1
+
+
+def test_the_current_step_always_counts_even_at_a_skipped_boundary():
+    always_skip = lambda _sel: True  # noqa: E731
+    steps = [_plain("A", always_skip), _plain("B"), _plain("C", always_skip)]
+    assert _position(steps, {}, 0) == (1, 2, 1)
+    assert _position(steps, {}, 2) == (2, 2, 1)
+
+
+def test_the_caption_separates_done_remaining_and_skipped():
+    """AC6: "4 / 9" means three decisions are done and five follow this one;
+    the hidden steps are named separately and never counted as remaining."""
+    step = PromptStep(title="Models", step_index=4, step_total=9, heading="h",
+                      steps_skipped=2)
+    title = _progress_title(step)
+    assert title.startswith(" Models  ·  4 / 9  ")
+    assert title.rstrip().endswith("·  2 skipped")
+
+
+def test_the_caption_is_unchanged_when_nothing_is_skipped():
+    """Preserves the pre-#1182 look when every step is reachable."""
+    step = PromptStep(title="Models", step_index=4, step_total=9, heading="h")
+    assert "skipped" not in _progress_title(step)
+    assert _progress_title(step).startswith(" Models  ·  4 / 9  ")
+
+
+@pytest.mark.parametrize("size", [(120, 44), (60, 20)])
+def test_the_rendered_border_title_counts_reachable_steps(size):
+    """The whole path, through a mounted WizardScreen: the panel's border
+    title carries the reachable counter, and at the 60x20 floor the counter
+    itself survives -- only the trailing skipped segment may be cut."""
+    import asyncio
+
+    from textual.app import App
+
+    always_skip = lambda _sel: True  # noqa: E731
+    steps = [_plain("Alpha"), _plain("Hidden", always_skip),
+             _plain("Hidden too", always_skip), _plain("Omega")]
+    screen = WizardScreen(steps=steps, services=[], no_splash=True)
+
+    class _App(App):
+        def on_mount(self) -> None:
+            self.push_screen(screen)
+
+    async def scenario():
+        async with _App().run_test(size=size) as pilot:
+            await pilot.pause()
+            first = str(screen._prompt.border_title)
+            screen._step_index = 3
+            screen._load_current_step()
+            await pilot.pause()
+            return (first, str(screen._prompt.border_title), screen._prompt._step,
+                    screen._prompt.size.width)
+
+    try:
+        first, last, step, panel_width = asyncio.run(scenario())
+    finally:
+        screen._close_launch_log_tee()
+        if screen._launch_log_path is not None:
+            screen._launch_log_path.unlink(missing_ok=True)
+
+    assert "Alpha  ·  1 / 2" in first
+    assert "Omega  ·  2 / 2" in last
+    assert (step.step_index, step.step_total, step.steps_skipped) == (2, 2, 2)
+    assert "2 skipped" in last
+    # The border draws the title between its two corners. Even the longest
+    # real step title keeps its two-digit counter inside that span, so any
+    # truncation at the floor falls on the bar and the skipped segment.
+    longest = max(_steps(), key=lambda s: len(s.title))
+    caption = _progress_title(replace(longest, step_index=69, step_total=69))
+    counter = caption[: caption.index(" / 69") + len(" / 69")]
+    assert len(counter) <= panel_width - 2, (counter, panel_width)

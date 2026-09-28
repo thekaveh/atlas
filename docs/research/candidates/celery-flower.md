@@ -1,10 +1,13 @@
 ---
 category-fit: infra
+decided: 2026-07-03
 generated: 2026-05-19
 license: BSD-3-Clause
+lifecycle: shipped
 name: Celery + Flower
 referenced-by: [backend]
 slug: celery-flower
+superseded-by: services/celery/README.md
 type: external-service
 upstream: https://github.com/celery/celery
 ---

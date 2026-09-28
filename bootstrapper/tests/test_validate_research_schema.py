@@ -152,3 +152,153 @@ def test_all_mode_walks_research_tree(tmp_path):
         capture_output=True, text=True, cwd=REPO_ROOT,
     )
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+# --- #1190: candidate lifecycle -------------------------------------------
+
+PIPELINES_RECORD = REPO_ROOT / "docs" / "research" / "candidates" / "open-webui-pipelines.md"
+
+
+def _candidate(lifecycle_lines: str) -> str:
+    source = (FIXTURE_DIR / "example_candidate.md").read_text()
+    return source.replace("lifecycle: proposed\n", lifecycle_lines)
+
+
+def _all_mode(tmp_path: Path, candidate_text: str) -> subprocess.CompletedProcess[str]:
+    research = tmp_path / "docs" / "research"
+    (research / "rows").mkdir(parents=True)
+    (research / "candidates").mkdir(parents=True)
+    (research / "candidates" / "example.md").write_text(candidate_text)
+    return _run("--all", "--research-root", str(research))
+
+
+def test_all_mode_fails_without_lifecycle_and_passes_once_present(tmp_path):
+    missing = _all_mode(tmp_path / "missing", _candidate(""))
+    present = _all_mode(tmp_path / "present", _candidate("lifecycle: proposed\n"))
+
+    assert missing.returncode == 1
+    assert "frontmatter missing key(s): ['lifecycle']" in missing.stdout
+    assert present.returncode == 0, present.stdout + present.stderr
+
+
+def test_rejects_a_lifecycle_outside_the_closed_set(tmp_path):
+    result = _all_mode(tmp_path, _candidate("lifecycle: maybe\n"))
+
+    assert result.returncode == 1
+    assert (
+        "`lifecycle` must be one of "
+        "['proposed', 'planned', 'deferred', 'rejected', 'shipped']" in result.stdout
+    )
+
+
+@pytest.mark.parametrize("lifecycle", ["planned", "deferred", "rejected", "shipped"])
+def test_a_decided_lifecycle_needs_its_decision_date(tmp_path, lifecycle):
+    undated = _all_mode(tmp_path / "undated", _candidate(f"lifecycle: {lifecycle}\n"))
+    dated = _all_mode(
+        tmp_path / "dated", _candidate(f"lifecycle: {lifecycle}\ndecided: 2026-07-03\n")
+    )
+
+    assert undated.returncode == 1
+    assert f"a {lifecycle} candidate needs `decided: YYYY-MM-DD`" in undated.stdout
+    assert dated.returncode == 0, dated.stdout + dated.stderr
+
+
+@pytest.mark.parametrize(
+    ("superseded_by", "ok"),
+    [
+        ("https://github.com/thekaveh/atlas/issues/207", True),
+        ("services/open-webui/README.md", True),
+        ("services/no-such-service/README.md", False),
+        ("issue 207", False),
+        ('""', False),
+        ("/etc/hosts", False),
+        ("..", False),
+        (".", False),
+    ],
+)
+def test_superseded_by_names_a_url_or_an_existing_repo_path(tmp_path, superseded_by, ok):
+    result = _all_mode(
+        tmp_path,
+        _candidate(
+            f"lifecycle: rejected\ndecided: 2026-07-03\nsuperseded-by: {superseded_by}\n"
+        ),
+    )
+
+    assert (result.returncode == 0) is ok, result.stdout + result.stderr
+    if not ok:
+        assert "`superseded-by` must be an http(s) URL or an existing repo path" in result.stdout
+
+
+def _historical(text: str) -> str:
+    """Demote Effort under a historical heading, as a closed record does."""
+    return text.replace("## Effort", "## Historical proposal\n\n### Effort")
+
+
+@pytest.mark.parametrize(
+    ("lifecycle", "ok"),
+    [("rejected", True), ("shipped", True), ("deferred", False), ("proposed", False)],
+)
+def test_only_closed_candidates_may_nest_sections_under_a_historical_heading(
+    tmp_path, lifecycle, ok
+):
+    dated = "" if lifecycle == "proposed" else "decided: 2026-07-03\n"
+    result = _all_mode(tmp_path, _historical(_candidate(f"lifecycle: {lifecycle}\n{dated}")))
+
+    assert (result.returncode == 0) is ok, result.stdout + result.stderr
+    if not ok:
+        assert "missing required section: ## Effort" in result.stdout
+
+
+def test_open_webui_pipelines_record_is_rejected_with_its_decision():
+    head = PIPELINES_RECORD.read_text(encoding="utf-8").split("\n---\n", 1)[0]
+
+    assert "\nlifecycle: rejected\n" in head
+    assert "\ndecided: 2026-07-03\n" in head
+    assert "\nsuperseded-by: https://github.com/thekaveh/atlas/issues/207\n" in head
+
+
+def test_open_webui_pipelines_proposal_is_kept_verbatim_under_a_historical_heading():
+    text = PIPELINES_RECORD.read_text(encoding="utf-8")
+    historical = text.index("## 4. Historical proposal (rejected 2026-07-03)")
+    evidence = text.index("## 5. Upstream evidence")
+    original_sentences = [
+        "- open-webui → pipelines via `OPENAI_API_BASE_URLS=http://pipelines:9099` "
+        "(added alongside the existing LiteLLM URL, or fronted by litellm)",
+        "- kong → pipelines via a `pipelines.localhost` alias for admin UI",
+        "medium — new compose fragment, new SOURCE variants (container, disabled), "
+        "Kong alias, and an init step to drop curated pipeline scripts into the "
+        "pipelines volume; minimal env wiring beyond that.",
+        "- Pipelines is single-tenant: scaling needs sticky sessions or a queue.",
+        "The stack already has the natural consumers (Open WebUI, LiteLLM, Hermes) "
+        "and an obvious tracing target (Langfuse, also proposed).",
+    ]
+
+    for heading in ("### 4.1. Stack wiring sketch", "### 4.2. Effort", "### 4.4. Why now"):
+        assert historical < text.index(heading) < evidence
+    for sentence in original_sentences:
+        assert historical < text.index(sentence) < evidence
+
+
+@pytest.mark.parametrize(
+    ("dates", "message"),
+    [
+        ("lifecycle: shipped\ndecided: 2026-02-30\n", "missing or unparseable frontmatter"),
+        ("lifecycle: proposed\ndecided: soon\n", "frontmatter `decided` must be YYYY-MM-DD"),
+    ],
+)
+def test_malformed_decision_dates_are_errors_not_crashes(tmp_path, dates, message):
+    result = _all_mode(tmp_path, _candidate(dates))
+
+    assert result.returncode == 1
+    assert message in result.stdout
+    assert "Traceback" not in result.stderr
+
+
+def test_a_nested_upstream_evidence_section_still_needs_a_url(tmp_path):
+    text = _candidate("lifecycle: shipped\ndecided: 2026-07-03\n")
+    nested = re.sub(r"(?s)## Upstream evidence\n.*", "### Upstream evidence\nNone recorded.\n", text)
+
+    result = _all_mode(tmp_path, nested)
+
+    assert result.returncode == 1
+    assert "Upstream evidence section must contain at least one URL" in result.stdout

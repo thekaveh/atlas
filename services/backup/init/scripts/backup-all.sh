@@ -148,6 +148,10 @@ trap 'exit 130' 1 2 15
 
 configure_backup_s3 "$S3_CONFIG_DIR"
 run_bounded mc mb --region "$BACKUP_S3_REGION" --ignore-existing "s3/${BUCKET}"
+# The background session's `>` redirection only runs once the forked job is
+# scheduled, so under load the first status read below could find no file and
+# `set -e` aborted the backup. Create it first; empty reads as "pending" (#1237).
+: >"$BACKUP_LOCK_STATUS"
 timeout -s TERM -k 10 "$BACKUP_LOCK_HOLD_SECONDS" \
   env PGPASSWORD="$SUPABASE_DB_PASSWORD" PGAPPNAME="$BACKUP_LOCK_APP" \
   psql -X -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
@@ -199,6 +203,8 @@ prefix_listing="$(run_bounded mc ls --recursive "s3/${BUCKET}/${TS}/")" || { ech
 [ -z "$prefix_listing" ] || { echo "backup: refusing to reuse existing destination prefix s3/${BUCKET}/${TS}/" >&2; exit 1; }
 
 echo "backup: export one repeatable-read snapshot..."
+# Same fork-scheduling race as the lock status file above (#1237).
+: >"$WORK/postgres.snapshot"
 timeout -s TERM -k 10 "$SNAPSHOT_HOLD_SECONDS" \
   env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
   -h supabase-db -U "$SUPABASE_DB_USER" -d "$SUPABASE_DB_NAME" \

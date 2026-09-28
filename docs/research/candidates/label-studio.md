@@ -1,10 +1,13 @@
 ---
 category-fit: apps
+decided: 2026-07-03
 generated: 2026-05-19
 license: Apache-2.0
+lifecycle: shipped
 name: Label Studio
 referenced-by: [jupyterhub]
 slug: label-studio
+superseded-by: services/label-studio/README.md
 type: external-service
 upstream: https://github.com/HumanSignal/label-studio
 ---

@@ -305,6 +305,10 @@ class AtlasStarter:
         # (#677/#681) — surfaced in the --detach --json summary so automation
         # can see the health race happened.
         self._up_converged_after_grace: bool = False
+        # --support-bundle PATH (#1057): where a failed start writes its
+        # redacted bundle. Both the linear flow and the Textual launch screen
+        # read it from here.
+        self.support_bundle_path: Optional[Path] = None
 
 
     def show_banner(self):
@@ -835,6 +839,56 @@ class AtlasStarter:
             applied_overrides.update(resolved_overrides)
 
         return applied_overrides
+
+    def build_support_bundle(self, options, checks=None):
+        """Assemble the redacted support bundle (#1057); writes nothing.
+
+        ``checks`` reuses an earlier ``(results, notes)`` from
+        ``support_bundle.run_checks``; otherwise the doctor checks run here,
+        offline and inside the bundle's wall-time budget.
+        """
+        from core import support_bundle as sb
+
+        results, notes = checks or sb.run_checks(DOCTOR_CHECKS, self, options.limits)
+        notes = list(notes)
+        logs = list(options.logs)
+        try:
+            env = self.config_parser.parse_env_file()
+        except Exception as exc:  # noqa: BLE001 - recorded in the bundle
+            # Fail closed: without .env the known secret values cannot be
+            # scrubbed, so no log text goes in.
+            env, logs = {}, []
+            notes.append(f"could not read .env ({exc}); log excerpts left out")
+        return sb.build_bundle(sb.BundleRequest(
+            env=env,
+            env_origins=self._env_origins(),
+            env_file=Path(self.config_parser.env_file_path),
+            checks=results,
+            logs=logs,
+            context=dict(options.context),
+            include_unlisted=options.include_unlisted,
+            limits=options.limits,
+            notes=notes,
+        ))
+
+    def _env_origins(self) -> Dict[str, str]:
+        """The file that sets each overridden env key, in the order a start
+        applies them: .env.user, ATLAS_ENV_USER_FILE, then consumer
+        manifests (or their env files). The last one wins."""
+        origins: Dict[str, str] = {}
+        for overlay in (self._env_user_overlay_path(), self._external_env_user_overlay_path()):
+            if overlay is None or not overlay.is_file():
+                continue
+            try:
+                keys = self._parse_env_overlay_file(overlay)
+            except Exception:  # noqa: BLE001 - an unreadable overlay sets nothing
+                continue
+            origins.update(dict.fromkeys(keys, str(overlay)))
+        try:
+            origins.update(self.config_parser.load_consumer_config().env_origins)
+        except Exception:  # noqa: BLE001 - a broken manifest has its own check
+            pass
+        return origins
 
     def materialize_consumer_env_for_preflight(self) -> Dict[str, str]:
         """Persist the consumer manifest's derived ``env_overrides`` into ``.env``
@@ -2454,6 +2508,32 @@ class AtlasStarter:
             raise
         return True
 
+    def _leave_legacy_managed_host(self, label: str, exc: BaseException) -> bool:
+        """Warn and carry on when ``exc`` is the stamp-less pid refusal (#990).
+
+        A pid file from an Atlas pin older than the managed-host framework has
+        no identity stamp, so the guard cannot prove the live process is
+        Atlas's and will not signal it. That refusal stands. What changes is
+        its cost: it no longer aborts the whole bring-up before Compose runs.
+        The process is left exactly as found (typically the previous pin's
+        host, still serving) and nothing is added to rollback ownership,
+        because this run created nothing. Every other ownership refusal,
+        including a stamped record whose identity does not match, stays fatal.
+        """
+        from services import legacy_pid_refusal_file
+
+        if legacy_pid_refusal_file(exc) is None:
+            return False
+        # The remediation commands end the message, so nothing is appended
+        # after them that could be pasted into a shell with the path.
+        self.banner.show_status_message(
+            f"Managed {label} host left as found; the rest of the stack starts, "
+            f"and once the old process is stopped the next ./start.sh launches "
+            f"a fresh, identity-stamped {label} process. {exc}",
+            "warning",
+        )
+        return True
+
     def rollback_managed_host_processes(self) -> bool:
         """Stop native hosts started by this invocation, in reverse order."""
         from services import tracked_process_may_survive
@@ -2519,6 +2599,8 @@ class AtlasStarter:
             manager = manager_from_env(env)
             status, created = manager.ensure_running()
         except BlenderMcpError as exc:
+            if self._leave_legacy_managed_host("Blender MCP", exc):
+                return True
             if exc.surviving_process:
                 self._managed_hosts_started_this_run.append(
                     ("Blender MCP", manager)
@@ -2706,6 +2788,8 @@ class AtlasStarter:
         try:
             status, created = manager.ensure_running_with_ownership()
         except ComfyUiMpsError as exc:
+            if self._leave_legacy_managed_host("ComfyUI (MPS)", exc):
+                return True
             if exc.surviving_process:
                 self._managed_hosts_started_this_run.append(
                     ("ComfyUI (MPS)", manager)
@@ -2774,6 +2858,8 @@ class AtlasStarter:
         try:
             status, created = manager.ensure_running_with_ownership()
         except VllmMetalError as exc:
+            if self._leave_legacy_managed_host("vLLM (Metal)", exc):
+                return True
             if exc.surviving_process:
                 self._managed_hosts_started_this_run.append(
                     ("vLLM (Metal)", manager)
@@ -5466,6 +5552,11 @@ def _doctor_check_managed_host_services(starter: "AtlasStarter") -> dict:
     )
 
 
+# Its result id predates the function name; the bundle needs it for a check
+# that never returns a result (#1057).
+_doctor_check_submodule_clean.doctor_id = "submodule-cleanliness"
+
+
 DOCTOR_CHECKS = [
     _doctor_check_consumer_manifests,
     _doctor_check_base_port,
@@ -5491,6 +5582,60 @@ DOCTOR_CHECKS = [
     _doctor_check_endpoints,
     _doctor_check_submodule_clean,
 ]
+
+
+def _invoker_path(path: Optional[Path]) -> Optional[Path]:
+    """Resolve a user-supplied path against the directory ./start.sh was run
+    from (ATLAS_INVOKER_CWD); the bootstrapper itself runs elsewhere."""
+    if path is None:
+        return None
+    path = Path(path).expanduser()
+    if not path.is_absolute():
+        invoker_cwd = os.environ.get("ATLAS_INVOKER_CWD", "").strip()
+        path = (Path(invoker_cwd).expanduser() if invoker_cwd else Path.cwd()) / path
+    return path.resolve()
+
+
+def _export_failed_start_bundle(starter: "AtlasStarter", transcript, exit_code) -> None:
+    """Preview, then write, the --support-bundle archive for a failed
+    ``--no-tui`` start (#1057). A bundle problem never masks the start's own
+    failure, so it is reported and swallowed."""
+    from core import support_bundle as sb
+
+    echo = lambda line: print(line, file=sys.stderr)  # noqa: E731
+    echo("📦 Start failed; collecting the support bundle (--support-bundle)…")
+    try:
+        options = sb.BundleOptions(
+            context={"command": "start", "interface": "no-tui", "exit_code": exit_code},
+            logs=(sb.LogSource("transcript.log", text=transcript.text()),),
+        )
+        sb.export(starter.build_support_bundle(options), starter.support_bundle_path, echo)
+    except Exception as exc:  # noqa: BLE001
+        echo(f"⚠ support bundle not written: {exc}")
+
+
+def _run_linear_with_support_bundle(starter: "AtlasStarter", options) -> int:
+    """``run_linear_startup``; with ``--support-bundle`` a failed start also
+    leaves a redacted bundle built from what the run printed (#1057)."""
+    if starter.support_bundle_path is None:
+        return run_linear_startup(starter, options)
+    from core.support_bundle import Transcript
+
+    transcript = Transcript()
+    try:
+        with transcript.capture():
+            exit_code = run_linear_startup(starter, options)
+    except Exception:
+        import traceback
+
+        transcript.write(traceback.format_exc())
+        _export_failed_start_bundle(starter, transcript, None)
+        raise
+    # Once startup hands over to following the logs, it has succeeded: a
+    # nonzero code there (Ctrl+C is 130) is not a failed start.
+    if exit_code != 0 and not getattr(starter, "startup_reached_log_follow", False):
+        _export_failed_start_bundle(starter, transcript, exit_code)
+    return exit_code
 
 
 def _run_consumer_doctor(starter: "AtlasStarter") -> list[dict]:
@@ -5922,6 +6067,12 @@ def _prompt_for_track(registry, *, max_attempts: int = 5) -> str:
                    'ON, and hide dev-only (localhost) sources. Unset: the '
                    'consumer manifest may name its default via `profile:`. '
                    'Does not bypass the wizard.')
+@click.option('--support-bundle', 'support_bundle',
+              type=click.Path(dir_okay=False, path_type=Path), default=None,
+              help='If the start fails, show and then write a redacted support '
+                   'bundle (.tar.gz) to PATH: doctor checks, the configuration '
+                   'with the file that set each key, and a log excerpt. Local '
+                   'only, nothing is sent; redaction is best-effort.')
 @click.pass_context
 @json_cli_guard
 def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, cold, setup_hosts, skip_hosts, llm_provider_source,
@@ -5956,7 +6107,8 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
          redpanda_source,
          backup_source,
          cloudflared_source,
-         no_tui, detach, json_output, no_splash, no_port_migrate, profile):
+         no_tui, detach, json_output, no_splash, no_port_migrate, profile,
+         support_bundle):
     """Start Atlas — the self-hosted engineering platform."""
 
     if consumer_manifests:
@@ -6135,6 +6287,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
             sys.exit(2)
 
     starter = AtlasStarter()
+    starter.support_bundle_path = _invoker_path(support_bundle)
 
     try:
         # Explicit consumer paths are command-line input. Validate them before
@@ -6670,7 +6823,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
 
         # Linear (--no-tui / non-TTY) flow from here on — the wizard and
         # CLI-flag TUI branches above both sys.exit() before this point.
-        exit_code = run_linear_startup(
+        exit_code = _run_linear_with_support_bundle(
             starter,
             LinearStartupOptions(
                 cold=cold,
@@ -6780,14 +6933,33 @@ def compose_validate_command() -> None:
     show_default=True,
     help="Output format for consumer CI.",
 )
-def doctor_command(output_format: str) -> None:
+@click.option(
+    "--bundle",
+    "bundle_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Also write a redacted support bundle (.tar.gz) to PATH, after showing "
+    "its full contents. Collection is local, offline and time-bounded; "
+    "redaction is best-effort.",
+)
+@click.option(
+    "--include-unlisted",
+    is_flag=True,
+    help="With --bundle: also include check details and configuration keys "
+    "outside the documented allowlist (still redacted).",
+)
+def doctor_command(output_format: str, bundle_path, include_unlisted: bool) -> None:
     """Run headless consumer preflight checks without starting services."""
+    if include_unlisted and bundle_path is None:
+        raise click.UsageError("--include-unlisted needs --bundle PATH")
+    bundle_path = _invoker_path(bundle_path)
     starter = AtlasStarter()
     # Materialize the consumer manifest's derived env (#451) before the checks
     # (which validate the assembled compose) so ${BACKEND_PLUGINS_DIR}-style
     # overlays resolve on a fresh checkout. Quiet — keeps --format json clean.
     starter.materialize_consumer_env_for_preflight()
-    results = _run_consumer_doctor(starter)
+    bundled = _bundled_doctor_checks(starter, bundle_path, include_unlisted)
+    results = bundled[1][0] if bundled else _run_consumer_doctor(starter)
     ok = not any(result["status"] == "fail" for result in results)
     payload = {"ok": ok, "checks": results}
 
@@ -6796,8 +6968,33 @@ def doctor_command(output_format: str) -> None:
     else:
         _print_doctor_text(results)
 
+    if bundled:
+        options, checks = bundled
+        # The preview goes where it cannot corrupt `--format json` stdout.
+        echo = lambda line: click.echo(line, err=output_format == "json")  # noqa: E731
+        from core.support_bundle import export
+
+        try:
+            export(starter.build_support_bundle(options, checks), bundle_path, echo)
+        except OSError as exc:
+            raise click.ClickException(f"support bundle not written: {exc}") from exc
+
     if not ok:
         raise click.exceptions.Exit(1)
+
+
+def _bundled_doctor_checks(starter: "AtlasStarter", bundle_path, include_unlisted: bool):
+    """With ``--bundle``, run the checks once, the bundle's way: offline and
+    inside its time budget, recording a check that cannot run as
+    ``unavailable`` (#1057). ``None`` without ``--bundle``."""
+    if bundle_path is None:
+        return None
+    from core import support_bundle as sb
+
+    options = sb.BundleOptions(
+        context={"command": "doctor"}, include_unlisted=include_unlisted,
+    )
+    return options, sb.run_checks(DOCTOR_CHECKS, starter, options.limits)
 
 
 @main.group("endpoints")

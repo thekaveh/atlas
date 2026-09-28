@@ -197,6 +197,14 @@ completion blocks until the model is resident. Watch progress in the log
 `VLLM_METAL_LOCALHOST_PORT`. Free it or pick a different port; `start` refuses
 to launch onto an occupied port.
 
+**"has no start_utc identity stamp" after a pin bump** — the pid file was
+written by an Atlas version older than the managed-host framework, so Atlas
+cannot prove the live process is the one it launched and will not signal it.
+The bring-up warns and continues with that process left as found (#990). Run
+the `kill -TERM <pid>` and `rm -f <pid file>` commands the warning prints once
+you have confirmed the pid is the old vLLM host, then re-run `./start.sh` to
+get a fresh, identity-stamped process.
+
 ## 8. Capabilities & limitations
 
 Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).

@@ -1,10 +1,13 @@
 ---
 category-fit: data
+decided: 2026-07-03
 generated: 2026-05-19
 license: Apache-2.0
+lifecycle: shipped
 name: SigLIP 2 Vectorizer
 referenced-by: [multi2vec-clip]
 slug: siglip2-vectorizer
+superseded-by: services/multi2vec-clip/README.md
 type: external-service
 upstream: https://github.com/weaviate/multi2vec-clip-inference
 ---

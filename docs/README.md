@@ -41,6 +41,7 @@ Documentation index for Atlas. Start from the journey that matches you:
 - [Operations overview](operations/index.md) — runtime commands, automation, validation, health, and managed-host lifecycle
 - [SOURCE Configuration](operations/source-configuration.md) — SOURCE-based deployment, including GPU variants
 - [Ports and Routes](operations/ports-and-routes.md) — canonical port offsets, direct URLs, and Kong routes
+- [Access and Credentials](operations/access-and-credentials.md) — which credential opens each surface, and what Supabase identity does and does not cover
 - [Iceberg advanced smoke test](operations/iceberg-advanced-smoke.md) — opt-in validation for write, schema, snapshot, time-travel, and maintenance behavior
 - [Reusing Atlas as Infrastructure](operations/reusing-atlas.md) — overview + decision guide: use Atlas as the backing infra for another project (which method, is it ready, how to wire + customize)
 - [Using as a Submodule](operations/submodule-usage.md) — deep-dive for the Git-submodule reuse method

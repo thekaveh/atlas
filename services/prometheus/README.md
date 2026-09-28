@@ -19,7 +19,7 @@ This deliberately trades friendly Docker names and labels for isolation: contain
 | Surface | URL | Auth |
 |---|---|---|
 | Prometheus UI + API (direct) | `http://localhost:${PROMETHEUS_PORT}` | None |
-| Prometheus UI + API (Kong) | `http://prometheus.localhost:${KONG_HTTP_PORT}` | None (intentional — Kong-gated, internal-only scrape paths) |
+| Prometheus UI + API (Kong) | `http://prometheus.localhost:${KONG_HTTP_PORT}` | None (intentional — the Kong route adds no login; the scrape paths stay internal-only) |
 | Direct (internal) | `http://prometheus:9090` | None — backend-network only |
 | node-exporter (direct) | `http://localhost:${NODE_EXPORTER_PORT}/metrics` | None |
 | cAdvisor (direct) | `http://localhost:${CADVISOR_PORT}` | None |
@@ -110,9 +110,6 @@ _No high-confidence opportunities identified._
 ### 5.5. Future — Candidate new services
 
 - **Alertmanager** — pair with Prometheus's alerting rules for paging/routing. Today the bundle uses Grafana's unified alerting; a separate Alertmanager would matter only if clustered HA alerting becomes a requirement.
-- **Loki** — log aggregation companion. Same operational pattern as Prometheus (scrape-then-store-then-query).
-- **Tempo** — distributed tracing companion. Closes the metrics + logs + traces triangle for full observability.
-- **OpenTelemetry collector** — neutral collection plane for metrics + logs + traces, replacing per-service exporters where applicable.
 
 ### 5.6. Future — Unused features in this service
 

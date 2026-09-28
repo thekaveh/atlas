@@ -274,7 +274,7 @@ example DAG.
 
 ### 10.5. Future — Candidate new services
 
-- **MCP Gateway** ([details](../../docs/research/candidates/mcp-gateway.md)) — *Headline:* A consolidated MCP server exposing neo4j, weaviate, minio, n8n, and supabase as MCP tools any MCP-native client can mount. *Wires into:* hermes, open-webui, jupyterhub, neo4j, weaviate, minio, n8n.
+_No high-confidence opportunities identified._
 
 ### 10.6. Future — Unused features in this service
 

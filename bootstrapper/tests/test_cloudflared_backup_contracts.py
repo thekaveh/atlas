@@ -11,6 +11,7 @@ import hmac
 import importlib.util
 import json
 import os
+import platform
 import shutil
 import signal
 import stat
@@ -55,8 +56,8 @@ def _stage_backup_script_siblings(tmp_path: Path) -> None:
                 ),
                 encoding="utf-8",
             )
-MINIO_IMAGE = "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
-MINIO_CLIENT_IMAGE = "quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z"
+MINIO_IMAGE = "pgsty/silo:RELEASE.2026-09-16T00-00-00Z"
+MINIO_CLIENT_IMAGE = "pgsty/mc:RELEASE.2026-09-16T00-00-00Z"
 BACKUP_PRODUCTION_IMAGE = "atlas-backup:local"
 MC_RELEASE = "RELEASE.2025-08-13T08-35-41Z"
 MC_SHA256_BY_ARCH = {
@@ -2729,6 +2730,15 @@ def _assert_ci_provisions_exact_integration_images(pull_script: str) -> None:
     )
     for image in required_images:
         assert f"timeout 5m docker pull {image}" in pull_script
+    # The backup's own pinned mc is provisioned from the official release and
+    # checksum-verified, since the pgsty/mc client image is a newer mc.
+    assert (
+        f"releases/download/{MC_RELEASE}/$pinned_mc" in pull_script,
+        f"pinned_mc=\"mc.linux-amd64.{MC_RELEASE}\"" in pull_script,
+        f"{MC_SHA256_BY_ARCH['amd64']}  $pinned_mc_dir/$pinned_mc" in pull_script,
+        "sha256sum -c -" in pull_script,
+        f"{PINNED_MC_DIR_ENV}=$pinned_mc_dir\" >> \"$GITHUB_ENV\"" in pull_script,
+    ) == (True, True, True, True, True)
 
 
 def test_services_lint_opts_into_exact_backup_production_image_integration() -> None:
@@ -2978,33 +2988,32 @@ def _wait_for_s3_server(
     )
 
 
-def _extract_pinned_mc_artifact(
-    tmp_path: Path, suffix: str, owner_token: str,
-) -> Path:
-    architecture = _docker_command(
-        "image", "inspect", "--format", "{{.Architecture}}", MINIO_CLIENT_IMAGE,
-        timeout=10,
+PINNED_MC_DIR_ENV = "ATLAS_BACKUP_PINNED_MC_DIR"
+_HOST_MC_ARCH = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
+
+
+def _pinned_mc_artifact(destination: Path) -> Path:
+    """Copy the backup's pinned official mc release asset into ``destination``.
+
+    The backup image installs mc from the official minio/mc release, verified
+    by SHA-256. CI provisions that same asset in the "Pull exact backup
+    integration images" step and names its directory in
+    ATLAS_BACKUP_PINNED_MC_DIR. The MinIO client image (pgsty/mc) ships a newer
+    mc, so it can no longer stand in for the pinned binary.
+    """
+    mc_arch = _HOST_MC_ARCH.get(platform.machine().lower(), "")
+    source = Path(os.environ.get(PINNED_MC_DIR_ENV, "/nonexistent")) / (
+        f"mc.linux-{mc_arch}.{MC_RELEASE}"
     )
-    assert architecture.returncode == 0, architecture.stderr
-    mc_arch = architecture.stdout.strip()
-    assert mc_arch in MC_SHA256_BY_ARCH
-    artifact_dir = tmp_path / "mc-artifacts"
-    artifact_dir.mkdir()
-    artifact = artifact_dir / f"mc.linux-{mc_arch}.{MC_RELEASE}"
-    extractor = f"atlas-backup-production-mc-extractor-{suffix}"
-    try:
-        created = _docker_command(
-            "create", "--name", extractor,
-            "--label", f"{_EXTERNAL_S3_FIXTURE_OWNER_LABEL}={owner_token}",
-            "--entrypoint", "sh", MINIO_CLIENT_IMAGE, "-c", "true", timeout=10,
-        )
-        assert created.returncode == 0, created.stderr
-        copied = _docker_command(
-            "cp", f"{extractor}:/usr/bin/mc", str(artifact), timeout=20,
-        )
-        assert copied.returncode == 0, copied.stderr
-    finally:
-        _remove_exact_docker_fixture((extractor,), None, owner_token)
+    if not source.is_file():
+        message = f"pinned mc {MC_RELEASE} is not provisioned via {PINNED_MC_DIR_ENV}"
+        if os.environ.get("CI", "").lower() in {"1", "true", "yes"}:
+            pytest.fail(message)
+        pytest.skip(message)
+    destination.mkdir(parents=True, exist_ok=True)
+    artifact = destination / source.name
+    shutil.copyfile(source, artifact)
+    artifact.chmod(0o755)
     assert hashlib.sha256(artifact.read_bytes()).hexdigest() == MC_SHA256_BY_ARCH[mc_arch]
     return artifact
 
@@ -3534,7 +3543,7 @@ case "$*" in
     [ -z "${MINIO_ROOT_USER+x}${MINIO_ROOT_PASSWORD+x}${AWS_ACCESS_KEY_ID+x}${AWS_SECRET_ACCESS_KEY+x}${AWS_SESSION_TOKEN+x}" ] || printf leak >/result/secret-env-leak
     ;;
 esac
-exec /usr/bin/mc "$@"
+exec /test-bin/pinned/mc "$@"
 """,
         "openssl": "#!/bin/sh\nexit 0\n",
         # This client-shell fixture is not the production backup image.  Its
@@ -3563,6 +3572,9 @@ esac
         path = test_bin / name
         path.write_text(body, encoding="utf-8")
         path.chmod(0o755)
+    # `mc --version` reports its own file name, and the entrypoint accepts only
+    # "mc version <pinned release>", so the pinned binary must be named mc.
+    _pinned_mc_artifact(test_bin / "pinned").rename(test_bin / "pinned" / "mc")
 
     try:
         created = _docker_command(
@@ -3685,7 +3697,7 @@ def test_opted_in_ci_runs_exact_backup_image_entrypoint_and_real_mc_installer(
     artifact_server = f"atlas-backup-production-artifact-{suffix}"
     access = "productionExternalAccess"
     secret = "productionExternalSecret"
-    artifact = _extract_pinned_mc_artifact(tmp_path, suffix, owner_token)
+    artifact = _pinned_mc_artifact(tmp_path / "mc-artifacts")
     artifact_responder = _write_artifact_responder(tmp_path, artifact)
     server_env = tmp_path / "production-server.env"
     server_env.write_text(
@@ -4818,6 +4830,35 @@ def test_backup_observes_busy_status_after_lock_process_exits(tmp_path: Path) ->
     assert marker.exists()
     assert result.returncode == 75, result.stderr
     assert "another backup publication is already in progress" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "status_file", ('"$BACKUP_LOCK_STATUS"', '"$WORK/postgres.snapshot"'),
+)
+def test_backup_creates_each_polled_status_file_before_its_session_starts(
+    status_file: str,
+) -> None:
+    """#1237: both psql sessions run in the background with their stdout
+    redirected into the file the foreground loop then polls with sed. The
+    redirection is performed by the forked job, so on a contended runner the
+    first poll could run before the file existed; sed failed and set -e
+    aborted the backup (`sed: .../publication-lock.status: No such file or
+    directory`, seen in the opted-in image test). The file must exist before
+    the session is launched, and an empty file is the loop's pending state.
+    """
+    lines = (REPO / "services/backup/init/scripts/backup-all.sh").read_text(
+        encoding="utf-8"
+    ).splitlines()
+    launch = next(
+        i for i, line in enumerate(lines)
+        if f">{status_file}" in line and line.rstrip().endswith("&")
+    )
+    created = [i for i, line in enumerate(lines) if line.strip() == f": >{status_file}"]
+    first_poll = next(
+        i for i, line in enumerate(lines)
+        if "sed -n '1p'" in line and status_file in line
+    )
+    assert created and created[-1] < launch < first_poll
 
 
 @pytest.mark.parametrize("kind", ("container", "volume"))

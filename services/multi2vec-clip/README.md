@@ -110,7 +110,7 @@ _No downstream consumers._
 
 ### 5.5. Future — Candidate new services
 
-- **SigLIP 2 vectorizer image** ([details](../../docs/research/candidates/siglip2-vectorizer.md)) — *Headline:* opt-in upgrade of the multi2vec-clip container to a Google SigLIP 2 `so400m` image for stronger multilingual + higher-resolution multimodal retrieval after collection revectorization. *Wires into:* weaviate, backend, jupyterhub.
+_No high-confidence opportunities identified._
 
 ### 5.6. Future — Unused features in this service
 

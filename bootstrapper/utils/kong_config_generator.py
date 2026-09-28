@@ -29,6 +29,20 @@ def _lua_long_string(value: str) -> str:
     raise ValueError("could not find a safe Lua long-string delimiter")
 
 
+def _has_basic_auth(holder: Dict[str, Any]) -> bool:
+    return any(p.get('name') == 'basic-auth' for p in holder.get('plugins') or [])
+
+
+def _basic_auth_hosts(services: list[Dict[str, Any]]) -> frozenset[str]:
+    """Hosts whose route or service requires the dashboard-user basic-auth."""
+    hosts: set[str] = set()
+    for service in services:
+        for route in service.get('routes') or []:
+            if _has_basic_auth(service) or _has_basic_auth(route):
+                hosts.update(route.get('hosts') or [])
+    return frozenset(hosts)
+
+
 class KongConfigGenerator:
     """Generates dynamic Kong configuration based on SOURCE values."""
     
@@ -254,9 +268,6 @@ class KongConfigGenerator:
         """
         services = []
 
-        # Atlas product entrypoint at http://localhost:${KONG_HTTP_PORT}/.
-        services.append(self.generate_atlas_root_dashboard_service())
-
         # Always-containerized Supabase services
         services.extend(self.get_supabase_services())
 
@@ -388,9 +399,20 @@ class KongConfigGenerator:
         # to swallow every unaliased `*.localhost` request.
         services.extend(self.get_alias_only_services())
 
-        return services
+        # Atlas product entrypoint at http://localhost:${KONG_HTTP_PORT}/,
+        # emitted first as before. It is BUILT last so its per-card auth note
+        # reads which hosts these routes actually gate with the dashboard-user
+        # basic-auth, instead of a hand-kept list that drifted (#1189).
+        return [
+            self.generate_atlas_root_dashboard_service(
+                basic_auth_hosts=_basic_auth_hosts(services),
+            ),
+            *services,
+        ]
 
-    def generate_atlas_root_dashboard_service(self) -> Dict[str, Any]:
+    def generate_atlas_root_dashboard_service(
+        self, basic_auth_hosts: frozenset[str] = frozenset(),
+    ) -> Dict[str, Any]:
         """Serve the generated Atlas service directory at bare Kong root."""
         from utils.atlas_dashboard import build_dashboard_model, render_dashboard_html
 
@@ -399,6 +421,7 @@ class KongConfigGenerator:
             track_key=getattr(self, "track_key", None),
             overridden_services=getattr(self, "overridden_services", frozenset()),
             hosts_configured=self._hosts_look_configured(),
+            basic_auth_hosts=basic_auth_hosts,
         ))
         lua_html = _lua_long_string(html)
         return {

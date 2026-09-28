@@ -1,10 +1,13 @@
 ---
 category-fit: apps
+decided: 2026-07-04
 generated: 2026-07-04
 license: MIT
+lifecycle: deferred
 name: Perplexica (Vane)
 referenced-by: [searxng]
 slug: perplexica
+superseded-by: https://github.com/thekaveh/atlas/issues/240
 type: external-service
 upstream: https://github.com/ItzCrazyKns/Vane
 ---

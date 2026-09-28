@@ -88,8 +88,21 @@ jobs:
       - name: Pull exact backup integration images
         run: |
           timeout 5m docker pull postgres:17.10-alpine
-          timeout 5m docker pull quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
-          timeout 5m docker pull quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+          timeout 5m docker pull pgsty/silo:RELEASE.2026-09-16T00-00-00Z
+          timeout 5m docker pull pgsty/mc:RELEASE.2026-09-16T00-00-00Z
+          # The backup image installs its own pinned mc from the official
+          # release, verified by SHA-256 (services/backup/init/scripts/
+          # entrypoint.sh). The integration tests need that exact binary, which
+          # the newer pgsty/mc client image no longer carries, so provision it
+          # the same way and hand its directory to every later step.
+          pinned_mc_dir="${RUNNER_TEMP}/atlas-pinned-mc"
+          pinned_mc="mc.linux-amd64.RELEASE.2025-08-13T08-35-41Z"
+          mkdir -p "$pinned_mc_dir"
+          timeout 5m curl -fsSL --retry 3 -o "$pinned_mc_dir/$pinned_mc" \
+            "https://github.com/minio/mc/releases/download/RELEASE.2025-08-13T08-35-41Z/$pinned_mc"
+          echo "01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891  $pinned_mc_dir/$pinned_mc" \
+            | sha256sum -c -
+          echo "ATLAS_BACKUP_PINNED_MC_DIR=$pinned_mc_dir" >> "$GITHUB_ENV"
           timeout 5m docker pull neo4j:5.26.30
           timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.13
           timeout 5m docker pull alpine:3.24.1
@@ -292,13 +305,16 @@ jobs:
       - name: Cache MkDocs privacy-plugin external assets
         # `make docs-check` runs `mkdocs build --strict`, and the Material
         # `privacy` plugin self-hosts external assets by DOWNLOADING them at
-        # build time (~20 files: Google Fonts + unpkg mermaid). `.cache` is
-        # gitignored, so without this the job refetched all of them on every
-        # run and a single transient failure became a hard `--strict` error --
-        # which is exactly how #934 and #941 failed on diffs that touched no
-        # external URL. Restoring the cache means the steady state performs no
-        # third-party fetches at all. Keyed on the files that decide WHICH
-        # assets are needed, so a font/theme change re-primes it.
+        # build time: the 20 files recorded in docs/external-assets.yaml
+        # (Google Fonts + unpkg mermaid; policy in docs/development.md §3.1).
+        # `.cache` is gitignored, so without this the job refetched all of them
+        # on every run and a single transient failure became a hard `--strict`
+        # error -- which is exactly how #934 and #941 failed on diffs that
+        # touched no external URL. Restoring the cache means the steady state
+        # performs no third-party fetches at all, and the docs-check preflight
+        # names any asset a cold cache cannot fetch. Keyed on the files that
+        # decide WHICH assets are needed, so a font/theme change or an
+        # inventory refresh re-primes it.
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache
@@ -308,7 +324,7 @@ jobs:
           # the stylesheets can pull further external faces. Hashing the
           # generated mkdocs.yml instead silently yields an EMPTY hash and a
           # constant key that never re-primes.
-          key: mkdocs-privacy-${{ hashFiles('scripts/docs/build_docs.py', 'docs/assets/stylesheets/**') }}
+          key: mkdocs-privacy-${{ hashFiles('scripts/docs/build_docs.py', 'docs/assets/stylesheets/**', 'docs/external-assets.yaml') }}
           restore-keys: |
             mkdocs-privacy-
 

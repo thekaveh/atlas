@@ -73,3 +73,14 @@ def test_prompt_handles_pointer_only_doc_folder():
     prompt = build_research_prompt("multi2vec-clip")
     assert "multi2vec-clip" in prompt.lower()
     assert "docs/research/rows/multi2vec-clip.md" in prompt
+
+
+def test_candidate_template_starts_open_and_skips_closed_records():
+    """#1190: the one-pager template carries the now-required lifecycle, and
+    agents are told not to re-propose shipped or rejected candidates."""
+    from docs.research_subagent_prompt import build_research_prompt
+    prompt = build_research_prompt("hermes")
+    template = prompt[prompt.index("## Candidate one-pager schema"):prompt.index("## Hard caps")]
+    assert "license: <SPDX or \"unknown\">\nlifecycle: proposed\nreferenced-by:" in template
+    assert "Do NOT re-propose a candidate whose existing one-pager has `lifecycle: shipped`" in template
+    assert "then the same command on each candidate file you wrote" in prompt

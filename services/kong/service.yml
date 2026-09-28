@@ -118,9 +118,10 @@ data_flow:
     - celery
     - asset-baker
     - asset-worker
-    # Observability routes (kong_config_generator.py:206-212, 932) — Kong
-    # fronts grafana.localhost / prometheus.localhost / ray.localhost
-    # when each service is enabled.
+    # Observability routes (kong_config_generator.py
+    # generate_grafana_service / generate_prometheus_service /
+    # generate_ray_service) — Kong fronts grafana.localhost /
+    # prometheus.localhost / ray.localhost when each service is enabled.
     - grafana
     - prometheus
     - ray
