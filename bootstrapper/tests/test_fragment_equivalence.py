@@ -48,6 +48,12 @@ _REPO_ROOT_TOKEN = "{REPO_ROOT}"
 _HOME_TOKEN = "{HOME}"
 
 
+# Host-side path fields `docker compose config` resolves against the machine
+# (bind-mount sources and build contexts). Container-side values — mount
+# targets, environment, command strings — are never rewritten (#1283).
+_HOST_PATH_KEYS = frozenset({"context", "source"})
+
+
 def _normalize_paths(data):
     """Recursively replace machine-specific absolute paths with placeholders.
 
@@ -56,20 +62,34 @@ def _normalize_paths(data):
     in env-file values to the user's home directory. To keep the baseline
     fixture portable, we substitute those two prefixes with sentinel tokens
     on every comparison.
-    """
-    repo_str = str(REPO_ROOT)
-    home_str = str(Path.home())
 
-    def _walk(node):
+    Only host-side path fields are rewritten, and only when the prefix is a
+    whole path prefix (#1283): a plain substring swap with HOME=/root also
+    rewrote `/rootfs` and the container-side `/root/.ollama`, and a HOME
+    such as /home/node collides with container env and command values. A
+    `/` prefix (HOME=/ for some service accounts) is never swapped: there
+    the expanded `~` is indistinguishable from an absolute path, so the
+    ComfyUI models bind source still drifts; run with a real home instead.
+    """
+    prefixes = [
+        (prefix, token)
+        for prefix, token in ((str(REPO_ROOT), _REPO_ROOT_TOKEN), (str(Path.home()), _HOME_TOKEN))
+        if prefix != "/"
+    ]
+
+    def _swap(value):
+        for prefix, token in prefixes:
+            if value == prefix or value.startswith(prefix + "/"):
+                return token + value[len(prefix):]
+        return value
+
+    def _walk(node, key=None):
         if isinstance(node, str):
-            return (
-                node.replace(repo_str, _REPO_ROOT_TOKEN)
-                    .replace(home_str, _HOME_TOKEN)
-            )
+            return _swap(node) if key in _HOST_PATH_KEYS else node
         if isinstance(node, list):
-            return [_walk(x) for x in node]
+            return [_walk(x, key) for x in node]
         if isinstance(node, dict):
-            return {k: _walk(v) for k, v in node.items()}
+            return {k: _walk(v, k) for k, v in node.items()}
         return node
 
     return _walk(data)
@@ -217,6 +237,36 @@ def _load_baseline() -> dict:
             f"required byte-equivalence baseline fixture missing at {BASELINE}"
         )
     return _strip_volatile_defaults(yaml.safe_load(BASELINE.read_text()))
+
+
+def test_path_normalization_only_rewrites_host_side_prefixes(monkeypatch):
+    """#1283: only whole host-side path prefixes become {REPO_ROOT}/{HOME}."""
+    repo = str(REPO_ROOT)
+    service = {
+        "build": {"context": f"{repo}/services/backend/app"},
+        "command": ["--path.rootfs=/rootfs", "cd /root"],
+        "environment": {"HOME": "/root", "DATA": f"{repo}-data"},
+        "volumes": [
+            {"source": "/root/Documents/ComfyUI/models", "target": "/root/.ollama"},
+            {"source": "/rootfs", "target": "/root"},
+            {"source": "/", "target": "/rootfs"},
+        ],
+    }
+    monkeypatch.setattr(Path, "home", lambda: Path("/root"))
+    as_root = _normalize_paths(service)
+    monkeypatch.setattr(Path, "home", lambda: Path("/"))
+    as_slash = _normalize_paths(service)
+    assert (as_root, as_slash["volumes"]) == (
+        {
+            **service,
+            "build": {"context": "{REPO_ROOT}/services/backend/app"},
+            "volumes": [
+                {"source": "{HOME}/Documents/ComfyUI/models", "target": "/root/.ollama"},
+                *service["volumes"][1:],
+            ],
+        },
+        service["volumes"],
+    )
 
 
 def test_missing_baseline_is_a_hard_gate_failure(tmp_path, monkeypatch):
