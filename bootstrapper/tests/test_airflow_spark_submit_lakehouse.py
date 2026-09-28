@@ -63,7 +63,7 @@ _FAKE_DOCKER_SOURCE = (
     "    printf '%s' \"$token\" > \"$(resource_file container \"$name\")\"\n"
     "    [[ \"${FAKE_DOCKER_COLLISION:-}\" != \"$name\" ]] || exit 125\n"
     "  fi\n"
-    "  if [[ \"$FAKE_DOCKER_HANG\" = readiness && \"$*\" = *quay.io/minio/mc:* ]]; then sleep 30; fi\n"
+    "  if [[ \"$FAKE_DOCKER_HANG\" = readiness && \"$*\" = *pgsty/mc:* ]]; then sleep 30; fi\n"
     "  if [[ \"$FAKE_DOCKER_HANG\" = *spark* && \"$*\" = *spark-submit* ]]; then sleep 30; fi\n"
     "  if [[ \"$auto_remove\" = true && \"$detached\" = false && -n \"$name\" ]]; then\n"
     "    rm -f \"$(resource_file container \"$name\")\"\n"
@@ -367,8 +367,8 @@ def test_required_ci_runs_a_real_spark_minio_s3a_round_trip() -> None:
     assert all(
         fragment in smoke
         for fragment in (
-            "quay.io/minio/minio:",
-            "quay.io/minio/mc:",
+            "pgsty/silo:",
+            "pgsty/mc:",
             "spark.hadoop.fs.s3a.endpoint=http://minio:9000",
             "/opt/spark/bin/spark-submit",
             "ATLAS_S3A_SMOKE_TIMEOUT_SECONDS",
@@ -564,7 +564,7 @@ def test_s3a_smoke_success_never_hides_unproven_cleanup(
     [
         *[
             pytest.param(
-                (signal.SIGHUP, 129, "pull", "pull quay.io/minio/minio:"),
+                (signal.SIGHUP, 129, "pull", "pull pgsty/silo:"),
                 id=f"hup-pull-{attempt}",
             )
             for attempt in range(5)

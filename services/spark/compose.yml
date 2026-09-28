@@ -276,14 +276,14 @@ services:
     networks:
       - backend-network
 
-  # Use the same minio/mc image as minio-init. The vanilla-alpine + inline
-  # apk pattern (project_init_container_pattern.md) FAILS here because
+  # Use the same MinIO Client (mc) image as minio-init. The vanilla-alpine +
+  # inline apk pattern (project_init_container_pattern.md) FAILS here because
   # Alpine's `mc` package is GNU Midnight Commander (a TUI file manager),
   # NOT MinIO Client — `mc alias set` would error and spark-history would
-  # never start. minio-init solves this by pinning minio/mc; spark-init
-  # does the same so the two stay in lockstep on the upstream mc release.
+  # never start. minio-init solves this by pinning the mc image; spark-init
+  # does the same so the two stay in lockstep on the same mc release.
   spark-init:
-    image: ${MINIO_INIT_IMAGE:-quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z}
+    image: ${MINIO_INIT_IMAGE:-pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd}
     container_name: ${PROJECT_NAME}-spark-init
     deploy:
       replicas: ${SPARK_INIT_SCALE:-0}

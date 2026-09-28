@@ -55,8 +55,8 @@ def _stage_backup_script_siblings(tmp_path: Path) -> None:
                 ),
                 encoding="utf-8",
             )
-MINIO_IMAGE = "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
-MINIO_CLIENT_IMAGE = "quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z"
+MINIO_IMAGE = "pgsty/silo:RELEASE.2026-09-16T00-00-00Z"
+MINIO_CLIENT_IMAGE = "pgsty/mc:RELEASE.2026-09-16T00-00-00Z"
 BACKUP_PRODUCTION_IMAGE = "atlas-backup:local"
 MC_RELEASE = "RELEASE.2025-08-13T08-35-41Z"
 MC_SHA256_BY_ARCH = {

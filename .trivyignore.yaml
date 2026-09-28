@@ -4580,3 +4580,49 @@ vulnerabilities:
       Node.js (server, controller, init script) and no code path shells out to perl,
       so the interpreter never parses attacker-supplied input. Cleared by the next
       upstream image on a patched base.
+
+  # Added 2026-09-28 with the MinIO -> Silo image swap (batch #1275). Each finding was reproduced with the pinned Trivy
+  # 0.74.0 against the exact image digests on linux/amd64 and linux/arm64.
+
+  - id: CVE-2026-86145
+    purls:
+      - "pkg:rpm/redhat/pcre2@10.40-6.el9?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/pcre2@10.40-6.el9?arch=aarch64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/pcre2-syntax@10.40-6.el9?arch=noarch&distro=redhat-9.8"
+    expired_at: 2026-12-26
+    statement: >-
+      pcre2 10.40-6.el9 in the UBI 9.8 base of the pinned Silo server
+      (pgsty/silo) and client (pgsty/mc) images. Red Hat marks this CVE
+      will_not_fix for RHEL 9, so no rebuilt base can clear it. Both images'
+      workloads are static Go binaries whose regexp package is RE2 and never
+      links PCRE2; the library serves only base-image shell tooling such as
+      grep, which parses no request input. Re-review with the next Silo release.
+
+  - id: CVE-2026-89161
+    purls:
+      - "pkg:rpm/redhat/pcre2@10.40-6.el9?arch=x86_64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/pcre2@10.40-6.el9?arch=aarch64&distro=redhat-9.8"
+      - "pkg:rpm/redhat/pcre2-syntax@10.40-6.el9?arch=noarch&distro=redhat-9.8"
+    expired_at: 2026-12-26
+    statement: >-
+      pcre2 10.40-6.el9 in the UBI 9.8 base of the pinned Silo server
+      (pgsty/silo) and client (pgsty/mc) images; Red Hat lists RHEL 9 as
+      affected with no fixed package yet. Both images' workloads are static Go
+      binaries whose regexp package is RE2 and never links PCRE2; the library
+      serves only base-image shell tooling such as grep, which parses no request
+      input. Cleared by the first Silo image rebuilt on a patched UBI base.
+
+  - id: CVE-2026-39414
+    purls:
+      - "pkg:golang/github.com/minio/minio@v0.0.0-20260916155009-2a4d51406b7e"
+    expired_at: 2026-12-26
+    statement: >-
+      False positive in /usr/bin/silo (pgsty/silo RELEASE.2026-09-16T00-00-00Z,
+      source revision 2a4d51406b7e). The fork reports the MinIO module under a
+      pseudo-version Trivy cannot order against MinIO's RELEASE tags, so it
+      matches the "before RELEASE.2025-12-20" range. The source at that revision
+      carries the fix: internal/s3select/csv/reader.go nextSplit reads with
+      ReadSlice and returns errOverMaxRecordSize past the 1 MiB S3 Select record
+      limit, where the vulnerable RELEASE.2025-09-07 code calls an unbounded
+      ReadBytes. Re-verify the reader on every Silo bump.
+
