@@ -155,12 +155,12 @@ CI builds `atlas-backup:local` from the same digest-pinned Postgres base, pulls 
 
 ### 5.1. Current — Upstream (this service calls)
 
-| Service | Category |
-|---|---|
-| minio | data |
-| neo4j | data |
-| supabase | data |
-| weaviate | data |
+| Service | Category | Status |
+|---|---|---|
+| minio | data | current |
+| neo4j | data | current |
+| supabase | data | optional: BACKUP_SOURCE=container; runs on demand, not resident |
+| weaviate | data | current |
 
 ### 5.2. Current — Downstream (services that call this)
 

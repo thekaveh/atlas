@@ -209,7 +209,10 @@ runtime_adaptive:
 
 data_flow:
   calls:
-    - litellm
+    - target: litellm
+      status: optional
+      condition: only collections whose text2vec-openai baseURL is LiteLLM, as the backend's are
+      evidence: services/backend/app/app/memory_store.py
     - multi2vec-clip
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`

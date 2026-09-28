@@ -17,7 +17,7 @@ from typing import Iterable, Literal
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
 
-from services.manifests import Manifest, load_manifests  # noqa: E402
+from services.manifests import CALL_STATUSES, CallEdge, Manifest, call_edges, load_manifests  # noqa: E402
 
 
 EdgeDirection = Literal["upstream", "downstream"]
@@ -36,6 +36,9 @@ class DepEdge:
     direction: EdgeDirection
     bidirectional: bool = False
     other_category: str = "external"
+    # #1273: how the declaring manifest qualified the edge.
+    status: str = "current"
+    condition: str = ""
 
 
 @dataclass(frozen=True)
@@ -61,10 +64,24 @@ def _edge_sort_key(e: DepEdge) -> tuple[int, str]:
     return (_CATEGORY_RANK.get(e.other_category, 99), e.other)
 
 
-def _calls_of(m: Manifest) -> list[str]:
-    """Read m's data_flow.calls. Returns empty list if absent."""
-    df = m.data_flow or {}
-    return list(df.get("calls") or [])
+def _calls_of(m: Manifest) -> list[CallEdge]:
+    """Read m's data_flow.calls as edges. Returns empty list if absent."""
+    return call_edges(m.data_flow)
+
+
+# When two declarations reach the same pill (aggregate members, or a consumer
+# naming both a member and its doc folder), the strongest status wins, and
+# equal statuses keep every distinct condition.
+_STATUS_RANK = {status: rank for rank, status in enumerate(CALL_STATUSES)}
+
+
+def _stronger(existing: DepEdge | None, candidate: DepEdge) -> DepEdge:
+    if existing is None or _STATUS_RANK[candidate.status] < _STATUS_RANK[existing.status]:
+        return candidate
+    if candidate.status == existing.status and candidate.condition not in existing.condition.split("; "):
+        joined = "; ".join(c for c in (existing.condition, candidate.condition) if c)
+        return DepEdge(**{**existing.__dict__, "condition": joined})
+    return existing
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -161,19 +178,20 @@ def _build_for_manifests(
     # is itself the underlying for both aggregates, we keep the raw name).
     upstream: dict[str, DepEdge] = {}
     for m in members:
-        for target in _calls_of(m):
-            if target in member_names:
+        for call in _calls_of(m):
+            if call.target in member_names:
                 continue  # intra-aggregate edge
             # Resolve target name: prefer the doc-folder name if it's an
             # aggregate (e.g. someone calling 'stt-provider' is calling the
             # logical service, not an underlying manifest).
-            resolved = target
-            if resolved not in upstream:
-                upstream[resolved] = DepEdge(
-                    other=resolved,
-                    direction="upstream",
-                    other_category=_resolve_category(resolved, all_m),
-                )
+            resolved = call.target
+            upstream[resolved] = _stronger(upstream.get(resolved), DepEdge(
+                other=resolved,
+                direction="upstream",
+                other_category=_resolve_category(resolved, all_m),
+                status=call.status,
+                condition=call.condition,
+            ))
 
     # Downstream — every other manifest whose data_flow.calls names focus,
     # any member, or the doc folder containing the focus. The last is
@@ -187,19 +205,20 @@ def _build_for_manifests(
     for other_name, other_m in all_m.items():
         if other_name in member_names:
             continue
-        for target in _calls_of(other_m):
-            if target in downstream_keys:
-                # Render the consumer under its doc-folder name where applicable
-                rendered = _manifest_to_doc_folder(other_name)
-                if rendered == focus or rendered in member_names:
-                    continue  # don't draw a self-loop via doc-folder collapse
-                if rendered not in downstream:
-                    downstream[rendered] = DepEdge(
-                        other=rendered,
-                        direction="downstream",
-                        other_category=_resolve_category(rendered, all_m),
-                    )
-                break  # one inbound edge per consumer
+        # Render the consumer under its doc-folder name where applicable, and
+        # never as a self-loop via doc-folder collapse.
+        rendered = _manifest_to_doc_folder(other_name)
+        if rendered == focus or rendered in member_names:
+            continue
+        for call in _calls_of(other_m):
+            if call.target in downstream_keys:
+                downstream[rendered] = _stronger(downstream.get(rendered), DepEdge(
+                    other=rendered,
+                    direction="downstream",
+                    other_category=_resolve_category(rendered, all_m),
+                    status=call.status,
+                    condition=call.condition,
+                ))
 
     # Bidirectional collapse: same name in both directions.
     both = set(upstream) & set(downstream)

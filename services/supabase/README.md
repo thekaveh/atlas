@@ -297,27 +297,27 @@ _No upstream calls._
 
 ### 9.2. Current — Downstream (services that call this)
 
-| Service | Category |
-|---|---|
-| backup | infra |
-| kong | infra |
-| langfuse | infra |
-| prometheus | infra |
-| iceberg-rest | data |
-| supavisor | data |
-| litellm | llm |
-| airflow | agents |
-| celery | agents |
-| lightrag | agents |
-| mcp-servers | agents |
-| n8n | agents |
-| trueforge | agents |
-| backend | apps |
-| jupyterhub | apps |
-| label-studio | apps |
-| mlflow | apps |
-| open-webui | apps |
-| zeppelin | apps |
+| Service | Category | Status |
+|---|---|---|
+| backup | infra | optional: BACKUP_SOURCE=container; runs on demand, not resident |
+| kong | infra | current |
+| langfuse | infra | current |
+| prometheus | infra | current |
+| iceberg-rest | data | current |
+| supavisor | data | current |
+| litellm | llm | current |
+| airflow | agents | current |
+| celery | agents | current |
+| lightrag | agents | current |
+| mcp-servers | agents | current |
+| n8n | agents | current |
+| trueforge | agents | current |
+| backend | apps | current |
+| jupyterhub | apps | current |
+| label-studio | apps | current |
+| mlflow | apps | current |
+| open-webui | apps | current |
+| zeppelin | apps | current |
 
 ### 9.3. Architecture diagram
 

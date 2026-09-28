@@ -59,11 +59,11 @@ _No upstream calls._
 
 ### 5.2. Current — Downstream (services that call this)
 
-| Service | Category |
-|---|---|
-| kong | infra |
-| backend | apps |
-| jupyterhub | apps |
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | optional: RAY_SOURCE=ray-container-cpu or ray-container-gpu |
+| backend | apps | current |
+| jupyterhub | apps | current |
 
 ### 5.3. Architecture diagram
 

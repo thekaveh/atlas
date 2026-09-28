@@ -180,10 +180,12 @@ This pattern — agent runtime → orchestrated workflow — pairs Hermes's reac
 
 ### 7.2. Current — Downstream (services that call this)
 
-| Service | Category |
-|---|---|
-| kong | infra |
-| hermes | agents |
+_Rows marked planned are documented or intended, not wired yet._
+
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | current |
+| hermes | agents | planned |
 
 ### 7.3. Architecture diagram
 

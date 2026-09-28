@@ -237,55 +237,55 @@ For more information on Kong's role in the overall architecture, see the system 
 
 ### 13.1. Current — Upstream (this service calls)
 
-| Service | Category |
-|---|---|
-| grafana | infra |
-| langfuse | infra |
-| prometheus ↔ | infra |
-| ray | infra |
-| minio | data |
-| neo4j | data |
-| redpanda | data |
-| spark | data |
-| supabase | data |
-| trino | data |
-| weaviate | data |
-| litellm | llm |
-| ollama | llm |
-| tei-reranker | llm |
-| asset-baker | media |
-| asset-worker | media |
-| comfyui | media |
-| crawl4ai | media |
-| doc-processor | media |
-| searxng | media |
-| stt-provider | media |
-| tika | media |
-| tts-provider | media |
-| airflow | agents |
-| celery | agents |
-| hermes | agents |
-| lightrag | agents |
-| mcp-servers | agents |
-| n8n | agents |
-| openclaw | agents |
-| backend ↔ | apps |
-| jenkins | apps |
-| jupyterhub | apps |
-| label-studio | apps |
-| llm-graph-builder | apps |
-| local-deep-researcher | apps |
-| mlflow | apps |
-| open-webui | apps |
-| verba | apps |
+| Service | Category | Status |
+|---|---|---|
+| grafana | infra | current |
+| langfuse | infra | current |
+| prometheus ↔ | infra | current |
+| ray | infra | optional: RAY_SOURCE=ray-container-cpu or ray-container-gpu |
+| minio | data | current |
+| neo4j | data | current |
+| redpanda | data | current |
+| spark | data | current |
+| supabase | data | current |
+| trino | data | current |
+| weaviate | data | current |
+| litellm | llm | current |
+| ollama | llm | current |
+| tei-reranker | llm | current |
+| asset-baker | media | current |
+| asset-worker | media | current |
+| comfyui | media | current |
+| crawl4ai | media | current |
+| doc-processor | media | current |
+| searxng | media | current |
+| stt-provider | media | current |
+| tika | media | current |
+| tts-provider | media | current |
+| airflow | agents | current |
+| celery | agents | current |
+| hermes | agents | current |
+| lightrag | agents | current |
+| mcp-servers | agents | current |
+| n8n | agents | current |
+| openclaw | agents | current |
+| backend ↔ | apps | current |
+| jenkins | apps | current |
+| jupyterhub | apps | current |
+| label-studio | apps | current |
+| llm-graph-builder | apps | current |
+| local-deep-researcher | apps | current |
+| mlflow | apps | current |
+| open-webui | apps | current |
+| verba | apps | current |
 
 ### 13.2. Current — Downstream (services that call this)
 
-| Service | Category |
-|---|---|
-| cloudflared | infra |
-| prometheus ↔ | infra |
-| backend ↔ | apps |
+| Service | Category | Status |
+|---|---|---|
+| cloudflared | infra | optional: public hostnames configured in the Cloudflare dashboard |
+| prometheus ↔ | infra | current |
+| backend ↔ | apps | current |
 
 ### 13.3. Architecture diagram
 

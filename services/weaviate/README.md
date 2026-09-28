@@ -63,10 +63,10 @@ Optional consumers should use `WEAVIATE_URL` and perform feature-level readiness
 
 ### 5.1. Current — Upstream (this service calls)
 
-| Service | Category |
-|---|---|
-| multi2vec-clip | data |
-| litellm | llm |
+| Service | Category | Status |
+|---|---|---|
+| multi2vec-clip | data | current |
+| litellm | llm | optional: only collections whose text2vec-openai baseURL is LiteLLM, as the backend's are |
 
 ### 5.2. Current — Downstream (services that call this)
 

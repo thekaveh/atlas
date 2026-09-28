@@ -50,7 +50,10 @@ def test_openclaw_current_data_flow_excludes_future_hermes_bridge() -> None:
     manifest = _manifest()
     readme = README.read_text(encoding="utf-8")
 
-    assert manifest["data_flow"]["calls"] == ["litellm"]
+    # #1273: operators set the provider baseUrl by hand, so the edge is optional.
+    assert [(entry["target"], entry["status"]) for entry in manifest["data_flow"]["calls"]] == [
+        ("litellm", "optional")
+    ]
     assert "| hermes | agents |" not in readme
     assert "openclaw ↔ hermes" in readme
     assert "only the bridge wiring is missing" in readme

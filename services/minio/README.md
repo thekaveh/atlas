@@ -145,25 +145,25 @@ _No upstream calls._
 
 ### 10.2. Current — Downstream (services that call this)
 
-| Service | Category |
-|---|---|
-| backup | infra |
-| kong | infra |
-| langfuse | infra |
-| prometheus | infra |
-| iceberg-rest | data |
-| spark | data |
-| trino | data |
-| asset-baker | media |
-| asset-worker | media |
-| airflow | agents |
-| celery | agents |
-| backend | apps |
-| jenkins | apps |
-| jupyterhub | apps |
-| label-studio | apps |
-| mlflow | apps |
-| zeppelin | apps |
+| Service | Category | Status |
+|---|---|---|
+| backup | infra | current |
+| kong | infra | current |
+| langfuse | infra | current |
+| prometheus | infra | current |
+| iceberg-rest | data | current |
+| spark | data | current |
+| trino | data | current |
+| asset-baker | media | current |
+| asset-worker | media | current |
+| airflow | agents | current |
+| celery | agents | current |
+| backend | apps | current |
+| jenkins | apps | optional: an operator-authored Jenkins job; none ships with Atlas |
+| jupyterhub | apps | current |
+| label-studio | apps | current |
+| mlflow | apps | current |
+| zeppelin | apps | current |
 
 ### 10.3. Architecture diagram
 

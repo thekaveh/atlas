@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-from services.manifests import Manifest, load_manifests
+from services.manifests import Manifest, call_edges, load_manifests
 from services.topology import get_topology
 
 
@@ -263,7 +263,15 @@ def _manifest_docs(root: Path, tracks: list[TrackPage]) -> list[ServicePage]:
         source_var, source_default, source_values, source_surfaces = _source_metadata(manifest)
         required = list(manifest.depends_on.required) if manifest else []
         optional = list(manifest.depends_on.optional) if manifest else []
-        runtime_calls = list(manifest.data_flow.get("calls", [])) if manifest else []
+        runtime_calls = (
+            [
+                edge.target if edge.status == "current"
+                else f"{edge.target} ({': '.join(filter(None, (edge.status, edge.condition)))})"
+                for edge in call_edges(manifest.data_flow)
+            ]
+            if manifest
+            else []
+        )
         aliases = _dedupe_stable(
             list(topological.get("aliases", []))
             + (list(manifest.extra_kong_aliases) if manifest else [])
