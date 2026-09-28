@@ -401,13 +401,14 @@ def test_mlflow_server_advisory_exception_is_exact_bounded_and_mitigated() -> No
     assert len(matches) == 1
     exception = matches[0]
     assert exception["purls"] == ["pkg:pypi/mlflow@3.15.1"]
-    # Renewed short (not the full 90-day horizon) because MLflow 3.16.0 is
-    # published and OSV records last_affected 3.15.2, so a fix now appears to
-    # exist -- see #1023. The near deadline forces the upgrade decision.
-    assert exception["expired_at"] == date(2026, 10, 15)
+    # Renewed short again in the #998 pass (2026-09-28): PyPI lists the
+    # advisory for 3.15.1 but not 3.16.x, so the fix is a server move (#1287)
+    # and the near deadline keeps that decision from drifting.
+    assert exception["expired_at"] == date(2026, 11, 30)
     statement = exception["statement"]
     for evidence in (
-        "no fixed release",
+        "neither 3.16.0 nor 3.16.1",
+        "#1287",
         "AI Gateway",
         "404",
         "atlas_server.py",
