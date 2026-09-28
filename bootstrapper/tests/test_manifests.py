@@ -339,6 +339,52 @@ def test_capabilities_is_a_top_level_required_schema_field():
     assert "capabilities" in schema["required"]
 
 
+def test_data_flow_calls_accept_names_and_qualified_objects(
+    services_root, write_manifest, minimal_manifest_dict
+):
+    """#1273: a calls entry is a plain name (a current edge) or an object with
+    target plus optional status, condition and evidence."""
+    from services.manifests import CallEdge, call_edges
+
+    manifest = minimal_manifest_dict("redis") | {"data_flow": {"calls": [
+        "litellm",
+        {"target": "ray", "status": "optional", "condition": "RAY_SOURCE=ray-container-cpu",
+         "evidence": "bootstrapper/utils/kong_config_generator.py:1370-1386"},
+        {"target": "neo4j", "status": "planned", "evidence": "https://example.com/plan"},
+    ]}}
+    write_manifest("redis", manifest)
+
+    (loaded,) = load_manifests(services_root)
+    assert call_edges(loaded.data_flow) == [
+        CallEdge("litellm"),
+        CallEdge("ray", "optional", "RAY_SOURCE=ray-container-cpu",
+                 "bootstrapper/utils/kong_config_generator.py:1370-1386"),
+        CallEdge("neo4j", "planned", "", "https://example.com/plan"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"target": "ray", "status": "sometimes"},
+        {"target": "ray", "note": "unknown key"},
+        {"status": "optional"},
+        {"target": "ray", "evidence": "../outside/the/repo.py"},
+        {"target": "ray", "condition": ""},
+        # An optional edge says when; a condition needs a non-current status.
+        {"target": "ray", "status": "optional"},
+        {"target": "ray", "condition": "RAY_SOURCE=ray-container-cpu"},
+    ],
+)
+def test_data_flow_call_objects_reject_bad_shapes(
+    services_root, write_manifest, minimal_manifest_dict, entry
+):
+    write_manifest("redis", minimal_manifest_dict("redis") | {"data_flow": {"calls": [entry]}})
+
+    with pytest.raises(ManifestLoadError, match="data_flow"):
+        load_manifests(services_root)
+
+
 def test_manifest_without_capabilities_is_rejected(
     services_root, write_manifest, minimal_manifest_dict
 ):

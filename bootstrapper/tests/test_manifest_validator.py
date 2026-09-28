@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from services.manifests import load_manifests
+from services.manifests import call_edges, load_manifests
 from services.manifest_validator import (
     ValidationIssue,
     validate_manifests,
@@ -815,6 +815,40 @@ def test_data_flow_aggregate_doc_folder_target_accepted(
     assert not [i for i in issues if i.kind == "data_flow_unknown_target"]
 
 
+def test_data_flow_object_entries_are_checked_like_names(
+    services_root, write_manifest, minimal_manifest_dict
+):
+    """#1273: an object entry's target gets the same existence check, a target
+    named in both shapes is a duplicate the schema's uniqueItems cannot see,
+    and repo-path evidence must exist while an https URL is not probed."""
+    write_manifest("redis", minimal_manifest_dict("redis"))
+    backend = minimal_manifest_dict("backend") | {
+        "category": "apps",
+        "data_flow": {"calls": [
+            "redis",
+            {"target": "redis", "status": "optional", "condition": "REDIS_SOURCE=container"},
+            {"target": "ghost", "status": "planned", "evidence": "services/redis/service.yml"},
+            {"target": "stt-provider", "evidence": "services/does/not/exist.py:12"},
+            {"target": "tts-provider", "evidence": "https://example.com/tts"},
+            # A path that climbs out of the repository is never evidence.
+            {"target": "doc-processor", "evidence": "services/../../outside.txt"},
+        ]},
+    }
+    write_manifest("backend", backend)
+    from services.manifests import load_manifests
+
+    issues = validate_manifests(load_manifests(services_root))
+    assert sorted(
+        (i.kind, i.message.split("'")[1])
+        for i in issues if i.kind.startswith("data_flow") and i.manifest == "backend"
+    ) == [
+        ("data_flow_duplicate_target", "redis"),
+        ("data_flow_missing_evidence", "doc-processor"),
+        ("data_flow_missing_evidence", "stt-provider"),
+        ("data_flow_unknown_target", "ghost"),
+    ]
+
+
 def test_aggregate_doc_folder_names_match_deps_resolver():
     """The validator's local doc-folder set must track the canonical
     deps_resolver._AGGREGATE_DOC_FOLDERS keys; if they drift, the data_flow
@@ -885,6 +919,32 @@ def test_integration_claims_ledger_corrections_live_in_the_manifests() -> None:
     incorrect = [row[0].strip("`").split(" → ") for row in sampled if row[7] == "incorrect"]
 
     assert incorrect == [["backend", "neo4j"]]
+    # Absent, or kept visible only as planned (#1273): never a current edge.
     for caller, target in incorrect:
-        assert target not in (manifests[caller].data_flow or {}).get("calls", [])
+        assert {
+            edge.status for edge in call_edges(manifests[caller].data_flow) if edge.target == target
+        } <= {"planned"}
     assert "https://github.com/thekaveh/atlas/issues/1273" in text
+
+
+def test_reviewed_optional_and_planned_edges_are_qualified() -> None:
+    """#1273 AC4: the ledger's optional edges carry a condition and evidence,
+    and the documented-only edges are planned, in the callers' manifests."""
+    from pathlib import Path
+
+    manifests = {m.name: m for m in load_manifests(Path(__file__).resolve().parents[2] / "services")}
+    optional = [
+        ("jupyterhub", "mcp-servers"), ("kong", "ray"), ("jenkins", "minio"),
+        ("cloudflared", "kong"), ("openclaw", "litellm"),
+        ("docling-lightrag-adapter", "docling"), ("backup", "supabase"), ("weaviate", "litellm"),
+    ]
+    planned = [("backend", "neo4j"), ("hermes", "airflow")]
+
+    def shape(caller: str, target: str) -> tuple[str, bool, bool]:
+        edge = next(e for e in call_edges(manifests[caller].data_flow) if e.target == target)
+        return edge.status, bool(edge.condition), bool(edge.evidence)
+
+    assert {edge: shape(*edge) for edge in optional + planned} == {
+        **{edge: ("optional", True, True) for edge in optional},
+        **{edge: ("planned", False, True) for edge in planned},
+    }

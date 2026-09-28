@@ -158,7 +158,10 @@ runtime_deps:
 
 data_flow:
   calls:
-    - supabase
+    - target: supabase
+      status: optional
+      condition: BACKUP_SOURCE=container; runs on demand, not resident
+      evidence: services/backup/init/scripts/backup-all.sh
     - minio
     - neo4j
     - weaviate

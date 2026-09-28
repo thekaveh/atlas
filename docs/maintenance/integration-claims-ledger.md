@@ -140,7 +140,9 @@ code opens a Bolt connection. `graphiti_experiment.py` only reports whether
 variables as stubbed placeholders. The edge was removed from
 `services/backend/service.yml`, with a comment saying why, and the Backend and
 Neo4j READMEs, SVGs and HTML files were regenerated. The planned integration remains in the Backend
-README's user-authored "Future — Missing pair integrations" block.
+README's user-authored "Future — Missing pair integrations" block, and #1273
+restores the edge to `data_flow.calls` as `planned`, so the diagrams show it
+without claiming a live call.
 
 **Unconfirmed, left in place and marked here.** Eleven edges rest on a
 connection variable handed to an upstream image Atlas does not vendor, so the
@@ -195,12 +197,12 @@ Three exist only after operator setup outside the repo:
 - The unsampled `hermes → airflow` edge is declared by its own manifest comment
   (`services/hermes/service.yml:246-252`) as a documented pattern, not a
   pre-wired runtime call, which puts it in the same class as `backend → neo4j`.
-  It is left for #1273, where the edge can be declared as planned.
+  #1273 declares it `planned`.
 - Weaviate's default `text2vec-openai` module has no default `baseURL`, so a
   collection created without one might target OpenAI directly with the LiteLLM
   key. This was not verified at runtime and is not asserted.
 
-### 2.3. What `data_flow.calls` cannot express
+### 2.3. What `data_flow.calls` could not express
 
 `calls` is a flat list of names (`bootstrapper/schemas/service.schema.json`,
 `data_flow.calls`). Every edge renders the same way, so the generated output
@@ -219,6 +221,25 @@ cannot tell these apart:
 This ledger therefore records status and verdict itself. Qualifying the edges
 in the schema is tracked as a separate follow-up ([#1273](https://github.com/thekaveh/atlas/issues/1273)), so that the
 generated diagrams and tables can show the difference.
+
+**Update ([#1273](https://github.com/thekaveh/atlas/issues/1273), PR_LINK_PLACEHOLDER).** The schema can now express status. A `calls` entry
+may be an object with `target`, `status` (`current`, `optional` or
+`planned`), `condition` and `evidence`. The generated tables add a Status
+column and the diagrams draw a dashed pill for any edge that is not current.
+The edges this pass found optional now carry their conditions:
+
+- `jupyterhub → mcp-servers`
+- `kong → ray`
+- `jenkins → minio`
+- `cloudflared → kong`
+- `openclaw → litellm`
+- `docling-lightrag-adapter → docling`
+- `backup → supabase`
+- `weaviate → litellm`
+
+`backend → neo4j` returns as `planned`, and `hermes → airflow` is now
+`planned`. The other distinctions above still live only in this ledger:
+mandatory versus best-effort, and a route that changes under another SOURCE.
 
 ## 3. Unsampled edges by caller
 

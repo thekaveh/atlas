@@ -195,3 +195,31 @@ def test_svg_matches_golden_snapshot():
         "Path('bootstrapper/tests/fixtures/hermes.architecture.svg').write_text("
         "render_svg(build_doc_graph('hermes', Path('services'))))\"\n"
     )
+
+
+def test_optional_and_planned_pills_are_dashed_and_legended():
+    """#1273: optional and planned pills get distinct dashed outlines, a
+    cluster with no current edge gets a dashed arrow, and the legend gains a
+    key; an all-current diagram carries none of these."""
+    from docs.deps_resolver import DepEdge, DepGraph
+    from docs.diagram_renderer import STATUS_DASHES, render_svg
+
+    def graph(*extra_up, down=()):
+        return DepGraph(
+            focus="probe", category="apps", port_var=None, source="container",
+            upstream=(DepEdge("redis", "upstream", other_category="data"), *extra_up),
+            downstream=tuple(down),
+        )
+
+    plain = render_svg(graph())
+    qualified = render_svg(graph(
+        DepEdge("ray", "upstream", other_category="infra", status="optional"),
+        down=[DepEdge("kong", "downstream", other_category="infra", status="planned")],
+    ))
+    dashes = [f'stroke-dasharray="{STATUS_DASHES[s]}"' for s in ("optional", "planned")]
+
+    assert (
+        [plain.count(d) for d in dashes], ">optional<" in plain, ">planned<" in plain,
+        [qualified.count(d) for d in dashes], ">optional<" in qualified, ">planned<" in qualified,
+    ) == ([0, 0], False, False, [3, 3], True, True)
+

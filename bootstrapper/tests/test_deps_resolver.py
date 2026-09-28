@@ -149,3 +149,27 @@ def test_lightrag_document_flow_traverses_the_isolated_adapter():
 
     adapter = build_graph("docling-lightrag-adapter", SERVICES_DIR)
     assert "docling" in {edge.other for edge in adapter.upstream}
+
+
+def test_edge_status_comes_from_the_declaring_manifest():
+    """#1273: an upstream pill carries the caller's qualification and a
+    downstream pill the consumer's; the strongest status wins a collision and
+    equal statuses keep every distinct condition."""
+    from docs.deps_resolver import DepEdge, _stronger, build_graph
+
+    up = {e.other: (e.status, e.condition) for e in build_graph("jupyterhub", SERVICES_DIR).upstream}
+    down = {e.other: e.status for e in build_graph("neo4j", SERVICES_DIR).downstream}
+    current = DepEdge("x", "upstream")
+    planned = DepEdge("x", "upstream", status="planned")
+    when_a = DepEdge("x", "upstream", status="optional", condition="A")
+    when_b = DepEdge("x", "upstream", status="optional", condition="B")
+
+    assert (
+        up["mcp-servers"], up["litellm"], down["backend"], down["jupyterhub"],
+        _stronger(planned, current), _stronger(current, planned), _stronger(None, planned),
+        _stronger(_stronger(when_a, when_b), when_a).condition,
+    ) == (
+        ("optional", "MCP_SERVERS_SOURCE=container"), ("current", ""), "planned", "current",
+        current, current, planned, "A; B",
+    )
+

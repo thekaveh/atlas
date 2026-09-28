@@ -280,6 +280,25 @@ But trimming `litellm` from `ollama.depends_on.required` correctly removed a fak
 
 The `data_flow.calls` field is a runtime call graph that drives the architecture diagram and the per-service README's Dependencies & Integrations block. It is **independent** of `depends_on`. Use it to describe which services this one calls at runtime in the request path (excluding init-time bootstrap calls).
 
+An entry is either a plain name, which declares a current edge, or an object that qualifies the edge (#1273):
+
+```yaml
+data_flow:
+  calls:
+    - litellm                          # current: happens whenever both services run
+    - target: mcp-servers
+      status: optional                 # current | optional | planned
+      condition: MCP_SERVERS_SOURCE=container
+      evidence: services/jupyterhub/build/notebooks/15_mcp_clients.ipynb
+```
+
+- `optional` edges happen only under their `condition`, which is a SOURCE expression or a short free-text condition such as an operator setup step.
+- `planned` edges are documented or intended but not wired yet.
+- `evidence` is a repository path, `path:line`, or an `https` URL showing the call. The validator fails a repository path that does not exist.
+- Each target appears once, whichever shape declares it.
+
+The generated tables add a Status column, and the diagram draws a dashed pill, for any edge that is not `current`. A service whose edges are all current renders exactly as before.
+
 <a id="10-decision-6--adaptive-behavior--when-to-write-a-hook"></a>
 
 ## 10. Decision 6 — Adaptive behavior + when to write a hook
@@ -838,7 +857,7 @@ cross-manifest rules; do not edit it by hand.
 | `unique_containers` | `duplicate_container` | Each Compose container name has exactly one owning manifest. |
 | `unique_capabilities` | `duplicate_capability` | Capability names are unique within each manifest. |
 | `support_evidence` | `support_stable_without_release_evidence` | A stable support tier cites evidence gathered at a release tag. |
-| `data_flow_targets` | `data_flow_unknown_target` | Every runtime data-flow target names a manifest or approved aggregate documentation folder. |
+| `data_flow_targets` | `data_flow_unknown_target`, `data_flow_duplicate_target`, `data_flow_missing_evidence` | Every runtime data-flow target names a manifest or approved aggregate documentation folder, appears once, and any repo-path evidence exists. |
 | `dependency_closure` | `unknown_dependency` | Required and optional dependencies name existing manifests. |
 | `export_consumer_closure` | `unknown_consumer` | Every exported-variable consumer names an existing manifest. |
 | `per_manifest_contract` | `undeclared_source_var`, `undeclared_export` | Source variables and exported values are declared or produced by their owning manifest. |

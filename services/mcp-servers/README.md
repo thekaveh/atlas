@@ -58,11 +58,11 @@ MetaMCP, Docker MCP Gateway, and `mcpo` remain later or conditional tools. MetaM
 
 ### 5.2. Current — Downstream (services that call this)
 
-| Service | Category |
-|---|---|
-| kong | infra |
-| trueforge | agents |
-| jupyterhub | apps |
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | current |
+| trueforge | agents | current |
+| jupyterhub | apps | optional: MCP_SERVERS_SOURCE=container |
 
 ### 5.3. Architecture diagram
 
