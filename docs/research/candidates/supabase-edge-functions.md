@@ -1,10 +1,13 @@
 ---
 category-fit: apps
+decided: 2026-07-04
 generated: 2026-07-04
 license: Apache-2.0
+lifecycle: deferred
 name: Supabase Edge Functions (Deno runtime)
 referenced-by: [supabase]
 slug: supabase-edge-functions
+superseded-by: https://github.com/thekaveh/atlas/issues/232
 type: external-service
 upstream: https://supabase.com/docs/guides/functions
 ---

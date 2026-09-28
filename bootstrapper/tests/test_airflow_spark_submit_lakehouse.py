@@ -63,7 +63,7 @@ _FAKE_DOCKER_SOURCE = (
     "    printf '%s' \"$token\" > \"$(resource_file container \"$name\")\"\n"
     "    [[ \"${FAKE_DOCKER_COLLISION:-}\" != \"$name\" ]] || exit 125\n"
     "  fi\n"
-    "  if [[ \"$FAKE_DOCKER_HANG\" = readiness && \"$*\" = *quay.io/minio/mc:* ]]; then sleep 30; fi\n"
+    "  if [[ \"$FAKE_DOCKER_HANG\" = readiness && \"$*\" = *pgsty/mc:* ]]; then sleep 30; fi\n"
     "  if [[ \"$FAKE_DOCKER_HANG\" = *spark* && \"$*\" = *spark-submit* ]]; then sleep 30; fi\n"
     "  if [[ \"$auto_remove\" = true && \"$detached\" = false && -n \"$name\" ]]; then\n"
     "    rm -f \"$(resource_file container \"$name\")\"\n"
@@ -138,6 +138,35 @@ def _wait_for_process_barrier(
     os.killpg(process.pid, signal.SIGKILL)
     process.communicate()
     pytest.fail(failure)
+
+
+def _process_has_exited(pid: int) -> bool:
+    """True once ``pid`` is no longer running: reaped, or a zombie.
+
+    ``os.kill(pid, 0)`` succeeds on a zombie, so an instant ProcessLookupError
+    check reports a killed process as alive until whatever reaps it gets
+    scheduled -- the smoke script itself, or init once the script has exited.
+    That lag is load-dependent, and a container init that reaps lazily makes it
+    unbounded (#1237). A zombie has exited; it only awaits its reaper.
+    """
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return False  # no procfs (macOS): wait for the reaper instead
+    return stat.rsplit(")", 1)[-1].split()[0] == "Z"
+
+
+def _wait_for_exit(pid: int) -> bool:
+    deadline = time.monotonic() + _PROCESS_BARRIER_SECONDS
+    while not _process_has_exited(pid):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+    return True
 
 
 def test_airflow_image_has_real_spark_submit_client_and_lakehouse_jars() -> None:
@@ -338,8 +367,8 @@ def test_required_ci_runs_a_real_spark_minio_s3a_round_trip() -> None:
     assert all(
         fragment in smoke
         for fragment in (
-            "quay.io/minio/minio:",
-            "quay.io/minio/mc:",
+            "pgsty/silo:",
+            "pgsty/mc:",
             "spark.hadoop.fs.s3a.endpoint=http://minio:9000",
             "/opt/spark/bin/spark-submit",
             "ATLAS_S3A_SMOKE_TIMEOUT_SECONDS",
@@ -461,26 +490,31 @@ def test_s3a_probe_reconciliation_is_clipped_to_remaining_overall_deadline(
     tmp_path: Path,
 ) -> None:
     env, log = _fake_docker_environment(tmp_path, "spark")
+    # Separate the two outcomes by an order of magnitude instead of a tight
+    # wall-clock budget (#1237). Clipped, every reconcile window is bounded by
+    # the 3s overall deadline and the run takes a few seconds; unclipped, the
+    # probe reconcile alone would run the full 120s pull timeout. The 60s hang
+    # guard below therefore fails an unclipped run outright while leaving the
+    # clipped one about twenty times its idle duration on a contended runner,
+    # where the old 20s budget could be reached by a correct run.
     env.update(
         ATLAS_S3A_SMOKE_TIMEOUT_SECONDS="3",
-        ATLAS_S3A_COMMAND_TIMEOUT_SECONDS="8",
-        ATLAS_S3A_PULL_TIMEOUT_SECONDS="30",
+        ATLAS_S3A_COMMAND_TIMEOUT_SECONDS="120",
+        ATLAS_S3A_PULL_TIMEOUT_SECONDS="120",
         FAKE_DOCKER_DELAY_PROBE_INSPECTIONS="999",
     )
 
-    started = time.monotonic()
     result = subprocess.run(
         [str(S3A_SMOKE), "atlas-test-spark:latest"],
         cwd=ROOT,
         env=env,
         capture_output=True,
         text=True,
-        timeout=20,
+        timeout=60,
         check=False,
     )
 
     assert result.returncode != 0
-    assert time.monotonic() - started < 20
     probe_inspections = [
         line
         for line in log.read_text(encoding="utf-8").splitlines()
@@ -489,10 +523,10 @@ def test_s3a_probe_reconciliation_is_clipped_to_remaining_overall_deadline(
     ]
     # cleanup_resource() polls on `sleep 0.1`, so the probe count is roughly ten
     # per second of reconcile window. Clipping to the 3s overall deadline admits
-    # about thirty; an unclipped reconcile would run the full 8s command timeout
-    # and produce about eighty. Bound the clipped case with headroom rather than
-    # at its own arithmetic edge -- the previous `< 10` sat exactly on the count
-    # a loaded runner produces and failed as `assert 10 < 10`.
+    # about thirty; an unclipped reconcile would poll for the full 120s pull
+    # timeout. Bound the clipped case with headroom rather than at its own
+    # arithmetic edge -- the previous `< 10` sat exactly on the count a loaded
+    # runner produces and failed as `assert 10 < 10`.
     assert 1 <= len(probe_inspections) < 60
 
 
@@ -530,7 +564,7 @@ def test_s3a_smoke_success_never_hides_unproven_cleanup(
     [
         *[
             pytest.param(
-                (signal.SIGHUP, 129, "pull", "pull quay.io/minio/minio:"),
+                (signal.SIGHUP, 129, "pull", "pull pgsty/silo:"),
                 id=f"hup-pull-{attempt}",
             )
             for attempt in range(5)
@@ -747,20 +781,23 @@ def test_s3a_smoke_kills_runner_that_never_publishes_readiness(
         "ATLAS_S3A_PULL_TIMEOUT_SECONDS": "1",
     }
 
-    started = time.monotonic()
+    # A hang guard, not a speed assertion (#1237). The run takes about a second
+    # when idle, but this test failed on an idle machine too, so the old 7s
+    # bound was not the only load-sensitive part: see _process_has_exited
+    # below. What this test proves is the outcome -- the script exits non-zero
+    # and no runner survives it. A script that waited on the TERM-resistant
+    # runner instead of killing it would never exit and trips this guard.
     result = subprocess.run(
         [str(S3A_SMOKE), "atlas-test-spark:latest"],
         cwd=ROOT,
         env=env,
         capture_output=True,
         text=True,
-        timeout=7,
+        timeout=_PROCESS_BARRIER_SECONDS,
         check=False,
     )
 
     assert result.returncode != 0
-    assert time.monotonic() - started < 7
     for pid in map(int, pid_log.read_text(encoding="utf-8").splitlines()):
-        with pytest.raises(ProcessLookupError):
-            os.kill(pid, 0)
+        assert _wait_for_exit(pid), f"runner {pid} survived the S3A smoke"
     assert not list(runner_tmp.glob("atlas-s3a-ready.*"))

@@ -160,9 +160,9 @@ def test_airflow_uses_supported_core_and_unfrozen_provider_security_fixes() -> N
     dockerfile = _text("services/airflow/build/Dockerfile")
     requirements = _text("services/airflow/build/requirements.txt")
 
-    assert 'default: "apache/airflow:3.3.1"' in manifest
-    assert "apache/airflow:3.3.1" in compose
-    assert "ARG BASE_IMAGE=apache/airflow:3.3.1" in dockerfile
+    assert 'default: "apache/airflow:3.3.2"' in manifest
+    assert "apache/airflow:3.3.2" in compose
+    assert "ARG BASE_IMAGE=apache/airflow:3.3.2" in dockerfile
     assert "--constraint" not in dockerfile
     assert "setuptools>=83.0.0" in requirements
     # #782: the 6.x spark provider swapped its dep to pyspark-client, whose
@@ -179,11 +179,23 @@ def test_airflow_overlay_remains_compatible_with_the_upstream_image() -> None:
     requirements = _text("services/airflow/build/requirements.txt")
 
     assert {
-        "botocore<1.43.57",
+        "botocore<1.43.76",
         "importlib-metadata<9",
         "protobuf<6.34",
         "websockets<17",
     } <= set(requirements.splitlines())
+    # The overlay installs onto the base with the lock as a constraint. A lock
+    # pinning another core release than the base, or a botocore outside the
+    # base's aiobotocore range (3.9.1 on 3.3.2: >=1.43.66,<1.43.76), downgrades
+    # the base and fails the Dockerfile's `pip check`; a pins-only 3.3.1 ->
+    # 3.3.2 bump that kept botocore 1.43.56 would have done exactly that.
+    lock = set(_text("services/airflow/build/requirements-locked.txt").splitlines())
+    base = re.search(r"^ARG BASE_IMAGE=apache/airflow:(\S+)$", dockerfile, re.M).group(1)
+    assert (
+        f"apache-airflow=={base}" in lock,
+        f"apache-airflow-core=={base}" in lock,
+        "botocore==1.43.75" in lock,
+    ) == (True, True, True)
     assert "python -m pip check" in dockerfile
     assert "rm -f /usr/bin/docker" in dockerfile
     assert "/home/airflow/.local/bin/uv" in dockerfile
@@ -240,7 +252,7 @@ def test_airflow_build_validation_uses_runtime_core_release() -> None:
     contributor_docs = _text("docs/CONTRIBUTING-services.md")
     dependabot = _text(".github/dependabot.yml")
 
-    assert "ARG BASE_IMAGE=apache/airflow:3.3.1" in dockerfile
+    assert "ARG BASE_IMAGE=apache/airflow:3.3.2" in dockerfile
     assert '"services/airflow/build|Dockerfile"' in workflow
     assert "--build-arg BASE_IMAGE=apache/airflow" not in workflow
     assert "--build-arg BASE_IMAGE=apache/airflow:3.2.2" not in workflow

@@ -675,8 +675,10 @@ def test_every_docs_publication_job_has_a_deadline() -> None:
 
 def test_local_docs_build_and_check_commands_use_bounded_runner() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    assert makefile.count("\t$(BOUNDED)") == 11
-    assert makefile.count("--forward-stderr") == 11
+    # 11 before #1053 added the external-asset preflight to docs-build,
+    # docs-check and docs-serve, and the docs-assets-verify target.
+    assert makefile.count("\t$(BOUNDED)") == 15
+    assert makefile.count("--forward-stderr") == 15
 
 
 def test_redacted_failure_omits_captured_output_and_command():

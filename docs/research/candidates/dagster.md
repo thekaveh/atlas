@@ -1,10 +1,13 @@
 ---
 category-fit: agents
+decided: 2026-07-04
 generated: 2026-07-04
 license: Apache-2.0
+lifecycle: deferred
 name: Dagster
 referenced-by: [minio]
 slug: dagster
+superseded-by: https://github.com/thekaveh/atlas/issues/224
 type: external-service
 upstream: https://github.com/dagster-io/dagster
 ---

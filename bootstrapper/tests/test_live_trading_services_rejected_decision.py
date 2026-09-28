@@ -81,5 +81,7 @@ def test_trading_track_and_strategy_keep_live_trading_rejected() -> None:
     strategy = STRATEGY_REPORT.read_text(encoding="utf-8")
 
     assert "Read-only financial research and paper portfolios in notebooks; no live trading." in tracks
-    assert "| Live Trading Services | agents | _(none)_ | [candidates/live-trading-services.md]" in matrix
+    # A rejected record is history, not a candidate: the matrix drops it (#1190).
+    assert "[candidates/live-trading-services.md]" not in matrix
+    assert "\nlifecycle: rejected\n" in _candidate_text()
     assert "July 4, 2026 decision keeps live trading services rejected for now" in strategy

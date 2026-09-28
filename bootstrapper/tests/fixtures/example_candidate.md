@@ -6,6 +6,7 @@ category-fit: agents
 generated: 2026-05-18
 upstream: https://github.com/example/example-candidate
 license: MIT
+lifecycle: proposed
 referenced-by: [example-service]
 ---
 

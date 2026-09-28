@@ -1,10 +1,13 @@
 ---
 category-fit: data
+decided: 2026-07-04
 generated: 2026-07-04
 license: Apache-2.0
+lifecycle: deferred
 name: Lakekeeper
 referenced-by: [minio]
 slug: lakekeeper
+superseded-by: https://github.com/thekaveh/atlas/issues/229
 type: external-service
 upstream: https://github.com/lakekeeper/lakekeeper
 ---

@@ -1064,6 +1064,15 @@ On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it
 
 Downstream payoff: `rag-showcase` moves its graph-RAG flavor definitions out of bespoke code/config into a reusable Atlas profile contract — comparable, documentable, and visible to Open WebUI users.
 
+**Extract-role generation caps.** Running the EXTRACT role on native Ollama takes it off LiteLLM. Set `LIGHTRAG_EXTRACT_LLM_MODEL` (required for a role on its own binding), `LIGHTRAG_EXTRACT_LLM_BINDING=ollama` and its `_BINDING_HOST`. Also set `LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY` to a placeholder such as `ollama`: left empty, it defaults to the LiteLLM master key, as KEYWORD and QUERY do, and Ollama would receive that key.
+
+In LightRAG 1.5.4 such a role sends no generation options of its own, so Atlas caps it (#796):
+
+- `LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT` (default `4096` output tokens), passed through as `EXTRACT_OLLAMA_LLM_NUM_PREDICT`;
+- `LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX` (default `16384`), passed through as `EXTRACT_OLLAMA_LLM_NUM_CTX`.
+
+Keep both numeric. The [LightRAG service guide](../../services/lightrag/README.md) explains how the defaults were sized, how `LIGHTRAG_EXTRACT_LLM_TIMEOUT` bounds a call, and why one failed chunk fails its document.
+
 ### 6.4. Consuming auto-managed endpoint variables
 
 Atlas's bootstrapper computes a set of **auto-managed endpoint variables** in `.env` that resolve to the correct internal URL for whichever `*_SOURCE` mode is active. Downstream consumers (whether Method A standalone or Method B submodule) should bridge these into their own service variables rather than hard-coding a URL.

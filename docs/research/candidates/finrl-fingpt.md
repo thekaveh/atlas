@@ -1,10 +1,13 @@
 ---
 category-fit: apps
+decided: 2026-07-04
 generated: 2026-07-04
 license: MIT
+lifecycle: deferred
 name: FinRL And FinGPT
 referenced-by: []
 slug: finrl-fingpt
+superseded-by: https://github.com/thekaveh/atlas/issues/235
 type: external-service
 upstream: https://github.com/AI4Finance-Foundation/FinRL
 ---

@@ -299,9 +299,7 @@ For more information on Kong's role in the overall architecture, see the system 
 
 ### 13.5. Future — Candidate new services
 
-- **Prometheus** ([details](../../docs/research/candidates/prometheus.md)) — *Headline:* time-series database that turns Kong's bundled `prometheus` plugin plus per-service exporters into a single observability spine. *Wires into:* kong, redis, supabase, n8n, ollama, litellm, backend.
 - **Keycloak** ([details](../../docs/research/candidates/keycloak.md)) — *Headline:* self-hosted OIDC/OAuth2 provider replacing the stack's ad-hoc per-service basic-auth with a single SSO layer fronted by Kong. *Wires into:* kong, jupyterhub, open-webui, n8n, minio, neo4j, openclaw, backend.
-- **Grafana Loki** ([details](../../docs/research/candidates/grafana-loki.md)) — *Headline:* log-aggregation backend that pairs with Kong's `http-log` plugin to give the stack a single queryable log store across every routed service. *Wires into:* kong, backend, litellm, n8n, hermes, comfyui, supabase.
 
 ### 13.6. Future — Unused features in this service
 

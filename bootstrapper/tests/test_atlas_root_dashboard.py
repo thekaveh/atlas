@@ -164,3 +164,104 @@ def test_dashboard_service_cards_show_descriptions(tmp_path):
     assert descriptions, "at least some services must carry a description"
     html = _sample_html(tmp_path)
     assert 'class="card-desc"' in html
+
+
+# ── #1189: a card's auth note matches what its Kong route enforces ──────────
+
+_REPO = Path(__file__).resolve().parents[2]
+
+
+def _kong_services_with_every_gated_service_enabled(tmp_path: Path) -> list[dict]:
+    """Generate the real Kong config with each dashboard-gated service on."""
+    import yaml
+
+    from core.config_parser import ConfigParser
+    from utils.kong_config_generator import KongConfigGenerator
+
+    enabled = {
+        **{f"{name}_SOURCE": "container" for name in (
+            "LANGFUSE", "MLFLOW", "TRINO", "TRUEFORGE", "LABEL_STUDIO", "VERBA",
+            "LLM_GRAPH_BUILDER", "MCP_SERVERS", "REDPANDA", "TIKA", "CRAWL4AI",
+            "CELERY", "GRAFANA", "JUPYTERHUB",
+        )},
+        "RAY_SOURCE": "ray-container-cpu",
+        "SUPABASE_ANON_KEY": "test-anon", "SUPABASE_SERVICE_KEY": "test-service",
+    }
+    env = (_REPO / ".env.example").read_text(encoding="utf-8").splitlines()
+    env = [line for line in env if line.split("=", 1)[0] not in enabled]
+    env += [f"{key}={value}" for key, value in enabled.items()]
+    env_path = tmp_path / ".env"
+    env_path.write_text("\n".join(env) + "\n", encoding="utf-8")
+    parser = ConfigParser(str(_REPO))
+    parser.env_file_path = env_path
+    raw = KongConfigGenerator(parser).generate_kong_config()
+    return (yaml.safe_load(raw) if isinstance(raw, str) else raw)["services"]
+
+
+def _dashboard_cards(dashboard_service: dict) -> dict[str, str]:
+    """Kong host -> auth note for every linked card in the dashboard HTML."""
+    import re
+
+    lua = dashboard_service["routes"][0]["plugins"][0]["config"]["access"][0]
+    return {
+        m.group(1): m.group(2)
+        for m in re.finditer(
+            r'<a class="card" href="http://([\w.-]+\.localhost):\d+/?".*?'
+            r'<span class="auth">([^<]+)</span>',
+            lua, re.S,
+        )
+    }
+
+
+def test_card_auth_notes_come_from_the_generated_basic_auth_routes(tmp_path):
+    """The dashboard used to hard-code two aliases as "Kong basic-auth"
+    (Studio, Ray) and call every other gated route "Service-specific", so
+    Langfuse, MLflow, Trino, TrueForge and the rest looked ungated. The Kong
+    generator now hands the dashboard the hosts its own routes gate."""
+    from utils.kong_config_generator import _basic_auth_hosts
+
+    services = _kong_services_with_every_gated_service_enabled(tmp_path)
+    assert services[0]["name"] == "atlas-root-dashboard", "the dashboard stays first"
+    gated = _basic_auth_hosts(services[1:])
+    assert "grafana.localhost" not in gated  # Grafana's own login, no Kong gate
+
+    cards = _dashboard_cards(services[0])
+    assert {"langfuse.localhost", "trino.localhost", "ray.localhost"} <= set(cards)
+    for host in gated & set(cards):
+        assert cards[host].startswith("Kong basic-auth"), (host, cards[host])
+    assert cards.get("grafana.localhost") == "Grafana login"
+    assert cards.get("jupyter.localhost") == "Jupyter token"
+
+
+def _documented_gated_hosts() -> set[str]:
+    import re
+
+    page = (_REPO / "docs/operations/access-and-credentials.md").read_text(encoding="utf-8")
+    rows = [
+        line.split("|")[2] for line in page.splitlines()
+        if line.startswith("|") and "Kong dashboard basic-auth" in line
+    ]
+    return {host for cell in rows for host in re.findall(r"`([\w.-]+\.localhost)`", cell)}
+
+
+def test_the_access_page_names_exactly_the_hosts_kong_gates(tmp_path):
+    """The Access and Credentials page claims the dashboard basic-auth row by
+    row (#1189). With every gated service enabled, its list must equal what
+    the generated Kong routes enforce -- so a new gated route, or a dropped
+    one, fails here until the page says so."""
+    from utils.kong_config_generator import _basic_auth_hosts
+
+    gated = _basic_auth_hosts(_kong_services_with_every_gated_service_enabled(tmp_path))
+    documented = _documented_gated_hosts()
+    assert documented == gated, (sorted(documented - gated), sorted(gated - documented))
+
+
+def test_auth_note_combines_the_gate_with_the_services_own_credential():
+    from utils.atlas_dashboard import _auth_note
+
+    gated = frozenset({"minio.localhost", "trino.localhost"})
+    assert _auth_note("Trino", "trino.localhost", gated) == "Kong basic-auth"
+    assert _auth_note("MinIO", "minio.localhost", gated) == "Kong basic-auth + MinIO credentials"
+    assert _auth_note("MinIO", "minio.localhost") == "MinIO credentials"
+    assert _auth_note("Weaviate", "weaviate.localhost", gated) == "Service-specific"
+    assert _auth_note("Redis", None) == "Internal"

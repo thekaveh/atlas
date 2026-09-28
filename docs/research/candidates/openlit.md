@@ -1,10 +1,13 @@
 ---
 category-fit: infra
+decided: 2026-07-04
 generated: 2026-07-04
 license: Apache-2.0
+lifecycle: deferred
 name: OpenLIT
 referenced-by: [ollama]
 slug: openlit
+superseded-by: https://github.com/thekaveh/atlas/issues/233
 type: external-service
 upstream: https://github.com/openlit/openlit
 ---

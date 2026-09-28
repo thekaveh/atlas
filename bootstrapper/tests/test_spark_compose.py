@@ -87,14 +87,23 @@ def test_spark_connect_caps_standalone_cluster_cores():
 
 
 def test_spark_init_uses_minio_mc_image():
-    """spark-init must use the minio/mc image — Alpine's `apk add mc`
+    """spark-init must use the MinIO Client (mc) image — Alpine's `apk add mc`
     installs GNU Midnight Commander (TUI file manager), NOT MinIO Client.
     Pass 2 audit P2-1 verified this empirically; this test locks the fix.
+    The default is the same pinned mc image minio-init uses (Silo's pgsty/mc
+    since quay.io/minio stopped serving anonymous pulls).
     """
     doc = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
     image = doc["services"]["spark-init"]["image"]
-    assert "minio/mc" in image, (
-        f"spark-init image should be minio/mc:..., got {image!r}. "
+    manifest = yaml.safe_load(
+        (COMPOSE.parent.parent / "minio" / "service.yml").read_text(encoding="utf-8")
+    )
+    init_image = next(
+        entry["default"] for entry in manifest["images"]
+        if entry["var"] == "MINIO_INIT_IMAGE"
+    )
+    assert image == f"${{MINIO_INIT_IMAGE:-{init_image}}}", (
+        f"spark-init image should default to minio-init's mc image, got {image!r}. "
         "alpine:latest's mc package is Midnight Commander, not MinIO Client."
     )
 

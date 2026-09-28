@@ -13,6 +13,8 @@ Every line below is a complete, safe-to-run command:
 ./start.sh doctor
 ./start.sh doctor --format json
 ./start.sh --consumer ./atlas.consumer.yml doctor --format json
+./start.sh doctor --bundle ./atlas-support.tar.gz
+./start.sh --no-tui --support-bundle ./atlas-support.tar.gz
 ./start.sh endpoints export --format env
 ./start.sh endpoints export --format json
 ./start.sh --no-tui --detach
@@ -80,6 +82,102 @@ validation, model sidecars, endpoint reporting, and tracked-file cleanliness.
 Docker-dependent checks are marked skipped when Docker is unavailable;
 Docker-free checks still run. Use `--format json` for CI parsing. Any failed
 check exits non-zero.
+
+### 4.1. Support bundle
+
+A support bundle packages the doctor results, the effective configuration, and
+a log excerpt into one local `.tar.gz` you can attach to an issue. A relative
+`PATH` is resolved against the directory you ran `./start.sh` from.
+
+- `./start.sh doctor --bundle PATH` runs the checks and writes the bundle.
+- `./start.sh --support-bundle PATH` writes one only if the startup pipeline
+  fails:
+  - In the Textual app, that is the launch; the log excerpt is the session log.
+  - Under `--no-tui`, that is the startup steps; the log excerpt is what the run
+    printed. Docker Compose output that goes straight to the terminal is not
+    captured.
+  - A failure before the pipeline starts (Docker missing, an invalid flag)
+    leaves no bundle; run `./start.sh doctor --bundle PATH` then.
+  - Stopping the log stream after a successful start (Ctrl+C) is not a failure
+    and writes nothing.
+
+**Before anything is written**, the contents are shown:
+
+- **Under `--no-tui` and `doctor`**, in the terminal. With `--format json` the
+  preview goes to standard error, so standard output stays clean JSON.
+- **In the Textual app**, in the log pane. `bundle.json` is shown in full; each
+  log excerpt shows its first and last 20 lines, since the pane already holds
+  that log. Ctrl+Q waits until the bundle is written.
+
+The file is created owner-only (`0600`). **Nothing is sent anywhere.** While the
+checks run, Python socket connections to anything but loopback or a Unix socket
+are refused. That guard does not cover subprocesses such as
+`docker compose config`. It also means a check that probes a non-local address
+reports that it could not connect, so `doctor --bundle` can differ from plain
+`doctor` there.
+
+**Format.** The archive holds `atlas-support-bundle/bundle.json` (schema
+`atlas-support-bundle/1`), one `atlas-support-bundle/logs/<name>` file per log
+excerpt, and nothing else. The members' owner is fixed and their timestamps are
+the bundle's generation time, so archive metadata carries no user or host names.
+
+`bundle.json` contains:
+
+- `checks`: every doctor check, `id` / `status` / `message` / `available`. A
+  check that is `skipped` (for example, its service is disabled) or
+  `unavailable` (it raised, ran past the time budget, or never started) is
+  recorded, not dropped.
+- `findings`: each failing or warning check, with the configuration keys it
+  names. Each key has its `value`, `origin` and an `action` saying where to
+  change it. The origin is the file that sets the key: a consumer manifest or
+  its env file, `ATLAS_ENV_USER_FILE`, `.env.user`, or `.env`.
+- `config`: the allowlisted keys, with the same `value` / `origin` / `action`.
+- `logs`: per excerpt, its original and kept size and whether it was cut.
+- `truncation`: every cut the caps forced.
+- `omitted`: how many fields the allowlist left out.
+- `context`, `host` (OS, CPU architecture, Python version), and `allowlist`.
+
+**Allowlist.** By default the bundle includes only:
+
+- Check `id`, `status` and `message`.
+- Configuration keys matching `*_SOURCE`, `BASE_PORT` / `*_PORT`, `*MODEL` /
+  `*MODELS`, `PROJECT_NAME`, `ATLAS_PROFILE_APPLIED`, `COMPOSE_PROFILES` and
+  `HOST_BIND_IP`.
+- The redacted log tails.
+
+`doctor --bundle PATH --include-unlisted` adds check `details` and every other
+configuration key. It only adds fields, and they are redacted too.
+
+**Bounds.** Collection is bounded in size and time:
+
+- Each log excerpt keeps its last 256 KiB.
+- Each text field keeps 8,192 characters.
+- All checks together get a 60-second wall-time budget.
+- Redaction patterns are length-bounded, so long log lines stay fast.
+
+Each cut is recorded in `truncation`. If `.env` cannot be read, log excerpts are
+left out, because their known secret values could not be scrubbed.
+
+**Redaction is best-effort.** Terminal colour codes are stripped first. Then
+every string is scrubbed of:
+
+- URL credentials (`scheme://user:pass@host`);
+- `Authorization`, `Cookie` and API-key headers, and `Bearer` / `Basic` /
+  `Token` credentials;
+- `key=value`, `key: value`, JSON and Python-dict pairs whose key names a
+  secret (`password`, `secret`, `token`, `*_key`, and so on);
+- PEM private keys, including a block cut off by the log window;
+- common token shapes (OpenAI, GitHub, Hugging Face, Slack, AWS, Google, JWT);
+- the literal values of secret-named environment keys, from `.env` and from
+  the shell environment.
+
+Values made only of lowercase letters, `-` and `_` are not matched by value.
+Those are enum toggles such as `disabled`, and the public `.env.example`
+placeholders; a pattern above still catches them as `KEY=value`, in a URL or
+in a header.
+
+A secret in an unusual shape can still get through, and so can one the
+terminal wrapped across lines. Read the preview before you share the file.
 
 ## 5. Endpoint Contract Export
 

@@ -1,10 +1,13 @@
 ---
 category-fit: media
+decided: 2026-07-04
 generated: 2026-05-19
 license: MIT
+lifecycle: deferred
 name: imgproxy
 referenced-by: [supabase]
 slug: imgproxy
+superseded-by: https://github.com/thekaveh/atlas/issues/220
 type: external-service
 upstream: https://github.com/imgproxy/imgproxy
 ---

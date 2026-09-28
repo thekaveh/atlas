@@ -1,10 +1,13 @@
 ---
 category-fit: infra
+decided: 2026-07-03
 generated: 2026-05-19
 license: Apache-2.0
+lifecycle: deferred
 name: Keycloak
 referenced-by: [kong]
 slug: keycloak
+superseded-by: docs/strategy/authentik-sso-pilot-evaluation.md
 type: external-service
 upstream: https://www.keycloak.org/
 ---

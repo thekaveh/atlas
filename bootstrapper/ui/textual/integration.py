@@ -30,7 +30,12 @@ _THEME_PATH = Path(__file__).parent / "theme.css"
 # registers without duplicating the string literal.
 from tracks import remark_off_track_rows as _remark_off_track_rows
 from wizard.comfyui_steps import COMFYUI_MODELS_TITLE
-from wizard.model.cloud_rules import SECRET_CLEAR, SECRET_KEEP, resolve_cloud_provider
+from wizard.model.cloud_rules import (
+    SECRET_CLEAR,
+    SECRET_KEEP,
+    resolve_cloud_provider,
+    resolve_secret_verdict,
+)
 
 
 # Module-level sink for wizard-time diagnostic warnings (cloud /v1/models
@@ -1167,30 +1172,20 @@ def _selections_to_args(
     # ─── FAL media-provider secret (#517) ────────────────────────────
     # FAL's plain enabled/disabled source step is replaced by a masked
     # API-token step (spliced after ComfyUI), so its source is derived from
-    # the key here rather than the generic source loop above. Mirrors the
-    # cloud secret semantics exactly:
-    #   None              → step never visited (off-track) → leave .env as-is.
-    #   SECRET_KEEP       → Enter past a saved key; auto-promote to enabled
-    #                       only when a key exists but the source was disabled.
-    #   SECRET_CLEAR / "" → disable + wipe the key (no fal_source=enabled with
-    #                       a blank key — the runtime footgun this ticket fixes).
-    #   real key string   → enable + persist the key.
-    # FAL_API_KEY rides the cloud_api_keys bag (a generic var→value .env
-    # writer), so no new plumbing is needed.
-    fal_secret_v = selections.get(fal_secret_title())
-    if fal_secret_v is None:
-        pass
-    elif fal_secret_v == SECRET_KEEP:
-        existing_source = (env_vars.get("FAL_SOURCE", "disabled") or "").strip().lower()
-        existing_key = (env_vars.get("FAL_API_KEY", "") or "").strip()
-        if existing_source != "enabled" and existing_key:
-            source_args["fal_source"] = "enabled"
-    elif fal_secret_v == SECRET_CLEAR or fal_secret_v == "":
-        source_args["fal_source"] = "disabled"
-        cloud_api_keys["FAL_API_KEY"] = ""
-    else:
-        source_args["fal_source"] = "enabled"
-        cloud_api_keys["FAL_API_KEY"] = fal_secret_v
+    # the key here rather than the generic source loop above. It uses the
+    # SAME verdict table as the cloud providers (#1255): Enter changes
+    # nothing, "enable"/"disable" flip FAL_SOURCE and keep the key, and only
+    # "remove" (or an empty entry) blanks FAL_API_KEY. None (step never
+    # visited, e.g. off-track) is no verdict at all. FAL_API_KEY rides the
+    # cloud_api_keys bag (a generic var→value .env writer).
+    fal = resolve_secret_verdict(
+        selections.get(fal_secret_title()),
+        existing_key_set=bool((env_vars.get("FAL_API_KEY", "") or "").strip()),
+    )
+    if fal.source is not None:
+        source_args["fal_source"] = fal.source
+    if fal.api_key is not None:
+        cloud_api_keys["FAL_API_KEY"] = fal.api_key
 
     # Single unified Ollama models step (replaces the previous
     # pulled+library split). Container modes show library only;

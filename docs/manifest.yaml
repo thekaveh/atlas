@@ -459,6 +459,10 @@ sections:
     number: '6.3'
     title: Ports And Routes
     source: docs/operations/ports-and-routes.md
+  - id: access-credentials
+    number: '6.4'
+    title: Access And Credentials
+    source: docs/operations/access-and-credentials.md
 - id: operations
   number: '7'
   title: Operations
