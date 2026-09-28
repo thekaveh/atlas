@@ -1,8 +1,11 @@
 """LightRAG role-specific LLM model configuration tests."""
 from __future__ import annotations
 
+import importlib.util
+import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -15,6 +18,7 @@ LIGHTRAG_COMPOSE = REPO_ROOT / "services" / "lightrag" / "compose.yml"
 COMPOSE = REPO_ROOT / "docker-compose.yml"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 SMOKE_SCRIPT = REPO_ROOT / "scripts" / "smoke-lightrag-role-models.sh"
+RESOLVER = REPO_ROOT / "services" / "lightrag" / "init" / "scripts" / "resolve-role-keys.py"
 
 ROLE_INPUTS = {
     "LIGHTRAG_EXTRACT_LLM_MODEL": {"native": "EXTRACT_LLM_MODEL", "secret": False},
@@ -29,19 +33,14 @@ ROLE_INPUTS = {
     "LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY": {
         "native": "EXTRACT_LLM_BINDING_API_KEY",
         "secret": True,
-        # #796: EXTRACT joins KEYWORD/QUERY (#721) on the LiteLLM master key.
-        "compose": "${LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}",
     },
     "LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY": {
         "native": "KEYWORD_LLM_BINDING_API_KEY",
         "secret": True,
-        # #721: falls back to the in-network LiteLLM master key when unset.
-        "compose": "${LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}",
     },
     "LIGHTRAG_QUERY_LLM_BINDING_API_KEY": {
         "native": "QUERY_LLM_BINDING_API_KEY",
         "secret": True,
-        "compose": "${LIGHTRAG_QUERY_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}",
     },
     "LIGHTRAG_EXTRACT_MAX_ASYNC_LLM": {"native": "EXTRACT_MAX_ASYNC_LLM", "secret": False},
     "LIGHTRAG_KEYWORD_MAX_ASYNC_LLM": {"native": "KEYWORD_MAX_ASYNC_LLM", "secret": False},
@@ -129,18 +128,120 @@ def test_lightrag_compose_maps_role_inputs_to_native_env_names():
         assert env[native_name] == expected
 
 
-def test_lightrag_role_api_keys_default_to_litellm_master_key():
-    """#721 (KEYWORD/QUERY) and #796 (EXTRACT): every role API key falls back
-    to the in-network LiteLLM master key when the LIGHTRAG_* override is
-    unset, so a consumer pointing a role at LiteLLM needs zero key wiring."""
-    env = _compose_lightrag_environment()
+def test_lightrag_role_api_keys_resolve_at_start_not_in_compose():
+    """#1271: Compose passes each role key through as set, with no master-key
+    default, and the entrypoint execs the read-only mounted resolver, which
+    decides the LiteLLM fallback per role before LightRAG starts."""
+    service = yaml.safe_load(LIGHTRAG_COMPOSE.read_text(encoding="utf-8"))["services"]["lightrag"]
+    env = service["environment"]
 
-    for role in ("EXTRACT", "KEYWORD", "QUERY"):
-        assert env[f"{role}_LLM_BINDING_API_KEY"] == (
-            f"${{LIGHTRAG_{role}_LLM_BINDING_API_KEY:-${{LITELLM_MASTER_KEY}}}}"
-        )
-    # The base binding uses the same master key the roles inherit.
-    assert env["LLM_BINDING_API_KEY"] == "${LITELLM_MASTER_KEY}"
+    assert (
+        [env[f"{role}_LLM_BINDING_API_KEY"] for role in _ROLES],
+        env["LITELLM_MASTER_KEY"],
+        env["LLM_BINDING_API_KEY"],
+        service["entrypoint"][-1].endswith("; exec python /atlas/resolve-role-keys.py"),
+        "./init/scripts/resolve-role-keys.py:/atlas/resolve-role-keys.py:ro" in service["volumes"],
+    ) == (
+        [f"${{LIGHTRAG_{role}_LLM_BINDING_API_KEY:-}}" for role in _ROLES],
+        "${LITELLM_MASTER_KEY}",
+        "${LITELLM_MASTER_KEY}",
+        True,
+        True,
+    )
+
+
+_ROLES = ("EXTRACT", "KEYWORD", "QUERY")
+# Not secret-shaped on purpose: the value only has to be recognisable.
+_MASTER_KEY = "litellm-master-canary"
+_LITELLM_BASE = {
+    "LLM_BINDING": "openai",
+    "LLM_BINDING_HOST": "http://litellm:4000/v1",
+    "LITELLM_MASTER_KEY": _MASTER_KEY,
+}
+
+
+# Host userinfo the error message must not echo; assembled so the source holds
+# no credential-shaped URL.
+_USERINFO = ":".join(("operator", "canary"))
+
+
+def _resolver():
+    spec = importlib.util.spec_from_file_location("lightrag_resolve_role_keys", RESOLVER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _master_for(*roles: str) -> dict[str, str]:
+    return {f"{role}_LLM_BINDING_API_KEY": _MASTER_KEY for role in roles}
+
+
+@pytest.mark.parametrize(
+    ("role_env", "expected"),
+    [
+        # Every role left on the base binding and host talks to LiteLLM.
+        ({}, _master_for(*_ROLES)),
+        # #796 AC5: EXTRACT pointed at LiteLLM explicitly.
+        ({"EXTRACT_LLM_BINDING": "openai", "EXTRACT_LLM_BINDING_HOST": "http://litellm:4000/v1"},
+         _master_for(*_ROLES)),
+        # An explicit key passes through untouched.
+        ({"EXTRACT_LLM_BINDING": "ollama",
+          "EXTRACT_LLM_BINDING_HOST": "http://host.docker.internal:11434",
+          "EXTRACT_LLM_BINDING_API_KEY": "ollama"}, _master_for("KEYWORD", "QUERY")),
+        # LightRAG's get_default_host: an empty ollama host is LLM_BINDING_HOST.
+        ({"EXTRACT_LLM_BINDING": "ollama"}, _master_for(*_ROLES)),
+        # LightRAG reads the literal string "None" as unset.
+        ({"QUERY_LLM_BINDING_API_KEY": "None"}, _master_for(*_ROLES)),
+        # Bedrock rejects a role key and signs with AWS credentials instead.
+        ({"KEYWORD_LLM_BINDING": "aws_bedrock"}, _master_for("EXTRACT", "QUERY")),
+        # No master key, nothing to fall back to.
+        ({"LITELLM_MASTER_KEY": ""}, {}),
+        # Roles that mirror a non-LiteLLM base are the base's concern; LightRAG
+        # splits openai-ollama into an openai LLM binding, so QUERY=openai is
+        # the base binding, not its own.
+        ({"LLM_BINDING": "openai-ollama", "LLM_BINDING_HOST": "http://host.docker.internal:11434",
+          "QUERY_LLM_BINDING": "openai"}, {}),
+    ],
+)
+def test_role_keys_default_to_master_only_for_litellm_hosts(role_env, expected):
+    """#1271 AC1: the resolver hands a role the master key only when that
+    role's effective host, resolved as LightRAG 1.5.4 does, is LiteLLM."""
+    assert _resolver().resolve_role_keys({**_LITELLM_BASE, **role_env}) == expected
+
+
+@pytest.mark.parametrize(
+    ("role", "role_env"),
+    [
+        ("EXTRACT", {"EXTRACT_LLM_BINDING": "ollama",
+                     "EXTRACT_LLM_BINDING_HOST": "http://host.docker.internal:11434"}),
+        # An empty azure_openai host is AZURE_OPENAI_ENDPOINT, never LiteLLM,
+        # so a literal "empty host means LiteLLM" check would leak the key.
+        ("KEYWORD", {"KEYWORD_LLM_BINDING": "azure_openai",
+                     "AZURE_OPENAI_ENDPOINT": "https://example.openai.azure.com"}),
+        ("QUERY", {"QUERY_LLM_BINDING": "gemini",
+                   "QUERY_LLM_BINDING_HOST": f"https://{_USERINFO}@llm.example.com/v1"}),
+        # #1291: on the base binding but its own host, LightRAG would hand the
+        # role the base key, which is the master key.
+        ("QUERY", {"QUERY_LLM_BINDING_HOST": "https://api.example.com/v1"}),
+        # Scheme-less userinfo and a malformed port still give the actionable
+        # message, not a traceback or an echoed credential.
+        ("KEYWORD", {"KEYWORD_LLM_BINDING": "ollama",
+                     "KEYWORD_LLM_BINDING_HOST": f"{_USERINFO}@llm.example.com:8080"}),
+        ("EXTRACT", {"EXTRACT_LLM_BINDING": "ollama",
+                     "EXTRACT_LLM_BINDING_HOST": "http://ollama:11434x"}),
+    ],
+)
+def test_role_pointed_away_from_litellm_without_key_stops_naming_the_variable(role, role_env):
+    """#1271 AC2 and #1291: a role with its own binding or host that resolves
+    anywhere but LiteLLM, with no key, stops at start naming the variable, and
+    the message carries no userinfo from the host."""
+    resolver = _resolver()
+    with pytest.raises(resolver.RoleKeyError) as raised:
+        resolver.resolve_role_keys({**_LITELLM_BASE, **role_env})
+
+    message = str(raised.value)
+    assert (f"LIGHTRAG_{role}_LLM_BINDING_API_KEY" in message, _USERINFO in message) == (
+        True, False)
 
 
 def test_extract_ollama_caps_are_declared_in_all_three_files():
@@ -271,33 +372,72 @@ def test_lightrag_role_models_render_into_container_environment(tmp_path: Path):
     assert env["MAX_TOTAL_TOKENS"] == "12000"
 
 
+def test_resolver_entrypoint_execs_lightrag_or_exits_naming_the_key(tmp_path: Path):
+    """#1271: as the container entrypoint, the resolver execs LightRAG with the
+    scoped keys, or exits 1 with the variable to set before LightRAG starts."""
+    server = tmp_path / "lightrag" / "api" / "lightrag_server.py"
+    server.parent.mkdir(parents=True)
+    for package in (server.parent.parent, server.parent):
+        (package / "__init__.py").write_text("", encoding="utf-8")
+    server.write_text(
+        "import os\nprint(os.environ.get('EXTRACT_LLM_BINDING_API_KEY', ''))\n",
+        encoding="utf-8",
+    )
+    base = {"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(tmp_path), **_LITELLM_BASE}
+
+    def run(extra: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(RESOLVER)], env={**base, **extra},
+            capture_output=True, text=True, check=False, timeout=60,
+        )
+
+    started = run({})
+    stopped = run({"EXTRACT_LLM_BINDING": "ollama",
+                   "EXTRACT_LLM_BINDING_HOST": "http://host.docker.internal:11434"})
+    assert (
+        started.returncode, started.stdout.strip(),
+        stopped.returncode, stopped.stdout, "LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY" in stopped.stderr,
+    ) == (0, _MASTER_KEY, 1, "", True)
+
+
+def _effective_lightrag_environment(tmp_path: Path, overrides: dict[str, str]) -> dict[str, str]:
+    """What LightRAG sees: the Compose render, then the entrypoint resolver."""
+    rendered = _render_lightrag_environment(tmp_path, overrides)
+    env = {key: "" if value is None else str(value) for key, value in rendered.items()}
+    return {**env, **_resolver().resolve_role_keys(env)}
+
+
 @_needs_docker
 def test_litellm_routed_extract_needs_no_key_wiring(tmp_path: Path):
-    """#796 AC5: setting only the EXTRACT binding and host (here LiteLLM
-    itself) renders a non-empty EXTRACT key, the LiteLLM master key, as
-    KEYWORD and QUERY already do (#721)."""
-    env = _render_lightrag_environment(tmp_path, {
+    """#796 AC5, kept by #1271: setting only the EXTRACT binding and host (here
+    LiteLLM itself) gives EXTRACT the LiteLLM master key at start."""
+    env = _effective_lightrag_environment(tmp_path, {
         **_LIGHTRAG_ON,
-        "LITELLM_MASTER_KEY": "sk-atlas-master-796",
+        "LITELLM_MASTER_KEY": _MASTER_KEY,
         "LIGHTRAG_EXTRACT_LLM_BINDING": "openai",
         "LIGHTRAG_EXTRACT_LLM_BINDING_HOST": "http://litellm:4000/v1",
     })
 
     assert (env["EXTRACT_LLM_BINDING"], env["EXTRACT_LLM_BINDING_API_KEY"]) == (
-        "openai", "sk-atlas-master-796")
+        "openai", _MASTER_KEY)
+
+
+_NATIVE_OLLAMA_EXTRACT = {
+    **_LIGHTRAG_ON,
+    "LITELLM_MASTER_KEY": _MASTER_KEY,
+    "LIGHTRAG_EXTRACT_LLM_MODEL": "mistral-small3.2:24b",
+    "LIGHTRAG_EXTRACT_LLM_BINDING": "ollama",
+    "LIGHTRAG_EXTRACT_LLM_BINDING_HOST": "http://host.docker.internal:11434",
+}
 
 
 @_needs_docker
 def test_native_ollama_extract_renders_numeric_caps_and_its_own_key(tmp_path: Path):
-    """#796 AC1/AC2: with the documented native-Ollama settings and the cap
-    variables left blank, Compose renders numeric caps, and the placeholder
-    key keeps the LiteLLM master key away from Ollama."""
-    env = _render_lightrag_environment(tmp_path, {
-        **_LIGHTRAG_ON,
-        "LITELLM_MASTER_KEY": "sk-atlas-master-796",
-        "LIGHTRAG_EXTRACT_LLM_MODEL": "mistral-small3.2:24b",
-        "LIGHTRAG_EXTRACT_LLM_BINDING": "ollama",
-        "LIGHTRAG_EXTRACT_LLM_BINDING_HOST": "http://host.docker.internal:11434",
+    """#796 AC1/AC2 and #1271 AC1: with the documented native-Ollama settings
+    and the caps left blank, Compose renders numeric caps and the explicit key
+    reaches LightRAG unchanged."""
+    env = _effective_lightrag_environment(tmp_path, {
+        **_NATIVE_OLLAMA_EXTRACT,
         "LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY": "ollama",
         "LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT": "",
         "LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX": "",
@@ -307,6 +447,19 @@ def test_native_ollama_extract_renders_numeric_caps_and_its_own_key(tmp_path: Pa
         env["EXTRACT_LLM_BINDING_API_KEY"],
         env["EXTRACT_OLLAMA_LLM_NUM_PREDICT"], env["EXTRACT_OLLAMA_LLM_NUM_CTX"],
     ) == ("ollama", "4096", "16384")
+
+
+@_needs_docker
+def test_native_ollama_extract_without_key_stops_instead_of_leaking(tmp_path: Path):
+    """#1271 AC1/AC2: a native-Ollama EXTRACT with no key renders no master key
+    and stops at start naming the variable to set."""
+    rendered = _render_lightrag_environment(tmp_path, _NATIVE_OLLAMA_EXTRACT)
+    env = {key: "" if value is None else str(value) for key, value in rendered.items()}
+    resolver = _resolver()
+
+    with pytest.raises(resolver.RoleKeyError, match="LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY"):
+        resolver.resolve_role_keys(env)
+    assert env["EXTRACT_LLM_BINDING_API_KEY"] == ""
 
 
 def test_extract_generation_caps_are_documented():
@@ -330,4 +483,10 @@ def test_extract_generation_caps_are_documented():
     ):
         assert fact in readme
     assert "LIGHTRAG_EXTRACT_LLM_MODEL" in guide
-    assert "placeholder such as `ollama`" in guide
+    # #1271 AC3: the key is documented as required, not as a leak workaround.
+    assert (
+        "any string such as `ollama` works" in guide,
+        "resolve-role-keys.py" in readme,
+        any("placeholder" in text for text in (readme, guide)),
+        any("defaults to `${LITELLM_MASTER_KEY}`" in text for text in (readme, guide)),
+    ) == (True, True, False, False)
