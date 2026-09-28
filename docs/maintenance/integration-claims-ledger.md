@@ -222,7 +222,7 @@ This ledger therefore records status and verdict itself. Qualifying the edges
 in the schema is tracked as a separate follow-up ([#1273](https://github.com/thekaveh/atlas/issues/1273)), so that the
 generated diagrams and tables can show the difference.
 
-**Update ([#1273](https://github.com/thekaveh/atlas/issues/1273), PR_LINK_PLACEHOLDER).** The schema can now express status. A `calls` entry
+**Update ([#1273](https://github.com/thekaveh/atlas/issues/1273), [PR #1293](https://github.com/thekaveh/atlas/pull/1293)).** The schema can now express status. A `calls` entry
 may be an object with `target`, `status` (`current`, `optional` or
 `planned`), `condition` and `evidence`. The generated tables add a Status
 column and the diagrams draw a dashed pill for any edge that is not current.
