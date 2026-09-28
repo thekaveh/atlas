@@ -1182,6 +1182,34 @@ def test_container_security_exception_file_is_empty_or_narrow_and_reviewed() -> 
     assert isinstance(exceptions, tuple)
 
 
+def test_every_committed_exception_names_its_owning_service() -> None:
+    """#998: a statement names the service whose image it is accepted for.
+
+    An owner is a manifest service named as a word (`Zeppelin`,
+    `apache/iceberg-rest-fixture`), by its SOURCE variable, or as
+    `services/<name>`. Kong counts only in that last form: rationales cite it
+    as the ingress ("no Kong route"), which names no owning image.
+    """
+    from services.manifests import load_manifests
+
+    manifests = load_manifests(ROOT / "services")
+    names = sorted({m.name for m in manifests} - {"kong"}, key=len, reverse=True)
+    owner = re.compile(
+        r"(?<![A-Za-z0-9_-])(?:" + "|".join(map(re.escape, names)) + r")(?![A-Za-z0-9_])"
+        r"|\bservices/[a-z0-9-]+|\b(?:"
+        + "|".join(re.escape(m.sources.var) for m in manifests if m.sources)
+        + r")\b",
+        re.IGNORECASE,
+    )
+    exceptions = container_security.load_exceptions(
+        ROOT / ".trivyignore.yaml", today=_TODAY
+    )
+
+    assert sorted(
+        {row.vulnerability_id for row in exceptions if not owner.search(row.statement)}
+    ) == []
+
+
 def test_local_final_image_inventory_is_scanned_or_explicitly_excluded() -> None:
     _, scheduled = _workflow_sources()
     build_spec = re.compile(r'^\s+"(services/[^"|]+\|[^"|]+)"', re.MULTILINE)
