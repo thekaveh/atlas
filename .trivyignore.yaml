@@ -4581,7 +4581,8 @@ vulnerabilities:
       so the interpreter never parses attacker-supplied input. Cleared by the next
       upstream image on a patched base.
 
-  # Added 2026-09-28 with the MinIO -> Silo image swap (batch #1275). Each finding was reproduced with the pinned Trivy
+  # Added 2026-09-28 with the MinIO -> Silo image swap and the Airflow 3.3.2
+  # base (batch #1275). Each finding was reproduced with the pinned Trivy
   # 0.74.0 against the exact image digests on linux/amd64 and linux/arm64.
 
   - id: CVE-2026-86145
@@ -4626,3 +4627,28 @@ vulnerabilities:
       limit, where the vulnerable RELEASE.2025-09-07 code calls an unbounded
       ReadBytes. Re-verify the reader on every Silo bump.
 
+  - id: GHSA-6v7p-g79w-8964
+    purls:
+      - "pkg:pypi/msgpack@1.1.2"
+    expired_at: 2026-12-26
+    statement: >-
+      msgpack 1.1.2 listed in pip 26.2.1's own _vendor/vendor.txt inside the
+      apache/airflow:3.3.2 base; Trivy reports it without a file path, so only
+      the exact PURL can scope it. pip 26.2.1 is the newest release and vendors
+      the same version, so no upgrade clears it. The vendored copy serves only
+      pip's HTTP cache while pip itself runs at build time; Airflow imports the
+      site-packages msgpack, which the overlay lock pins at the fixed 1.2.1.
+      Cleared by a pip release that re-vendors msgpack >= 1.2.1.
+
+  - id: CVE-2025-47273
+    purls:
+      - "pkg:pypi/setuptools@70.3.0"
+    expired_at: 2026-12-26
+    statement: >-
+      setuptools 70.3.0 listed in pip 26.2.1's own _vendor/vendor.txt inside the
+      apache/airflow:3.3.2 base; Trivy reports it without a file path, so only
+      the exact PURL can scope it. pip vendors only pkg_resources from it, while
+      the path traversal sits in setuptools.package_index, which pip neither
+      vendors nor calls. The installed site-packages setuptools is pinned at
+      83.0.0 by the overlay lock. pip 26.2.1 is the newest release, so no
+      upgrade clears it; re-review when pip re-vendors a newer setuptools.
