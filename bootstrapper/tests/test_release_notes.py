@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from scripts import release_notes
 from scripts.docs.heading_quality import heading_number_findings
@@ -284,13 +285,16 @@ def test_committed_changelog_block_is_current() -> None:
 
 
 def test_required_lint_job_gates_titles_and_the_changelog_block() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "services-lint.yml").read_text(encoding="utf-8")
-    # The two gates must sit inside the required lint job, i.e. after its name
-    # and before the next job's name.
-    lint_job = workflow.split("name: Manifest lint + unit tests", 1)[1].split(
-        "name: Compose merge + byte-equivalence + source-permutation matrix", 1
-    )[0]
+    workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "services-lint.yml").read_text(encoding="utf-8")
+    )
+    # The two gates sit in the `lint` job, whose result the required
+    # "Manifest lint + unit tests" gate requires (#1176).
+    steps = {step.get("name"): step for step in workflow["jobs"]["lint"]["steps"]}
+    title = steps["Pull-request title is a Conventional Commits subject"]
+    changelog = steps["Generated changelog summary is current"]
 
-    assert "--check-title \"$PR_TITLE\"" in lint_job
-    assert "if: github.event_name == 'pull_request'" in lint_job
-    assert "python -m scripts.release_notes --check-changelog" in lint_job
+    assert '--check-title "$PR_TITLE"' in title["run"]
+    assert title["if"] == "github.event_name == 'pull_request'"
+    assert "python -m scripts.release_notes --check-changelog" in changelog["run"]
+    assert "lint" in workflow["jobs"]["required-lint"]["needs"]

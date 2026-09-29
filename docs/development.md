@@ -36,7 +36,7 @@ Before committing a parent consumer update, verify the `infra/` submodule status
 
 ## 3. Required Docs Checks
 
-Pull-request titles must be Conventional Commits subjects (`type(scope)!: summary`) and the generated block at the top of the changelog's Unreleased section must match its recorded range; the required lint job runs `scripts/release_notes.py --check-title` and `--check-changelog` (see [Releasing](operations/releasing.md) §6).
+Pull-request titles must be Conventional Commits subjects (`type(scope)!: summary`) and the generated block at the top of the changelog's Unreleased section must match its recorded range; the `lint` job (*Bootstrapper and Backend suites*, required through the *Manifest lint + unit tests* gate) runs `scripts/release_notes.py --check-title` and `--check-changelog` (see [Releasing](operations/releasing.md) §6).
 
 `make docs-check` also enforces the critical-page contract in `docs/critical-pages.yaml`: the security, prerequisites, support, release, and recovery pages it names must be declared in the manifest, reachable from the documentation map, and render each listed section with a body on the repo, site, and wiki surfaces. The contract names pages by manifest id and sections by stable title only; it never copies policy prose. Its `external_references` list records community destinations (such as the issue tracker) that a page may point to; they are permitted references, not substitutes for a self-contained page.
 

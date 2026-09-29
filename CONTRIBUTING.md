@@ -86,7 +86,7 @@ Documentation is published to three surfaces (this repository, the documentation
   - `Docs drift + audit scripts`
   - `Build-validation (Dockerfile + requirements.txt installability)`
 
-  [Adding a service](docs/CONTRIBUTING-services.md) §13.4 says what each one catches and lists a representative local subset.
+  [Adding a service](docs/CONTRIBUTING-services.md) §13.4 says what each one catches and lists a representative local subset. The first is a gate over four parallel jobs; a failing unit test shows up first as a red **Bootstrapper suite without Docker (fast)** check, and pushing a new commit cancels the pull request's previous run.
 - **Before merge**, the branch must be up to date with `develop` (merge `develop` into it) and every review conversation must be resolved. A maintainer squash-merges it.
 - **Link the issue** in the pull request body. The pull request targets `develop` rather than the default branch, so GitHub does not close the issue on merge; a maintainer closes it once the change lands.
 
