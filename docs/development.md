@@ -1,5 +1,7 @@
 # 9.1. Development
 
+For a first change (setup, one safe test per area, the branch target and the required checks), start with the [contributing guide](../CONTRIBUTING.md). This page covers service admission, the parent-repo consumer layout and the documentation checks.
+
 ## 1. Service Admission
 
 Adding a service requires a manifest, compose fragment when applicable, topology row, docs regeneration, route checks, and CI validation.

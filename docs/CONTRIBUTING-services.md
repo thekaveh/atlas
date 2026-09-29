@@ -612,7 +612,7 @@ and asset-service suites, and the bootstrapper suite under Python 3.10:
   BACKEND_TEST_VENV="${TMPDIR:-/tmp}/atlas-backend-ci-venv"
   uv venv --python 3.12 "$BACKEND_TEST_VENV"
   VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
-    -r requirements.txt -r requirements-dev.txt -c requirements-locked.txt
+    -r requirements.txt -r requirements-dev.txt -c requirements-test-locked.txt
   "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error \
     --cov=. --cov-config=.coveragerc --cov-branch \
     --cov-report=term --cov-fail-under=79

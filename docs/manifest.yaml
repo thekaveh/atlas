@@ -611,6 +611,10 @@ sections:
     number: '9.8'
     title: Security Policy
     source: SECURITY.md
+  - id: contributing
+    number: '9.9'
+    title: Contributing
+    source: CONTRIBUTING.md
 - id: reference
   number: '10'
   title: Reference

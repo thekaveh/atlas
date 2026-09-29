@@ -30,12 +30,14 @@ class Section:
 
 # Canonical sources whose site location is not derivable from their path:
 # README files that would collide with directory indexes, and the root-level
-# security policy (#1047).
+# security policy (#1047) and contribution guide (#1188), which GitHub also
+# surfaces from the repository root.
 _SITE_PATH_OVERRIDES = {
     "docs/README.md": PurePosixPath("documentation-map.md"),
     "docs/architecture/README.md": PurePosixPath("architecture", "diagram-authoring.md"),
     "docs/diagrams/README.md": PurePosixPath("diagrams", "catalog.md"),
     "SECURITY.md": PurePosixPath("security-policy.md"),
+    "CONTRIBUTING.md": PurePosixPath("contributing.md"),
 }
 _SITE_PATH_BY_ID = {
     "overview": PurePosixPath("index.md"),
