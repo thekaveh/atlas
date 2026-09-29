@@ -308,26 +308,29 @@ curl -X POST http://localhost:${BACKEND_PORT}/lightrag/rerank \
 
 ### 6.1. Current — Upstream (this service calls)
 
-| Service | Category |
-|---|---|
-| kong ↔ | infra |
-| otel-collector | infra |
-| ray | infra |
-| minio | data |
-| redis | data |
-| supabase | data |
-| supavisor | data |
-| weaviate | data |
-| litellm | llm |
-| tei-reranker | llm |
-| comfyui | media |
-| docling | media |
-| fal | media |
-| tika | media |
-| celery | agents |
-| lightrag ↔ | agents |
-| n8n ↔ | agents |
-| local-deep-researcher | apps |
+_Rows marked planned are documented or intended, not wired yet._
+
+| Service | Category | Status |
+|---|---|---|
+| kong ↔ | infra | current |
+| otel-collector | infra | current |
+| ray | infra | current |
+| minio | data | current |
+| neo4j | data | planned |
+| redis | data | current |
+| supabase | data | current |
+| supavisor | data | current |
+| weaviate | data | current |
+| litellm | llm | current |
+| tei-reranker | llm | current |
+| comfyui | media | current |
+| docling | media | current |
+| fal | media | current |
+| tika | media | current |
+| celery | agents | current |
+| lightrag ↔ | agents | current |
+| n8n ↔ | agents | current |
+| local-deep-researcher | apps | current |
 
 ### 6.2. Current — Downstream (services that call this)
 

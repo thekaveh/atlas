@@ -7,26 +7,26 @@
 | airflow | supabase, litellm, redis | spark, minio, iceberg-rest, redpanda, weaviate, neo4j | supabase, spark, redpanda, minio, iceberg-rest, litellm, weaviate, neo4j, redis |
 | asset-baker | minio | backend, comfyui, fal, blender-mcp, asset-worker | minio |
 | asset-worker | minio | backend, comfyui, fal, blender-mcp | minio |
-| backend | supabase, redis, litellm | weaviate, kong, celery, supavisor | supabase, weaviate, litellm, comfyui, fal, n8n, ray, local-deep-researcher, celery, supavisor, tika, docling, lightrag, tei-reranker, minio, redis, otel-collector, kong |
-| backup | supabase | minio | supabase, minio, neo4j, weaviate |
+| backend | supabase, redis, litellm | weaviate, kong, celery, supavisor | supabase, weaviate, litellm, comfyui, fal, n8n, ray, local-deep-researcher, celery, supavisor, tika, docling, lightrag, tei-reranker, minio, redis, otel-collector, kong, neo4j (planned) |
+| backup | supabase | minio | supabase (optional: BACKUP_SOURCE=container; runs on demand, not resident), minio, neo4j, weaviate |
 | blender-mcp | - | - | - |
 | celery | redis, backend, supabase, litellm | weaviate, supavisor, docling, tika, lightrag, minio, otel-collector | redis, supabase, litellm, weaviate, supavisor, docling, tika, lightrag, minio, otel-collector |
 | chatterbox | tts-provider | - | - |
 | cloud-providers | litellm | - | - |
-| cloudflared | kong | - | kong |
+| cloudflared | kong | - | kong (optional: public hostnames configured in the Cloudflare dashboard) |
 | comfyui | supabase, litellm, ollama | - | - |
 | crawl4ai | - | local-deep-researcher, n8n, backend, weaviate | - |
 | doc-processor | - | - | - |
 | docling | - | - | - |
-| docling-lightrag-adapter | - | - | docling |
+| docling-lightrag-adapter | - | - | docling (optional: DOC_PROCESSOR_SOURCE=docling-container-gpu or docling-localhost) |
 | fal | - | - | - |
 | globals | - | - | - |
 | grafana | prometheus, supabase, kong, ray | - | prometheus, tempo, loki |
-| hermes | litellm | - | litellm, stt-provider, tts-provider, comfyui, searxng, airflow, lightrag |
+| hermes | litellm | - | litellm, stt-provider, tts-provider, comfyui, searxng, airflow (planned), lightrag |
 | iceberg-rest | minio, supabase | - | minio, supabase |
-| jenkins | minio | airflow, spark | minio |
-| jupyterhub | supabase, redis, litellm | minio, iceberg-rest, spark, mcp-servers, redpanda | litellm, hermes, weaviate, neo4j, supabase, ray, spark, redpanda, redis, comfyui, n8n, backend, searxng, minio, iceberg-rest, mlflow, label-studio, docling, stt-provider, tts-provider, mcp-servers |
-| kong | supabase, redis | - | backend, open-webui, jupyterhub, n8n, hermes, openclaw, local-deep-researcher, minio, supabase, weaviate, neo4j, comfyui, searxng, stt-provider, tts-provider, doc-processor, litellm, ollama, airflow, spark, lightrag, tei-reranker, verba, trino, redpanda, tika, crawl4ai, langfuse, mlflow, label-studio, jenkins, llm-graph-builder, mcp-servers, celery, asset-baker, asset-worker, grafana, prometheus, ray |
+| jenkins | minio | airflow, spark | minio (optional: an operator-authored Jenkins job; none ships with Atlas) |
+| jupyterhub | supabase, redis, litellm | minio, iceberg-rest, spark, mcp-servers, redpanda | litellm, hermes, weaviate, neo4j, supabase, ray, spark, redpanda, redis, comfyui, n8n, backend, searxng, minio, iceberg-rest, mlflow, label-studio, docling, stt-provider, tts-provider, mcp-servers (optional: MCP_SERVERS_SOURCE=container) |
+| kong | supabase, redis | - | backend, open-webui, jupyterhub, n8n, hermes, openclaw, local-deep-researcher, minio, supabase, weaviate, neo4j, comfyui, searxng, stt-provider, tts-provider, doc-processor, litellm, ollama, airflow, spark, lightrag, tei-reranker, verba, trino, redpanda, tika, crawl4ai, langfuse, mlflow, label-studio, jenkins, llm-graph-builder, mcp-servers, celery, asset-baker, asset-worker, grafana, prometheus, ray (optional: RAY_SOURCE=ray-container-cpu or ray-container-gpu) |
 | label-studio | supabase, minio | jupyterhub, mlflow | supabase, minio |
 | langfuse | supabase, redis, minio, litellm, kong, ray | - | supabase, redis, minio |
 | lightrag | litellm | supabase, neo4j, redis, docling | litellm, supabase, neo4j, redis, docling-lightrag-adapter, backend |
@@ -42,7 +42,7 @@
 | neo4j | supabase | - | - |
 | ollama | supabase, litellm | - | - |
 | open-webui | supabase, redis, litellm | hermes | litellm, supabase, redis, backend, comfyui, stt-provider, tts-provider, local-deep-researcher |
-| openclaw | litellm | - | litellm |
+| openclaw | litellm | - | litellm (optional: an operator sets the provider baseUrl; openclaw-init writes none) |
 | otel-collector | tempo, loki | - | tempo, loki |
 | parakeet | litellm | - | - |
 | prometheus | supabase, redis, kong, ray | - | kong, litellm, backend, asset-worker, asset-baker, n8n, weaviate, minio, supabase, redis, grafana |
@@ -63,5 +63,5 @@
 | tts-provider | litellm | - | - |
 | verba | weaviate, litellm, kong | docling, open-webui, jupyterhub | weaviate, litellm |
 | vllm-metal | litellm | - | - |
-| weaviate | supabase, litellm | - | litellm, multi2vec-clip |
+| weaviate | supabase, litellm | - | litellm (optional: only collections whose text2vec-openai baseURL is LiteLLM, as the backend's are), multi2vec-clip |
 | zeppelin | spark, minio | supabase, iceberg-rest, redpanda, trino | spark, supabase, minio, iceberg-rest, redpanda, trino |

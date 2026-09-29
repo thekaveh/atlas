@@ -51,7 +51,7 @@ LIGHTRAG_EMBEDDING_MODEL=                           # empty = inherit LITELLM_EM
 LIGHTRAG_VLM_PROCESS_ENABLE=true                    # vision LLM for images/figures
 ```
 
-LightRAG v1.5 supports role-specific LLM settings for extraction, keyword extraction, and final query answering. Atlas exposes those as `LIGHTRAG_EXTRACT_*`, `LIGHTRAG_KEYWORD_*`, and `LIGHTRAG_QUERY_*` inputs, then maps them to LightRAG's native `EXTRACT_*`, `KEYWORD_*`, and `QUERY_*` runtime environment names. Leave a role value empty to inherit the base LightRAG runtime `LLM_*` settings; the base model name itself is resolved by `lightrag-init` when `LIGHTRAG_LLM_MODEL` is empty. The role LLM-binding API keys (`LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY` / `LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY` / `LIGHTRAG_QUERY_LLM_BINDING_API_KEY`) default to `${LITELLM_MASTER_KEY}` at compose (KEYWORD and QUERY since #721, EXTRACT since #796), so LiteLLM-routed roles need no explicit key wiring.
+LightRAG v1.5 supports role-specific LLM settings for extraction, keyword extraction, and final query answering. Atlas exposes those as `LIGHTRAG_EXTRACT_*`, `LIGHTRAG_KEYWORD_*`, and `LIGHTRAG_QUERY_*` inputs, then maps them to LightRAG's native `EXTRACT_*`, `KEYWORD_*`, and `QUERY_*` runtime environment names. Leave a role value empty to inherit the base LightRAG runtime `LLM_*` settings; the base model name itself is resolved by `lightrag-init` when `LIGHTRAG_LLM_MODEL` is empty. An empty role LLM-binding API key (`LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY` / `LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY` / `LIGHTRAG_QUERY_LLM_BINDING_API_KEY`) becomes `${LITELLM_MASTER_KEY}` only when that role's effective host is the in-network LiteLLM (`litellm:4000`). The container decides at start, in `init/scripts/resolve-role-keys.py`, using LightRAG 1.5.4's own host resolution (#1271): an empty role host means the base `LLM_BINDING_HOST`, except that an `azure_openai` role on its own binding defaults to `AZURE_OPENAI_ENDPOINT`. LiteLLM-routed roles therefore still need no key wiring (#721, #796). A role with its own binding or its own host that resolves anywhere else must set its key, or the container stops at start and names the variable; without that, LightRAG would either stop itself (a role on its own binding needs a key) or hand the role the base key, which is the master key (#1291). A role that simply mirrors the base binding and host is left as it is.
 
 > **Observability caveat.** Pointing a role's `*_LLM_BINDING_HOST` at a native provider (e.g. Ollama directly) takes that role **off the LiteLLM gateway**, and Langfuse tracing in Atlas is gateway-level — so those calls produce no traces and nothing warns about it. If you run Langfuse and override a role's binding host, expect a coverage gap for that role. See [Langfuse §4.2](../langfuse/README.md).
 
@@ -68,13 +68,13 @@ LIGHTRAG_QUERY_LLM_MODEL=qwen3.8:latest
 
 Atlas intentionally does not ship those model names as defaults; deployments that do not set role variables keep the existing single-model behavior.
 
-**Extract-role generation caps on native Ollama (#796).** To run the EXTRACT role on native Ollama while the other roles stay on LiteLLM, set the model, binding, host and a placeholder key:
+**Extract-role generation caps on native Ollama (#796).** To run the EXTRACT role on native Ollama while the other roles stay on LiteLLM, set the model, binding, host and key:
 
 ```env
 LIGHTRAG_EXTRACT_LLM_MODEL=mistral-small3.2:24b          # required for a role on its own binding
 LIGHTRAG_EXTRACT_LLM_BINDING=ollama
 LIGHTRAG_EXTRACT_LLM_BINDING_HOST=http://host.docker.internal:11434
-LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY=ollama              # placeholder; see the key note below
+LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY=ollama              # required; any value, see the key note below
 LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT=4096              # max output tokens per extract call
 LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX=16384                 # context window for each extract call
 ```
@@ -94,8 +94,8 @@ In LightRAG v1.5.4, a role whose binding differs from the base binding (`openai`
 - **Keep them numeric.** LightRAG sends a non-integer value, including an empty one, as a string, and Ollama then rejects every extract call. Compose falls back to the defaults above when a value is empty.
 - **When they apply.** Both caps take effect only while `EXTRACT` is bound to Ollama. Other bindings ignore them.
 - **EXTRACT API key.**
-  - An empty `LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY` defaults to `${LITELLM_MASTER_KEY}`, as KEYWORD and QUERY already do (#721), so an EXTRACT role routed to LiteLLM needs no key wiring.
-  - Set it whenever EXTRACT points elsewhere, or that endpoint receives the LiteLLM master key as a bearer token. For native Ollama, a placeholder such as `ollama` is enough, because Ollama ignores it.
+  - An empty `LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY` becomes `${LITELLM_MASTER_KEY}` only while EXTRACT's effective host is LiteLLM, so an EXTRACT role routed to LiteLLM needs no key wiring (#796, #1271).
+  - On native Ollama it is required: LightRAG needs a key for a role on its own binding, and Ollama ignores the value, so any string works. Left empty, the container stops at start and names the variable instead of sending Ollama the master key.
 
 **Timeouts and failed chunks are upstream behaviour.** Checked against the pinned `lightrag-hku` 1.5.4 source:
 
@@ -234,6 +234,7 @@ _No high-confidence opportunities identified._
 - **First boot exceeds health-check timeout** — `start_period` is 300 s. Initial tokenizer, embedding-model, and document-parser setup can take several minutes.
 - **First boot logs missing PostgreSQL tables** — expected on a cold volume. LightRAG probes for its tables, logs relation-missing errors, then creates the tables and indexes before reporting healthy.
 - **`OPENAI_API_KEY` warning at startup** — LightRAG checks env even when using `openai`-compatible Ollama. Harmless; the actual key is the `LITELLM_MASTER_KEY` forwarded as `LLM_BINDING_API_KEY`.
+- **`lightrag: LightRAG <ROLE> role uses binding … and has no API key`, then the container restarts** — a role with its own binding or host points somewhere other than the in-network LiteLLM, and its key is empty. `init/scripts/resolve-role-keys.py` stops before LightRAG starts rather than sending that host the LiteLLM master key (#1271). Set the named `LIGHTRAG_<ROLE>_LLM_BINDING_API_KEY` in `.env`; for native Ollama any value works.
 - **Empty KG after ingestion** — verify `LIGHTRAG_LLM_MODEL` actually points at a chat-capable model. Some embedding-only Ollama tags will silently produce empty triples.
 - **Rerank does not run even when TEI is enabled** — expected unless the rerank adapter is enabled. LightRAG's direct rerank clients and TEI's `/rerank` request body are incompatible, so Atlas emits `RERANK_BINDING=null` by default. To turn reranking on, set `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` (with `TEI_RERANKER_SOURCE` enabled) so LightRAG reranks through the backend adapter (`POST /lightrag/rerank`, #415); `./start.sh doctor` warns if the flag is on but TEI/LightRAG is off.
 - **`pgvector` dim mismatch** — drop and rerun the migration when changing `LIGHTRAG_EMBEDDING_DIM`: `psql ... -c "DROP SCHEMA lightrag CASCADE"` then restart.

@@ -200,6 +200,7 @@ def test_docs_gate_runs_the_critical_page_contract(tmp_path: Path, monkeypatch) 
     monkeypatch.setattr(check_docs, "check_manifest_reachability", lambda *a, **k: [])
     monkeypatch.setattr(check_docs, "check_completeness", lambda *a, **k: [])
     monkeypatch.setattr(check_docs, "check_placeholders", lambda *a, **k: [])
+    monkeypatch.setattr(check_docs, "check_license_inventory", lambda root: [])
     monkeypatch.setattr(check_docs, "load_manifest", lambda path, root: _fixture_manifest(tmp_path))
 
     findings = check_docs.check(tmp_path, tmp_path / "docs" / "manifest.yaml")

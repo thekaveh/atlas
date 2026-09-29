@@ -19,11 +19,13 @@ services:
     # lightrag-init wrote to /app/data/.env BEFORE python starts. Without
     # this, LightRAG's own dotenv loader looks at /app/.env (its WORKDIR)
     # which doesn't exist, leaving LLM_MODEL / EMBEDDING_MODEL / EMBEDDING_DIM
-    # empty. `set -a` auto-exports every var sourced after it.
+    # empty. `set -a` auto-exports every var sourced after it. The
+    # resolve-role-keys.py step then scopes the role API keys (#1271) and
+    # execs the server.
     entrypoint:
       - sh
       - -c
-      - 'set -a; [ -f /app/data/.env ] && . /app/data/.env; set +a; exec python -m lightrag.api.lightrag_server'
+      - 'set -a; [ -f /app/data/.env ] && . /app/data/.env; set +a; exec python /atlas/resolve-role-keys.py'
     environment:
       LIGHTRAG_ENDPOINT: ${LIGHTRAG_ENDPOINT}
       HOST: 0.0.0.0
@@ -48,14 +50,17 @@ services:
       EXTRACT_LLM_BINDING_HOST: ${LIGHTRAG_EXTRACT_LLM_BINDING_HOST:-}
       KEYWORD_LLM_BINDING_HOST: ${LIGHTRAG_KEYWORD_LLM_BINDING_HOST:-}
       QUERY_LLM_BINDING_HOST: ${LIGHTRAG_QUERY_LLM_BINDING_HOST:-}
-      # Role keys default to the in-network LiteLLM master key so a consumer
-      # pointing a role at LiteLLM needs zero key wiring (#721 KEYWORD/QUERY,
-      # #796 EXTRACT). Set the LIGHTRAG_* override whenever a role is not bound
-      # to LiteLLM (a placeholder such as `ollama` for native Ollama), or that
-      # endpoint receives the master key.
-      EXTRACT_LLM_BINDING_API_KEY: ${LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}
-      KEYWORD_LLM_BINDING_API_KEY: ${LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}
-      QUERY_LLM_BINDING_API_KEY: ${LIGHTRAG_QUERY_LLM_BINDING_API_KEY:-${LITELLM_MASTER_KEY}}
+      # Role keys pass through as set. An unset key is resolved at start by
+      # resolve-role-keys.py (#1271): it becomes the LiteLLM master key only
+      # when the role's effective host is the in-network LiteLLM, so a
+      # LiteLLM-routed role still needs no key wiring (#721, #796), while a
+      # role with its own binding or host pointed anywhere else must set its
+      # key or the container stops naming the variable (#1291). LITELLM_MASTER_KEY
+      # is that fallback's only source.
+      EXTRACT_LLM_BINDING_API_KEY: ${LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY:-}
+      KEYWORD_LLM_BINDING_API_KEY: ${LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY:-}
+      QUERY_LLM_BINDING_API_KEY: ${LIGHTRAG_QUERY_LLM_BINDING_API_KEY:-}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
       EXTRACT_MAX_ASYNC_LLM: ${LIGHTRAG_EXTRACT_MAX_ASYNC_LLM:-}
       KEYWORD_MAX_ASYNC_LLM: ${LIGHTRAG_KEYWORD_MAX_ASYNC_LLM:-}
       QUERY_MAX_ASYNC_LLM: ${LIGHTRAG_QUERY_MAX_ASYNC_LLM:-}
@@ -121,6 +126,7 @@ services:
       RERANK_MODEL: mixedbread-ai/mxbai-rerank-base-v1
     volumes:
       - lightrag-data:/app/data
+      - ./init/scripts/resolve-role-keys.py:/atlas/resolve-role-keys.py:ro
     networks:
       - backend-network
       - docling-lightrag-network

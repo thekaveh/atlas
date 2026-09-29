@@ -34,6 +34,15 @@ def test_prompt_includes_do_not_propose_list():
     assert "litellm" in tail.lower()
 
 
+def test_planned_edges_stay_proposable():
+    """#1273: a planned edge is documented, not wired, so it is not in the
+    do-not-propose set; current and optional edges are."""
+    from docs.research_subagent_prompt import _do_not_propose_set
+
+    backend, neo4j = _do_not_propose_set("backend"), _do_not_propose_set("neo4j")
+    assert ("neo4j" in backend, "backend" in neo4j, "litellm" in backend) == (False, False, True)
+
+
 def test_prompt_includes_schema_rules():
     """The prompt cites the schema (frontmatter keys, 3 sections, 800-word cap)."""
     from docs.research_subagent_prompt import build_research_prompt

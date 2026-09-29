@@ -248,14 +248,14 @@ _No upstream calls._
 
 ### 13.2. Current — Downstream (services that call this)
 
-| Service | Category |
-|---|---|
-| kong | infra |
-| docling-lightrag-adapter | media |
-| celery | agents |
-| n8n | agents |
-| backend | apps |
-| jupyterhub | apps |
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | current |
+| docling-lightrag-adapter | media | optional: DOC_PROCESSOR_SOURCE=docling-container-gpu or docling-localhost |
+| celery | agents | current |
+| n8n | agents | current |
+| backend | apps | current |
+| jupyterhub | apps | current |
 
 ### 13.3. Architecture diagram
 

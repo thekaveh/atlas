@@ -243,14 +243,16 @@ data_flow:
     - tts-provider
     - comfyui
     - searxng
-    # Hermes → Airflow: DOCUMENTED integration pattern, not pre-wired
-    # runtime call. The third-party nousresearch/hermes-agent image
-    # has no built-in Airflow client; services/hermes/README.md §8 +
-    # services/airflow/README.md §6 show the curl pattern users wire
-    # from inside Hermes Skills / dashboard widgets. Kept in
-    # data_flow.calls so auto-generated diagrams surface the supported
-    # pattern; remove the entry if a future PR retracts the docs.
-    - airflow
+    # Hermes → Airflow: DOCUMENTED integration pattern, not a pre-wired
+    # runtime call. The third-party nousresearch/hermes-agent image has no
+    # built-in Airflow client; services/hermes/README.md §9 and
+    # services/airflow/README.md §6 show the curl pattern users wire from
+    # inside Hermes Skills / dashboard widgets. Declared planned (#1273) so
+    # the generated diagrams show the supported pattern without claiming a
+    # live call; remove the entry if a future PR retracts the docs.
+    - target: airflow
+      status: planned
+      evidence: services/hermes/README.md
     - lightrag
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`
