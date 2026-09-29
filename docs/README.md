@@ -4,7 +4,7 @@ Documentation index for Atlas. Start from the journey that matches you:
 
 - **New to Atlas (run it locally):** [Documentation home](index.md) → [Quick Start](quick-start/index.md) → [Core Concepts](core-concepts.md) → [Tracks](tracks.md) → [Troubleshooting](TROUBLESHOOTING.md).
 - **Building on Atlas (application developer):** [Service catalog](services.md) → [Configuration](configuration.md) → [Reusing Atlas as Infrastructure](operations/reusing-atlas.md) → [Endpoint contract export](operations/index.md#5-endpoint-contract-export) → [Backend plugin manifest](operations/index.md#6-backend-plugin-manifest).
-- **Operating or contributing:** [Operations](operations/index.md) → [Architecture](architecture/index.md) → [Development](development.md) → [Reference](reference/index.md) → [Releasing](operations/releasing.md) → [Security policy](../SECURITY.md).
+- **Operating or contributing:** [Operations](operations/index.md) → [Architecture](architecture/index.md) → [Development](development.md) → [Contributing guide](../CONTRIBUTING.md) → [Reference](reference/index.md) → [Releasing](operations/releasing.md) → [Security policy](../SECURITY.md).
 
 ## 1. Documentation structure
 
@@ -49,6 +49,7 @@ Documentation index for Atlas. Start from the journey that matches you:
 - [Expected Startup Warnings](operations/expected-startup-warnings.md) — known-benign log lines on `./start.sh`
 
 ### 1.6. Development and contribution
+- [Contributing guide](../CONTRIBUTING.md) — first contribution: setup, one safe Backend and bootstrapper test, the Docker and live-test boundary, the `develop` pull-request target, and the four required checks
 - [Development overview](development.md) — service admission, consumer layout, required checks, and repository structure
 - [Adding a service runbook](CONTRIBUTING-services.md) — six-decision walkthrough + the regen + lint chain
 - [Security policy](../SECURITY.md) — project posture, operational tiers, reachability triage, public-edge requirements, automated scanning gates, and the private-advisory reporting route
@@ -89,6 +90,6 @@ If you can't find what you're looking for:
 
 ## 4. Contributing to documentation
 
-- Found a typo or error? Open a PR.
+- Found a typo or error? Open a PR against `develop`; the [contributing guide](../CONTRIBUTING.md) has the steps.
 - Missing information? Open an issue.
 - Before submitting documentation changes, run the single root-safe gate: `make docs-check`.

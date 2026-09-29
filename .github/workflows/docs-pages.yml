@@ -6,6 +6,7 @@ on:
     paths:
       - "docs/**"
       - "SECURITY.md"
+      - "CONTRIBUTING.md"
       - "assets/**"
       - "services/**/README.md"
       - "services/**/architecture.*"
