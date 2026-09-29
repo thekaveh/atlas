@@ -33,7 +33,7 @@ storage3>=0.7.0
 
 # Security
 bcrypt>=4.1.2
-PyJWT>=2.13.0
+PyJWT>=2.14.0
 passlib>=1.7.4
 
 # AI/ML

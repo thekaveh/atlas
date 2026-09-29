@@ -275,7 +275,7 @@ def test_airflow_build_validation_uses_runtime_core_release() -> None:
 def test_image_http_and_parser_security_floors() -> None:
     backend = _text("services/backend/app/app/requirements.txt")
     assert "Pillow>=12.3.0" in backend
-    assert "PyJWT>=2.13.0" in backend
+    assert "PyJWT>=2.14.0" in backend
     assert "python-jose" not in backend
 
     pillow_manifests = {
