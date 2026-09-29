@@ -1,0 +1,999 @@
+# Supply-chain license inventory (#1064): every third-party image and model
+# weight a supported Atlas release pins, with its license, required notices,
+# and what its terms allow for hosted use, source integration and
+# redistribution. Atlas's own Apache-2.0 grant relicenses none of them.
+#
+# This is the review record, not a legal conclusion. The page
+# docs/reference/license-inventory.md is generated from it by
+# `uv run --project bootstrapper python -m scripts.docs.canonical_references`.
+# `python -m scripts.docs.license_inventory --check`, which `make docs-check`
+# also runs, fails when:
+#   - an `images` row's `image` differs from its manifest `images:` default,
+#     a `build_images` row's `image` from its Dockerfile's literal reference,
+#     or a `models` row's `sources` from its catalogue entry's download URLs
+#     (the pin moved, so the row must be re-reviewed and updated with it);
+#   - a pinned artifact has no row, or a row matches no pin;
+#   - a license URL or source is not pinned to a revision, unless the row
+#     declares `unpinned_license_url` or `unpinned_source` naming one of its
+#     own open items;
+#   - a mode value is outside the vocabulary, an open item is undefined, or
+#     an unresolved mode has no open item whose `modes` include it.
+#
+# Modes: `hosted` (operating it for your own or others' users), `integration`
+# (incorporating or modifying its source in another work) and
+# `redistribution` (shipping the artifact, for example in an appliance
+# bundle). Values:
+#   permitted       no condition beyond keeping the license with the software
+#   with notices    ship the license text and the upstream NOTICE, if any
+#   with source     copyleft: offer the complete corresponding source
+#   conditional     the terms restrict this mode; the license note says how
+#   unresolved      not adjudicated; an open item concerning the mode names
+#                   the question
+reviewed: '2026-09-29'
+licenses:
+  Apache-2.0:
+    name: Apache License 2.0
+    notice: Ship the license text and, where the upstream has one, its NOTICE file; mark modified files.
+    hosted: permitted
+    integration: permitted
+    redistribution: with notices
+  MIT:
+    name: MIT License
+    notice: Ship the copyright notice and license text.
+    hosted: permitted
+    integration: permitted
+    redistribution: with notices
+  BSD-3-Clause:
+    name: BSD 3-Clause License
+    notice: Ship the copyright notice, conditions and disclaimer; do not use contributors' names to endorse.
+    hosted: permitted
+    integration: permitted
+    redistribution: with notices
+  PSF-2.0:
+    name: Python Software Foundation License 2.0
+    notice: Ship the PSF copyright notice and license agreement.
+    hosted: permitted
+    integration: permitted
+    redistribution: with notices
+  PostgreSQL:
+    name: PostgreSQL License
+    notice: Ship the copyright notice and the permission paragraphs.
+    hosted: permitted
+    integration: permitted
+    redistribution: with notices
+  AGPL-3.0:
+    name: GNU Affero General Public License v3.0
+    notice: Ship the license and offer the complete corresponding source; a modified version run as a network service must offer its source to its users (section 13).
+    hosted: permitted
+    integration: with source
+    redistribution: with source
+  GPL-3.0:
+    name: GNU General Public License v3.0
+    notice: Ship the license and offer the complete corresponding source with every conveyed copy.
+    hosted: permitted
+    integration: with source
+    redistribution: with source
+  Sustainable-Use-1.0:
+    name: Sustainable Use License 1.0 (n8n)
+    notice: Use or modify only for internal business, non-commercial or personal purposes; distribute only free of charge for non-commercial purposes; keep every licensing notice. Files marked .ee. need
+      an n8n Enterprise License.
+    hosted: conditional
+    integration: conditional
+    redistribution: unresolved
+  BSL-1.1-Redpanda:
+    name: Business Source License 1.1 with Redpanda's Additional Use Grant
+    notice: Any use except a commercial Streaming or Queuing Service offered to third parties; each release converts to Apache 2.0 four years after it ships. Enterprise features fall under the Redpanda
+      Community License.
+    hosted: conditional
+    integration: conditional
+    redistribution: unresolved
+  Open-WebUI:
+    name: Open WebUI License (BSD 3-Clause with a branding clause)
+    notice: Keep the BSD-3 notices and every "Open WebUI" branding element, unless the deployment has at most 50 end users in any rolling 30 days, a merged contributor has written permission, or an enterprise
+      license allows otherwise.
+    hosted: conditional
+    integration: conditional
+    redistribution: conditional
+  Alpine-packages:
+    name: Alpine Linux package set (build scripts MIT)
+    notice: The image is the Alpine base layer itself; its packages carry their own licenses, recorded under R-BASE.
+    hosted: permitted
+    integration: permitted
+    redistribution: unresolved
+  NVIDIA-DLC:
+    name: NVIDIA Deep Learning Container License
+    notice: Not reviewed; see R-NGC.
+    hosted: unresolved
+    integration: unresolved
+    redistribution: unresolved
+  unknown:
+    name: Not established
+    notice: No license could be read; see the row's open item.
+    hosted: unresolved
+    integration: unresolved
+    redistribution: unresolved
+open_items:
+  R-BASE:
+    question: Which license texts and source offers does each image's operating-system layer need? Every image also ships its base distribution's packages (Debian, Ubuntu or Alpine), several under GPL-2.0
+      or LGPL. A notice bundle generated from an SBOM of each exact digest is required before any image ships in an appliance bundle.
+    applies: The redistribution mode of every image row.
+    modes:
+    - redistribution
+  R-PY:
+    question: Which licenses apply to the Python packages installed into the locally built images? The compiled runtime locks (for example services/backend/app/app/requirements-locked.txt) pin every package,
+      but their licenses are not inventoried.
+    applies: Every locally built image.
+    modes:
+    - redistribution
+  R-BUILD:
+    question: Which licenses apply to binaries a local Dockerfile downloads on top of its base image? Known cases are the headless Blender that asset-baker adds and the MinIO mc client that the backup and
+      Jenkins images add; neither has an image row of its own.
+    applies: asset-baker, backup, jenkins.
+    modes:
+    - redistribution
+  R-CUDA:
+    question: Do the NVIDIA CUDA and cuDNN runtime layers in the GPU images fall within the components their license agreements allow to be redistributed, and on what conditions?
+    applies: Every CUDA-based image.
+    modes:
+    - redistribution
+  R-NGC:
+    question: What does the NVIDIA Deep Learning Container License allow for this image? NVIDIA publishes the terms without a revision-pinned copy, so no mode is recorded as permitted.
+    applies: parakeet.
+    modes:
+    - hosted
+    - integration
+    - redistribution
+  R-N8N:
+    question: Can an Atlas bundle that includes n8n be distributed, or offered to others, commercially? The Sustainable Use License allows distribution only free of charge for non-commercial purposes.
+    applies: n8n.
+    modes:
+    - redistribution
+  R-REDPANDA:
+    question: Can an Atlas bundle that includes Redpanda be redistributed commercially, and does any operator's use amount to a Streaming or Queuing Service for third parties?
+    applies: redpanda.
+    modes:
+    - redistribution
+  R-OPENWEBUI:
+    question: Is dyrnq/open-webui an unmodified rebuild of Open WebUI v0.6.32, and would a bundle keep the Open WebUI branding the license requires above 50 end users?
+    applies: open-webui.
+    modes:
+    - redistribution
+  R-FLOAT:
+    question: Which upstream revision does the pinned digest build from? The tag floats (latest, lts, gpu, a major version, a date or no tag), so the license is recorded at the upstream default branch or
+      newest matching release on the review date rather than at the image's own source revision.
+    applies: Images pinned by a floating tag.
+    modes: []
+  R-TRUEFORGE:
+    question: What license applies to TrueForge? The image comes from the TrueFoundry registry, which the review environment could not reach, and no public license file was found.
+    applies: trueforge.
+    modes:
+    - hosted
+    - integration
+    - redistribution
+  R-MODELS:
+    question: What are the weight licenses of the catalogue entries that record none? Record license_name, a revision-pinned license_url and license_restrictions for each in services/comfyui/models.yaml;
+      the model cards were not reachable from the review environment. This also covers the CLIP ViT-B-32 weights the multi2vec-clip image bundles.
+    applies: ComfyUI catalogue entries without license fields; multi2vec-clip.
+    modes:
+    - hosted
+    - integration
+    - redistribution
+  R-KREA:
+    question: Can Krea 2 weights ship in a bundle, and on what terms? The Krea 2 Community License requires an enterprise license at or above USD 1M annual revenue for commercial use and content filtering
+      for deployments; its redistribution terms are not recorded, and krea2-identity-edit-v1-2's license URL points at main rather than a revision.
+    applies: Krea 2 catalogue entries.
+    modes:
+    - redistribution
+  R-HUNYUAN:
+    question: May Hunyuan3D-2 weights ship in a bundle offered in the European Union, the United Kingdom or South Korea, which the Tencent Hunyuan Community License excludes, or to a service above 100 million
+      monthly active users?
+    applies: hunyuan3d-2.
+    modes:
+    - redistribution
+  R-SVC-MODELS:
+    question: Which licenses apply to the weights services download by their own configuration rather than from a catalogue? Examples are the TEI reranker model (TEI_RERANKER_MODEL_ID, pinned to mixedbread-ai/mxbai-rerank-base-v1
+      at a revision) and the speech and document-conversion models speaches, parakeet, chatterbox and docling fetch; none has a row yet.
+    applies: Service-configured model weights.
+    modes:
+    - hosted
+    - integration
+    - redistribution
+  R-OLLAMA:
+    question: Which licenses apply to the Ollama library models, and which revision is pulled? Tags such as qwen3.8:latest float, and ollama.com was not reachable from the review environment.
+    applies: Every Ollama catalogue model.
+    modes:
+    - hosted
+    - integration
+    - redistribution
+  R-BUNDLE:
+    question: Which licenses apply to the extra files a bundle entry downloads besides its main weights? The Krea 2 entries also fetch a Qwen3-VL text encoder and a Qwen-Image VAE, which the Krea 2 Community
+      License does not cover by name.
+    applies: ComfyUI entries that download more than one file.
+    modes:
+    - redistribution
+
+images:
+- service: airflow
+  var: AIRFLOW_IMAGE
+  image: apache/airflow:3.3.2
+  upstream: Apache Airflow 3.3.2
+  license: Apache-2.0
+  url: https://github.com/apache/airflow/blob/aa19d2dbb9ed187ec01957a92848d9b005e9ba9d/LICENSE
+  notice: https://github.com/apache/airflow/blob/aa19d2dbb9ed187ec01957a92848d9b005e9ba9d/NOTICE
+- service: asset-baker
+  var: ASSET_BAKER_IMAGE
+  image: python:3.12.9-slim
+  upstream: Python 3.12.9 (build base)
+  license: PSF-2.0
+  url: https://github.com/python/cpython/blob/fdb81425a9ad683f8c24bf5cbedc9b96baf00cd2/LICENSE
+  open:
+  - R-BUILD
+  redistribution: unresolved
+- service: asset-worker
+  var: ASSET_WORKER_IMAGE
+  image: python:3.12.9-slim
+  upstream: Python 3.12.9 (build base)
+  license: PSF-2.0
+  url: https://github.com/python/cpython/blob/fdb81425a9ad683f8c24bf5cbedc9b96baf00cd2/LICENSE
+- service: backend
+  var: BACKEND_IMAGE
+  image: python:3.12.14-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970
+  upstream: Python 3.12.14 (build base)
+  license: PSF-2.0
+  url: https://github.com/python/cpython/blob/2abcf904b8dac8c999d2b3aac76681abb333798a/LICENSE
+- service: backup
+  var: BACKUP_IMAGE
+  image: postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+  upstream: PostgreSQL 17.10 (build base)
+  license: PostgreSQL
+  url: https://github.com/postgres/postgres/blob/25c49f3a4a742ba283f5cc43cc7f1d361552e917/COPYRIGHT
+  open:
+  - R-BUILD
+  redistribution: unresolved
+- service: celery
+  var: FLOWER_IMAGE
+  image: mher/flower:2.0.1
+  upstream: Flower 2.0.1
+  license: BSD-3-Clause
+  url: https://github.com/mher/flower/blob/cf39575472e84648aa2d00c73826a60b1f6d828e/LICENSE
+- service: chatterbox
+  var: CHATTERBOX_IMAGE
+  image: travisvn/chatterbox-tts-api:gpu@sha256:8c0b379172d48b49d59d8f29a35fa23c0dc27955dba4d3ab41a77b2d71b4711f
+  upstream: Chatterbox TTS API (travisvn), floating gpu tag pinned by digest
+  license: AGPL-3.0
+  url: https://github.com/travisvn/chatterbox-tts-api/blob/a5f466128e4baa8e4cceb3bba9b7ca9de6f7ec6b/LICENSE
+  open:
+  - R-CUDA
+  - R-FLOAT
+  redistribution: unresolved
+- service: cloudflared
+  var: CLOUDFLARED_IMAGE
+  image: cloudflare/cloudflared:2026.6.1
+  upstream: cloudflared 2026.6.1
+  license: Apache-2.0
+  url: https://github.com/cloudflare/cloudflared/blob/81a53555aa827fca88605d7e67ad5c03cda468d2/LICENSE
+- service: comfyui
+  var: COMFYUI_IMAGE
+  image: ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7
+  upstream: 'ComfyUI v0.2.7 in the ai-dock image (ai-dock wrapper: MIT)'
+  license: GPL-3.0
+  url: https://github.com/comfyanonymous/ComfyUI/blob/696672905fd17af2654ced11e3ab590d6a555996/LICENSE
+- service: comfyui
+  var: COMFYUI_INIT_IMAGE
+  image: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+  upstream: Alpine Linux 3.24.1 (packages under their own licenses)
+  license: Alpine-packages
+  url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
+  open:
+  - R-BASE
+- service: crawl4ai
+  var: CRAWL4AI_IMAGE
+  image: unclecode/crawl4ai:0.9.0
+  upstream: Crawl4AI 0.9.0
+  license: Apache-2.0
+  url: https://github.com/unclecode/crawl4ai/blob/c66f3276fd355031c8632500911fe7041ad6fc14/LICENSE
+- service: docling
+  var: DOCLING_GPU_IMAGE
+  image: pytorch/pytorch:2.13.0-cuda12.6-cudnn9-runtime@sha256:6acf597eeb8e376a96580dde4952f37cc017fef732bb40bfc73f28f25e3f64b4
+  upstream: PyTorch 2.13.0 with CUDA 12.6 and cuDNN 9 (build base)
+  license: BSD-3-Clause
+  url: https://github.com/pytorch/pytorch/blob/cf30153c4c131c8164ee7798e5022d810682e2cb/LICENSE
+  notice: https://github.com/pytorch/pytorch/blob/cf30153c4c131c8164ee7798e5022d810682e2cb/NOTICE
+  open:
+  - R-CUDA
+  redistribution: unresolved
+- service: docling
+  var: DOCLING_ADAPTER_IMAGE
+  image: python:3.12.14-slim
+  upstream: Python 3.12.14 (build base)
+  license: PSF-2.0
+  url: https://github.com/python/cpython/blob/2abcf904b8dac8c999d2b3aac76681abb333798a/LICENSE
+- service: grafana
+  var: GRAFANA_IMAGE
+  image: grafana/grafana:11.4.3
+  upstream: Grafana 11.4.3
+  license: AGPL-3.0
+  url: https://github.com/grafana/grafana/blob/d620e09f8cb4994d15e046d2c373e23f34196abe/LICENSE
+  notice: https://github.com/grafana/grafana/blob/d620e09f8cb4994d15e046d2c373e23f34196abe/NOTICE.md
+- service: hermes
+  var: HERMES_IMAGE
+  image: nousresearch/hermes-agent:v2026.6.19
+  upstream: Hermes Agent v2026.6.19
+  license: MIT
+  url: https://github.com/NousResearch/hermes-agent/blob/2bd1977d8fad185c9b4be47884f7e87f1add0ce3/LICENSE
+- service: hermes
+  var: HERMES_INIT_IMAGE
+  image: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+  upstream: Alpine Linux 3.24.1 (packages under their own licenses)
+  license: Alpine-packages
+  url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
+  open:
+  - R-BASE
+- service: iceberg-rest
+  var: ICEBERG_REST_IMAGE
+  image: apache/iceberg-rest-fixture:1.10.1
+  upstream: Apache Iceberg REST fixture 1.10.1
+  license: Apache-2.0
+  url: https://github.com/apache/iceberg/blob/ccb8bc435062171e64bc8b7e5f56e6aed9c5b934/LICENSE
+  notice: https://github.com/apache/iceberg/blob/ccb8bc435062171e64bc8b7e5f56e6aed9c5b934/NOTICE
+- service: iceberg-rest
+  var: ICEBERG_REST_INIT_IMAGE
+  image: postgres:15.18-alpine
+  upstream: PostgreSQL 15.18 client
+  license: PostgreSQL
+  url: https://github.com/postgres/postgres/blob/005c1971a2926fbb9caf5a1ad634cd17a42bfd3c/COPYRIGHT
+- service: jenkins
+  var: JENKINS_IMAGE
+  image: jenkins/jenkins:lts-jdk21@sha256:c1e4c349365f6d16d88595b2c5f7e8ff39b8ae1d061f62420bac193b4b9616d0
+  upstream: Jenkins LTS (JDK 21), floating lts-jdk21 tag pinned by digest
+  license: MIT
+  url: https://github.com/jenkinsci/jenkins/blob/2b42c2ddaf112f8bc6d0f2a1227417208f716592/LICENSE.txt
+  open:
+  - R-FLOAT
+  - R-BUILD
+  redistribution: unresolved
+- service: jupyterhub
+  var: JUPYTERHUB_IMAGE
+  image: quay.io/jupyter/datascience-notebook:2026-08-24@sha256:e5029672ab8a861345f117dc466a4dab91ad7c299f3c7c853b9b193860b16aaf
+  upstream: Jupyter Docker Stacks datascience-notebook 2026-08-24
+  license: BSD-3-Clause
+  url: https://github.com/jupyter/docker-stacks/blob/ac62373f9f60a6b4aa68735e76d0feb2eadf7bd1/LICENSE.md
+  open:
+  - R-FLOAT
+- service: kong
+  var: KONG_API_GATEWAY_IMAGE
+  image: kong:3.9.3
+  upstream: Kong Gateway OSS 3.9.3
+  license: Apache-2.0
+  url: https://github.com/Kong/kong/blob/a643428bc4d5397152164a63bcc0f8bc65fce69d/LICENSE
+- service: label-studio
+  var: LABEL_STUDIO_IMAGE
+  image: heartexlabs/label-studio:1.23.0
+  upstream: Label Studio 1.23.0
+  license: Apache-2.0
+  url: https://github.com/HumanSignal/label-studio/blob/2a9bfbcbf0a844b999de97e601d16050a893f5fb/LICENSE
+  notice: https://github.com/HumanSignal/label-studio/blob/2a9bfbcbf0a844b999de97e601d16050a893f5fb/NOTICE
+- service: label-studio
+  var: LABEL_STUDIO_INIT_IMAGE
+  image: alpine:3.24.1
+  upstream: Alpine Linux 3.24.1 (packages under their own licenses)
+  license: Alpine-packages
+  url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
+  open:
+  - R-BASE
+- service: langfuse
+  var: LANGFUSE_IMAGE
+  image: langfuse/langfuse:3.115.0
+  upstream: Langfuse 3.115.0 (ee/ directories under ee/LICENSE)
+  license: MIT
+  url: https://github.com/langfuse/langfuse/blob/506d6706258ed91dcb3c8ffa3bfcffb0ab3e675e/LICENSE
+- service: langfuse
+  var: LANGFUSE_WORKER_IMAGE
+  image: langfuse/langfuse-worker:3.115.0
+  upstream: Langfuse worker 3.115.0 (ee/ directories under ee/LICENSE)
+  license: MIT
+  url: https://github.com/langfuse/langfuse/blob/506d6706258ed91dcb3c8ffa3bfcffb0ab3e675e/LICENSE
+- service: langfuse
+  var: LANGFUSE_CLICKHOUSE_IMAGE
+  image: clickhouse/clickhouse-server:25.8.33.6
+  upstream: ClickHouse 25.8.33.6 LTS
+  license: Apache-2.0
+  url: https://github.com/ClickHouse/ClickHouse/blob/65eaf18b4a939f3e02aad50b7fbb2711b09495a0/LICENSE
+- service: langfuse
+  var: LANGFUSE_INIT_IMAGE
+  image: alpine:3.24.1
+  upstream: Alpine Linux 3.24.1 (packages under their own licenses)
+  license: Alpine-packages
+  url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
+  open:
+  - R-BASE
+- service: lightrag
+  var: LIGHTRAG_IMAGE
+  image: ghcr.io/hkuds/lightrag:v1.5.4
+  upstream: LightRAG v1.5.4
+  license: MIT
+  url: https://github.com/HKUDS/LightRAG/blob/9a45b64c2ee25b1d806e90db926a8af37480bb16/LICENSE
+- service: lightrag
+  var: LIGHTRAG_INIT_IMAGE
+  image: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+  upstream: Alpine Linux 3.24.1 (packages under their own licenses)
+  license: Alpine-packages
+  url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
+  open:
+  - R-BASE
+- service: litellm
+  var: LITELLM_IMAGE
+  image: ghcr.io/berriai/litellm:v1.83.14-stable.patch.2
+  upstream: LiteLLM v1.83.14-stable.patch.2 (enterprise/ directory under enterprise/LICENSE)
+  license: MIT
+  url: https://github.com/BerriAI/litellm/blob/b36fb1dc191620e8ff2b3a43854c05f5189cd813/LICENSE
+- service: local-deep-researcher
+  var: LOCAL_DEEP_RESEARCHER_IMAGE
+  image: python:3.11.15-slim
+  upstream: Python 3.11.15 (build base)
+  license: PSF-2.0
+  url: https://github.com/python/cpython/blob/2340a037f7450e70fccfe411e6531afb4d57a312/LICENSE
+- service: loki
+  var: LOKI_IMAGE
+  image: grafana/loki:3.7.0
+  upstream: Grafana Loki 3.7.0
+  license: AGPL-3.0
+  url: https://github.com/grafana/loki/blob/3361de24b692875d77bd7433cd6baa7c68dc0ef9/LICENSE
+- service: mcp-servers
+  var: MCP_SERVERS_IMAGE
+  image: python:3.12.14-slim
+  upstream: Python 3.12.14 (build base)
+  license: PSF-2.0
+  url: https://github.com/python/cpython/blob/2abcf904b8dac8c999d2b3aac76681abb333798a/LICENSE
+- service: minio
+  var: MINIO_IMAGE
+  image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
+  upstream: Pigsty Silo (MinIO fork) RELEASE.2026-09-16T00-00-00Z
+  license: AGPL-3.0
+  url: https://github.com/pgsty/silo/blob/2a4d51406b7ed87af5fe6fe0f801f3290f96eb3c/LICENSE
+  notice: https://github.com/pgsty/silo/blob/2a4d51406b7ed87af5fe6fe0f801f3290f96eb3c/NOTICE
+- service: minio
+  var: MINIO_INIT_IMAGE
+  image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd
+  upstream: Pigsty mc (MinIO client fork) RELEASE.2026-09-16T00-00-00Z
+  license: AGPL-3.0
+  url: https://github.com/pgsty/mc/blob/e952aa78f10a2b77dd525a2b7e3143bcda0cd377/LICENSE
+  notice: https://github.com/pgsty/mc/blob/e952aa78f10a2b77dd525a2b7e3143bcda0cd377/NOTICE
+- service: mlflow
+  var: MLFLOW_IMAGE
+  image: ghcr.io/mlflow/mlflow:v3.15.1
+  upstream: MLflow v3.15.1
+  license: Apache-2.0
+  url: https://github.com/mlflow/mlflow/blob/9a1c0d9a9827acd23c7a215f0999e4b0f97e9870/LICENSE.txt
+- service: mlflow
+  var: MLFLOW_INIT_IMAGE
+  image: alpine:3.24.1
+  upstream: Alpine Linux 3.24.1 (packages under their own licenses)
+  license: Alpine-packages
+  url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
+  open:
+  - R-BASE
+- service: n8n
+  var: N8N_IMAGE
+  image: n8nio/n8n:2.28.2
+  upstream: n8n 2.28.2 (.ee. files under the n8n Enterprise License)
+  license: Sustainable-Use-1.0
+  url: https://github.com/n8n-io/n8n/blob/99c6e0295dbde56de917f1df2d6a508c2b98dd9d/LICENSE.md
+  open:
+  - R-N8N
+- service: n8n
+  var: N8N_INIT_IMAGE
+  image: n8nio/n8n:2.28.2
+  upstream: n8n 2.28.2 (.ee. files under the n8n Enterprise License)
+  license: Sustainable-Use-1.0
+  url: https://github.com/n8n-io/n8n/blob/99c6e0295dbde56de917f1df2d6a508c2b98dd9d/LICENSE.md
+  open:
+  - R-N8N
+- service: neo4j
+  var: NEO4J_GRAPH_DB_IMAGE
+  image: neo4j:5.26.30
+  upstream: Neo4j Community 5.26.30
+  license: GPL-3.0
+  url: https://github.com/neo4j/neo4j/blob/d3ee27440d2c5fee6d4087cf1e05f30bf687e9c3/LICENSE.txt
+- service: ollama
+  var: LLM_PROVIDER_IMAGE
+  image: ollama/ollama:0.30.11
+  upstream: Ollama v0.30.11
+  license: MIT
+  url: https://github.com/ollama/ollama/blob/d26a58557d83aa8892bdfa79b3550f5ee969cd1c/LICENSE
+- service: ollama
+  var: OLLAMA_PULL_IMAGE
+  image: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+  upstream: Alpine Linux 3.24.1 (packages under their own licenses)
+  license: Alpine-packages
+  url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
+  open:
+  - R-BASE
+- service: open-webui
+  var: OPEN_WEB_UI_IMAGE
+  image: dyrnq/open-webui:v0.6.32
+  upstream: Open WebUI v0.6.32, as rebuilt by the dyrnq mirror
+  license: Open-WebUI
+  url: https://github.com/open-webui/open-webui/blob/37d1c85c996e1bdcd505e1e6d62b2f17acd8df23/LICENSE
+  open:
+  - R-OPENWEBUI
+  redistribution: unresolved
+- service: open-webui
+  var: OPEN_WEB_UI_INIT_IMAGE
+  image: python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579
+  upstream: Python 3.12.14
+  license: PSF-2.0
+  url: https://github.com/python/cpython/blob/2abcf904b8dac8c999d2b3aac76681abb333798a/LICENSE
+- service: openclaw
+  var: OPENCLAW_IMAGE
+  image: ghcr.io/openclaw/openclaw:2026.6.10
+  upstream: OpenClaw v2026.6.10
+  license: MIT
+  url: https://github.com/openclaw/openclaw/blob/aa69b12d0086b631b139c1435c9621a5783e3a40/LICENSE
+- service: openclaw
+  var: OPENCLAW_INIT_IMAGE
+  image: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+  upstream: Alpine Linux 3.24.1 (packages under their own licenses)
+  license: Alpine-packages
+  url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
+  open:
+  - R-BASE
+- service: otel-collector
+  var: OTEL_COLLECTOR_IMAGE
+  image: otel/opentelemetry-collector-contrib:0.154.0
+  upstream: OpenTelemetry Collector Contrib v0.154.0
+  license: Apache-2.0
+  url: https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/853eda0e12b3ba142552ecd2b63cec07062904f0/LICENSE
+  notice: https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/853eda0e12b3ba142552ecd2b63cec07062904f0/NOTICE
+- service: parakeet
+  var: PARAKEET_GPU_IMAGE
+  image: nvcr.io/nvidia/pytorch:26.06-py3
+  upstream: NVIDIA PyTorch container 26.06 (NGC)
+  license: NVIDIA-DLC
+  open:
+  - R-NGC
+- service: prometheus
+  var: PROMETHEUS_IMAGE
+  image: prom/prometheus:v2.55.1
+  upstream: Prometheus v2.55.1
+  license: Apache-2.0
+  url: https://github.com/prometheus/prometheus/blob/6d7569113f1ca814f1e149f74176656540043b8d/LICENSE
+  notice: https://github.com/prometheus/prometheus/blob/6d7569113f1ca814f1e149f74176656540043b8d/NOTICE
+- service: prometheus
+  var: NODE_EXPORTER_IMAGE
+  image: prom/node-exporter:v1.11.1
+  upstream: Node Exporter v1.11.1
+  license: Apache-2.0
+  url: https://github.com/prometheus/node_exporter/blob/0dd664dece3f8319f6bec5a221acd2c7ad13a23d/LICENSE
+  notice: https://github.com/prometheus/node_exporter/blob/0dd664dece3f8319f6bec5a221acd2c7ad13a23d/NOTICE
+- service: prometheus
+  var: CADVISOR_IMAGE
+  image: gcr.io/cadvisor/cadvisor:v0.55.1
+  upstream: cAdvisor v0.55.1
+  license: Apache-2.0
+  url: https://github.com/google/cadvisor/blob/f5bec3744d92f01556c6ca528ee52f3a26402d6d/LICENSE
+- service: ray
+  var: RAY_IMAGE
+  image: rayproject/ray:2.56.0
+  upstream: Ray 2.56.0
+  license: Apache-2.0
+  url: https://github.com/ray-project/ray/blob/637fd062205393b9e1929996bfe1d49bd3f8469d/LICENSE
+- service: ray
+  var: RAY_GPU_IMAGE
+  image: rayproject/ray:2.56.0-gpu
+  upstream: Ray 2.56.0 with CUDA
+  license: Apache-2.0
+  url: https://github.com/ray-project/ray/blob/637fd062205393b9e1929996bfe1d49bd3f8469d/LICENSE
+  open:
+  - R-CUDA
+  redistribution: unresolved
+- service: redis
+  var: REDIS_IMAGE
+  image: redis:7.2.14-alpine
+  upstream: Redis 7.2.14
+  license: BSD-3-Clause
+  url: https://github.com/redis/redis/blob/f2262eccb855eadd1afb0c457ea583ef9d5400b5/COPYING
+- service: redis
+  var: REDIS_EXPORTER_IMAGE
+  image: oliver006/redis_exporter:v1.86.0
+  upstream: redis_exporter v1.86.0
+  license: MIT
+  url: https://github.com/oliver006/redis_exporter/blob/c4dac6ba37ea9c7da7652beb329612af977106aa/LICENSE
+- service: redpanda
+  var: REDPANDA_IMAGE
+  image: docker.redpanda.com/redpandadata/redpanda:v26.1.12
+  upstream: Redpanda v26.1.12 (enterprise features under the Redpanda Community License)
+  license: BSL-1.1-Redpanda
+  url: https://github.com/redpanda-data/redpanda/blob/767244b93538578716e4d89af455365691767526/licenses/bsl.md
+  open:
+  - R-REDPANDA
+- service: redpanda
+  var: REDPANDA_CONSOLE_IMAGE
+  image: docker.redpanda.com/redpandadata/console:v3.8.0
+  upstream: Redpanda Console v3.8.0
+  license: BSL-1.1-Redpanda
+  url: https://github.com/redpanda-data/console/blob/d73b703d9ceba9d02630db2a361e480df681c489/licenses/bsl_header.txt
+  open:
+  - R-REDPANDA
+- service: searxng
+  var: SEARXNG_IMAGE
+  image: searxng/searxng:2026.6.28-357662d86
+  upstream: SearXNG 2026.6.28 (commit 357662d86)
+  license: AGPL-3.0
+  url: https://github.com/searxng/searxng/blob/357662d86/LICENSE
+- service: spark
+  var: SPARK_IMAGE
+  image: apache/spark:4.1.2
+  upstream: Apache Spark 4.1.2
+  license: Apache-2.0
+  url: https://github.com/apache/spark/blob/f0bb2e6a47d0ebda424ffd633fcea8644a597954/LICENSE
+  notice: https://github.com/apache/spark/blob/f0bb2e6a47d0ebda424ffd633fcea8644a597954/NOTICE
+- service: speaches
+  var: SPEACHES_IMAGE
+  image: ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu
+  upstream: Speaches 0.9.0-rc.3
+  license: MIT
+  url: https://github.com/speaches-ai/speaches/blob/24f209c90218187747a9205f0b84bc06b42ce775/LICENSE
+- service: supabase
+  var: SUPABASE_DB_IMAGE
+  image: supabase/postgres:17.6.1.139
+  upstream: Supabase Postgres 17.6.1.139
+  license: PostgreSQL
+  url: https://github.com/supabase/postgres/blob/5a1b75bc2807d6a72641d0a824f7a6c96142fa9e/LICENSE
+- service: supabase
+  var: SUPABASE_DB_INIT_IMAGE
+  image: postgres:15.18-alpine
+  upstream: PostgreSQL 15.18 client
+  license: PostgreSQL
+  url: https://github.com/postgres/postgres/blob/005c1971a2926fbb9caf5a1ad634cd17a42bfd3c/COPYRIGHT
+- service: supabase
+  var: SUPABASE_META_IMAGE
+  image: supabase/postgres-meta:v0.96.6
+  upstream: postgres-meta v0.96.6
+  license: Apache-2.0
+  url: https://github.com/supabase/postgres-meta/blob/f21a4da30484c6146a6ac4a3f260d992e7330bf1/LICENSE
+- service: supabase
+  var: SUPABASE_STORAGE_IMAGE
+  image: supabase/storage-api:v1.61.5
+  upstream: Supabase Storage v1.61.5
+  license: Apache-2.0
+  url: https://github.com/supabase/storage/blob/485fddf59e66c2d11b0e8be191ae384cbba56f87/LICENSE
+- service: supabase
+  var: SUPABASE_AUTH_IMAGE
+  image: supabase/gotrue:v2.191.0
+  upstream: Supabase Auth (GoTrue) v2.191.0
+  license: MIT
+  url: https://github.com/supabase/auth/blob/712c037897ee918897996a8f71b62c0e4e2f48ef/LICENSE
+- service: supabase
+  var: SUPABASE_API_IMAGE
+  image: postgrest/postgrest:v12.2.10
+  upstream: PostgREST v12.2.10
+  license: MIT
+  url: https://github.com/PostgREST/postgrest/blob/a7f91814622d197aadfcf680f4327024d56bf780/LICENSE
+- service: supabase
+  var: SUPABASE_REALTIME_IMAGE
+  image: supabase/realtime:v2.112.0
+  upstream: Supabase Realtime v2.112.0
+  license: Apache-2.0
+  url: https://github.com/supabase/realtime/blob/8fc71b2914f7d60c42c333460b45859242bb875f/LICENSE
+- service: supabase
+  var: SUPABASE_STUDIO_IMAGE
+  image: supabase/studio:2026.06.22-sha-2207d7f
+  upstream: Supabase Studio (commit 2207d7f)
+  license: Apache-2.0
+  url: https://github.com/supabase/supabase/blob/2207d7f6651b8731143e74fd91130d362dd0cf93/LICENSE
+- service: supabase
+  var: POSTGRES_EXPORTER_IMAGE
+  image: prometheuscommunity/postgres-exporter:v0.19.1
+  upstream: postgres_exporter v0.19.1
+  license: Apache-2.0
+  url: https://github.com/prometheus-community/postgres_exporter/blob/333363aeb548b66340a61a7fb2b3f0e8a8d39f90/LICENSE
+  notice: https://github.com/prometheus-community/postgres_exporter/blob/333363aeb548b66340a61a7fb2b3f0e8a8d39f90/NOTICE
+- service: supavisor
+  var: SUPAVISOR_IMAGE
+  image: supabase/supavisor:2.9.5
+  upstream: Supavisor v2.9.5
+  license: Apache-2.0
+  url: https://github.com/supabase/supavisor/blob/9cf7560b2b2d6e2f72711c1e2a131dc0b2ea6463/LICENSE
+- service: tei-reranker
+  var: TEI_RERANKER_CPU_IMAGE
+  image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9@sha256:ad950d30878eceb72aaf32024d26fa2b1d04a75304fa0b4776b49aa1941fea07
+  upstream: Text Embeddings Inference 1.9 (CPU)
+  license: Apache-2.0
+  url: https://github.com/huggingface/text-embeddings-inference/blob/5699247f57e46aa09eb4f8c4cf74114099372fe7/LICENSE
+- service: tei-reranker
+  var: TEI_RERANKER_CPU_ARM64_IMAGE
+  image: ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-latest@sha256:35c50d7494de22deecdb783b8f5b7e1d05765709bd90071b03469b9440d28656
+  upstream: Text Embeddings Inference (CPU arm64), floating latest tag pinned by digest
+  license: Apache-2.0
+  url: https://github.com/huggingface/text-embeddings-inference/blob/5699247f57e46aa09eb4f8c4cf74114099372fe7/LICENSE
+  open:
+  - R-FLOAT
+- service: tei-reranker
+  var: TEI_RERANKER_GPU_IMAGE
+  image: ghcr.io/huggingface/text-embeddings-inference:1.9@sha256:536efce2a0dc0acd0336d683ef1b81fcf900f76c8fb850e25a6d48a54a97df91
+  upstream: Text Embeddings Inference 1.9 (CUDA)
+  license: Apache-2.0
+  url: https://github.com/huggingface/text-embeddings-inference/blob/5699247f57e46aa09eb4f8c4cf74114099372fe7/LICENSE
+  open:
+  - R-CUDA
+  redistribution: unresolved
+- service: tempo
+  var: TEMPO_IMAGE
+  image: grafana/tempo:3.0.0
+  upstream: Grafana Tempo v3.0.0
+  license: AGPL-3.0
+  url: https://github.com/grafana/tempo/blob/d399842f5d699627e49cdb7034b70e29e0e29567/LICENSE
+- service: tika
+  var: TIKA_IMAGE
+  image: apache/tika:3.3.1.0
+  upstream: Apache Tika 3.3.1
+  license: Apache-2.0
+  url: https://github.com/apache/tika/blob/bf9aa9249a4f9ff14f53bcd419efdebd92253351/LICENSE.txt
+  notice: https://github.com/apache/tika/blob/bf9aa9249a4f9ff14f53bcd419efdebd92253351/NOTICE.txt
+- service: trino
+  var: TRINO_IMAGE
+  image: trinodb/trino:482
+  upstream: Trino 482
+  license: Apache-2.0
+  url: https://github.com/trinodb/trino/blob/f04d222fbeedaf888ac3c907748209c7e716a4c2/LICENSE
+- service: trueforge
+  var: TRUEFORGE_IMAGE
+  image: tfy.jfrog.io/tfy-images/trueforge:0.2.0-8b1d98e
+  upstream: TrueForge 0.2.0 (TrueFoundry registry)
+  license: unknown
+  open:
+  - R-TRUEFORGE
+- service: verba
+  var: VERBA_IMAGE
+  image: semitechnologies/verba@sha256:0947d289ebff2c9814941c8d4282ee994dc79598e76162ae82e6efda4682b0b7
+  upstream: Verba, untagged image pinned by digest
+  license: BSD-3-Clause
+  url: https://github.com/weaviate/Verba/blob/70b6cfb8ef59c9f178ffccfaf3aadcf737757a18/LICENSE
+  open:
+  - R-FLOAT
+- service: weaviate
+  var: WEAVIATE_IMAGE
+  image: cr.weaviate.io/semitechnologies/weaviate:1.38.13
+  upstream: Weaviate v1.38.13
+  license: BSD-3-Clause
+  url: https://github.com/weaviate/weaviate/blob/099327c53cb1d9a785324402dc861619660dbc2b/LICENSE
+- service: weaviate
+  var: WEAVIATE_INIT_IMAGE
+  image: alpine:3.24.1
+  upstream: Alpine Linux 3.24.1 (packages under their own licenses)
+  license: Alpine-packages
+  url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
+  open:
+  - R-BASE
+- service: weaviate
+  var: MULTI2VEC_CLIP_IMAGE
+  image: semitechnologies/multi2vec-clip:sentence-transformers-clip-ViT-B-32-1.5.1
+  upstream: Weaviate multi2vec-clip inference 1.5.1 (bundles CLIP ViT-B-32 weights)
+  license: BSD-3-Clause
+  url: https://github.com/weaviate/multi2vec-clip-inference/blob/75168ebc1881fd1c754e9b9c3fe4b142598f4a5a/LICENSE
+  open:
+  - R-MODELS
+  redistribution: unresolved
+- service: zeppelin
+  var: ZEPPELIN_IMAGE
+  image: apache/zeppelin:0.12.1
+  upstream: Apache Zeppelin 0.12.1
+  license: Apache-2.0
+  url: https://github.com/apache/zeppelin/blob/ae9cb72ffaa6b3c007f57b152e2a3eb2208b910a/LICENSE
+  notice: https://github.com/apache/zeppelin/blob/ae9cb72ffaa6b3c007f57b152e2a3eb2208b910a/NOTICE
+- service: zeppelin
+  var: ZEPPELIN_INIT_IMAGE
+  image: python:3.12.13-alpine
+  upstream: Python 3.12.13
+  license: PSF-2.0
+  url: https://github.com/python/cpython/blob/3bb231a6a5dc02b95658877318bf61501a7209e9/LICENSE
+build_images:
+- dockerfile: services/asset-worker/app/Dockerfile
+  image: node:22-bookworm-slim@sha256:f32b81066cde10a75dbac96646099533316d94bac4150c55da1636e1f0ffdc46
+  upstream: Node.js 22 runtime stage, floating 22-bookworm-slim tag pinned by digest
+  license: MIT
+  url: https://github.com/nodejs/node/blob/80dc632040e6bada37aac1220dde9c79581c9c22/LICENSE
+  open:
+  - R-FLOAT
+- dockerfile: services/jupyterhub/build/Dockerfile
+  image: node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
+  upstream: Node.js 22.23.2 runtime stage (the license file also lists bundled dependencies)
+  license: MIT
+  url: https://github.com/nodejs/node/blob/aa4c77582be995286fc6e00aaf530dc7ade102a9/LICENSE
+models:
+- catalogue: comfyui
+  id: v1-5-pruned-emaonly
+  sources:
+  - https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/resolve/451f4fe16113bff5a5d2269ed5ad43b0592e9a14/v1-5-pruned-emaonly.safetensors
+  hosted: unresolved
+  integration: unresolved
+  redistribution: unresolved
+  open:
+  - R-MODELS
+- catalogue: comfyui
+  id: sd_xl_base_1.0
+  sources:
+  - https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/462165984030d82259a11f4367a4eed129e94a7b/sd_xl_base_1.0.safetensors
+  hosted: unresolved
+  integration: unresolved
+  redistribution: unresolved
+  open:
+  - R-MODELS
+- catalogue: comfyui
+  id: vae-ft-mse-840000-ema-pruned
+  sources:
+  - https://huggingface.co/stabilityai/sd-vae-ft-mse-original/resolve/629b3ad3030ce36e15e70c5db7d91df0d60c627f/vae-ft-mse-840000-ema-pruned.safetensors
+  hosted: unresolved
+  integration: unresolved
+  redistribution: unresolved
+  open:
+  - R-MODELS
+- catalogue: comfyui
+  id: sdxl-vae
+  sources:
+  - https://huggingface.co/stabilityai/sdxl-vae/resolve/6f5909a7e596173e25d4e97b07fd19cdf9611c76/sdxl_vae.safetensors
+  hosted: unresolved
+  integration: unresolved
+  redistribution: unresolved
+  open:
+  - R-MODELS
+- catalogue: comfyui
+  id: ip-adapter-plus_sdxl_vit-h
+  sources:
+  - https://huggingface.co/h94/IP-Adapter/resolve/018e402774aeeddd60609b4ecdb7e298259dc729/sdxl_models/ip-adapter-plus_sdxl_vit-h.safetensors
+  hosted: unresolved
+  integration: unresolved
+  redistribution: unresolved
+  open:
+  - R-MODELS
+- catalogue: comfyui
+  id: ip-adapter-faceid-plusv2_sdxl
+  sources:
+  - https://huggingface.co/h94/IP-Adapter-FaceID/resolve/43907e6f44d079bf1a9102d9a6e56aef7a219bae/ip-adapter-faceid-plusv2_sdxl.bin
+  hosted: unresolved
+  integration: unresolved
+  redistribution: unresolved
+  open:
+  - R-MODELS
+- catalogue: comfyui
+  id: instantid-ip-adapter
+  sources:
+  - https://huggingface.co/InstantX/InstantID/resolve/57b32dfee076092ad2930c71fd6d439c2c3b1820/ip-adapter.bin
+  hosted: unresolved
+  integration: unresolved
+  redistribution: unresolved
+  open:
+  - R-MODELS
+- catalogue: comfyui
+  id: real-esrgan-x4plus
+  sources:
+  - https://huggingface.co/lllyasviel/Annotators/resolve/982e7edaec38759d914a963c48c4726685de7d96/RealESRGAN_x4plus.pth
+  hosted: unresolved
+  integration: unresolved
+  redistribution: unresolved
+  open:
+  - R-MODELS
+- catalogue: comfyui
+  id: 4x-ultrasharp
+  sources:
+  - https://huggingface.co/lokCX/4x-Ultrasharp/resolve/1856559b50de25116a7c07261177dd128f1f5664/4x-UltraSharp.pth
+  hosted: unresolved
+  integration: unresolved
+  redistribution: unresolved
+  open:
+  - R-MODELS
+- catalogue: comfyui
+  id: easynegative
+  sources:
+  - https://huggingface.co/embed/EasyNegative/resolve/05278ab48b52fddec9b00f43a056f361e5c1a0ea/EasyNegative.safetensors
+  hosted: unresolved
+  integration: unresolved
+  redistribution: unresolved
+  open:
+  - R-MODELS
+- catalogue: comfyui
+  id: clip-vit-large-patch14
+  sources:
+  - https://huggingface.co/openai/clip-vit-large-patch14/resolve/32bd64288804d66eefd0ccbe215aa642df71cc41/pytorch_model.bin
+  hosted: unresolved
+  integration: unresolved
+  redistribution: unresolved
+  open:
+  - R-MODELS
+- catalogue: comfyui
+  id: animatediff-camera-zoomin-lora
+  sources:
+  - https://huggingface.co/guoyww/animatediff-motion-lora-zoom-in/resolve/6a8aaab901694b3f9b6a1e5fb54d7e19bc4a3b0d/diffusion_pytorch_model.safetensors
+  hosted: unresolved
+  integration: unresolved
+  redistribution: unresolved
+  open:
+  - R-MODELS
+- catalogue: comfyui
+  id: krea2-turbo-bf16
+  license_url: https://huggingface.co/krea/Krea-2-Turbo/blob/1161245028ef398cd0a951101b2bbf486464f841/LICENSE.pdf
+  sources:
+  - https://huggingface.co/Comfy-Org/Krea-2/resolve/8038ce89b91b042141541ad0fa51b985ca262c5f/diffusion_models/krea2_turbo_bf16.safetensors
+  - https://huggingface.co/Comfy-Org/Krea-2/resolve/8038ce89b91b042141541ad0fa51b985ca262c5f/text_encoders/qwen3vl_4b_bf16.safetensors
+  - https://huggingface.co/Comfy-Org/Krea-2/resolve/8038ce89b91b042141541ad0fa51b985ca262c5f/vae/qwen_image_vae.safetensors
+  hosted: conditional
+  integration: conditional
+  redistribution: unresolved
+  open:
+  - R-KREA
+  - R-BUNDLE
+- catalogue: comfyui
+  id: krea2-raw-bf16
+  license_url: https://huggingface.co/krea/Krea-2-Turbo/blob/1161245028ef398cd0a951101b2bbf486464f841/LICENSE.pdf
+  sources:
+  - https://huggingface.co/Comfy-Org/Krea-2/resolve/8038ce89b91b042141541ad0fa51b985ca262c5f/diffusion_models/krea2_raw_bf16.safetensors
+  - https://huggingface.co/Comfy-Org/Krea-2/resolve/8038ce89b91b042141541ad0fa51b985ca262c5f/text_encoders/qwen3vl_4b_bf16.safetensors
+  - https://huggingface.co/Comfy-Org/Krea-2/resolve/8038ce89b91b042141541ad0fa51b985ca262c5f/vae/qwen_image_vae.safetensors
+  hosted: conditional
+  integration: conditional
+  redistribution: unresolved
+  open:
+  - R-KREA
+  - R-BUNDLE
+- catalogue: comfyui
+  id: krea2-identity-edit-v1-2
+  license_url: https://huggingface.co/krea/Krea-2-Raw/blob/main/LICENSE.pdf
+  sources:
+  - https://huggingface.co/conradlocke/krea2-identity-edit/resolve/89e9e7a09ee2e5c9331e952063d79b1b8a703280/krea2_identity_edit_v1_2.safetensors
+  unpinned_license_url: R-KREA
+  hosted: conditional
+  integration: conditional
+  redistribution: unresolved
+  open:
+  - R-KREA
+- catalogue: comfyui
+  id: hunyuan3d-2
+  license_url: https://huggingface.co/tencent/Hunyuan3D-2/blob/9cd649ba6913f7a852e3286bad86bfa9a2d83dcf/LICENSE.txt
+  sources:
+  - https://huggingface.co/tencent/Hunyuan3D-2/resolve/9cd649ba6913f7a852e3286bad86bfa9a2d83dcf/hunyuan3d-dit-v2-0/model.fp16.safetensors
+  hosted: conditional
+  integration: conditional
+  redistribution: unresolved
+  open:
+  - R-HUNYUAN
+- catalogue: ollama
+  id: qwen3.8:latest
+  sources:
+  - qwen3.8:latest
+  unpinned_source: R-OLLAMA
+  hosted: unresolved
+  integration: unresolved
+  redistribution: unresolved
+  open:
+  - R-OLLAMA
+- catalogue: ollama
+  id: nomic-embed-text
+  sources:
+  - nomic-embed-text
+  unpinned_source: R-OLLAMA
+  hosted: unresolved
+  integration: unresolved
+  redistribution: unresolved
+  open:
+  - R-OLLAMA
+- catalogue: ollama
+  id: qwen3-embedding:0.6b
+  sources:
+  - qwen3-embedding:0.6b
+  unpinned_source: R-OLLAMA
+  hosted: unresolved
+  integration: unresolved
+  redistribution: unresolved
+  open:
+  - R-OLLAMA
+- catalogue: ollama
+  id: bge-m3
+  sources:
+  - bge-m3
+  unpinned_source: R-OLLAMA
+  hosted: unresolved
+  integration: unresolved
+  redistribution: unresolved
+  open:
+  - R-OLLAMA
