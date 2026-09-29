@@ -19,6 +19,7 @@ from scripts.bounded_subprocess import (
 
 from .build_docs import build
 from .canonical_references import sync_canonical_references
+from .license_inventory import INVENTORY, inventory_findings, load_inventory, load_pins
 from .critical_pages import CONTRACT_PATH, SurfaceRoots, check_critical_pages, load_contract
 from .links import find_links, is_forbidden, navigable_link_targets
 from .manifest import Manifest, load_manifest
@@ -342,6 +343,14 @@ def check_placeholders(repo_root: Path) -> list[Finding]:
     return findings
 
 
+def check_license_inventory(repo_root: Path) -> list[Finding]:
+    """The supply-chain license inventory against every image and model pin (#1064)."""
+    return [
+        Finding("error", INVENTORY.as_posix(), message)
+        for message in inventory_findings(load_inventory(repo_root), load_pins(repo_root))
+    ]
+
+
 def check(repo_root: Path, manifest_path: Path) -> list[Finding]:
     manifest = load_manifest(manifest_path, repo_root)
     build(manifest_path, repo_root, site=True, wiki=True, check=True)
@@ -386,6 +395,7 @@ def check(repo_root: Path, manifest_path: Path) -> list[Finding]:
 
     return [
         *canonical_drift,
+        *check_license_inventory(repo_root),
         *surface_findings,
         *check_completeness(manifest, repo_root),
         *check_placeholders(repo_root),

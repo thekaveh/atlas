@@ -95,6 +95,7 @@ Documentation is published to three surfaces (this repository, the documentation
 - One concern per pull request, with a body that says what changed, why, and which commands you ran with their result.
 - A test for every behaviour change, in the existing test file for that module where one exists.
 - Documentation updated wherever the changed behaviour is described.
+- A new or moved image pin or model source comes with its row in the [supply-chain license inventory](docs/reference/license-inventory.md): `make docs-check` fails until the row matches the pin.
 - Generated files regenerated, not edited: `.env.example` (`uv run --project bootstrapper python -m services.env_assembler`), the per-service Dependencies & Integrations blocks (`regen`), and never `kong-dynamic.yml`, which is rebuilt at every start.
 - Adding a tracked file moves the complexity ratchet: `bootstrapper/tests/test_maintenance_baseline.py` then asks for `tracked_files` to be raised in `.maintenance.json` and in its `EXPECTED_BASELINE_SNAPSHOT`, with a refresh note naming the new file.
 - No secret, API key or token-shaped literal anywhere in the diff, tests included.

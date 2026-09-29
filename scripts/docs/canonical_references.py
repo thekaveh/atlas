@@ -11,6 +11,12 @@ from bootstrapper.docs.sitegen.model import load_docs_model
 from bootstrapper.docs.sitegen.pages import architecture_pages, reference_pages, static_pages
 from bootstrapper.services.manifest_validator import VALIDATOR_RULES
 from bootstrapper.docs.sitegen.services import service_pages
+from scripts.docs.license_inventory import (
+    PAGE as LICENSE_INVENTORY_PAGE,
+    load_inventory,
+    load_pins,
+    render_license_inventory,
+)
 from scripts.docs.manifest import load_manifest
 
 
@@ -159,6 +165,9 @@ def render_canonical_references(repo_root: Path) -> dict[Path, str]:
         rendered[target] = _final_newline(transformed)
     for source, content in architecture.items():
         rendered[source] = _final_newline(content)
+    rendered[repo_root / LICENSE_INVENTORY_PAGE] = render_license_inventory(
+        load_inventory(repo_root), load_pins(repo_root)
+    )
     return _apply_manifest_h1_numbers(rendered, repo_root)
 
 

@@ -76,6 +76,7 @@ Documentation index for Atlas. Start from the journey that matches you:
 
 - [Main README](../README.md) — project overview and quick start
 - [Reference index](reference/index.md) — generated SOURCE, environment, port, dependency, and manifest-field references
+- [Supply-chain license inventory](reference/license-inventory.md) — every pinned image and downloaded model weight with its license, required notices, hosted-use, source-integration and redistribution terms, and the open review items a release must settle
 - [ROADMAP](ROADMAP.md) — future development plans
 - [CHANGELOG](CHANGELOG.md) — release history and completed features
 

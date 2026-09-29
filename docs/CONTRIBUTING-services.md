@@ -545,7 +545,12 @@ PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.doc
 uv run --project bootstrapper python -m scripts.docs.render_diagrams
 make docs-build
 
-# 5. Lint manifests and all three documentation surfaces
+# 5. Give every new `images:` entry a row in the supply-chain license inventory
+#    (docs/reference/license-inventory.yaml), then regenerate its page
+uv run --project bootstrapper python -m scripts.docs.license_inventory --check
+uv run --project bootstrapper python -m scripts.docs.canonical_references
+
+# 6. Lint manifests and all three documentation surfaces
 uv run --project bootstrapper python -m tools.validate_fragments
 make docs-check
 ```
@@ -555,6 +560,7 @@ make docs-check
 - **`env_assembler`** — after any change to a manifest's `env:` block, port allocation, or source variants.
 - **`generate_readme_topology`** — after any change to a manifest's `rows:`, `display_name`, `category`, or `alias`.
 - **Top-level `docs/diagrams/architecture.html` and `architecture.svg`** — hand-authored masters; update both when a service is added or removed at the band level (new category, new gateway, and similar topology changes). After either master changes, run `python -m scripts.docs.render_diagrams` as shown above before `make docs-build`. Routine `data_flow.calls` edits flow into per-service diagrams via `bootstrapper.docs.regen`.
+- **`license_inventory`** — after adding an `images:` entry or moving any image pin or catalogue model source. The row records the image exactly as pinned, its license at the upstream revision that version was built from, and what the terms allow for hosted use, source integration and redistribution; anything nobody has adjudicated is marked `unresolved` with a named open item. See the [supply-chain license inventory](reference/license-inventory.md).
 - **`validate_fragments`** — always, before the final `make docs-check` gate.
 - **`docs.regen`** — required after creating a new service that owns a same-folder README, or after editing `data_flow.calls` on an existing service. Manifests whose `docs:` field points to an aggregate/doc-only README are exempt from same-folder generation. The drift gate in CI (`bootstrapper.docs.regen --all --check`) catches stale existing per-service READMEs/SVGs/HTMLs.
 
