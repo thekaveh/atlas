@@ -323,6 +323,7 @@ uv run --project bootstrapper python scripts/check-kong-routes.py              #
 uv run --project bootstrapper python scripts/validate_research_schema.py --all # docs/research/ schema check
 uv run --project bootstrapper python scripts/check-track-membership.py         # track coverage audit
 uv run --project bootstrapper python -m scripts.docs.license_inventory --check  # supply-chain license inventory vs image/model pins
+uv run --project bootstrapper python scripts/lint_review_ticket.py < body.md     # review-ticket minimum bar (#1246); exits 1 on R1/R3
 (cd services/docling/provider/localhost && uv lock --locked)                   # docling localhost provider lock
 uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py --check  # Local Deep Researcher lock
 uv run --project bootstrapper python -m scripts.check_runtime_locks            # compiled service runtime locks
