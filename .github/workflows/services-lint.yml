@@ -4,7 +4,10 @@ name: services-lint
 #
 # Gates:
 #   - manifest validator (8 cross-manifest checks)
-#   - unit tests (loader, validator, assembler, hooks, validate_fragments CLI)
+#   - unit tests (loader, validator, assembler, hooks, validate_fragments CLI),
+#     split into parallel jobs behind the required `Manifest lint + unit tests`
+#     gate: `lint` (with containers + Backend), `unit-fast` (no Docker, the
+#     early signal), `python-floor` (Python 3.10) and `component-tests` (#1176)
 #   - compose merge (`docker compose -f docker-compose.yml config -q`)
 #   - byte-equivalence vs the golden baseline at
 #     bootstrapper/tests/fixtures/rendered_config_baseline.yml
@@ -24,14 +27,24 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels that pull request's superseded run
+# (#1176). Every push to main or develop gets a group of its own (its run id),
+# so those runs are never cancelled and never cancel anything.
+concurrency:
+  group: services-lint-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('push-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
-    name: Manifest lint + unit tests
+    # Not a required check itself: the `required-lint` gate below carries the
+    # required "Manifest lint + unit tests" name and fails unless this job and
+    # the three split-out suites all pass (#1176).
+    name: Bootstrapper and Backend suites (with containers)
     runs-on: ubuntu-24.04
-    # Runs the full bootstrapper suite twice (Python 3.12 then 3.10). The
-    # container-backed backup/restore integration tests put a single pass near
-    # 40 minutes, so the two passes plus setup need well over the former hour.
-    timeout-minutes: 110
+    # One bootstrapper pass with the container-backed backup/restore
+    # integration tests (near 40 minutes on its own) plus the Backend suite.
+    # The Python 3.10 pass and the MCP and asset suites run in parallel jobs.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -171,6 +184,148 @@ jobs:
             --cov=. --cov-config=.coveragerc --cov-branch \
             --cov-report=term --cov-fail-under=79
 
+      - name: Remove integration test containers
+        # The only job that runs the opted-in backup and restore integration
+        # tests owns their cleanup, and runs it even when a test step failed.
+        # Their containers are named atlas-<purpose>-<token>, and the live
+        # Compose drills run as project atlas_it_<token>, whose containers,
+        # networks and volumes all start with that prefix. Housekeeping only:
+        # a removal race must never turn a job whose tests passed red.
+        if: always()
+        continue-on-error: true
+        run: |
+          owned() { grep -E '^atlas[-_]' || true; }
+          docker ps -a --format '{{.Names}}' | owned | xargs -r docker rm -f
+          docker network ls --format '{{.Name}}' | owned | xargs -r docker network rm
+          docker volume ls --format '{{.Name}}' | owned | xargs -r docker volume rm -f
+
+  unit-fast:
+    # The early signal (#1176): the whole bootstrapper suite as a contributor
+    # without Docker runs it. No daemon is reachable and CI is cleared, so the
+    # container-backed tests skip themselves exactly as they do locally, and
+    # a failing unit test turns this check red long before the container
+    # suites finish. Those suites still run in `lint` and `python-floor`.
+    name: Bootstrapper suite without Docker (fast)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history and tags: the release-history tests read them.
+          fetch-depth: 0
+
+      - name: Install Cairo
+        run: sudo apt-get update && sudo apt-get install -y libcairo2
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.11.19"
+
+      - name: Sync dependencies
+        working-directory: bootstrapper
+        run: uv sync --group dev --locked
+
+      - name: Run bootstrapper tests without a Docker daemon
+        working-directory: bootstrapper
+        env:
+          CI: ""
+          DOCKER_HOST: unix:///tmp/atlas-no-docker.sock
+        run: >-
+          uv run pytest tests/ -q
+          --ignore=tests/test_fragment_equivalence.py
+          --ignore=tests/test_source_permutations.py
+
+  python-floor:
+    # The supported Python floor. It runs the full bootstrapper suite, with
+    # the same images `lint` pulls, because its Docker-backed tests require
+    # them locally in CI.
+    name: Bootstrapper suite on Python 3.10
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history and tags: the release-history tests read them.
+          fetch-depth: 0
+
+      - name: Install Cairo
+        run: sudo apt-get update && sudo apt-get install -y libcairo2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.11.19"
+
+      - name: Pull exact backup integration images
+        run: |
+          timeout 5m docker pull postgres:17.10-alpine
+          timeout 5m docker pull pgsty/silo:RELEASE.2026-09-16T00-00-00Z
+          timeout 5m docker pull pgsty/mc:RELEASE.2026-09-16T00-00-00Z
+          # The backup image installs its own pinned mc from the official
+          # release, verified by SHA-256 (services/backup/init/scripts/
+          # entrypoint.sh). The integration tests need that exact binary, which
+          # the newer pgsty/mc client image no longer carries, so provision it
+          # the same way and hand its directory to every later step.
+          pinned_mc_dir="${RUNNER_TEMP}/atlas-pinned-mc"
+          pinned_mc="mc.linux-amd64.RELEASE.2025-08-13T08-35-41Z"
+          mkdir -p "$pinned_mc_dir"
+          timeout 5m curl -fsSL --retry 3 -o "$pinned_mc_dir/$pinned_mc" \
+            "https://github.com/minio/mc/releases/download/RELEASE.2025-08-13T08-35-41Z/$pinned_mc"
+          echo "01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891  $pinned_mc_dir/$pinned_mc" \
+            | sha256sum -c -
+          echo "ATLAS_BACKUP_PINNED_MC_DIR=$pinned_mc_dir" >> "$GITHUB_ENV"
+          timeout 5m docker pull neo4j:5.26.30
+          timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.13
+          timeout 5m docker pull alpine:3.24.1
+          timeout 5m docker pull supabase/postgres:17.6.1.139
+          timeout 5m docker pull postgres:15.18-alpine
+          timeout 5m docker pull supabase/realtime:v2.112.0
+          timeout 5m docker pull supabase/storage-api:v1.61.5
+          timeout 5m docker pull supabase/supavisor:2.9.5
+          timeout 5m docker pull redis:7.2.14-alpine
+          timeout 5m docker pull otel/opentelemetry-collector-contrib:0.154.0
+          timeout 5m docker pull grafana/loki:3.7.0
+          timeout 5m docker pull grafana/grafana:11.4.3
+          timeout 10m docker build --pull \
+            --tag atlas-backup:local \
+            services/backup/init
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+
+      - name: Run bootstrapper tests on Python 3.10
+        working-directory: bootstrapper
+        run: >-
+          uv run --python 3.10 --isolated --locked --group dev
+          pytest tests/ -q
+          --ignore=tests/test_fragment_equivalence.py
+          --ignore=tests/test_source_permutations.py
+
+  component-tests:
+    name: MCP and asset API tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.11.19"
+
       - name: MCP framework contract tests
         run: |
           MCP_TEST_VENV="${RUNNER_TEMP:-$PWD}/mcp-ci-venv"
@@ -197,18 +352,30 @@ jobs:
             "$ASSET_TEST_VENV/bin/python" -m pytest tests/ -q
           )
 
-      - name: Set up Python 3.10
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.10"
-
-      - name: Run bootstrapper tests on Python 3.10
-        working-directory: bootstrapper
-        run: >-
-          uv run --python 3.10 --isolated --locked --group dev
-          pytest tests/ -q
-          --ignore=tests/test_fragment_equivalence.py
-          --ignore=tests/test_source_permutations.py
+  required-lint:
+    # Carries the ruleset-required "Manifest lint + unit tests" check. It
+    # waits for every suite split out of the former single job and fails
+    # unless all of them succeeded. `always()` makes it run, and fail, when a
+    # dependency failed or was cancelled; a skipped required check would
+    # otherwise count as passing.
+    name: Manifest lint + unit tests
+    needs: [unit-fast, lint, python-floor, component-tests]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every split suite to succeed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          results = {job: data["result"] for job, data in json.loads(os.environ["NEEDS"]).items()}
+          print(json.dumps(results, indent=2, sort_keys=True))
+          failed = sorted(job for job, result in results.items() if result != "success")
+          if failed:
+              sys.exit(f"not successful: {', '.join(failed)}")
+          PY
 
   compose-equivalence:
     name: Compose merge + byte-equivalence + source-permutation matrix

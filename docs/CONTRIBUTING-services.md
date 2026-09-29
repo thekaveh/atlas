@@ -589,12 +589,14 @@ If your service ships a `requirements.txt` / `pyproject.toml` in a `build/` or `
 
 ### 13.4. CI gates that run on every push
 
-The `.github/workflows/services-lint.yml` workflow runs the four jobs below.
-All four are required status checks in the live `gitflow` ruleset:
+The `.github/workflows/services-lint.yml` workflow produces the four checks below.
+All four are required status checks in the live `gitflow` ruleset. A new push to
+a pull request cancels that pull request's superseded run; runs on `main` and
+`develop` are never cancelled.
 
 | Job | What it catches |
 |---|---|
-| **Manifest lint + unit tests** | `validate_fragments` lint + 6,000+ pytest tests + the backend's own pytest suite (`services/backend/app/app/tests/`). Catches: manifest schema violations, dependency cycles, env-example drift, category overflow, backend route regressions. |
+| **Manifest lint + unit tests** | An aggregate gate over four parallel jobs, and green only when all four are: **Bootstrapper and Backend suites (with containers)** runs `validate_fragments`, ShellCheck, the pull-request title and changelog checks, the 6,000+ bootstrapper tests including the container-backed backup/restore integration tests (with the coverage floor), and the backend's own suite (`services/backend/app/app/tests/`); **Bootstrapper suite without Docker (fast)** runs the whole suite with no Docker daemon, so a failing unit test turns red first; **Bootstrapper suite on Python 3.10** runs the full suite on the supported floor; **MCP and asset API tests** runs those isolated suites. Catches: manifest schema violations, dependency cycles, env-example drift, category overflow, backend route regressions. |
 | **Compose merge + byte-equivalence + source-permutation matrix** | Renders `docker compose config` for the merged fragment list + verifies it matches the golden baseline + tests every source variant of every service. Catches: compose-syntax errors, source-permutation regressions. |
 | **Docs drift + audit scripts** | `regen --all --check` + `make docs-check` + the remaining audits (`check_doc_links` — including `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-kong-routes`, `validate_research_schema`, `check-track-membership`) + lock verification for the Docling localhost provider, Local Deep Researcher, and compiled service runtimes + a vulnerability audit of compiled runtime locks. Catches: stale per-service docs, three-surface drift, cross-surface links, missing local assets, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale or unreproducible runtime locks, vulnerable runtime dependency closures, and track-membership omissions. |
 | **Build-validation** | `docker buildx build` for every local non-GPU Compose build context plus every `services/*/init/Dockerfile` context; GPU provider builds are intentionally excluded for runner size/time. Catches: unsatisfiable pip pins, broken Dockerfiles, and init-image drift. Runs on every workflow execution and is required. |

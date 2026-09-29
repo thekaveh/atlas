@@ -114,7 +114,8 @@ fixes, and features entry by entry and counts everything else; the curated
 entries that follow it are the detailed history and are never touched by the
 tool. The block records the exact range it was rendered from
 (`<!-- generated-range: v0.1.0..<commit> -->`), so it is reproducible, and
-`--check-changelog` (run by the required *Manifest lint + unit tests* job and by
+`--check-changelog` (run by the *Bootstrapper and Backend suites* job, which the
+required *Manifest lint + unit tests* gate requires, and by
 `test_committed_changelog_block_is_current`) fails when the block differs from
 what that range renders — a hand edit or a stale block is caught before merge.
 Refresh it at release time, or whenever a summary of newer work is wanted:

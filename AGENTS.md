@@ -46,6 +46,8 @@ For TUI/CLI visual work: after each change, describe exactly what changed visual
 
 Build validation is enabled on every workflow run and is a required check in the live `gitflow` ruleset.
 
+`Manifest lint + unit tests` is an aggregate gate (job `required-lint`, `if: always()`): it succeeds only when four parallel jobs all do. They are `lint` (the bootstrapper suite with the container-backed integration tests, manifest lint, shell lint, title and changelog checks, and the Backend suite, with an always-run container cleanup), `unit-fast` (the whole bootstrapper suite without a Docker daemon, the early red signal), `python-floor` (the full suite on Python 3.10) and `component-tests` (MCP and asset API suites). A new push to a pull request cancels that pull request's superseded `services-lint` run; runs on `main` and `develop` are never cancelled (#1176).
+
 The ruleset also grants the repository admin role an always-on bypass (`bypass_mode: always`), so these rules are the required workflow rather than a mechanical guarantee for an admin. Inspect the live rule with `gh api repos/thekaveh/atlas/rulesets`.
 
 Strict mode is enabled, so each PR branch must be up to date with that PR's target branch before merge becomes available. Conversation-resolution is required.
