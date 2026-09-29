@@ -30,6 +30,7 @@ import asyncio
 from collections import deque
 import concurrent.futures
 import contextlib
+from dataclasses import dataclass
 import math
 import os
 import shlex
@@ -50,7 +51,13 @@ from textual.screen import Screen
 from textual.worker import Worker, WorkerState
 
 from .consequence_review import ConsequenceReview
-from .review_details import ReviewDetails
+from .review_details import (
+    Decision,
+    DecisionsPage,
+    ReviewDetails,
+    ReviewState,
+    command_lines,
+)
 from ..widgets import (
     BrandInfo,
     BrandPanel,
@@ -70,6 +77,7 @@ from ..widgets import (
     ServiceSummary,
     ServiceTable,
 )
+from ..widgets.command_summary import SECRET_MASK
 
 
 # Multi-container service families surface their discovery-anchor container
@@ -640,9 +648,14 @@ def prune_skip_hidden_selections(steps, selections: dict) -> dict:
 
 def _step_secondary_keys(step) -> set[str]:
     """Synthetic selection keys owned by inline inputs on ``step``."""
+    return _option_secondary_keys(getattr(step, "options", None) or [])
+
+
+def _option_secondary_keys(options) -> set[str]:
+    """Synthetic selection keys owned by inline inputs on ``options``."""
     return {
         f"__secondary__:{cfg.env_var}"
-        for option in (getattr(step, "options", None) or [])
+        for option in options
         if (cfg := getattr(option, "secondary_number", None)) is not None
     }
 
@@ -674,6 +687,62 @@ def _restored_free_text_input(prior: str) -> str | None:
         SECRET_DISABLE: "disable",
         SECRET_ENABLE: "enable",
     }.get(prior, prior)
+
+
+def decision_display(step, value: str, options=None) -> str:
+    """A committed answer as the Decisions page shows it (#1198).
+
+    Sentinels read as the action they stand for, through the same map that
+    restores them into an input. A secret step's value, or that of any step
+    whose title names a secret, is otherwise the summary's mask. Option
+    values show their labels, from ``options`` when the step's options are
+    built at runtime.
+    """
+    masked = _masked_decision(step, value)
+    if masked is not None:
+        return masked
+    labels = {opt.value: opt.label for opt in (options or step.options or [])}
+    if step.kind == "multiselect":
+        picked = [labels.get(v, v) for v in value.split(",") if v]
+        return ", ".join(picked) if picked else "none selected"
+    return labels.get(value, value)
+
+
+def _run_sync_provider(step, selections: dict) -> list:
+    """Run a ``kind="options"`` step's local options provider; a provider
+    error yields no options rather than breaking the wizard."""
+    try:
+        return step.options_provider(dict(selections))
+    except Exception:  # noqa: BLE001
+        return []
+
+
+@dataclass
+class _ReviewEdit:
+    """A Decisions-page edit in flight (#1198): where the review was first
+    opened, the list's state (which names the step jumped to), and the
+    answers as they stood before the latest prompt, so a commit that
+    changes nothing changes nothing. ``past_origin`` records a jump beyond
+    the origin, whose options may be cached or still fetching; ``held``
+    records that Esc was refused once on a step the edit cleared."""
+
+    origin: int
+    state: ReviewState
+    before: dict
+    past_origin: bool = False
+    held: bool = False
+
+
+def _masked_decision(step, value: str) -> str | None:
+    """A sentinel's word, or a secret answer's mask; ``None`` for any other."""
+    from core.support_bundle import is_secret_name
+
+    restored = _restored_free_text_input(value)
+    if restored != value:
+        return "keep current" if restored is None else restored
+    if step.kind == "secret" or is_secret_name(step.title.replace(" ", "_")):
+        return SECRET_MASK if value else "not set"
+    return None
 
 
 def replace_step_secondary_selections(
@@ -1142,6 +1211,12 @@ class WizardScreen(Screen):
         self._fetch_generation: int = 0
 
         self._phase: str = "setup"   # "setup" | "launch"
+        # Set while a Decisions-page edit is in flight (#1198).
+        self._review_edit: _ReviewEdit | None = None
+        # The options each committed answer was chosen from, by step: the
+        # Decisions page's labels and a dropped answer's inline values come
+        # from here, not from a re-run provider or a later cache (#1198).
+        self._answer_options: dict[int, list] = {}
         self._compact_height = False
         self._compact_footer = False
         self._launch_detach_ready = False
@@ -1668,11 +1743,7 @@ class WizardScreen(Screen):
             and original.kind == "options"
             and not self._provider_done.get(self._step_index, False)
         ):
-            try:
-                opts = provider(dict(self._selections))
-            except Exception:  # noqa: BLE001
-                opts = []
-            self._provider_cache[self._step_index] = opts
+            self._provider_cache[self._step_index] = _run_sync_provider(original, self._selections)
             self._provider_done[self._step_index] = True
 
         # Provider already ran (cache hit) OR this step has no provider —
@@ -1947,6 +2018,7 @@ class WizardScreen(Screen):
             for dependent_title in step.invalidates_on_change:
                 self._selections.pop(dependent_title, None)
         self._selections[step.title] = opt.value
+        self._answer_options[self._step_index] = self._provider_cache.get(self._step_index, step.options)
         # Inline secondary integer inputs (kind="options" + per-option
         # secondary_number): capture each visible eligible input's value
         # under a synthetic ``__secondary__:<ENV_VAR>`` key so
@@ -2012,6 +2084,9 @@ class WizardScreen(Screen):
                 break
         self._apply_base_port_change(step, opt.value)
         self._refresh_command_summary()
+        if self._review_edit is not None:
+            self._continue_review_edit()
+            return
         if self._step_index + 1 < len(self._steps):
             self._step_index += 1
             self._load_current_step()
@@ -2066,10 +2141,179 @@ class WizardScreen(Screen):
         read-only overlay is the keyboard route to both (#1179). Dismissing
         it leaves the step, cursor and selections exactly as they were.
         """
+        self._open_review()
+
+    def _open_review(self, state: ReviewState | None = None) -> None:
+        """Push the review; during setup it carries the Decisions page, and
+        ``state`` puts that page back where a finished edit left it."""
         summary = self._command_summary
-        self.app.push_screen(ReviewDetails(
-            program=summary.program, flags=summary.flags, rows=self._services,
-        ))
+        self.app.push_screen(
+            ReviewDetails(
+                lines=command_lines(summary.program, summary.flags),
+                rows=self._services,
+                decisions=(
+                    DecisionsPage(self._review_decisions(), state)
+                    if self._phase == "setup" else None
+                ),
+            ),
+            callback=self._on_review_closed,
+        )
+
+    def _review_decisions(self) -> list[Decision]:
+        """Every answered step still on the path, in wizard order (#1198)."""
+        return [
+            Decision(
+                step_index=idx,
+                title=step.title,
+                service=step.service_name or "",
+                value=decision_display(
+                    step, self._selections[step.title],
+                    self._answer_options[idx] if idx in self._answer_options
+                    else self._step_options(idx),
+                ),
+            )
+            for idx, step in enumerate(self._steps)
+            if step.title in self._selections and not self._step_should_skip(idx)
+        ]
+
+    def _step_options(self, idx: int) -> list:
+        """The options step ``idx`` would show now: the provider cache, else
+        a fresh run of a (local, synchronous) ``kind="options"`` provider,
+        else the step's static options.
+
+        A fresh run is deliberately not cached: only steps up to the current
+        one hold a cache, because a forward commit does not invalidate later
+        entries, so an entry written here for a later step could go stale.
+        """
+        if idx in self._provider_cache:
+            return self._provider_cache[idx]
+        step = self._steps[idx]
+        if getattr(step, "options_provider", None) is not None and step.kind == "options":
+            return _run_sync_provider(step, self._selections)
+        return list(step.options or [])
+
+    def _on_review_closed(self, state: ReviewState | None) -> None:
+        if isinstance(state, ReviewState) and self._phase == "setup":
+            self._begin_review_edit(state)
+
+    def _begin_review_edit(self, state: ReviewState) -> None:
+        """Jump straight to an answered step (#1198).
+
+        A jump made from inside another edit keeps that edit's origin. No
+        cache is dropped here: the jump itself changes no answer.
+        """
+        prior = self._review_edit
+        origin = prior.origin if prior else self._step_index
+        self._review_edit = _ReviewEdit(
+            origin=origin, state=state, before=dict(self._selections),
+            past_origin=bool(prior and prior.past_origin) or state.step_index > origin,
+        )
+        self._step_index = state.step_index
+        self._load_current_step()
+
+    def _continue_review_edit(self) -> None:
+        """After a review edit commits, or on Esc anywhere during one:
+        reconcile what a change affected, re-prompt every answer the launch
+        still needs, then return to where the review was opened."""
+        edit = self._review_edit
+        edit.held = False
+        if self._selections != edit.before:
+            self._reconcile_review_edit()
+        pending = next(
+            (
+                i for i in range(edit.origin)
+                if not self._step_should_skip(i) and self._steps[i].title not in self._selections
+            ),
+            None,
+        )
+        if pending is None:
+            self._finish_review_edit()
+        elif pending == self._step_index:
+            # Esc on an answer the edit cleared: it has to be given first. A
+            # second Esc leaves the edit instead (see action_back), so a step
+            # that cannot be answered never traps the user.
+            edit.held = True
+            self.notify("Your edit cleared this answer: confirm one to return to the review, "
+                        "or press Esc again to step back through the wizard.", timeout=5)
+        else:
+            edit.before = dict(self._selections)
+            self._step_index = pending
+            self._load_current_step()
+
+    def _reconcile_review_edit(self) -> None:
+        """Apply one committed review edit to everything that depends on it.
+
+        The commit already dropped the step's ``invalidates_on_change``
+        dependents. Here, runtime-built options downstream are rebuilt, an
+        answer those options no longer offer is dropped (with its own
+        dependents and inline values) so it is asked again, and answers of
+        steps the change hid are pruned. Every other answer is left as it was.
+        """
+        self._invalidate_provider_cache_from(self._step_index + 1)
+        self._prune_hidden_selections()
+        for idx, step in enumerate(self._steps):
+            if idx != self._step_index and self._answer_no_longer_offered(idx):
+                self._drop_answer(idx)
+        self._prune_hidden_selections()
+        self._refresh_command_summary()
+
+    def _drop_answer(self, idx: int) -> None:
+        """Forget step ``idx``'s answer so it is asked again: its dependents,
+        the inline values of its static and last-shown options, and its
+        service row's confirmed state go with it."""
+        step = self._steps[idx]
+        owned = _option_secondary_keys([*(step.options or []), *self._answer_options.pop(idx, [])])
+        for key in (step.title, *step.invalidates_on_change, *owned):
+            self._selections.pop(key, None)
+        row = next((r for r in self._services if step.service_name and r.name == step.service_name), None)
+        if row is not None:
+            row.pending = True
+            self._service_table.set_rows(self._services)
+            self._refresh_info_panel()
+
+    def _answer_no_longer_offered(self, idx: int) -> bool:
+        step = self._steps[idx]
+        if (
+            step.kind != "options"
+            or getattr(step, "options_provider", None) is None
+            or step.title not in self._selections
+            or self._step_should_skip(idx)
+        ):
+            return False
+        offered = {opt.value for opt in self._step_options(idx)}
+        # No options means the provider could not build any (an error yields
+        # none); a step with nothing to pick cannot be answered again, so
+        # the answer stands rather than stranding the edit on that step.
+        return bool(offered) and self._selections[step.title] not in offered
+
+    def _prune_hidden_selections(self) -> None:
+        pruned = prune_skip_hidden_selections(self._steps, self._selections)
+        self._selections.clear()
+        self._selections.update(pruned)
+
+    def _finish_review_edit(self) -> None:
+        """Return to where the review was opened and reopen it. A jump past
+        that step may have cached, or be fetching, a later step's options; a
+        forward commit never invalidates those, so they are dropped here, and
+        the generation bump discards a fetch still in flight, to keep the
+        rule that only steps up to the current one hold a cache. Without such
+        a jump nothing is dropped, so a fetch running at the origin is kept."""
+        edit, self._review_edit = self._review_edit, None
+        if edit.past_origin:
+            self._invalidate_provider_cache_from(edit.origin + 1)
+        self._step_index = edit.origin
+        self._load_current_step()
+        self._open_review(edit.state)
+
+    def _invalidate_provider_cache_from(self, idx: int) -> None:
+        """Drop cached provider options for step ``idx`` onward, and make any
+        in-flight fetch for that range drop its result instead of writing it
+        back. Shared by Back and by review edits (#1198)."""
+        for k in list(self._provider_cache):
+            if k >= idx:
+                self._provider_cache.pop(k, None)
+                self._provider_done.pop(k, None)
+        self._fetch_generation += 1
 
     def _apply_track_change(self, track_key: str) -> None:
         """Re-mark which service rows fall outside the newly-picked track.
@@ -2469,6 +2713,18 @@ class WizardScreen(Screen):
             return
         if self._phase != "setup":
             return
+        if self._review_edit is not None and not self._review_edit.held:
+            # Esc during a review edit leaves the edit, never walks Back
+            # (#1198). Nothing uncommitted is applied, so with no earlier
+            # commit this returns to the review exactly as it was; an answer
+            # an earlier commit cleared is asked first, so none the launch
+            # needs is left empty. Another step is one ctrl+o jump away.
+            self._continue_review_edit()
+            return
+        # A second Esc on a step the edit cleared abandons the edit: Back
+        # from here is the ordinary walk, and going forward again visits
+        # every step, so still no answer can be skipped.
+        self._review_edit = None
         if self._step_index > 0:
             # Walk backwards over any skip_if_prev steps so the user
             # doesn't land on an auto-skipped page when going back.
@@ -2477,15 +2733,10 @@ class WizardScreen(Screen):
             # step onward — earlier steps' caches still hold (the user's
             # upstream choices for them haven't changed). This means
             # going back from step 12 to step 10 doesn't blow away a
-            # cached fetch from step 6.
-            for k in list(self._provider_cache):
-                if k >= self._step_index:
-                    self._provider_cache.pop(k, None)
-                    self._provider_done.pop(k, None)
-            # Bump the generation so any in-flight fetch worker for the
-            # cleared range (or beyond) drops its result instead of
-            # writing back into the now-empty cache.
-            self._fetch_generation += 1
+            # cached fetch from step 6. The generation bump inside makes
+            # any in-flight fetch worker for the cleared range (or beyond)
+            # drop its result instead of writing back into the empty cache.
+            self._invalidate_provider_cache_from(self._step_index)
             self._advance_past_skipped(direction=-1)
             self._load_current_step()
         else:
