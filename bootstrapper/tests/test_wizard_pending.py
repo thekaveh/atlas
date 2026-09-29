@@ -156,6 +156,7 @@ def test_escape_on_first_step_closes_log_tee_before_exit():
         _prompt=SimpleNamespace(has_search_focus=lambda: False),
         _log_chips=SimpleNamespace(_open_popup=None),
         _step_index=0,
+        _review_edit=None,
         _close_launch_log_tee=lambda: calls.append("close"),
         app=SimpleNamespace(exit=lambda: calls.append("exit")),
     )
