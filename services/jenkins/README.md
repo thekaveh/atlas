@@ -55,9 +55,9 @@ Jenkins calls MinIO to publish built artifacts. Airflow, Spark, notebooks, and d
 
 ### 6.1. Current — Upstream (this service calls)
 
-| Service | Category |
-|---|---|
-| minio | data |
+| Service | Category | Status |
+|---|---|---|
+| minio | data | optional: an operator-authored Jenkins job; none ships with Atlas |
 
 ### 6.2. Current — Downstream (services that call this)
 

@@ -1,4 +1,5 @@
-"""Keep AGENTS.md's architecture and test instructions grounded in source."""
+"""Keep AGENTS.md's architecture and test instructions, and the contributor
+test and pull-request path in CONTRIBUTING.md (#1188), grounded in source."""
 
 from __future__ import annotations
 
@@ -7,6 +8,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,6 +18,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 GUIDANCE = ROOT / "AGENTS.md"
+CONTRIBUTING = ROOT / "CONTRIBUTING.md"
+BACKEND_ROOT = ROOT / "services/backend/app/app"
 
 
 def _guidance() -> str:
@@ -28,11 +32,11 @@ def _backend_root_from_heading(text: str) -> Path:
     return ROOT / match.group(1).strip("/")
 
 
-def _backend_test_block(text: str) -> str:
+def _backend_test_block(text: str, source: str = "AGENTS.md") -> str:
     for language, body in re.findall(r"```([a-z]*)\n(.*?)\n```", text, re.DOTALL):
         if language in {"bash", "sh"} and "requirements-dev.txt" in body:
             return body
-    raise AssertionError("AGENTS.md must provide an executable Backend test command")
+    raise AssertionError(f"{source} must provide an executable Backend test command")
 
 
 def _attribute_path(node: ast.expr) -> tuple[str, ...]:
@@ -251,7 +255,9 @@ def _execute_backend_command_harness(
     )
 
 
-def _assert_backend_command_execution(result: _HarnessResult) -> None:
+def _assert_backend_command_execution(
+    result: _HarnessResult, *, pytest_target: str = "tests/",
+) -> None:
     assert result.sentinel.is_file(), "the documented pytest command was not executed"
     assert result.sentinel.read_text(encoding="utf-8") == "pytest-executed\n"
     assert [event["tool"] for event in result.events] == [
@@ -277,7 +283,7 @@ def _assert_backend_command_execution(result: _HarnessResult) -> None:
     ]
     assert install["virtual_env"] == str(venv)
     assert Path(pytest_run["path"]) == venv / "bin/python"
-    assert pytest_run["argv"] == ["-m", "pytest", "tests/", "-q", "-W", "error"]
+    assert pytest_run["argv"] == ["-m", "pytest", pytest_target, "-q", "-W", "error"]
     assert set(pytest_run["live_env"].values()) == {None}
     backend_root = str(ROOT / "services/backend/app/app")
     assert create["cwd"] == install["cwd"] == pytest_run["cwd"] == backend_root
@@ -287,7 +293,7 @@ def _assert_backend_command_execution(result: _HarnessResult) -> None:
         "uv venv --python 3.12",
         "uv pip install -r requirements.txt -r requirements-dev.txt",
         "env -u ATLAS_TEST_REDIS_URL",
-        "-m pytest tests/ -q -W error",
+        f"-m pytest {pytest_target} -q -W error",
         "rm -rf",
     ):
         assert traced_command in result.stderr
@@ -697,3 +703,113 @@ def test_runtime_adaptive_example_rejects_an_empty_upstream_list() -> None:
 
     with pytest.raises(AssertionError, match="demonstrate multiple upstreams"):
         _assert_multi_upstream_adaptation(mutated)
+
+
+def _contributing() -> str:
+    return CONTRIBUTING.read_text(encoding="utf-8")
+
+
+def test_contributing_backend_command_runs_one_non_live_test_under_the_ci_contract(
+    tmp_path: Path,
+) -> None:
+    """#1188 AC1: the documented Backend command installs CI's dependency
+    contract, runs one existing test file that no live endpoint gates, with
+    every endpoint switch unset, and removes its environment whether the
+    test passes or fails."""
+    block = _backend_test_block(_contributing(), "CONTRIBUTING.md")
+    target = re.search(r"-m pytest (tests/test_\w+\.py) -q -W error", block)
+    assert target, "CONTRIBUTING.md must run one named Backend test file"
+    source = (BACKEND_ROOT / target.group(1)).read_text(encoding="utf-8")
+    # Live smokes gate on an environment switch and skip without it; the
+    # named file must neither skip nor read the environment, nor name any
+    # endpoint variable.
+    assert not {key for key in _opt_in_live_endpoint_variables() if key in source}
+    assert not re.search(r"skipif|pytest\.skip\(|importorskip|os\.environ\b|getenv\(", source)
+
+    for exit_code in (0, 19):
+        result = _execute_backend_command_harness(
+            block, tmp_path / str(exit_code), exit_code=exit_code,
+        )
+        _assert_backend_command_execution(result, pytest_target=target.group(1))
+        assert (result.returncode, result.test_root.exists()) == (exit_code, False)
+
+
+_FAKE_DOCKER = """#!/bin/sh
+echo "$@" >> "$HARNESS_DOCKER_LOG"
+exit 97
+"""
+
+
+def test_contributing_bootstrapper_command_passes_without_calling_docker(tmp_path: Path) -> None:
+    """#1188 AC1: the documented bootstrapper test runs green with a docker
+    on PATH that records and fails every call and a DOCKER_HOST that no
+    client can reach, so neither the file nor any fixture or helper it
+    reaches needs the Docker CLI or daemon."""
+    targets = re.findall(
+        r"^uv run --project bootstrapper pytest (bootstrapper/tests/test_\w+\.py) -q$",
+        _contributing(),
+        re.MULTILINE,
+    )
+    assert len(targets) == 1, "CONTRIBUTING.md must name one bootstrapper test file"
+    fake_bin, calls = tmp_path / "bin", tmp_path / "docker-calls"
+    fake_bin.mkdir()
+    _write_executable(fake_bin / "docker", _FAKE_DOCKER)
+    env = {**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+           "HARNESS_DOCKER_LOG": str(calls),
+           "DOCKER_HOST": f"unix://{tmp_path / 'no-docker.sock'}"}
+    # The interpreter `uv run --project bootstrapper` resolves to.
+    completed = subprocess.run(
+        [sys.executable, "-m", "pytest", str(ROOT / targets[0]), "-q", "-p", "no:cacheprovider"],
+        cwd=ROOT / "bootstrapper", env=env, text=True, capture_output=True, check=False,
+        timeout=600,
+    )
+    assert (completed.returncode, calls.exists()) == (0, False), completed.stdout[-2000:]
+
+
+@pytest.mark.parametrize("doc", ["AGENTS.md", "CONTRIBUTING.md", "docs/CONTRIBUTING-services.md"])
+def test_every_documented_backend_install_uses_the_ci_requirement_contract(doc: str) -> None:
+    """A documented Backend install that drifts from CI's requirement files
+    (the service guide once constrained test tools with the runtime lock)
+    tests a different closure than the required job does."""
+    requirement_flags = re.compile(r"(?:^|\s)(-[rc])\s+([^\s]+)")
+    _, ci_command = _backend_ci_contract()
+    ci = set(requirement_flags.findall(re.sub(r"\\\n\s*", " ", ci_command)))
+    logical = re.sub(r"\\\n\s*", " ", (ROOT / doc).read_text(encoding="utf-8"))
+    installs = re.findall(r"uv pip install ([^\n]*requirements-dev\.txt[^\n]*)", logical)
+    assert installs and all(set(requirement_flags.findall(i)) == ci for i in installs), installs
+
+
+def _check_list_after(text: str, marker: str) -> list[str]:
+    """The contiguous backtick bullet list that follows ``marker``."""
+    names: list[str] = []
+    for line in text.split(marker, 1)[1].splitlines()[1:]:
+        item = re.fullmatch(r"\s*- `([^`]+)`", line)
+        if item:
+            names.append(item.group(1))
+        elif names or line.strip():
+            break
+    return names
+
+
+def test_contributing_names_the_develop_target_and_the_four_required_checks() -> None:
+    """#1188 AC2: one branch target, and the required checks exactly as
+    AGENTS.md records the live ruleset and services-lint.yml names its jobs."""
+    text = _contributing()
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/services-lint.yml").read_text(encoding="utf-8")
+    )
+    job_names = {job.get("name") for job in workflow["jobs"].values()}
+    documented = _check_list_after(text, "**Four required checks must pass**")
+    recorded = _check_list_after(_guidance(), "four required `services-lint` checks")
+
+    assert (documented, len(recorded), set(documented) <= job_names) == (recorded, 4, True)
+    for statement in (
+        "**Branch from `develop`**",
+        "**Open the pull request against `develop`.** Never target `main`",
+    ):
+        assert statement in text
+    # Wherever `main` is named, it is ruled out or named as the release
+    # branch, never offered as a pull-request target.
+    for sentence in re.split(r"(?<=[.:])\s+", text):
+        if "`main`" in sentence:
+            assert "Never target `main`" in sentence or "release" in sentence, sentence

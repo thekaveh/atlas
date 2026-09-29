@@ -124,7 +124,10 @@ data_flow:
     # prometheus.localhost / ray.localhost when each service is enabled.
     - grafana
     - prometheus
-    - ray
+    - target: ray
+      status: optional
+      condition: RAY_SOURCE=ray-container-cpu or ray-container-gpu
+      evidence: bootstrapper/utils/kong_config_generator.py
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.

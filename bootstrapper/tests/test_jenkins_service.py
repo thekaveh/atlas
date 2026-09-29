@@ -46,7 +46,13 @@ def test_jenkins_manifest_admission_contract() -> None:
     }
     assert manifest["depends_on"]["required"] == ["minio"]
     assert manifest["depends_on"].get("optional", []) == ["airflow", "spark"]
-    assert manifest["data_flow"]["calls"] == ["minio"]
+    # #1273: no Jenkins job ships, so the MinIO edge is optional.
+    assert manifest["data_flow"]["calls"] == [{
+        "target": "minio",
+        "status": "optional",
+        "condition": "an operator-authored Jenkins job; none ships with Atlas",
+        "evidence": "services/jenkins/README.md",
+    }]
 
     env_vars = {entry["name"]: entry for entry in manifest["env"]}
     assert env_vars["JENKINS_SOURCE"]["default"] == "disabled"

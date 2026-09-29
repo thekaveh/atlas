@@ -51,9 +51,46 @@
       "properties": {
         "calls": {
           "type": "array",
-          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "items": {
+            "oneOf": [
+              { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["target"],
+                "properties": {
+                  "target": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+                  "status": {
+                    "enum": ["current", "optional", "planned"],
+                    "description": "current (default): the call happens whenever both services run. optional: it happens only under the condition. planned: documented or intended, not wired yet."
+                  },
+                  "condition": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "When an optional edge exists: a SOURCE expression (e.g. MCP_SERVERS_SOURCE=container) or a short free-text condition."
+                  },
+                  "evidence": {
+                    "type": "string",
+                    "pattern": "^(https://[^\\s]+|[A-Za-z0-9_][A-Za-z0-9_./-]*(:[0-9]+(-[0-9]+)?)?)$",
+                    "description": "Where the call is shown: a repo-relative path, path:line, or an https URL. Repo paths must exist."
+                  }
+                },
+                "allOf": [
+                  {
+                    "if": { "properties": { "status": { "const": "optional" } }, "required": ["status"] },
+                    "then": { "required": ["condition"] }
+                  },
+                  {
+                    "if": { "required": ["condition"] },
+                    "then": { "required": ["status"], "properties": { "status": { "enum": ["optional", "planned"] } } }
+                  }
+                ]
+              }
+            ]
+          },
           "uniqueItems": true,
-          "description": "Names of services this one calls at runtime in the request path. Init-time bootstrap calls do NOT count. Names must match either a doc-folder name under services/ or a manifest name under services/."
+          "description": "Services this one calls at runtime in the request path (#1273). Init-time bootstrap calls do NOT count. An entry is either a plain name, which is a current edge, or an object with target plus optional status, condition and evidence. Targets must match either a doc-folder name under services/ or a manifest name under services/, and each target appears once."
         }
       }
     },

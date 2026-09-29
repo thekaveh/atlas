@@ -15,6 +15,11 @@ pages:
     role: security
     required_sections:
       - Reporting a Vulnerability
+  - id: contributing
+    role: contribution
+    required_sections:
+      - Run one safe test for your change
+      - Branch, pull request and required checks
   - id: interactive-wizard
     role: prerequisites
     required_sections:

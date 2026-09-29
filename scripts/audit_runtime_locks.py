@@ -133,10 +133,10 @@ AUDIT_SPECS = (
     AuditSpec("services/asset-worker/app/requirements-locked.txt"),
     AuditSpec(
         "services/docling/provider/gpu/requirements-locked.txt",
-        # accelerate==1.14.0: PYSEC-2026-3804 (formerly CVE-2026-69112) has no
-        # fixed release — 1.14.0 is the
-        # newest published version and the upstream fix exists only as an
-        # unreleased commit. The path traversal is reached through
+        # accelerate==1.14.0: PYSEC-2026-3804 (formerly CVE-2026-69112) had no
+        # fixed release when reviewed. Re-checked 2026-09-28 (#998): PyPI now
+        # lists 1.15.0 as unaffected, so the fix is a pin move that rides with
+        # the #999 docling re-lock of this file. The path traversal is reached through
         # load_checkpoint_in_model / load_checkpoint_and_dispatch, which trust
         # weight_map entries inside a sharded checkpoint index. Docling loads its
         # own pinned model artifacts; no Atlas path passes a caller-supplied
@@ -172,23 +172,25 @@ UV_PROJECTS = (
 # finding fails as a stale allowlist entry.
 UV_PROJECT_EXCEPTIONS: dict[str, tuple[frozenset[str], date]] = {
     # transformers==5.8.1: PYSEC-2026-3929 (formerly CVE-2026-9856) is fixed in 5.10.0, which
-    # docling-core[chunking]'s transformers<5.9.0 cap makes unreachable while
-    # the docling family stays pinned at 2.102.1 across the gpu, adapter, and
-    # localhost providers. The advisory is a path traversal requiring user
-    # interaction against a caller-supplied model artifact; this provider never
-    # imports transformers, exposes no model-path parameter, and its
+    # docling-core 2.82.0's darwin-only transformers<5.9.0 cap keeps out of
+    # this universal lock while docling stays pinned at 2.102.1 (#999). The
+    # advisory is a path traversal requiring user interaction against a
+    # caller-supplied model artifact; this provider never imports
+    # transformers, exposes no model-path parameter, and its
     # /v1/document/convert and /internal/lightrag/bundle endpoints accept
     # documents rather than model locations.
-    # Atlas maintainers own re-review by 2026-10-15.
-    # accelerate==1.14.0 reaches this project the same way it reaches the gpu
+    # accelerate==1.13.0 reaches this project the same way it reaches the gpu
     # provider: transitively, with Docling loading its own pinned artifacts
-    # rather than a caller-supplied sharded checkpoint. CVE-2026-69112 has no
-    # fixed release; 1.14.0 is the newest published version. Both findings share
-    # the earlier of the two deadlines, so neither can outlive its review.
-    # Atlas maintainers own re-review by 2026-10-15.
+    # rather than a caller-supplied sharded checkpoint. PyPI lists
+    # CVE-2026-69112 (PYSEC-2026-3804) for 1.13.0 and 1.14.0 but not for 1.15.0,
+    # published since; re-locking onto it rides with the #999 docling move
+    # rather than this review. Re-checked 2026-09-28 in the #998 pass: both
+    # fixes now exist but sit behind that move, so the shared deadline is
+    # time-boxed to 2026-11-30 and neither finding can outlive its review.
+    # Atlas maintainers own re-review by 2026-11-30.
     "services/docling/provider/localhost": (
         frozenset({"PYSEC-2026-3929", "PYSEC-2026-3804"}),
-        date(2026, 10, 15),
+        date(2026, 11, 30),
     ),
 }
 

@@ -41,8 +41,17 @@ TARGET_CHANGELOG_LEGACY = "legacy-unreleased-exception"
 LEGACY_TARGET_EXCEPTIONS = {"v0.1.0"}
 WORKFLOW_LABELS = (
     "Finalize release notes",
+    "Review the license inventory",
     "Promote through Gitflow",
     "Create the tag",
+    "Record immutable object IDs",
+)
+#: WORKFLOW_LABELS with only tagging moved ahead of promotion.
+_TAG_BEFORE_GITFLOW = (
+    "Finalize release notes",
+    "Review the license inventory",
+    "Create the tag",
+    "Promote through Gitflow",
     "Record immutable object IDs",
 )
 MARKDOWN = MarkdownIt("commonmark").enable("table")
@@ -932,7 +941,7 @@ def test_release_workflow_requires_pre_tag_gitflow_then_post_tag_recording() -> 
     assert "matching `vX.Y.Z` tag does not yet exist" in guidance
 
 
-def test_release_workflow_renders_as_one_four_step_list_on_docs_surfaces() -> None:
+def test_release_workflow_renders_as_one_ordered_list_on_docs_surfaces() -> None:
     releasing = RELEASING.read_text(encoding="utf-8")
     section = releasing.split("## 3. Cutting a release (maintainer)", 1)[1].split(
         "## 4. Immutable release record",
@@ -940,7 +949,7 @@ def test_release_workflow_renders_as_one_four_step_list_on_docs_surfaces() -> No
     )[0]
     rendered = python_markdown.markdown(section, extensions=["pymdownx.superfences"])
     assert rendered.count("<ol>") == 1
-    assert rendered.count("<li>") == 4
+    assert rendered.count("<li>") == len(WORKFLOW_LABELS)
     assert rendered.count("<pre") == 2
 
 
@@ -948,13 +957,13 @@ def test_release_workflow_contract_rejects_tagging_before_gitflow() -> None:
     markdown = "\n".join(
         [
             "## 3. Cutting a release (maintainer)",
-            "1. **Finalize release notes.**",
-            "2. **Create the tag.**",
-            "3. **Promote through Gitflow.**",
-            "4. **Record immutable object IDs.**",
+            *(f"{index}. **{label}** — step" for index, label in enumerate(_TAG_BEFORE_GITFLOW, start=1)),
         ]
     )
-    assert _workflow_labels(markdown) != WORKFLOW_LABELS
+    # Same steps, only tagging moved ahead of promotion: the contract must
+    # tell the order apart, not just the length.
+    assert sorted(_TAG_BEFORE_GITFLOW) == sorted(WORKFLOW_LABELS)
+    assert _workflow_labels(markdown) == _TAG_BEFORE_GITFLOW != WORKFLOW_LABELS
 
 
 def test_services_lint_runs_release_guard_with_full_tag_history() -> None:

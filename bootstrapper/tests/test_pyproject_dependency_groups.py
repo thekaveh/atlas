@@ -82,5 +82,6 @@ def test_deprecated_tool_uv_dev_dependencies_absent() -> None:
 def test_services_lint_syncs_committed_lock_without_mutation() -> None:
     workflow = SERVICES_LINT.read_text(encoding="utf-8")
 
-    assert workflow.count("uv sync --group dev --locked") == 3
+    # lint, unit-fast (#1176), compose-equivalence and audit-scripts.
+    assert workflow.count("uv sync --group dev --locked") == 4
     assert "run: uv sync --group dev\n" not in workflow

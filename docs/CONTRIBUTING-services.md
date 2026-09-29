@@ -280,6 +280,25 @@ But trimming `litellm` from `ollama.depends_on.required` correctly removed a fak
 
 The `data_flow.calls` field is a runtime call graph that drives the architecture diagram and the per-service README's Dependencies & Integrations block. It is **independent** of `depends_on`. Use it to describe which services this one calls at runtime in the request path (excluding init-time bootstrap calls).
 
+An entry is either a plain name, which declares a current edge, or an object that qualifies the edge (#1273):
+
+```yaml
+data_flow:
+  calls:
+    - litellm                          # current: happens whenever both services run
+    - target: mcp-servers
+      status: optional                 # current | optional | planned
+      condition: MCP_SERVERS_SOURCE=container
+      evidence: services/jupyterhub/build/notebooks/15_mcp_clients.ipynb
+```
+
+- `optional` edges happen only under their `condition`, which is a SOURCE expression or a short free-text condition such as an operator setup step.
+- `planned` edges are documented or intended but not wired yet.
+- `evidence` is a repository path, `path:line`, or an `https` URL showing the call. The validator fails a repository path that does not exist.
+- Each target appears once, whichever shape declares it.
+
+The generated tables add a Status column, and the diagram draws a dashed pill, for any edge that is not `current`. A service whose edges are all current renders exactly as before.
+
 <a id="10-decision-6--adaptive-behavior--when-to-write-a-hook"></a>
 
 ## 10. Decision 6 — Adaptive behavior + when to write a hook
@@ -526,7 +545,12 @@ PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.doc
 uv run --project bootstrapper python -m scripts.docs.render_diagrams
 make docs-build
 
-# 5. Lint manifests and all three documentation surfaces
+# 5. Give every new `images:` entry a row in the supply-chain license inventory
+#    (docs/reference/license-inventory.yaml), then regenerate its page
+uv run --project bootstrapper python -m scripts.docs.license_inventory --check
+uv run --project bootstrapper python -m scripts.docs.canonical_references
+
+# 6. Lint manifests and all three documentation surfaces
 uv run --project bootstrapper python -m tools.validate_fragments
 make docs-check
 ```
@@ -536,6 +560,7 @@ make docs-check
 - **`env_assembler`** — after any change to a manifest's `env:` block, port allocation, or source variants.
 - **`generate_readme_topology`** — after any change to a manifest's `rows:`, `display_name`, `category`, or `alias`.
 - **Top-level `docs/diagrams/architecture.html` and `architecture.svg`** — hand-authored masters; update both when a service is added or removed at the band level (new category, new gateway, and similar topology changes). After either master changes, run `python -m scripts.docs.render_diagrams` as shown above before `make docs-build`. Routine `data_flow.calls` edits flow into per-service diagrams via `bootstrapper.docs.regen`.
+- **`license_inventory`** — after adding an `images:` entry or moving any image pin or catalogue model source. The row records the image exactly as pinned, its license at the upstream revision that version was built from, and what the terms allow for hosted use, source integration and redistribution; anything nobody has adjudicated is marked `unresolved` with a named open item. See the [supply-chain license inventory](reference/license-inventory.md).
 - **`validate_fragments`** — always, before the final `make docs-check` gate.
 - **`docs.regen`** — required after creating a new service that owns a same-folder README, or after editing `data_flow.calls` on an existing service. Manifests whose `docs:` field points to an aggregate/doc-only README are exempt from same-folder generation. The drift gate in CI (`bootstrapper.docs.regen --all --check`) catches stale existing per-service READMEs/SVGs/HTMLs.
 
@@ -564,12 +589,14 @@ If your service ships a `requirements.txt` / `pyproject.toml` in a `build/` or `
 
 ### 13.4. CI gates that run on every push
 
-The `.github/workflows/services-lint.yml` workflow runs the four jobs below.
-All four are required status checks in the live `gitflow` ruleset:
+The `.github/workflows/services-lint.yml` workflow produces the four checks below.
+All four are required status checks in the live `gitflow` ruleset. A new push to
+a pull request cancels that pull request's superseded run; runs on `main` and
+`develop` are never cancelled.
 
 | Job | What it catches |
 |---|---|
-| **Manifest lint + unit tests** | `validate_fragments` lint + 6,000+ pytest tests + the backend's own pytest suite (`services/backend/app/app/tests/`). Catches: manifest schema violations, dependency cycles, env-example drift, category overflow, backend route regressions. |
+| **Manifest lint + unit tests** | An aggregate gate over four parallel jobs, and green only when all four are: **Bootstrapper and Backend suites (with containers)** runs `validate_fragments`, ShellCheck, the pull-request title and changelog checks, the 6,000+ bootstrapper tests including the container-backed backup/restore integration tests (with the coverage floor), and the backend's own suite (`services/backend/app/app/tests/`); **Bootstrapper suite without Docker (fast)** runs the whole suite with no Docker daemon, so a failing unit test turns red first; **Bootstrapper suite on Python 3.10** runs the full suite on the supported floor; **MCP and asset API tests** runs those isolated suites. Catches: manifest schema violations, dependency cycles, env-example drift, category overflow, backend route regressions. |
 | **Compose merge + byte-equivalence + source-permutation matrix** | Renders `docker compose config` for the merged fragment list + verifies it matches the golden baseline + tests every source variant of every service. Catches: compose-syntax errors, source-permutation regressions. |
 | **Docs drift + audit scripts** | `regen --all --check` + `make docs-check` + the remaining audits (`check_doc_links` — including `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-kong-routes`, `validate_research_schema`, `check-track-membership`) + lock verification for the Docling localhost provider, Local Deep Researcher, and compiled service runtimes + a vulnerability audit of compiled runtime locks. Catches: stale per-service docs, three-surface drift, cross-surface links, missing local assets, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale or unreproducible runtime locks, vulnerable runtime dependency closures, and track-membership omissions. |
 | **Build-validation** | `docker buildx build` for every local non-GPU Compose build context plus every `services/*/init/Dockerfile` context; GPU provider builds are intentionally excluded for runner size/time. Catches: unsatisfiable pip pins, broken Dockerfiles, and init-image drift. Runs on every workflow execution and is required. |
@@ -593,7 +620,7 @@ and asset-service suites, and the bootstrapper suite under Python 3.10:
   BACKEND_TEST_VENV="${TMPDIR:-/tmp}/atlas-backend-ci-venv"
   uv venv --python 3.12 "$BACKEND_TEST_VENV"
   VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
-    -r requirements.txt -r requirements-dev.txt -c requirements-locked.txt
+    -r requirements.txt -r requirements-dev.txt -c requirements-test-locked.txt
   "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error \
     --cov=. --cov-config=.coveragerc --cov-branch \
     --cov-report=term --cov-fail-under=79
@@ -838,7 +865,7 @@ cross-manifest rules; do not edit it by hand.
 | `unique_containers` | `duplicate_container` | Each Compose container name has exactly one owning manifest. |
 | `unique_capabilities` | `duplicate_capability` | Capability names are unique within each manifest. |
 | `support_evidence` | `support_stable_without_release_evidence` | A stable support tier cites evidence gathered at a release tag. |
-| `data_flow_targets` | `data_flow_unknown_target` | Every runtime data-flow target names a manifest or approved aggregate documentation folder. |
+| `data_flow_targets` | `data_flow_unknown_target`, `data_flow_duplicate_target`, `data_flow_missing_evidence` | Every runtime data-flow target names a manifest or approved aggregate documentation folder, appears once, and any repo-path evidence exists. |
 | `dependency_closure` | `unknown_dependency` | Required and optional dependencies name existing manifests. |
 | `export_consumer_closure` | `unknown_consumer` | Every exported-variable consumer names an existing manifest. |
 | `per_manifest_contract` | `undeclared_source_var`, `undeclared_export` | Source variables and exported values are declared or produced by their owning manifest. |

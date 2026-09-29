@@ -22,6 +22,7 @@ from string import Template
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
 
+from services.manifests import CALL_STATUSES  # noqa: E402
 from services.topology import CATEGORY_COLORS, CATEGORY_FILLS  # noqa: E402
 
 from .deps_resolver import DepEdge, DepGraph  # noqa: E402
@@ -104,7 +105,11 @@ def render_svg(graph: DepGraph) -> str:
 
     # Legend
     legend_y = LANE_TOP_Y + body_height + 10
-    parts.append(_legend(WIDTH // 2, legend_y))
+    statuses = sorted(
+        {e.status for e in graph.upstream + graph.downstream} & set(STATUS_DASHES),
+        key=list(STATUS_DASHES).index,
+    )
+    parts.append(_legend(WIDTH // 2, legend_y, statuses))
 
     parts.append("</svg>")
     return "\n".join(parts)
@@ -114,9 +119,12 @@ def render_html(graph: DepGraph) -> str:
     tmpl = Template((TEMPLATE_DIR / "architecture.html.tmpl").read_text(encoding="utf-8"))
     svg = render_svg(graph)
     cat_color = CATEGORY_COLORS.get(graph.category, "#94a3b8")
-    n_calls = len(graph.upstream)
-    n_consumers = len(graph.downstream)
-    n_categories = len({e.other_category for e in graph.downstream})
+    # Planned edges (#1273) are drawn, but not counted as calls or consumers.
+    live_up = [e for e in graph.upstream if e.status != "planned"]
+    live_down = [e for e in graph.downstream if e.status != "planned"]
+    n_calls = len(live_up)
+    n_consumers = len(live_down)
+    n_categories = len({e.other_category for e in live_down})
     return tmpl.substitute(
         focus=graph.focus,
         subtitle=f"category: {graph.category} · source: {graph.source}",
@@ -232,23 +240,40 @@ def _render_lane(x: int, y: int, w: int, clusters: "OrderedDict[str, list[DepEdg
             col = i % 2
             px = x + 8 + col * (pill_w + 4)
             py = pill_top + row * (PILL_H + PILL_GAP)
-            parts.append(_pill(px, py, pill_w, PILL_H, p.other, color, fill))
+            parts.append(_pill(px, py, pill_w, PILL_H, p.other, color, fill, p.status))
         cy += ch + CLUSTER_GAP
 
     parts.append('</g>')
     return "\n".join(parts)
 
 
-def _pill(x: int, y: int, w: int, h: int, label: str, stroke: str, fill: str) -> str:
+# #1273: an optional or planned edge's pill gets a dashed outline; a current
+# one keeps the solid outline, so all-current diagrams render as before.
+STATUS_DASHES = dict(zip(CALL_STATUSES[1:], ("5,3", "1,3")))
+
+
+def _arrow_dash(edges: "list[DepEdge]") -> str:
+    """Dash a cluster's arrow only when none of its edges is current, using
+    the strongest status among them."""
+    statuses = {e.status for e in edges}
+    if not statuses or "current" in statuses:
+        return ""
+    strongest = min(statuses, key=CALL_STATUSES.index)
+    return f' stroke-dasharray="{STATUS_DASHES[strongest]}"'
+
+
+def _pill(x: int, y: int, w: int, h: int, label: str, stroke: str, fill: str,
+          status: str = "current") -> str:
     """Category-themed pill: opaque slate-900 backdrop + semi-transparent
     fill matching the cluster's category, per the architecture-diagram
     skill's component-box pattern.
     """
     font_size = _fit_font_size(label, w - 8, preferred=10, minimum=7)
+    dash = f' stroke-dasharray="{STATUS_DASHES[status]}"' if status in STATUS_DASHES else ""
     return (
         f'<g><rect x="{x}" y="{y}" width="{w}" height="{h}" rx="4" fill="#0f172a"/>'
         f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="4" '
-        f'fill="{fill}" stroke="{stroke}" stroke-width="1"/>'
+        f'fill="{fill}" stroke="{stroke}" stroke-width="1"{dash}/>'
         f'<text x="{x + w // 2}" y="{y + h // 2 + 4}" fill="white" font-size="{font_size}" '
         f'text-anchor="middle">{html_mod.escape(label)}</text></g>'
     )
@@ -270,12 +295,14 @@ def _edges(graph: DepGraph, up_clusters: "OrderedDict[str, list[DepEdge]]",
         y1 = cy + CLUSTER_PADDING_Y + CLUSTER_HEADER_H // 2
         parts.append(
             f'<line x1="{x1}" y1="{y1}" x2="{focus_x}" y2="{focus_y_center}" '
-            f'stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>'
+            f'stroke="#64748b" stroke-width="1.5"{_arrow_dash(pills)} marker-end="url(#arrowhead)"/>'
         )
         if bidirectional:
+            names = {p.other for p in pills if p.bidirectional}
+            reverse = [e for e in graph.downstream if e.other in names]
             parts.append(
                 f'<line x1="{focus_x}" y1="{focus_y_center + 6}" x2="{x1}" y2="{y1 + 6}" '
-                f'stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>'
+                f'stroke="#64748b" stroke-width="1.5"{_arrow_dash(reverse)} marker-end="url(#arrowhead)"/>'
             )
             parts.append(
                 f'<text x="{(x1 + focus_x) // 2}" y="{(y1 + focus_y_center) // 2 - 4}" '
@@ -292,26 +319,35 @@ def _edges(graph: DepGraph, up_clusters: "OrderedDict[str, list[DepEdge]]",
         y2 = cy + CLUSTER_PADDING_Y + CLUSTER_HEADER_H // 2
         parts.append(
             f'<line x1="{focus_x + FOCUS_W}" y1="{focus_y_center}" x2="{x2}" y2="{y2}" '
-            f'stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>'
+            f'stroke="#64748b" stroke-width="1.5"{_arrow_dash(pills)} marker-end="url(#arrowhead)"/>'
         )
         cy += ch + CLUSTER_GAP
 
     return parts
 
 
-def _legend(cx: int, y: int) -> str:
+def _legend(cx: int, y: int, statuses: list[str] | None = None) -> str:
     # Legend draws from CATEGORY_COLORS so it stays in sync with the
-    # cluster strokes + the rest of the stack's category palette.
+    # cluster strokes + the rest of the stack's category palette. Edge
+    # statuses (#1273) are appended only when the diagram draws one.
     items = [(CATEGORY_COLORS[c], c) for c in
              ("infra", "data", "llm", "media", "agents", "apps")]
+    statuses = statuses or []
     item_w = 80
-    total_w = item_w * len(items)
+    total_w = item_w * (len(items) + len(statuses))
     start_x = cx - total_w // 2
     parts = [f'<g class="legend"><line x1="{start_x - 60}" y1="{y - 4}" x2="{cx + total_w // 2 + 60}" y2="{y - 4}" stroke="#1e293b" stroke-width="1"/>']
     for i, (color, name) in enumerate(items):
         ix = start_x + i * item_w
         parts.append(f'<circle cx="{ix + 6}" cy="{y + 8}" r="4" fill="{color}"/>')
         parts.append(_text(ix + 16, y + 11, name, size=9, color="#94a3b8", anchor="start"))
+    for i, status in enumerate(statuses, start=len(items)):
+        ix = start_x + i * item_w
+        parts.append(
+            f'<rect x="{ix}" y="{y + 3}" width="12" height="10" rx="2" fill="none" '
+            f'stroke="#94a3b8" stroke-width="1" stroke-dasharray="{STATUS_DASHES[status]}"/>'
+        )
+        parts.append(_text(ix + 16, y + 11, status, size=9, color="#94a3b8", anchor="start"))
     parts.append('</g>')
     return "\n".join(parts)
 

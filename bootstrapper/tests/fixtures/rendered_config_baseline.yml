@@ -2014,7 +2014,7 @@ services:
     entrypoint:
     - sh
     - -c
-    - set -a; [ -f /app/data/.env ] && . /app/data/.env; set +a; exec python -m lightrag.api.lightrag_server
+    - set -a; [ -f /app/data/.env ] && . /app/data/.env; set +a; exec python /atlas/resolve-role-keys.py
     environment:
       CHUNK_TOP_K: '5'
       DOCLING_ENDPOINT: ''
@@ -2043,6 +2043,7 @@ services:
       LIGHTRAG_KV_STORAGE: RedisKVStorage
       LIGHTRAG_PARSER: '*:native-teP,*:legacy-R'
       LIGHTRAG_VECTOR_STORAGE: PGVectorStorage
+      LITELLM_MASTER_KEY: ''
       LLM_BINDING: openai
       LLM_BINDING_API_KEY: ''
       LLM_BINDING_HOST: http://litellm:4000/v1
@@ -2109,6 +2110,11 @@ services:
       source: lightrag-data
       target: /app/data
       volume: {}
+    - type: bind
+      source: '{REPO_ROOT}/services/lightrag/init/scripts/resolve-role-keys.py'
+      target: /atlas/resolve-role-keys.py
+      read_only: true
+      bind: {}
   lightrag-init:
     build:
       context: '{REPO_ROOT}/services/lightrag/init'

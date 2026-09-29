@@ -300,24 +300,24 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 
 ### 14.2. Current — Downstream (services that call this)
 
-| Service | Category |
-|---|---|
-| kong | infra |
-| prometheus | infra |
-| weaviate | data |
-| airflow | agents |
-| celery | agents |
-| hermes ↔ | agents |
-| lightrag ↔ | agents |
-| n8n | agents |
-| openclaw | agents |
-| trueforge | agents |
-| backend | apps |
-| jupyterhub | apps |
-| llm-graph-builder | apps |
-| local-deep-researcher | apps |
-| open-webui | apps |
-| verba | apps |
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | current |
+| prometheus | infra | current |
+| weaviate | data | optional: only collections whose text2vec-openai baseURL is LiteLLM, as the backend's are |
+| airflow | agents | current |
+| celery | agents | current |
+| hermes ↔ | agents | current |
+| lightrag ↔ | agents | current |
+| n8n | agents | current |
+| openclaw | agents | optional: an operator sets the provider baseUrl; openclaw-init writes none |
+| trueforge | agents | current |
+| backend | apps | current |
+| jupyterhub | apps | current |
+| llm-graph-builder | apps | current |
+| local-deep-researcher | apps | current |
+| open-webui | apps | current |
+| verba | apps | current |
 
 ### 14.3. Architecture diagram
 

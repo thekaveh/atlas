@@ -81,7 +81,10 @@ runtime_sc:
 
 data_flow:
   calls:
-    - kong
+    - target: kong
+      status: optional
+      condition: public hostnames configured in the Cloudflare dashboard
+      evidence: services/cloudflared/compose.yml
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.

@@ -28,7 +28,7 @@ import unicodedata
 
 import yaml
 
-from services.manifests import Manifest
+from services.manifests import CallEdge, Manifest, call_edges
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -119,25 +119,66 @@ def _check_data_flow_targets(manifests: list[Manifest]) -> list[ValidationIssue]
     silently renders as a phantom 'external' node in the generated deps graph
     and architecture diagram. NOTE: name-existence only — this does NOT verify
     the caller actually reaches the target at runtime (semantic reachability is
-    not statically checkable here without unacceptable false positives)."""
+    not statically checkable here without unacceptable false positives).
+
+    Both entry shapes (#1273) are checked: a plain name and an object's
+    `target`. The schema's uniqueItems cannot see that `litellm` and
+    `{target: litellm}` are the same edge, so a target named twice is flagged
+    here, and an object's repo-path `evidence` must exist."""
     valid = {m.name for m in manifests} | _AGGREGATE_DOC_FOLDER_NAMES
     issues: list[ValidationIssue] = []
     for m in manifests:
-        calls = (m.data_flow or {}).get("calls") or []
-        for target in calls:
-            if target not in valid:
-                issues.append(
-                    ValidationIssue(
-                        kind="data_flow_unknown_target",
-                        manifest=m.name,
-                        message=(
-                            f"data_flow.calls references unknown target '{target}' "
-                            f"— not a manifest name or aggregate doc-folder. Fix the "
-                            f"name or remove the edge."
-                        ),
-                    )
-                )
+        seen: set[str] = set()
+        for edge in call_edges(m.data_flow):
+            issues.extend(_data_flow_edge_issues(m, edge, valid, seen))
+            seen.add(edge.target)
     return issues
+
+
+def _data_flow_edge_issues(
+    m: Manifest, edge: CallEdge, valid: set[str], seen: set[str]
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    if edge.target not in valid:
+        issues.append(ValidationIssue(
+            kind="data_flow_unknown_target",
+            manifest=m.name,
+            message=(
+                f"data_flow.calls references unknown target '{edge.target}' "
+                f"— not a manifest name or aggregate doc-folder. Fix the "
+                f"name or remove the edge."
+            ),
+        ))
+    if edge.target in seen:
+        issues.append(ValidationIssue(
+            kind="data_flow_duplicate_target",
+            manifest=m.name,
+            message=(
+                f"data_flow.calls names '{edge.target}' more than once; declare "
+                f"each edge once, as a plain name or as an object."
+            ),
+        ))
+    evidence_path = _missing_evidence_path(m, edge.evidence)
+    if evidence_path:
+        issues.append(ValidationIssue(
+            kind="data_flow_missing_evidence",
+            manifest=m.name,
+            message=(
+                f"data_flow.calls evidence for '{edge.target}' names "
+                f"'{evidence_path}', which is not a file in the repository."
+            ),
+        ))
+    return issues
+
+
+def _missing_evidence_path(m: Manifest, evidence: str) -> str | None:
+    """The repo-relative evidence path if it does not exist, else None."""
+    if not evidence or evidence.startswith("https://") or m.source_path is None:
+        return None
+    path = evidence.split(":", 1)[0]
+    repo_root = Path(m.source_path).resolve().parents[2]
+    target = (repo_root / path).resolve()
+    return None if target.is_relative_to(repo_root) and target.exists() else path
 
 
 def _check_unique_env_vars(manifests: list[Manifest]) -> list[ValidationIssue]:
@@ -1403,8 +1444,8 @@ VALIDATOR_RULES: tuple[ValidatorRule, ...] = (
     ),
     ValidatorRule(
         "data_flow_targets",
-        ("data_flow_unknown_target",),
-        "Every runtime data-flow target names a manifest or approved aggregate documentation folder.",
+        ("data_flow_unknown_target", "data_flow_duplicate_target", "data_flow_missing_evidence"),
+        "Every runtime data-flow target names a manifest or approved aggregate documentation folder, appears once, and any repo-path evidence exists.",
         _check_data_flow_targets,
     ),
     ValidatorRule(

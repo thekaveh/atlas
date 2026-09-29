@@ -73,7 +73,12 @@ def test_jupyterhub_manifest_declares_lakehouse_topology() -> None:
     assert {"minio", "iceberg-rest", "spark"} <= set(
         manifest["runtime_deps"]["jupyterhub"]["optional"]
     )
-    assert {"minio", "iceberg-rest", "spark"} <= set(manifest["data_flow"]["calls"])
+    # A calls entry is a name or a qualified object (#1273).
+    targets = {
+        entry["target"] if isinstance(entry, dict) else entry
+        for entry in manifest["data_flow"]["calls"]
+    }
+    assert {"minio", "iceberg-rest", "spark"} <= targets
     assert "lakehouse" in manifest["rows"][0]["description"].lower()
 
 

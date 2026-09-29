@@ -290,29 +290,29 @@ For the current high-level stack diagram, see [Architecture Diagram](../../docs/
 
 ### 15.1. Current — Upstream (this service calls)
 
-| Service | Category |
-|---|---|
-| ray | infra |
-| iceberg-rest | data |
-| minio | data |
-| neo4j | data |
-| redis | data |
-| redpanda | data |
-| spark | data |
-| supabase | data |
-| weaviate | data |
-| litellm | llm |
-| comfyui | media |
-| docling | media |
-| searxng | media |
-| stt-provider | media |
-| tts-provider | media |
-| hermes | agents |
-| mcp-servers | agents |
-| n8n | agents |
-| backend | apps |
-| label-studio | apps |
-| mlflow | apps |
+| Service | Category | Status |
+|---|---|---|
+| ray | infra | current |
+| iceberg-rest | data | current |
+| minio | data | current |
+| neo4j | data | current |
+| redis | data | current |
+| redpanda | data | current |
+| spark | data | current |
+| supabase | data | current |
+| weaviate | data | current |
+| litellm | llm | current |
+| comfyui | media | current |
+| docling | media | current |
+| searxng | media | current |
+| stt-provider | media | current |
+| tts-provider | media | current |
+| hermes | agents | current |
+| mcp-servers | agents | optional: MCP_SERVERS_SOURCE=container |
+| n8n | agents | current |
+| backend | apps | current |
+| label-studio | apps | current |
+| mlflow | apps | current |
 
 ### 15.2. Current — Downstream (services that call this)
 

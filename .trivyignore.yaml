@@ -2,31 +2,65 @@
 # carry a concrete risk statement, and expire; scripts.container_security rejects
 # broad, undocumented, duplicate, or stale entries before a scan can run.
 #
-# Review pass 2026-09-10 (#998). The 259 entries then expiring 2026-09-30 were
-# re-verified against OSV per (ecosystem, package, version) and against each
-# pinned component's newest published release. They collapse into three
-# clusters, and in none of them is an upstream fix reachable:
+# Review pass 2026-09-28 (#998). Before it: 391 entries, 321 unique IDs, 59
+# expiring 2026-10-15, 3 on 2026-11-30, 324 on 2026-12-09, 5 on 2026-12-26.
+# Coverage was measured rather than inferred: every manifest image reachable
+# from the review environment (59 of 72 scan contexts -- ghcr.io denied eight
+# anonymous pulls, quay.io, cr.weaviate.io, docker.redpanda.com and
+# tfy.jfrog.io were unreachable, and the multi-GB GPU images were skipped) was
+# scanned with Trivy 0.74.0 against this file with --show-suppressed, which
+# records each finding a row suppresses and the image it sits in.
 #
-#   Zeppelin  176  apache/zeppelin:0.12.1 is still the newest published tag
-#                  (5 rows added 2026-09-18 when the final-image scan first
-#                  reached the image, #1002: amqp-client, three netty-handler
-#                  copies, libthrift 0.13.0 and tornado 6.2, all upstream-bundled).
-#   Spark      40  No released Spark carries the fix. 4.2.0 -- the newest --
-#                  still ships libthrift 0.16.0, and its netty 4.2.13.Final is
-#                  short of the 4.2.17 that CVE-2026-75595 needs. See #996.
-#   Julia      40  Julia 1.12.7 (jupyterhub) is the newest 1.12.x; 1.13.0 is a
-#                  minor-version move, not a patch.
-#   Iceberg    24  apache/iceberg-rest-fixture:1.10.1 is the newest published tag
-#                  (2026-09-17); the findings sit in its shaded adapter jar.
-#   Jenkins     4  jackson in the upstream image's build-time plugin manager jar,
-#                  plus one x/crypto SSH-server advisory in the git-lfs 3.8.0 client
-#                  binary that replaces the upstream image's stale 3.7.1.
+#   Removed   16  The 13 /usr/bin/minio rows (MinIO server RELEASE.2025-09-07)
+#                 and 2 Red Hat UBI 9.6 rows, all from images retired by the
+#                 Silo swap. pgsty/silo and pgsty/mc scan clean of them with
+#                 no exceptions applied; the one row that still matched
+#                 elsewhere (jsonparser 1.1.1 in grafana and ollama) carried no
+#                 rationale for those images, which already fail the weekly
+#                 fleet scan on other unreviewed findings. Also the cryptography
+#                 49.0.0 row: its notebook owner now pins 50.0.1 and its only
+#                 remaining match, crawl4ai, was never assessed.
+#   Re-owned  43  The mc Go-toolchain set. The same mc RELEASE.2025-08-13
+#                 binary still ships in the Jenkins image and the backup
+#                 entrypoint (a Trivy scan of the checksum-verified release
+#                 assets reproduces exactly these 43), and its stdlib 1.24.6
+#                 rows also suppress gosu in the postgres alpine images and
+#                 migrate in langfuse. Purls narrowed to the versions those
+#                 binaries carry, owners named, renewed to 2026-11-30 (#1288).
+#   Renewed    1  MLflow CVE-2026-71211 to 2026-11-30: 3.16.x is unaffected,
+#                 so the fix is now a server-image move (#1287).
+#   Owned     43  Rows that named no owning service now do: the 40 Julia rows
+#                 (jupyterhub), the Alpine OpenSSL row and the two Silo pcre2
+#                 rows (services/minio).
 #
-# Renewed to 2026-12-09 on that basis. OSV additionally reports 44 rows as no
-# longer affected at the pinned version; those were deliberately NOT deleted,
-# because Trivy ships its own database and disagreement between the two is
-# routine -- confirming them needs the scan's own output, which until
-# 2026-09-16 stopped early on Blender (#1002). Full evidence: #998.
+# Why no fix is reachable, per cluster, re-checked on 2026-09-28:
+#
+#   Zeppelin  174  apache/zeppelin:0.12.1 is still the newest tag.
+#   Lakehouse  41  Spark 4.2.0 is the newest release and still ships libthrift
+#                  0.16.0 and netty 4.2.13.Final (4.2.17 needed); it moves to
+#                  Hadoop 3.5.0 (AWS SDK 2.35.4, netty 4.1.130 -- 4.1.137
+#                  needed), which Spark 4.1.x cannot take. Blocked on #996.
+#   Julia      40  1.12.7 is still the newest 1.12.x; 1.13.1 is a minor move.
+#   Iceberg    24  apache/iceberg-rest-fixture:1.10.1 is still the newest tag;
+#                  iceberg-core 1.11.0 has no fixture image.
+#   mc         43  RELEASE.2025-08-13T08-35-41Z is still the newest official mc
+#                  (git tags); the maintained pgsty fork scans clean (#1288).
+#   Jenkins     4  The pinned jenkins/jenkins:lts-jdk21 digest is still the
+#                  current tag, and git-lfs 3.8.0 the newest release.
+#   Ray         5  2.58.0 drops the jackson and aiohttp rows but still
+#                  ships httpcore5 5.0.2 and adds 25 other HIGH/CRITICAL
+#                  findings, so moving Ray is its own decision.
+#
+# Fixes that became reachable by a pin move are recorded in their rows and
+# tracked separately, because #998 scopes out upgrades: alpine:3.24.2 carries
+# OpenSSL 3.5.8-r0 (#1285), Weaviate 1.38.17 scans clean (#1286), and MLflow
+# 3.16.x is unaffected by CVE-2026-71211 (#1287).
+#
+# Purl-scoped rows match a package in any image, and the scan shows many
+# covering images their statements never name -- the TrueForge Debian 12 rows
+# also suppress the airflow, node and python bookworm bases, for example.
+# Reconciling that coverage, and confirming or deleting the 44 rows OSV calls
+# unaffected, needs per-image scan output and is tracked in #1289.
 #
 # Blender-vendored Python (asset-baker, #1002 criterion 3). Blender 4.3.2 ships
 # its own CPython 3.11 under /opt/blender/4.3/python with certifi 2021.10.8,
@@ -39,6 +73,8 @@
 # bake.py (bpy, numpy, stdlib file I/O) under `blender -b`; the FastAPI layer
 # uses the image's own patched Python. Nothing in that process imports urllib3,
 # certifi or setuptools, opens a network connection, or installs packages.
+# Re-checked 2026-09-28: 4.3.2 is still pinned and 5.2.2 is Blender's newest
+# release (tags on the github.com/blender/blender mirror).
 vulnerabilities:
   - id: CVE-2026-56854
     paths:
@@ -520,10 +556,12 @@ vulnerabilities:
       the vendor CRITICAL score) concerns the SSH server: source-address
       critical options were not enforced for the PasswordCallback,
       KeyboardInteractiveCallback, NoClientAuthCallback, and GSSAPI login
-      paths. Weaviate exposes HTTP and gRPC only and runs no SSH server, so the
-      package is present but the affected entry points are never reached. The
-      fix needs x/crypto 0.55.0; 1.38.13 is the newest Weaviate release and
-      still ships 0.53.0. Remove this exception once Weaviate rebuilds.
+      paths. Weaviate exposes HTTP and gRPC only and runs no SSH server, so
+      the package is present but the affected entry points are never reached.
+      The fix needs x/crypto 0.55.0. Re-checked 2026-09-28: services/weaviate
+      pins 1.38.13, which still ships 0.53.0, but 1.38.17 is published and its
+      Docker Hub build (semitechnologies/weaviate) scans clean, so the fix is
+      now a pin move, tracked in #1286. Remove this exception with that move.
   - id: CVE-2026-84304
     paths:
       - "bin/weaviate"
@@ -532,952 +570,1005 @@ vulnerabilities:
       google.golang.org/grpc v1.82.1 is vendored into the Weaviate binary.
       Fragmented HTTP/2 DATA frames can exhaust heap memory, and an
       unauthenticated remote caller can trigger it. Atlas publishes the gRPC
-      port through HOST_BIND_IP, which defaults to 127.0.0.1:, so port 50051 is
-      loopback-bound unless an operator deliberately widens it; this is a
+      port through HOST_BIND_IP, which defaults to 127.0.0.1:, so port 50051
+      is loopback-bound unless an operator deliberately widens it; this is a
       deployment mitigation rather than a code fix, and any operator who
-      exposes the port must firewall it. The fix needs grpc 1.83.1; 1.38.13 is
-      the newest Weaviate release and still ships 1.82.1. Remove this exception
-      once Weaviate rebuilds.
+      exposes the port must firewall it. The fix needs grpc 1.83.1. Re-checked
+      2026-09-28: services/weaviate pins 1.38.13, which still ships 1.82.1,
+      but 1.38.17 is published and its Docker Hub build
+      (semitechnologies/weaviate) scans clean, so the fix is now a pin move,
+      tracked in #1286. Remove this exception with that move.
   - id: CVE-2025-47913
     purls:
       - "pkg:golang/golang.org/x/crypto@v0.40.0"
-      - "pkg:golang/golang.org/x/crypto@v0.37.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2025-61726
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2025-61729
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2025-68121
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-25679
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-25681
     purls:
       - "pkg:golang/golang.org/x/net@v0.42.0"
-      - "pkg:golang/golang.org/x/net@v0.39.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-27136
     purls:
       - "pkg:golang/golang.org/x/net@v0.42.0"
-      - "pkg:golang/golang.org/x/net@v0.39.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-27145
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-32280
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-32281
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-32283
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-33186
     purls:
       - "pkg:golang/google.golang.org/grpc@v1.71.0"
-      - "pkg:golang/google.golang.org/grpc@v1.72.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-33811
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-33814
     purls:
       - "pkg:golang/golang.org/x/net@v0.42.0"
       - "pkg:golang/stdlib@v1.24.6"
-      - "pkg:golang/golang.org/x/net@v0.39.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-33818
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-39820
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-39821
     purls:
       - "pkg:golang/golang.org/x/net@v0.42.0"
       - "pkg:golang/stdlib@v1.24.6"
-      - "pkg:golang/golang.org/x/net@v0.39.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-39822
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-39828
     purls:
       - "pkg:golang/golang.org/x/crypto@v0.40.0"
-      - "pkg:golang/golang.org/x/crypto@v0.37.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-39829
     purls:
       - "pkg:golang/golang.org/x/crypto@v0.40.0"
-      - "pkg:golang/golang.org/x/crypto@v0.37.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-39830
     purls:
       - "pkg:golang/golang.org/x/crypto@v0.40.0"
-      - "pkg:golang/golang.org/x/crypto@v0.37.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-39831
     purls:
       - "pkg:golang/golang.org/x/crypto@v0.40.0"
-      - "pkg:golang/golang.org/x/crypto@v0.37.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-39832
     purls:
       - "pkg:golang/golang.org/x/crypto@v0.40.0"
-      - "pkg:golang/golang.org/x/crypto@v0.37.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-39835
     purls:
       - "pkg:golang/golang.org/x/crypto@v0.40.0"
-      - "pkg:golang/golang.org/x/crypto@v0.37.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-39836
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-42151
     purls:
       - "pkg:golang/github.com/prometheus/prometheus@v0.303.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-42154
     purls:
       - "pkg:golang/github.com/prometheus/prometheus@v0.303.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-42499
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-42504
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-42508
     purls:
       - "pkg:golang/golang.org/x/crypto@v0.40.0"
-      - "pkg:golang/golang.org/x/crypto@v0.37.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-46595
     purls:
       - "pkg:golang/golang.org/x/crypto@v0.40.0"
-      - "pkg:golang/golang.org/x/crypto@v0.37.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-46597
     purls:
       - "pkg:golang/golang.org/x/crypto@v0.40.0"
-      - "pkg:golang/golang.org/x/crypto@v0.37.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-46600
     purls:
       - "pkg:golang/golang.org/x/net@v0.42.0"
-      - "pkg:golang/golang.org/x/net@v0.39.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-56852
     purls:
       - "pkg:golang/golang.org/x/text@v0.27.0"
-      - "pkg:golang/golang.org/x/text@v0.24.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-56853
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-56854
     purls:
       - "pkg:golang/golang.org/x/crypto@v0.40.0"
-      - "pkg:golang/golang.org/x/crypto@v0.37.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-56858
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-56859
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-56860
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-56862
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-84304
     purls:
       - "pkg:golang/google.golang.org/grpc@v1.71.0"
-      - "pkg:golang/google.golang.org/grpc@v1.72.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-84445
     purls:
       - "pkg:golang/google.golang.org/grpc@v1.71.0"
-      - "pkg:golang/google.golang.org/grpc@v1.72.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Go toolchain and vendored-module findings inside /usr/bin/mc in the pinned Min
-      IO client image. No fixed release exists: RELEASE.2025-08-13T08-35-41Z is the 
-      newest mc MinIO has published (GitHub and quay agree), and it has been the new
-      est for 13 months, so the patched Go toolchain cannot be reached by bumping th
-      e pin. Reachability is narrow: mc runs as a one-shot init container that talks
-       only to the in-stack MinIO endpoint over the internal compose network, using 
-      operator-supplied credentials, then exits -- it serves no network listener and
-       processes no untrusted remote input. Deliberately time-boxed short rather tha
-      n the full horizon: the real question is not when a fix lands but whether Atla
-      s should keep depending on an abandoned image, given services/jenkins already 
-      installs mc from its GitHub release binary instead. Tracked for that decision.
-  - id: CVE-2026-54369
-    purls:
-      - "pkg:rpm/redhat/libacl@2.3.1-4.el9"
-    expired_at: 2026-10-15
-    statement: >-
-      Red Hat UBI 9.6 base package inside the pinned MinIO client image. Red Hat shi
-      ps the fix in 9.8, but MinIO has not rebuilt mc since RELEASE.2025-08-13T08-35
-      -41Z -- the newest it has published, unchanged for 13 months on both GitHub an
-      d quay -- so the patched package cannot be reached by bumping the pin. mc runs
-       as a one-shot init container against the in-stack MinIO endpoint over the int
-      ernal compose network, then exits; it serves no listener and processes no untr
-      usted remote input. Time-boxed short with the other mc findings, because the d
-      ecision this needs is whether to keep depending on an abandoned image at all.
-  - id: CVE-2026-4878
-    purls:
-      - "pkg:rpm/redhat/libcap@2.48-9.el9_2"
-    expired_at: 2026-10-15
-    statement: >-
-      Red Hat UBI 9.6 base package inside the pinned MinIO client image. Red Hat shi
-      ps the fix in 9.8, but MinIO has not rebuilt mc since RELEASE.2025-08-13T08-35
-      -41Z -- the newest it has published, unchanged for 13 months on both GitHub an
-      d quay -- so the patched package cannot be reached by bumping the pin. mc runs
-       as a one-shot init container against the in-stack MinIO endpoint over the int
-      ernal compose network, then exits; it serves no listener and processes no untr
-      usted remote input. Time-boxed short with the other mc findings, because the d
-      ecision this needs is whether to keep depending on an abandoned image at all.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: GHSA-hrxh-6v49-42gf
     purls:
       - "pkg:golang/google.golang.org/grpc@v1.71.0"
-      - "pkg:golang/google.golang.org/grpc@v1.72.0"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      Vendored gRPC inside /usr/bin/mc in the pinned MinIO client image. Reported un
-      der a GHSA identifier rather than a CVE, alongside the other mc Go-module find
-      ings and with the same constraint: RELEASE.2025-08-13T08-35-41Z is the newest 
-      mc MinIO has published and has been for 13 months, so the patched gRPC cannot 
-      be reached by bumping. mc is a one-shot init client on the internal compose ne
-      twork that serves no listener. Time-boxed short with the rest of the mc set.
-  - id: CVE-2025-62506
-    purls:
-      - "pkg:golang/github.com/minio/minio@v0.0.0-20250907161309-07c3a429bfed+dirty"
-    expired_at: 2026-10-15
-    statement: >-
-      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
-      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
-      it is absent from both Docker Hub and quay.io, verified -- so even the finding
-      s with a published upstream fix cannot be reached by moving the image pin. Sev
-      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
-      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
-       so both ports are loopback-bound unless an operator deliberately widens them,
-       and any operator who does must firewall them. This is a deployment mitigation
-      , not a code fix. Time-boxed short because the decision needed is whether Atla
-      s should keep depending on a server image whose security releases are not dist
-      ributed as containers.
-  - id: CVE-2026-24051
-    purls:
-      - "pkg:golang/go.opentelemetry.io/otel/sdk@v1.35.0"
-    expired_at: 2026-10-15
-    statement: >-
-      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
-      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
-      it is absent from both Docker Hub and quay.io, verified -- so even the finding
-      s with a published upstream fix cannot be reached by moving the image pin. Sev
-      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
-      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
-       so both ports are loopback-bound unless an operator deliberately widens them,
-       and any operator who does must firewall them. This is a deployment mitigation
-      , not a code fix. Time-boxed short because the decision needed is whether Atla
-      s should keep depending on a server image whose security releases are not dist
-      ributed as containers.
-  - id: CVE-2026-32285
-    purls:
-      - "pkg:golang/github.com/buger/jsonparser@v1.1.1"
-    expired_at: 2026-10-15
-    statement: >-
-      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
-      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
-      it is absent from both Docker Hub and quay.io, verified -- so even the finding
-      s with a published upstream fix cannot be reached by moving the image pin. Sev
-      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
-      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
-       so both ports are loopback-bound unless an operator deliberately widens them,
-       and any operator who does must firewall them. This is a deployment mitigation
-      , not a code fix. Time-boxed short because the decision needed is whether Atla
-      s should keep depending on a server image whose security releases are not dist
-      ributed as containers.
-  - id: CVE-2026-33322
-    purls:
-      - "pkg:golang/github.com/minio/minio@v0.0.0-20250907161309-07c3a429bfed+dirty"
-    expired_at: 2026-10-15
-    statement: >-
-      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
-      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
-      it is absent from both Docker Hub and quay.io, verified -- so even the finding
-      s with a published upstream fix cannot be reached by moving the image pin. Sev
-      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
-      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
-       so both ports are loopback-bound unless an operator deliberately widens them,
-       and any operator who does must firewall them. This is a deployment mitigation
-      , not a code fix. Time-boxed short because the decision needed is whether Atla
-      s should keep depending on a server image whose security releases are not dist
-      ributed as containers.
-  - id: CVE-2026-33419
-    purls:
-      - "pkg:golang/github.com/minio/minio@v0.0.0-20250907161309-07c3a429bfed+dirty"
-    expired_at: 2026-10-15
-    statement: >-
-      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
-      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
-      it is absent from both Docker Hub and quay.io, verified -- so even the finding
-      s with a published upstream fix cannot be reached by moving the image pin. Sev
-      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
-      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
-       so both ports are loopback-bound unless an operator deliberately widens them,
-       and any operator who does must firewall them. This is a deployment mitigation
-      , not a code fix. Time-boxed short because the decision needed is whether Atla
-      s should keep depending on a server image whose security releases are not dist
-      ributed as containers.
-  - id: CVE-2026-34204
-    purls:
-      - "pkg:golang/github.com/minio/minio@v0.0.0-20250907161309-07c3a429bfed+dirty"
-    expired_at: 2026-10-15
-    statement: >-
-      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
-      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
-      it is absent from both Docker Hub and quay.io, verified -- so even the finding
-      s with a published upstream fix cannot be reached by moving the image pin. Sev
-      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
-      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
-       so both ports are loopback-bound unless an operator deliberately widens them,
-       and any operator who does must firewall them. This is a deployment mitigation
-      , not a code fix. Time-boxed short because the decision needed is whether Atla
-      s should keep depending on a server image whose security releases are not dist
-      ributed as containers.
-  - id: CVE-2026-34986
-    purls:
-      - "pkg:golang/github.com/go-jose/go-jose/v4@v4.1.0"
-    expired_at: 2026-10-15
-    statement: >-
-      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
-      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
-      it is absent from both Docker Hub and quay.io, verified -- so even the finding
-      s with a published upstream fix cannot be reached by moving the image pin. Sev
-      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
-      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
-       so both ports are loopback-bound unless an operator deliberately widens them,
-       and any operator who does must firewall them. This is a deployment mitigation
-      , not a code fix. Time-boxed short because the decision needed is whether Atla
-      s should keep depending on a server image whose security releases are not dist
-      ributed as containers.
-  - id: CVE-2026-39414
-    purls:
-      - "pkg:golang/github.com/minio/minio@v0.0.0-20250907161309-07c3a429bfed+dirty"
-    expired_at: 2026-10-15
-    statement: >-
-      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
-      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
-      it is absent from both Docker Hub and quay.io, verified -- so even the finding
-      s with a published upstream fix cannot be reached by moving the image pin. Sev
-      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
-      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
-       so both ports are loopback-bound unless an operator deliberately widens them,
-       and any operator who does must firewall them. This is a deployment mitigation
-      , not a code fix. Time-boxed short because the decision needed is whether Atla
-      s should keep depending on a server image whose security releases are not dist
-      ributed as containers.
-  - id: CVE-2026-39883
-    purls:
-      - "pkg:golang/go.opentelemetry.io/otel/sdk@v1.35.0"
-    expired_at: 2026-10-15
-    statement: >-
-      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
-      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
-      it is absent from both Docker Hub and quay.io, verified -- so even the finding
-      s with a published upstream fix cannot be reached by moving the image pin. Sev
-      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
-      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
-       so both ports are loopback-bound unless an operator deliberately widens them,
-       and any operator who does must firewall them. This is a deployment mitigation
-      , not a code fix. Time-boxed short because the decision needed is whether Atla
-      s should keep depending on a server image whose security releases are not dist
-      ributed as containers.
-  - id: CVE-2026-40344
-    purls:
-      - "pkg:golang/github.com/minio/minio@v0.0.0-20250907161309-07c3a429bfed+dirty"
-    expired_at: 2026-10-15
-    statement: >-
-      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
-      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
-      it is absent from both Docker Hub and quay.io, verified -- so even the finding
-      s with a published upstream fix cannot be reached by moving the image pin. Sev
-      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
-      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
-       so both ports are loopback-bound unless an operator deliberately widens them,
-       and any operator who does must firewall them. This is a deployment mitigation
-      , not a code fix. Time-boxed short because the decision needed is whether Atla
-      s should keep depending on a server image whose security releases are not dist
-      ributed as containers.
-  - id: CVE-2026-41145
-    purls:
-      - "pkg:golang/github.com/minio/minio@v0.0.0-20250907161309-07c3a429bfed+dirty"
-    expired_at: 2026-10-15
-    statement: >-
-      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
-      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
-      it is absent from both Docker Hub and quay.io, verified -- so even the finding
-      s with a published upstream fix cannot be reached by moving the image pin. Sev
-      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
-      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
-       so both ports are loopback-bound unless an operator deliberately widens them,
-       and any operator who does must firewall them. This is a deployment mitigation
-      , not a code fix. Time-boxed short because the decision needed is whether Atla
-      s should keep depending on a server image whose security releases are not dist
-      ributed as containers.
-  - id: CVE-2026-41602
-    purls:
-      - "pkg:golang/github.com/apache/thrift@v0.21.0"
-    expired_at: 2026-10-15
-    statement: >-
-      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
-      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
-      it is absent from both Docker Hub and quay.io, verified -- so even the finding
-      s with a published upstream fix cannot be reached by moving the image pin. Sev
-      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
-      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
-       so both ports are loopback-bound unless an operator deliberately widens them,
-       and any operator who does must firewall them. This is a deployment mitigation
-      , not a code fix. Time-boxed short because the decision needed is whether Atla
-      s should keep depending on a server image whose security releases are not dist
-      ributed as containers.
-  - id: CVE-2026-79921
-    purls:
-      - "pkg:golang/github.com/rabbitmq/amqp091-go@v1.10.0"
-    expired_at: 2026-10-15
-    statement: >-
-      Finding inside /usr/bin/minio in the pinned MinIO server image RELEASE.2025-09
-      -07T16-13-09Z. MinIO publishes RELEASE.2025-10-15T17-29-55Z on GitHub only -- 
-      it is absent from both Docker Hub and quay.io, verified -- so even the finding
-      s with a published upstream fix cannot be reached by moving the image pin. Sev
-      eral have no fixed release at all. Exposure is bounded by deployment: MinIO's 
-      S3 API and console publish through HOST_BIND_IP, which defaults to 127.0.0.1:,
-       so both ports are loopback-bound unless an operator deliberately widens them,
-       and any operator who does must firewall them. This is a deployment mitigation
-      , not a code fix. Time-boxed short because the decision needed is whether Atla
-      s should keep depending on a server image whose security releases are not dist
-      ributed as containers.
+      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
+      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
+      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
+      default). services/backup downloads the same checksum-pinned binary at
+      entrypoint start, outside any scanned image, so these rows record its
+      exposure without suppressing anything there. The stdlib 1.24.6 rows also
+      cover two upstream helper binaries built with that toolchain, found by a
+      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
+      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
+      backup build base), and migrate in langfuse:3.115.0. Re-checked
+      2026-09-28: that mc is still the newest official release, so no official
+      build carries the fix; the maintained pgsty/mc fork (the MinIO client
+      image since the Silo swap) scans clean, and moving Jenkins and backup
+      onto it is tracked in #1288. None of these binaries serves a listener:
+      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
+      backup schedule against the stack's own Silo endpoint, gosu is a
+      privilege-drop exec helper, and migrate applies Langfuse's schema at
+      start. Remove each purl once no scanned image carries it.
   - id: CVE-2026-75595
     purls:
       - "pkg:maven/io.netty/netty-handler@4.1.115.Final"
@@ -1982,411 +2073,482 @@ vulnerabilities:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibCURL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibCURL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-10536
     purls:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibCURL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibCURL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-11856
     purls:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibCURL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibCURL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-12064
     purls:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibCURL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibCURL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-3805
     purls:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibCURL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibCURL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-5773
     purls:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibCURL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibCURL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-6276
     purls:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibCURL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibCURL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-8286
     purls:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibCURL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibCURL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-8924
     purls:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibCURL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibCURL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-8925
     purls:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibCURL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibCURL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-8926
     purls:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibCURL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibCURL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-8927
     purls:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibCURL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibCURL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-8932
     purls:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibCURL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibCURL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-9079
     purls:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibCURL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibCURL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-9080
     purls:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibCURL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibCURL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-9545
     purls:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibCURL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibCURL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-9547
     purls:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibCURL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibCURL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-53587
     purls:
       - "pkg:julia/LibGit2_jll@1.9.0%2B0?uuid=e37daf67-58a4-590a-8e99-b0245dd2ffc5"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibGit2_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibGit2_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-5917
     purls:
       - "pkg:julia/LibGit2_jll@1.9.0%2B0?uuid=e37daf67-58a4-590a-8e99-b0245dd2ffc5"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibGit2_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibGit2_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2025-15661
     purls:
       - "pkg:julia/LibSSH2_jll@1.11.3%2B1?uuid=29816b5a-b9ab-546f-933c-edad1886dfa8"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibSSH2_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibSSH2_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-55199
     purls:
       - "pkg:julia/LibSSH2_jll@1.11.3%2B1?uuid=29816b5a-b9ab-546f-933c-edad1886dfa8"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibSSH2_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibSSH2_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-55200
     purls:
       - "pkg:julia/LibSSH2_jll@1.11.3%2B1?uuid=29816b5a-b9ab-546f-933c-edad1886dfa8"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibSSH2_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibSSH2_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-58050
     purls:
       - "pkg:julia/LibSSH2_jll@1.11.3%2B1?uuid=29816b5a-b9ab-546f-933c-edad1886dfa8"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibSSH2_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibSSH2_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-58051
     purls:
       - "pkg:julia/LibSSH2_jll@1.11.3%2B1?uuid=29816b5a-b9ab-546f-933c-edad1886dfa8"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibSSH2_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibSSH2_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-66032
     purls:
       - "pkg:julia/LibSSH2_jll@1.11.3%2B1?uuid=29816b5a-b9ab-546f-933c-edad1886dfa8"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibSSH2_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibSSH2_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-66033
     purls:
       - "pkg:julia/LibSSH2_jll@1.11.3%2B1?uuid=29816b5a-b9ab-546f-933c-edad1886dfa8"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibSSH2_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibSSH2_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-66034
     purls:
       - "pkg:julia/LibSSH2_jll@1.11.3%2B1?uuid=29816b5a-b9ab-546f-933c-edad1886dfa8"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibSSH2_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibSSH2_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-66035
     purls:
       - "pkg:julia/LibSSH2_jll@1.11.3%2B1?uuid=29816b5a-b9ab-546f-933c-edad1886dfa8"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      LibSSH2_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves LibSSH2_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-34180
     purls:
       - "pkg:julia/OpenSSL_jll@3.5.6%2B0?uuid=458c3c95-2e84-50aa-8efc-19380b2a3a95"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      OpenSSL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves OpenSSL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-34181
     purls:
       - "pkg:julia/OpenSSL_jll@3.5.6%2B0?uuid=458c3c95-2e84-50aa-8efc-19380b2a3a95"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      OpenSSL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves OpenSSL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-34182
     purls:
       - "pkg:julia/OpenSSL_jll@3.5.6%2B0?uuid=458c3c95-2e84-50aa-8efc-19380b2a3a95"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      OpenSSL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves OpenSSL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-34183
     purls:
       - "pkg:julia/OpenSSL_jll@3.5.6%2B0?uuid=458c3c95-2e84-50aa-8efc-19380b2a3a95"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      OpenSSL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves OpenSSL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-42764
     purls:
       - "pkg:julia/OpenSSL_jll@3.5.6%2B0?uuid=458c3c95-2e84-50aa-8efc-19380b2a3a95"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      OpenSSL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves OpenSSL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-45445
     purls:
       - "pkg:julia/OpenSSL_jll@3.5.6%2B0?uuid=458c3c95-2e84-50aa-8efc-19380b2a3a95"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      OpenSSL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves OpenSSL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-45447
     purls:
       - "pkg:julia/OpenSSL_jll@3.5.6%2B0?uuid=458c3c95-2e84-50aa-8efc-19380b2a3a95"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      OpenSSL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves OpenSSL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-7383
     purls:
       - "pkg:julia/OpenSSL_jll@3.5.6%2B0?uuid=458c3c95-2e84-50aa-8efc-19380b2a3a95"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      OpenSSL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves OpenSSL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-9076
     purls:
       - "pkg:julia/OpenSSL_jll@3.5.6%2B0?uuid=458c3c95-2e84-50aa-8efc-19380b2a3a95"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      OpenSSL_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves OpenSSL_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2025-6021
     purls:
       - "pkg:julia/XML2_jll@2.13.9%2B0?uuid=02c8fc9c-b97f-50b9-bbe4-9be30ff0a78a"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      XML2_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves XML2_jll to this exact newest-compatible build; the scanner's
+      patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-6732
     purls:
       - "pkg:julia/XML2_jll@2.13.9%2B0?uuid=02c8fc9c-b97f-50b9-bbe4-9be30ff0a78a"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      XML2_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves XML2_jll to this exact newest-compatible build; the scanner's
+      patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
   - id: CVE-2026-27135
     purls:
       - "pkg:julia/nghttp2_jll@1.64.0%2B1?uuid=8e850ede-7688-5339-a07c-302acd2aaf8d"
     expired_at: 2026-12-09
     statement: >-
-      Julia 1.12.7 is the current stable runtime, and its registry resolves
-      nghttp2_jll to this exact newest-compatible build; the scanner's patched
-      build is not compatible with the stable runtime. The token-authenticated
-      kernel runs as unprivileged jovyan with no public Julia service endpoint.
-      Remove this exception when Julia publishes a compatible patched JLL.
+      Julia 1.12.7, which services/jupyterhub/build/Dockerfile installs into
+      the jupyterhub image, is the current stable runtime, and its registry
+      resolves nghttp2_jll to this exact newest-compatible build; the
+      scanner's patched build is not compatible with the stable runtime. The
+      token-authenticated kernel runs as unprivileged jovyan with no public
+      Julia service endpoint. Remove this exception when Julia publishes a
+      compatible patched JLL.
 
-  - id: CVE-2026-69247
-    purls:
-      - "pkg:pypi/cryptography@49.0.0"
-    expired_at: 2026-12-09
-    statement: >-
-      MLflow 3.15.1 caps cryptography below 50, while this finding requires
-      cryptography 50. Atlas exposes no PKCS#7 envelope-decryption API in the
-      notebook service, so the affected unauthenticated decrypt path is not
-      reachable. Remove this exception when MLflow permits cryptography 50.
   - id: CVE-2026-14456
     purls:
       - "pkg:apk/alpine/libcrypto3@3.5.7-r0?arch=x86_64&distro=3.24.1"
@@ -2395,11 +2557,16 @@ vulnerabilities:
       - "pkg:apk/alpine/libssl3@3.5.7-r0?arch=aarch64&distro=3.24.1"
     expired_at: 2026-12-09
     statement: >-
-      Alpine has published OpenSSL 3.5.8-r0 but no stable image tag containing
-      it. Atlas uses these Alpine images only for finite init jobs and shell
-      clients; none starts an OpenSSL QUIC listener, so the affected server-only
-      allocation path is unreachable. Remove this exception when a patched
-      stable Alpine image is published.
+      OpenSSL 3.5.7-r0 (libcrypto3/libssl3) in the alpine:3.24.1 base of the
+      comfyui, hermes, label-studio, langfuse, lightrag, mlflow, ollama
+      (pull), openclaw and weaviate init containers, and in the
+      postgres:15.18-alpine (supabase-db and iceberg-rest init),
+      postgres:17.10-alpine (backup build base) and redpanda console v3.8.0
+      images. None starts an OpenSSL QUIC listener, so the affected
+      server-only allocation path is unreachable. Re-checked 2026-09-28:
+      alpine:3.24.2 (published 2026-09-18) ships OpenSSL 3.5.8-r0 and scans
+      clean, so the fix is now a pin move, tracked in #1285. Remove this
+      exception when no pinned image carries 3.5.7-r0.
   - id: GHSA-r7wm-3cxj-wff9
     purls:
       - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.18.6"
@@ -4223,16 +4390,21 @@ vulnerabilities:
   - id: CVE-2026-71211
     purls:
       - "pkg:pypi/mlflow@3.15.1"
-    expired_at: 2026-10-15
+    expired_at: 2026-11-30
     statement: >-
-      MLflow has no fixed release for this AI Gateway SSRF. Atlas upgrades the
-      server to 3.15.1 to close CVE-2026-64849, then starts it only through
-      services/mlflow/atlas_server.py, whose outer ASGI guard returns 404 for
-      every prefixed or unprefixed native, REST, and AJAX AI Gateway route family
-      while preserving tracking and artifact APIs. Unit coverage and a required
-      pinned-image HTTP smoke exercise both blocked and allowed paths. Jupyter's
-      separately scanned copy is client-only, and a fail-closed source scan covers
-      every shipped executable surface. Remove this exception when upstream ships a fix.
+      CVE-2026-71211 (AI Gateway SSRF) affects the MLflow 3.15.1 server that
+      services/mlflow pins (moved there to close CVE-2026-64849). Re-checked
+      2026-09-28: PyPI's advisory data lists it for 3.15.1 and for neither
+      3.16.0 nor 3.16.1, so the fix is now reachable by moving the server
+      image; that move needs the exact-version entrypoint check and the
+      gateway guard re-verified, and is tracked in #1287. Until then Atlas
+      starts the server only through services/mlflow/atlas_server.py, whose
+      outer ASGI guard returns 404 for every prefixed or unprefixed native,
+      REST, and AJAX AI Gateway route family while preserving tracking and
+      artifact APIs. Unit coverage and a required pinned-image HTTP smoke
+      exercise both blocked and allowed paths. Jupyter's copy is already on
+      MLflow 3.16.0, and a fail-closed source scan covers every shipped
+      executable surface. Remove this exception with the server move.
 
 # TrueForge agent-runtime image (tfy.jfrog.io/tfy-images/trueforge:0.2.0-8b1d98e,
 # reviewed index digest sha256:db9de64e1ff354a858dc646f23cf16c70e300c457acb86527e4a0b1cd556f573,
@@ -4242,8 +4414,11 @@ vulnerabilities:
 # libpcre2 (Debian fix published, waiting on an upstream image rebuild — the
 # #1002 wave), and three upstream-bundled node_modules packages whose fixes
 # arrive with the next TrueForge release (~daily cadence). Every entry is
-# purl-scoped to the exact package@version in this image so the same package
-# anywhere else still fails the gate.
+# purl-scoped to the exact package@version in this image. That does not keep
+# them image-local: the 2026-09-28 --show-suppressed scan found the same
+# Debian 12.15 builds, and so these rows, in the airflow, node and python
+# bookworm bases too (#1289). Not re-checked that day: tfy.jfrog.io was
+# unreachable from the review environment.
 
   - id: CVE-2023-45853
     purls:
@@ -4592,12 +4767,13 @@ vulnerabilities:
       - "pkg:rpm/redhat/pcre2-syntax@10.40-6.el9?arch=noarch&distro=redhat-9.8"
     expired_at: 2026-12-26
     statement: >-
-      pcre2 10.40-6.el9 in the UBI 9.8 base of the pinned Silo server
-      (pgsty/silo) and client (pgsty/mc) images. Red Hat marks this CVE
-      will_not_fix for RHEL 9, so no rebuilt base can clear it. Both images'
-      workloads are static Go binaries whose regexp package is RE2 and never
-      links PCRE2; the library serves only base-image shell tooling such as
-      grep, which parses no request input. Re-review with the next Silo release.
+      pcre2 10.40-6.el9 in the UBI 9.8 base of the Silo server (pgsty/silo)
+      and client (pgsty/mc) images that services/minio pins. Red Hat marks
+      this CVE will_not_fix for RHEL 9, so no rebuilt base can clear it. Both
+      images' workloads are static Go binaries whose regexp package is RE2 and
+      never links PCRE2; the library serves only base-image shell tooling such
+      as grep, which parses no request input. Re-review with the next Silo
+      release.
 
   - id: CVE-2026-89161
     purls:
@@ -4606,25 +4782,27 @@ vulnerabilities:
       - "pkg:rpm/redhat/pcre2-syntax@10.40-6.el9?arch=noarch&distro=redhat-9.8"
     expired_at: 2026-12-26
     statement: >-
-      pcre2 10.40-6.el9 in the UBI 9.8 base of the pinned Silo server
-      (pgsty/silo) and client (pgsty/mc) images; Red Hat lists RHEL 9 as
-      affected with no fixed package yet. Both images' workloads are static Go
-      binaries whose regexp package is RE2 and never links PCRE2; the library
-      serves only base-image shell tooling such as grep, which parses no request
-      input. Cleared by the first Silo image rebuilt on a patched UBI base.
+      pcre2 10.40-6.el9 in the UBI 9.8 base of the Silo server (pgsty/silo)
+      and client (pgsty/mc) images that services/minio pins; Red Hat lists
+      RHEL 9 as affected with no fixed package yet. Both images' workloads are
+      static Go binaries whose regexp package is RE2 and never links PCRE2;
+      the library serves only base-image shell tooling such as grep, which
+      parses no request input. Cleared by the first Silo image rebuilt on a
+      patched UBI base.
 
   - id: CVE-2026-39414
     purls:
       - "pkg:golang/github.com/minio/minio@v0.0.0-20260916155009-2a4d51406b7e"
     expired_at: 2026-12-26
     statement: >-
-      False positive in /usr/bin/silo (pgsty/silo RELEASE.2026-09-16T00-00-00Z,
-      source revision 2a4d51406b7e). The fork reports the MinIO module under a
-      pseudo-version Trivy cannot order against MinIO's RELEASE tags, so it
-      matches the "before RELEASE.2025-12-20" range. The source at that revision
-      carries the fix: internal/s3select/csv/reader.go nextSplit reads with
-      ReadSlice and returns errOverMaxRecordSize past the 1 MiB S3 Select record
-      limit, where the vulnerable RELEASE.2025-09-07 code calls an unbounded
+      False positive in /usr/bin/silo in the services/minio server image
+      (pgsty/silo RELEASE.2026-09-16T00-00-00Z, source revision 2a4d51406b7e).
+      The fork reports the MinIO module under a pseudo-version Trivy cannot
+      order against MinIO's RELEASE tags, so it matches the "before
+      RELEASE.2025-12-20" range. The source at that revision carries the fix:
+      internal/s3select/csv/reader.go nextSplit reads with ReadSlice and
+      returns errOverMaxRecordSize past the 1 MiB S3 Select record limit,
+      where the vulnerable RELEASE.2025-09-07 code calls an unbounded
       ReadBytes. Re-verify the reader on every Silo bump.
 
   - id: GHSA-6v7p-g79w-8964
