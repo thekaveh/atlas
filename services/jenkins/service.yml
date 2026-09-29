@@ -105,7 +105,10 @@ runtime_sc:
 
 data_flow:
   calls:
-    - minio
+    - target: minio
+      status: optional
+      condition: an operator-authored Jenkins job; none ships with Atlas
+      evidence: services/jenkins/README.md
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.

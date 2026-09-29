@@ -36,11 +36,18 @@ Pin to a **tag** (not `main`) so an infra upgrade is an explicit, reviewable com
 1. **Finalize release notes** — on the release branch, replace the relevant
    `[Unreleased]` material with a dated, linked `[X.Y.Z]` changelog heading and
    review the complete notes that the tag will contain.
-2. **Promote through Gitflow** — merge the release branch into `develop` by
+2. **Review the license inventory** — on the release branch, run
+   `uv run --project bootstrapper python -m scripts.docs.license_inventory --check`
+   and re-read the [supply-chain license inventory](../reference/license-inventory.md)
+   rows for every image and model this release adds or moves. A release that
+   ships third-party artifacts, such as an appliance bundle or a prebuilt image
+   set, is not published while an open item leaves any of them `unresolved`
+   for redistribution.
+3. **Promote through Gitflow** — merge the release branch into `develop` by
    pull request, then merge `develop` into `main` by pull request with every
    required check green. The versioned changelog and release notes must be on
    `main` before the tag is created.
-3. **Create the tag** — update local `main`, verify that its changelog contains
+4. **Create the tag** — update local `main`, verify that its changelog contains
    the version heading, then create and push the immutable annotated tag:
 
     ```bash
@@ -51,7 +58,7 @@ Pin to a **tag** (not `main`) so an infra upgrade is an explicit, reviewable com
     git push origin vX.Y.Z
     ```
 
-4. **Record immutable object IDs** — after the tag exists, capture both object
+5. **Record immutable object IDs** — after the tag exists, capture both object
    IDs and its date, add a row to the record below on a follow-up branch, and
    promote that branch through `develop` and `main` by pull request:
 
@@ -107,7 +114,8 @@ fixes, and features entry by entry and counts everything else; the curated
 entries that follow it are the detailed history and are never touched by the
 tool. The block records the exact range it was rendered from
 (`<!-- generated-range: v0.1.0..<commit> -->`), so it is reproducible, and
-`--check-changelog` (run by the required *Manifest lint + unit tests* job and by
+`--check-changelog` (run by the *Bootstrapper and Backend suites* job, which the
+required *Manifest lint + unit tests* gate requires, and by
 `test_committed_changelog_block_is_current`) fails when the block differs from
 what that range renders — a hand edit or a stale block is caught before merge.
 Refresh it at release time, or whenever a summary of newer work is wanted:

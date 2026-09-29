@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .deps_resolver import DepGraph
+from .deps_resolver import DepEdge, DepGraph
 
 
 def render_section(graph: DepGraph, position: int = 5) -> str:
@@ -25,11 +25,7 @@ def render_section(graph: DepGraph, position: int = 5) -> str:
     lines.append(f"### {position}.1. Current — Upstream (this service calls)")
     lines.append("")
     if graph.upstream:
-        lines.append("| Service | Category |")
-        lines.append("|---|---|")
-        for e in graph.upstream:
-            bidi = " ↔" if e.bidirectional else ""
-            lines.append(f"| {e.other}{bidi} | {e.other_category} |")
+        lines.extend(_table(graph.upstream))
     else:
         lines.append("_No upstream calls._")
     lines.append("")
@@ -38,11 +34,7 @@ def render_section(graph: DepGraph, position: int = 5) -> str:
     lines.append(f"### {position}.2. Current — Downstream (services that call this)")
     lines.append("")
     if graph.downstream:
-        lines.append("| Service | Category |")
-        lines.append("|---|---|")
-        for e in graph.downstream:
-            bidi = " ↔" if e.bidirectional else ""
-            lines.append(f"| {e.other}{bidi} | {e.other_category} |")
+        lines.extend(_table(graph.downstream))
     else:
         lines.append("_No downstream consumers._")
     lines.append("")
@@ -67,3 +59,26 @@ def render_section(graph: DepGraph, position: int = 5) -> str:
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
+
+
+_PLANNED_NOTE = "_Rows marked planned are documented or intended, not wired yet._"
+
+
+def _table(edges: tuple[DepEdge, ...]) -> list[str]:
+    """A Service/Category table. It gains a Status column only when an edge is
+    optional or planned (#1273), so an all-current table renders as before."""
+    qualified = any(e.status != "current" for e in edges)
+    lines = (
+        ["| Service | Category | Status |", "|---|---|---|"]
+        if qualified
+        else ["| Service | Category |", "|---|---|"]
+    )
+    if any(e.status == "planned" for e in edges):
+        lines = [_PLANNED_NOTE, ""] + lines
+    for e in edges:
+        cells = [f"{e.other}{' ↔' if e.bidirectional else ''}", e.other_category]
+        if qualified:
+            status = f"{e.status}: {e.condition}" if e.condition else e.status
+            cells.append(status.replace("|", "\\|"))
+        lines.append("| " + " | ".join(cells) + " |")
+    return lines

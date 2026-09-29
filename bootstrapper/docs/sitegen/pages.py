@@ -846,6 +846,7 @@ uv run --project bootstrapper python scripts/check-track-membership.py
 - [Tracks](../tracks.md)
 - [Service dependencies](service-dependencies.md)
 - [Manifest fields](manifest-fields.md)
+- [Supply-chain license inventory](license-inventory.md)
 
 ## 2. Category Summary
 

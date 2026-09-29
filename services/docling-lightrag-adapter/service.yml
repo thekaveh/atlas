@@ -37,7 +37,10 @@ rows: []
 
 data_flow:
   calls:
-    - docling
+    - target: docling
+      status: optional
+      condition: DOC_PROCESSOR_SOURCE=docling-container-gpu or docling-localhost
+      evidence: services/docling/provider/adapter/upstream.py
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.

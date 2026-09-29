@@ -154,7 +154,10 @@ runtime_deps:
 
 data_flow:
   calls:
-    - litellm
+    - target: litellm
+      status: optional
+      condition: an operator sets the provider baseUrl; openclaw-init writes none
+      evidence: services/openclaw/README.md
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.

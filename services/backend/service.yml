@@ -371,10 +371,14 @@ data_flow:
     - redis
     - otel-collector
     - kong
-    # No neo4j: NEO4J_* is injected for planned graph endpoints, but no
-    # Backend code opens a Bolt connection (the "Adaptive proxy environment
-    # placeholders" capability is stubbed). Removed after the #1054 claims
-    # review; see docs/maintenance/integration-claims-ledger.md.
+    # neo4j is planned, not current: NEO4J_* is injected for planned graph
+    # endpoints, but no Backend code opens a Bolt connection (the "Adaptive
+    # proxy environment placeholders" capability is stubbed). The #1054
+    # claims review removed it as a current edge; #1273 restores it as
+    # planned. See docs/maintenance/integration-claims-ledger.md.
+    - target: neo4j
+      status: planned
+      evidence: services/backend/README.md
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.

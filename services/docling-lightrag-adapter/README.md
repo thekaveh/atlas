@@ -31,9 +31,9 @@ Job identifiers are random and do not disclose filenames or sequence. Request bo
 
 ### 5.1. Current — Upstream (this service calls)
 
-| Service | Category |
-|---|---|
-| docling | media |
+| Service | Category | Status |
+|---|---|---|
+| docling | media | optional: DOC_PROCESSOR_SOURCE=docling-container-gpu or docling-localhost |
 
 ### 5.2. Current — Downstream (services that call this)
 

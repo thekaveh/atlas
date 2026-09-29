@@ -1,5 +1,7 @@
 # 9.1. Development
 
+For a first change (setup, one safe test per area, the branch target and the required checks), start with the [contributing guide](../CONTRIBUTING.md). This page covers service admission, the parent-repo consumer layout and the documentation checks.
+
 ## 1. Service Admission
 
 Adding a service requires a manifest, compose fragment when applicable, topology row, docs regeneration, route checks, and CI validation.
@@ -34,7 +36,7 @@ Before committing a parent consumer update, verify the `infra/` submodule status
 
 ## 3. Required Docs Checks
 
-Pull-request titles must be Conventional Commits subjects (`type(scope)!: summary`) and the generated block at the top of the changelog's Unreleased section must match its recorded range; the required lint job runs `scripts/release_notes.py --check-title` and `--check-changelog` (see [Releasing](operations/releasing.md) §6).
+Pull-request titles must be Conventional Commits subjects (`type(scope)!: summary`) and the generated block at the top of the changelog's Unreleased section must match its recorded range; the `lint` job (*Bootstrapper and Backend suites*, required through the *Manifest lint + unit tests* gate) runs `scripts/release_notes.py --check-title` and `--check-changelog` (see [Releasing](operations/releasing.md) §6).
 
 `make docs-check` also enforces the critical-page contract in `docs/critical-pages.yaml`: the security, prerequisites, support, release, and recovery pages it names must be declared in the manifest, reachable from the documentation map, and render each listed section with a body on the repo, site, and wiki surfaces. The contract names pages by manifest id and sections by stable title only; it never copies policy prose. Its `external_references` list records community destinations (such as the issue tracker) that a page may point to; they are permitted references, not substitutes for a self-contained page.
 
@@ -139,3 +141,28 @@ atlas/
 ```
 
 Top-level is intentionally minimal: `bootstrapper/`, `docs/`, `scripts/`, `services/`. Every service lives entirely under its `services/<name>/` folder — init scripts, source code, build context, config files — so opening a service folder shows everything that defines it.
+
+## 5. Machine-generated review tickets
+
+A review run files tickets that carry an `<!-- atlas-review:DATE:ID -->` marker. Each one must meet a minimum bar (#1246), so the next person can check its claims without redoing the review. The canonical shape is **Summary**, **Context** (verified facts, each cited, at most 80 words), **Acceptance criteria** (each one checkable, and saying how it is checked), and **Evidence** (a `Location | What it shows` table). **Scope** and **Dependencies** appear only when they have something to say.
+
+`scripts/lint_review_ticket.py` checks a body read on stdin:
+
+| Rule | Checks | Blocks |
+|---|---|---|
+| R1 | Every evidence location names a line (`#L<n>` or `path:line`), or its caption starts `whole-file:` and says why | yes |
+| R3 | Any `F<n>` or `FIX-<n>` in prose, other than the ticket's own ID, has an issue link right next to it | yes |
+| R2 | No generic evidence caption; each says what its location shows | no |
+| R4, R5 | No "none identified" boilerplate, and no section that restates the specification | no |
+| R6 | A `Basis: proposal` ticket is not titled `fix(` | no |
+| R7, R8 | No criterion that points at an undefined "documented" artifact or names nothing checkable | no |
+| R9 | Plain words, no filler, and the length budgets (Context 80 words, ticket 400, sentences 25 on average and 40 at most) | no |
+| E1 | With `--repo-root`, each evidence link still resolves (the file exists and the line is inside it) | no |
+
+Only R1 and R3 block, because they make a ticket unworkable: a reader cannot follow its evidence, or its references lead nowhere. The rest are warnings.
+
+```bash
+uv run --project bootstrapper python scripts/lint_review_ticket.py --title "fix(scope): summary" < body.md
+```
+
+A review run pipes each drafted body through it before filing. On GitHub, `.github/workflows/review-ticket-lint.yml` runs it whenever a marked issue is opened or edited. A blocking result gets one comment listing the violations and the `review-quality:needs-revision` label. Fixing the body removes the label and updates the same comment.

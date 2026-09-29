@@ -79,3 +79,38 @@ def test_generated_section_uses_surface_neutral_diagram_wording():
     text = render_section(build_doc_graph("hermes", SERVICES_DIR))
     assert "Open the full-size diagram" in text
     assert "interactive HTML diagram" not in text
+
+
+def _synthetic_graph(upstream=(), downstream=()):
+    from docs.deps_resolver import DepGraph
+    return DepGraph(focus="probe", category="apps", port_var=None, source="container",
+                    upstream=tuple(upstream), downstream=tuple(downstream))
+
+
+def test_status_column_appears_only_for_qualified_edges():
+    """#1273: a table gains a Status column only when it holds an optional or
+    planned edge, conditions are shown, a pipe cannot break the table, and a
+    table holding a planned row says what planned means."""
+    from docs.deps_resolver import DepEdge
+    from docs.deps_section_writer import render_section
+
+    redis = DepEdge("redis", "upstream", other_category="data")
+    plain = render_section(_synthetic_graph([redis]))
+    qualified = render_section(_synthetic_graph(
+        [redis, DepEdge("ray", "upstream", other_category="infra",
+                        status="optional", condition="RAY_SOURCE=a|b")],
+        [DepEdge("kong", "downstream", other_category="infra", status="planned")],
+    ))
+
+    from docs.deps_section_writer import _PLANNED_NOTE
+
+    assert (
+        "| Service | Category |\n|---|---|\n| redis | data |" in plain,
+        "Status" in plain,
+        _PLANNED_NOTE in plain,
+        qualified.count(_PLANNED_NOTE),
+        "| redis | data | current |" in qualified,
+        "| ray | infra | optional: RAY_SOURCE=a\\|b |" in qualified,
+        "| kong | infra | planned |" in qualified,
+    ) == (True, False, False, 1, True, True, True)
+

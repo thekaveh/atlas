@@ -292,6 +292,38 @@ class Manifest:
     source_path: Path | None = None
 
 
+# `data_flow.calls` statuses, strongest first (#1273). The schema enum, the
+# docs resolver's collision rule and the diagram's dash styles derive from
+# this, so a new status cannot be half-supported.
+CALL_STATUSES = ("current", "optional", "planned")
+
+
+@dataclass(frozen=True)
+class CallEdge:
+    """One `data_flow.calls` entry (#1273). A plain name is a current edge."""
+
+    target: str
+    status: str = "current"
+    condition: str = ""
+    evidence: str = ""
+
+
+def call_edges(data_flow: dict | None) -> list[CallEdge]:
+    """Normalise `data_flow.calls` (plain names or objects) to CallEdges."""
+    edges: list[CallEdge] = []
+    for entry in (data_flow or {}).get("calls") or []:
+        if isinstance(entry, str):
+            edges.append(CallEdge(entry))
+        else:
+            edges.append(CallEdge(
+                target=entry["target"],
+                status=entry.get("status", "current"),
+                condition=entry.get("condition", ""),
+                evidence=entry.get("evidence", ""),
+            ))
+    return edges
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Errors
 # ────────────────────────────────────────────────────────────────────────────

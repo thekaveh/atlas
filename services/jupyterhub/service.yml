@@ -214,7 +214,10 @@ data_flow:
     - docling
     - stt-provider
     - tts-provider
-    - mcp-servers
+    - target: mcp-servers
+      status: optional
+      condition: MCP_SERVERS_SOURCE=container
+      evidence: services/jupyterhub/build/notebooks/15_mcp_clients.ipynb
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.

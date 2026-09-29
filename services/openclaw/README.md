@@ -252,9 +252,9 @@ No OpenClaw agent (default).
 
 ### 12.1. Current — Upstream (this service calls)
 
-| Service | Category |
-|---|---|
-| litellm | llm |
+| Service | Category | Status |
+|---|---|---|
+| litellm | llm | optional: an operator sets the provider baseUrl; openclaw-init writes none |
 
 ### 12.2. Current — Downstream (services that call this)
 

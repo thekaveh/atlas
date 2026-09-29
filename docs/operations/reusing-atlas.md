@@ -1064,7 +1064,7 @@ On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it
 
 Downstream payoff: `rag-showcase` moves its graph-RAG flavor definitions out of bespoke code/config into a reusable Atlas profile contract — comparable, documentable, and visible to Open WebUI users.
 
-**Extract-role generation caps.** Running the EXTRACT role on native Ollama takes it off LiteLLM. Set `LIGHTRAG_EXTRACT_LLM_MODEL` (required for a role on its own binding), `LIGHTRAG_EXTRACT_LLM_BINDING=ollama` and its `_BINDING_HOST`. Also set `LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY` to a placeholder such as `ollama`: left empty, it defaults to the LiteLLM master key, as KEYWORD and QUERY do, and Ollama would receive that key.
+**Extract-role generation caps.** Running the EXTRACT role on native Ollama takes it off LiteLLM. Set `LIGHTRAG_EXTRACT_LLM_MODEL` (required for a role on its own binding), `LIGHTRAG_EXTRACT_LLM_BINDING=ollama` and its `_BINDING_HOST`. Also set `LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY`. LightRAG requires a key for a role on its own binding and Ollama ignores the value, so any string such as `ollama` works. Left empty, the container stops at start and names the variable: Atlas defaults a role key to the LiteLLM master key only while that role talks to LiteLLM (#1271).
 
 In LightRAG 1.5.4 such a role sends no generation options of its own, so Atlas caps it (#796):
 

@@ -41,17 +41,13 @@ def _all_doc_folders() -> list[str]:
 
 
 def _do_not_propose_set(focus: str) -> list[str]:
-    """Services already wired to `focus`. Pulled from focus's DepGraph."""
+    """Services already wired to `focus`. Pulled from focus's DepGraph; a
+    planned edge (#1273) is not wired, so it stays proposable."""
     try:
         g = build_doc_graph(focus, SERVICES_DIR)
     except KeyError:
         return []
-    wired: set[str] = set()
-    for e in g.upstream:
-        wired.add(e.other)
-    for e in g.downstream:
-        wired.add(e.other)
-    return sorted(wired)
+    return sorted({e.other for e in g.upstream + g.downstream if e.status != "planned"})
 
 
 def _other_services_table(focus: str) -> str:

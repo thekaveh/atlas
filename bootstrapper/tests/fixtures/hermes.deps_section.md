@@ -2,15 +2,17 @@
 
 ### 5.1. Current — Upstream (this service calls)
 
-| Service | Category |
-|---|---|
-| litellm ↔ | llm |
-| comfyui | media |
-| searxng | media |
-| stt-provider | media |
-| tts-provider | media |
-| airflow | agents |
-| lightrag | agents |
+_Rows marked planned are documented or intended, not wired yet._
+
+| Service | Category | Status |
+|---|---|---|
+| litellm ↔ | llm | current |
+| comfyui | media | current |
+| searxng | media | current |
+| stt-provider | media | current |
+| tts-provider | media | current |
+| airflow | agents | planned |
+| lightrag | agents | current |
 
 ### 5.2. Current — Downstream (services that call this)
 

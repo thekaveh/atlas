@@ -56,9 +56,9 @@ If `CLOUDFLARE_TUNNEL_TOKEN` is empty when `CLOUDFLARED_SOURCE=container`, Atlas
 
 ### 5.1. Current — Upstream (this service calls)
 
-| Service | Category |
-|---|---|
-| kong | infra |
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | optional: public hostnames configured in the Cloudflare dashboard |
 
 ### 5.2. Current — Downstream (services that call this)
 

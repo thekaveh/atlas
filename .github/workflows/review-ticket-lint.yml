@@ -1,0 +1,98 @@
+name: review-ticket-lint
+
+# Filing-time check for machine-generated review tickets (#1246). GitHub has
+# no pre-receive hook for issues, so this detects and labels rather than
+# prevents: when an opened or edited issue carries the `atlas-review:` marker,
+# scripts/lint_review_ticket.py (the same linter a review run calls before
+# filing) checks its body. A body a reader cannot follow gets one comment
+# listing the violations and the `review-quality:needs-revision` label; a
+# fixed body loses the label and the comment says so.
+#
+# Issue events run the workflow file on the default branch, so this takes
+# effect once it reaches main.
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: review-ticket-lint-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint review ticket
+    # Also runs for a ticket already flagged, so removing or garbling its
+    # marker clears the label instead of leaving it forever.
+    if: >-
+      contains(github.event.issue.body, 'atlas-review:')
+      || contains(github.event.issue.labels.*.name, 'review-quality:needs-revision')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Lint the ticket and reconcile its label and comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          # The body and title are untrusted text: they reach the linter only
+          # through the environment, never through expression interpolation
+          # into the script.
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          HAS_LABEL: ${{ contains(github.event.issue.labels.*.name, 'review-quality:needs-revision') }}
+        run: |
+          set -euo pipefail
+          label='review-quality:needs-revision'
+          marker='<!-- atlas-review-ticket-lint -->'
+          report="${RUNNER_TEMP}/review-ticket-lint.md"
+          status=0
+          # The same full marker the linter reads its own ID from.
+          if grep -Eq '<!--[[:space:]]*atlas-review:[^:>[:space:]]+:[A-Z]+-?[0-9]+[[:space:]]*-->' <<< "$ISSUE_BODY"; then
+            printf '%s' "$ISSUE_BODY" \
+              | python3 scripts/lint_review_ticket.py --title="$ISSUE_TITLE" --format markdown \
+              > "${report}.body" || status=$?
+          else
+            printf '%s\n' "This issue no longer carries a valid \`atlas-review:\` marker, so the review-ticket bar (#1246) no longer applies." \
+              > "${report}.body"
+          fi
+          if [[ "$status" -gt 1 ]]; then
+            echo "linter failed with status $status" >&2
+            exit "$status"
+          fi
+          printf '%s\n\n%s' "$marker" "$(cat "${report}.body")" > "$report"
+
+          comment_id="$(gh api --paginate "repos/${GH_REPO}/issues/${ISSUE_NUMBER}/comments" \
+            | jq -s -r --arg marker "$marker" \
+              '[.[][] | select(.user.login == "github-actions[bot]" and ((.body // "") | startswith($marker)))][0].id // empty')"
+
+          if [[ "$status" -eq 1 ]]; then
+            gh label create "$label" --color d93f0b \
+              --description "Review ticket fails the #1246 minimum bar" --force
+            gh issue edit "$ISSUE_NUMBER" --add-label "$label"
+            if [[ -n "$comment_id" ]]; then
+              gh api --method PATCH "repos/${GH_REPO}/issues/comments/${comment_id}" -F body=@"$report"
+            else
+              gh issue comment "$ISSUE_NUMBER" --body-file "$report"
+            fi
+          else
+            # A ticket that was flagged, by this workflow or by hand, loses the
+            # label and hears why; one that never failed gets nothing at all.
+            if [[ "$HAS_LABEL" == "true" ]]; then
+              gh issue edit "$ISSUE_NUMBER" --remove-label "$label"
+            fi
+            if [[ -n "$comment_id" ]]; then
+              gh api --method PATCH "repos/${GH_REPO}/issues/comments/${comment_id}" -F body=@"$report"
+            fi
+          fi

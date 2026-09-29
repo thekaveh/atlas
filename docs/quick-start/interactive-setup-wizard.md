@@ -463,7 +463,37 @@ does not delete data.
 | `1` / `2` | Jump to the Setup / Logs tab (Logs only after launch begins) |
 | `Shift+Tab` | Cycle to the previous tab |
 | `Ctrl+R` | Review the full warning on a destructive step (§7.1) |
+| `Ctrl+O` | Review the whole command, every service's details and every answered decision (§10.1, §10.2) |
 | `Ctrl+Q` | Quit the wizard |
+
+### 10.1. Reviewing the command and service details by keyboard
+
+The command summary shows at most four rows, and the service table shows a row's source options, dependencies and URLs only in a mouse-hover tooltip. Neither takes keyboard focus (#1179).
+
+Press **Ctrl+O** to open a read-only overlay that uses the whole terminal, at any size down to the 60×20 floor. During setup it has three pages, and two once the launch has begun; **Tab** moves to the next page and **Shift+Tab** to the previous one.
+
+- **Command** lists the generated `./start.sh` command one flag per line, in copyable shell form. Scroll it with `↑` `↓` `PgUp` `PgDn`.
+- **Services** lists every service. Moving the selection with `↑` `↓` shows that service's card, which is the same text as its hover tooltip.
+- **Decisions** (setup only) lists every step you have answered, in wizard order, with its current answer. See §10.2.
+
+Press **y** to send the command to the terminal clipboard (OSC 52; a terminal without it leaves the clipboard unchanged). Any flag named like a secret (a password, secret, token or key) shows and copies as `'<set>'`, never with its value. **Esc** (or `Ctrl+O` again, or `q`) closes the overlay with the step, cursor and selections exactly as you left them. On the Decisions page the search box holds focus, so `q` and `y` are typed into it there; use Esc or `Ctrl+O` to close. The command summary's border title advertises `ctrl+o details`, on the panel the overlay expands, so the footer's actions are unchanged.
+
+### 10.2. Jumping to a previous decision
+
+To change an earlier answer, for example from the final confirm, you do not need to press Esc back through every step in between (#1198). Open the overlay with **Ctrl+O**, press **Tab** until the Decisions page shows, and type words from a step title or service name, such as `ollama models`, to narrow the list. Move with `↑` `↓` `PgUp` `PgDn`, then press **Enter** to jump to that step.
+
+The step opens with its current answer selected. Confirm a new answer with **Enter**, and the wizard:
+
+1. keeps every answer that does not depend on the one you changed;
+2. clears the answers that did depend on it, including a single choice from a list the wizard builds from your earlier answers that no longer offers it (such as a default chat model you just deselected), and prompts for those again, in wizard order, before going back. Model lists fetched from a provider keep your saved picks, as they do on a straight run;
+3. drops the answers of steps the change hides, such as model picks for an engine you switched off;
+4. returns to the step you opened the overlay from, and reopens the Decisions page with the same search, the same decision highlighted and the same scroll position.
+
+Confirming the answer you already had changes nothing. The command summary updates as each answer is committed, so the command is the same one a straight run through the wizard with the same answers would produce.
+
+While an edit is in progress, **Esc** returns to the Decisions page instead of stepping back through the wizard. Press it on the step you jumped to without confirming, and nothing changes. If your edit cleared an answer, that step has to be answered first: Esc there says so and stays put, and a second Esc leaves the edit and steps back through the wizard as usual. Going forward again then visits every step, so no answer is skipped. To change a different step, open the overlay again and jump to it; you still return to where you first opened it.
+
+Like Esc, a jump leaves the step you were on without confirming it, so a selection you made there but did not confirm is not kept. API keys and any step named like a secret show as `<set>` (or as keep current, clear, disable or enable), never with their value.
 
 ## 11. Progress Tracking
 

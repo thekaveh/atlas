@@ -242,15 +242,18 @@ _No upstream calls._
 
 ### 13.2. Current — Downstream (services that call this)
 
-| Service | Category |
-|---|---|
-| backup | infra |
-| kong | infra |
-| airflow | agents |
-| lightrag | agents |
-| mcp-servers | agents |
-| jupyterhub | apps |
-| llm-graph-builder | apps |
+_Rows marked planned are documented or intended, not wired yet._
+
+| Service | Category | Status |
+|---|---|---|
+| backup | infra | current |
+| kong | infra | current |
+| airflow | agents | current |
+| lightrag | agents | current |
+| mcp-servers | agents | current |
+| backend | apps | planned |
+| jupyterhub | apps | current |
+| llm-graph-builder | apps | current |
 
 ### 13.3. Architecture diagram
 

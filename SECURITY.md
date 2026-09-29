@@ -107,8 +107,11 @@ Two container-image gates run in `services-lint.yml` on every pull request:
 Findings that cannot be fixed at the pinned version are excepted in
 `.trivyignore.yaml`. Every exception is scoped to an exact package version or
 path, carries a review statement, and expires; the scan refuses to run on a
-broad, duplicate, or stale entry. Reachability triage for those exceptions
-follows the same tier and edge rules as §1 and §2.
+broad, duplicate, or stale entry, and a test fails any statement that names no
+owning service. A package-version scope matches that version in every scanned
+image, not only the one its statement names; reconciling each row against
+per-image scan output is tracked in #1289. Reachability triage for those
+exceptions follows the same tier and edge rules as §1 and §2.
 
 ## 7. Remediation Reports
 

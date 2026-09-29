@@ -148,13 +148,13 @@ Full port + Kong-route detail: [docs/reference/ports-routes.md](docs/reference/p
 - **Core concepts** — [Core Concepts](docs/core-concepts.md) (SOURCE values, tracks, manifests, gateway access), [SOURCE reference](docs/reference/source-values.md), [Tracks](docs/tracks.md)
 - **Operating the stack** — [Service catalog](docs/services.md), [SOURCE configuration](docs/operations/source-configuration.md), [Ports and routes](docs/operations/ports-and-routes.md), [Architecture diagrams](docs/architecture/index.md)
 - **Running Atlas for another project** — [Reusing Atlas as Infrastructure](docs/operations/reusing-atlas.md), [Using as a submodule](docs/operations/submodule-usage.md)
-- **Contributing** — [Development](docs/development.md) (repository layout, parent-repo consumer layout, required docs checks), [Adding a service](docs/CONTRIBUTING-services.md), [Security policy](SECURITY.md)
+- **Contributing** — [Contributing guide](CONTRIBUTING.md) (first change: setup, one safe test per area, branch target, required checks), [Development](docs/development.md) (repository layout, parent-repo consumer layout, required docs checks), [Adding a service](docs/CONTRIBUTING-services.md), [Security policy](SECURITY.md)
 - **Release history** — [ROADMAP](docs/ROADMAP.md), [CHANGELOG](docs/CHANGELOG.md), [Releasing & version tags](docs/operations/releasing.md)
 - **Project & internal docs** — research, strategy, and maintenance notes live under `docs/`: [docs/research/README.md](docs/research/README.md), [docs/strategy/README.md](docs/strategy/README.md), [docs/maintenance/README.md](docs/maintenance/README.md)
 
 ## 4. Contributing
 
-Contributions welcome. Open a PR or an issue to propose changes.
+Contributions welcome. Start with the [contributing guide](CONTRIBUTING.md): it covers setup, one safe test for each code area, the Docker and live-test boundary, and opening a pull request against `develop` with the four required checks. For anything larger than a typo, open an issue first so the scope is agreed.
 
 ## 5. License
 
