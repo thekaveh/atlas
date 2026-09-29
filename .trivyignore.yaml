@@ -4830,3 +4830,44 @@ vulnerabilities:
       vendors nor calls. The installed site-packages setuptools is pinned at
       83.0.0 by the overlay lock. pip 26.2.1 is the newest release, so no
       upgrade clears it; re-review when pip re-vendors a newer setuptools.
+
+  - id: CVE-2026-68497
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/jackson-databind-2.21.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/parquet-jackson-1.16.0.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/ray/jars/ray_dist.jar"
+    expired_at: 2026-12-26
+    statement: >-
+      jackson-databind 2.21.2, 2.19.2 (parquet-jackson 1.16.0) and 2.15.2 (shaded
+      in the Iceberg 1.11.0 Spark runtime) sit in the PySpark 4.1.2 jars of the
+      Airflow image (services/airflow/build), and 2.18.8 in ray_dist.jar from Ray
+      2.58.0 in the apache/airflow:3.3.2 base. The flaw is quadratic parsing when
+      a JSON string is bound to a javax.xml.datatype Duration or
+      XMLGregorianCalendar field. In Airflow these jars load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs (spark_default submits in cluster deploy mode, so
+      drivers run on the Spark cluster), and nothing starts a Ray Java worker.
+      Airflow is disabled by default (AIRFLOW_SOURCE=disabled). Fixed in
+      2.18.10, 2.21.6 and 2.22.2; Spark 4.2.0, the newest release, still ships
+      jackson-databind 2.21.2. Scoped to these exact paths so the same jars in
+      any other image still fail the gate. Remove when a PySpark, Iceberg and Ray
+      set carrying the fix is pinned (#1304).
+
+  - id: CVE-2026-77422
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/jline-3.29.0-jdk8.jar"
+    expired_at: 2026-12-26
+    statement: >-
+      JLine 3.29.0 (jline-3.29.0-jdk8.jar) and the 3.9.0 copy shaded into
+      hadoop-client-runtime 3.4.2 sit in the PySpark 4.1.2 jars of the Airflow
+      image (services/airflow/build). The flaw is regular-expression
+      backtracking in JLine's built-in grep command inside an interactive
+      console session. Airflow runs spark-submit non-interactively from
+      SparkSubmitOperator, never opens spark-shell, spark-sql or another JLine
+      console, and exposes no shell session. Airflow is disabled by default
+      (AIRFLOW_SOURCE=disabled). Fixed in JLine 3.30.15 and 4.3.1; Spark 4.2.0,
+      the newest release, still ships jline-3.29.0-jdk8.jar. Scoped to these
+      exact paths so the same jars in any other image still fail the gate.
+      Remove when a Spark release carrying the fix is pinned (#1304).

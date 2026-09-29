@@ -1210,6 +1210,30 @@ def test_every_committed_exception_names_its_owning_service() -> None:
     ) == []
 
 
+def test_airflow_jar_exceptions_stay_scoped_to_the_airflow_image() -> None:
+    """#1304: the jackson and JLine rows cover only the Airflow image's jars.
+
+    A PURL would match the same jar in the Spark, Zeppelin or JupyterHub
+    images too, so these rows must stay exact paths under the Airflow user's
+    site-packages.
+    """
+    site_packages = "home/airflow/.local/lib/python3.13/site-packages/"
+    rows = [
+        row
+        for row in container_security.load_exceptions(
+            ROOT / ".trivyignore.yaml", today=_TODAY
+        )
+        if "(#1304)" in row.statement
+    ]
+
+    assert sorted(row.vulnerability_id for row in rows) == [
+        "CVE-2026-68497",
+        "CVE-2026-77422",
+    ]
+    assert [row.purls for row in rows] == [(), ()]
+    assert all(path.startswith(site_packages) for row in rows for path in row.paths)
+
+
 def test_local_final_image_inventory_is_scanned_or_explicitly_excluded() -> None:
     _, scheduled = _workflow_sources()
     build_spec = re.compile(r'^\s+"(services/[^"|]+\|[^"|]+)"', re.MULTILINE)
