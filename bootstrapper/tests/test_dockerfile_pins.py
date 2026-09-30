@@ -923,3 +923,33 @@ def test_remote_scan_removes_both_tempfiles_on_exit(
 
     assert result.returncode == expected_status
     assert result.temporary_files_exist == (False, False)
+
+
+@pytest.mark.parametrize(
+    ("dockerfile", "install"),
+    [
+        ("services/backend/app/Dockerfile", "-r requirements.txt"),
+        ("services/jupyterhub/build/Dockerfile", "-r /tmp/requirements.txt"),
+    ],
+)
+def test_ray_java_jars_are_deleted_in_the_install_layer(
+    dockerfile: str, install: str
+) -> None:
+    """#1308: ray/jars never ships in images that use Ray only as a client.
+
+    Deleting it in a later layer would hide it from Trivy while the jar still
+    ships in a lower image layer, so the delete must share the install RUN.
+    """
+    lines = container_security._dockerfile_logical_lines(
+        (REPO_ROOT / dockerfile).read_text(encoding="utf-8").splitlines()
+    )
+    installs = [line for line in lines if line.startswith("RUN ") and install in line]
+
+    assert len(installs) == 1
+    run = installs[0]
+    assert 'find_spec("ray")' in run
+    assert (
+        run.index(install)
+        < run.index('test -d "$ray_jars"')
+        < run.index('rm -rf "$ray_jars"')
+    )

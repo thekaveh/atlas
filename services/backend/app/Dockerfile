@@ -21,10 +21,18 @@ COPY ./app/requirements.txt ./app/requirements-locked.txt ./
 
 # Install dependencies with a deterministic uv version, then remove the build
 # installer so its Rust dependency graph is not shipped in the runtime image.
+# The Ray wheel also ships ray/jars (ray_dist.jar) for Java workers. The Backend
+# reaches Ray only through its REST job-submission API (app/ray_client.py) and
+# this image has no JVM, so the jar can never run; it carried jackson-databind
+# 2.18.6 (CVE-2026-68497, #1308). Deleting it in the install layer keeps it out
+# of every image layer, and `test -d` fails the build if Ray moves it.
 RUN pip install --no-cache-dir uv==0.11.19 && \
     uv pip install --system --no-cache-dir \
       -r requirements.txt -c requirements-locked.txt && \
-    pip uninstall --yes uv
+    pip uninstall --yes uv && \
+    ray_jars="$(python -c 'import importlib.util, pathlib; print(pathlib.Path(importlib.util.find_spec("ray").origin).parent / "jars")')" && \
+    test -d "$ray_jars" && \
+    rm -rf "$ray_jars"
 
 # Copy application code
 COPY ./app .

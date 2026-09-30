@@ -134,7 +134,7 @@ pydantic==2.13.4
 pydantic-core==2.46.4
 pydantic-settings==2.14.2
 pygments==2.20.0
-pyjwt==2.13.0
+pyjwt==2.14.0
 pypdf==6.16.2
 pytest==9.1.1
 pytest-asyncio==1.4.0

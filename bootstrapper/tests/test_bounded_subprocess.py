@@ -6,6 +6,7 @@ import io
 import json
 import math
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -967,3 +968,99 @@ def test_every_privacy_cache_key_hashes_files_that_actually_exist(steps_loader):
             f"cache-key pattern {pattern!r} matches untracked/generated files; "
             f"they may not exist when the step runs: {tracked.stderr.strip()}"
         )
+
+
+_FAKE_TRIVY = """#!/usr/bin/env bash
+tag="${!#}"
+echo "trivy $tag" >> "$CALLS"
+for rule in $TRIVY_STATUS; do
+  case "$tag" in *"/${rule%%=*}:"*) exit "${rule##*=}" ;; esac
+done
+exit 0
+"""
+
+
+def _run_final_image_scan(
+    tmp_path: Path, trivy_status: str
+) -> tuple[subprocess.CompletedProcess[str], list[str], str]:
+    """Run the required scan step against stub docker, uv and trivy.
+
+    `trivy_status` maps image tags to the stub's exit code, for example
+    "runtime-0-amd64=3". Returns the step result, the images Trivy was asked
+    to scan, and the step summary.
+    """
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/services-lint.yml").read_text(encoding="utf-8")
+    )
+    script = next(
+        step["run"]
+        for step in workflow["jobs"]["final-image-scan"]["steps"]
+        if step.get("name") == "Build and scan local Compose and init images"
+    )
+    workspace, stubs = tmp_path / "workspace", tmp_path / "bin"
+    for context, dockerfile in re.findall(r'"(services/[^"|]+)\|([^"]+)"', script):
+        (workspace / context).mkdir(parents=True, exist_ok=True)
+        (workspace / context / dockerfile).parent.mkdir(parents=True, exist_ok=True)
+    stubs.mkdir()
+    (workspace / "scripts").mkdir()
+    for path, body in (
+        (stubs / "docker", "#!/bin/sh\nexit 0\n"),
+        (stubs / "uv", "#!/bin/sh\nexit 0\n"),
+        (stubs / "trivy", _FAKE_TRIVY),
+        (workspace / "scripts/smoke_spark_s3a.sh", "#!/bin/sh\nexit 0\n"),
+    ):
+        path.write_text(body, encoding="utf-8")
+        path.chmod(0o755)
+    calls, summary = tmp_path / "calls.log", tmp_path / "summary.md"
+    calls.touch()
+    summary.touch()
+    env = {
+        **os.environ,
+        "PATH": f"{stubs}{os.pathsep}{os.environ['PATH']}",
+        "CALLS": str(calls),
+        "TRIVY_STATUS": trivy_status,
+        "GITHUB_WORKSPACE": str(workspace),
+        "GITHUB_SHA": "0123abcd",
+        "GITHUB_STEP_SUMMARY": str(summary),
+    }
+    result = subprocess.run(
+        ["bash", "-c", script], cwd=workspace, env=env,
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    scanned = [line.split()[1] for line in calls.read_text().splitlines()]
+    return result, scanned, summary.read_text(encoding="utf-8")
+
+
+def test_final_image_scan_reports_every_failing_image_before_failing(
+    tmp_path: Path,
+) -> None:
+    """#1308: a finding no longer hides the images after it."""
+    result, scanned, summary = _run_final_image_scan(
+        tmp_path, "runtime-0-amd64=3 runtime-4-arm64=3"
+    )
+
+    assert result.returncode == 1, result.stderr
+    # 25 contexts on amd64 and arm64, except asset-baker (amd64 only).
+    assert len(scanned) == 49
+    assert summary.splitlines() == [
+        "### Final-image findings in 2 image(s)",
+        "- services/airflow/build (amd64)",
+        "- services/backend/app (arm64)",
+    ]
+    assert result.stdout.count("::error title=Final-image findings::") == 2
+
+
+def test_final_image_scan_stops_at_once_when_trivy_itself_fails(
+    tmp_path: Path,
+) -> None:
+    """A Trivy error (exit 1) is not a finding and must not be deferred."""
+    result, scanned, summary = _run_final_image_scan(tmp_path, "runtime-0-amd64=1")
+
+    assert (result.returncode, len(scanned), summary) == (1, 1, "")
+    assert "::error title=Trivy failed::services/airflow/build (amd64)" in result.stdout
+
+
+def test_final_image_scan_passes_when_every_image_is_clean(tmp_path: Path) -> None:
+    result, scanned, summary = _run_final_image_scan(tmp_path, "")
+
+    assert (result.returncode, len(scanned), summary) == (0, 49, ""), result.stderr
