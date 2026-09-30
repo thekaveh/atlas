@@ -2,8 +2,12 @@
 # Load an authenticated, pre-staged Atlas snapshot into offline Neo4j Community.
 set -euo pipefail
 
-EXPECTED_NEO4J_IMAGE="neo4j:5.26.30"
-EXPECTED_NEO4J_VERSION="5.26.30"
+EXPECTED_NEO4J_VERSION="5.26.31"
+# Snapshots from these releases load into the exact runtime above: 5.26 LTS
+# patch releases share one dump format, and `neo4j-admin database check` runs
+# after the load (#1312). Keep this list equal to RESTORABLE_NEO4J_VERSIONS in
+# services/backup/init/scripts/database-snapshots.sh.
+RESTORABLE_NEO4J_VERSIONS="5.26.30 5.26.31"
 SOURCE="${1:?usage: offline-restore.sh /snapshot/restore-TIMESTAMP}"
 TIMEOUT_SECONDS="${BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS:-120}"
 REPORT_ROOT="${NEO4J_REPORT_ROOT:-/reports}"
@@ -38,8 +42,15 @@ metadata_value() {
   printf '%s' "${value}"
 }
 [ "$(metadata_value snapshot_state)" = complete ] || { echo "neo4j restore: snapshot is incomplete" >&2; exit 65; }
-[ "$(metadata_value neo4j_image)" = "${EXPECTED_NEO4J_IMAGE}" ] || { echo "neo4j restore: image contract mismatch" >&2; exit 65; }
-[ "$(metadata_value neo4j_version)" = "${EXPECTED_NEO4J_VERSION}" ] || { echo "neo4j restore: version contract mismatch" >&2; exit 65; }
+snapshot_image="$(metadata_value neo4j_image)"
+snapshot_version="$(metadata_value neo4j_version)"
+snapshot_restorable=false
+for restorable_version in ${RESTORABLE_NEO4J_VERSIONS}; do
+  if [ "${snapshot_image}" = "neo4j:${restorable_version}" ] && [ "${snapshot_version}" = "${restorable_version}" ]; then
+    snapshot_restorable=true
+  fi
+done
+[ "${snapshot_restorable}" = true ] || { echo "neo4j restore: snapshot ${snapshot_image} ${snapshot_version} is not a restorable release" >&2; exit 65; }
 
 for database in system neo4j; do
   archive="${SOURCE}/${database}.dump"

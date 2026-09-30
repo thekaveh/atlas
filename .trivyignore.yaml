@@ -4871,3 +4871,143 @@ vulnerabilities:
       the newest release, still ships jline-3.29.0-jdk8.jar. Scoped to these
       exact paths so the same jars in any other image still fail the gate.
       Remove when a Spark release carrying the fix is pinned (#1304).
+
+  # Fleet findings from the first full-fleet Final-image scan (#1310, job
+  # 109644550222), triaged in #1312. Each row names exact paths in the owning
+  # image, so an identical jar anywhere else still fails the gate.
+  - id: CVE-2026-69247
+    paths:
+      - "usr/local/lib/python3.10/site-packages/cryptography-49.0.0.dist-info/METADATA"
+    expired_at: 2026-12-28
+    statement: >-
+      cryptography 49.0.0 ships in the ghcr.io/mlflow/mlflow:v3.15.1 base of the
+      MLflow image (services/mlflow). MLflow 3.15.1 declares cryptography<50 and
+      the build runs pip check, so the 50.0.0 fix cannot be layered on top. The
+      flaw is a Bleichenbacher oracle in PKCS#7 EnvelopedData decryption; the
+      mlflow, mlflow-skinny and mlflow-tracing 3.15.1 wheels contain no PKCS#7
+      call, so the tracking server never reaches it. MLflow is disabled by
+      default (MLFLOW_SOURCE=disabled). #998 deleted this exception after
+      misattributing it to the notebook image; it is restored here, scoped to
+      the MLflow path. Remove when MLflow moves to 3.16.x, which allows
+      cryptography<51 (#1287, #1312).
+
+  - id: CVE-2026-68497
+    paths:
+      - "opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
+      - "opt/spark/jars/jackson-databind-2.21.2.jar"
+      - "opt/spark/jars/parquet-jackson-1.16.0.jar"
+    expired_at: 2026-12-28
+    statement: >-
+      jackson-databind 2.21.2, 2.19.2 (parquet-jackson 1.16.0) and 2.15.2
+      (relocated under org.apache.iceberg.shaded in the Iceberg 1.11.0 Spark
+      runtime) sit in /opt/spark/jars of the Spark image (services/spark) and of
+      the Zeppelin image (services/zeppelin), which copies that tree. The flaw is
+      quadratic parsing when a JSON string is bound to a javax.xml.datatype
+      Duration or XMLGregorianCalendar field. The Spark master and workers only
+      exchange messages with in-stack components and run operator-authored jobs,
+      and the relocated copies are reachable only from Parquet and Iceberg code.
+      Spark and Zeppelin are disabled by default (SPARK_SOURCE=disabled,
+      ZEPPELIN_SOURCE=disabled). Fixed in 2.18.10, 2.21.6 and 2.22.2; Spark
+      4.2.0, the newest release, still ships jackson-databind 2.21.2. Remove when
+      a Spark and Iceberg set carrying the fix is pinned (#1312).
+
+  - id: CVE-2026-77422
+    paths:
+      - "opt/spark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "opt/spark/jars/jline-3.29.0-jdk8.jar"
+    expired_at: 2026-12-28
+    statement: >-
+      JLine 3.29.0 (jline-3.29.0-jdk8.jar) and the 3.9.0 copy shaded into
+      hadoop-client-runtime 3.4.2 sit in /opt/spark/jars of the Spark image
+      (services/spark) and of the Zeppelin image (services/zeppelin), which
+      copies that tree. The flaw is regular-expression backtracking in JLine's
+      built-in grep command inside an interactive console. Atlas runs the Spark
+      master and workers as daemons and submits jobs non-interactively, Zeppelin
+      drives Spark as a library, and neither exposes spark-shell, spark-sql or
+      another JLine console. Spark and Zeppelin are disabled by default
+      (SPARK_SOURCE=disabled, ZEPPELIN_SOURCE=disabled). Fixed in JLine 3.30.15
+      and 4.3.1; Spark 4.2.0, the newest release, still ships
+      jline-3.29.0-jdk8.jar. Remove when a Spark release carrying the fix is
+      pinned (#1312).
+
+  - id: CVE-2026-68497
+    paths:
+      - "usr/lib/iceberg-rest/iceberg-rest-adapter.jar"
+    expired_at: 2026-12-28
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      jackson-databind 2.18.4 inside its shaded iceberg-rest-adapter.jar;
+      replacing individual shaded classes would create an unsupported catalog
+      server. Atlas keeps the catalog disabled by default
+      (ICEBERG_REST_SOURCE=disabled), exposes it only on the Compose network and
+      a loopback-bound host port with no Kong route, and the lakehouse track is
+      operator-driven. Remove when Apache publishes a fixture release carrying
+      jackson-databind 2.18.10 or newer (#1312).
+
+  - id: CVE-2026-68497
+    paths:
+      - "opt/jenkins-plugin-manager.jar"
+    expired_at: 2026-12-28
+    statement: >-
+      jackson-databind 2.20.1 ships inside /opt/jenkins-plugin-manager.jar, the
+      plugin-installer CLI the upstream jenkins/jenkins:lts-jdk21 image bundles.
+      Atlas runs it only at image build time (jenkins-plugin-cli --plugin-file)
+      against the pinned plugins.txt, and the Jenkins runtime never loads that
+      jar. Jenkins is disabled by default (JENKINS_SOURCE=disabled). Remove when
+      the pinned Jenkins LTS digest ships a plugin manager built against
+      jackson-databind 2.21.6 or newer (#1312).
+
+  - id: CVE-2026-68497
+    paths:
+      - "var/lib/neo4j/lib/parquet-jackson-1.18.0.jar"
+    expired_at: 2026-12-28
+    statement: >-
+      parquet-jackson 1.18.0 in the Neo4j image (services/neo4j) carries
+      jackson-databind 2.22.1 relocated under shaded.parquet.com.fasterxml, so
+      only Parquet's own reader and writer code can reach it; Neo4j's Bolt and
+      HTTP endpoints parse client JSON with their own jackson, never this copy.
+      Neo4j 5.26.31, the newest 5.26.x, still ships parquet-jackson 1.18.0. Atlas
+      neither ships nor imports Parquet files into Neo4j. Remove when a Neo4j
+      5.26.x release ships a parquet-jackson built against jackson-databind
+      2.22.2 or newer (#1312).
+
+  # Advisories published in the 2026-09-30 01:15 Trivy DB against the npm CLI
+  # that the JupyterHub image installs globally. No npm release fixes them:
+  # 11.19.1, 11.20.0 and 12.1.0 all vendor brace-expansion 5.0.9 and undici
+  # 6.28.0.
+  - id: CVE-2026-102276
+    paths:
+      - "usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json"
+    expired_at: 2026-12-28
+    statement: >-
+      brace-expansion 5.0.9 is vendored inside the npm CLI that the JupyterHub
+      image (services/jupyterhub/build) installs globally as npm@11.19.1; npm's
+      minimatch is its only user. The denial of service needs an attacker-chosen
+      brace pattern, and npm expands only patterns an operator passes it in a
+      notebook terminal; no JupyterHub, notebook or Atlas service code invokes
+      npm. Remove when an npm release vendors brace-expansion 5.0.11 or newer
+      (#1312).
+
+  - id: CVE-2026-102278
+    paths:
+      - "usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json"
+    expired_at: 2026-12-28
+    statement: >-
+      Same vendored brace-expansion 5.0.9 in the JupyterHub image's global npm
+      CLI (services/jupyterhub/build, npm@11.19.1) as CVE-2026-102276, reached
+      only through npm's minimatch on operator-supplied patterns; no JupyterHub,
+      notebook or Atlas service code invokes npm. Remove when an npm release
+      vendors brace-expansion 5.0.11 or newer (#1312).
+
+  - id: CVE-2026-19534
+    paths:
+      - "usr/local/lib/node_modules/npm/node_modules/undici/package.json"
+    expired_at: 2026-12-28
+    statement: >-
+      undici 6.28.0 is vendored inside the npm CLI that the JupyterHub image
+      (services/jupyterhub/build) installs globally as npm@11.19.1. Its only user
+      is node-gyp's download.js, an HTTP/1.1 fetch of Node headers when an
+      operator compiles a native addon; npm never opens a WebSocket, which the
+      unrequested-frame denial of service requires, and no JupyterHub, notebook
+      or Atlas service code invokes npm. Remove when an npm release vendors
+      undici 6.28.1 or newer (#1312).

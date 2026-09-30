@@ -2,10 +2,27 @@
 # Collect completed Neo4j offline dumps and a native online Weaviate snapshot.
 # Sourced by backup-all.sh after run_bounded and WORK are initialized.
 
-EXPECTED_NEO4J_IMAGE="neo4j:5.26.30"
-EXPECTED_NEO4J_VERSION="5.26.30"
+EXPECTED_NEO4J_IMAGE="neo4j:5.26.31"
+EXPECTED_NEO4J_VERSION="5.26.31"
+# New snapshots always record the exact version above. A restore also accepts
+# a snapshot taken on an earlier release listed here, because patch releases in
+# the 5.26 LTS line share one dump format and the staged load still runs
+# `neo4j-admin database check` and a query validation on the exact image before
+# cutover (#1312). Keep this list equal to RESTORABLE_NEO4J_VERSIONS in
+# services/neo4j/build/scripts/offline-restore.sh.
+RESTORABLE_NEO4J_VERSIONS="5.26.30 5.26.31"
 EXPECTED_WEAVIATE_IMAGE="cr.weaviate.io/semitechnologies/weaviate:1.38.13"
 EXPECTED_WEAVIATE_VERSION="1.38.13"
+
+# Succeeds when an image/version pair names one release in
+# RESTORABLE_NEO4J_VERSIONS, with the image and the version agreeing.
+neo4j_snapshot_is_restorable() {
+  for restorable_neo4j_version in ${RESTORABLE_NEO4J_VERSIONS}; do
+    [ "$1" = "neo4j:${restorable_neo4j_version}" ] &&
+      [ "$2" = "${restorable_neo4j_version}" ] && return 0
+  done
+  return 1
+}
 
 prune_completed_database_snapshots() {
   [ "${BACKUP_DATABASE_SERVICES_QUIESCED:-}" = true ] || {

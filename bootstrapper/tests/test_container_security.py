@@ -1234,6 +1234,46 @@ def test_airflow_jar_exceptions_stay_scoped_to_the_airflow_image() -> None:
     assert all(path.startswith(site_packages) for row in rows for path in row.paths)
 
 
+def test_fleet_exceptions_stay_scoped_to_their_owning_images() -> None:
+    """#1312: each fleet row names exact paths in one image family, never a PURL."""
+    rows = [
+        row
+        for row in container_security.load_exceptions(
+            ROOT / ".trivyignore.yaml", today=_TODAY
+        )
+        if "#1312)" in row.statement
+    ]
+    spark_jars = "opt/spark/jars/"
+    # Only the JupyterHub image's global npm CLI, never an app's node_modules.
+    npm_vendored = "usr/local/lib/node_modules/npm/node_modules/"
+
+    assert {(row.vulnerability_id, tuple(sorted(row.paths))) for row in rows} == {
+        (
+            "CVE-2026-69247",
+            ("usr/local/lib/python3.10/site-packages/cryptography-49.0.0.dist-info/METADATA",),
+        ),
+        (
+            "CVE-2026-68497",
+            tuple(spark_jars + jar for jar in (
+                "iceberg-spark-runtime-4.1_2.13-1.11.0.jar",
+                "jackson-databind-2.21.2.jar",
+                "parquet-jackson-1.16.0.jar",
+            )),
+        ),
+        (
+            "CVE-2026-77422",
+            (spark_jars + "hadoop-client-runtime-3.4.2.jar", spark_jars + "jline-3.29.0-jdk8.jar"),
+        ),
+        ("CVE-2026-68497", ("usr/lib/iceberg-rest/iceberg-rest-adapter.jar",)),
+        ("CVE-2026-68497", ("opt/jenkins-plugin-manager.jar",)),
+        ("CVE-2026-68497", ("var/lib/neo4j/lib/parquet-jackson-1.18.0.jar",)),
+        ("CVE-2026-102276", (npm_vendored + "brace-expansion/package.json",)),
+        ("CVE-2026-102278", (npm_vendored + "brace-expansion/package.json",)),
+        ("CVE-2026-19534", (npm_vendored + "undici/package.json",)),
+    }
+    assert {row.purls for row in rows} == {()}
+
+
 def test_local_final_image_inventory_is_scanned_or_explicitly_excluded() -> None:
     _, scheduled = _workflow_sources()
     build_spec = re.compile(r'^\s+"(services/[^"|]+\|[^"|]+)"', re.MULTILINE)

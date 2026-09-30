@@ -6,6 +6,13 @@ Zeppelin runs as a single container in the stack's `apps` band. The Spark interp
 
 Image: `apache/zeppelin:0.12.1` (Apache 2.0), wrapped by `services/zeppelin/build/Dockerfile` so `/opt/spark` contains the matching Spark 4.1.2 runtime plus S3A and Iceberg lakehouse jars. All interpreters run in-process (no Kubernetes interpreter isolation). The Spark interpreter is the headline.
 
+The wrapper also removes the interpreters and plugins that Atlas never configures:
+- the Alluxio, Cassandra, Elasticsearch, Neo4j, R and SPARQL interpreters;
+- the Docker and Kubernetes interpreter launchers;
+- the S3 notebook repository.
+
+It also replaces the server's Jackson and BouncyCastle jars with checksum-pinned 2.18.11 and 1.86 releases (#1312). Spark, JDBC (`%postgres`, `%trino`), Markdown, Python and the other stock interpreters are unchanged. To restore a removed interpreter, drop it from that Dockerfile's removal list; the build fails if a base-image bump moves any listed path.
+
 **Hard requirement:** Zeppelin is gated on `SPARK_SOURCE != disabled`. Picking `ZEPPELIN_SOURCE=container` without Spark surfaces an actionable error from the bootstrapper; the spec considers a Spark-less Zeppelin broken on purpose.
 
 **Design update:** [Zeppelin Backend Decision](../../docs/strategy/zeppelin-spark-backend-decision.md) selects the standalone Spark interpreter path for Atlas Zeppelin. Spark Connect remains supported by JupyterHub and other Spark Connect clients. The stack should not require `%spark` Scala to use Spark Connect because Zeppelin's stock interpreter launches through `spark-submit` and Spark 4 rejects `spark.remote` mixed with master/deploy-mode configuration.

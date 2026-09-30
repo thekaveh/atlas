@@ -18,6 +18,7 @@ to the registry's immutable multi-platform digest.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
@@ -953,3 +954,56 @@ def test_ray_java_jars_are_deleted_in_the_install_layer(
         < run.index('test -d "$ray_jars"')
         < run.index('rm -rf "$ray_jars"')
     )
+
+
+ZEPPELIN_REMOVED_INTERPRETERS = ("alluxio", "cassandra", "elasticsearch", "neo4j", "r", "sparql")
+
+
+def test_zeppelin_trims_unused_plugins_and_pins_its_server_jar_swaps() -> None:
+    """#1312: one guarded RUN drops unused interpreters and swaps lib/ jars.
+
+    `test -d` / `test -f` make a base-image bump that moves any path fail the
+    build, and every replacement jar is fetched once and checked against a
+    pinned SHA-512. The starter notebooks must only need what remains.
+    """
+    dockerfile = (REPO_ROOT / "services/zeppelin/build/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    runs = [
+        line
+        for line in container_security._dockerfile_logical_lines(dockerfile.splitlines())
+        if line.startswith("RUN ") and "cd /opt/zeppelin" in line
+    ]
+    assert len(runs) == 1
+    run = runs[0]
+    removed = [f"interpreter/{name}" for name in ZEPPELIN_REMOVED_INTERPRETERS] + [
+        "plugins/Launcher/DockerInterpreterLauncher",
+        "plugins/Launcher/K8sStandardInterpreterLauncher",
+        "plugins/NotebookRepo/S3NotebookRepo",
+    ]
+    replaced = [
+        f"lib/jackson-{name}-2.18.3.jar"
+        for name in ("annotations", "core", "databind", "module-jakarta-xmlbind-annotations")
+    ] + [
+        "lib/bcprov-jdk18on-1.80.2.jar",
+        "lib/bcpkix-jdk18on-1.80.jar",
+        "lib/bcutil-jdk18on-1.80.2.jar",
+    ]
+    assert all(f" {path}; " in run or f" {path} " in run for path in removed + replaced)
+    assert run.index('test -d "$unused"') < run.index('rm -rf "$unused"')
+    assert run.index('test -f "$old"') < run.index('rm -f "$old"') < run.index("curl ")
+
+    args = dict(re.findall(r"^ARG (\w+)=(\S+)$", dockerfile, flags=re.MULTILINE))
+    assert args["ZEPPELIN_JACKSON_VERSION"] == "2.18.11"
+    assert args["ZEPPELIN_BOUNCYCASTLE_VERSION"] == "1.86"
+    checksums = sorted(name for name in args if name.endswith("_SHA512") and f"${{{name}}}  lib/" in run)
+    assert len(checksums) == 7 == run.count("curl -fsSL") == run.count("sha512sum -c -")
+    assert all(re.fullmatch(r"[0-9a-f]{128}", args[name]) for name in checksums)
+
+    prefixes = set()
+    for notebook in (REPO_ROOT / "services/zeppelin/notebooks").glob("*.zpln"):
+        for paragraph in json.loads(notebook.read_text(encoding="utf-8"))["paragraphs"]:
+            match = re.match(r"%([\w-]+)", paragraph.get("text") or "")
+            if match:
+                prefixes.add(match.group(1))
+    assert prefixes and not prefixes & set(ZEPPELIN_REMOVED_INTERPRETERS)
