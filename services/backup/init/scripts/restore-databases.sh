@@ -219,9 +219,10 @@ verify_signed_metadata "${work}/databases.manifest"
 [ "$(metadata_value "${work}/databases.manifest" backup_id)" = "${backup_id}" ] || { echo "database restore: backup identity mismatch" >&2; exit 65; }
 deployment_hex="$(printf '%s' "${BACKUP_DEPLOYMENT_ID}" | od -An -v -tx1 | tr -d '[:space:]')"
 [ "$(metadata_value "${work}/databases.manifest" deployment_id_hex)" = "${deployment_hex}" ] || { echo "database restore: deployment identity mismatch" >&2; exit 65; }
-[ "$(metadata_value "${work}/databases.manifest" neo4j_image)" = "${EXPECTED_NEO4J_IMAGE}" ] && \
-  [ "$(metadata_value "${work}/databases.manifest" neo4j_version)" = "${EXPECTED_NEO4J_VERSION}" ] || {
-  echo "database restore: Neo4j exact-version mismatch" >&2; exit 65;
+neo4j_snapshot_is_restorable \
+  "$(metadata_value "${work}/databases.manifest" neo4j_image)" \
+  "$(metadata_value "${work}/databases.manifest" neo4j_version)" || {
+  echo "database restore: Neo4j snapshot version is not restorable" >&2; exit 65;
 }
 [ "$(metadata_value "${work}/databases.manifest" weaviate_image)" = "${EXPECTED_WEAVIATE_IMAGE}" ] && \
   [ "$(metadata_value "${work}/databases.manifest" weaviate_version)" = "${EXPECTED_WEAVIATE_VERSION}" ] || {
