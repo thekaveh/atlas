@@ -116,6 +116,8 @@ jobs:
           echo "01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891  $pinned_mc_dir/$pinned_mc" \
             | sha256sum -c -
           echo "ATLAS_BACKUP_PINNED_MC_DIR=$pinned_mc_dir" >> "$GITHUB_ENV"
+          timeout 5m docker pull neo4j:5.26.31
+          # The previous release: the live drill restores its dump into 5.26.31 (#1312).
           timeout 5m docker pull neo4j:5.26.30
           timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.13
           timeout 5m docker pull alpine:3.24.1
@@ -280,6 +282,8 @@ jobs:
           echo "01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891  $pinned_mc_dir/$pinned_mc" \
             | sha256sum -c -
           echo "ATLAS_BACKUP_PINNED_MC_DIR=$pinned_mc_dir" >> "$GITHUB_ENV"
+          timeout 5m docker pull neo4j:5.26.31
+          # The previous release: the live drill restores its dump into 5.26.31 (#1312).
           timeout 5m docker pull neo4j:5.26.30
           timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.13
           timeout 5m docker pull alpine:3.24.1
