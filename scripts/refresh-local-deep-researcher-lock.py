@@ -52,7 +52,9 @@ SECURITY_DEPENDENCIES = (
     "click>=8.3.3",
     "langchain-classic>=1.0.7",
     "langsmith>=0.8.18",
+    "pyjwt>=2.15.1",
     "soupsieve>=2.8.4",
+    "urllib3>=2.8.0",
 )
 
 
