@@ -99,9 +99,11 @@ Two container-image gates run in `services-lint.yml` on every pull request:
   digests, and Trivy-scans the manifest-owned remote images whose declarations
   changed in the pull request.
 - **`Final-image scan (local Compose and init images)`** builds every local
-  Compose and init image and fails on any HIGH or CRITICAL finding. It reports
-  on every run but is **not yet a required check**: it advances through the
-  fleet one context at a time, and its promotion to the required set is
+  Compose and init image and fails on any HIGH or CRITICAL finding. A finding
+  does not stop the run: every image is scanned, and the job fails at the end
+  with the list of images that did not pass. A Trivy error still stops it at
+  once. It reports on every run but is **not yet a required check** while the
+  fleet still carries findings, and its promotion to the required set is
   tracked in the issue linked from the CI workflow (#1002).
 
 Findings that cannot be fixed at the pinned version are excepted in
