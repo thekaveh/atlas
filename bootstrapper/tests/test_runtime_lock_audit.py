@@ -696,9 +696,9 @@ def test_shared_init_runtime_lock_is_regenerated_audited_and_used_by_builds() ->
         "charset-normalizer==3.5.1",
         "idna==3.19",
         "psycopg2-binary==2.9.9",
-        "pyjwt==2.14.0",
+        "pyjwt==2.15.1",
         "requests==2.33.0",
-        "urllib3==2.7.0",
+        "urllib3==2.8.0",
     }
     assert installed["litellm"] == {
         "psycopg2-binary==2.9.9",

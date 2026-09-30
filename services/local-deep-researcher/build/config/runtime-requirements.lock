@@ -1768,10 +1768,12 @@ pydantic-settings==2.10.1 \
     --hash=sha256:06f0062169818d0f5524420a360d632d5857b83cffd4d42fe29597807a1614ee \
     --hash=sha256:a60952460b99cf661dc25c29c0ef171721f98bfcb52ef8d9ea4c943d7c8cc796
     # via langchain-community
-pyjwt==2.14.0 ; python_full_version >= '3.11' \
-    --hash=sha256:77283c83fb56ecf566a886c757a714bc83668e38156de2cce8263302f42e0b86 \
-    --hash=sha256:ad0cef71c756a56e74863c2919cf0985f72decbcfcb550ee2f422e7c62b5eedc
-    # via langgraph-api
+pyjwt==2.15.1 \
+    --hash=sha256:42d59d631f7768a1028a64c7ff581a9bf7519804daf91fc5b6c56e30eec5e193 \
+    --hash=sha256:4f259e80cdfb6b3fc18a7de51fd1ef9ec79652f25019bae68975ca2468a34df8
+    # via
+    #   langgraph-api
+    #   ollama-deep-researcher
 python-dateutil==2.9.0.post0 ; python_full_version >= '3.11' \
     --hash=sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3 \
     --hash=sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427
@@ -2102,6 +2104,7 @@ typing-extensions==4.16.0 \
     #   opentelemetry-semantic-conventions
     #   pydantic
     #   pydantic-core
+    #   pyjwt
     #   sqlalchemy
     #   starlette
     #   typing-inspect
@@ -2116,10 +2119,12 @@ typing-inspection==0.4.1 \
     # via
     #   pydantic
     #   pydantic-settings
-urllib3==2.7.0 \
-    --hash=sha256:231e0ec3b63ceb14667c67be60f2f2c40a518cb38b03af60abc813da26505f4c \
-    --hash=sha256:9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897
-    # via requests
+urllib3==2.8.0 \
+    --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3 \
+    --hash=sha256:63bf2ead4c879426ebf22ef2a781eeb4aa3b4ae798a0435506f8687fd5bb9b63
+    # via
+    #   ollama-deep-researcher
+    #   requests
 uuid-utils==0.14.1 ; python_full_version < '3.11' \
     --hash=sha256:043fb58fde6cf1620a6c066382f04f87a8e74feb0f95a585e4ed46f5d44af57b \
     --hash=sha256:0972488e3f9b449e83f006ead5a0e0a33ad4a13e4462e865b7c286ab7d7566a3 \
