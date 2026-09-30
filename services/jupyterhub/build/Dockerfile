@@ -116,10 +116,19 @@ RUN pip install --no-cache-dir --only-binary=:all: \
 # index went unreachable. Only two packages in this graph publish sdists alone,
 # and both are pure Python; anything else losing its wheel now fails the build
 # rather than quietly stretching it.
+# The Ray wheel also ships ray/jars (ray_dist.jar) for Java workers. Notebooks
+# reach the in-stack cluster as a ray:// client (notebooks/07_ray_cluster.ipynb)
+# and never start a local Ray runtime, so the jar is never loaded here; it
+# carried jackson-databind 2.18.6 (CVE-2026-68497, #1308). Deleting it in the
+# install layer keeps it out of every image layer, and `test -d` fails the
+# build if Ray moves it.
 RUN pip install --no-cache-dir \
       --only-binary=:all: \
       --no-binary=pyspark-client --no-binary=python-louvain \
-      -r /tmp/requirements.txt -c /tmp/requirements-locked.txt
+      -r /tmp/requirements.txt -c /tmp/requirements-locked.txt && \
+    ray_jars="$(python -c 'import importlib.util, pathlib; print(pathlib.Path(importlib.util.find_spec("ray").origin).parent / "jars")')" && \
+    test -d "$ray_jars" && \
+    rm -rf "$ray_jars"
 
 # The newest official Jupyter base is immutable but contains three fixable
 # findings in upstream-bundled tooling. Refresh nbclassic's exact Underscore

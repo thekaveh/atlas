@@ -631,7 +631,9 @@ jobs:
     # context, and the fleet still carries pre-existing findings tracked in
     # #996 and #997 — gating on them would block every pull request on debt
     # it did not introduce. Promote this to a required context once those
-    # land; the gate itself is unchanged and reports on every run.
+    # land; the gate itself is unchanged and reports on every run. A finding
+    # no longer stops the loop: every image is built and scanned, and the job
+    # fails at the end with the list of images that did not pass (#1308).
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -674,6 +676,7 @@ jobs:
           }
           trap cleanup_loaded_image EXIT
           image_index=0
+          failed_images=()
           for spec in \
             "services/airflow/build|Dockerfile" \
             "services/asset-worker/app|Dockerfile" \
@@ -728,16 +731,28 @@ jobs:
               # environments, read back through the Docker daemon) spends
               # more than 10 minutes in Trivy's analysis phase on a hosted
               # runner, while the Spark images take ~6.5 minutes each (#1002).
+              # Findings exit 3 and are collected, so one run reports every
+              # image that fails instead of stopping at the first (#1308).
+              # Any other non-zero status is Trivy itself failing (it exits 1
+              # on a fatal error), which still stops the job at once.
+              scan_status=0
               trivy image \
                 --image-src docker \
                 --scanners vuln \
                 --severity HIGH,CRITICAL \
                 --ignore-unfixed \
                 --ignorefile .trivyignore.yaml \
-                --exit-code 1 \
+                --exit-code 3 \
                 --no-progress \
                 --timeout 30m \
-                "$image_tag"
+                "$image_tag" || scan_status=$?
+              if [ "$scan_status" -eq 3 ]; then
+                failed_images+=("$context ($platform_tag)")
+                echo "::error title=Final-image findings::$context ($platform_tag) has unexcepted HIGH or CRITICAL findings"
+              elif [ "$scan_status" -ne 0 ]; then
+                echo "::error title=Trivy failed::$context ($platform_tag): trivy exited $scan_status"
+                exit "$scan_status"
+              fi
               docker image rm "$image_tag"
               image_tag=""
             done
@@ -746,3 +761,10 @@ jobs:
             # BuildKit cache after each context to bound runner disk usage.
             docker buildx prune --force
           done
+          if [ "${#failed_images[@]}" -gt 0 ]; then
+            {
+              echo "### Final-image findings in ${#failed_images[@]} image(s)"
+              printf -- '- %s\n' "${failed_images[@]}"
+            } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            exit 1
+          fi

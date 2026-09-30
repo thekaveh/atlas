@@ -1407,7 +1407,7 @@ def test_required_workflow_scans_final_images_with_pinned_trivy() -> None:
         "--changed-diff-stdin",
         "--severity HIGH,CRITICAL",
         "--ignorefile .trivyignore.yaml",
-        "--exit-code 1",
+        "--exit-code 3",
     )
     assert all(fragment in services_lint for fragment in required_fragments)
     assert "fetch-depth: 0" in services_lint
@@ -1453,11 +1453,18 @@ def test_local_final_image_scans_gate_every_fixable_high_or_critical_finding() -
                 "--severity HIGH,CRITICAL",
                 "--ignore-unfixed",
                 "--ignorefile .trivyignore.yaml",
-                "--exit-code 1",
             )
         )
         for build_scan in build_scans
     )
+    # The required job defers findings (exit 3) to report every image, while
+    # the scheduled fleet scan still stops at the first one.
+    assert ("--exit-code 3" in build_scans[0], "--exit-code 1" in build_scans[1]) == (
+        True,
+        True,
+    )
+
+
 def test_required_image_validation_reclaims_ephemeral_runner_storage() -> None:
     services_lint, _ = _workflow_sources()
 

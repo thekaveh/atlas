@@ -147,7 +147,7 @@ pydantic-extra-types==2.11.1
 pydantic-settings==2.14.2
 pygments==2.20.0
 pygtrie==2.5.0
-pyjwt==2.13.0
+pyjwt==2.14.0
 pyspark==4.1.2
 python-daemon==3.1.2
 python-dateutil==2.9.0.post0
