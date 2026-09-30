@@ -119,7 +119,7 @@ triton==3.7.1
 typer==0.21.2
 typing-extensions==4.16.0
 typing-inspection==0.4.2
-urllib3==2.7.0
+urllib3==2.8.0
 uvicorn==0.49.0
 uvloop==0.22.1
 watchfiles==1.2.0

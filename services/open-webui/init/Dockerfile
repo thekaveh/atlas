@@ -36,9 +36,9 @@ RUN pip install --no-cache-dir \
     charset-normalizer==3.5.1 \
     idna==3.19 \
     psycopg2-binary==2.9.9 \
-    PyJWT==2.14.0 \
+    PyJWT==2.15.1 \
     requests==2.33.0 \
-    urllib3==2.7.0
+    urllib3==2.8.0
 
 COPY scripts/ /app/scripts/
 RUN chmod +x /app/scripts/*.py
