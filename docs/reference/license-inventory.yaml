@@ -491,10 +491,10 @@ images:
   - R-N8N
 - service: neo4j
   var: NEO4J_GRAPH_DB_IMAGE
-  image: neo4j:5.26.30
-  upstream: Neo4j Community 5.26.30
+  image: neo4j:5.26.31
+  upstream: Neo4j Community 5.26.31
   license: GPL-3.0
-  url: https://github.com/neo4j/neo4j/blob/d3ee27440d2c5fee6d4087cf1e05f30bf687e9c3/LICENSE.txt
+  url: https://github.com/neo4j/neo4j/blob/191241718f1c09b6e0f7a55d4b4ed31327d95158/LICENSE.txt
 - service: ollama
   var: LLM_PROVIDER_IMAGE
   image: ollama/ollama:0.30.11
