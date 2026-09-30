@@ -22,7 +22,8 @@ from tests import test_postgres_restore_safety as restore_safety
 
 
 REPO = Path(__file__).resolve().parents[2]
-NEO4J_IMAGE = "neo4j:5.26.30"
+NEO4J_VERSION = "5.26.31"
+NEO4J_IMAGE = f"neo4j:{NEO4J_VERSION}"
 WEAVIATE_IMAGE = "cr.weaviate.io/semitechnologies/weaviate:1.38.13"
 
 
@@ -569,7 +570,7 @@ def test_neo4j_exact_image_uses_bounded_offline_dump_contract() -> None:
     script = (REPO / "services/neo4j/build/scripts/offline-backup.sh").read_text(
         encoding="utf-8"
     )
-    assert "neo4j:5.26.30" in script
+    assert "neo4j:5.26.31" in script
     assert "database is still online" in script
     assert "neo4j-admin database dump neo4j" in script
     assert "neo4j-admin database dump system" in script
@@ -758,7 +759,7 @@ def test_database_collector_archives_only_completed_native_snapshots(tmp_path: P
         "snapshot_state=complete\n"
         f"backup_timestamp={timestamp}\n"
         f"neo4j_image={NEO4J_IMAGE}\n"
-        "neo4j_version=5.26.30\n"
+        f"neo4j_version={NEO4J_VERSION}\n"
         "started_at=2026-08-30T01:02:01Z\n"
         "completed_at=2026-08-30T01:02:02Z\n"
         f"neo4j_sha256={neo4j_sha}\n"
@@ -832,7 +833,9 @@ def test_database_collector_archives_only_completed_native_snapshots(tmp_path: P
     assert (work / "weaviate.snapshot.tar.gz").stat().st_size > 0
 
 
-def _signed_database_publication(root: Path, timestamp: str, key_hex: str) -> str:
+def _signed_database_publication(
+    root: Path, timestamp: str, key_hex: str, neo4j_version: str = NEO4J_VERSION
+) -> str:
     backup_id = "b" * 32
     artifact_dir = root / "atlas-backups" / timestamp / backup_id
     artifact_dir.mkdir(parents=True)
@@ -849,8 +852,8 @@ def _signed_database_publication(root: Path, timestamp: str, key_hex: str) -> st
     (neo4j / "snapshot.metadata").write_text(
         "snapshot_state=complete\n"
         f"backup_timestamp={timestamp}\n"
-        f"neo4j_image={NEO4J_IMAGE}\n"
-        "neo4j_version=5.26.30\n"
+        f"neo4j_image=neo4j:{neo4j_version}\n"
+        f"neo4j_version={neo4j_version}\n"
         f"neo4j_sha256={neo4j_sha}\n"
         "neo4j_bytes=16\n"
         f"system_sha256={system_sha}\n"
@@ -870,7 +873,7 @@ def _signed_database_publication(root: Path, timestamp: str, key_hex: str) -> st
         "format_version=1", "snapshot_state=complete",
         f"backup_timestamp={timestamp}", f"backup_id={backup_id}",
         "deployment_id_hex=61746c61732d74657374",
-        f"neo4j_image={NEO4J_IMAGE}", "neo4j_version=5.26.30",
+        f"neo4j_image=neo4j:{neo4j_version}", f"neo4j_version={neo4j_version}",
         "neo4j_state=complete", "neo4j_started_at=2026-08-30T01:02:01Z",
         "neo4j_completed_at=2026-08-30T01:02:02Z",
         f"neo4j_archive_sha256={hashlib.sha256(neo_archive.read_bytes()).hexdigest()}",
@@ -902,13 +905,18 @@ def _signed_database_publication(root: Path, timestamp: str, key_hex: str) -> st
     return weaviate_id
 
 
+@pytest.mark.parametrize(
+    ("neo4j_version", "restorable"),
+    [("5.26.30", True), (NEO4J_VERSION, True), ("5.26.29", False)],
+)
 def test_database_restore_authenticates_stages_and_invokes_native_restore(
-    tmp_path: Path,
+    tmp_path: Path, neo4j_version: str, restorable: bool
 ) -> None:
+    """#1312: the previous Neo4j release's snapshots stay restorable; others fail."""
     timestamp = "20260830_010203"
     key_hex = "6" * 64
     s3_root = tmp_path / "s3"
-    weaviate_id = _signed_database_publication(s3_root, timestamp, key_hex)
+    weaviate_id = _signed_database_publication(s3_root, timestamp, key_hex, neo4j_version)
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     (fake_bin / "timeout").write_text(
@@ -971,8 +979,13 @@ def test_database_restore_authenticates_stages_and_invokes_native_restore(
             check=False,
             timeout=10,
         )
-        assert prepared.returncode == 0, prepared.stderr
         stage = restore_root / f"restore-{restore_token}"
+        if not restorable:
+            assert prepared.returncode == 65
+            assert "Neo4j snapshot version is not restorable" in prepared.stderr
+            assert not stage.exists()
+            return
+        assert prepared.returncode == 0, prepared.stderr
         assert (stage / "neo4j/neo4j.dump").is_file()
         assert (stage / f"weaviate/{weaviate_id}/data").is_file()
         control = (stage / "restore-set.complete").read_text(encoding="utf-8")

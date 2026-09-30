@@ -41,6 +41,83 @@ RUN set -eux; \
     mkdir -p /opt/java; \
     ln -sfn "$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")" /opt/java/openjdk
 
+# The stock image bundles interpreters and plugins that Atlas never configures,
+# and they carry their own shaded jackson-databind 2.18.3 (CVE-2026-68497) and
+# JLine (CVE-2026-77422). Atlas notebooks use only %spark, %spark.pyspark,
+# %spark.sql, %md and JDBC (%postgres, %trino). The server's own Jackson 2.18.3
+# and BouncyCastle 1.80 jars in lib/ have fixes Zeppelin 0.12.1 never shipped:
+# CVE-2026-68497 for Jackson, and CVE-2026-8763 and CVE-2026-13506 for
+# BouncyCastle. Each library family is swapped as a whole, at a patch release
+# of the same minor for Jackson, so the jars stay mutually compatible (#1312).
+# `test -d` and `test -f` fail the build if a base-image bump moves or renames
+# anything, so each refresh re-reviews this list rather than silently skipping
+# it. These paths live in the base image's layers, so the delete leaves them
+# only as whiteouts that the running container cannot load.
+# curl retries a Maven Central 429 with backoff; seven fetches in one step made
+# that throttle a realistic CI failure.
+# Bump procedure: fetch the new jars, check them against Maven's .sha1 and
+# .sha512, run `sha512sum <jar>`, and replace the matching ARG default.
+ARG ZEPPELIN_JACKSON_VERSION=2.18.11
+ARG ZEPPELIN_BOUNCYCASTLE_VERSION=1.86
+ARG JACKSON_ANNOTATIONS_SHA512=13f46940bc3f515610e35816a440a1e17986291a950b2ecc016347ed2908f6f410300b20318a73c7f7c7420fdee228a45d7e673f90fd756ed5d4d223d9d54cfb
+ARG JACKSON_CORE_SHA512=af002b10ee66ca91d7c500ee1ded28180f2b53fe543040cdf9b9a9ff87f5507f7d0652bfbf2cae792c0059ed2c335825f5e2c2b4f37678cd10ec212a608a4709
+ARG JACKSON_DATABIND_SHA512=171e95ce8d9efda2c6806c05a4d0e62642234c451476d0d1e8b770d88c2992366dbc800729396b01ef4fe891f094005fe7ee5c5dbda7bb4153eb8dc1bf44c5ac
+ARG JACKSON_JAKARTA_XMLBIND_SHA512=8b6bdd508288769b91c0aac2a9c11573177f2aebaa4dd0e6f853a1f09ac6fbe21a71a68c28c1ff36d71f3b90674efd820626e8632097101f08a5c35b23bc022e
+ARG BCPROV_SHA512=4502851281929ef645316ae96ad7d6db6a54d11ce024a66bec654c2eef62b80f174b67a2a15de86b2698f33b696459e21ecfec4a846350f4297394e9a331c43b
+ARG BCPKIX_SHA512=2923c0da3848b47d1953bdba3ae50441f3a3416f3646a26244c080414f31fbde875e4e50619a0ef34670c877367a45438a346260fc8b047e753b553debd40b37
+ARG BCUTIL_SHA512=aeb9138f96d5c48491974974534bb3b07931a18d36ccbed828940ae0361f5ef8f5b0ad6c776a1aebb4d2c0416edf8b7d143d821bfe7136d7948c4e5807b1c426
+
+RUN set -eux; \
+    cd /opt/zeppelin; \
+    for unused in \
+        interpreter/alluxio \
+        interpreter/cassandra \
+        interpreter/elasticsearch \
+        interpreter/neo4j \
+        interpreter/r \
+        interpreter/sparql \
+        plugins/Launcher/DockerInterpreterLauncher \
+        plugins/Launcher/K8sStandardInterpreterLauncher \
+        plugins/NotebookRepo/S3NotebookRepo; \
+    do \
+        test -d "$unused"; \
+        rm -rf "$unused"; \
+    done; \
+    for old in \
+        lib/jackson-annotations-2.18.3.jar \
+        lib/jackson-core-2.18.3.jar \
+        lib/jackson-databind-2.18.3.jar \
+        lib/jackson-module-jakarta-xmlbind-annotations-2.18.3.jar \
+        lib/bcprov-jdk18on-1.80.2.jar \
+        lib/bcpkix-jdk18on-1.80.jar \
+        lib/bcutil-jdk18on-1.80.2.jar; \
+    do \
+        test -f "$old"; \
+        rm -f "$old"; \
+    done; \
+    curl -fsSL --retry 5 -o lib/jackson-annotations-${ZEPPELIN_JACKSON_VERSION}.jar \
+        "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-annotations/${ZEPPELIN_JACKSON_VERSION}/jackson-annotations-${ZEPPELIN_JACKSON_VERSION}.jar"; \
+    echo "${JACKSON_ANNOTATIONS_SHA512}  lib/jackson-annotations-${ZEPPELIN_JACKSON_VERSION}.jar" | sha512sum -c -; \
+    curl -fsSL --retry 5 -o lib/jackson-core-${ZEPPELIN_JACKSON_VERSION}.jar \
+        "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-core/${ZEPPELIN_JACKSON_VERSION}/jackson-core-${ZEPPELIN_JACKSON_VERSION}.jar"; \
+    echo "${JACKSON_CORE_SHA512}  lib/jackson-core-${ZEPPELIN_JACKSON_VERSION}.jar" | sha512sum -c -; \
+    curl -fsSL --retry 5 -o lib/jackson-databind-${ZEPPELIN_JACKSON_VERSION}.jar \
+        "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-databind/${ZEPPELIN_JACKSON_VERSION}/jackson-databind-${ZEPPELIN_JACKSON_VERSION}.jar"; \
+    echo "${JACKSON_DATABIND_SHA512}  lib/jackson-databind-${ZEPPELIN_JACKSON_VERSION}.jar" | sha512sum -c -; \
+    curl -fsSL --retry 5 -o lib/jackson-module-jakarta-xmlbind-annotations-${ZEPPELIN_JACKSON_VERSION}.jar \
+        "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/module/jackson-module-jakarta-xmlbind-annotations/${ZEPPELIN_JACKSON_VERSION}/jackson-module-jakarta-xmlbind-annotations-${ZEPPELIN_JACKSON_VERSION}.jar"; \
+    echo "${JACKSON_JAKARTA_XMLBIND_SHA512}  lib/jackson-module-jakarta-xmlbind-annotations-${ZEPPELIN_JACKSON_VERSION}.jar" | sha512sum -c -; \
+    curl -fsSL --retry 5 -o lib/bcprov-jdk18on-${ZEPPELIN_BOUNCYCASTLE_VERSION}.jar \
+        "https://repo.maven.apache.org/maven2/org/bouncycastle/bcprov-jdk18on/${ZEPPELIN_BOUNCYCASTLE_VERSION}/bcprov-jdk18on-${ZEPPELIN_BOUNCYCASTLE_VERSION}.jar"; \
+    echo "${BCPROV_SHA512}  lib/bcprov-jdk18on-${ZEPPELIN_BOUNCYCASTLE_VERSION}.jar" | sha512sum -c -; \
+    curl -fsSL --retry 5 -o lib/bcpkix-jdk18on-${ZEPPELIN_BOUNCYCASTLE_VERSION}.jar \
+        "https://repo.maven.apache.org/maven2/org/bouncycastle/bcpkix-jdk18on/${ZEPPELIN_BOUNCYCASTLE_VERSION}/bcpkix-jdk18on-${ZEPPELIN_BOUNCYCASTLE_VERSION}.jar"; \
+    echo "${BCPKIX_SHA512}  lib/bcpkix-jdk18on-${ZEPPELIN_BOUNCYCASTLE_VERSION}.jar" | sha512sum -c -; \
+    curl -fsSL --retry 5 -o lib/bcutil-jdk18on-${ZEPPELIN_BOUNCYCASTLE_VERSION}.jar \
+        "https://repo.maven.apache.org/maven2/org/bouncycastle/bcutil-jdk18on/${ZEPPELIN_BOUNCYCASTLE_VERSION}/bcutil-jdk18on-${ZEPPELIN_BOUNCYCASTLE_VERSION}.jar"; \
+    echo "${BCUTIL_SHA512}  lib/bcutil-jdk18on-${ZEPPELIN_BOUNCYCASTLE_VERSION}.jar" | sha512sum -c -; \
+    chmod 0644 lib/jackson-*-${ZEPPELIN_JACKSON_VERSION}.jar lib/bc*-jdk18on-${ZEPPELIN_BOUNCYCASTLE_VERSION}.jar
+
 COPY --from=spark-runtime /opt/spark /opt/spark
 
 ENV JAVA_HOME=/opt/java/openjdk

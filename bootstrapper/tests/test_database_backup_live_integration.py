@@ -32,9 +32,11 @@ from tests.seed_harness import (
 
 REPO = Path(__file__).resolve().parents[2]
 NEO4J_IMAGE, WEAVIATE_IMAGE = (
-    "neo4j:5.26.30", "cr.weaviate.io/semitechnologies/weaviate:1.38.13",
+    "neo4j:5.26.31", "cr.weaviate.io/semitechnologies/weaviate:1.38.13",
 )
-IMAGES = (NEO4J_IMAGE, WEAVIATE_IMAGE)
+# The previous release, whose dumps must still restore into NEO4J_IMAGE (#1312).
+PREVIOUS_NEO4J_IMAGE = "neo4j:5.26.30"
+IMAGES = (NEO4J_IMAGE, PREVIOUS_NEO4J_IMAGE, WEAVIATE_IMAGE)
 OWNER_LABEL, SCOPE_LABEL, ROLE_LABEL = (
     "com.atlas.database-restore-token",
     "com.atlas.database-restore-scope",
@@ -326,13 +328,14 @@ class OwnedDocker:
 
 
 def _start_neo4j(
-    owned: OwnedDocker, name: str, network: str, volume: str, *, auth: str = "none"
+    owned: OwnedDocker, name: str, network: str, volume: str, *, auth: str = "none",
+    image: str = NEO4J_IMAGE,
 ) -> None:
     _run(
         "docker", "run", "--pull=never", "-d", "--name", name,
         "--label", f"{OWNER_LABEL}={owned.token}", "--network", network,
         "-e", f"NEO4J_AUTH={auth}", "-e", "NEO4J_ACCEPT_LICENSE_AGREEMENT=yes",
-        "-v", f"{volume}:/data", NEO4J_IMAGE,
+        "-v", f"{volume}:/data", image,
     )
     if auth == "none":
         command = ("cypher-shell", "-d", "system", "SHOW DATABASES")
