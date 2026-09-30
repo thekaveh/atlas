@@ -538,11 +538,11 @@ def test_backup_readme_matches_the_built_image_and_baked_openssl_contract() -> N
     # Published Alpine updates are applied first (#1002); the exact OpenSSL pin
     # is still baked afterwards so runtime never resolves it from a repository.
     assert "RUN apk upgrade --no-cache" in dockerfile
-    assert "apk add --no-cache openssl=3.5.8-r0" in dockerfile
+    assert "apk add --no-cache openssl=3.5.9-r0" in dockerfile
     expected_claims = (
         "`${PROJECT_NAME}-backup:local`",
         f"`{pinned_base}`",
-        "`openssl=3.5.8-r0`",
+        "`openssl=3.5.9-r0`",
     )
     for expected in expected_claims:
         assert expected in readme
