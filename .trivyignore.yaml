@@ -4970,3 +4970,44 @@ vulnerabilities:
       neither ships nor imports Parquet files into Neo4j. Remove when a Neo4j
       5.26.x release ships a parquet-jackson built against jackson-databind
       2.22.2 or newer (#1312).
+
+  # Advisories published in the 2026-09-30 01:15 Trivy DB against the npm CLI
+  # that the JupyterHub image installs globally. No npm release fixes them:
+  # 11.19.1, 11.20.0 and 12.1.0 all vendor brace-expansion 5.0.9 and undici
+  # 6.28.0.
+  - id: CVE-2026-102276
+    paths:
+      - "usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json"
+    expired_at: 2026-12-28
+    statement: >-
+      brace-expansion 5.0.9 is vendored inside the npm CLI that the JupyterHub
+      image (services/jupyterhub/build) installs globally as npm@11.19.1; npm's
+      minimatch is its only user. The denial of service needs an attacker-chosen
+      brace pattern, and npm expands only patterns an operator passes it in a
+      notebook terminal; no JupyterHub, notebook or Atlas service code invokes
+      npm. Remove when an npm release vendors brace-expansion 5.0.11 or newer
+      (#1312).
+
+  - id: CVE-2026-102278
+    paths:
+      - "usr/local/lib/node_modules/npm/node_modules/brace-expansion/package.json"
+    expired_at: 2026-12-28
+    statement: >-
+      Same vendored brace-expansion 5.0.9 in the JupyterHub image's global npm
+      CLI (services/jupyterhub/build, npm@11.19.1) as CVE-2026-102276, reached
+      only through npm's minimatch on operator-supplied patterns; no JupyterHub,
+      notebook or Atlas service code invokes npm. Remove when an npm release
+      vendors brace-expansion 5.0.11 or newer (#1312).
+
+  - id: CVE-2026-19534
+    paths:
+      - "usr/local/lib/node_modules/npm/node_modules/undici/package.json"
+    expired_at: 2026-12-28
+    statement: >-
+      undici 6.28.0 is vendored inside the npm CLI that the JupyterHub image
+      (services/jupyterhub/build) installs globally as npm@11.19.1. Its only user
+      is node-gyp's download.js, an HTTP/1.1 fetch of Node headers when an
+      operator compiles a native addon; npm never opens a WebSocket, which the
+      unrequested-frame denial of service requires, and no JupyterHub, notebook
+      or Atlas service code invokes npm. Remove when an npm release vendors
+      undici 6.28.1 or newer (#1312).

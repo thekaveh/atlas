@@ -1244,6 +1244,8 @@ def test_fleet_exceptions_stay_scoped_to_their_owning_images() -> None:
         if "#1312)" in row.statement
     ]
     spark_jars = "opt/spark/jars/"
+    # Only the JupyterHub image's global npm CLI, never an app's node_modules.
+    npm_vendored = "usr/local/lib/node_modules/npm/node_modules/"
 
     assert {(row.vulnerability_id, tuple(sorted(row.paths))) for row in rows} == {
         (
@@ -1265,6 +1267,9 @@ def test_fleet_exceptions_stay_scoped_to_their_owning_images() -> None:
         ("CVE-2026-68497", ("usr/lib/iceberg-rest/iceberg-rest-adapter.jar",)),
         ("CVE-2026-68497", ("opt/jenkins-plugin-manager.jar",)),
         ("CVE-2026-68497", ("var/lib/neo4j/lib/parquet-jackson-1.18.0.jar",)),
+        ("CVE-2026-102276", (npm_vendored + "brace-expansion/package.json",)),
+        ("CVE-2026-102278", (npm_vendored + "brace-expansion/package.json",)),
+        ("CVE-2026-19534", (npm_vendored + "undici/package.json",)),
     }
     assert {row.purls for row in rows} == {()}
 
