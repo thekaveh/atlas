@@ -2525,13 +2525,21 @@ vulnerabilities:
       - "pkg:apk/alpine/libssl3@3.5.7-r0?arch=aarch64&distro=3.24.1"
     expired_at: 2026-12-09
     statement: >-
-      OpenSSL 3.5.7-r0 (libcrypto3/libssl3) in the Alpine 3.24.1 base of the
-      Redpanda Console v3.8.0 image, the only pinned image that still carries
-      it. #1285 moved the alpine init pins to 3.24.2 and the postgres-alpine
-      pins to 15.19 and 17.11, all of which ship OpenSSL 3.5.8-r0 (checked
-      2026-10-01). Console starts no OpenSSL QUIC listener, so the affected
-      server-only allocation path is unreachable. Remove this exception when
-      the Console pin moves to a release built on Alpine 3.24.2 or later.
+      OpenSSL 3.5.7-r0 (libcrypto3/libssl3) in the Alpine 3.24.1 bases of three
+      pinned images. #1285 moved the alpine init pins to 3.24.2 and the
+      postgres-alpine pins to 15.19 and 17.11, all of which ship OpenSSL
+      3.5.8-r0 (checked 2026-10-01). The #1289 coverage scan (container-security
+      runs 36801152479 and 36811380224) shows this row suppresses findings in
+      exactly these three images, on both platforms. The flaw is in OpenSSL's
+      server-only QUIC allocation path, and none of them runs an OpenSSL QUIC
+      server. Redpanda Console v3.8.0 starts no OpenSSL QUIC listener.
+      supabase/gotrue v2.191.0 (supabase-auth) serves from /usr/local/bin/auth,
+      a statically linked Go binary that never loads OpenSSL; only apk,
+      ssl_client and c_rehash link it. python:3.12.13-alpine (zeppelin-init)
+      runs a one-shot seed script that makes plain-HTTP client requests to
+      Zeppelin, Iceberg REST and Trino and exits. Drop each image from this
+      statement when its pin moves to an Alpine 3.24.2 or later build, and
+      remove the exception when none remains.
   - id: GHSA-r7wm-3cxj-wff9
     purls:
       - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.18.6"
