@@ -100,7 +100,10 @@ notebook==7.6.2
 wheel==0.46.2
 # CVE-2026-82397 + GHSA-8423-8fgw-73vq (request-parsing DoS) and
 # GHSA-wwv5-g3v4-889x (cookie-attribute injection, incomplete CVE-2026-35536 fix).
-tornado>=6.5.8
+# 6.5.9: GHSA-3hv7-mjh2-fv65 (unbounded query-string fields),
+# GHSA-c2m8-h5v5-343r (StaticFileHandler path read) and GHSA-chx6-46f5-w4vp
+# (curl client decompression bomb).
+tornado>=6.5.9
 # PYSEC-2026-3785 through PYSEC-2026-3788, transitive via jupyterlab-git.
 gitpython>=3.1.59
 
