@@ -4384,24 +4384,6 @@ vulnerabilities:
       shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
       to a fixed loopback port with no Kong route, limiting access to local operators
       or explicit SSH tunnels. Remove this exception with a compatible upstream release.
-  - id: CVE-2026-71211
-    purls:
-      - "pkg:pypi/mlflow@3.15.1"
-    expired_at: 2026-11-30
-    statement: >-
-      CVE-2026-71211 (AI Gateway SSRF) affects the MLflow 3.15.1 server that
-      services/mlflow pins (moved there to close CVE-2026-64849). Re-checked
-      2026-09-28: PyPI's advisory data lists it for 3.15.1 and for neither
-      3.16.0 nor 3.16.1, so the fix is now reachable by moving the server
-      image; that move needs the exact-version entrypoint check and the
-      gateway guard re-verified, and is tracked in #1287. Until then Atlas
-      starts the server only through services/mlflow/atlas_server.py, whose
-      outer ASGI guard returns 404 for every prefixed or unprefixed native,
-      REST, and AJAX AI Gateway route family while preserving tracking and
-      artifact APIs. Unit coverage and a required pinned-image HTTP smoke
-      exercise both blocked and allowed paths. Jupyter's copy is already on
-      MLflow 3.16.0, and a fail-closed source scan covers every shipped
-      executable surface. Remove this exception with the server move.
 
 # TrueForge agent-runtime image (tfy.jfrog.io/tfy-images/trueforge:0.2.0-8b1d98e,
 # reviewed index digest sha256:db9de64e1ff354a858dc646f23cf16c70e300c457acb86527e4a0b1cd556f573,

@@ -2721,7 +2721,7 @@ services:
       context: '{REPO_ROOT}/services/mlflow'
       dockerfile: build/Dockerfile
       args:
-        BASE_IMAGE: ghcr.io/mlflow/mlflow:v3.15.1
+        BASE_IMAGE: ghcr.io/mlflow/mlflow:v3.16.1
     command:
     - python
     - atlas_server.py

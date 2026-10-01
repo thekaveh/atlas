@@ -461,10 +461,10 @@ images:
   notice: https://github.com/pgsty/mc/blob/e952aa78f10a2b77dd525a2b7e3143bcda0cd377/NOTICE
 - service: mlflow
   var: MLFLOW_IMAGE
-  image: ghcr.io/mlflow/mlflow:v3.15.1
-  upstream: MLflow v3.15.1
+  image: ghcr.io/mlflow/mlflow:v3.16.1
+  upstream: MLflow v3.16.1
   license: Apache-2.0
-  url: https://github.com/mlflow/mlflow/blob/9a1c0d9a9827acd23c7a215f0999e4b0f97e9870/LICENSE.txt
+  url: https://github.com/mlflow/mlflow/blob/32792afe5b0183fce10532d3a023f5cfa8612d09/LICENSE.txt
 - service: mlflow
   var: MLFLOW_INIT_IMAGE
   image: alpine:3.24.2
