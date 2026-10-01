@@ -1694,7 +1694,9 @@ def test_container_security_workflow_pins_scanner_and_failure_policy() -> None:
         local_build_scan.count("trivy image"),
         local_build_scan.count("--ignore-unfixed"),
         "Unfixed High/Critical findings (informational)" in local_build_scan,
-    ) == (3, 3, 2, 1, 2, 1, True)
+    # The second --ignore-unfixed is the coverage dispatch mirroring this
+    # gate's unfixed-finding policy (#1289); the gate itself still has one.
+    ) == (3, 3, 2, 1, 2, 2, True)
     assert '--platform "$image_platform"' in remote_wrapper
 
 
