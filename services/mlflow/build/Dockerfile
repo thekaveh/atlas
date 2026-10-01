@@ -3,25 +3,19 @@ ARG BASE_IMAGE=ghcr.io/mlflow/mlflow:v3.16.1
 FROM ${BASE_IMAGE}
 
 # Debian security fixes normally arrive through a reviewed BASE_IMAGE refresh.
-# Atlas pins exactly MLflow 3.16.1 (atlas_server.py guard, #1287), whose
-# published base is still Debian 11 and still lags fixed HIGH advisories
-# (45 on 2026-09-18, #1002), so take the published updates the same way
-# services/backend, services/jupyterhub and services/neo4j do. Debian 11 left
-# LTS on 2026-08-31 and deb.debian.org no longer serves the bullseye-security
-# pool, so the last LTS state is pinned through snapshot.debian.org at
-# DEBIAN_SNAPSHOT: the same date always yields the same packages, which keeps
-# this layer reproducible. The build refuses any other base codename, because
-# these bullseye sources would be wrong for it.
-ARG DEBIAN_SNAPSHOT=20260901T000000Z
+# Atlas pins exactly MLflow 3.16.1 (atlas_server.py guard, #1287). Its published
+# base is Debian 13 (trixie), a supported release whose own apt sources carry
+# trixie-security, so take the published updates the same way services/backend,
+# services/jupyterhub and services/neo4j do; the final-image scan still gates
+# every refresh. (The 3.15.1 base was Debian 11, past LTS, and needed a pinned
+# snapshot.debian.org state instead.) The build refuses any other base codename,
+# so a future base change gets this layer reviewed rather than upgraded blindly.
 RUN set -eux; \
     . /etc/os-release; \
-    if [ "${VERSION_CODENAME:-}" != bullseye ]; then \
-      echo "MLflow base is ${VERSION_CODENAME:-unknown}, not bullseye: review DEBIAN_SNAPSHOT before building" >&2; \
+    if [ "${VERSION_CODENAME:-}" != trixie ]; then \
+      echo "MLflow base is ${VERSION_CODENAME:-unknown}, not trixie: review this update layer before building" >&2; \
       exit 1; \
     fi; \
-    printf 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/%s bullseye main\n' "${DEBIAN_SNAPSHOT}" > /etc/apt/sources.list; \
-    printf 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/%s bullseye-security main\n' "${DEBIAN_SNAPSHOT}" >> /etc/apt/sources.list; \
-    printf 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/%s bullseye-updates main\n' "${DEBIAN_SNAPSHOT}" >> /etc/apt/sources.list; \
     apt-get update; \
     DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends; \
     rm -rf /var/lib/apt/lists/*
