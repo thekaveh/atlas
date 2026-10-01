@@ -8,7 +8,9 @@ arbitrary fixture trees on the fly without committing YAML files to the repo.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import shlex
 from typing import Any
 
 import pytest
@@ -210,3 +212,59 @@ def _provably_dead_pid() -> int:
         except ProcessLookupError:
             return proc.pid
     raise AssertionError("could not obtain a dead PID after 10 attempts")
+
+
+# What one fake role-drill ``docker run`` prints and how it ends, as
+# (fd, text, then). The stall text is verbatim from the postgres:15.18-alpine
+# psql client (#1306).
+_FAKE_PSQL_OUTCOMES = {
+    "ok": (1, "1", "exit 0"),
+    "denied": (2, "ERROR:  permission denied for table task3", "exit 1"),
+    "connect": (
+        2,
+        'psql: error: connection to server at "supabase-db" (172.18.0.2), '
+        "port 5432 failed: timeout expired",
+        "exit 2",
+    ),
+    "lock": (2, "ERROR:  canceling statement due to lock timeout", "exit 1"),
+    "statement": (2, "ERROR:  canceling statement due to statement timeout", "exit 1"),
+    "stall": (2, "partial output", "exec sleep 30"),
+}
+_FAKE_ROLE_CLIENT_DOCKER = """#!/bin/sh
+[ "$1" = run ] || {{ [ "$1" = container ] && exit 1; exit 0; }}
+printf '%s\\n' "$*" >>"{runs}"
+case "$(wc -l <"{runs}" | tr -d ' ')" in
+{arms}  *) echo 'unscripted docker run' >&2; exit 99 ;;
+esac
+"""
+
+
+@pytest.fixture
+def fake_role_client_docker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Factory: put a fake ``docker`` for role-drill psql clients on PATH.
+
+    The Nth ``docker run`` replays the Nth scripted outcome (a key of
+    ``_FAKE_PSQL_OUTCOMES``) and logs its arguments, one line per client, to
+    the returned file. Every other docker call is a cleanup probe that finds
+    no leftover container.
+    """
+
+    def _install(*outcomes: str) -> Path:
+        fake_bin = tmp_path / "fake-docker-bin"
+        fake_bin.mkdir()
+        runs = tmp_path / "docker-runs"
+        arms = "".join(
+            f"  {index}) echo {shlex.quote(text)} >&{fd}; {then} ;;\n"
+            for index, (fd, text, then) in enumerate(
+                (_FAKE_PSQL_OUTCOMES[outcome] for outcome in outcomes), 1
+            )
+        )
+        fake_docker = fake_bin / "docker"
+        fake_docker.write_text(
+            _FAKE_ROLE_CLIENT_DOCKER.format(runs=runs, arms=arms), encoding="utf-8"
+        )
+        fake_docker.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{fake_bin}{os.pathsep}{os.environ['PATH']}")
+        return runs
+
+    return _install

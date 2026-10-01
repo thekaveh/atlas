@@ -12,6 +12,18 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any
 
+from core.launch_outcome import (
+    COLD_STOP,
+    DETACH,
+    HEALTH_NOT_AWAITED,
+    STOP,
+    ProbeOutcome,
+    detached_health,
+    launch_cancelled_notice,
+    probe_log_lines,
+    run_probe,
+    summarize_launch,
+)
 from utils.submodule_pin_guard import warn_if_submodule_pin_drifted
 
 
@@ -215,8 +227,10 @@ def _run_linear_startup(
     if not starter.show_pre_launch_summary(
         track=options.track, assume_yes=assume_yes
     ):
+        # Declining happens after .env was written and before anything
+        # starts, so say exactly that (#1032).
         starter.banner.console.print(
-            "\n  [color(245)]Launch cancelled.[/color(245)]"
+            f"\n  [color(245)]{launch_cancelled_notice()}[/color(245)]"
         )
         return 0
     if not starter.start_managed_host_processes():
@@ -227,8 +241,54 @@ def _run_linear_startup(
         return 1
 
     warn_if_submodule_pin_drifted(starter.config_parser.root_dir)
-    starter.show_container_status_and_verify_ports()
-    starter.check_comfyui_models()
+    return _finish_linear_startup(starter, options, summary_payload)
+
+
+def _run_post_start_probes(starter: Any) -> list[ProbeOutcome]:
+    """Run the same two probes, under the same names, as the Textual screen.
+
+    Both used to be called bare here, so a probe that raised escaped as an
+    "Unexpected error during startup" with exit 1 after the stack had
+    already started, while the Textual screen reported the same exception
+    as an unverified launch. A probe outcome is advisory; see
+    ``core.launch_outcome`` for the severity policy (#1032).
+    """
+    outcomes = [
+        run_probe("ports", starter.show_container_status_and_verify_ports),
+        run_probe("comfyui-models", starter.check_comfyui_models),
+    ]
+    for message, _level in probe_log_lines(outcomes):
+        print(message)
+    return outcomes
+
+
+def _print_lines(*lines: str) -> None:
+    for line in lines:
+        print(line)
+
+
+def _print_launch_result(outcomes: list[ProbeOutcome], health: ProbeOutcome) -> None:
+    """Print the result block the Textual screen writes for the same outcomes."""
+    print()
+    _print_lines(*summarize_launch(outcomes, health=health).lines)
+
+
+def _finish_linear_startup(
+    starter: Any,
+    options: LinearStartupOptions,
+    summary_payload: list[str | None] | None,
+) -> int:
+    """Verify, state the launch result, then either detach or follow logs.
+
+    The exit code is the readiness gate's, exactly as before: the detached
+    health summary under ``--detach``, the log stream otherwise. Probe
+    outcomes change the reported result, never the exit code.
+    """
+    outcomes = _run_post_start_probes(starter)
+    stop_lines = (
+        STOP.line("./stop.sh"),
+        COLD_STOP.line("./stop.sh --cold", "--cold is the explicit opt-in"),
+    )
     if options.detach:
         if options.json_output:
             assert summary_payload is not None
@@ -236,8 +296,13 @@ def _run_linear_startup(
             with redirect_stdout(capture):
                 ok = starter.show_detached_status_summary(json_output=True)
             summary_payload[0] = capture.getvalue()
-            return 0 if ok else 1
-        return 0 if starter.show_detached_status_summary(json_output=False) else 1
+        else:
+            ok = starter.show_detached_status_summary(json_output=False)
+        _print_launch_result(outcomes, detached_health(ok))
+        _print_lines("", f"   Detached — {DETACH.consequences}", *stop_lines)
+        return 0 if ok else 1
+    _print_launch_result(outcomes, HEALTH_NOT_AWAITED)
+    _print_lines("", DETACH.line("Ctrl+C", "stops following the logs only"), *stop_lines)
     # Startup succeeded; what follows is the log stream (Ctrl+C returns 130).
     starter.startup_reached_log_follow = True
     return starter.show_container_logs()

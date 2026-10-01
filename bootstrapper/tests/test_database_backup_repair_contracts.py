@@ -528,8 +528,8 @@ def test_backup_readme_matches_the_built_image_and_baked_openssl_contract() -> N
     compose = BACKUP_COMPOSE.read_text(encoding="utf-8")
     dockerfile = BACKUP_DOCKERFILE.read_text(encoding="utf-8")
     pinned_base = (
-        "postgres:17.10-alpine@sha256:"
-        "742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193"
+        "postgres:17.11-alpine@sha256:"
+        "b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24"
     )
 
     assert f"BASE_IMAGE: ${{BACKUP_IMAGE:-{pinned_base}}}" in compose
@@ -546,7 +546,7 @@ def test_backup_readme_matches_the_built_image_and_baked_openssl_contract() -> N
     )
     for expected in expected_claims:
         assert expected in readme
-    assert "BACKUP_IMAGE=postgres:17.10-alpine " not in readme
+    assert "BACKUP_IMAGE=postgres:17.11-alpine " not in readme
     stale_runtime_install = (
         "OpenSSL is still resolved from the Alpine repository at container startup"
     )
@@ -680,7 +680,7 @@ def test_ci_live_database_drill_is_explicit_and_pulls_exact_images():
     text = WORKFLOW.read_text(encoding="utf-8")
     # Both live-drill jobs pull the pin and the previous release it restores from.
     assert text.count("docker pull neo4j:5.26.31") == text.count("docker pull neo4j:5.26.30") == 2
-    assert "docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.13" in text
+    assert "docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.17" in text
     assert "ATLAS_DATABASE_BACKUP_LIVE_INTEGRATION" in text
 
 

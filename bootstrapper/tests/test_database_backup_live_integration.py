@@ -32,11 +32,13 @@ from tests.seed_harness import (
 
 REPO = Path(__file__).resolve().parents[2]
 NEO4J_IMAGE, WEAVIATE_IMAGE = (
-    "neo4j:5.26.31", "cr.weaviate.io/semitechnologies/weaviate:1.38.13",
+    "neo4j:5.26.31", "cr.weaviate.io/semitechnologies/weaviate:1.38.17",
 )
-# The previous release, whose dumps must still restore into NEO4J_IMAGE (#1312).
+# The previous releases, whose snapshots must still restore into the pins
+# (#1312, #1286).
 PREVIOUS_NEO4J_IMAGE = "neo4j:5.26.30"
-IMAGES = (NEO4J_IMAGE, PREVIOUS_NEO4J_IMAGE, WEAVIATE_IMAGE)
+PREVIOUS_WEAVIATE_IMAGE = "cr.weaviate.io/semitechnologies/weaviate:1.38.13"
+IMAGES = (NEO4J_IMAGE, PREVIOUS_NEO4J_IMAGE, WEAVIATE_IMAGE, PREVIOUS_WEAVIATE_IMAGE)
 OWNER_LABEL, SCOPE_LABEL, ROLE_LABEL = (
     "com.atlas.database-restore-token",
     "com.atlas.database-restore-scope",
@@ -451,7 +453,8 @@ def _weaviate_mutation(
 
 
 def _start_weaviate(
-    owned: OwnedDocker, name: str, network: str, data: str, backups: str
+    owned: OwnedDocker, name: str, network: str, data: str, backups: str,
+    image: str = WEAVIATE_IMAGE,
 ) -> None:
     _run(
         "docker", "run", "--pull=never", "-d", "--name", name,
@@ -462,7 +465,7 @@ def _start_weaviate(
         "-e", "CLUSTER_HOSTNAME=weaviate", "-e", "ENABLE_MODULES=backup-filesystem",
         "-e", "DEFAULT_VECTORIZER_MODULE=none",
         "-v", f"{data}:/var/lib/weaviate", "-v", f"{backups}:/backups",
-        "-e", "BACKUP_FILESYSTEM_PATH=/backups", WEAVIATE_IMAGE,
+        "-e", "BACKUP_FILESYSTEM_PATH=/backups", image,
     )
     _wait_exec(
         name, "wget", "-qO-", "--timeout=10",
@@ -639,7 +642,7 @@ def test_exact_weaviate_concurrent_backup_restores_into_empty_volume(
         assert state_matches_serialized_prefix
         assert seed_id in restored_state  # committed before native backup began
         assert restored_count <= source_count
-        assert _weaviate_json(restored_name, "/v1/meta")["version"] == "1.38.13"
+        assert _weaviate_json(restored_name, "/v1/meta")["version"] == "1.38.17"
     finally:
         owned.cleanup()
 

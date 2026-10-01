@@ -14,6 +14,7 @@ import uuid
 
 import pytest
 
+from tests import seed_harness
 from tests import test_database_role_boundaries as roles
 from tests.test_database_role_boundaries import (
     INIT_IMAGE,
@@ -29,7 +30,7 @@ ROLE_SCRIPT = REPO / "services/supabase/db/scripts/05-scoped-roles.sh"
 LIGHTRAG_MIGRATION = REPO / "services/lightrag/init/scripts/migrate-pgvector.sql"
 SUPAVISOR_CONFIG = REPO / "services/supavisor/pooler/pooler.exs"
 SUPAVISOR_IMAGE = "supabase/supavisor:2.9.5"
-PSQL_IMAGE = "postgres:15.18-alpine"
+PSQL_IMAGE = "postgres:15.19-alpine"
 READERS = (
     ("atlas_airflow_reader", TEST_SECRETS["AIRFLOW_ATLAS_DB_PASSWORD"]),
     ("atlas_mcp", TEST_SECRETS["MCP_POSTGRES_DB_PASSWORD"]),
@@ -171,6 +172,40 @@ def test_disposable_client_cleanup_never_replaces_launch_failure(
 
     assert caught.value is launch_error
     assert "client cleanup could not be proven" in "\n".join(launch_error.__notes__)
+
+
+@pytest.mark.parametrize("check", (False, True))
+def test_role_drill_expected_psql_failure_is_neither_retried_nor_renamed(
+    fake_role_client_docker, check: bool,
+) -> None:
+    runs = fake_role_client_docker("denied", "ok")
+    database = DisposablePostgres("postgres", "network", "password")
+    try:
+        result = database.network_sql("SELECT 1", check=check)
+    except subprocess.CalledProcessError as exc:
+        result = exc
+    assert type(result) is (
+        subprocess.CalledProcessError if check else subprocess.CompletedProcess
+    )
+    assert result.returncode == 1 and "permission denied" in result.stderr
+    assert len(runs.read_text().splitlines()) == 1
+
+
+def test_role_drill_process_budget_stall_is_named_with_partial_output(
+    fake_role_client_docker, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runs = fake_role_client_docker("stall", "ok")
+    monkeypatch.setattr(seed_harness, "PSQL_CLIENT_PROCESS_TIMEOUT", 1)
+    database = DisposablePostgres("postgres", "network", "password")
+    with pytest.raises(seed_harness.RoleDrillClientStalled) as caught:
+        database.network_sql("SELECT 1", password="role-secret")
+    assert isinstance(caught.value, subprocess.TimeoutExpired)
+    message = str(caught.value)
+    assert "in the process-budget phase" in message and "killed after 1s" in message
+    assert "command: docker run --rm" in message and "-Atqc SELECT 1" in message
+    assert "partial stderr: 'partial output\\n'" in message
+    assert "PGPASSWORD=<redacted>" in message and "role-secret" not in message
+    assert len(runs.read_text().splitlines()) == 1
 
 
 @pytest.mark.parametrize(

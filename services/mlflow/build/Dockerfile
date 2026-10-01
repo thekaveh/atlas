@@ -1,22 +1,21 @@
 # Keep this default synchronized with MLFLOW_IMAGE in service.yml and Compose.
-ARG BASE_IMAGE=ghcr.io/mlflow/mlflow:v3.15.1
+ARG BASE_IMAGE=ghcr.io/mlflow/mlflow:v3.16.1
 FROM ${BASE_IMAGE}
 
 # Debian security fixes normally arrive through a reviewed BASE_IMAGE refresh.
-# Atlas pins exactly MLflow 3.15.1 (atlas_server.py guard, gateway SSRF review),
-# whose Debian 11 base lags 32 fixed HIGH advisories (2026-09-18, #1002), and
-# the newest published v3.16.1 base still carries 45, so take the published
-# updates the same way services/backend, services/jupyterhub and services/neo4j
-# do. Debian 11 left LTS on 2026-08-31 and deb.debian.org no longer serves the
-# bullseye-security pool, so the last LTS state is pinned through
-# snapshot.debian.org at DEBIAN_SNAPSHOT: the same date always yields the same
-# packages, which keeps this layer reproducible. Moving off the EOL base needs
-# the MLflow 3.16.x re-review tracked on #1002.
-ARG DEBIAN_SNAPSHOT=20260901T000000Z
+# Atlas pins exactly MLflow 3.16.1 (atlas_server.py guard, #1287). Its published
+# base is Debian 13 (trixie), a supported release whose own apt sources carry
+# trixie-security, so take the published updates the same way services/backend,
+# services/jupyterhub and services/neo4j do; the final-image scan still gates
+# every refresh. (The 3.15.1 base was Debian 11, past LTS, and needed a pinned
+# snapshot.debian.org state instead.) The build refuses any other base codename,
+# so a future base change gets this layer reviewed rather than upgraded blindly.
 RUN set -eux; \
-    printf 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/%s bullseye main\n' "${DEBIAN_SNAPSHOT}" > /etc/apt/sources.list; \
-    printf 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/%s bullseye-security main\n' "${DEBIAN_SNAPSHOT}" >> /etc/apt/sources.list; \
-    printf 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/%s bullseye-updates main\n' "${DEBIAN_SNAPSHOT}" >> /etc/apt/sources.list; \
+    . /etc/os-release; \
+    if [ "${VERSION_CODENAME:-}" != trixie ]; then \
+      echo "MLflow base is ${VERSION_CODENAME:-unknown}, not trixie: review this update layer before building" >&2; \
+      exit 1; \
+    fi; \
     apt-get update; \
     DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends; \
     rm -rf /var/lib/apt/lists/*

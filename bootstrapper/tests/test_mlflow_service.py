@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import sys
+import types
 from unittest.mock import MagicMock
 
 import pytest
@@ -12,6 +15,8 @@ from services.topology import get_topology, invalidate_cache
 from tracks import is_in_track, load_tracks
 from utils.key_generator import KeyGenerator
 from utils.source_override_manager import SourceOverrideManager
+
+from tests.test_mlflow_gateway_guard import _load_guard
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -74,7 +79,7 @@ def test_mlflow_topology_alias_and_env_example_contract() -> None:
     env_example = (REPO_ROOT / ".env.example").read_text()
     for expected in (
         "MLFLOW_SOURCE=disabled",
-        "MLFLOW_IMAGE=ghcr.io/mlflow/mlflow:v3.15.1",
+        "MLFLOW_IMAGE=ghcr.io/mlflow/mlflow:v3.16.1",
         "MLFLOW_PORT=",
         "MLFLOW_ENDPOINT=",
         "MLFLOW_SCALE=",
@@ -156,7 +161,7 @@ def test_mlflow_compose_contract() -> None:
     assert service["build"] == {
         "context": ".",
         "dockerfile": "build/Dockerfile",
-        "args": {"BASE_IMAGE": "${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.15.1}"},
+        "args": {"BASE_IMAGE": "${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.16.1}"},
     }
     assert service["ports"] == ["${HOST_BIND_IP:-}${MLFLOW_PORT}:5000"]
     assert service["depends_on"]["mlflow-init"]["condition"] == "service_completed_successfully"
@@ -282,3 +287,93 @@ def test_mlflow_docs_describe_scope_and_notebook_smoke() -> None:
     assert "MinIO-backed artifact" in readme
     assert "model promotion automations are out of scope" in readme
     assert "mlflow.start_run" in readme
+
+
+_OUTDATED = (
+    "Detected out-of-date database schema (found version 6f8d9c3b2a1e, but "
+    "expected b7e2c1a4d9f3). Take a backup of your database, then run "
+    "'mlflow db upgrade <database_uri>'"
+)
+
+
+def _serve_against_stores(
+    monkeypatch: pytest.MonkeyPatch,
+    errors: list[str],
+    *,
+    registry: str = "postgresql://db/mlflow",
+    upgrade_fails: bool = False,
+) -> list[tuple[str, object]]:
+    """Run ``_serve`` with store initialization raising ``errors`` in order."""
+
+    async def upstream(scope, receive, send):
+        pass
+
+    module = _load_guard(monkeypatch, upstream)
+    mlflow_exception = sys.modules["mlflow.exceptions"].MlflowException
+    constants = types.ModuleType("mlflow.server.constants")
+    constants.BACKEND_STORE_URI_ENV_VAR = "_MLFLOW_SERVER_FILE_STORE"
+    constants.REGISTRY_STORE_URI_ENV_VAR = "_MLFLOW_SERVER_REGISTRY_STORE"
+    constants.ARTIFACT_ROOT_ENV_VAR = "_MLFLOW_SERVER_ARTIFACT_ROOT"
+    handlers = types.ModuleType("mlflow.server.handlers")
+    events: list[tuple[str, object]] = []
+    pending = list(errors)
+
+    def initialize_backend_stores(*stores: str) -> None:
+        events.append(("stores", stores))
+        if pending:
+            raise mlflow_exception(pending.pop(0))
+
+    def run(argv: list[str], *, check: bool) -> None:
+        events.append(("upgrade", (argv, check)))
+        if upgrade_fails:
+            raise subprocess.CalledProcessError(1, argv)
+
+    handlers.initialize_backend_stores = initialize_backend_stores
+    monkeypatch.setitem(sys.modules, "mlflow.server.constants", constants)
+    monkeypatch.setitem(sys.modules, "mlflow.server.handlers", handlers)
+    monkeypatch.setenv("_MLFLOW_SERVER_FILE_STORE", "postgresql://db/mlflow")
+    monkeypatch.setenv("_MLFLOW_SERVER_REGISTRY_STORE", registry)
+    monkeypatch.setenv("_MLFLOW_SERVER_ARTIFACT_ROOT", "mlflow-artifacts:/")
+    monkeypatch.setattr(module.subprocess, "run", run)
+    monkeypatch.setattr(module.os, "execvp", lambda *_args: events.append(("exec", None)))
+    module._serve()
+    return events
+
+
+@pytest.mark.parametrize(
+    ("registry", "upgraded"),
+    (
+        ("postgresql://db/mlflow", ["postgresql://db/mlflow"]),
+        ("postgresql://db/registry", ["postgresql://db/mlflow", "postgresql://db/registry"]),
+    ),
+)
+def test_mlflow_serve_upgrades_a_schema_an_earlier_pin_created(
+    monkeypatch: pytest.MonkeyPatch, registry: str, upgraded: list[str]
+) -> None:
+    """A 3.15.1 database is migrated once per distinct store, then served (#1287)."""
+    events = _serve_against_stores(monkeypatch, [_OUTDATED], registry=registry)
+
+    stores = ("postgresql://db/mlflow", registry, "mlflow-artifacts:/")
+    assert events == [
+        ("stores", stores),
+        *[
+            ("upgrade", ([sys.executable, "-m", "mlflow", "db", "upgrade", uri], True))
+            for uri in upgraded
+        ],
+        ("stores", stores),
+        ("exec", None),
+    ]
+
+
+def test_mlflow_serve_never_upgrades_for_other_store_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(Exception, match="connection refused"):
+        _serve_against_stores(monkeypatch, ["connection refused"])
+
+
+def test_mlflow_serve_does_not_launch_when_the_schema_upgrade_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(subprocess.CalledProcessError):
+        _serve_against_stores(monkeypatch, [_OUTDATED], upgrade_fails=True)

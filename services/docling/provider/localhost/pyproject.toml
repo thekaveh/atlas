@@ -14,6 +14,13 @@ dependencies = [
     # torch imports pkg_resources/setuptools at runtime. Keep the resolved
     # package above the patched archive-extraction floor (GHSA-h35f-9h28-mq5c).
     "setuptools>=83.0.0",
+    # docling-ibm-models and docling-core pull these in transitively. Keep the
+    # resolved packages on every platform at or above their patched releases:
+    # transformers for PYSEC-2026-3929 (5.10.0) and CVE-2026-80047, accelerate
+    # for PYSEC-2026-3804 (1.15.0). docling-core 2.82.0's darwin-only
+    # transformers<5.9.0 cap is gone from the docling-core release this resolves.
+    "transformers>=5.10.0",
+    "accelerate>=1.15.0",
 ]
 
 [build-system]

@@ -24,7 +24,8 @@ from tests import test_postgres_restore_safety as restore_safety
 REPO = Path(__file__).resolve().parents[2]
 NEO4J_VERSION = "5.26.31"
 NEO4J_IMAGE = f"neo4j:{NEO4J_VERSION}"
-WEAVIATE_IMAGE = "cr.weaviate.io/semitechnologies/weaviate:1.38.13"
+WEAVIATE_VERSION = "1.38.17"
+WEAVIATE_IMAGE = f"cr.weaviate.io/semitechnologies/weaviate:{WEAVIATE_VERSION}"
 
 
 @pytest.mark.parametrize(
@@ -778,7 +779,7 @@ def test_database_collector_archives_only_completed_native_snapshots(tmp_path: P
         "  case \"$1\" in -O) output=$2; shift 2;; --post-data=*) body=${1#*=}; shift;; --header=*) shift;; -q) shift;; *) url=$1; shift;; esac\n"
         "done\n"
         "case \"$url\" in\n"
-        "  */v1/meta) printf '%s' '{\"version\":\"1.38.13\"}' >\"$output\";;\n"
+        "  */v1/meta) printf '%s' '{\"version\":\"1.38.17\"}' >\"$output\";;\n"
         "  */v1/objects?limit=1) printf '%s' '{\"totalResults\":1}' >\"$output\";;\n"
         "  */v1/backups/filesystem)\n"
         "    id=$(printf '%s' \"$body\" | sed -n 's/.*\"id\":\"\\([^\"]*\\)\".*/\\1/p')\n"
@@ -834,8 +835,9 @@ def test_database_collector_archives_only_completed_native_snapshots(tmp_path: P
 
 
 def _signed_database_publication(
-    root: Path, timestamp: str, key_hex: str, neo4j_version: str = NEO4J_VERSION
+    root: Path, timestamp: str, key_hex: str, versions: tuple[str, str]
 ) -> str:
+    neo4j_version, weaviate_version = versions
     backup_id = "b" * 32
     artifact_dir = root / "atlas-backups" / timestamp / backup_id
     artifact_dir.mkdir(parents=True)
@@ -878,7 +880,8 @@ def _signed_database_publication(
         "neo4j_completed_at=2026-08-30T01:02:02Z",
         f"neo4j_archive_sha256={hashlib.sha256(neo_archive.read_bytes()).hexdigest()}",
         f"neo4j_archive_bytes={neo_archive.stat().st_size}",
-        f"weaviate_image={WEAVIATE_IMAGE}", "weaviate_version=1.38.13",
+        f"weaviate_image=cr.weaviate.io/semitechnologies/weaviate:{weaviate_version}",
+        f"weaviate_version={weaviate_version}",
         "weaviate_state=complete", f"weaviate_snapshot_id={weaviate_id}",
         "weaviate_started_at=2026-08-30T01:02:02Z",
         "weaviate_completed_at=2026-08-30T01:02:03Z",
@@ -906,17 +909,23 @@ def _signed_database_publication(
 
 
 @pytest.mark.parametrize(
-    ("neo4j_version", "restorable"),
-    [("5.26.30", True), (NEO4J_VERSION, True), ("5.26.29", False)],
+    ("versions", "rejection"),
+    [
+        (("5.26.30", WEAVIATE_VERSION), None),
+        ((NEO4J_VERSION, WEAVIATE_VERSION), None),
+        ((NEO4J_VERSION, "1.38.13"), None),
+        (("5.26.29", WEAVIATE_VERSION), "Neo4j snapshot version is not restorable"),
+        ((NEO4J_VERSION, "1.38.12"), "Weaviate snapshot version is not restorable"),
+    ],
 )
 def test_database_restore_authenticates_stages_and_invokes_native_restore(
-    tmp_path: Path, neo4j_version: str, restorable: bool
+    tmp_path: Path, versions: tuple[str, str], rejection: str | None
 ) -> None:
-    """#1312: the previous Neo4j release's snapshots stay restorable; others fail."""
+    """#1312, #1286: the previous pins' snapshots stay restorable; others fail."""
     timestamp = "20260830_010203"
     key_hex = "6" * 64
     s3_root = tmp_path / "s3"
-    weaviate_id = _signed_database_publication(s3_root, timestamp, key_hex, neo4j_version)
+    weaviate_id = _signed_database_publication(s3_root, timestamp, key_hex, versions)
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     (fake_bin / "timeout").write_text(
@@ -980,9 +989,9 @@ def test_database_restore_authenticates_stages_and_invokes_native_restore(
             timeout=10,
         )
         stage = restore_root / f"restore-{restore_token}"
-        if not restorable:
+        if rejection:
             assert prepared.returncode == 65
-            assert "Neo4j snapshot version is not restorable" in prepared.stderr
+            assert rejection in prepared.stderr
             assert not stage.exists()
             return
         assert prepared.returncode == 0, prepared.stderr

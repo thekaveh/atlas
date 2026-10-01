@@ -38,6 +38,7 @@ Seeded values include:
 - `zeppelin.spark.enableSupportedVersionCheck=false`
 - `spark.submit.deployMode=client`
 - `spark.driver.host=zeppelin` and `spark.driver.bindAddress=0.0.0.0`
+- `PYSPARK_DRIVER_PYTHON=/opt/conda/envs/pyspark/bin/python` (CPython 3.10), `PYSPARK_PYTHON=python3` for the executors, and `zeppelin.pyspark.useIPython=false`
 - MinIO S3A settings for `s3a://` reads/writes and Spark event logs
 - `spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181` and the rest of the Iceberg REST catalog settings for `lakehouse`
 
@@ -189,6 +190,7 @@ _No high-confidence opportunities identified._
 - **S3A: "Access Denied" on s3a://...** — the generated `MINIO_SPARK_ACCESS_KEY` / `MINIO_SPARK_SECRET_KEY` or scoped policy is missing from the container. `docker exec ${PROJECT_NAME}-zeppelin env | grep -E 'MINIO|SPARK_SUBMIT_OPTIONS'` to confirm. Re-run `./start.sh` to provision the account and refresh the interpreter.
 - **JDBC interpreter "Interpreter not properly configured"** — Zeppelin does not auto-bind the `ZEPPELIN_JDBC_POSTGRES_*` env vars to a JDBC interpreter profile. Walk through §4's one-time UI setup, then restart it (Interpreter → postgres → Restart). Supabase Postgres also must be running (it's a required dep of the stack).
 - **`%trino` is missing or cannot load the driver** — confirm both `ZEPPELIN_SOURCE=container` and `TRINO_SOURCE=container`, then check `docker logs ${PROJECT_NAME}-zeppelin-init`. The init script should report either "trino JDBC interpreter created" or "already configured". The interpreter dependency must include `io.trino:trino-jdbc:482`.
+- **`%spark.pyspark` fails with `Fail to bootstrap pyspark`** — PySpark 4.1 needs Python 3.10 or newer, and the stock image's own conda envs are 3.7 and 3.9. Check that the `spark` interpreter's `PYSPARK_DRIVER_PYTHON` is `/opt/conda/envs/pyspark/bin/python`; rerunning `./start.sh` re-seeds it. That env is installed from the explicit conda-forge locks in `build/pyspark-env/` (one per architecture). To refresh them, solve `python=3.10` against conda-forge with `CONDA_SUBDIR` set to `linux-64` and `linux-aarch64` (`conda create --dry-run --json --override-channels -c conda-forge`) and write each package's URL and md5 under `@EXPLICIT`. Keep the minor release equal to the Spark image's `python3`.
 - **"Notebook won't save"** — `/notebook` is bind-mounted from `services/zeppelin/notebooks/`. Confirm `services/zeppelin/notebooks/` exists and is writable by the host user. Zeppelin writes new .zpln files there.
 
 ## 8. Capabilities & limitations
@@ -197,7 +199,7 @@ Support tier: **experimental** — Capability contract declared (#967); no cited
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| Spark-first interactive notebooks | supported | tested | Atlas bundles a matching Spark runtime and seeds the standalone Spark interpreter for Scala, PySpark, and SQL paragraphs against the in-stack cluster. |
+| Spark-first interactive notebooks | supported | tested | Atlas bundles a matching Spark runtime and seeds the standalone Spark interpreter for Scala, PySpark, and SQL paragraphs against the in-stack cluster. PySpark's driver runs a bundled CPython 3.10, the minor release the cluster's executors run (#1314). |
 | MinIO and Iceberg lakehouse notebooks | partial | tested | The interpreter receives scoped S3A and Iceberg REST settings and starter notebooks, while advanced operations remain an operator-run live smoke. |
 | Adaptive Trino and Postgres JDBC | partial | tested | Init seeds a Trino interpreter only when enabled, but Supabase Postgres variables still require one-time manual JDBC interpreter configuration. |
 | Notebook and log persistence | partial | documented | Notebooks bind to the repository and logs use a named volume, but concurrent edits, backup, restoration, and multi-replica writer coordination are operator-owned. |

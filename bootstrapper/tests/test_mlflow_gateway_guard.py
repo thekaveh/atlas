@@ -4,7 +4,6 @@ import importlib.util
 import subprocess
 import sys
 import types
-from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -29,19 +28,22 @@ def _load_guard(
     monkeypatch: pytest.MonkeyPatch,
     upstream: Any,
     *,
-    version: str = "3.15.1",
+    version: str = "3.16.1",
     static_prefix: str | None = None,
 ):
     mlflow = types.ModuleType("mlflow")
     server = types.ModuleType("mlflow.server")
     fastapi_app = types.ModuleType("mlflow.server.fastapi_app")
     version_module = types.ModuleType("mlflow.version")
+    exceptions = types.ModuleType("mlflow.exceptions")
+    exceptions.MlflowException = type("MlflowException", (Exception,), {})
     fastapi_app.app = upstream
     version_module.VERSION = version
     monkeypatch.setitem(sys.modules, "mlflow", mlflow)
     monkeypatch.setitem(sys.modules, "mlflow.server", server)
     monkeypatch.setitem(sys.modules, "mlflow.server.fastapi_app", fastapi_app)
     monkeypatch.setitem(sys.modules, "mlflow.version", version_module)
+    monkeypatch.setitem(sys.modules, "mlflow.exceptions", exceptions)
     if static_prefix is None:
         monkeypatch.delenv("_MLFLOW_STATIC_PREFIX", raising=False)
     else:
@@ -54,7 +56,7 @@ def _load_guard(
     return module
 
 
-@pytest.mark.parametrize("version", ("3.14.0", "3.15.0", "3.15.2", "4.0.0"))
+@pytest.mark.parametrize("version", ("3.14.0", "3.15.1", "3.16.0", "3.16.2", "4.0.0"))
 def test_gateway_guard_refuses_every_unreviewed_server_version(
     monkeypatch: pytest.MonkeyPatch,
     version: str,
@@ -62,7 +64,7 @@ def test_gateway_guard_refuses_every_unreviewed_server_version(
     async def upstream(scope, receive, send):  # pragma: no cover - import must fail
         pass
 
-    with pytest.raises(RuntimeError, match="exactly MLflow 3.15.1"):
+    with pytest.raises(RuntimeError, match="exactly MLflow 3.16.1"):
         _load_guard(monkeypatch, upstream, version=version)
 
 
@@ -342,10 +344,10 @@ def test_mlflow_compose_runs_the_guarded_patched_server() -> None:
             "context": ".",
             "dockerfile": "build/Dockerfile",
             "args": {
-                "BASE_IMAGE": "${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.15.1}"
+                "BASE_IMAGE": "${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.16.1}"
             },
         },
-        "ghcr.io/mlflow/mlflow:v3.15.1",
+        "ghcr.io/mlflow/mlflow:v3.16.1",
         ["python", "atlas_server.py"],
         False,
         "/opt/atlas",
@@ -361,7 +363,8 @@ def test_mlflow_manifest_documents_the_exact_reviewed_guard_version() -> None:
         if item["name"] == "MLflow AI Gateway SSRF containment"
     )
 
-    assert "exactly reviewed MLflow 3.15.1" in capability["note"]
+    assert "exactly reviewed MLflow 3.16.1" in capability["note"]
+    assert "CVE-2026-71211" in capability["note"]
 
 
 def test_mlflow_runtime_image_installs_postgres_and_s3_drivers() -> None:
@@ -394,29 +397,19 @@ def test_mlflow_compose_preserves_the_cli_storage_contract() -> None:
     ) == (True, True, "mlflow-artifacts:/", True, "true", True, True)
 
 
-def test_mlflow_server_advisory_exception_is_exact_bounded_and_mitigated() -> None:
+def test_mlflow_server_advisory_is_fixed_by_the_pin_not_excepted() -> None:
+    """3.16.1 fixes CVE-2026-71211 (#1287): the row is gone, the guard stays."""
     exceptions = yaml.safe_load((ROOT / ".trivyignore.yaml").read_text())["vulnerabilities"]
-    matches = [entry for entry in exceptions if entry["id"] == "CVE-2026-71211"]
 
-    assert len(matches) == 1
-    exception = matches[0]
-    assert exception["purls"] == ["pkg:pypi/mlflow@3.15.1"]
-    # Renewed short again in the #998 pass (2026-09-28): PyPI lists the
-    # advisory for 3.15.1 but not 3.16.x, so the fix is a server move (#1287)
-    # and the near deadline keeps that decision from drifting.
-    assert exception["expired_at"] == date(2026, 11, 30)
-    statement = exception["statement"]
-    for evidence in (
-        "neither 3.16.0 nor 3.16.1",
-        "#1287",
-        "AI Gateway",
-        "404",
-        "atlas_server.py",
-        "tracking",
-        "CVE-2026-64849",
-        "Jupyter",
-    ):
-        assert evidence in statement
+    assert not [
+        entry
+        for entry in exceptions
+        if entry["id"] == "CVE-2026-71211"
+        or any(purl.startswith("pkg:pypi/mlflow@") for purl in entry.get("purls", []))
+    ]
+    dockerfile = (ROOT / "services/mlflow/build/Dockerfile").read_text()
+    assert "ARG BASE_IMAGE=ghcr.io/mlflow/mlflow:v3.16.1\n" in dockerfile
+    assert "class GatewayDisabled" in GUARD_PATH.read_text()
 
 
 def test_mlflow_image_smoke_bounds_every_docker_subprocess(

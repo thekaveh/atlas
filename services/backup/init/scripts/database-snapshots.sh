@@ -11,8 +11,12 @@ EXPECTED_NEO4J_VERSION="5.26.31"
 # cutover (#1312). Keep this list equal to RESTORABLE_NEO4J_VERSIONS in
 # services/neo4j/build/scripts/offline-restore.sh.
 RESTORABLE_NEO4J_VERSIONS="5.26.30 5.26.31"
-EXPECTED_WEAVIATE_IMAGE="cr.weaviate.io/semitechnologies/weaviate:1.38.13"
-EXPECTED_WEAVIATE_VERSION="1.38.13"
+EXPECTED_WEAVIATE_IMAGE="cr.weaviate.io/semitechnologies/weaviate:1.38.17"
+EXPECTED_WEAVIATE_VERSION="1.38.17"
+# New snapshots always record the exact pin. Restore also accepts the previous
+# pin's native backups, which Weaviate restores into the newer patch release
+# (#1286).
+RESTORABLE_WEAVIATE_VERSIONS="1.38.13 1.38.17"
 
 # Succeeds when an image/version pair names one release in
 # RESTORABLE_NEO4J_VERSIONS, with the image and the version agreeing.
@@ -20,6 +24,16 @@ neo4j_snapshot_is_restorable() {
   for restorable_neo4j_version in ${RESTORABLE_NEO4J_VERSIONS}; do
     [ "$1" = "neo4j:${restorable_neo4j_version}" ] &&
       [ "$2" = "${restorable_neo4j_version}" ] && return 0
+  done
+  return 1
+}
+
+# Succeeds when an image/version pair names one release in
+# RESTORABLE_WEAVIATE_VERSIONS, with the image and the version agreeing.
+weaviate_snapshot_is_restorable() {
+  for restorable_weaviate_version in ${RESTORABLE_WEAVIATE_VERSIONS}; do
+    [ "$1" = "cr.weaviate.io/semitechnologies/weaviate:${restorable_weaviate_version}" ] &&
+      [ "$2" = "${restorable_weaviate_version}" ] && return 0
   done
   return 1
 }

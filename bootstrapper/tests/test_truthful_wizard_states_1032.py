@@ -129,6 +129,10 @@ class _Recorder:
     def __init__(self):
         self.logs: list[tuple[str, str]] = []
         self.status: list[tuple[str, str]] = []
+        self.toasts: list[str] = []
+
+    def notify(self, message, **_kwargs):
+        self.toasts.append(message)
 
     def _safe_log(self, msg, source="", level="info"):
         self.logs.append((msg, level))
