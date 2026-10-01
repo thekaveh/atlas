@@ -25,7 +25,8 @@ import time
 
 
 NEO4J_IMAGE = "neo4j:5.26.31"
-WEAVIATE_IMAGE = "cr.weaviate.io/semitechnologies/weaviate:1.38.13"
+WEAVIATE_IMAGE = "cr.weaviate.io/semitechnologies/weaviate:1.38.17"
+WEAVIATE_VERSION = WEAVIATE_IMAGE.rpartition(":")[2]
 HELPER_IMAGE = "alpine:3.24.2"
 OWNER_LABEL = "com.atlas.database-restore-token"
 SCOPE_LABEL = "com.atlas.database-restore-scope"
@@ -178,7 +179,7 @@ def weaviate_status_kind(status: str) -> str:
         return "success"
     if status in {"FAILED", "CANCELED"}:
         return "failed"
-    raise ContractError(f"unknown Weaviate 1.38.13 backup status: {status!r}")
+    raise ContractError(f"unknown Weaviate {WEAVIATE_VERSION} backup status: {status!r}")
 
 
 def _process_start(pid: int) -> str | None:
@@ -1467,10 +1468,10 @@ class DatabaseCoordinator:
         self._wait_exec(
             container,
             ["wget", "-qO-", "--timeout=10", "http://127.0.0.1:8080/v1/.well-known/ready"],
-            "staged Weaviate 1.38.13",
+            f"staged Weaviate {WEAVIATE_VERSION}",
         )
         meta = self._weaviate_json(container, "/v1/meta")
-        if meta.get("version") != "1.38.13":
+        if meta.get("version") != WEAVIATE_VERSION:
             raise ContractError("staged Weaviate exact-version validation failed")
 
     def _validate_weaviate_data_api(self, container: str) -> None:
@@ -1532,7 +1533,7 @@ class DatabaseCoordinator:
             self._wait_exec(
                 container,
                 ["wget", "-qO-", "--timeout=10", "http://127.0.0.1:8080/v1/.well-known/ready"],
-                "empty staged Weaviate 1.38.13",
+                f"empty staged Weaviate {WEAVIATE_VERSION}",
             )
             response = self._weaviate_json(
                 container,

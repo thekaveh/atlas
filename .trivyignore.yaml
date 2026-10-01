@@ -546,38 +546,6 @@ vulnerabilities:
       rather than exposing a Thrift endpoint to untrusted callers. Tracked for
       the coordinated upgrade; remove this exception when the Spark family
       moves.
-  - id: CVE-2026-56854
-    paths:
-      - "bin/weaviate"
-    expired_at: 2026-11-30
-    statement: >-
-      golang.org/x/crypto v0.53.0 is vendored into the Weaviate binary. The
-      advisory (GHSA-gjhq-gjfw-99mq, rated high by GitHub though Trivy reports
-      the vendor CRITICAL score) concerns the SSH server: source-address
-      critical options were not enforced for the PasswordCallback,
-      KeyboardInteractiveCallback, NoClientAuthCallback, and GSSAPI login
-      paths. Weaviate exposes HTTP and gRPC only and runs no SSH server, so
-      the package is present but the affected entry points are never reached.
-      The fix needs x/crypto 0.55.0. Re-checked 2026-09-28: services/weaviate
-      pins 1.38.13, which still ships 0.53.0, but 1.38.17 is published and its
-      Docker Hub build (semitechnologies/weaviate) scans clean, so the fix is
-      now a pin move, tracked in #1286. Remove this exception with that move.
-  - id: CVE-2026-84304
-    paths:
-      - "bin/weaviate"
-    expired_at: 2026-11-30
-    statement: >-
-      google.golang.org/grpc v1.82.1 is vendored into the Weaviate binary.
-      Fragmented HTTP/2 DATA frames can exhaust heap memory, and an
-      unauthenticated remote caller can trigger it. Atlas publishes the gRPC
-      port through HOST_BIND_IP, which defaults to 127.0.0.1:, so port 50051
-      is loopback-bound unless an operator deliberately widens it; this is a
-      deployment mitigation rather than a code fix, and any operator who
-      exposes the port must firewall it. The fix needs grpc 1.83.1. Re-checked
-      2026-09-28: services/weaviate pins 1.38.13, which still ships 1.82.1,
-      but 1.38.17 is published and its Docker Hub build
-      (semitechnologies/weaviate) scans clean, so the fix is now a pin move,
-      tracked in #1286. Remove this exception with that move.
   - id: CVE-2025-47913
     purls:
       - "pkg:golang/golang.org/x/crypto@v0.40.0"

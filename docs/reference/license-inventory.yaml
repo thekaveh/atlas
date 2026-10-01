@@ -754,10 +754,10 @@ images:
   - R-FLOAT
 - service: weaviate
   var: WEAVIATE_IMAGE
-  image: cr.weaviate.io/semitechnologies/weaviate:1.38.13
-  upstream: Weaviate v1.38.13
+  image: cr.weaviate.io/semitechnologies/weaviate:1.38.17
+  upstream: Weaviate v1.38.17
   license: BSD-3-Clause
-  url: https://github.com/weaviate/weaviate/blob/099327c53cb1d9a785324402dc861619660dbc2b/LICENSE
+  url: https://github.com/weaviate/weaviate/blob/3f1ddfea60470ea89254b34802ca6c5c169ee390/LICENSE
 - service: weaviate
   var: WEAVIATE_INIT_IMAGE
   image: alpine:3.24.2

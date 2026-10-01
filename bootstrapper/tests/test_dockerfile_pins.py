@@ -709,7 +709,7 @@ def _run_fake_remote_scan(tmp_path: Path, mode: str) -> _FakeRemoteScanResult:
         [
             "/bin/bash",
             str(TRIVY_REMOTE_SCAN),
-            "cr.weaviate.io/semitechnologies/weaviate:1.38.13",
+            "cr.weaviate.io/semitechnologies/weaviate:1.38.17",
             "linux/arm64",
         ],
         check=False,

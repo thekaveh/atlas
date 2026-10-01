@@ -119,6 +119,8 @@ jobs:
           timeout 5m docker pull neo4j:5.26.31
           # The previous release: the live drill restores its dump into 5.26.31 (#1312).
           timeout 5m docker pull neo4j:5.26.30
+          timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.17
+          # The previous pin, whose native backups must restore into 1.38.17 (#1286).
           timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.13
           timeout 5m docker pull alpine:3.24.2
           timeout 5m docker pull supabase/postgres:17.6.1.139
@@ -285,6 +287,8 @@ jobs:
           timeout 5m docker pull neo4j:5.26.31
           # The previous release: the live drill restores its dump into 5.26.31 (#1312).
           timeout 5m docker pull neo4j:5.26.30
+          timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.17
+          # The previous pin, whose native backups must restore into 1.38.17 (#1286).
           timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.13
           timeout 5m docker pull alpine:3.24.2
           timeout 5m docker pull supabase/postgres:17.6.1.139
