@@ -107,7 +107,7 @@ def test_langfuse_topology_alias_and_env_example_contract() -> None:
         "LANGFUSE_IMAGE=langfuse/langfuse:3.115.0",
         "LANGFUSE_WORKER_IMAGE=langfuse/langfuse-worker:3.115.0",
         "LANGFUSE_CLICKHOUSE_IMAGE=clickhouse/clickhouse-server:25.8.33.6",
-        "LANGFUSE_INIT_IMAGE=alpine:3.24.1",
+        "LANGFUSE_INIT_IMAGE=alpine:3.24.2",
         "LANGFUSE_PORT=",
         "LANGFUSE_ENDPOINT=",
         "LANGFUSE_WEB_SCALE=",

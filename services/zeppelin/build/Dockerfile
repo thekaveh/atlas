@@ -120,6 +120,27 @@ RUN set -eux; \
 
 COPY --from=spark-runtime /opt/spark /opt/spark
 
+# PySpark 4.1 needs Python 3.10 or newer, and the stock image's conda envs are
+# 3.7 (the default `python`) and 3.9 (#1314). The Spark cluster's executors run
+# apache/spark:4.1.2's Python 3.10, and the driver's minor version must match
+# theirs for Python UDFs and RDD work. This Ubuntu 20.04 base has no system 3.10
+# and cannot run the Spark image's own build, so a conda-forge CPython 3.10 env
+# is installed from an explicit lock: exact package URLs with md5, no solve.
+# seed-spark-interpreter.py points PYSPARK_DRIVER_PYTHON at it.
+ARG TARGETARCH
+COPY pyspark-env/ /tmp/atlas-pyspark-env/
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64) conda_subdir=linux-64 ;; \
+      arm64) conda_subdir=linux-aarch64 ;; \
+      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    CONDA_ADD_PIP_AS_PYTHON_DEPENDENCY=false /opt/conda/bin/conda create -y \
+      -p /opt/conda/envs/pyspark --file "/tmp/atlas-pyspark-env/${conda_subdir}.txt"; \
+    /opt/conda/bin/conda clean -afy; \
+    rm -rf /tmp/atlas-pyspark-env; \
+    /opt/conda/envs/pyspark/bin/python -c 'import sys; assert sys.version_info[:2] == (3, 10), sys.version'
+
 ENV JAVA_HOME=/opt/java/openjdk
 ENV SPARK_HOME=/opt/spark
 ENV PATH="/opt/java/openjdk/bin:/opt/spark/bin:${PATH}"

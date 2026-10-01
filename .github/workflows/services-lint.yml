@@ -100,7 +100,7 @@ jobs:
 
       - name: Pull exact backup integration images
         run: |
-          timeout 5m docker pull postgres:17.10-alpine
+          timeout 5m docker pull postgres:17.11-alpine
           timeout 5m docker pull pgsty/silo:RELEASE.2026-09-16T00-00-00Z
           timeout 5m docker pull pgsty/mc:RELEASE.2026-09-16T00-00-00Z
           # The backup image installs its own pinned mc from the official
@@ -119,10 +119,12 @@ jobs:
           timeout 5m docker pull neo4j:5.26.31
           # The previous release: the live drill restores its dump into 5.26.31 (#1312).
           timeout 5m docker pull neo4j:5.26.30
+          timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.17
+          # The previous pin, whose native backups must restore into 1.38.17 (#1286).
           timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.13
-          timeout 5m docker pull alpine:3.24.1
+          timeout 5m docker pull alpine:3.24.2
           timeout 5m docker pull supabase/postgres:17.6.1.139
-          timeout 5m docker pull postgres:15.18-alpine
+          timeout 5m docker pull postgres:15.19-alpine
           timeout 5m docker pull supabase/realtime:v2.112.0
           timeout 5m docker pull supabase/storage-api:v1.61.5
           timeout 5m docker pull supabase/supavisor:2.9.5
@@ -266,7 +268,7 @@ jobs:
 
       - name: Pull exact backup integration images
         run: |
-          timeout 5m docker pull postgres:17.10-alpine
+          timeout 5m docker pull postgres:17.11-alpine
           timeout 5m docker pull pgsty/silo:RELEASE.2026-09-16T00-00-00Z
           timeout 5m docker pull pgsty/mc:RELEASE.2026-09-16T00-00-00Z
           # The backup image installs its own pinned mc from the official
@@ -285,10 +287,12 @@ jobs:
           timeout 5m docker pull neo4j:5.26.31
           # The previous release: the live drill restores its dump into 5.26.31 (#1312).
           timeout 5m docker pull neo4j:5.26.30
+          timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.17
+          # The previous pin, whose native backups must restore into 1.38.17 (#1286).
           timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.13
-          timeout 5m docker pull alpine:3.24.1
+          timeout 5m docker pull alpine:3.24.2
           timeout 5m docker pull supabase/postgres:17.6.1.139
-          timeout 5m docker pull postgres:15.18-alpine
+          timeout 5m docker pull postgres:15.19-alpine
           timeout 5m docker pull supabase/realtime:v2.112.0
           timeout 5m docker pull supabase/storage-api:v1.61.5
           timeout 5m docker pull supabase/supavisor:2.9.5

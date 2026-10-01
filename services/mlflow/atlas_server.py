@@ -1,8 +1,9 @@
-"""Atlas MLflow entrypoint with the unfixed AI Gateway surface disabled."""
+"""Atlas MLflow entrypoint with the unused AI Gateway surface disabled."""
 
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -17,9 +18,9 @@ Send = Callable[[dict[str, Any]], Awaitable[None]]
 
 _NOT_FOUND = b'{"detail":"Not Found"}'
 
-if Version(VERSION) != Version("3.15.1"):
+if Version(VERSION) != Version("3.16.1"):
     raise RuntimeError(
-        "Atlas requires exactly MLflow 3.15.1: the gateway denylist and server "
+        "Atlas requires exactly MLflow 3.16.1: the gateway denylist and server "
         "integration must be reviewed before accepting another release"
     )
 
@@ -50,7 +51,12 @@ def _is_gateway_path(path: str) -> bool:
 
 
 class GatewayDisabled:
-    """Fail closed around CVE-2026-71211 while preserving tracking APIs."""
+    """Keep the unused AI Gateway surface closed while preserving tracking APIs.
+
+    MLflow 3.16.1 fixes CVE-2026-71211 (#1287), but Atlas configures no
+    gateway endpoints and the family stores provider secrets, so the denylist
+    stays as defence in depth. Every 3.16.1 gateway route is covered.
+    """
 
     def __init__(self, upstream: Callable[[Scope, Receive, Send], Awaitable[None]]):
         self._upstream = upstream
@@ -83,6 +89,37 @@ def _guarded_app() -> GatewayDisabled:
     return GatewayDisabled(upstream_app)
 
 
+_OUTDATED_SCHEMA = "Detected out-of-date database schema"
+
+
+def _initialize_stores(backend_store: str, registry_store: str, artifact_root: str) -> None:
+    """Initialize the stores, migrating a schema an earlier pinned MLflow created.
+
+    A database created by the previous pin (3.15.1) is three migrations behind
+    3.16.1, and MLflow refuses to serve it. Like airflow-init's
+    ``airflow db migrate``, an image move migrates the metadata store at start.
+    Any other store error still fails fast.
+    """
+    from mlflow.exceptions import MlflowException
+    from mlflow.server.handlers import initialize_backend_stores
+
+    try:
+        initialize_backend_stores(backend_store, registry_store, artifact_root)
+    except MlflowException as exc:
+        if _OUTDATED_SCHEMA not in str(exc):
+            raise
+        print(
+            "atlas-mlflow: upgrading the MLflow database schema to this release",
+            file=sys.stderr,
+            flush=True,
+        )
+        for store in dict.fromkeys((backend_store, registry_store)):
+            subprocess.run(
+                [sys.executable, "-m", "mlflow", "db", "upgrade", store], check=True
+            )
+        initialize_backend_stores(backend_store, registry_store, artifact_root)
+
+
 def _serve() -> None:
     """Preserve MLflow CLI's fail-fast store initialization, then exec ASGI."""
     from mlflow.server.constants import (
@@ -90,12 +127,11 @@ def _serve() -> None:
         BACKEND_STORE_URI_ENV_VAR,
         REGISTRY_STORE_URI_ENV_VAR,
     )
-    from mlflow.server.handlers import initialize_backend_stores
 
     backend_store = os.environ[BACKEND_STORE_URI_ENV_VAR]
     registry_store = os.environ.get(REGISTRY_STORE_URI_ENV_VAR, backend_store)
     artifact_root = os.environ[ARTIFACT_ROOT_ENV_VAR]
-    initialize_backend_stores(backend_store, registry_store, artifact_root)
+    _initialize_stores(backend_store, registry_store, artifact_root)
     os.execvp(
         sys.executable,
         [

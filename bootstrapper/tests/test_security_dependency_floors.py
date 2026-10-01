@@ -323,6 +323,25 @@ def test_image_http_and_parser_security_floors() -> None:
     )
 
 
+def test_docling_localhost_and_jupyterhub_take_the_2026_10_01_fixes() -> None:
+    """Floors for the advisories that turned the runtime-lock audit red."""
+    docling_project = _text("services/docling/provider/localhost/pyproject.toml")
+    docling_lock = "services/docling/provider/localhost/uv.lock"
+    # transformers: PYSEC-2026-3929 (fixed in 5.10.0) and CVE-2026-80047;
+    # accelerate: PYSEC-2026-3804 (fixed in 1.15.0). One version per package,
+    # so the darwin fork that held transformers at 5.8.1 is gone.
+    assert '"transformers>=5.10.0"' in docling_project
+    assert '"accelerate>=1.15.0"' in docling_project
+    assert _locked_version(docling_lock, "transformers") == "5.18.0"
+    assert _locked_version(docling_lock, "accelerate") == "1.15.0"
+
+    # tornado 6.5.9: GHSA-3hv7-mjh2-fv65, GHSA-c2m8-h5v5-343r, GHSA-chx6-46f5-w4vp.
+    assert "\ntornado>=6.5.9\n" in _text("services/jupyterhub/build/requirements.txt")
+    assert "\ntornado==6.5.9\n" in _text(
+        "services/jupyterhub/build/requirements-locked.txt"
+    )
+
+
 def test_jupyter_binary_ml_stack_uses_supported_security_baseline() -> None:
     requirements = _text("services/jupyterhub/build/requirements.txt")
     lock = _text("services/jupyterhub/build/requirements-locked.txt")

@@ -4,6 +4,13 @@ on:
   schedule:
     - cron: "43 4 * * 2"
   workflow_dispatch:
+    inputs:
+      coverage:
+        description: >-
+          Report which .trivyignore.yaml rows each image uses, with Trivy's
+          suppressed findings shown, instead of gating (#1289)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -15,6 +22,8 @@ concurrency:
 jobs:
   inventory:
     name: Validate image inventory and exception policy
+    # A coverage dispatch replaces the gating remote scans with coverage-remote.
+    if: ${{ !inputs.coverage }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
@@ -67,6 +76,54 @@ jobs:
           IMAGE_PLATFORM: ${{ matrix.platform }}
         run: bash scripts/run_trivy_remote_scan.sh "$IMAGE_REF" "$IMAGE_PLATFORM"
 
+  coverage-remote:
+    # Dispatch-only (#1289): scan every manifest-owned remote image with the
+    # suppressed findings shown and print one COVERAGE line per image, so
+    # `python -m scripts.exception_coverage --summarize` can fold the logs into
+    # a per-row report, plus one FINDING line per HIGH/CRITICAL finding no row
+    # suppresses, i.e. what the gate fails on. Never gates.
+    name: Exception coverage, remote shard ${{ matrix.shard }}
+    if: ${{ inputs.coverage }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.11.19"
+
+      - name: Sync inventory dependencies
+        run: uv sync --project bootstrapper --group dev --locked
+
+      - name: Install pinned Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: v0.74.0
+          cache: true
+
+      - name: Report exception coverage for this shard
+        env:
+          TRIVY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          TRIVY_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TRIVY_USERNAME:-}" ] || [ -z "${TRIVY_PASSWORD:-}" ]; then
+            unset TRIVY_USERNAME TRIVY_PASSWORD
+          fi
+          uv run --project bootstrapper python -m scripts.exception_coverage --shard "$SHARD" --shards 8
+
   local-images:
     name: Build and scan local runtime images
     runs-on: ubuntu-24.04
@@ -88,9 +145,30 @@ jobs:
           version: v0.74.0
           cache: true
 
+      - name: Set up Python
+        if: ${{ inputs.coverage }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        if: ${{ inputs.coverage }}
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.11.19"
+
+      - name: Sync coverage dependencies
+        if: ${{ inputs.coverage }}
+        run: uv sync --project bootstrapper --group dev --locked
+
       - name: Build and scan every CI-supported local runtime image
+        env:
+          # A coverage dispatch reports which exception rows each image uses
+          # instead of gating it (#1289).
+          COVERAGE: ${{ inputs.coverage && 'true' || 'false' }}
         run: |
           set -euo pipefail
+          coverage_lines="$(mktemp)"
           image_tag=""
           cleanup_loaded_image() {
             if [ -n "$image_tag" ]; then
@@ -136,6 +214,14 @@ jobs:
               platform_tag="${platform#linux/}"
               image_tag="atlas-ci/runtime-${image_index}-${platform_tag}:${GITHUB_SHA}"
               docker buildx build --load --platform "$platform" -t "$image_tag" -f "$dockerfile_path" "$context/"
+              if [ "$COVERAGE" = true ]; then
+                uv run --project bootstrapper python -m scripts.exception_coverage \
+                  --local-image "$image_tag" --label "$context" --platform "$platform" --ignore-unfixed \
+                  | grep -E '^(COVERAGE|FINDING)[[:space:]]' | tee -a "$coverage_lines"
+                docker image rm "$image_tag"
+                image_tag=""
+                continue
+              fi
               trivy image \
                 --image-src docker \
                 --scanners vuln \
@@ -163,3 +249,7 @@ jobs:
             image_index=$((image_index + 1))
             docker buildx prune --force
           done
+          if [ "$COVERAGE" = true ]; then
+            echo "== COVERAGE summary (local images) =="
+            cat "$coverage_lines"
+          fi

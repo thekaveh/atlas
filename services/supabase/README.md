@@ -36,7 +36,7 @@ Host connections require SCRAM passwords. On upgrade, the database startup wrapp
 
 ### 2.2. Custom Post-Initialization (`supabase-db-init` service)
 
-- A dedicated, short-lived service using `postgres:15.18-alpine` image
+- A dedicated, short-lived service using `postgres:15.19-alpine` image
 - Depends on `supabase-db` and waits until it's ready using `pg_isready`
 - Executes all `.sql` files from `./services/supabase/db/scripts/` directory in alphabetical order
 - Then executes optional downstream-owned `.sql` files from `./services/supabase/db/_user/` in alphabetical order

@@ -230,7 +230,7 @@ def test_build_config_digest_tracks_resolved_local_build_args(monkeypatch):
         return CompletedProcess([], 0, stdout=json.dumps(resolved), stderr="")
 
     monkeypatch.setattr(docker_manager_module, "run_with_deadline", compose_result)
-    monkeypatch.setenv("MLFLOW_IMAGE", "ghcr.io/mlflow/mlflow:v3.15.1")
+    monkeypatch.setenv("MLFLOW_IMAGE", "ghcr.io/mlflow/mlflow:v3.16.1")
     first = manager._current_build_config_digest()
     monkeypatch.setenv("MLFLOW_IMAGE", "ghcr.io/mlflow/mlflow:v3.15.2")
     second = manager._current_build_config_digest()
@@ -281,7 +281,7 @@ def test_warm_start_rebuilds_after_mlflow_image_change(monkeypatch, tmp_path):
                 "build": {
                     "context": "/atlas/services/mlflow",
                     "args": {
-                        "BASE_IMAGE": "${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.15.1}"
+                        "BASE_IMAGE": "${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.16.1}"
                     },
                 },
                 "image": "atlas-mlflow:local",
@@ -301,7 +301,7 @@ def test_warm_start_rebuilds_after_mlflow_image_change(monkeypatch, tmp_path):
         return CompletedProcess([], 0, stdout=json.dumps(resolved), stderr="")
 
     monkeypatch.setattr(docker_manager_module, "run_with_deadline", compose_result)
-    monkeypatch.setenv("MLFLOW_IMAGE", "ghcr.io/mlflow/mlflow:v3.15.1")
+    monkeypatch.setenv("MLFLOW_IMAGE", "ghcr.io/mlflow/mlflow:v3.16.1")
     manager.mark_source_built(["mlflow"])
     monkeypatch.setenv("MLFLOW_IMAGE", "ghcr.io/mlflow/mlflow:v3.15.2")
     calls: list[list[str]] = []

@@ -224,9 +224,10 @@ neo4j_snapshot_is_restorable \
   "$(metadata_value "${work}/databases.manifest" neo4j_version)" || {
   echo "database restore: Neo4j snapshot version is not restorable" >&2; exit 65;
 }
-[ "$(metadata_value "${work}/databases.manifest" weaviate_image)" = "${EXPECTED_WEAVIATE_IMAGE}" ] && \
-  [ "$(metadata_value "${work}/databases.manifest" weaviate_version)" = "${EXPECTED_WEAVIATE_VERSION}" ] || {
-  echo "database restore: Weaviate exact-version mismatch" >&2; exit 65;
+weaviate_snapshot_is_restorable \
+  "$(metadata_value "${work}/databases.manifest" weaviate_image)" \
+  "$(metadata_value "${work}/databases.manifest" weaviate_version)" || {
+  echo "database restore: Weaviate snapshot version is not restorable" >&2; exit 65;
 }
 
 neo4j_state="$(metadata_value "${work}/databases.manifest" neo4j_state)"

@@ -1249,10 +1249,6 @@ def test_fleet_exceptions_stay_scoped_to_their_owning_images() -> None:
 
     assert {(row.vulnerability_id, tuple(sorted(row.paths))) for row in rows} == {
         (
-            "CVE-2026-69247",
-            ("usr/local/lib/python3.10/site-packages/cryptography-49.0.0.dist-info/METADATA",),
-        ),
-        (
             "CVE-2026-68497",
             tuple(spark_jars + jar for jar in (
                 "iceberg-spark-runtime-4.1_2.13-1.11.0.jar",
@@ -1602,9 +1598,9 @@ def test_jupyter_runtime_pins_patched_python_and_node_tooling() -> None:
 
     for package in (
         "brotli==1.2.0",
-        "jupyterlab==4.6.3",
+        "jupyterlab==4.6.4",
         "jupyterlab-git==0.54.1",
-        "notebook==7.6.2",
+        "notebook==7.6.3",
         "wheel==0.46.2",
     ):
         assert package in requirements.lower()
@@ -1694,7 +1690,9 @@ def test_container_security_workflow_pins_scanner_and_failure_policy() -> None:
         local_build_scan.count("trivy image"),
         local_build_scan.count("--ignore-unfixed"),
         "Unfixed High/Critical findings (informational)" in local_build_scan,
-    ) == (3, 3, 2, 1, 2, 1, True)
+    # The second --ignore-unfixed is the coverage dispatch mirroring this
+    # gate's unfixed-finding policy (#1289); the gate itself still has one.
+    ) == (3, 3, 2, 1, 2, 2, True)
     assert '--platform "$image_platform"' in remote_wrapper
 
 

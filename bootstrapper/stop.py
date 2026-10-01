@@ -441,10 +441,13 @@ Examples:
             self.banner.console.print("   ✅ All containers stopped and removed")
             self.banner.console.print("   ✅ All data volumes removed")
             self.banner.console.print("   ✅ Project orphans and default network removed")
+            # Cold stop deletes data, not configuration (#1032).
+            self.banner.console.print("   ✅ Configuration (.env) kept")
         else:
             self.banner.console.print("🎯 Atlas stopped successfully", style="bold bright_green")
             self.banner.console.print("   ✅ All containers stopped and removed")
             self.banner.console.print("   ✅ Data volumes preserved")
+            self.banner.console.print("   ✅ Configuration (.env) kept")
             
         if clean_hosts:
             if hosts_ok:

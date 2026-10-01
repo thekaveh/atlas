@@ -4,7 +4,7 @@ services:
     build:
       context: ./init
       args:
-        BASE_IMAGE: ${LANGFUSE_INIT_IMAGE:-alpine:3.24.1}
+        BASE_IMAGE: ${LANGFUSE_INIT_IMAGE:-alpine:3.24.2}
     image: ${PROJECT_NAME}-langfuse-init:local
     container_name: ${PROJECT_NAME}-langfuse-init
     restart: "no"
