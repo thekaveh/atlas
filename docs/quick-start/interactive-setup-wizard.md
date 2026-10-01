@@ -385,20 +385,29 @@ You confirm to launch (the **Launch the stack with this configuration?** step is
 
 The `All services started` line means Compose converged — every container the plan asked for was created and reported up. It does not mean the stack has been checked, because the post-start probes run after that line (#1032).
 
-Those probes now report their own outcome, and each one is one of three things:
+Those probes now report their own outcome, and each one is one of four things:
 
 | Outcome | Meaning |
 |---|---|
 | `verified` | The probe ran and found nothing wrong. |
+| `failed` | The probe ran and found a problem — for example a published port that differs from `.env`. |
 | `unverified` | The probe raised. The launch is **not** a clean success, and the reason is in the Logs tab. |
-| `skipped` | The probe does not apply to this configuration. Labelled with its reason — a skip is not a pass. |
+| `skipped` | The probe does not apply to this configuration. Labelled with its reason — a skip is not a pass. The ComfyUI host-models check, for instance, applies only to `COMFYUI_SOURCE=localhost`. |
 
-When any probe comes back unverified you get a qualified headline naming which one and where to look, instead of the unqualified success line being the last word:
+Once the probes finish, the launch ends with one result block naming each stage. The `--no-tui` flow prints the same block for the same probe outcomes, so both front ends state the same result; only the place named in the next action differs (the Logs tab here, the output above under `--no-tui`):
 
 ```text
-Started, but not verified: ports · containers are up; check the Logs tab
-for the reason before relying on these
+⚠️  Launch result: unverified — started, but not verified: ports · containers are up
+  ✓ Configuration saved — .env and generated configuration written
+  ✓ Compose converged — containers started; required init containers succeeded
+  – Service health — skipped: not awaited; containers were started without waiting for healthchecks, and `docker compose ps` shows live health
+  ? Application verification — ports unverified (RuntimeError: …) · comfyui-models skipped (applies only to COMFYUI_SOURCE=localhost; this run uses container-cpu)
+  Next: check the Logs tab for the reason before relying on these services; `docker compose ps` shows what is running.
 ```
+
+The result is `verified` only when every applicable probe passed; a probe that found a problem makes it `degraded`, and one that raised makes it `unverified`. A qualified result also raises a warning toast, so you see it from the Setup tab too. Service health is awaited only by `./start.sh --detach` (and `--json`), where the detached status summary decides it; a stack that is not running or healthy there is `failed`.
+
+Severity: the readiness gates still decide the exit code, exactly as before — the setup steps, `docker compose up`, the required one-shot init containers, the n8n reactivation and, under `--detach`, the detached health summary. Post-start probes are advisory: they qualify the result but never fail a launch whose containers converged. Under `--no-tui` a probe that raised used to escape as `Unexpected error during startup` (exit 1) after the stack was already up; it is now reported as `unverified` like it is here.
 
 Before this, both probes were wrapped in a blanket exception suppressor, so a failed port check or model check was discarded with no log line and no change to the reported result.
 
@@ -415,6 +424,7 @@ After confirmation, the wizard transitions in-place from prompts to the launch p
 - Per-service container names (e.g. `atlas-supabase-db`, `atlas-ollama-pull`) are **color-coded** based on `bootstrapper/ui/textual/palette.py::SOURCE_COLORS`. Unknown service names get a stable hue from a small md5-based palette so every service in the stack remains visually distinguishable.
 - The full launch-phase output is also tee'd to an owner-only `/tmp/atlas-launch-<timestamp>-<unique>.log` for post-mortem inspection. See [Troubleshooting](troubleshooting.md#2-session-log).
 - Press `Ctrl+Q` to detach cleanly from the wizard UI. `Ctrl+C` sends SIGINT — fine after services are up (already-detached compose containers keep running) but during the launch pipeline it may interrupt a compose step mid-flight, leaving the stack in a partial state. Either way, services that have finished starting keep running; resume log streaming with `docker compose logs -f <service>`.
+- Each way out states its consequences (§9.2). Once the stack is up, the log pane lists `ctrl+q`, `ctrl+s` and `ctrl+x` with what each does to services, configuration and data. Cancelling with `Ctrl+C` prints, after the screen closes, that containers already started keep running, the configuration written so far is kept and no data was deleted.
 
 ### 9.1. Recovery without deleting data
 
@@ -451,6 +461,20 @@ different action re-arms its own confirmation; an expired confirmation requires
 another first press. The cold-stop warning remains in the session log for review.
 Read the data-loss warning and back up needed data before confirming. Detaching
 does not delete data.
+
+The four ways out are distinct, and each states all three consequences (#1032):
+
+| Action | Services | Configuration (`.env`) | Persistent data |
+|---|---|---|---|
+| Detach (`Ctrl+Q`; `Ctrl+C` while following logs under `--no-tui`) | keep running | kept | not deleted |
+| Cancel startup (`Ctrl+C` while starting) | containers already started keep running | what was written so far is kept | not deleted |
+| Stop (`Ctrl+S` twice, or `./stop.sh`) | containers stop | kept | not deleted (volumes kept) |
+| Cold stop (`Ctrl+X` twice, or `./stop.sh --cold`) | containers stop | kept | **deleted** (Compose-managed volumes) |
+
+Only cold stop deletes data, and it needs an explicit confirmation: the second
+`Ctrl+X` press, or the `--cold` flag itself. Cancelling never deletes anything.
+Declining the `--no-tui` pre-launch summary starts nothing and keeps the
+configuration written up to that point.
 
 ## 10. Navigation
 

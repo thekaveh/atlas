@@ -47,7 +47,12 @@ def test_launch_cannot_detach_before_startup_reaches_log_stream(monkeypatch):
         screen.action_quit_wizard()
 
         assert exit_codes == []
-        assert notifications == ["Startup is still running; Ctrl+C cancels it."]
+        # #1032: the cancel hint names what cancelling leaves behind.
+        assert notifications == [
+            "Startup is still running; Ctrl+C cancels it (containers already "
+            "started keep running · configuration written so far kept · no "
+            "data deleted)."
+        ]
     finally:
         _close_test_screen(screen)
 

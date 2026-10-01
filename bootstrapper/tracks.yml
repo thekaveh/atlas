@@ -1,8 +1,11 @@
 # Per-track configurable-service membership.
 #
-# The always-on tier — locked manifests + LLM Engine + Prometheus + Grafana
-# + cloud-provider keys — is implicit and applies to every track. It is
-# NOT enumerated here. Cloud-provider toggles (cloud_openai, etc.) never
+# The always-prompted tier — LLM Engine + Prometheus + Grafana + cloud-provider
+# keys — is implicit and applies to every track; being prompted is not the
+# same as running (Prometheus and Grafana ship disabled, a blank cloud key
+# leaves that provider off). The locked always-running manifests (Supabase,
+# Kong, Redis, LiteLLM, Backend) are never prompted. Neither set is
+# enumerated here. Cloud-provider toggles (cloud_openai, etc.) never
 # reach the track-skip predicate because they're collected via dedicated
 # secret-input steps, not as regular wizard sources. LLM Engine, Prometheus,
 # and Grafana are listed in tracks.py::compute_always_on() as the
