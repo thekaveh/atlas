@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
 import yaml
 
 from services.service_config import ServiceConfig
@@ -280,3 +281,43 @@ def test_zeppelin_docs_describe_zero_touch_lakehouse_seed() -> None:
     assert "io.trino:trino-jdbc:482" in readme
     assert "jdbc:trino://trino:8080/lakehouse" in readme
     assert "spark.remote=sc://spark-connect:15002" not in readme
+
+
+# The Python minor release each pinned Spark image's executors run. A Spark bump
+# is a KeyError here until its image is checked (apache/spark:4.1.2 is Ubuntu
+# 22.04, whose python3 is 3.10.12; checked 2026-10-01).
+SPARK_IMAGE_PYTHON_MINOR = {"apache/spark:4.1.2": "3.10"}
+
+
+def test_zeppelin_seeds_a_pyspark_driver_python_the_image_installs() -> None:
+    """#1314: PySpark 4.1 needs Python >= 3.10; the stock conda envs are 3.7 and 3.9."""
+    props = _load_seed_module().build_atlas_properties({})
+    assert (
+        props["PYSPARK_DRIVER_PYTHON"], props["PYSPARK_PYTHON"],
+        props["zeppelin.pyspark.useIPython"],
+    ) == ("/opt/conda/envs/pyspark/bin/python", "python3", "false")
+    dockerfile = (SERVICE_DIR / "build" / "Dockerfile").read_text()
+    assert "-p /opt/conda/envs/pyspark --file" in dockerfile
+    assert "sys.version_info[:2] == (3, 10)" in dockerfile
+
+
+def _spark_executor_python_minor() -> str:
+    manifest = yaml.safe_load((REPO_ROOT / "services/spark/service.yml").read_text())
+    (image,) = [row["default"] for row in manifest["images"] if row["var"] == "SPARK_IMAGE"]
+    return SPARK_IMAGE_PYTHON_MINOR[image]
+
+
+@pytest.mark.parametrize("conda_subdir", ("linux-64", "linux-aarch64"))
+def test_zeppelin_pyspark_env_lock_matches_the_spark_executors(conda_subdir: str) -> None:
+    """The driver's minor release equals the executors' for UDFs and RDD work."""
+    lock = (SERVICE_DIR / "build" / "pyspark-env" / f"{conda_subdir}.txt").read_text()
+    urls = [line for line in lock.splitlines() if line.startswith("https://")]
+    channels = {url.rsplit("/", 1)[0] + "/" for url in urls}
+    assert "@EXPLICIT" in lock.splitlines()
+    assert channels <= {
+        f"https://conda.anaconda.org/conda-forge/{conda_subdir}/",
+        "https://conda.anaconda.org/conda-forge/noarch/",
+    }
+    assert {len(url.rpartition("#")[2]) for url in urls} == {32}
+    (python,) = [url for url in urls if "/python-3." in url]
+    assert f"/python-{_spark_executor_python_minor()}." in python

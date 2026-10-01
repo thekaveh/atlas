@@ -19,6 +19,7 @@ TRINO_JDBC_DEFAULT_DRIVER = "io.trino.jdbc.TrinoDriver"
 TRINO_JDBC_DEFAULT_URL = "jdbc:trino://trino:8080/lakehouse"
 TRINO_JDBC_DEFAULT_USER = "atlas"
 TRINO_JDBC_DEFAULT_DEPENDENCY = "io.trino:trino-jdbc:482"
+PYSPARK_DRIVER_PYTHON = "/opt/conda/envs/pyspark/bin/python"
 
 
 def _env(env: dict[str, str], name: str, default: str = "") -> str:
@@ -38,6 +39,12 @@ def build_atlas_properties(env: dict[str, str]) -> dict[str, str]:
         "SPARK_HOME": _env(env, "SPARK_HOME", "/opt/spark"),
         "spark.master": _env(env, "SPARK_MASTER", "spark://spark-master:7077"),
         "zeppelin.spark.enableSupportedVersionCheck": "false",
+        # PySpark 4.1 needs Python >= 3.10 (#1314). The driver runs the image's
+        # conda-forge 3.10 env; executors run the Spark image's python3 (3.10),
+        # so the minor versions match. IPython is not installed in that env.
+        "PYSPARK_PYTHON": "python3",
+        "PYSPARK_DRIVER_PYTHON": PYSPARK_DRIVER_PYTHON,
+        "zeppelin.pyspark.useIPython": "false",
         "spark.submit.deployMode": "client",
         "spark.driver.bindAddress": "0.0.0.0",
         "spark.driver.host": "zeppelin",
