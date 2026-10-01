@@ -875,7 +875,11 @@ class DisposablePostgres:
         self, statement: str, *, user: str = "supabase_admin", password: str | None = None,
         database: str = "postgres", check: bool = True,
     ):
-        args = ["--pull=never", "--network", self.network]
+        # Per-phase psql deadlines make a stall name its phase (#1306).
+        args = [
+            "--pull=never", "--network", self.network,
+            *seed_harness.PSQL_PHASE_DEADLINE_ENV,
+        ]
         if password is not None:
             args.extend(("-e", f"PGPASSWORD={password}"))
         args.extend(
@@ -885,7 +889,13 @@ class DisposablePostgres:
                 "-Atqc", statement,
             )
         )
-        return _run_owned_role_client(args, check=check, timeout=20)
+        return seed_harness.run_role_drill_client(
+            lambda: _run_owned_role_client(
+                args, check=check,
+                timeout=seed_harness.PSQL_CLIENT_PROCESS_TIMEOUT,
+            ),
+            statement,
+        )
 
 
 @pytest.fixture(scope="module")
@@ -1052,6 +1062,64 @@ def test_disposable_role_cleanup_failure_preserves_primary_exception(
     )
 
     assert "cleanup could not be proven" in "\n".join(primary.__notes__)
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected"),
+    (
+        (
+            "connect",
+            (seed_harness.RoleDrillConnectTimeout, 2, "port 5432 failed: timeout expired"),
+        ),
+        (
+            "lock",
+            (seed_harness.RoleDrillLockTimeout, 1, "due to lock timeout"),
+        ),
+        (
+            "statement",
+            (seed_harness.RoleDrillStatementTimeout, 1, "due to statement timeout"),
+        ),
+    ),
+)
+def test_role_drill_client_stall_names_its_phase_and_retries_only_connect(
+    fake_role_client_docker, outcome: str, expected: tuple,
+) -> None:
+    error, client_runs, server_message = expected
+    # A third scripted success proves the connect retry stops at one.
+    runs = fake_role_client_docker(outcome, outcome, "ok")
+    statement = 'DROP TABLE public."task3_meta_table_0123abcd"'
+    with pytest.raises(error) as caught:
+        DisposablePostgres("postgres", "network", "password").network_sql(
+            statement, user="atlas_meta", check=False
+        )
+    assert type(caught.value) is error
+    message = str(caught.value)
+    assert f"in the {error.phase} phase ({error.deadline})" in message
+    assert repr(statement) in message and server_message in message
+    assert len(runs.read_text().splitlines()) == client_runs
+
+
+def test_role_drill_connect_timeout_retry_returns_the_second_client(
+    fake_role_client_docker,
+) -> None:
+    runs = fake_role_client_docker("connect", "ok", "ok")
+    database = DisposablePostgres("postgres", "network", "password")
+    assert database.network_sql("SELECT 1").stdout == "1\n"
+    assert len(runs.read_text().splitlines()) == 2
+
+
+def test_role_drill_client_phase_deadlines_fit_inside_the_process_budget(
+    fake_role_client_docker,
+) -> None:
+    runs = fake_role_client_docker("ok")
+    DisposablePostgres("postgres", "network", "password").network_sql("SELECT 1")
+    (client_run,) = runs.read_text().splitlines()
+    assert " ".join(seed_harness.PSQL_PHASE_DEADLINE_ENV) in client_run
+    assert seed_harness.PSQL_LOCK_TIMEOUT < seed_harness.PSQL_STATEMENT_TIMEOUT
+    assert (
+        seed_harness.PSQL_CONNECT_TIMEOUT + seed_harness.PSQL_STATEMENT_TIMEOUT
+        < seed_harness.PSQL_CLIENT_PROCESS_TIMEOUT
+    )
 
 
 def test_host_tcp_rejects_passwordless_authentication(
