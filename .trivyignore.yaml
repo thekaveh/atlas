@@ -4822,22 +4822,6 @@ vulnerabilities:
   # Fleet findings from the first full-fleet Final-image scan (#1310, job
   # 109644550222), triaged in #1312. Each row names exact paths in the owning
   # image, so an identical jar anywhere else still fails the gate.
-  - id: CVE-2026-69247
-    paths:
-      - "usr/local/lib/python3.10/site-packages/cryptography-49.0.0.dist-info/METADATA"
-    expired_at: 2026-12-28
-    statement: >-
-      cryptography 49.0.0 ships in the ghcr.io/mlflow/mlflow:v3.15.1 base of the
-      MLflow image (services/mlflow). MLflow 3.15.1 declares cryptography<50 and
-      the build runs pip check, so the 50.0.0 fix cannot be layered on top. The
-      flaw is a Bleichenbacher oracle in PKCS#7 EnvelopedData decryption; the
-      mlflow, mlflow-skinny and mlflow-tracing 3.15.1 wheels contain no PKCS#7
-      call, so the tracking server never reaches it. MLflow is disabled by
-      default (MLFLOW_SOURCE=disabled). #998 deleted this exception after
-      misattributing it to the notebook image; it is restored here, scoped to
-      the MLflow path. Remove when MLflow moves to 3.16.x, which allows
-      cryptography<51 (#1287, #1312).
-
   - id: CVE-2026-68497
     paths:
       - "opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
