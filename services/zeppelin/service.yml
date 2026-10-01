@@ -7,7 +7,7 @@ capabilities:
   - name: "Spark-first interactive notebooks"
     status: supported
     verification: tested
-    note: "Atlas bundles a matching Spark runtime and seeds the standalone Spark interpreter for Scala, PySpark, and SQL paragraphs against the in-stack cluster."
+    note: "Atlas bundles a matching Spark runtime and seeds the standalone Spark interpreter for Scala, PySpark, and SQL paragraphs against the in-stack cluster. PySpark's driver runs a bundled CPython 3.10, the minor release the cluster's executors run (#1314)."
   - name: "MinIO and Iceberg lakehouse notebooks"
     status: partial
     verification: tested

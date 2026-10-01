@@ -546,38 +546,6 @@ vulnerabilities:
       rather than exposing a Thrift endpoint to untrusted callers. Tracked for
       the coordinated upgrade; remove this exception when the Spark family
       moves.
-  - id: CVE-2026-56854
-    paths:
-      - "bin/weaviate"
-    expired_at: 2026-11-30
-    statement: >-
-      golang.org/x/crypto v0.53.0 is vendored into the Weaviate binary. The
-      advisory (GHSA-gjhq-gjfw-99mq, rated high by GitHub though Trivy reports
-      the vendor CRITICAL score) concerns the SSH server: source-address
-      critical options were not enforced for the PasswordCallback,
-      KeyboardInteractiveCallback, NoClientAuthCallback, and GSSAPI login
-      paths. Weaviate exposes HTTP and gRPC only and runs no SSH server, so
-      the package is present but the affected entry points are never reached.
-      The fix needs x/crypto 0.55.0. Re-checked 2026-09-28: services/weaviate
-      pins 1.38.13, which still ships 0.53.0, but 1.38.17 is published and its
-      Docker Hub build (semitechnologies/weaviate) scans clean, so the fix is
-      now a pin move, tracked in #1286. Remove this exception with that move.
-  - id: CVE-2026-84304
-    paths:
-      - "bin/weaviate"
-    expired_at: 2026-11-30
-    statement: >-
-      google.golang.org/grpc v1.82.1 is vendored into the Weaviate binary.
-      Fragmented HTTP/2 DATA frames can exhaust heap memory, and an
-      unauthenticated remote caller can trigger it. Atlas publishes the gRPC
-      port through HOST_BIND_IP, which defaults to 127.0.0.1:, so port 50051
-      is loopback-bound unless an operator deliberately widens it; this is a
-      deployment mitigation rather than a code fix, and any operator who
-      exposes the port must firewall it. The fix needs grpc 1.83.1. Re-checked
-      2026-09-28: services/weaviate pins 1.38.13, which still ships 1.82.1,
-      but 1.38.17 is published and its Docker Hub build
-      (semitechnologies/weaviate) scans clean, so the fix is now a pin move,
-      tracked in #1286. Remove this exception with that move.
   - id: CVE-2025-47913
     purls:
       - "pkg:golang/golang.org/x/crypto@v0.40.0"
@@ -2557,16 +2525,13 @@ vulnerabilities:
       - "pkg:apk/alpine/libssl3@3.5.7-r0?arch=aarch64&distro=3.24.1"
     expired_at: 2026-12-09
     statement: >-
-      OpenSSL 3.5.7-r0 (libcrypto3/libssl3) in the alpine:3.24.1 base of the
-      comfyui, hermes, label-studio, langfuse, lightrag, mlflow, ollama
-      (pull), openclaw and weaviate init containers, and in the
-      postgres:15.18-alpine (supabase-db and iceberg-rest init),
-      postgres:17.10-alpine (backup build base) and redpanda console v3.8.0
-      images. None starts an OpenSSL QUIC listener, so the affected
-      server-only allocation path is unreachable. Re-checked 2026-09-28:
-      alpine:3.24.2 (published 2026-09-18) ships OpenSSL 3.5.8-r0 and scans
-      clean, so the fix is now a pin move, tracked in #1285. Remove this
-      exception when no pinned image carries 3.5.7-r0.
+      OpenSSL 3.5.7-r0 (libcrypto3/libssl3) in the Alpine 3.24.1 base of the
+      Redpanda Console v3.8.0 image, the only pinned image that still carries
+      it. #1285 moved the alpine init pins to 3.24.2 and the postgres-alpine
+      pins to 15.19 and 17.11, all of which ship OpenSSL 3.5.8-r0 (checked
+      2026-10-01). Console starts no OpenSSL QUIC listener, so the affected
+      server-only allocation path is unreachable. Remove this exception when
+      the Console pin moves to a release built on Alpine 3.24.2 or later.
   - id: GHSA-r7wm-3cxj-wff9
     purls:
       - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.18.6"
@@ -4387,24 +4352,6 @@ vulnerabilities:
       shaded JARs would create an unsupported interpreter mix. Atlas binds Zeppelin
       to a fixed loopback port with no Kong route, limiting access to local operators
       or explicit SSH tunnels. Remove this exception with a compatible upstream release.
-  - id: CVE-2026-71211
-    purls:
-      - "pkg:pypi/mlflow@3.15.1"
-    expired_at: 2026-11-30
-    statement: >-
-      CVE-2026-71211 (AI Gateway SSRF) affects the MLflow 3.15.1 server that
-      services/mlflow pins (moved there to close CVE-2026-64849). Re-checked
-      2026-09-28: PyPI's advisory data lists it for 3.15.1 and for neither
-      3.16.0 nor 3.16.1, so the fix is now reachable by moving the server
-      image; that move needs the exact-version entrypoint check and the
-      gateway guard re-verified, and is tracked in #1287. Until then Atlas
-      starts the server only through services/mlflow/atlas_server.py, whose
-      outer ASGI guard returns 404 for every prefixed or unprefixed native,
-      REST, and AJAX AI Gateway route family while preserving tracking and
-      artifact APIs. Unit coverage and a required pinned-image HTTP smoke
-      exercise both blocked and allowed paths. Jupyter's copy is already on
-      MLflow 3.16.0, and a fail-closed source scan covers every shipped
-      executable surface. Remove this exception with the server move.
 
 # TrueForge agent-runtime image (tfy.jfrog.io/tfy-images/trueforge:0.2.0-8b1d98e,
 # reviewed index digest sha256:db9de64e1ff354a858dc646f23cf16c70e300c457acb86527e4a0b1cd556f573,

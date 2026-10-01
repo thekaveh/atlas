@@ -620,7 +620,7 @@ class MemoryStore:
                         or actual_base_url != expected_base_url
                     )
                     if replace:
-                        # The pinned Weaviate 1.38.13 class vectorizer config is
+                        # The pinned Weaviate 1.38.17 class vectorizer config is
                         # immutable. Persist dirty intent before destructive
                         # replacement so a crash can never expose an empty,
                         # apparently synchronized secondary.

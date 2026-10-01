@@ -57,7 +57,7 @@ def _stage_backup_script_siblings(tmp_path: Path) -> None:
 RESTORE = REPO / "services/backup/init/scripts/restore-postgres.sh"
 BACKUP = REPO / "services/backup/init/scripts/backup-all.sh"
 S3_CLIENT = REPO / "services/backup/init/scripts/s3-client.sh"
-POSTGRES_IMAGE = "postgres:17.10-alpine"
+POSTGRES_IMAGE = "postgres:17.11-alpine"
 COMMAND_TIMEOUT = 30
 POSTGRES_CREATE_TIMEOUT = 60
 MANIFEST_HMAC_KEY = "a" * 64

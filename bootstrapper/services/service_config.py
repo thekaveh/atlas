@@ -2060,7 +2060,7 @@ class ServiceConfig:
             print(f"❌ Failed to update .env file: {e}")
             return False
     
-    def check_comfyui_local_models(self, on_line=None) -> None:
+    def check_comfyui_local_models(self, on_line=None) -> bool | None:
         """
         Check ComfyUI local models directory.
         Replicates the ComfyUI local models check from start.sh.
@@ -2069,6 +2069,10 @@ class ServiceConfig:
         ``on_line(msg, level)`` — matching show_container_status_and_verify_ports
         — so a late check after the log pane detaches can't smear the bare
         terminal. When None (legacy/linear mode), falls back to print().
+
+        Returns whether the directory exists, or None when the check does not
+        apply (ComfyUI is not on localhost), so the caller can report a skip
+        as a skip rather than as a pass (#1032).
         """
         def _emit(msg: str, level: str = "ok") -> None:
             if on_line is not None:
@@ -2091,9 +2095,11 @@ class ServiceConfig:
 
             if models_path.exists():
                 _emit(f"  • ✅ ComfyUI local models found: {models_path}", "ok")
-            else:
-                _emit(f"  • ⚠️  ComfyUI local models directory not found: {models_path}", "warn")
-                _emit("    Please ensure your local ComfyUI models are in the correct location", "warn")
+                return True
+            _emit(f"  • ⚠️  ComfyUI local models directory not found: {models_path}", "warn")
+            _emit("    Please ensure your local ComfyUI models are in the correct location", "warn")
+            return False
+        return None
     
     def generate_and_update_env(self, create_backup: bool = True) -> bool:
         """

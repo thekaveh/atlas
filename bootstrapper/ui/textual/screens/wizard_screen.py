@@ -78,6 +78,27 @@ from ..widgets import (
     ServiceTable,
 )
 from ..widgets.command_summary import SECRET_MASK
+from core.launch_outcome import (
+    CANCEL,
+    COLD_STOP,
+    DETACH,
+    LAUNCH_VERIFIED,
+    STOP,
+    UNVERIFIED,
+    probe_log_lines,
+    run_probe,
+    summarize_launch,
+)
+
+# How a launch-result tone renders in the log pane. The tones come from the
+# shared core.launch_outcome block, which the --no-tui flow prints verbatim.
+_TONE_STYLES = {
+    "ok": "bold green",
+    "warn": "bold yellow",
+    "error": "bold red",
+    "info": "bold cyan",
+    "dim": "dim",
+}
 
 
 # Multi-container service families surface their discovery-anchor container
@@ -2334,65 +2355,69 @@ class WizardScreen(Screen):
 
         Outcomes are the vocabulary the launch summary reports:
 
-        ``verified``    the probe ran and raised nothing.
+        ``verified``    the probe ran and found nothing wrong.
+        ``failed``      the probe ran and reported a problem (for example a
+                        port mapping that differs from .env).
         ``unverified``  the probe raised. The launch is NOT a clean success,
                         and the reason is logged rather than suppressed.
-        ``skipped``     the probe is not available in this configuration,
+        ``skipped``     the probe does not apply to this configuration,
                         which is a real answer and is labelled as one.
 
         A probe that cannot run is not the same as a probe that passed, and
         neither is the same as one that blew up — collapsing all three into
         silence is the defect this replaces (#1032).
         """
-        if probe is None:
-            return (name, "skipped", "not available in this configuration")
-        try:
-            await asyncio.to_thread(probe, on_line=on_line)
-        except Exception as exc:  # noqa: BLE001
-            detail = f"{type(exc).__name__}: {exc}"
+        # core.launch_outcome.run_probe owns the classification, so the
+        # --no-tui flow classifies the same probe result the same way. A
+        # probe's own return value now counts: a positive mismatch count or
+        # False is ``failed``, and a ProbeSkipped is ``skipped`` with its
+        # reason, where both used to read as verified.
+        outcome = await asyncio.to_thread(run_probe, name, probe, on_line=on_line)
+        if outcome.outcome == UNVERIFIED:
             self._safe_log(
-                f"[verify/{name}] did not complete — {detail}",
+                f"[verify/{name}] did not complete — {outcome.detail}",
                 source="verify", level="error",
             )
-            return (name, "unverified", detail)
-        return (name, "verified", "")
+        return outcome
 
     def _report_verification(self, outcomes) -> None:
-        """State the launch's verification result, and qualify the headline
-        when a probe did not pass.
+        """State the launch's result, and qualify it when a probe did not pass.
 
         ``✅ All services started`` is written before these probes run, so
-        it can only ever mean "compose converged". When a probe comes back
-        unverified this appends the qualification and a next action instead
-        of leaving the unqualified claim standing as the last word (#1032).
+        it can only ever mean "compose converged". The block written here is
+        ``core.launch_outcome.summarize_launch``'s — the same lines the
+        ``--no-tui`` flow prints for the same outcomes — so a failed,
+        unverified or skipped probe is named, with a next action, instead of
+        leaving the unqualified claim standing as the last word (#1032).
         """
-        unverified = [name for name, outcome, _ in outcomes if outcome == "unverified"]
-        skipped = [name for name, outcome, _ in outcomes if outcome == "skipped"]
-        for name, outcome, detail in outcomes:
-            suffix = f" — {detail}" if detail else ""
-            self._safe_log(
-                f"[verify/{name}] {outcome}{suffix}",
-                source="verify",
-                level="error" if outcome == "unverified" else "info",
+        for message, level in probe_log_lines(outcomes):
+            self._safe_log(message, source="verify", level=level)
+        result = summarize_launch(outcomes, where="the Logs tab")
+        for text, tone in result.rows:
+            self._write_status(text, style=_TONE_STYLES[tone], source="pipeline")
+        if result.outcome != LAUNCH_VERIFIED:
+            # The block lands in the log pane; a user on the Setup tab would
+            # otherwise never learn the launch is qualified.
+            self.notify(
+                result.lines[0].strip() + " — see the Logs tab.",
+                title="Launch not fully verified", severity="warning", timeout=10,
             )
-        if unverified:
-            self._write_status(
-                "⚠️  Started, but not verified: "
-                + ", ".join(unverified)
-                + " · containers are up; check the Logs tab for the reason "
-                "before relying on these",
-                style="bold yellow", source="pipeline",
-            )
-            return
-        if skipped:
-            self._write_status(
-                "✅ Verified (skipped: " + ", ".join(skipped) + ")",
-                style="bold green", source="pipeline",
-            )
-            return
+
+    def _announce_lifecycle_actions(self) -> None:
+        """Name what each way out of a running launch does (#1032).
+
+        Detach, stop and cold stop each state whether services keep running,
+        whether configuration is kept and whether data is deleted. Only cold
+        stop deletes anything, and both stops still need their second press.
+        """
+        self._write_status(DETACH.line("ctrl+q"), style="cyan", source="pipeline")
         self._write_status(
-            "✅ Post-start verification passed",
-            style="bold green", source="pipeline",
+            STOP.line("ctrl+s", "press twice to confirm"),
+            style="cyan", source="pipeline",
+        )
+        self._write_status(
+            COLD_STOP.line("ctrl+x", "press twice to confirm"),
+            style="yellow", source="pipeline",
         )
 
     def _refresh_info_panel(self) -> None:
@@ -2745,8 +2770,9 @@ class WizardScreen(Screen):
 
     def action_quit_wizard(self) -> None:
         if self._phase == "launch" and not self._launch_detach_ready:
+            # Cancelling is not a teardown: say what it leaves (#1032).
             self.notify(
-                "Startup is still running; Ctrl+C cancels it.",
+                f"Startup is still running; Ctrl+C cancels it ({CANCEL.consequences}).",
                 severity="warning",
                 timeout=6,
             )
@@ -3083,7 +3109,7 @@ class WizardScreen(Screen):
             )
         else:
             self.notify(
-                "Stop the stack? Containers go down, volumes are kept. "
+                f"Stop the stack? {STOP.consequences.capitalize()}. "
                 "Press ctrl+s again within 8 seconds to confirm.",
                 severity="warning", timeout=8,
             )
@@ -3641,6 +3667,7 @@ class WizardScreen(Screen):
                 "📋 Streaming docker logs · ctrl+q to detach",
                 style="bold cyan", source="pipeline",
             )
+            self._announce_lifecycle_actions()
             await self._run_compose(["logs", "-f"])
         except asyncio.CancelledError:
             raise

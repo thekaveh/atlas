@@ -12,10 +12,14 @@ connections for supabase_admin but trusts TCP loopback unconditionally.
 
 ``python -m tests.seed_harness`` (run from bootstrapper/) regenerates the
 committed golden fixtures.
+
+It also owns the phase deadlines of the database-role drills' one-shot psql
+clients, so a stalled client names the phase it stalled in (#1306).
 """
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -23,7 +27,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 import pytest
 
@@ -437,6 +441,178 @@ def wait_for_postgres(
             return
         remaining = _probe_timeout(deadline, timeout_seconds, last_logs)
         time.sleep(min(poll_interval, remaining))
+
+
+# A role-drill client is one ``docker run ... psql`` that can stall in three
+# places: Docker starting the container, libpq connecting, or the statement
+# itself, a lock wait included. Under a single process budget all three end
+# alike, killed with no output (#1306). Each psql phase therefore has its own
+# deadline inside that budget, so a stall ends in a psql error naming it:
+#   connect    5 s  PGCONNECT_TIMEOUT bounds TCP connect plus SCRAM startup,
+#                   which take milliseconds on the disposable drill network.
+#   lock       6 s  lock_timeout; below statement_timeout so a blocked
+#                   statement reports the lock wait, not a slow statement.
+#   statement 10 s  statement_timeout; the slowest drill statement (CREATE
+#                   DATABASE on tmpfs) finishes in well under a second.
+#   process   20 s  the whole ``docker run``, unchanged. connect + statement
+#                   is 15 s, leaving 5 s for Docker to create, start and
+#                   remove the client container.
+PSQL_CLIENT_PROCESS_TIMEOUT = 20
+PSQL_CONNECT_TIMEOUT = 5
+PSQL_LOCK_TIMEOUT = 6
+PSQL_STATEMENT_TIMEOUT = 10
+PSQL_PHASE_DEADLINE_ENV = (
+    "-e", f"PGCONNECT_TIMEOUT={PSQL_CONNECT_TIMEOUT}",
+    "-e", (
+        f"PGOPTIONS=-c lock_timeout={PSQL_LOCK_TIMEOUT}s "
+        f"-c statement_timeout={PSQL_STATEMENT_TIMEOUT}s"
+    ),
+)
+_SQL_EXCERPT_CHARS = 200
+
+
+class RoleDrillClientError(AssertionError):
+    """A role-drill psql client stalled; ``phase`` names where."""
+
+    phase = "client"
+    deadline = ""
+
+    def __init__(self, statement: str, detail: str) -> None:
+        sql = statement
+        if len(sql) > _SQL_EXCERPT_CHARS:
+            sql = f"{sql[:_SQL_EXCERPT_CHARS]}..."
+        super().__init__(
+            f"role-drill psql client stalled in the {self.phase} phase "
+            f"({self.deadline}); SQL: {sql!r}; {detail}"
+        )
+
+
+class RoleDrillConnectTimeout(RoleDrillClientError):
+    """libpq gave up connecting, so the statement was never sent."""
+
+    phase = "connect"
+    deadline = f"PGCONNECT_TIMEOUT={PSQL_CONNECT_TIMEOUT}s"
+
+
+class RoleDrillLockTimeout(RoleDrillClientError):
+    """The statement waited on a lock past lock_timeout."""
+
+    phase = "lock-wait"
+    deadline = f"lock_timeout={PSQL_LOCK_TIMEOUT}s"
+
+
+class RoleDrillStatementTimeout(RoleDrillClientError):
+    """The statement ran past statement_timeout."""
+
+    phase = "statement"
+    deadline = f"statement_timeout={PSQL_STATEMENT_TIMEOUT}s"
+
+
+class RoleDrillClientStalled(RoleDrillClientError, subprocess.TimeoutExpired):
+    """The process budget expired before any psql phase deadline fired.
+
+    So the container never started, or psql never reported. It is still a
+    ``TimeoutExpired``, so existing process-budget handling keeps working.
+    """
+
+    phase = "process-budget"
+    deadline = "no psql deadline fired: container start, or psql never reported"
+    # TimeoutExpired.__str__ would print only the command, not this message.
+    __str__ = BaseException.__str__
+
+    def __init__(self, statement: str, expired: subprocess.TimeoutExpired) -> None:
+        subprocess.TimeoutExpired.__init__(
+            self, expired.cmd, expired.timeout, expired.output, expired.stderr
+        )
+        command = " ".join(
+            re.sub(r"^(\w*PASSWORD)=.*", r"\1=<redacted>", str(arg))
+            for arg in expired.cmd
+        )
+        RoleDrillClientError.__init__(
+            self, statement,
+            f"killed after {expired.timeout}s; command: {command}; "
+            f"partial stdout: {_partial_output(expired.output)!r}; "
+            f"partial stderr: {_partial_output(expired.stderr)!r}",
+        )
+
+
+def _partial_output(value: bytes | str | None) -> str:
+    # TimeoutExpired carries raw bytes even when the run asked for text.
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="replace")
+    return _bounded_tail(value or "")
+
+
+# Classified on stderr as the postgres:15.18-alpine psql prints it; libpq's
+# connect timeout reads `psql: error: connection to server at "supabase-db"
+# (172.18.0.2), port 5432 failed: timeout expired`.
+_ROLE_DRILL_STALLS = (
+    (
+        RoleDrillConnectTimeout,
+        re.compile(r"(?:^psql: error: |failed: )timeout expired\s*$", re.M),
+    ),
+    (
+        RoleDrillLockTimeout,
+        re.compile(r"\bERROR:\s+canceling statement due to lock timeout\b"),
+    ),
+    (
+        RoleDrillStatementTimeout,
+        re.compile(r"\bERROR:\s+canceling statement due to statement timeout\b"),
+    ),
+)
+
+
+def _role_drill_stall(
+    outcome: subprocess.CompletedProcess[str] | subprocess.CalledProcessError,
+) -> type[RoleDrillClientError] | None:
+    if outcome.returncode == 0:
+        return None
+    return next(
+        (
+            error
+            for error, pattern in _ROLE_DRILL_STALLS
+            if pattern.search(outcome.stderr or "")
+        ),
+        None,
+    )
+
+
+def _launch_role_drill_client(
+    launch: Callable[[], subprocess.CompletedProcess[str]], statement: str,
+) -> subprocess.CompletedProcess[str] | subprocess.CalledProcessError:
+    try:
+        return launch()
+    except subprocess.CalledProcessError as exc:
+        return exc  # classified by the caller, re-raised unless a stall
+    except subprocess.TimeoutExpired as exc:
+        raise RoleDrillClientStalled(statement, exc) from exc
+
+
+def run_role_drill_client(
+    launch: Callable[[], subprocess.CompletedProcess[str]], statement: str,
+) -> subprocess.CompletedProcess[str]:
+    """Run one role-drill psql client, naming the phase it stalled in.
+
+    ``launch`` runs the client once and behaves like ``subprocess.run``.
+    Only a connect timeout is retried, and only once: libpq gave up before
+    the statement was sent, so resending even DDL is safe. A lock or
+    statement timeout raises at once. Every other psql failure, including
+    the denial an expect-error drill asserts on, is returned or raised
+    exactly as ``launch`` produced it, without a retry.
+    """
+    outcome = _launch_role_drill_client(launch, statement)
+    if _role_drill_stall(outcome) is RoleDrillConnectTimeout:
+        outcome = _launch_role_drill_client(launch, statement)
+    stall = _role_drill_stall(outcome)
+    if stall is not None:
+        raise stall(
+            statement,
+            f"psql exit {outcome.returncode}; "
+            f"stderr: {_bounded_tail(outcome.stderr or '').strip()}",
+        )
+    if isinstance(outcome, subprocess.CalledProcessError):
+        raise outcome
+    return outcome
 
 
 def _normalize(dump: str) -> str:

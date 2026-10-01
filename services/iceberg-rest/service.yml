@@ -32,7 +32,7 @@ images:
     container: iceberg-rest
     notes: "Base image for the local Atlas build. Atlas layers the PostgreSQL JDBC driver onto the Apache fixture image."
   - var: ICEBERG_REST_INIT_IMAGE
-    default: "postgres:15.18-alpine"
+    default: "postgres:15.19-alpine"
     container: iceberg-rest-init
 
 sources:

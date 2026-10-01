@@ -35,7 +35,7 @@ images:
     default: "clickhouse/clickhouse-server:25.8.33.6"
     container: langfuse-clickhouse
   - var: LANGFUSE_INIT_IMAGE
-    default: "alpine:3.24.1"
+    default: "alpine:3.24.2"
     container: langfuse-init
 
 sources:

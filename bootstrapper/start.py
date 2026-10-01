@@ -155,6 +155,7 @@ from utils.banner import BannerDisplay
 from utils.hosts_manager import HostsManager
 from utils.key_generator import KeyGenerator
 from core.linear_startup import LinearStartupOptions, json_cli_guard, run_linear_startup
+from core.launch_outcome import DETACH, ProbeSkipped, cancel_notice
 from utils.localhost_validator import LocalhostValidator
 from core.config_parser import ConfigParser, DEFAULT_BASE_PORT, DEFAULT_PROJECT_NAME
 from core.docker_manager import DockerManager
@@ -3984,8 +3985,19 @@ class AtlasStarter:
         return "● on", "bright_green"
 
     def check_comfyui_models(self, on_line=None):
-        """Check ComfyUI local models."""
-        self.service_config.check_comfyui_local_models(on_line=on_line)
+        """Check ComfyUI local models.
+
+        Returns the probe result: ``True``/``False`` for a localhost ComfyUI,
+        or a ``ProbeSkipped`` naming why the check does not apply, so neither
+        front end reports a check that never ran as a pass (#1032).
+        """
+        found = self.service_config.check_comfyui_local_models(on_line=on_line)
+        if found is not None:
+            return found
+        source = self.service_config.service_sources.get("COMFYUI_SOURCE", "container-cpu")
+        return ProbeSkipped(
+            f"applies only to COMFYUI_SOURCE=localhost; this run uses {source}"
+        )
         
     def show_container_status_and_verify_ports(self, on_line=None):
         """
@@ -3995,7 +4007,10 @@ class AtlasStarter:
         When `on_line` is provided (TUI mode), the redundant `docker compose ps`
         text dump is dropped and per-service results route through `on_line`
         with a level keyword ("ok"/"warn"/"error"). When `on_line` is None
-        (legacy mode), behavior is unchanged from the original implementation.
+        (legacy mode), the printed output is unchanged from the original
+        implementation. Both branches return the number of ports that could
+        not be determined or did not match, which the launch result reports
+        as a failed check rather than a pass (#1032).
         """
         # Get expected ports from .env (used by both branches)
         env_vars = self.config_parser.parse_env_file()
@@ -4063,17 +4078,22 @@ class AtlasStarter:
             print()
             print("🔍 Checking if Docker assigned the expected ports...")
 
+            # Counted the same way as the TUI branch below, so both front
+            # ends classify the same mismatches as the same outcome (#1032).
+            mismatches = 0
             for service_name, internal_port, expected_port in services_to_check:
                 if not expected_port:
                     continue
                 actual_port = self.docker_manager.get_service_port(service_name, internal_port)
                 if not actual_port:
                     print(f"  • ❌ {service_name}: Could not determine port mapping")
+                    mismatches += 1
                 elif actual_port == expected_port:
                     print(f"  • ✅ {service_name}: Using expected port {expected_port}")
                 else:
                     print(f"  • ⚠️  {service_name}: Expected port {expected_port} but got {actual_port}")
-            return
+                    mismatches += 1
+            return mismatches
 
         # TUI mode — route per-service lines through on_line, skip the ps dump.
         # The dots in the anchored box already convey "is the container up";
@@ -4103,6 +4123,8 @@ class AtlasStarter:
         except KeyboardInterrupt:
             print("\n🔄 Log viewing interrupted by user")
             print("   Use 'docker compose logs -f' to view logs again")
+            # Stopping the log stream is a detach, not a teardown (#1032).
+            print(f"   Detached — {DETACH.consequences}; ./stop.sh stops them")
             return 130
         
 
@@ -5614,6 +5636,20 @@ def _export_failed_start_bundle(starter: "AtlasStarter", transcript, exit_code) 
         echo(f"⚠ support bundle not written: {exc}")
 
 
+def _report_tui_exit(rc: int) -> int:
+    """Say what a cancelled Textual run left behind, then pass ``rc`` on.
+
+    Ctrl+C exits the Textual app with 130 at any point. The alternate screen
+    is gone by then, so without this line nothing in the terminal says that
+    containers Compose already started are still running and that nothing
+    was deleted. Cancelling is never a teardown, and never a deletion
+    (#1032).
+    """
+    if rc == 130:
+        print(cancel_notice())
+    return rc
+
+
 def _run_linear_with_support_bundle(starter: "AtlasStarter", options) -> int:
     """``run_linear_startup``; with ``--support-bundle`` a failed start also
     leaves a redacted bundle built from what the run printed (#1057)."""
@@ -6175,9 +6211,10 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                 # Map of Click kwarg → value, restricted to the
                 # source-style flags. Cloud provider toggles
                 # (cloud_openai_source, ...) are intentionally absent —
-                # cloud keys are always-on and never reach the track
-                # skip predicate, so a --cloud-openai-source flag should
-                # never emit a track warning.
+                # cloud keys are always prompted (not always running) and
+                # never reach the track skip predicate, so a
+                # --cloud-openai-source flag should never emit a track
+                # warning.
                 _flag_values = {
                     'llm_provider_source': llm_provider_source,
                     'comfyui_source': comfyui_source,
@@ -6693,7 +6730,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     no_splash=no_splash,
                     profile=profile,
                 )
-                sys.exit(rc)
+                sys.exit(_report_tui_exit(rc))
 
             # No-TUI fallback (spec §6.2 / §8.6): we're in will_run_wizard mode
             # but is_tui_capable returned False (--no-tui flag or non-TTY /
@@ -6819,7 +6856,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     no_splash=no_splash,
                     profile=profile,
                 )
-                sys.exit(rc)
+                sys.exit(_report_tui_exit(rc))
 
         # Linear (--no-tui / non-TTY) flow from here on — the wizard and
         # CLI-flag TUI branches above both sys.exit() before this point.
@@ -6855,6 +6892,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
     except KeyboardInterrupt:
         starter.rollback_managed_host_processes()
         print("\n❌ Startup interrupted by user")
+        print(f"   {cancel_notice()}")
         sys.exit(1)
     except Exception as e:
         starter.rollback_managed_host_processes()

@@ -2719,11 +2719,11 @@ def _assert_ci_provisions_exact_integration_images(pull_script: str) -> None:
     assert "--tag atlas-backup:local" in pull_script
     assert "services/backup/init" in pull_script
     required_images = (
-        "postgres:17.10-alpine",
+        "postgres:17.11-alpine",
         MINIO_IMAGE,
         MINIO_CLIENT_IMAGE,
         "supabase/postgres:17.6.1.139",
-        "postgres:15.18-alpine",
+        "postgres:15.19-alpine",
         "supabase/realtime:v2.112.0",
         "supabase/storage-api:v1.61.5",
         "supabase/supavisor:2.9.5",
