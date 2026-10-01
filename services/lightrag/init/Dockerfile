@@ -7,4 +7,4 @@ RUN apk add --no-cache \
     curl=8.22.0-r0 \
     jq=1.8.2-r0 \
     postgresql17-client=17.11-r0 \
-    python3=3.14.7-r1
+    python3=3.14.8-r0
