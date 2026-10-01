@@ -31,7 +31,7 @@ from utils.key_generator import KeyGenerator
 REPO = Path(__file__).resolve().parents[2]
 SCRIPTS = REPO / "services/supabase/db/scripts"
 POSTGRES_IMAGE = "supabase/postgres:17.6.1.139"
-INIT_IMAGE = "postgres:15.18-alpine"
+INIT_IMAGE = "postgres:15.19-alpine"
 COMMAND_TIMEOUT = 30
 POSTGRES_CREATE_TIMEOUT = 60
 DATABASE_ROLE_OWNER_LABEL = "com.atlas.database-role-test-token"

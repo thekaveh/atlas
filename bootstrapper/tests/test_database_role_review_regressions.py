@@ -29,7 +29,7 @@ ROLE_SCRIPT = REPO / "services/supabase/db/scripts/05-scoped-roles.sh"
 LIGHTRAG_MIGRATION = REPO / "services/lightrag/init/scripts/migrate-pgvector.sql"
 SUPAVISOR_CONFIG = REPO / "services/supavisor/pooler/pooler.exs"
 SUPAVISOR_IMAGE = "supabase/supavisor:2.9.5"
-PSQL_IMAGE = "postgres:15.18-alpine"
+PSQL_IMAGE = "postgres:15.19-alpine"
 READERS = (
     ("atlas_airflow_reader", TEST_SECRETS["AIRFLOW_ATLAS_DB_PASSWORD"]),
     ("atlas_mcp", TEST_SECRETS["MCP_POSTGRES_DB_PASSWORD"]),

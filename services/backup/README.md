@@ -30,7 +30,7 @@ BACKUP_RESTORE_MAINTENANCE_MODE=confirmed \
 
 ## 1. Overview
 
-Runtime image: `${PROJECT_NAME}-backup:local`, built by Compose from the digest-pinned `postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193` base (provides `pg_dump` / `pg_restore`; the major version must be >= the `supabase-db` server, currently 17.x, or `pg_dump` aborts on a server-version mismatch). The Dockerfile applies Alpine's published package updates at build time (the pinned base lags them, which is what the final-image scan gate reports) and then bakes exact package `openssl=3.5.9-r0`. At startup the entrypoint downloads the exact official MinIO client `RELEASE.2025-08-13T08-35-41Z` binary for amd64/arm64, verifies its committed SHA-256 and reported version, and installs it atomically as `mc`. The runner never mounts the live Neo4j or Weaviate data volumes.
+Runtime image: `${PROJECT_NAME}-backup:local`, built by Compose from the digest-pinned `postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24` base (provides `pg_dump` / `pg_restore`; the major version must be >= the `supabase-db` server, currently 17.x, or `pg_dump` aborts on a server-version mismatch). The Dockerfile applies Alpine's published package updates at build time (the pinned base lags them, which is what the final-image scan gate reports) and then bakes exact package `openssl=3.5.9-r0`. At startup the entrypoint downloads the exact official MinIO client `RELEASE.2025-08-13T08-35-41Z` binary for amd64/arm64, verifies its committed SHA-256 and reported version, and installs it atomically as `mc`. The runner never mounts the live Neo4j or Weaviate data volumes.
 
 Scripts live under `services/backup/init/scripts/`:
 - `entrypoint.sh` — verifies the image-baked OpenSSL CLI, installs the checksum-pinned `mc` binary, then execs the requested script (runs for both backup and restore).
@@ -62,7 +62,7 @@ BACKUP_S3_SECRET_KEY=           # dedicated secret key; required in external mod
 BACKUP_S3_REGION=us-east-1      # signing and bucket-creation region
 BACKUP_S3_SESSION_TOKEN=        # optional temporary-credential security token
 BACKUP_S3_TLS_VERIFY=true       # true verifies HTTPS; false explicitly disables verification
-BACKUP_IMAGE=postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193 # digest-pinned build base providing pg_dump
+BACKUP_IMAGE=postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24 # digest-pinned build base providing pg_dump
 BACKUP_COMMAND_TIMEOUT_SECONDS=900        # positive per-command deadline
 BACKUP_RESTORE_GLOBAL_TIMEOUT_SECONDS=28800 # complete restore deadline; must exceed command timeout
 BACKUP_MANIFEST_HMAC_KEY=                 # required 64-lowercase-hex operator secret

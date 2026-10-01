@@ -2557,16 +2557,13 @@ vulnerabilities:
       - "pkg:apk/alpine/libssl3@3.5.7-r0?arch=aarch64&distro=3.24.1"
     expired_at: 2026-12-09
     statement: >-
-      OpenSSL 3.5.7-r0 (libcrypto3/libssl3) in the alpine:3.24.1 base of the
-      comfyui, hermes, label-studio, langfuse, lightrag, mlflow, ollama
-      (pull), openclaw and weaviate init containers, and in the
-      postgres:15.18-alpine (supabase-db and iceberg-rest init),
-      postgres:17.10-alpine (backup build base) and redpanda console v3.8.0
-      images. None starts an OpenSSL QUIC listener, so the affected
-      server-only allocation path is unreachable. Re-checked 2026-09-28:
-      alpine:3.24.2 (published 2026-09-18) ships OpenSSL 3.5.8-r0 and scans
-      clean, so the fix is now a pin move, tracked in #1285. Remove this
-      exception when no pinned image carries 3.5.7-r0.
+      OpenSSL 3.5.7-r0 (libcrypto3/libssl3) in the Alpine 3.24.1 base of the
+      Redpanda Console v3.8.0 image, the only pinned image that still carries
+      it. #1285 moved the alpine init pins to 3.24.2 and the postgres-alpine
+      pins to 15.19 and 17.11, all of which ship OpenSSL 3.5.8-r0 (checked
+      2026-10-01). Console starts no OpenSSL QUIC listener, so the affected
+      server-only allocation path is unreachable. Remove this exception when
+      the Console pin moves to a release built on Alpine 3.24.2 or later.
   - id: GHSA-r7wm-3cxj-wff9
     purls:
       - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.18.6"

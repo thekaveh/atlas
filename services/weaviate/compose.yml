@@ -1,7 +1,7 @@
 # services/weaviate/compose.yml — Weaviate + init + CLIP
 services:
   weaviate-init:
-    image: ${WEAVIATE_INIT_IMAGE:-alpine:3.24.1}
+    image: ${WEAVIATE_INIT_IMAGE:-alpine:3.24.2}
     container_name: ${PROJECT_NAME}-weaviate-init
     restart: "no"
     depends_on:

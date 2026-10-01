@@ -604,7 +604,7 @@ services:
       context: '{REPO_ROOT}/services/backup/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+        BASE_IMAGE: postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     command:
     - /scripts/backup-all.sh
     container_name: atlas-backup
@@ -957,7 +957,7 @@ services:
       context: '{REPO_ROOT}/services/comfyui/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+        BASE_IMAGE: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
     container_name: atlas-comfyui-init
     depends_on:
       ollama-pull:
@@ -1264,7 +1264,7 @@ services:
       context: '{REPO_ROOT}/services/hermes/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+        BASE_IMAGE: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
     container_name: atlas-hermes-init
     depends_on:
       litellm:
@@ -1382,7 +1382,7 @@ services:
     environment:
       ICEBERG_DB_PASSWORD: atlas-db-password
       ICEBERG_DB_USER: iceberg
-    image: postgres:15.18-alpine
+    image: postgres:15.19-alpine
     networks:
       backend-network: null
     restart: 'no'
@@ -1733,7 +1733,7 @@ services:
       context: '{REPO_ROOT}/services/label-studio/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.1
+        BASE_IMAGE: alpine:3.24.2
     container_name: atlas-label-studio-init
     depends_on:
       minio-init:
@@ -1810,7 +1810,7 @@ services:
       context: '{REPO_ROOT}/services/langfuse/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.1
+        BASE_IMAGE: alpine:3.24.2
     container_name: atlas-langfuse-init
     depends_on:
       minio-init:
@@ -2120,7 +2120,7 @@ services:
       context: '{REPO_ROOT}/services/lightrag/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+        BASE_IMAGE: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
     container_name: atlas-lightrag-init
     depends_on:
       litellm:
@@ -2778,7 +2778,7 @@ services:
       context: '{REPO_ROOT}/services/mlflow/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.1
+        BASE_IMAGE: alpine:3.24.2
     container_name: atlas-mlflow-init
     depends_on:
       minio-init:
@@ -3164,7 +3164,7 @@ services:
       context: '{REPO_ROOT}/services/ollama/pull'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+        BASE_IMAGE: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
     container_name: atlas-ollama-pull
     depends_on:
       ollama:
@@ -3388,7 +3388,7 @@ services:
       context: '{REPO_ROOT}/services/openclaw/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+        BASE_IMAGE: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
     container_name: atlas-openclaw-init
     deploy:
       replicas: 0
@@ -4261,7 +4261,7 @@ services:
       TRUEFORGE_DB_USER: trueforge
       ZEPPELIN_DB_PASSWORD: atlas-db-password
       ZEPPELIN_DB_USER: atlas_zeppelin
-    image: postgres:15.18-alpine
+    image: postgres:15.19-alpine
     networks:
       backend-network: null
     restart: 'no'
@@ -4950,7 +4950,7 @@ services:
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
     extra_hosts:
     - host.docker.internal=
-    image: alpine:3.24.1
+    image: alpine:3.24.2
     networks:
       backend-network: null
     restart: 'no'

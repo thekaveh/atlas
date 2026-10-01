@@ -243,10 +243,10 @@ images:
   url: https://github.com/python/cpython/blob/2abcf904b8dac8c999d2b3aac76681abb333798a/LICENSE
 - service: backup
   var: BACKUP_IMAGE
-  image: postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
-  upstream: PostgreSQL 17.10 (build base)
+  image: postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+  upstream: PostgreSQL 17.11 (build base)
   license: PostgreSQL
-  url: https://github.com/postgres/postgres/blob/25c49f3a4a742ba283f5cc43cc7f1d361552e917/COPYRIGHT
+  url: https://github.com/postgres/postgres/blob/083ac033419f690758508e08c1736089384bbee8/COPYRIGHT
   open:
   - R-BUILD
   redistribution: unresolved
@@ -280,8 +280,8 @@ images:
   url: https://github.com/comfyanonymous/ComfyUI/blob/696672905fd17af2654ced11e3ab590d6a555996/LICENSE
 - service: comfyui
   var: COMFYUI_INIT_IMAGE
-  image: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
-  upstream: Alpine Linux 3.24.1 (packages under their own licenses)
+  image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+  upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
   open:
@@ -323,8 +323,8 @@ images:
   url: https://github.com/NousResearch/hermes-agent/blob/2bd1977d8fad185c9b4be47884f7e87f1add0ce3/LICENSE
 - service: hermes
   var: HERMES_INIT_IMAGE
-  image: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
-  upstream: Alpine Linux 3.24.1 (packages under their own licenses)
+  image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+  upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
   open:
@@ -338,10 +338,10 @@ images:
   notice: https://github.com/apache/iceberg/blob/ccb8bc435062171e64bc8b7e5f56e6aed9c5b934/NOTICE
 - service: iceberg-rest
   var: ICEBERG_REST_INIT_IMAGE
-  image: postgres:15.18-alpine
-  upstream: PostgreSQL 15.18 client
+  image: postgres:15.19-alpine
+  upstream: PostgreSQL 15.19 client
   license: PostgreSQL
-  url: https://github.com/postgres/postgres/blob/005c1971a2926fbb9caf5a1ad634cd17a42bfd3c/COPYRIGHT
+  url: https://github.com/postgres/postgres/blob/2ff1375b5dd8bf09d8cb0e795974528180fd75ca/COPYRIGHT
 - service: jenkins
   var: JENKINS_IMAGE
   image: jenkins/jenkins:lts-jdk21@sha256:c1e4c349365f6d16d88595b2c5f7e8ff39b8ae1d061f62420bac193b4b9616d0
@@ -375,8 +375,8 @@ images:
   notice: https://github.com/HumanSignal/label-studio/blob/2a9bfbcbf0a844b999de97e601d16050a893f5fb/NOTICE
 - service: label-studio
   var: LABEL_STUDIO_INIT_IMAGE
-  image: alpine:3.24.1
-  upstream: Alpine Linux 3.24.1 (packages under their own licenses)
+  image: alpine:3.24.2
+  upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
   open:
@@ -401,8 +401,8 @@ images:
   url: https://github.com/ClickHouse/ClickHouse/blob/65eaf18b4a939f3e02aad50b7fbb2711b09495a0/LICENSE
 - service: langfuse
   var: LANGFUSE_INIT_IMAGE
-  image: alpine:3.24.1
-  upstream: Alpine Linux 3.24.1 (packages under their own licenses)
+  image: alpine:3.24.2
+  upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
   open:
@@ -415,8 +415,8 @@ images:
   url: https://github.com/HKUDS/LightRAG/blob/9a45b64c2ee25b1d806e90db926a8af37480bb16/LICENSE
 - service: lightrag
   var: LIGHTRAG_INIT_IMAGE
-  image: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
-  upstream: Alpine Linux 3.24.1 (packages under their own licenses)
+  image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+  upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
   open:
@@ -467,8 +467,8 @@ images:
   url: https://github.com/mlflow/mlflow/blob/9a1c0d9a9827acd23c7a215f0999e4b0f97e9870/LICENSE.txt
 - service: mlflow
   var: MLFLOW_INIT_IMAGE
-  image: alpine:3.24.1
-  upstream: Alpine Linux 3.24.1 (packages under their own licenses)
+  image: alpine:3.24.2
+  upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
   open:
@@ -503,8 +503,8 @@ images:
   url: https://github.com/ollama/ollama/blob/d26a58557d83aa8892bdfa79b3550f5ee969cd1c/LICENSE
 - service: ollama
   var: OLLAMA_PULL_IMAGE
-  image: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
-  upstream: Alpine Linux 3.24.1 (packages under their own licenses)
+  image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+  upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
   open:
@@ -532,8 +532,8 @@ images:
   url: https://github.com/openclaw/openclaw/blob/aa69b12d0086b631b139c1435c9621a5783e3a40/LICENSE
 - service: openclaw
   var: OPENCLAW_INIT_IMAGE
-  image: alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
-  upstream: Alpine Linux 3.24.1 (packages under their own licenses)
+  image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+  upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
   open:
@@ -642,10 +642,10 @@ images:
   url: https://github.com/supabase/postgres/blob/5a1b75bc2807d6a72641d0a824f7a6c96142fa9e/LICENSE
 - service: supabase
   var: SUPABASE_DB_INIT_IMAGE
-  image: postgres:15.18-alpine
-  upstream: PostgreSQL 15.18 client
+  image: postgres:15.19-alpine
+  upstream: PostgreSQL 15.19 client
   license: PostgreSQL
-  url: https://github.com/postgres/postgres/blob/005c1971a2926fbb9caf5a1ad634cd17a42bfd3c/COPYRIGHT
+  url: https://github.com/postgres/postgres/blob/2ff1375b5dd8bf09d8cb0e795974528180fd75ca/COPYRIGHT
 - service: supabase
   var: SUPABASE_META_IMAGE
   image: supabase/postgres-meta:v0.96.6
@@ -760,8 +760,8 @@ images:
   url: https://github.com/weaviate/weaviate/blob/099327c53cb1d9a785324402dc861619660dbc2b/LICENSE
 - service: weaviate
   var: WEAVIATE_INIT_IMAGE
-  image: alpine:3.24.1
-  upstream: Alpine Linux 3.24.1 (packages under their own licenses)
+  image: alpine:3.24.2
+  upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
   open:

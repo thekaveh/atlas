@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=postgres:17.10-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+ARG BASE_IMAGE=postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
 FROM ${BASE_IMAGE}
 
 # The pinned Postgres base lags Alpine security updates, so the final-image

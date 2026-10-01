@@ -39,7 +39,7 @@ images:
     default: "ghcr.io/mlflow/mlflow:v3.15.1"
     container: mlflow
   - var: MLFLOW_INIT_IMAGE
-    default: "alpine:3.24.1"
+    default: "alpine:3.24.2"
     container: mlflow-init
 
 sources:

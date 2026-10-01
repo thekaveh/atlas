@@ -32,7 +32,7 @@ images:
     default: "cr.weaviate.io/semitechnologies/weaviate:1.38.13"
     container: weaviate
   - var: WEAVIATE_INIT_IMAGE
-    default: "alpine:3.24.1"
+    default: "alpine:3.24.2"
     container: weaviate-init
   - var: MULTI2VEC_CLIP_IMAGE
     default: "semitechnologies/multi2vec-clip:sentence-transformers-clip-ViT-B-32-1.5.1"
