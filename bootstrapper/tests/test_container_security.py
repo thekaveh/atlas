@@ -1249,10 +1249,6 @@ def test_fleet_exceptions_stay_scoped_to_their_owning_images() -> None:
 
     assert {(row.vulnerability_id, tuple(sorted(row.paths))) for row in rows} == {
         (
-            "CVE-2026-69247",
-            ("usr/local/lib/python3.10/site-packages/cryptography-49.0.0.dist-info/METADATA",),
-        ),
-        (
             "CVE-2026-68497",
             tuple(spark_jars + jar for jar in (
                 "iceberg-spark-runtime-4.1_2.13-1.11.0.jar",
