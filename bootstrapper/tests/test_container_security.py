@@ -1252,7 +1252,6 @@ def test_fleet_exceptions_stay_scoped_to_their_owning_images() -> None:
             "CVE-2026-68497",
             tuple(spark_jars + jar for jar in (
                 "iceberg-spark-runtime-4.1_2.13-1.11.0.jar",
-                "jackson-databind-2.21.2.jar",
                 "parquet-jackson-1.16.0.jar",
             )),
         ),
@@ -1268,6 +1267,72 @@ def test_fleet_exceptions_stay_scoped_to_their_owning_images() -> None:
         ("CVE-2026-19534", (npm_vendored + "undici/package.json",)),
     }
     assert {row.purls for row in rows} == {()}
+
+
+def _october_expected_rows() -> set[tuple]:
+    spark = (
+        "hadoop-client-runtime-3.4.2.jar",
+        "iceberg-spark-runtime-4.1_2.13-1.11.0.jar",
+        "parquet-jackson-1.16.0.jar",
+    )
+    families = (
+        "opt/spark/jars/",
+        "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/",
+    )
+    singles = (
+        "usr/lib/iceberg-rest/iceberg-rest-adapter.jar",
+        "opt/jenkins-plugin-manager.jar",
+        "var/lib/neo4j/lib/parquet-jackson-1.18.0.jar",
+    )
+    py37 = "opt/conda/envs/python_3_with_R/lib/python3.7/site-packages/"
+    # CVE-2026-89407's regex arrived in jackson-core 2.17.0, so only the 2.19.2
+    # copy in parquet-jackson carries it.
+    jackson = {
+        "CVE-2026-89407": spark[2:],
+        "CVE-2026-89425": spark,
+        "CVE-2026-91776": spark,
+        "CVE-2026-91777": spark,
+    }
+    expected = {
+        (cve, tuple(family + jar for jar in jars), ())
+        for cve, jars in jackson.items()
+        for family in families
+    }
+    expected |= {(cve, (path,), ()) for cve in jackson for path in singles}
+    urllib3 = (
+        py37 + "urllib3-2.2.1.dist-info/METADATA",
+        "opt/conda/lib/python3.9/site-packages/urllib3-2.1.0.dist-info/METADATA",
+    )
+    for cve in ("CVE-2026-97687", "CVE-2026-97689"):
+        expected |= {(cve, (), ("pkg:pypi/urllib3@2.7.0",)), (cve, urllib3, ())}
+    tornado = (py37 + "tornado-6.2.dist-info/METADATA",)
+    return expected | {
+        (ghsa, tornado, ()) for ghsa in ("GHSA-c2m8-h5v5-343r", "GHSA-chx6-46f5-w4vp")
+    }
+
+
+def test_october_advisory_exceptions_cover_only_what_cannot_be_patched() -> None:
+    """#1329: rows for copies the Dockerfiles cannot swap, each in one image.
+
+    The standalone jackson-core and jackson-databind jars are swapped for fixed
+    patch releases, so no row may name them. Every row is exact paths except
+    pip's vendored urllib3, which Trivy reports with no path at all.
+    """
+    rows = [
+        row
+        for row in container_security.load_exceptions(
+            ROOT / ".trivyignore.yaml", today=_TODAY
+        )
+        if "(#1329)" in row.statement
+    ]
+    expected = _october_expected_rows()
+
+    assert {
+        (row.vulnerability_id, tuple(sorted(row.paths)), row.purls) for row in rows
+    } == expected
+    assert len(rows) == len(expected) == 26
+    standalone = re.compile(r"/jackson-(core|databind)-[\d.]+\.jar$")
+    assert not [path for row in rows for path in row.paths if standalone.search(path)]
 
 
 def test_local_final_image_inventory_is_scanned_or_explicitly_excluded() -> None:
