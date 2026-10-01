@@ -80,7 +80,8 @@ jobs:
     # Dispatch-only (#1289): scan every manifest-owned remote image with the
     # suppressed findings shown and print one COVERAGE line per image, so
     # `python -m scripts.exception_coverage --summarize` can fold the logs into
-    # a per-row report. Never gates.
+    # a per-row report, plus one FINDING line per HIGH/CRITICAL finding no row
+    # suppresses, i.e. what the gate fails on. Never gates.
     name: Exception coverage, remote shard ${{ matrix.shard }}
     if: ${{ inputs.coverage }}
     runs-on: ubuntu-24.04
@@ -216,7 +217,7 @@ jobs:
               if [ "$COVERAGE" = true ]; then
                 uv run --project bootstrapper python -m scripts.exception_coverage \
                   --local-image "$image_tag" --label "$context" --platform "$platform" --ignore-unfixed \
-                  | grep '^COVERAGE' | tee -a "$coverage_lines"
+                  | grep -E '^(COVERAGE|FINDING)[[:space:]]' | tee -a "$coverage_lines"
                 docker image rm "$image_tag"
                 image_tag=""
                 continue

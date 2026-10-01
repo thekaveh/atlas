@@ -80,3 +80,35 @@ def test_coverage_dispatch_replaces_gating_with_reporting() -> None:
     assert "if: ${{ !inputs.coverage }}" in workflow
     assert "python -m scripts.exception_coverage --shard" in workflow
     assert "--local-image \"$image_tag\"" in workflow
+
+
+def test_open_findings_list_only_unsuppressed_high_and_critical() -> None:
+    report = {"Results": [
+        {
+            "Target": "img",
+            "Vulnerabilities": [
+                {"VulnerabilityID": "CVE-1", "Severity": "HIGH", "PkgName": "jackson-databind",
+                 "InstalledVersion": "2.21.2", "FixedVersion": "2.21.7",
+                 "PkgPath": "opt/spark/jars/jackson-databind-2.21.2.jar"},
+                {"VulnerabilityID": "CVE-2", "Severity": "MEDIUM", "PkgName": "x",
+                 "InstalledVersion": "1"},
+            ],
+        },
+        _finding("CVE-3", purl="pkg:npm/y@1"),
+    ]}
+
+    assert coverage.open_findings(report, "services/spark/build", "linux/amd64") == [
+        "FINDING\tservices/spark/build\tlinux/amd64\tCVE-1\tjackson-databind\t2.21.2\t2.21.7"
+        "\topt/spark/jars/jackson-databind-2.21.2.jar",
+    ]
+
+
+def test_finding_lines_do_not_disturb_the_row_summary() -> None:
+    lines = [
+        "COVERAGE\tsvc/a\tlinux/amd64\t2\t-",
+        "FINDING\tsvc/a\tlinux/amd64\tCVE-9\tpkg\t1\t2\tsome/path",
+    ]
+    report = coverage.summarize(lines, _rows()).splitlines()
+
+    assert report[0] == "scanned 1 image-platforms; 0 failed"
+    assert "ROW 2\tCVE-2\t1\tsvc/a [linux/amd64]" in report

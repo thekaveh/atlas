@@ -94,9 +94,9 @@ jupyter-server-proxy>=4.1.0
 # final-image vulnerability gate. Keep these direct so the image does not
 # silently fall back to the older base-image copies.
 brotli==1.2.0
-jupyterlab==4.6.3
+jupyterlab==4.6.4
 jupyterlab-git==0.54.1
-notebook==7.6.2
+notebook==7.6.3
 wheel==0.46.2
 # CVE-2026-82397 + GHSA-8423-8fgw-73vq (request-parsing DoS) and
 # GHSA-wwv5-g3v4-889x (cookie-attribute injection, incomplete CVE-2026-35536 fix).

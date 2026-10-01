@@ -1598,9 +1598,9 @@ def test_jupyter_runtime_pins_patched_python_and_node_tooling() -> None:
 
     for package in (
         "brotli==1.2.0",
-        "jupyterlab==4.6.3",
+        "jupyterlab==4.6.4",
         "jupyterlab-git==0.54.1",
-        "notebook==7.6.2",
+        "notebook==7.6.3",
         "wheel==0.46.2",
     ):
         assert package in requirements.lower()

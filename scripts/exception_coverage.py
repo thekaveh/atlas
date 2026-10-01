@@ -31,6 +31,7 @@ sys.path.insert(0, str(ROOT))
 from scripts.container_security import load_image_scans  # noqa: E402
 
 MARKER = "COVERAGE"
+FINDING = "FINDING"
 _TRIVY_ATTEMPTS = 3
 
 
@@ -111,6 +112,26 @@ def attribute(report: dict, rows: Sequence[Row]) -> tuple[set[int], set[str]]:
     return used, unexplained
 
 
+def open_findings(report: dict, label: str, platform: str) -> list[str]:
+    """One FINDING line per HIGH/CRITICAL finding no ignore row suppressed.
+
+    These are the findings the gate fails on, so a coverage dispatch also
+    lists exactly what each image still needs fixed or reviewed.
+    """
+    lines = set()
+    for result in report.get("Results") or ():
+        for vuln in result.get("Vulnerabilities") or ():
+            if vuln.get("Severity") not in ("HIGH", "CRITICAL"):
+                continue
+            path = vuln.get("PkgPath") or result.get("Target") or "?"
+            lines.add("\t".join((
+                FINDING, label, platform, str(vuln.get("VulnerabilityID", "")),
+                str(vuln.get("PkgName", "")), str(vuln.get("InstalledVersion", "")),
+                str(vuln.get("FixedVersion") or "-"), str(path),
+            )))
+    return sorted(lines)
+
+
 def coverage_line(label: str, platform: str, used: Iterable[int], unexplained: Iterable[str]) -> str:
     rows = ",".join(str(index) for index in sorted(used)) or "-"
     extra = ",".join(sorted(unexplained)) or "-"
@@ -150,11 +171,13 @@ def run_scans(
     for label, image, platform, source in targets:
         report = scan(image, platform, source=source, ignore_unfixed=ignore_unfixed)
         if report is None:
-            line = f"{MARKER}\t{label}\t{platform}\tSCAN-FAILED\t-"
+            emitted = [f"{MARKER}\t{label}\t{platform}\tSCAN-FAILED\t-"]
         else:
-            line = coverage_line(label, platform, *attribute(report, rows))
-        print(line, flush=True)
-        lines.append(line)
+            emitted = [coverage_line(label, platform, *attribute(report, rows))]
+            emitted += open_findings(report, label, platform)
+        for line in emitted:
+            print(line, flush=True)
+        lines.extend(emitted)
     return lines
 
 
