@@ -31,7 +31,7 @@ GPU_DOCKERFILE_EXCLUSIONS = {
 REVIEWED_REMOTE_BASE_DIGESTS = {
     "nginx:alpine": "sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2",
     "node:20": "sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5",
-    "python:3.12-slim": "sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f",
+    "python:3.12-slim": "sha256:eeb8088e67610b37583880c7627e3931f087cba55a35810819e34a398f624a47",
 }
 
 
@@ -1394,9 +1394,9 @@ def test_contract_ledger_records_remote_base_digest_review_provenance() -> None:
     assert "LLM Graph Builder remote base images" in ledger
     assert "4a412f4688cf4096976045c019edc0a7f6ddcb6b" in ledger
     assert REVIEWED_REMOTE_BASE_DIGESTS["python:3.12-slim"] in ledger
-    assert "docker-library/python@688a0b86bb44289df16a363e9f41d90514c1a5f9" in ledger
-    assert "sha256:44ff437bba879d4941b710a369a8f19266aea34b29002807f0c487fabc9eec9b" in ledger
-    assert "sha256:950206c37262dd86c55659797f6ee418fee30535072f65a82ed470d985f5cda5" in ledger
+    assert "docker-library/python@2a3b794c223ab067d122719541cdd54a068732a5" in ledger
+    assert "sha256:6b1f85a08c199d29d5b6d71ab9c27bd5b3b393492e01216a15758ff69c4be8b8" in ledger
+    assert "sha256:18d23907c5d7ef2ca1b0ea8b4a73fe4a6ae47114c257a1afed8bc66c3886f8cb" in ledger
 
 
 _POLICY_REJECTION_CASES = (
