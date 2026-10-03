@@ -183,6 +183,25 @@ NPM_PROJECTS = (
     "services/n8n/init/config",
 )
 
+# Reviewed npm advisory exceptions, keyed by project path, with the same
+# contract as the pip ones: a review deadline inside the 90-day horizon, and an
+# entry that stops matching a live finding fails as stale. npm audit reports
+# each advisory as a GitHub advisory URL, so entries are GHSA ids.
+NPM_PROJECT_EXCEPTIONS: dict[str, tuple[frozenset[str], date]] = {
+    # GHSA-vfj7-8cjw-p6xm (braces <=3.0.3: stack exhaustion on deeply nested
+    # brace patterns) reaches the asset worker only through
+    # @gltf-transform/cli 4.5.0 -> micromatch 4.0.8 -> braces 3.0.3, and 3.0.3
+    # is the newest braces release, so there is nothing to upgrade to. The CLI
+    # builds patterns only from its own constants and from --pattern/--slots,
+    # and asset_worker/runner.py runs inspect, validate and optimize with fixed
+    # flags, so no request input reaches braces (#1332). Remove it when a
+    # braces release fixes it.
+    "services/asset-worker/app": (
+        frozenset({"GHSA-vfj7-8cjw-p6xm"}),
+        date(2026, 12, 31),
+    ),
+}
+
 # Every runtime dependency manifest must be represented here, either directly
 # or by the exact compiled lock that constrains its installation. The inventory
 # test makes adding an unaudited dependency graph a CI failure.
@@ -280,26 +299,36 @@ def _public_requirements(lock: Path) -> tuple[str, frozenset[str]]:
     return "".join(public), frozenset(local_versions)
 
 
+def _review_deadline_failures(
+    display_name: str,
+    reviewed: frozenset[str],
+    review_by: date | None,
+    today: date | None = None,
+) -> list[str]:
+    if not reviewed:
+        return []
+    review_date = today or date.today()
+    if review_by is None:
+        return [f"{display_name}: advisory exceptions lack a review deadline"]
+    if review_by <= review_date:
+        return [
+            f"{display_name}: advisory exception review expired on "
+            f"{review_by.isoformat()}"
+        ]
+    if (review_by - review_date).days > 90:
+        return [f"{display_name}: advisory exception review horizon exceeds 90 days"]
+    return []
+
+
 def audit_spec(
     spec: AuditSpec, *, root: Path = ROOT, today: date | None = None
 ) -> list[str]:
     lock = root / spec.lock
     display_name = spec.display_name or spec.lock
     public_requirements, local_versions = _public_requirements(lock)
-    failures: list[str] = []
-    if spec.reviewed_advisories:
-        review_date = today or date.today()
-        if spec.review_by is None:
-            failures.append(f"{display_name}: advisory exceptions lack a review deadline")
-        elif spec.review_by <= review_date:
-            failures.append(
-                f"{display_name}: advisory exception review expired on "
-                f"{spec.review_by.isoformat()}"
-            )
-        elif (spec.review_by - review_date).days > 90:
-            failures.append(
-                f"{display_name}: advisory exception review horizon exceeds 90 days"
-            )
+    failures = _review_deadline_failures(
+        display_name, spec.reviewed_advisories, spec.review_by, today
+    )
     unexpected_local = sorted(local_versions - spec.reviewed_local_versions)
     if unexpected_local:
         failures.append(
@@ -542,10 +571,40 @@ def _audit_npm_project_once(project: str, *, root: Path = ROOT) -> list[str]:
     total = vulnerabilities["total"]
     if result.returncode == 1 and total == 0:
         return [f"{project}: npm audit exited 1 without reported vulnerabilities"]
-    if total:
-        return [f"{project}: npm audit found {total} vulnerability(s)"]
-    print(f"PASS {project}/package-lock.json")
-    return []
+    return _npm_finding_failures(project, payload, total)
+
+
+def _npm_advisory_ids(payload: dict) -> frozenset[str]:
+    vulnerabilities = payload.get("vulnerabilities")
+    if not isinstance(vulnerabilities, dict):
+        return frozenset()
+    return frozenset(
+        via["url"].rstrip("/").rsplit("/", 1)[-1]
+        for entry in vulnerabilities.values()
+        if isinstance(entry, dict)
+        for via in entry.get("via", [])
+        if isinstance(via, dict) and isinstance(via.get("url"), str)
+    )
+
+
+def _npm_finding_failures(
+    project: str, payload: dict, total: int, *, today: date | None = None
+) -> list[str]:
+    reviewed, review_by = NPM_PROJECT_EXCEPTIONS.get(project, (frozenset(), None))
+    failures = _review_deadline_failures(project, reviewed, review_by, today)
+    found = _npm_advisory_ids(payload) if total else frozenset()
+    if total and not found:
+        failures.append(f"{project}: npm audit found {total} vulnerability(s)")
+    unexpected = sorted(found - reviewed)
+    if unexpected:
+        failures.append(f"{project}: unreviewed advisories: {', '.join(unexpected)}")
+    stale = sorted(reviewed - found)
+    if stale:
+        failures.append(f"{project}: stale allowlist entries: {', '.join(stale)}")
+    if not failures:
+        suffix = f" ({len(found)} reviewed exception(s))" if found else ""
+        print(f"PASS {project}/package-lock.json{suffix}")
+    return failures
 
 
 def main() -> int:
