@@ -59,11 +59,22 @@ setuptools>=83.0.0
 # met; it stays as a guard against an older base until it is reviewed out.
 gitpython>=3.1.59
 
+# The apache/airflow:3.3.2 base ships tornado 6.5.8 (for Flower) and
+# virtualenv 21.7.9 (for PythonVirtualenvOperator) outside this overlay's
+# graph. tornado 6.5.8 carries GHSA-c2m8-h5v5-343r and GHSA-chx6-46f5-w4vp,
+# fixed in 6.5.9; virtualenv 21.7.9 carries CVE-2026-102925, CVE-2026-102930
+# and CVE-2026-102937, fixed in 21.7.13. Raise both floors the same way
+# setuptools is raised above. Newer virtualenv accepts filelock 4, which the
+# base's snowflake-connector-python rejects, hence the filelock cap below.
+tornado>=6.5.9
+virtualenv>=21.7.13
+
 # The upstream Airflow image includes optional cloud/provider packages beyond
 # this overlay's direct dependency graph. Keep the overlay resolver inside the
 # compatibility ranges of those installed packages so adding Atlas providers
 # cannot leave the final image in a `pip check`-invalid state.
 botocore<1.43.76
+filelock<4
 importlib-metadata<9
 protobuf<6.34
 websockets<17

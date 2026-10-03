@@ -91,4 +91,32 @@ RUN set -eux; \
         "https://repo.maven.apache.org/maven2/org/apache/commons/commons-pool2/${COMMONS_POOL2_VERSION}/commons-pool2-${COMMONS_POOL2_VERSION}.jar"; \
     echo "${COMMONS_POOL2_SHA512}  /opt/spark/jars/commons-pool2-${COMMONS_POOL2_VERSION}.jar" | sha512sum -c -
 
+# jackson-core and jackson-databind 2.21.2 on Spark 4.1.2's classpath carry
+# CVE-2026-89407, CVE-2026-89425, CVE-2026-91776 and CVE-2026-91777, and
+# databind also CVE-2026-68497; 2.21.7 fixes all five. A patch release of the
+# same minor is drop-in, so only these two jars move: jackson-annotations-2.21,
+# -module-scala, -dataformat-yaml and -datatype-jsr310 stay as shipped. A local
+# Spark job ran JSON reads, a Parquet round-trip, a Python UDF and to_json on
+# the swapped jars. `test -f` fails the build if a Spark bump renames them, so
+# each refresh re-reviews the swap. Zeppelin's spark-runtime stage and
+# Airflow's PySpark jars carry the same swap. The jackson copies shaded inside
+# hadoop-client-runtime, parquet-jackson and the Iceberg runtime cannot be
+# swapped and stay path-scoped exceptions.
+ARG SPARK_JACKSON_VERSION=2.21.7
+ARG SPARK_JACKSON_CORE_SHA512=a4f38908ebf7cb3da776955c398c7b55b0c056ae7265a511b4a2a37ef5a4c6fed433d611ee4f3a1071aa966cc5d16b1fcb95a0e7d672002ece9d89367a4f8f85
+ARG SPARK_JACKSON_DATABIND_SHA512=3485a31a4815ef2577b91667768eebb10bea7ece6b1b7cc0fa3c06f2746c003f4f32c19c52cc30ad13813eff9941ae212caffa9353c717d00947ab80ecc76bd3
+RUN set -eux; \
+    cd /opt/spark/jars; \
+    for old in jackson-core-2.21.2.jar jackson-databind-2.21.2.jar; do \
+        test -f "$old"; \
+        rm -f "$old"; \
+    done; \
+    curl -fsSL --retry 5 -o jackson-core-${SPARK_JACKSON_VERSION}.jar \
+        "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-core/${SPARK_JACKSON_VERSION}/jackson-core-${SPARK_JACKSON_VERSION}.jar"; \
+    echo "${SPARK_JACKSON_CORE_SHA512}  jackson-core-${SPARK_JACKSON_VERSION}.jar" | sha512sum -c -; \
+    curl -fsSL --retry 5 -o jackson-databind-${SPARK_JACKSON_VERSION}.jar \
+        "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-databind/${SPARK_JACKSON_VERSION}/jackson-databind-${SPARK_JACKSON_VERSION}.jar"; \
+    echo "${SPARK_JACKSON_DATABIND_SHA512}  jackson-databind-${SPARK_JACKSON_VERSION}.jar" | sha512sum -c -; \
+    chmod 0644 jackson-core-${SPARK_JACKSON_VERSION}.jar jackson-databind-${SPARK_JACKSON_VERSION}.jar
+
 USER spark

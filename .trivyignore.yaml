@@ -66,8 +66,10 @@
 # its own CPython 3.11 under /opt/blender/4.3/python with certifi 2021.10.8,
 # setuptools 63.2.0 and urllib3 1.26.8 baked into the release tarball. They are
 # not apt- or pip-managed, and the fix is a Blender version move (4.5 LTS clears
-# certifi and urllib3; setuptools is confirmed only from 5.2), which needs the
-# blender-mcp bridge re-verified live. The nine rows below are scoped to the
+# certifi and the first five urllib3 advisories; setuptools is confirmed only
+# from 5.2, and the two 2026-10 urllib3 advisories need urllib3 2.8.0), which
+# needs the blender-mcp bridge re-verified live. The eleven rows below are
+# scoped to the
 # exact dist-info paths inside that tree so an identical package anywhere else
 # still fails the gate. Reachability: the bundled interpreter runs only
 # bake.py (bpy, numpy, stdlib file I/O) under `blender -b`; the FastAPI layer
@@ -529,6 +531,30 @@ vulnerabilities:
       a cross-origin redirect with sensitive headers; the bundled interpreter runs
       only bake.py and never imports urllib3 or makes HTTP requests. Remove this
       exception with the Blender 4.5 LTS move (#1002).
+  - id: CVE-2026-97687
+    paths:
+      - "opt/blender/4.3/python/lib/python3.11/site-packages/urllib3-1.26.8.dist-info/METADATA"
+    expired_at: 2026-12-30
+    statement: >-
+      urllib3 1.26.8 is bundled inside Blender 4.3.2's vendored CPython in the
+      asset-baker image. The flaw applies target-server TLS settings to an HTTPS
+      proxy connection, which matters only when traffic goes through an HTTPS
+      proxy with its own TLS settings. The bundled interpreter runs only bake.py
+      and never imports urllib3 or makes HTTP requests. The fix needs urllib3
+      2.8.0, so the Blender version move (#1002) must re-check the bundled
+      urllib3 before this exception is removed.
+  - id: CVE-2026-97689
+    paths:
+      - "opt/blender/4.3/python/lib/python3.11/site-packages/urllib3-1.26.8.dist-info/METADATA"
+    expired_at: 2026-12-30
+    statement: >-
+      urllib3 1.26.8 is bundled inside Blender 4.3.2's vendored CPython in the
+      asset-baker image. The flaw is an unbounded chunk-size buffer in the
+      chunked-response parser, so a malicious server can exhaust memory. The
+      bundled interpreter runs only bake.py and never imports urllib3 or makes
+      HTTP requests. The fix needs urllib3 2.8.0, so the Blender version move
+      (#1002) must re-check the bundled urllib3 before this exception is
+      removed.
   - id: CVE-2026-43871
     purls:
       - "pkg:maven/org.apache.thrift/libthrift@0.16.0"
@@ -4789,25 +4815,22 @@ vulnerabilities:
   - id: CVE-2026-68497
     paths:
       - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
-      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/jackson-databind-2.21.2.jar"
       - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/parquet-jackson-1.16.0.jar"
-      - "home/airflow/.local/lib/python3.13/site-packages/ray/jars/ray_dist.jar"
     expired_at: 2026-12-26
     statement: >-
-      jackson-databind 2.21.2, 2.19.2 (parquet-jackson 1.16.0) and 2.15.2 (shaded
-      in the Iceberg 1.11.0 Spark runtime) sit in the PySpark 4.1.2 jars of the
-      Airflow image (services/airflow/build), and 2.18.8 in ray_dist.jar from Ray
-      2.58.0 in the apache/airflow:3.3.2 base. The flaw is quadratic parsing when
-      a JSON string is bound to a javax.xml.datatype Duration or
-      XMLGregorianCalendar field. In Airflow these jars load only in the
-      spark-submit client JVM that SparkSubmitOperator starts for
-      operator-authored jobs (spark_default submits in cluster deploy mode, so
-      drivers run on the Spark cluster), and nothing starts a Ray Java worker.
+      jackson-databind 2.19.2 (parquet-jackson 1.16.0) and 2.15.2 (shaded in the
+      Iceberg 1.11.0 Spark runtime) sit in the PySpark 4.1.2 jars of the Airflow
+      image (services/airflow/build). The flaw is quadratic parsing when a JSON
+      string is bound to a javax.xml.datatype Duration or XMLGregorianCalendar
+      field. In Airflow these jars load only in the spark-submit client JVM that
+      SparkSubmitOperator starts for operator-authored jobs (spark_default
+      submits in cluster deploy mode, so drivers run on the Spark cluster).
       Airflow is disabled by default (AIRFLOW_SOURCE=disabled). Fixed in
-      2.18.10, 2.21.6 and 2.22.2; Spark 4.2.0, the newest release, still ships
-      jackson-databind 2.21.2. Scoped to these exact paths so the same jars in
-      any other image still fail the gate. Remove when a PySpark, Iceberg and Ray
-      set carrying the fix is pinned (#1304).
+      2.18.10, 2.21.6 and 2.22.2. Since #1329 the Dockerfile swaps the
+      standalone jackson-databind jar for 2.21.7 and deletes ray/jars, but
+      shaded copies cannot be swapped. Scoped to these exact paths so the same jars in
+      any other image still fail the gate. Remove when a PySpark and Iceberg set
+      carrying the fix is pinned (#1304).
 
   - id: CVE-2026-77422
     paths:
@@ -4833,22 +4856,22 @@ vulnerabilities:
   - id: CVE-2026-68497
     paths:
       - "opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
-      - "opt/spark/jars/jackson-databind-2.21.2.jar"
       - "opt/spark/jars/parquet-jackson-1.16.0.jar"
     expired_at: 2026-12-28
     statement: >-
-      jackson-databind 2.21.2, 2.19.2 (parquet-jackson 1.16.0) and 2.15.2
-      (relocated under org.apache.iceberg.shaded in the Iceberg 1.11.0 Spark
-      runtime) sit in /opt/spark/jars of the Spark image (services/spark) and of
-      the Zeppelin image (services/zeppelin), which copies that tree. The flaw is
-      quadratic parsing when a JSON string is bound to a javax.xml.datatype
-      Duration or XMLGregorianCalendar field. The Spark master and workers only
-      exchange messages with in-stack components and run operator-authored jobs,
-      and the relocated copies are reachable only from Parquet and Iceberg code.
-      Spark and Zeppelin are disabled by default (SPARK_SOURCE=disabled,
-      ZEPPELIN_SOURCE=disabled). Fixed in 2.18.10, 2.21.6 and 2.22.2; Spark
-      4.2.0, the newest release, still ships jackson-databind 2.21.2. Remove when
-      a Spark and Iceberg set carrying the fix is pinned (#1312).
+      jackson-databind 2.19.2 (parquet-jackson 1.16.0) and 2.15.2 (relocated
+      under org.apache.iceberg.shaded in the Iceberg 1.11.0 Spark runtime) sit in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree. The flaw is quadratic
+      parsing when a JSON string is bound to a javax.xml.datatype Duration or
+      XMLGregorianCalendar field. The Spark master and workers only exchange
+      messages with in-stack components and run operator-authored jobs, and the
+      relocated copies are reachable only from Parquet and Iceberg code. Spark
+      and Zeppelin are disabled by default (SPARK_SOURCE=disabled,
+      ZEPPELIN_SOURCE=disabled). Fixed in 2.18.10, 2.21.6 and 2.22.2. Since
+      #1329 both Dockerfiles swap the standalone jackson-databind jar for
+      2.21.7, but relocated copies cannot be swapped. Remove when a Spark and Iceberg set
+      carrying the fix is pinned (#1312).
 
   - id: CVE-2026-77422
     paths:
@@ -4950,3 +4973,479 @@ vulnerabilities:
       unrequested-frame denial of service requires, and no JupyterHub, notebook
       or Atlas service code invokes npm. Remove when an npm release vendors
       undici 6.28.1 or newer (#1312).
+
+  # Advisories published on 2026-10-01 against Jackson, urllib3 and tornado
+  # (#1329, coverage dispatch run 36922778274). The standalone jackson jars in
+  # Spark, Zeppelin's Spark copy, Airflow's PySpark and Neo4j are swapped for
+  # fixed patch releases, Airflow drops ray/jars and raises its tornado and
+  # virtualenv floors, and Zeppelin drops BigQuery and the Azure and GCS
+  # notebook stores. These rows cover what remains: Jackson copies shaded into
+  # other jars, urllib3 vendored by pip (which has no file path), and the stock
+  # Zeppelin Pythons. Every row except pip's vendored urllib3 names exact paths
+  # in its owning image.
+  - id: CVE-2026-89407
+    paths:
+      - "opt/spark/jars/parquet-jackson-1.16.0.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      jackson-core 2.19.2, relocated inside parquet-jackson 1.16.0, sits in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree. The flaw is quadratic
+      regular-expression backtracking in jackson-core when JSON input has
+      databind coerce a long stringified number into a numeric field. Relocated
+      copies are reachable only from Hadoop client, Parquet and Iceberg code,
+      which in Atlas reads JSON only from the stack's own object store and
+      Iceberg catalog. Spark and Zeppelin are disabled by default
+      (SPARK_SOURCE=disabled, ZEPPELIN_SOURCE=disabled). Both Dockerfiles swap
+      the standalone jackson-core and jackson-databind 2.21.2 jars for 2.21.7,
+      but relocated copies cannot be swapped. Remove when a Spark, Hadoop and
+      Iceberg set built against a fixed Jackson is pinned (#1329).
+
+  - id: CVE-2026-89425
+    paths:
+      - "opt/spark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
+      - "opt/spark/jars/parquet-jackson-1.16.0.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      Jackson 2.12.7 relocated inside hadoop-client-runtime 3.4.2, 2.15.2 inside
+      the Iceberg 1.11.0 Spark runtime and 2.19.2 inside parquet-jackson 1.16.0
+      sit in /opt/spark/jars of the Spark image (services/spark) and of the
+      Zeppelin image (services/zeppelin), which copies that tree. The flaw is an
+      unbounded error message that jackson-core builds for a malformed token,
+      only in parsers created from a java.io.DataInput source. Relocated copies
+      are reachable only from Hadoop client, Parquet and Iceberg code, which in
+      Atlas reads JSON only from the stack's own object store and Iceberg
+      catalog. Spark and Zeppelin are disabled by default
+      (SPARK_SOURCE=disabled, ZEPPELIN_SOURCE=disabled). Both Dockerfiles swap
+      the standalone jackson-core and jackson-databind 2.21.2 jars for 2.21.7,
+      but relocated copies cannot be swapped. Remove when a Spark, Hadoop and
+      Iceberg set built against a fixed Jackson is pinned (#1329).
+
+  - id: CVE-2026-91776
+    paths:
+      - "opt/spark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
+      - "opt/spark/jars/parquet-jackson-1.16.0.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      Jackson 2.12.7 relocated inside hadoop-client-runtime 3.4.2, 2.15.2 inside
+      the Iceberg 1.11.0 Spark runtime and 2.19.2 inside parquet-jackson 1.16.0
+      sit in /opt/spark/jars of the Spark image (services/spark) and of the
+      Zeppelin image (services/zeppelin), which copies that tree. The flaw is an
+      unbounded deserializer cache in jackson-databind when name-based
+      polymorphism has a defaultImpl fallback and the input sends many distinct
+      unknown type IDs. Relocated copies are reachable only from Hadoop client,
+      Parquet and Iceberg code, which in Atlas reads JSON only from the stack's
+      own object store and Iceberg catalog. Spark and Zeppelin are disabled by
+      default (SPARK_SOURCE=disabled, ZEPPELIN_SOURCE=disabled). Both
+      Dockerfiles swap the standalone jackson-core and jackson-databind 2.21.2
+      jars for 2.21.7, but relocated copies cannot be swapped. Remove when a
+      Spark, Hadoop and Iceberg set built against a fixed Jackson is pinned
+      (#1329).
+
+  - id: CVE-2026-91777
+    paths:
+      - "opt/spark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
+      - "opt/spark/jars/parquet-jackson-1.16.0.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      Jackson 2.12.7 relocated inside hadoop-client-runtime 3.4.2, 2.15.2 inside
+      the Iceberg 1.11.0 Spark runtime and 2.19.2 inside parquet-jackson 1.16.0
+      sit in /opt/spark/jars of the Spark image (services/spark) and of the
+      Zeppelin image (services/zeppelin), which copies that tree. The flaw is
+      quadratic resolution of @JsonIdentityInfo forward references inside
+      collections and maps in jackson-databind. Relocated copies are reachable
+      only from Hadoop client, Parquet and Iceberg code, which in Atlas reads
+      JSON only from the stack's own object store and Iceberg catalog. Spark and
+      Zeppelin are disabled by default (SPARK_SOURCE=disabled,
+      ZEPPELIN_SOURCE=disabled). Both Dockerfiles swap the standalone
+      jackson-core and jackson-databind 2.21.2 jars for 2.21.7, but relocated
+      copies cannot be swapped. Remove when a Spark, Hadoop and Iceberg set
+      built against a fixed Jackson is pinned (#1329).
+
+  - id: CVE-2026-89407
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/parquet-jackson-1.16.0.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      jackson-core 2.19.2, relocated inside parquet-jackson 1.16.0, sits in the
+      PySpark 4.1.2 jars of the Airflow image (services/airflow/build). The flaw
+      is quadratic regular-expression backtracking in jackson-core when JSON
+      input has databind coerce a long stringified number into a numeric field.
+      They load only in the spark-submit client JVM that SparkSubmitOperator
+      starts for operator-authored jobs (spark_default submits in cluster deploy
+      mode, so drivers run on the Spark cluster), and relocated copies are
+      reachable only from Hadoop client, Parquet and Iceberg code. Airflow is
+      disabled by default (AIRFLOW_SOURCE=disabled). The Dockerfile swaps the
+      standalone 2.21.2 jars for 2.21.7 and deletes Ray's ray/jars, but
+      relocated copies cannot be swapped. Scoped to these exact paths so the
+      same jars in any other image still fail the gate. Remove when a PySpark
+      and Iceberg set built against a fixed Jackson is pinned (#1329).
+
+  - id: CVE-2026-89425
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/parquet-jackson-1.16.0.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      Jackson 2.12.7 relocated inside hadoop-client-runtime 3.4.2, 2.15.2 inside
+      the Iceberg 1.11.0 Spark runtime and 2.19.2 inside parquet-jackson 1.16.0
+      sit in the PySpark 4.1.2 jars of the Airflow image
+      (services/airflow/build). The flaw is an unbounded error message that
+      jackson-core builds for a malformed token, only in parsers created from a
+      java.io.DataInput source. They load only in the spark-submit client JVM
+      that SparkSubmitOperator starts for operator-authored jobs (spark_default
+      submits in cluster deploy mode, so drivers run on the Spark cluster), and
+      relocated copies are reachable only from Hadoop client, Parquet and
+      Iceberg code. Airflow is disabled by default (AIRFLOW_SOURCE=disabled).
+      The Dockerfile swaps the standalone 2.21.2 jars for 2.21.7 and deletes
+      Ray's ray/jars, but relocated copies cannot be swapped. Scoped to these
+      exact paths so the same jars in any other image still fail the gate.
+      Remove when a PySpark and Iceberg set built against a fixed Jackson is
+      pinned (#1329).
+
+  - id: CVE-2026-91776
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/parquet-jackson-1.16.0.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      Jackson 2.12.7 relocated inside hadoop-client-runtime 3.4.2, 2.15.2 inside
+      the Iceberg 1.11.0 Spark runtime and 2.19.2 inside parquet-jackson 1.16.0
+      sit in the PySpark 4.1.2 jars of the Airflow image
+      (services/airflow/build). The flaw is an unbounded deserializer cache in
+      jackson-databind when name-based polymorphism has a defaultImpl fallback
+      and the input sends many distinct unknown type IDs. They load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs (spark_default submits in cluster deploy mode, so
+      drivers run on the Spark cluster), and relocated copies are reachable only
+      from Hadoop client, Parquet and Iceberg code. Airflow is disabled by
+      default (AIRFLOW_SOURCE=disabled). The Dockerfile swaps the standalone
+      2.21.2 jars for 2.21.7 and deletes Ray's ray/jars, but relocated copies
+      cannot be swapped. Scoped to these exact paths so the same jars in any
+      other image still fail the gate. Remove when a PySpark and Iceberg set
+      built against a fixed Jackson is pinned (#1329).
+
+  - id: CVE-2026-91777
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/parquet-jackson-1.16.0.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      Jackson 2.12.7 relocated inside hadoop-client-runtime 3.4.2, 2.15.2 inside
+      the Iceberg 1.11.0 Spark runtime and 2.19.2 inside parquet-jackson 1.16.0
+      sit in the PySpark 4.1.2 jars of the Airflow image
+      (services/airflow/build). The flaw is quadratic resolution of
+      @JsonIdentityInfo forward references inside collections and maps in
+      jackson-databind. They load only in the spark-submit client JVM that
+      SparkSubmitOperator starts for operator-authored jobs (spark_default
+      submits in cluster deploy mode, so drivers run on the Spark cluster), and
+      relocated copies are reachable only from Hadoop client, Parquet and
+      Iceberg code. Airflow is disabled by default (AIRFLOW_SOURCE=disabled).
+      The Dockerfile swaps the standalone 2.21.2 jars for 2.21.7 and deletes
+      Ray's ray/jars, but relocated copies cannot be swapped. Scoped to these
+      exact paths so the same jars in any other image still fail the gate.
+      Remove when a PySpark and Iceberg set built against a fixed Jackson is
+      pinned (#1329).
+
+  - id: CVE-2026-89407
+    paths:
+      - "usr/lib/iceberg-rest/iceberg-rest-adapter.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      jackson-core 2.18.4.1 and jackson-databind 2.18.4 inside its shaded
+      iceberg-rest-adapter.jar; replacing individual shaded classes would create
+      an unsupported catalog server. The flaw is quadratic regular-expression
+      backtracking in jackson-core when JSON input has databind coerce a long
+      stringified number into a numeric field. Atlas keeps the catalog disabled
+      by default (ICEBERG_REST_SOURCE=disabled), exposes it only on the Compose
+      network and a loopback-bound host port with no Kong route, and the
+      lakehouse track is operator-driven. Remove when Apache publishes a fixture
+      release carrying Jackson 2.18.11 or newer (#1329).
+
+  - id: CVE-2026-89425
+    paths:
+      - "usr/lib/iceberg-rest/iceberg-rest-adapter.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      jackson-core 2.18.4.1 and jackson-databind 2.18.4 inside its shaded
+      iceberg-rest-adapter.jar; replacing individual shaded classes would create
+      an unsupported catalog server. The flaw is an unbounded error message that
+      jackson-core builds for a malformed token, only in parsers created from a
+      java.io.DataInput source. Atlas keeps the catalog disabled by default
+      (ICEBERG_REST_SOURCE=disabled), exposes it only on the Compose network and
+      a loopback-bound host port with no Kong route, and the lakehouse track is
+      operator-driven. Remove when Apache publishes a fixture release carrying
+      Jackson 2.18.11 or newer (#1329).
+
+  - id: CVE-2026-91776
+    paths:
+      - "usr/lib/iceberg-rest/iceberg-rest-adapter.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      jackson-core 2.18.4.1 and jackson-databind 2.18.4 inside its shaded
+      iceberg-rest-adapter.jar; replacing individual shaded classes would create
+      an unsupported catalog server. The flaw is an unbounded deserializer cache
+      in jackson-databind when name-based polymorphism has a defaultImpl
+      fallback and the input sends many distinct unknown type IDs. Atlas keeps
+      the catalog disabled by default (ICEBERG_REST_SOURCE=disabled), exposes it
+      only on the Compose network and a loopback-bound host port with no Kong
+      route, and the lakehouse track is operator-driven. Remove when Apache
+      publishes a fixture release carrying Jackson 2.18.11 or newer (#1329).
+
+  - id: CVE-2026-91777
+    paths:
+      - "usr/lib/iceberg-rest/iceberg-rest-adapter.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      jackson-core 2.18.4.1 and jackson-databind 2.18.4 inside its shaded
+      iceberg-rest-adapter.jar; replacing individual shaded classes would create
+      an unsupported catalog server. The flaw is quadratic resolution of
+      @JsonIdentityInfo forward references inside collections and maps in
+      jackson-databind. Atlas keeps the catalog disabled by default
+      (ICEBERG_REST_SOURCE=disabled), exposes it only on the Compose network and
+      a loopback-bound host port with no Kong route, and the lakehouse track is
+      operator-driven. Remove when Apache publishes a fixture release carrying
+      Jackson 2.18.11 or newer (#1329).
+
+  - id: CVE-2026-89407
+    paths:
+      - "opt/jenkins-plugin-manager.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      jackson-core and jackson-databind 2.20.1 ship inside
+      /opt/jenkins-plugin-manager.jar, the plugin-installer CLI the upstream
+      jenkins/jenkins:lts-jdk21 image bundles. The flaw is quadratic
+      regular-expression backtracking in jackson-core when JSON input has
+      databind coerce a long stringified number into a numeric field. Atlas runs
+      it only at image build time (jenkins-plugin-cli --plugin-file) against the
+      pinned plugins.txt, and the Jenkins runtime never loads that jar. Jenkins
+      is disabled by default (JENKINS_SOURCE=disabled). Remove when the pinned
+      Jenkins LTS digest ships a plugin manager built against Jackson 2.21.7 or
+      newer (#1329).
+
+  - id: CVE-2026-89425
+    paths:
+      - "opt/jenkins-plugin-manager.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      jackson-core and jackson-databind 2.20.1 ship inside
+      /opt/jenkins-plugin-manager.jar, the plugin-installer CLI the upstream
+      jenkins/jenkins:lts-jdk21 image bundles. The flaw is an unbounded error
+      message that jackson-core builds for a malformed token, only in parsers
+      created from a java.io.DataInput source. Atlas runs it only at image build
+      time (jenkins-plugin-cli --plugin-file) against the pinned plugins.txt,
+      and the Jenkins runtime never loads that jar. Jenkins is disabled by
+      default (JENKINS_SOURCE=disabled). Remove when the pinned Jenkins LTS
+      digest ships a plugin manager built against Jackson 2.21.7 or newer
+      (#1329).
+
+  - id: CVE-2026-91776
+    paths:
+      - "opt/jenkins-plugin-manager.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      jackson-core and jackson-databind 2.20.1 ship inside
+      /opt/jenkins-plugin-manager.jar, the plugin-installer CLI the upstream
+      jenkins/jenkins:lts-jdk21 image bundles. The flaw is an unbounded
+      deserializer cache in jackson-databind when name-based polymorphism has a
+      defaultImpl fallback and the input sends many distinct unknown type IDs.
+      Atlas runs it only at image build time (jenkins-plugin-cli --plugin-file)
+      against the pinned plugins.txt, and the Jenkins runtime never loads that
+      jar. Jenkins is disabled by default (JENKINS_SOURCE=disabled). Remove when
+      the pinned Jenkins LTS digest ships a plugin manager built against Jackson
+      2.21.7 or newer (#1329).
+
+  - id: CVE-2026-91777
+    paths:
+      - "opt/jenkins-plugin-manager.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      jackson-core and jackson-databind 2.20.1 ship inside
+      /opt/jenkins-plugin-manager.jar, the plugin-installer CLI the upstream
+      jenkins/jenkins:lts-jdk21 image bundles. The flaw is quadratic resolution
+      of @JsonIdentityInfo forward references inside collections and maps in
+      jackson-databind. Atlas runs it only at image build time
+      (jenkins-plugin-cli --plugin-file) against the pinned plugins.txt, and the
+      Jenkins runtime never loads that jar. Jenkins is disabled by default
+      (JENKINS_SOURCE=disabled). Remove when the pinned Jenkins LTS digest ships
+      a plugin manager built against Jackson 2.21.7 or newer (#1329).
+
+  - id: CVE-2026-89407
+    paths:
+      - "var/lib/neo4j/lib/parquet-jackson-1.18.0.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      parquet-jackson 1.18.0 in the Neo4j image (services/neo4j) carries
+      jackson-core and jackson-databind 2.22.1 relocated under
+      shaded.parquet.com.fasterxml, so only Parquet's own reader and writer code
+      can reach them; Neo4j's Bolt and HTTP endpoints use its standalone
+      Jackson, which the Dockerfile swaps to 2.22.3. The flaw is quadratic
+      regular-expression backtracking in jackson-core when JSON input has
+      databind coerce a long stringified number into a numeric field. Neo4j
+      5.26.31, the newest 5.26.x, still ships parquet-jackson 1.18.0. Atlas
+      neither ships nor imports Parquet files into Neo4j. Remove when a Neo4j
+      5.26.x release ships a parquet-jackson built against Jackson 2.22.3 or
+      newer (#1329).
+
+  - id: CVE-2026-89425
+    paths:
+      - "var/lib/neo4j/lib/parquet-jackson-1.18.0.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      parquet-jackson 1.18.0 in the Neo4j image (services/neo4j) carries
+      jackson-core and jackson-databind 2.22.1 relocated under
+      shaded.parquet.com.fasterxml, so only Parquet's own reader and writer code
+      can reach them; Neo4j's Bolt and HTTP endpoints use its standalone
+      Jackson, which the Dockerfile swaps to 2.22.3. The flaw is an unbounded
+      error message that jackson-core builds for a malformed token, only in
+      parsers created from a java.io.DataInput source. Neo4j 5.26.31, the newest
+      5.26.x, still ships parquet-jackson 1.18.0. Atlas neither ships nor
+      imports Parquet files into Neo4j. Remove when a Neo4j 5.26.x release ships
+      a parquet-jackson built against Jackson 2.22.3 or newer (#1329).
+
+  - id: CVE-2026-91776
+    paths:
+      - "var/lib/neo4j/lib/parquet-jackson-1.18.0.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      parquet-jackson 1.18.0 in the Neo4j image (services/neo4j) carries
+      jackson-core and jackson-databind 2.22.1 relocated under
+      shaded.parquet.com.fasterxml, so only Parquet's own reader and writer code
+      can reach them; Neo4j's Bolt and HTTP endpoints use its standalone
+      Jackson, which the Dockerfile swaps to 2.22.3. The flaw is an unbounded
+      deserializer cache in jackson-databind when name-based polymorphism has a
+      defaultImpl fallback and the input sends many distinct unknown type IDs.
+      Neo4j 5.26.31, the newest 5.26.x, still ships parquet-jackson 1.18.0.
+      Atlas neither ships nor imports Parquet files into Neo4j. Remove when a
+      Neo4j 5.26.x release ships a parquet-jackson built against Jackson 2.22.3
+      or newer (#1329).
+
+  - id: CVE-2026-91777
+    paths:
+      - "var/lib/neo4j/lib/parquet-jackson-1.18.0.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      parquet-jackson 1.18.0 in the Neo4j image (services/neo4j) carries
+      jackson-core and jackson-databind 2.22.1 relocated under
+      shaded.parquet.com.fasterxml, so only Parquet's own reader and writer code
+      can reach them; Neo4j's Bolt and HTTP endpoints use its standalone
+      Jackson, which the Dockerfile swaps to 2.22.3. The flaw is quadratic
+      resolution of @JsonIdentityInfo forward references inside collections and
+      maps in jackson-databind. Neo4j 5.26.31, the newest 5.26.x, still ships
+      parquet-jackson 1.18.0. Atlas neither ships nor imports Parquet files into
+      Neo4j. Remove when a Neo4j 5.26.x release ships a parquet-jackson built
+      against Jackson 2.22.3 or newer (#1329).
+
+  - id: CVE-2026-97687
+    purls:
+      - "pkg:pypi/urllib3@2.7.0"
+    expired_at: 2026-12-30
+    statement: >-
+      urllib3 2.7.0 listed in pip 26.2.1's own _vendor/vendor.txt, in the
+      Airflow image (from the apache/airflow:3.3.2 base) and the JupyterHub
+      image; Trivy reports it without a file path, so only the exact PURL can
+      scope it. pip 26.2.1 is the newest release and vendors this version, so no
+      upgrade clears it. The flaw applies target-server TLS settings to an HTTPS
+      proxy connection, which matters only when traffic goes through an HTTPS
+      proxy with its own TLS settings. The vendored copy serves only pip itself,
+      which Atlas runs at image build time and no service calls at runtime;
+      outside the build, pip runs only when an operator invokes it in a
+      JupyterHub terminal, and Atlas configures no pip proxy. Every runtime lock
+      in this repository pins the site-packages urllib3 at the fixed 2.8.0,
+      which the runtime-lock audit checks independently of this file. Remove
+      when a pip release vendors urllib3 2.8.0 or newer (#1329).
+
+  - id: CVE-2026-97689
+    purls:
+      - "pkg:pypi/urllib3@2.7.0"
+    expired_at: 2026-12-30
+    statement: >-
+      urllib3 2.7.0 listed in pip 26.2.1's own _vendor/vendor.txt, in the
+      Airflow image (from the apache/airflow:3.3.2 base) and the JupyterHub
+      image; Trivy reports it without a file path, so only the exact PURL can
+      scope it. pip 26.2.1 is the newest release and vendors this version, so no
+      upgrade clears it. The flaw is an unbounded chunk-size buffer in the
+      chunked-response parser, so a malicious server can exhaust memory. The
+      vendored copy serves only pip itself, which Atlas runs at image build time
+      and no service calls at runtime; outside the build, pip runs only when an
+      operator invokes it in a JupyterHub terminal, and Atlas configures no pip
+      proxy. Every runtime lock in this repository pins the site-packages
+      urllib3 at the fixed 2.8.0, which the runtime-lock audit checks
+      independently of this file. Remove when a pip release vendors urllib3
+      2.8.0 or newer (#1329).
+
+  - id: CVE-2026-97687
+    paths:
+      - "opt/conda/envs/python_3_with_R/lib/python3.7/site-packages/urllib3-2.2.1.dist-info/METADATA"
+      - "opt/conda/lib/python3.9/site-packages/urllib3-2.1.0.dist-info/METADATA"
+    expired_at: 2026-12-30
+    statement: >-
+      urllib3 2.1.0 sits in the stock apache/zeppelin:0.12.1 image's conda base
+      interpreter (Python 3.9) and 2.2.1 in its python_3_with_R environment
+      (Python 3.7); the fix, 2.8.0, requires Python 3.10, so neither interpreter
+      can take it. The flaw applies target-server TLS settings to an HTTPS proxy
+      connection, which matters only when traffic goes through an HTTPS proxy
+      with its own TLS settings. Atlas runs the base interpreter only for conda
+      at build time, PySpark's driver uses Atlas's own Python 3.10 environment
+      (#1314), and the 3.7 environment backs only the stock %python interpreter,
+      which Atlas notebooks do not use. Atlas binds Zeppelin to a fixed loopback
+      port with no Kong route, and ZEPPELIN_SOURCE is disabled by default.
+      Remove with a Zeppelin release that ships newer Pythons (#1329).
+
+  - id: CVE-2026-97689
+    paths:
+      - "opt/conda/envs/python_3_with_R/lib/python3.7/site-packages/urllib3-2.2.1.dist-info/METADATA"
+      - "opt/conda/lib/python3.9/site-packages/urllib3-2.1.0.dist-info/METADATA"
+    expired_at: 2026-12-30
+    statement: >-
+      urllib3 2.1.0 sits in the stock apache/zeppelin:0.12.1 image's conda base
+      interpreter (Python 3.9) and 2.2.1 in its python_3_with_R environment
+      (Python 3.7); the fix, 2.8.0, requires Python 3.10, so neither interpreter
+      can take it. The flaw is an unbounded chunk-size buffer in the
+      chunked-response parser, so a malicious server can exhaust memory. Atlas
+      runs the base interpreter only for conda at build time, PySpark's driver
+      uses Atlas's own Python 3.10 environment (#1314), and the 3.7 environment
+      backs only the stock %python interpreter, which Atlas notebooks do not
+      use. Atlas binds Zeppelin to a fixed loopback port with no Kong route, and
+      ZEPPELIN_SOURCE is disabled by default. Remove with a Zeppelin release
+      that ships newer Pythons (#1329).
+
+  - id: GHSA-c2m8-h5v5-343r
+    paths:
+      - "opt/conda/envs/python_3_with_R/lib/python3.7/site-packages/tornado-6.2.dist-info/METADATA"
+    expired_at: 2026-12-30
+    statement: >-
+      tornado 6.2 sits in the stock apache/zeppelin:0.12.1 image's
+      python_3_with_R environment (Python 3.7); the fix, 6.5.9, requires Python
+      3.9, so no in-place upgrade exists for that environment. The flaw lets
+      StaticFileHandler follow a symlink out of its static root. Tornado there
+      backs only the IPython kernel transport, which is loopback-only inside the
+      container, serves no static files and fetches no URLs. Atlas binds
+      Zeppelin to a fixed loopback port with no Kong route, and ZEPPELIN_SOURCE
+      is disabled by default. Remove with a Zeppelin release that ships newer
+      Pythons (#1329).
+
+  - id: GHSA-chx6-46f5-w4vp
+    paths:
+      - "opt/conda/envs/python_3_with_R/lib/python3.7/site-packages/tornado-6.2.dist-info/METADATA"
+    expired_at: 2026-12-30
+    statement: >-
+      tornado 6.2 sits in the stock apache/zeppelin:0.12.1 image's
+      python_3_with_R environment (Python 3.7); the fix, 6.5.9, requires Python
+      3.9, so no in-place upgrade exists for that environment. The flaw is a
+      missing response-size limit in CurlAsyncHTTPClient, so a compressed
+      response can exhaust memory. Tornado there backs only the IPython kernel
+      transport, which is loopback-only inside the container, serves no static
+      files and fetches no URLs. Atlas binds Zeppelin to a fixed loopback port
+      with no Kong route, and ZEPPELIN_SOURCE is disabled by default. Remove
+      with a Zeppelin release that ships newer Pythons (#1329).

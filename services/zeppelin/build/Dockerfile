@@ -29,6 +29,26 @@ RUN set -eux; \
         "https://repo.maven.apache.org/maven2/org/apache/iceberg/${ICEBERG_AWS_BUNDLE_ARTIFACT}/${ICEBERG_VERSION}/${ICEBERG_AWS_BUNDLE_ARTIFACT}-${ICEBERG_VERSION}.jar"; \
     echo "${ICEBERG_AWS_BUNDLE_SHA512}  /opt/spark/jars/${ICEBERG_AWS_BUNDLE_ARTIFACT}-${ICEBERG_VERSION}.jar" | sha512sum -c -
 
+# The same jackson-core and jackson-databind 2.21.2 -> 2.21.7 swap as
+# services/spark/build/Dockerfile, which explains it. The final stage copies
+# this stage's /opt/spark, so the 2.21.2 jars never reach the Zeppelin image.
+ARG SPARK_JACKSON_VERSION=2.21.7
+ARG SPARK_JACKSON_CORE_SHA512=a4f38908ebf7cb3da776955c398c7b55b0c056ae7265a511b4a2a37ef5a4c6fed433d611ee4f3a1071aa966cc5d16b1fcb95a0e7d672002ece9d89367a4f8f85
+ARG SPARK_JACKSON_DATABIND_SHA512=3485a31a4815ef2577b91667768eebb10bea7ece6b1b7cc0fa3c06f2746c003f4f32c19c52cc30ad13813eff9941ae212caffa9353c717d00947ab80ecc76bd3
+RUN set -eux; \
+    cd /opt/spark/jars; \
+    for old in jackson-core-2.21.2.jar jackson-databind-2.21.2.jar; do \
+        test -f "$old"; \
+        rm -f "$old"; \
+    done; \
+    curl -fsSL --retry 5 -o jackson-core-${SPARK_JACKSON_VERSION}.jar \
+        "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-core/${SPARK_JACKSON_VERSION}/jackson-core-${SPARK_JACKSON_VERSION}.jar"; \
+    echo "${SPARK_JACKSON_CORE_SHA512}  jackson-core-${SPARK_JACKSON_VERSION}.jar" | sha512sum -c -; \
+    curl -fsSL --retry 5 -o jackson-databind-${SPARK_JACKSON_VERSION}.jar \
+        "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-databind/${SPARK_JACKSON_VERSION}/jackson-databind-${SPARK_JACKSON_VERSION}.jar"; \
+    echo "${SPARK_JACKSON_DATABIND_SHA512}  jackson-databind-${SPARK_JACKSON_VERSION}.jar" | sha512sum -c -; \
+    chmod 0644 jackson-core-${SPARK_JACKSON_VERSION}.jar jackson-databind-${SPARK_JACKSON_VERSION}.jar
+
 FROM ${BASE_IMAGE}
 
 USER root
@@ -42,9 +62,12 @@ RUN set -eux; \
     ln -sfn "$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")" /opt/java/openjdk
 
 # The stock image bundles interpreters and plugins that Atlas never configures,
-# and they carry their own shaded jackson-databind 2.18.3 (CVE-2026-68497) and
-# JLine (CVE-2026-77422). Atlas notebooks use only %spark, %spark.pyspark,
-# %spark.sql, %md and JDBC (%postgres, %trino). The server's own Jackson 2.18.3
+# and they carry their own shaded jackson-databind 2.18.3 (CVE-2026-68497),
+# JLine (CVE-2026-77422) and jackson-core 2.18.3 (CVE-2026-89407 and
+# CVE-2026-89425 in BigQuery and the Azure and GCS notebook stores). Atlas
+# notebooks use only %spark, %spark.pyspark, %spark.sql, %md and JDBC
+# (%postgres, %trino), and keep Zeppelin's default local notebook storage, so
+# no cloud notebook-store plugin is ever loaded. The server's own Jackson 2.18.3
 # and BouncyCastle 1.80 jars in lib/ have fixes Zeppelin 0.12.1 never shipped:
 # CVE-2026-68497 for Jackson, and CVE-2026-8763 and CVE-2026-13506 for
 # BouncyCastle. Each library family is swapped as a whole, at a patch release
@@ -71,6 +94,7 @@ RUN set -eux; \
     cd /opt/zeppelin; \
     for unused in \
         interpreter/alluxio \
+        interpreter/bigquery \
         interpreter/cassandra \
         interpreter/elasticsearch \
         interpreter/neo4j \
@@ -78,6 +102,8 @@ RUN set -eux; \
         interpreter/sparql \
         plugins/Launcher/DockerInterpreterLauncher \
         plugins/Launcher/K8sStandardInterpreterLauncher \
+        plugins/NotebookRepo/AzureNotebookRepo \
+        plugins/NotebookRepo/GCSNotebookRepo \
         plugins/NotebookRepo/S3NotebookRepo; \
     do \
         test -d "$unused"; \

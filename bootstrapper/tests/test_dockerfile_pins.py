@@ -931,6 +931,8 @@ def test_remote_scan_removes_both_tempfiles_on_exit(
     [
         ("services/backend/app/Dockerfile", "-r requirements.txt"),
         ("services/jupyterhub/build/Dockerfile", "-r /tmp/requirements.txt"),
+        # #1329: Airflow's Ray comes from the base, so its delete is a whiteout.
+        ("services/airflow/build/Dockerfile", "-r /tmp/airflow-providers.txt"),
     ],
 )
 def test_ray_java_jars_are_deleted_in_the_install_layer(
@@ -956,7 +958,68 @@ def test_ray_java_jars_are_deleted_in_the_install_layer(
     )
 
 
-ZEPPELIN_REMOVED_INTERPRETERS = ("alluxio", "cassandra", "elasticsearch", "neo4j", "r", "sparql")
+def _runs_mentioning(dockerfile_text: str, needle: str) -> list[str]:
+    return [
+        line
+        for line in container_security._dockerfile_logical_lines(
+            dockerfile_text.splitlines()
+        )
+        if line.startswith("RUN ") and needle in line
+    ]
+
+
+def _assert_jackson_jar_fetched(
+    run: str, args: dict[str, str], prefix: str, artifact: str
+) -> None:
+    checksum = f"{prefix}_{artifact.upper()}_SHA512"
+    assert re.fullmatch(r"[0-9a-f]{128}", args[checksum])
+    assert f"${{{checksum}}}  jackson-{artifact}-${{{prefix}_VERSION}}.jar" in run
+    assert run.index("rm -f") < run.index(f"/jackson-{artifact}/${{{prefix}_VERSION}}/")
+
+
+@pytest.mark.parametrize(
+    ("dockerfile", "prefix", "old", "new"),
+    [
+        ("services/spark/build/Dockerfile", "SPARK_JACKSON", "2.21.2", "2.21.7"),
+        ("services/zeppelin/build/Dockerfile", "SPARK_JACKSON", "2.21.2", "2.21.7"),
+        ("services/airflow/build/Dockerfile", "SPARK_JACKSON", "2.21.2", "2.21.7"),
+        ("services/neo4j/build/Dockerfile", "NEO4J_JACKSON", "2.22.2", "2.22.3"),
+    ],
+)
+def test_standalone_jackson_jars_are_swapped_for_fixed_patch_releases(
+    dockerfile: str, prefix: str, old: str, new: str
+) -> None:
+    """#1329: jackson-core and -databind move to a fixed patch of the same minor.
+
+    One RUN checks that each old jar exists before deleting it, so a base bump
+    that renames them fails the build, and fetches each new jar once against a
+    pinned SHA-512. The shaded copies that cannot move stay path-scoped rows.
+    """
+    text = (REPO_ROOT / dockerfile).read_text(encoding="utf-8")
+    args = dict(re.findall(r"^ARG (\w+)=(\S+)$", text, flags=re.MULTILINE))
+    runs = _runs_mentioning(text, f"${{{prefix}_VERSION}}")
+
+    assert (args[f"{prefix}_VERSION"], len(runs)) == (new, 1)
+    assert old.rsplit(".", 1)[0] == new.rsplit(".", 1)[0]
+    assert runs[0].index("test -f") < runs[0].index("rm -f")
+    old_jars = {f"jackson-core-{old}.jar", f"jackson-databind-{old}.jar"}
+    assert old_jars <= set(re.findall(r"jackson-\w+-[\d.]+\.jar", runs[0]))
+    assert runs[0].count("sha512sum -c -") == 2
+    # Only core and databind move; the other jackson modules stay as shipped.
+    assert set(re.findall(r"jackson-(\w+)-\$\{", runs[0])) == {"core", "databind"}
+    _assert_jackson_jar_fetched(runs[0], args, prefix, "core")
+    _assert_jackson_jar_fetched(runs[0], args, prefix, "databind")
+
+
+ZEPPELIN_REMOVED_INTERPRETERS = (
+    "alluxio",
+    "bigquery",
+    "cassandra",
+    "elasticsearch",
+    "neo4j",
+    "r",
+    "sparql",
+)
 
 
 def test_zeppelin_trims_unused_plugins_and_pins_its_server_jar_swaps() -> None:
@@ -979,6 +1042,8 @@ def test_zeppelin_trims_unused_plugins_and_pins_its_server_jar_swaps() -> None:
     removed = [f"interpreter/{name}" for name in ZEPPELIN_REMOVED_INTERPRETERS] + [
         "plugins/Launcher/DockerInterpreterLauncher",
         "plugins/Launcher/K8sStandardInterpreterLauncher",
+        "plugins/NotebookRepo/AzureNotebookRepo",
+        "plugins/NotebookRepo/GCSNotebookRepo",
         "plugins/NotebookRepo/S3NotebookRepo",
     ]
     replaced = [
