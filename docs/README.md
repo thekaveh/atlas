@@ -49,7 +49,7 @@ Documentation index for Atlas. Start from the journey that matches you:
 - [Expected Startup Warnings](operations/expected-startup-warnings.md) — known-benign log lines on `./start.sh`
 
 ### 1.6. Development and contribution
-- [Contributing guide](../CONTRIBUTING.md) — first contribution: setup, one safe Backend and bootstrapper test, the Docker and live-test boundary, the `develop` pull-request target, and the four required checks
+- [Contributing guide](../CONTRIBUTING.md) — first contribution: setup, one safe Backend and bootstrapper test, the Docker and live-test boundary, the `develop` pull-request target, and the five required checks
 - [Development overview](development.md) — service admission, consumer layout, required checks, and repository structure
 - [Adding a service runbook](CONTRIBUTING-services.md) — six-decision walkthrough + the regen + lint chain
 - [Security policy](../SECURITY.md) — project posture, operational tiers, reachability triage, public-edge requirements, automated scanning gates, and the private-advisory reporting route

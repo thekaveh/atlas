@@ -617,13 +617,15 @@ jobs:
   final-image-scan:
     name: Final-image scan (local Compose and init images)
     runs-on: ubuntu-24.04
-    # Not a required check yet. It builds and scans every touched local
-    # context, and the fleet still carries pre-existing findings tracked in
-    # #996 and #997 — gating on them would block every pull request on debt
-    # it did not introduce. Promote this to a required context once those
-    # land; the gate itself is unchanged and reports on every run. A finding
-    # no longer stops the loop: every image is built and scanned, and the job
-    # fails at the end with the list of images that did not pass (#1308).
+    # A required check in the gitflow ruleset (#1002). It builds every local
+    # Compose and init context for linux/amd64 and linux/arm64 and fails on
+    # any fixable HIGH or CRITICAL finding. The only exceptions are
+    # .trivyignore.yaml rows: each is scoped to exact paths or package
+    # versions, names its owning service in a review statement, and expires
+    # within 90 days; scripts.container_security refuses a broad, duplicate or
+    # stale row before Trivy runs. A finding does not stop the loop: every
+    # image is built and scanned, and the job fails at the end with the list
+    # of images that did not pass (#1308).
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

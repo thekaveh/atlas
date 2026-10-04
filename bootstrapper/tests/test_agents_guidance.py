@@ -791,7 +791,7 @@ def _check_list_after(text: str, marker: str) -> list[str]:
     return names
 
 
-def test_contributing_names_the_develop_target_and_the_four_required_checks() -> None:
+def test_contributing_names_the_develop_target_and_the_five_required_checks() -> None:
     """#1188 AC2: one branch target, and the required checks exactly as
     AGENTS.md records the live ruleset and services-lint.yml names its jobs."""
     text = _contributing()
@@ -799,10 +799,10 @@ def test_contributing_names_the_develop_target_and_the_four_required_checks() ->
         (ROOT / ".github/workflows/services-lint.yml").read_text(encoding="utf-8")
     )
     job_names = {job.get("name") for job in workflow["jobs"].values()}
-    documented = _check_list_after(text, "**Four required checks must pass**")
-    recorded = _check_list_after(_guidance(), "four required `services-lint` checks")
+    documented = _check_list_after(text, "**Five required checks must pass**")
+    recorded = _check_list_after(_guidance(), "five required `services-lint` checks")
 
-    assert (documented, len(recorded), set(documented) <= job_names) == (recorded, 4, True)
+    assert (documented, len(recorded), set(documented) <= job_names) == (recorded, 5, True)
     for statement in (
         "**Branch from `develop`**",
         "**Open the pull request against `develop`.** Never target `main`",

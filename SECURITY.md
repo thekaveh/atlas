@@ -102,9 +102,8 @@ Two container-image gates run in `services-lint.yml` on every pull request:
   Compose and init image and fails on any HIGH or CRITICAL finding. A finding
   does not stop the run: every image is scanned, and the job fails at the end
   with the list of images that did not pass. A Trivy error still stops it at
-  once. It reports on every run but is **not yet a required check** while the
-  fleet still carries findings, and its promotion to the required set is
-  tracked in the issue linked from the CI workflow (#1002).
+  once. It is a **required check** (#1002), so a pull request that adds a
+  fixable HIGH or CRITICAL finding to a local image cannot merge.
 
 Findings that cannot be fixed at the pinned version are excepted in
 `.trivyignore.yaml`. Every exception is scoped to an exact package version or

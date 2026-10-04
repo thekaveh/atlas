@@ -154,7 +154,7 @@ Full port + Kong-route detail: [docs/reference/ports-routes.md](docs/reference/p
 
 ## 4. Contributing
 
-Contributions welcome. Start with the [contributing guide](CONTRIBUTING.md): it covers setup, one safe test for each code area, the Docker and live-test boundary, and opening a pull request against `develop` with the four required checks. For anything larger than a typo, open an issue first so the scope is agreed.
+Contributions welcome. Start with the [contributing guide](CONTRIBUTING.md): it covers setup, one safe test for each code area, the Docker and live-test boundary, and opening a pull request against `develop` with the five required checks. For anything larger than a typo, open an issue first so the scope is agreed.
 
 ## 5. License
 

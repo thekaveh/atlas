@@ -80,11 +80,12 @@ Documentation is published to three surfaces (this repository, the documentation
 - **Branch from `develop`**, for example `git switch -c fix/1234-readiness-timeout origin/develop`.
 - **Open the pull request against `develop`.** Never target `main`: it only receives release pull requests that promote `develop` (see [Releasing](docs/operations/releasing.md)).
 - **Title it as a Conventional Commits subject**: `type: summary`, with an optional `(scope)` after the type and a `!` before the colon only for a breaking change. For example: `fix(backend): report Redis as unavailable when the readiness probe times out`, `docs(contributing): link the backend test path`, or `feat(wizard): jump to a previous decision from review`. The squash commit takes its subject from the title, and the changelog generator reads it; the accepted types are listed in [Releasing](docs/operations/releasing.md) §6.
-- **Four required checks must pass**, all run by `.github/workflows/services-lint.yml`:
+- **Five required checks must pass**, all run by `.github/workflows/services-lint.yml`:
   - `Manifest lint + unit tests`
   - `Compose merge + byte-equivalence + source-permutation matrix`
   - `Docs drift + audit scripts`
   - `Build-validation (Dockerfile + requirements.txt installability)`
+  - `Final-image scan (local Compose and init images)`
 
   [Adding a service](docs/CONTRIBUTING-services.md) §13.4 says what each one catches and lists a representative local subset. The first is a gate over four parallel jobs; a failing unit test shows up first as a red **Bootstrapper suite without Docker (fast)** check, and pushing a new commit cancels the pull request's previous run.
 - **Before merge**, the branch must be up to date with `develop` (merge `develop` into it) and every review conversation must be resolved. A maintainer squash-merges it.

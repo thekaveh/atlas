@@ -1174,7 +1174,9 @@ def test_compose_only_remote_image_cannot_escape_scan_inventory(tmp_path: Path) 
         container_security.load_image_scans(tmp_path)
 
 
-def test_container_security_exception_file_is_empty_or_narrow_and_reviewed() -> None:
+def test_committed_exceptions_are_narrow_reviewed_and_carry_an_expiry() -> None:
+    """#1002: load_exceptions rejects a row with no statement or no expiry
+    inside the 90-day horizon; the next test checks each names its owner."""
     exceptions = container_security.load_exceptions(
         ROOT / ".trivyignore.yaml", today=_TODAY
     )

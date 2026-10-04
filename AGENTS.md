@@ -37,14 +37,15 @@ For TUI/CLI visual work: after each change, describe exactly what changed visual
 
 ## Git Workflow
 
-`main` and `develop` are protected by the `gitflow` ruleset: pull request required, no force-push, no branch deletion, and four required `services-lint` checks. Every change lands via a pull request with those checks green:
+`main` and `develop` are protected by the `gitflow` ruleset: pull request required, no force-push, no branch deletion, and five required `services-lint` checks. Every change lands via a pull request with those checks green:
 
 - `Manifest lint + unit tests`
 - `Compose merge + byte-equivalence + source-permutation matrix`
 - `Docs drift + audit scripts`
 - `Build-validation (Dockerfile + requirements.txt installability)`
+- `Final-image scan (local Compose and init images)`
 
-Build validation is enabled on every workflow run and is a required check in the live `gitflow` ruleset.
+Build validation is enabled on every workflow run and is a required check in the live `gitflow` ruleset. The final-image scan joined the required set in #1002: it builds and Trivy-scans every local image on both platforms (about two hours), and a new upstream advisory can turn it red with no change in the pull request; clear that with a fix or a scoped, expiring `.trivyignore.yaml` row, never by skipping the job.
 
 `Manifest lint + unit tests` is an aggregate gate (job `required-lint`, `if: always()`): it succeeds only when four parallel jobs all do. They are `lint` (the bootstrapper suite with the container-backed integration tests, manifest lint, shell lint, title and changelog checks, and the Backend suite, with an always-run container cleanup), `unit-fast` (the whole bootstrapper suite without a Docker daemon, the early red signal), `python-floor` (the full suite on Python 3.10) and `component-tests` (MCP and asset API suites). A new push to a pull request cancels that pull request's superseded `services-lint` run; runs on `main` and `develop` are never cancelled (#1176).
 
