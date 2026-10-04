@@ -168,3 +168,113 @@ def test_warm_up_sites_thread_source_build_args():
     assert "prepare_build_args(cold, targets)" in wizard_src
     assert "mark_source_built(targets)" in wizard_src
     assert "def prepare_build_args" in dm_src
+
+
+def test_linear_warm_start_threads_the_same_build_gate():
+    """#989: the linear warm start now builds stale images itself, before
+    `up`, instead of `up --build` in start_services. It must consult the same
+    #506 drift gate and record the build state only after `up` succeeded."""
+    import inspect
+
+    import start as start_module
+
+    warm = inspect.getsource(start_module.AtlasStarter._warm_compose_up)
+    assert "prepare_build_args(False, targets)" in warm
+    assert "mark_source_built(targets)" in warm
+    assert warm.index("_compose_up(targets, wait)") < warm.index(
+        "mark_source_built(targets)"
+    )
+
+
+# ── #989: which enabled images a cold start can go on without ─────────────
+_BUILD_GRAPH = {
+    # celery-worker depends on backend: backend's image is required.
+    "backend": {"build": {"context": "b"}},
+    "celery-worker": {
+        "build": {"context": "c"},
+        "image": "atlas-backend-celery:local",
+        "depends_on": {"backend": {"condition": "service_healthy"}},
+    },
+    # Nothing enabled depends on jupyterhub (the #989 report).
+    "jupyterhub": {"build": {"context": "j"}, "depends_on": {"litellm": {}}},
+    # A disabled consumer of jupyterhub does not make it required.
+    "jupyterhub-consumer": {"image": "x", "depends_on": {"jupyterhub": {}}},
+    # Two services building one image are one unit, required through either.
+    "spark-master": {"build": {"context": "s"}, "image": "atlas-spark:local"},
+    "spark-worker": {
+        "build": {"context": "s"},
+        "image": "atlas-spark:local",
+        "depends_on": {"spark-master": {}},
+    },
+    "litellm": {"image": "litellm"},
+}
+
+
+def test_build_split_keeps_images_enabled_services_depend_on_required():
+    from start import _split_local_builds
+
+    targets = [name for name in _BUILD_GRAPH if name != "jupyterhub-consumer"]
+    required, optional = _split_local_builds(_BUILD_GRAPH, targets, set())
+
+    assert required == ["backend", "spark-master", "spark-worker"]
+    assert optional == [["celery-worker"], ["jupyterhub"]]
+
+
+def test_build_split_keeps_the_always_running_core_required():
+    """With celery-worker off nothing lists backend in depends_on, but the
+    backend image belongs to the always-running core, so it stays required."""
+    from start import _split_local_builds
+
+    targets = ["backend", "jupyterhub", "litellm"]
+    required, optional = _split_local_builds(_BUILD_GRAPH, targets, {"backend"})
+
+    assert required == ["backend"]
+    assert optional == [["jupyterhub"]]
+
+
+def test_the_core_is_the_locked_tier_for_every_local_image():
+    """The topology's ``locked`` rows (no source choice) are the core #989
+    keeps required. Of every service that builds a local image, exactly the
+    Backend and LiteLLM ones are locked, which is the documented
+    always-running tier (Supabase, Kong, Redis, LiteLLM, Backend); a new
+    locked local image must be reviewed here."""
+    import yaml
+
+    import start as start_module
+
+    core = start_module.AtlasStarter()._always_running_services()
+    local_builds = set()
+    for fragment in sorted((REPO_ROOT / "services").glob("*/compose.yml")):
+        services = (yaml.safe_load(fragment.read_text()) or {}).get("services") or {}
+        local_builds.update(
+            name for name, spec in services.items() if (spec or {}).get("build")
+        )
+
+    assert {"backend", "kong-api-gateway", "redis", "litellm", "supabase-db"} <= core
+    assert "jupyterhub" not in core and "celery-worker" not in core
+    assert core & local_builds == {"backend", "litellm-init"}
+
+
+def test_one_shot_verification_skips_an_image_the_cold_build_left_out(monkeypatch):
+    """A one-shot whose image was left out was never started, so waiting for
+    it would time out and fail a launch that #989 lets continue."""
+    from types import SimpleNamespace
+
+    import start as start_module
+
+    starter = start_module.AtlasStarter()
+    env = {"OPEN_WEB_UI_INIT_SCALE": "1", "N8N_INIT_SCALE": "1"}
+    monkeypatch.setattr(starter.config_parser, "parse_env_file", lambda: env)
+    monkeypatch.setattr(
+        starter.config_parser, "load_consumer_config",
+        lambda: SimpleNamespace(n8n_workflows=()),
+    )
+    waited: list[list[str]] = []
+    monkeypatch.setattr(
+        starter.docker_manager, "failed_one_shot_services",
+        lambda services, **_kwargs: waited.append(list(services)) or [],
+    )
+    starter.skipped_builds = ["open-webui-init"]
+
+    assert starter.verify_one_shot_init_containers() is True
+    assert waited == [["n8n-init"]]

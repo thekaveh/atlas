@@ -121,6 +121,13 @@ def _race_starter(monkeypatch, *, up_result: int, ps_rows, ps_error=None):
     import start as start_module
 
     starter = start_module.AtlasStarter()
+    # A warm start whose images are current (#989): no build, one `up`.
+    monkeypatch.setattr(
+        starter.docker_manager, "enabled_service_targets", lambda: ["backend"]
+    )
+    monkeypatch.setattr(
+        starter.docker_manager, "prepare_build_args", lambda _cold, _targets: []
+    )
     monkeypatch.setattr(
         starter.docker_manager, "start_services",
         lambda detached=True, wait=False, **_kw: up_result,
@@ -360,6 +367,13 @@ def test_starting_then_healthy_start_succeeds_and_skips_rollback(monkeypatch) ->
     import start as start_module
 
     starter = start_module.AtlasStarter()
+    # A warm start whose images are current (#989): no build, one `up`.
+    monkeypatch.setattr(
+        starter.docker_manager, "enabled_service_targets", lambda: ["backend"]
+    )
+    monkeypatch.setattr(
+        starter.docker_manager, "prepare_build_args", lambda _cold, _targets: []
+    )
     monkeypatch.setattr(
         starter.docker_manager, "start_services",
         lambda detached=True, wait=False, **_kw: 1,  # nonzero → race path

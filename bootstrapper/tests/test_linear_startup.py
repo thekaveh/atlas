@@ -36,6 +36,8 @@ class _FakeStarter:
         self.calls: list[str] = []
         self.fail_at = fail_at
         self.log_return_code = log_return_code
+        # AtlasStarter state the result block reads (#989): no image left out.
+        self.skipped_builds: list[str] = []
         self.config_parser = SimpleNamespace(root_dir="/repo")
         self.source_validator = SimpleNamespace(validation_errors=[])
         self.key_generator = SimpleNamespace(

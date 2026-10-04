@@ -166,8 +166,8 @@
       {
         "path": "bootstrapper/ui/textual/screens/wizard_screen.py",
         "symbol": "WizardScreen._run_pipeline_and_stream",
-        "cyclomatic_complexity": 50,
-        "rationale": "Async UI orchestration state machine for setup, launch, log streaming, cancellation, and terminal reporting; focused lifecycle tests protect each transition."
+        "cyclomatic_complexity": 49,
+        "rationale": "Async UI orchestration state machine for setup, launch, log streaming, cancellation, and terminal reporting; focused lifecycle tests protect each transition. 50 -> 49 on #989: the pre-up image build (cold and stale-warm) moved out into WizardScreen._build_launch_images, taking the build call's `targets or []` with it."
       },
       {
         "path": "bootstrapper/ui/textual/widgets/prompt_panel.py",
