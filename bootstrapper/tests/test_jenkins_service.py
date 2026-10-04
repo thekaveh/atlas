@@ -176,11 +176,17 @@ def test_jenkins_dockerfile_and_plugins_are_minimal_and_pinned() -> None:
     assert "FROM ${BASE_IMAGE}" in dockerfile
     assert "USER root" in dockerfile
     assert "maven" in dockerfile
-    assert "mc" in dockerfile
-    assert "github.com/minio/mc/releases/download/${MINIO_MC_VERSION}" in dockerfile
+    # #1288: mc comes from the maintained pgsty fork's digest-pinned image,
+    # the same one minio-init runs, never from the abandoned official release.
+    assert (
+        "ARG MC_IMAGE=pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:"
+        "cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd"
+    ) in dockerfile
+    assert "FROM ${MC_IMAGE} AS mc" in dockerfile
+    assert "COPY --from=mc /usr/bin/mc /usr/local/bin/mc" in dockerfile
+    assert "github.com/minio/mc" not in dockerfile
+    assert "MINIO_MC_" not in dockerfile
     assert "dl.min.io" not in dockerfile
-    assert "MINIO_MC_SHA256_AMD64=01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891" in dockerfile
-    assert "MINIO_MC_SHA256_ARM64=14c8c9616cfce4636add161304353244e8de383b2e2752c0e9dad01d4c27c12c" in dockerfile
     assert "sha256sum -c -" in dockerfile
     assert "jenkins-plugin-cli --plugin-file /usr/share/jenkins/ref/plugins.txt" in dockerfile
     assert "jenkins.install.UpgradeWizard.state" in dockerfile
