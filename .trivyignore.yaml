@@ -59,11 +59,47 @@
 # OpenSSL 3.5.8-r0 (#1285), Weaviate 1.38.17 scans clean (#1286), and MLflow
 # 3.16.x is unaffected by CVE-2026-71211 (#1287).
 #
-# Purl-scoped rows match a package in any image, and the scan shows many
-# covering images their statements never name -- the TrueForge Debian 12 rows
-# also suppress the airflow, node and python bookworm bases, for example.
-# Reconciling that coverage, and confirming or deleting the 44 rows OSV calls
-# unaffected, needs per-image scan output and is tracked in #1289.
+# Review pass 2026-10-04 (#1289): cross-image coverage. The 2026-10-01
+# coverage run (container-security runs 36801152479 and 36811380224: 196
+# image-platforms, Trivy 0.74.0, --show-suppressed) found 100 rows suppressing
+# findings in more than one image family, many in images their statements never
+# named. Each now either names every image it covers, with a rationale for that
+# image, or lists the exact paths of its reviewed copies, except the six left
+# open below. Paths come from Trivy 0.74.0 scans on 2026-10-04 (vulnerability
+# DB of 2026-10-03) of the remote images, amd64 and for the jar and wheel rows
+# arm64 too, and of the jars and wheels the local Spark and Zeppelin, Airflow,
+# Backend and JupyterHub builds add to their bases.
+#
+#   Paths     42  Lakehouse jar rows: PURLs became the jar paths under
+#                 /opt/spark/jars (Spark, and Zeppelin, which copies that tree)
+#                 and Airflow's PySpark jars, and Airflow is named. The Iceberg
+#                 REST copy the two Jetty rows also matched moved to two
+#                 adapter-jar rows under the Iceberg rationale, so the Tika and
+#                 Trino copies now surface in their own scans.
+#   Paths      2  Iceberg httpcore5 rows, scoped to the adapter jar; the copy in
+#                 Trino's ClickHouse plugin surfaces.
+#   Paths      2  Ray httpcore5 (the Ray image, and the Airflow base whose
+#                 ray/jars the Airflow build deletes) and aiohttp (Ray's
+#                 vendored copy in the Ray, Backend and JupyterHub images);
+#                 crawl4ai's and nvidia/pytorch's own aiohttp surface.
+#   Named     23  The 21 TrueForge Debian 12 rows name the five build bases they
+#                 also cover, none shipped unmodified. Trivy reports pip's
+#                 vendored packages with no path, so the msgpack and setuptools
+#                 rows stay PURLs and name the JupyterHub base, whose build
+#                 replaces both, and, for msgpack, Ray's own copy.
+#   Unchanged 27  Already scoped or named: the 22 Go stdlib 1.24.6 rows (#1288),
+#                 the Spark/Zeppelin jackson and JLine rows, the Silo pcre2 rows
+#                 and the Alpine OpenSSL row.
+#   Open       6  Four of the 100, plus two rows #1329 added after the run, are
+#                 left as they are for a maintainer decision. The TrueForge
+#                 ip-address row also matches n8n's npm CLI and storage-api's
+#                 app dependency, but TrueForge's own path cannot be read from
+#                 the review environment and its amd64 scan is green. The three
+#                 global-npm rows of #1312 match the same path in 13 Node
+#                 images (brace-expansion 2.0.1 to 5.0.9), TrueForge's among
+#                 them. The two pip-vendored urllib3 2.7.0 rows of #1329
+#                 also match crawl4ai's and hermes-agent's own urllib3 2.7.0,
+#                 which no path scope can separate from pip's pathless entry.
 #
 # Blender-vendored Python (asset-baker, #1002 criterion 3). Blender 4.3.2 ships
 # its own CPython 3.11 under /opt/blender/4.3/python with certifi 2021.10.8,
@@ -300,8 +336,8 @@ vulnerabilities:
       operator-driven. Remove this exception when Apache publishes a fixture
       release carrying the fix (#1002).
   - id: CVE-2026-54399
-    purls:
-      - "pkg:maven/org.apache.httpcomponents.core5/httpcore5@5.3.4"
+    paths:
+      - "usr/lib/iceberg-rest/iceberg-rest-adapter.jar"
     expired_at: 2026-12-09
     statement: >-
       apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
@@ -310,11 +346,13 @@ vulnerabilities:
       keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
       exposes it only on the Compose network and a loopback-bound host port
       (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
-      operator-driven. Remove this exception when Apache publishes a fixture
-      release carrying the fix (#1002).
+      operator-driven. Scoped to that adapter jar, since the PURL also matched
+      the copy in Trino's ClickHouse plugin, which this rationale does not cover
+      (#1289). Remove this exception when Apache publishes a fixture release
+      carrying the fix (#1002).
   - id: CVE-2026-54428
-    purls:
-      - "pkg:maven/org.apache.httpcomponents.core5/httpcore5-h2@5.3.4"
+    paths:
+      - "usr/lib/iceberg-rest/iceberg-rest-adapter.jar"
     expired_at: 2026-12-09
     statement: >-
       apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
@@ -323,8 +361,10 @@ vulnerabilities:
       keeps the catalog disabled by default (ICEBERG_REST_SOURCE=disabled),
       exposes it only on the Compose network and a loopback-bound host port
       (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
-      operator-driven. Remove this exception when Apache publishes a fixture
-      release carrying the fix (#1002).
+      operator-driven. Scoped to that adapter jar, since the PURL also matched
+      the copy in Trino's ClickHouse plugin, which this rationale does not cover
+      (#1289). Remove this exception when Apache publishes a fixture release
+      carrying the fix (#1002).
   - id: CVE-2026-54512
     purls:
       - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.18.4"
@@ -442,6 +482,36 @@ vulnerabilities:
       (HOST_BIND_IP=127.0.0.1:) with no Kong route, and the lakehouse track is
       operator-driven. Remove this exception when Apache publishes a fixture
       release carrying the fix (#1002).
+  - id: CVE-2026-10050
+    paths:
+      - "usr/lib/iceberg-rest/iceberg-rest-adapter.jar"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      jetty-security 11.0.26 inside its shaded iceberg-rest-adapter.jar;
+      replacing individual shaded classes would create an unsupported catalog
+      server. Atlas keeps the catalog disabled by default
+      (ICEBERG_REST_SOURCE=disabled), exposes it only on the Compose network and
+      a loopback-bound host port (HOST_BIND_IP=127.0.0.1:) with no Kong route,
+      and the lakehouse track is operator-driven. Split out of the lakehouse row
+      whose PURL also matched this copy, and scoped to the adapter jar (#1289).
+      Remove this exception when Apache publishes a fixture release carrying the
+      fix.
+  - id: CVE-2026-2332
+    paths:
+      - "usr/lib/iceberg-rest/iceberg-rest-adapter.jar"
+    expired_at: 2026-12-09
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      jetty-http 11.0.26 inside its shaded iceberg-rest-adapter.jar; replacing
+      individual shaded classes would create an unsupported catalog server.
+      Atlas keeps the catalog disabled by default
+      (ICEBERG_REST_SOURCE=disabled), exposes it only on the Compose network and
+      a loopback-bound host port (HOST_BIND_IP=127.0.0.1:) with no Kong route,
+      and the lakehouse track is operator-driven. Split out of the lakehouse row
+      whose PURL also matched this copy, and scoped to the adapter jar (#1289).
+      Remove this exception when Apache publishes a fixture release carrying the
+      fix.
   - id: CVE-2023-37920
     paths:
       - "opt/blender/4.3/python/lib/python3.11/site-packages/certifi-2021.10.8.dist-info/METADATA"
@@ -559,21 +629,27 @@ vulnerabilities:
       (#1002) must re-check the bundled urllib3 before this exception is
       removed.
   - id: CVE-2026-43871
-    purls:
-      - "pkg:maven/org.apache.thrift/libthrift@0.16.0"
-      - "pkg:golang/github.com/apache/thrift@v0.21.0"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/libthrift-0.16.0.jar"
+      - "opt/spark/jars/libthrift-0.16.0.jar"
     expired_at: 2026-11-30
     statement: >-
       libthrift 0.16.0 ships inside pyspark 4.1.2's bundled jars
-      (pyspark/jars/libthrift-0.16.0.jar) in the Airflow image. The fix is
-      0.24.0, which is unreachable without moving the whole pinned Spark family
+      (pyspark/jars/libthrift-0.16.0.jar) in the Airflow image
+      (services/airflow), and as /opt/spark/jars/libthrift-0.16.0.jar in the
+      Spark image (services/spark, from apache/spark:4.1.2) and the Zeppelin
+      image (services/zeppelin), which copies that tree. The fix is 0.24.0,
+      which is unreachable without moving the whole pinned Spark family
       together: the pyspark pin must match the apache/spark:4.1.2 cluster image
       and iceberg-spark-runtime-4.1, and a previous uncoordinated move produced
       a pip file collision that hard-failed the image build. The advisory is a
       denial of service via infinite loop in Thrift protocol parsing; Atlas
       drives Spark through operator-authored DAGs against the internal cluster
-      rather than exposing a Thrift endpoint to untrusted callers. Tracked for
-      the coordinated upgrade; remove this exception when the Spark family
+      rather than exposing a Thrift endpoint to untrusted callers; the Spark
+      control plane is private to the backend network, and Zeppelin is bound to
+      a loopback port with no Kong route. Scoped to those two jar paths (#1289);
+      the Go thrift purl the row also carried matched no scanned image. Tracked
+      for the coordinated upgrade; remove this exception when the Spark family
       moves.
   - id: CVE-2025-61726
     paths:
@@ -1038,10 +1114,15 @@ vulnerabilities:
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-75595
-    purls:
-      - "pkg:maven/io.netty/netty-handler@4.1.115.Final"
-      - "pkg:maven/io.netty/netty-handler@4.2.13.Final"
-      - "pkg:maven/io.netty/netty-handler@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/bundle-2.29.52.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-aws-bundle-1.11.0.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-handler-4.2.7.Final.jar"
+      - "opt/spark/jars/bundle-2.29.52.jar"
+      - "opt/spark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "opt/spark/jars/iceberg-aws-bundle-1.11.0.jar"
+      - "opt/spark/jars/netty-handler-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       netty-handler 4.1.115.Final ships inside the AWS SDK bundle jar
@@ -1057,485 +1138,825 @@ vulnerabilities:
       4.1.115.Final copy is frozen because Hadoop 3.4.2 qualifies AWS SDK
       2.29.52 and breaks against newer SDK releases -- the same constraint that
       pins GHSA-443w-3rq3-5m5h below, and both lift together. The 4.2.13.Final
-      and 4.2.7.Final copies are vendored by iceberg-aws-bundle 1.11.0 and
-      pyspark 4.1.2's spark-connect client, which move only with the
-      coordinated Spark family upgrade tracked in #996 alongside libthrift
-      above. Remove each purl as its pinned family reaches netty 4.1.137 or
+      copy is vendored by iceberg-aws-bundle 1.11.0 and the 4.2.7.Final copies
+      are Spark 4.1.2's own netty-handler jar and its spark-connect client,
+      which move only with the coordinated Spark family upgrade tracked in #996
+      alongside libthrift above. Scoped to those jars under /opt/spark/jars
+      (Spark, and Zeppelin, which copies that tree) and in Airflow's PySpark
+      jars, so the same netty in any other image still fails the gate (#1289).
+      Remove each jar's path as its pinned family reaches netty 4.1.137 or
       4.2.17.
   - id: GHSA-443w-3rq3-5m5h
-    purls:
-      - "pkg:maven/software.amazon.awssdk/cloudfront@2.29.52"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/bundle-2.29.52.jar"
+      - "opt/spark/jars/bundle-2.29.52.jar"
     expired_at: 2026-12-09
     statement: >-
       Hadoop 3.4.2 qualifies AWS SDK 2.29.52 for third-party S3 stores and
       breaks against newer SDK releases. Atlas uses only the S3A client against
       private MinIO; CloudFront is neither configured nor reachable through this
       path, and a live MinIO write/read smoke test gates both image architectures.
-      Remove this exception when Hadoop qualifies a patched compatible SDK.
+      The SDK ships as bundle-2.29.52.jar, which the Spark (services/spark),
+      Zeppelin (services/zeppelin) and Airflow (services/airflow) Dockerfiles
+      fetch for S3A into /opt/spark/jars and the PySpark jars; the row is scoped
+      to those two paths (#1289). Remove this exception when Hadoop qualifies a
+      patched compatible SDK.
   - id: CVE-2022-46337
-    purls:
-      - "pkg:maven/org.apache.derby/derby@10.16.1.1"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/derby-10.16.1.1.jar"
+      - "opt/spark/jars/derby-10.16.1.1.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2025-12183
-    purls:
-      - "pkg:maven/org.lz4/lz4-java@1.8.0"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/lz4-java-1.8.0.jar"
+      - "opt/spark/jars/lz4-java-1.8.0.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2025-24970
-    purls:
-      - "pkg:maven/io.netty/netty-handler@4.1.115.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/bundle-2.29.52.jar"
+      - "opt/spark/jars/bundle-2.29.52.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2025-52999
-    purls:
-      - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.12.7"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "opt/spark/jars/hadoop-client-runtime-3.4.2.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2025-55163
-    purls:
-      - "pkg:maven/io.netty/netty-codec-http2@4.1.115.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/bundle-2.29.52.jar"
+      - "opt/spark/jars/bundle-2.29.52.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-10050
-    purls:
-      - "pkg:maven/org.eclipse.jetty/jetty-security@11.0.26"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/spark-core_2.13-4.1.2.jar"
+      - "opt/spark/jars/spark-core_2.13-4.1.2.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate, Tika's copy included, while the Iceberg REST fixture's shaded
+      copy has its own row (#1289). Remove this exception when a compatible
       upstream Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-2332
-    purls:
-      - "pkg:maven/org.eclipse.jetty/jetty-http@11.0.26"
-      - "pkg:maven/org.eclipse.jetty/jetty-http@9.4.57.v20241219"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/spark-core_2.13-4.1.2.jar"
+      - "opt/spark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "opt/spark/jars/spark-core_2.13-4.1.2.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate, Tika's and Trino's copies included, while the Iceberg REST
+      fixture's shaded copy has its own row (#1289). Remove this exception when
+      a compatible upstream Spark/Hadoop/Iceberg release carries the patched
+      component.
   - id: CVE-2026-24281
-    purls:
-      - "pkg:maven/org.apache.zookeeper/zookeeper@3.9.4"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/zookeeper-3.9.4.jar"
+      - "opt/spark/jars/zookeeper-3.9.4.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-24308
-    purls:
-      - "pkg:maven/org.apache.zookeeper/zookeeper@3.9.4"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/zookeeper-3.9.4.jar"
+      - "opt/spark/jars/zookeeper-3.9.4.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-33870
-    purls:
-      - "pkg:maven/io.netty/netty-codec-http@4.1.115.Final"
-      - "pkg:maven/io.netty/netty-codec-http@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/bundle-2.29.52.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-codec-http-4.2.7.Final.jar"
+      - "opt/spark/jars/bundle-2.29.52.jar"
+      - "opt/spark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "opt/spark/jars/netty-codec-http-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-33871
-    purls:
-      - "pkg:maven/io.netty/netty-codec-http2@4.1.115.Final"
-      - "pkg:maven/io.netty/netty-codec-http2@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/bundle-2.29.52.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-codec-http2-4.2.7.Final.jar"
+      - "opt/spark/jars/bundle-2.29.52.jar"
+      - "opt/spark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "opt/spark/jars/netty-codec-http2-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-42577
-    purls:
-      - "pkg:maven/io.netty/netty-transport-classes-epoll@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-transport-classes-epoll-4.2.7.Final.jar"
+      - "opt/spark/jars/netty-transport-classes-epoll-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-42579
-    purls:
-      - "pkg:maven/io.netty/netty-codec-dns@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-codec-dns-4.2.7.Final.jar"
+      - "opt/spark/jars/netty-codec-dns-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-42582
-    purls:
-      - "pkg:maven/io.netty/netty-codec-http3@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-codec-http3-4.2.7.Final.jar"
+      - "opt/spark/jars/netty-codec-http3-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-42583
-    purls:
-      - "pkg:maven/io.netty/netty-codec-compression@4.2.7.Final"
-      - "pkg:maven/io.netty/netty-codec@4.1.115.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/bundle-2.29.52.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-codec-compression-4.2.7.Final.jar"
+      - "opt/spark/jars/bundle-2.29.52.jar"
+      - "opt/spark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "opt/spark/jars/netty-codec-compression-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-42584
-    purls:
-      - "pkg:maven/io.netty/netty-codec-http@4.1.115.Final"
-      - "pkg:maven/io.netty/netty-codec-http@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/bundle-2.29.52.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-codec-http-4.2.7.Final.jar"
+      - "opt/spark/jars/bundle-2.29.52.jar"
+      - "opt/spark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "opt/spark/jars/netty-codec-http-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-42587
-    purls:
-      - "pkg:maven/io.netty/netty-codec-http2@4.1.115.Final"
-      - "pkg:maven/io.netty/netty-codec-http2@4.2.7.Final"
-      - "pkg:maven/io.netty/netty-codec-http@4.1.115.Final"
-      - "pkg:maven/io.netty/netty-codec-http@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/bundle-2.29.52.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-codec-http-4.2.7.Final.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-codec-http2-4.2.7.Final.jar"
+      - "opt/spark/jars/bundle-2.29.52.jar"
+      - "opt/spark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "opt/spark/jars/netty-codec-http-4.2.7.Final.jar"
+      - "opt/spark/jars/netty-codec-http2-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-43869
-    purls:
-      - "pkg:maven/org.apache.thrift/libthrift@0.16.0"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/libthrift-0.16.0.jar"
+      - "opt/spark/jars/libthrift-0.16.0.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-44249
-    purls:
-      - "pkg:maven/io.netty/netty-handler@4.1.115.Final"
-      - "pkg:maven/io.netty/netty-handler@4.2.13.Final"
-      - "pkg:maven/io.netty/netty-handler@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/bundle-2.29.52.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-aws-bundle-1.11.0.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-handler-4.2.7.Final.jar"
+      - "opt/spark/jars/bundle-2.29.52.jar"
+      - "opt/spark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "opt/spark/jars/iceberg-aws-bundle-1.11.0.jar"
+      - "opt/spark/jars/netty-handler-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-44892
-    purls:
-      - "pkg:maven/io.netty/netty-codec-http3@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-codec-http3-4.2.7.Final.jar"
+      - "opt/spark/jars/netty-codec-http3-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-44894
-    purls:
-      - "pkg:maven/io.netty/netty-codec-classes-quic@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-codec-classes-quic-4.2.7.Final.jar"
+      - "opt/spark/jars/netty-codec-classes-quic-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-45416
-    purls:
-      - "pkg:maven/io.netty/netty-handler@4.1.115.Final"
-      - "pkg:maven/io.netty/netty-handler@4.2.13.Final"
-      - "pkg:maven/io.netty/netty-handler@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/bundle-2.29.52.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-aws-bundle-1.11.0.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-handler-4.2.7.Final.jar"
+      - "opt/spark/jars/bundle-2.29.52.jar"
+      - "opt/spark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "opt/spark/jars/iceberg-aws-bundle-1.11.0.jar"
+      - "opt/spark/jars/netty-handler-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-45674
-    purls:
-      - "pkg:maven/io.netty/netty-resolver-dns@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-resolver-dns-4.2.7.Final.jar"
+      - "opt/spark/jars/netty-resolver-dns-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-47691
-    purls:
-      - "pkg:maven/io.netty/netty-resolver-dns@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-resolver-dns-4.2.7.Final.jar"
+      - "opt/spark/jars/netty-resolver-dns-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-48748
-    purls:
-      - "pkg:maven/io.netty/netty-codec-http3@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-codec-http3-4.2.7.Final.jar"
+      - "opt/spark/jars/netty-codec-http3-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-50010
-    purls:
-      - "pkg:maven/io.netty/netty-handler@4.1.115.Final"
-      - "pkg:maven/io.netty/netty-handler@4.2.13.Final"
-      - "pkg:maven/io.netty/netty-handler@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/bundle-2.29.52.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-aws-bundle-1.11.0.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-handler-4.2.7.Final.jar"
+      - "opt/spark/jars/bundle-2.29.52.jar"
+      - "opt/spark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "opt/spark/jars/iceberg-aws-bundle-1.11.0.jar"
+      - "opt/spark/jars/netty-handler-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-54399
-    purls:
-      - "pkg:maven/org.apache.httpcomponents.core5/httpcore5@5.4"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
+      - "opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-54428
-    purls:
-      - "pkg:maven/org.apache.httpcomponents.core5/httpcore5-h2@5.4"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
+      - "opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-54512
-    purls:
-      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.12.7.1"
-      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.15.2"
-      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.19.2"
-      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.21.2"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/parquet-jackson-1.16.0.jar"
+      - "opt/spark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
+      - "opt/spark/jars/jackson-databind-2.21.2.jar"
+      - "opt/spark/jars/parquet-jackson-1.16.0.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-54513
-    purls:
-      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.12.7.1"
-      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.15.2"
-      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.19.2"
-      - "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.21.2"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/parquet-jackson-1.16.0.jar"
+      - "opt/spark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
+      - "opt/spark/jars/jackson-databind-2.21.2.jar"
+      - "opt/spark/jars/parquet-jackson-1.16.0.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-55831
-    purls:
-      - "pkg:maven/io.netty/netty-codec-http@4.1.115.Final"
-      - "pkg:maven/io.netty/netty-codec-http@4.2.13.Final"
-      - "pkg:maven/io.netty/netty-codec-http@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/bundle-2.29.52.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-aws-bundle-1.11.0.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-codec-http-4.2.7.Final.jar"
+      - "opt/spark/jars/bundle-2.29.52.jar"
+      - "opt/spark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "opt/spark/jars/iceberg-aws-bundle-1.11.0.jar"
+      - "opt/spark/jars/netty-codec-http-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-55833
-    purls:
-      - "pkg:maven/io.netty/netty-codec-http@4.1.115.Final"
-      - "pkg:maven/io.netty/netty-codec-http@4.2.13.Final"
-      - "pkg:maven/io.netty/netty-codec-http@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/bundle-2.29.52.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-aws-bundle-1.11.0.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-codec-http-4.2.7.Final.jar"
+      - "opt/spark/jars/bundle-2.29.52.jar"
+      - "opt/spark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "opt/spark/jars/iceberg-aws-bundle-1.11.0.jar"
+      - "opt/spark/jars/netty-codec-http-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-56740
-    purls:
-      - "pkg:maven/org.jline/jline-remote-telnet@3.29.0"
-      - "pkg:maven/org.jline/jline-remote-telnet@3.9.0"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/jline-3.29.0-jdk8.jar"
+      - "opt/spark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "opt/spark/jars/jline-3.29.0-jdk8.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-56741
-    purls:
-      - "pkg:maven/org.jline/jline-remote-telnet@3.29.0"
-      - "pkg:maven/org.jline/jline-remote-telnet@3.9.0"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/jline-3.29.0-jdk8.jar"
+      - "opt/spark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "opt/spark/jars/jline-3.29.0-jdk8.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-56745
-    purls:
-      - "pkg:maven/io.netty/netty-codec-http@4.1.115.Final"
-      - "pkg:maven/io.netty/netty-codec-http@4.2.13.Final"
-      - "pkg:maven/io.netty/netty-codec-http@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/bundle-2.29.52.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-aws-bundle-1.11.0.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-codec-http-4.2.7.Final.jar"
+      - "opt/spark/jars/bundle-2.29.52.jar"
+      - "opt/spark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "opt/spark/jars/iceberg-aws-bundle-1.11.0.jar"
+      - "opt/spark/jars/netty-codec-http-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-56816
-    purls:
-      - "pkg:maven/io.netty/netty-codec-http3@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-codec-http3-4.2.7.Final.jar"
+      - "opt/spark/jars/netty-codec-http3-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-56819
-    purls:
-      - "pkg:maven/io.netty/netty-codec-http2@4.1.115.Final"
-      - "pkg:maven/io.netty/netty-codec-http2@4.2.13.Final"
-      - "pkg:maven/io.netty/netty-codec-http2@4.2.7.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/bundle-2.29.52.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-aws-bundle-1.11.0.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-codec-http2-4.2.7.Final.jar"
+      - "opt/spark/jars/bundle-2.29.52.jar"
+      - "opt/spark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "opt/spark/jars/iceberg-aws-bundle-1.11.0.jar"
+      - "opt/spark/jars/netty-codec-http2-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2026-59901
-    purls:
-      - "pkg:maven/io.netty/netty-codec-compression@4.2.13.Final"
-      - "pkg:maven/io.netty/netty-codec-compression@4.2.7.Final"
-      - "pkg:maven/io.netty/netty-codec@4.1.115.Final"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/bundle-2.29.52.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-aws-bundle-1.11.0.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/netty-codec-compression-4.2.7.Final.jar"
+      - "opt/spark/jars/bundle-2.29.52.jar"
+      - "opt/spark/jars/connect-repl/spark-connect-client-jvm_2.13-4.1.2.jar"
+      - "opt/spark/jars/iceberg-aws-bundle-1.11.0.jar"
+      - "opt/spark/jars/netty-codec-compression-4.2.7.Final.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: GHSA-r7wm-3cxj-wff9
-    purls:
-      - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.12.7"
-      - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.15.2"
-      - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.19.2"
-      - "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.21.2"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/parquet-jackson-1.16.0.jar"
+      - "opt/spark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
+      - "opt/spark/jars/jackson-core-2.21.2.jar"
+      - "opt/spark/jars/parquet-jackson-1.16.0.jar"
     expired_at: 2026-12-09
     statement: >-
       Apache Spark 4.1.2, PySpark 4.1.2, Hadoop 3.4.2, and Iceberg 1.11.0
       are Atlas's tested lakehouse family and bundle this exact component; replacing
       individual shaded or distribution JARs would create an unsupported binary mix.
       The Spark control plane is private to the backend network and accepts only
-      trusted operator-authored jobs. Remove this exception when a compatible
-      upstream Spark/Hadoop/Iceberg release carries the patched component.
+      trusted operator-authored jobs. Scoped to the jars that carry it in
+      /opt/spark/jars of the Spark image (services/spark) and of the Zeppelin
+      image (services/zeppelin), which copies that tree, and in the PySpark jars
+      of the Airflow image (services/airflow), where they load only in the
+      spark-submit client JVM that SparkSubmitOperator starts for
+      operator-authored jobs; the same component in any other image still fails
+      the gate (#1289). Remove this exception when a compatible upstream
+      Spark/Hadoop/Iceberg release carries the patched component.
   - id: CVE-2025-9086
     purls:
       - "pkg:julia/LibCURL_jll@8.15.0%2B0?uuid=deac9b47-8bc7-5906-a0fe-35ac56dc84c0"
@@ -2068,23 +2489,38 @@ vulnerabilities:
       clients can submit work. Remove this exception with the next compatible
       Ray release.
   - id: CVE-2026-54399
-    purls:
-      - "pkg:maven/org.apache.httpcomponents.core5/httpcore5@5.0.2"
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/ray/jars/ray_dist.jar"
+      - "home/ray/anaconda3/lib/python3.10/site-packages/ray/jars/ray_dist.jar"
     expired_at: 2026-12-09
     statement: >-
       Ray 2.56.0 bundles this HTTP library only inside ray_dist.jar. Atlas
       exposes no Ray port through public ingress; only trusted backend and
-      notebook clients can submit work. Remove this exception with the next
-      compatible Ray release.
+      notebook clients can submit work. The same jar also sits in the
+      apache/airflow:3.3.2 base, whose Ray the Google provider pulls in;
+      services/airflow never ships it, because its Dockerfile deletes ray/jars
+      in the install layer (#1308), leaving only a whiteout over the base layer.
+      Scoped to those two paths (#1289). Remove the Ray path with the next
+      compatible Ray release, and the Airflow path when the Airflow base stops
+      shipping the jar.
   - id: CVE-2026-69244
-    purls:
-      - "pkg:pypi/aiohttp@3.14.1"
+    paths:
+      - "home/ray/anaconda3/lib/python3.10/site-packages/ray/_private/runtime_env/agent/thirdparty_files/aiohttp-3.14.1.dist-info/METADATA"
+      - "opt/conda/lib/python3.13/site-packages/ray/_private/runtime_env/agent/thirdparty_files/aiohttp-3.14.1.dist-info/METADATA"
+      - "usr/local/lib/python3.12/site-packages/ray/_private/runtime_env/agent/thirdparty_files/aiohttp-3.14.1.dist-info/METADATA"
     expired_at: 2026-12-09
     statement: >-
-      Ray 2.56.0 vendors this aiohttp copy for its runtime-environment agent.
-      The Ray cluster is isolated on the private Compose network and accepts
-      runtime environments only from trusted backend and notebook clients;
-      remove this exception with the next compatible Ray release.
+      Ray 2.56.0 vendors this aiohttp copy for its runtime-environment agent
+      under ray/_private/runtime_env/agent/thirdparty_files, both in the Ray
+      image and in the Ray client wheel that the Backend (services/backend) and
+      JupyterHub (services/jupyterhub) images install. The Ray cluster is
+      isolated on the private Compose network and accepts runtime environments
+      only from trusted backend and notebook clients. The agent runs only inside
+      a Ray node: the Backend reaches Ray only through its REST job-submission
+      API (app/ray_client.py) and notebooks only as a ray:// client, so neither
+      image starts it. Scoped to those three paths (#1289), so an aiohttp 3.14.1
+      installed in its own right, as in crawl4ai, still fails the gate. Remove
+      this exception with the next compatible Ray release.
   - id: CVE-2015-2080
     purls:
       - "pkg:maven/org.eclipse.jetty/jetty-server@8.2.0.v20160908"
@@ -3885,6 +4321,17 @@ vulnerabilities:
       and Debian tracks the CVE as unfixed/wontfix for bookworm accordingly. No
       MiniZip consumer exists in the image; the Node.js runtime uses its own bundled
       zlib bindings.
+      The #1289 coverage review found the same Debian 12.15 package suppressed
+      in the amd64 remote scans of five build bases that no Atlas image ships
+      unmodified: apache/airflow:3.3.2 (services/airflow),
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, and with no Debian fix the final-image
+      scan's --ignore-unfixed skips the finding in each built image;
+      node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2025-69720
     purls:
@@ -3898,6 +4345,17 @@ vulnerabilities:
       server is a non-interactive Node.js process that never renders terminal UIs from
       untrusted terminfo, so the overflow has no input path. Cleared by the next
       upstream image on a patched base.
+      The #1289 coverage review found the same Debian 12.15 package suppressed
+      in the remote scans (amd64, and arm64 for the arch=all ncurses-base) of
+      five build bases that no Atlas image ships unmodified:
+      apache/airflow:3.3.2 (services/airflow), python:3.12.14-bookworm
+      (services/backend) and python:3.12.14-slim-bookworm (the open-webui and
+      litellm init images) are rebuilt with apt-get upgrade, and with no Debian
+      fix the final-image scan's --ignore-unfixed skips the finding in each
+      built image; node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-13221
     purls:
@@ -3909,6 +4367,17 @@ vulnerabilities:
       Node.js (server, controller, init script) and no code path shells out to perl,
       so the interpreter never parses attacker-supplied input. Cleared by the next
       upstream image on a patched base.
+      The #1289 coverage review found the same Debian 12.15 package suppressed
+      in the amd64 remote scans of five build bases that no Atlas image ships
+      unmodified: apache/airflow:3.3.2 (services/airflow),
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, and with no Debian fix the final-image
+      scan's --ignore-unfixed skips the finding in each built image;
+      node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-14257
     purls:
@@ -3934,6 +4403,17 @@ vulnerabilities:
       record signature verification; no systemd, homed, or udev daemon runs inside the
       container — the libraries are inert base-image artifacts linked by nothing on
       the process tree.
+      The #1289 coverage review found the same Debian 12.15 package suppressed
+      in the amd64 remote scans of five build bases that no Atlas image ships
+      unmodified: apache/airflow:3.3.2 (services/airflow),
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, and with no Debian fix the final-image
+      scan's --ignore-unfixed skips the finding in each built image;
+      node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-41992
     purls:
@@ -3944,6 +4424,17 @@ vulnerabilities:
       exists. The disclosure requires gzip's LZH decompression path to run over
       crafted archives; nothing in the server, controller, or init entrypoints invokes
       the gzip binary at runtime.
+      The #1289 coverage review found the same Debian 12.15 package suppressed
+      in the amd64 remote scans of five build bases that no Atlas image ships
+      unmodified: apache/airflow:3.3.2 (services/airflow),
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, and with no Debian fix the final-image
+      scan's --ignore-unfixed skips the finding in each built image;
+      node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-42496
     purls:
@@ -3955,6 +4446,17 @@ vulnerabilities:
       Node.js (server, controller, init script) and no code path shells out to perl,
       so the interpreter never parses attacker-supplied input. Cleared by the next
       upstream image on a patched base.
+      The #1289 coverage review found the same Debian 12.15 package suppressed
+      in the amd64 remote scans of five build bases that no Atlas image ships
+      unmodified: apache/airflow:3.3.2 (services/airflow),
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, and with no Debian fix the final-image
+      scan's --ignore-unfixed skips the finding in each built image;
+      node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-42497
     purls:
@@ -3966,6 +4468,17 @@ vulnerabilities:
       Node.js (server, controller, init script) and no code path shells out to perl,
       so the interpreter never parses attacker-supplied input. Cleared by the next
       upstream image on a patched base.
+      The #1289 coverage review found the same Debian 12.15 package suppressed
+      in the amd64 remote scans of five build bases that no Atlas image ships
+      unmodified: apache/airflow:3.3.2 (services/airflow),
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, and with no Debian fix the final-image
+      scan's --ignore-unfixed skips the finding in each built image;
+      node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-48962
     purls:
@@ -3977,6 +4490,17 @@ vulnerabilities:
       Node.js (server, controller, init script) and no code path shells out to perl,
       so the interpreter never parses attacker-supplied input. Cleared by the next
       upstream image on a patched base.
+      The #1289 coverage review found the same Debian 12.15 package suppressed
+      in the amd64 remote scans of five build bases that no Atlas image ships
+      unmodified: apache/airflow:3.3.2 (services/airflow),
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, and with no Debian fix the final-image
+      scan's --ignore-unfixed skips the finding in each built image;
+      node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-53613
     purls:
@@ -3998,6 +4522,17 @@ vulnerabilities:
       capabilities, so exploitation first requires code execution inside the
       container. Fix path is the next upstream image on a patched base; upstream
       releases roughly daily, re-verify at expiry.
+      The #1289 coverage review found the same Debian 12.15 package suppressed
+      in the amd64 remote scans of five build bases that no Atlas image ships
+      unmodified: apache/airflow:3.3.2 (services/airflow),
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, and with no Debian fix the final-image
+      scan's --ignore-unfixed skips the finding in each built image;
+      node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-54369
     purls:
@@ -4009,6 +4544,17 @@ vulnerabilities:
       client image). The symlink-traversal escalation needs a privileged process
       managing ACLs on attacker-influenced paths; the container runs a Node.js server
       with no ACL management and no added capabilities.
+      The #1289 coverage review found the same Debian 12.15 package suppressed
+      in the amd64 remote scans of five build bases that no Atlas image ships
+      unmodified: apache/airflow:3.3.2 (services/airflow),
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, and with no Debian fix the final-image
+      scan's --ignore-unfixed skips the finding in each built image;
+      node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-57432
     purls:
@@ -4020,6 +4566,17 @@ vulnerabilities:
       Node.js (server, controller, init script) and no code path shells out to perl,
       so the interpreter never parses attacker-supplied input. Cleared by the next
       upstream image on a patched base.
+      The #1289 coverage review found the same Debian 12.15 package suppressed
+      in the amd64 remote scans of five build bases that no Atlas image ships
+      unmodified: apache/airflow:3.3.2 (services/airflow),
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, and with no Debian fix the final-image
+      scan's --ignore-unfixed skips the finding in each built image;
+      node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-57433
     purls:
@@ -4031,6 +4588,17 @@ vulnerabilities:
       Node.js (server, controller, init script) and no code path shells out to perl,
       so the interpreter never parses attacker-supplied input. Cleared by the next
       upstream image on a patched base.
+      The #1289 coverage review found the same Debian 12.15 package suppressed
+      in the amd64 remote scans of five build bases that no Atlas image ships
+      unmodified: apache/airflow:3.3.2 (services/airflow),
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, and with no Debian fix the final-image
+      scan's --ignore-unfixed skips the finding in each built image;
+      node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-69152
     purls:
@@ -4089,6 +4657,17 @@ vulnerabilities:
       capabilities, so exploitation first requires code execution inside the
       container. Fix path is the next upstream image on a patched base; upstream
       releases roughly daily, re-verify at expiry.
+      The #1289 coverage review found the same Debian 12.15 package suppressed
+      in the amd64 remote scans of five build bases that no Atlas image ships
+      unmodified: apache/airflow:3.3.2 (services/airflow),
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, and with no Debian fix the final-image
+      scan's --ignore-unfixed skips the finding in each built image;
+      node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-78408
     purls:
@@ -4110,6 +4689,17 @@ vulnerabilities:
       capabilities, so exploitation first requires code execution inside the
       container. Fix path is the next upstream image on a patched base; upstream
       releases roughly daily, re-verify at expiry.
+      The #1289 coverage review found the same Debian 12.15 package suppressed
+      in the amd64 remote scans of five build bases that no Atlas image ships
+      unmodified: apache/airflow:3.3.2 (services/airflow),
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, and with no Debian fix the final-image
+      scan's --ignore-unfixed skips the finding in each built image;
+      node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-78409
     purls:
@@ -4131,6 +4721,17 @@ vulnerabilities:
       capabilities, so exploitation first requires code execution inside the
       container. Fix path is the next upstream image on a patched base; upstream
       releases roughly daily, re-verify at expiry.
+      The #1289 coverage review found the same Debian 12.15 package suppressed
+      in the amd64 remote scans of five build bases that no Atlas image ships
+      unmodified: apache/airflow:3.3.2 (services/airflow),
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, and with no Debian fix the final-image
+      scan's --ignore-unfixed skips the finding in each built image;
+      node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-78410
     purls:
@@ -4152,6 +4753,17 @@ vulnerabilities:
       capabilities, so exploitation first requires code execution inside the
       container. Fix path is the next upstream image on a patched base; upstream
       releases roughly daily, re-verify at expiry.
+      The #1289 coverage review found the same Debian 12.15 package suppressed
+      in the amd64 remote scans of five build bases that no Atlas image ships
+      unmodified: apache/airflow:3.3.2 (services/airflow),
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, and with no Debian fix the final-image
+      scan's --ignore-unfixed skips the finding in each built image;
+      node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-8376
     purls:
@@ -4163,6 +4775,17 @@ vulnerabilities:
       Node.js (server, controller, init script) and no code path shells out to perl,
       so the interpreter never parses attacker-supplied input. Cleared by the next
       upstream image on a patched base.
+      The #1289 coverage review found the same Debian 12.15 package suppressed
+      in the amd64 remote scans of five build bases that no Atlas image ships
+      unmodified: apache/airflow:3.3.2 (services/airflow),
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, and with no Debian fix the final-image
+      scan's --ignore-unfixed skips the finding in each built image;
+      node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-86145
     purls:
@@ -4175,6 +4798,15 @@ vulnerabilities:
       contexts (#1002). Node/V8 uses its own regex engine, so PCRE2 sits on no request
       path (it serves grep and friends only). Time-boxed for the next upstream image
       release, which inherits the patched base automatically.
+      The #1289 coverage review found the same package suppressed in the amd64
+      remote scans of four build bases that no Atlas image ships unmodified:
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, which installs the fixed 10.42-1+deb12u1,
+      and node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-89157
     purls:
@@ -4187,6 +4819,15 @@ vulnerabilities:
       contexts (#1002). Node/V8 uses its own regex engine, so PCRE2 sits on no request
       path (it serves grep and friends only). Time-boxed for the next upstream image
       release, which inherits the patched base automatically.
+      The #1289 coverage review found the same package suppressed in the amd64
+      remote scans of four build bases that no Atlas image ships unmodified:
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, which installs the fixed 10.42-1+deb12u1,
+      and node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-89161
     purls:
@@ -4199,6 +4840,15 @@ vulnerabilities:
       contexts (#1002). Node/V8 uses its own regex engine, so PCRE2 sits on no request
       path (it serves grep and friends only). Time-boxed for the next upstream image
       release, which inherits the patched base automatically.
+      The #1289 coverage review found the same package suppressed in the amd64
+      remote scans of four build bases that no Atlas image ships unmodified:
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, which installs the fixed 10.42-1+deb12u1,
+      and node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-9538
     purls:
@@ -4210,10 +4860,17 @@ vulnerabilities:
       Node.js (server, controller, init script) and no code path shells out to perl,
       so the interpreter never parses attacker-supplied input. Cleared by the next
       upstream image on a patched base.
-
-  # Added 2026-09-28 with the MinIO -> Silo image swap and the Airflow 3.3.2
-  # base (batch #1275). Each finding was reproduced with the pinned Trivy
-  # 0.74.0 against the exact image digests on linux/amd64 and linux/arm64.
+      The #1289 coverage review found the same Debian 12.15 package suppressed
+      in the amd64 remote scans of five build bases that no Atlas image ships
+      unmodified: apache/airflow:3.3.2 (services/airflow),
+      python:3.12.14-bookworm (services/backend) and
+      python:3.12.14-slim-bookworm (the open-webui and litellm init images) are
+      rebuilt with apt-get upgrade, and with no Debian fix the final-image
+      scan's --ignore-unfixed skips the finding in each built image;
+      node:22-bookworm-slim (services/asset-worker) and
+      node:22.23.2-bookworm-slim (services/jupyterhub) are build stages from
+      which only Node files are copied, so their Debian packages never reach a
+      runtime image.
 
   - id: CVE-2026-86145
     purls:
@@ -4272,6 +4929,17 @@ vulnerabilities:
       pip's HTTP cache while pip itself runs at build time; Airflow imports the
       site-packages msgpack, which the overlay lock pins at the fixed 1.2.1.
       Cleared by a pip release that re-vendors msgpack >= 1.2.1.
+      The same PURL matches two more images (#1289 coverage review). The
+      quay.io/jupyter/datascience-notebook base carries the same pip 26.2.1
+      entry, which services/jupyterhub replaces with msgpack 1.2.2 at build time
+      (refresh_pip_vendor.py), so the JupyterHub image does not ship it.
+      rayproject/ray:2.56.0 and its -gpu variant (services/ray) install msgpack
+      1.1.2 themselves, which no path scope can separate from pip's pathless
+      entry; the crash needs a streaming Unpacker reused after a caught error,
+      while Ray 2.56.0's own code decodes with one-shot msgpack.loads or unpackb
+      and builds a fresh Unpacker for each split_buffer call
+      (python/ray/includes/serialization.pxi), never reusing one, and Atlas
+      exposes no Ray port through public ingress.
 
   - id: CVE-2025-47273
     purls:
@@ -4285,6 +4953,11 @@ vulnerabilities:
       vendors nor calls. The installed site-packages setuptools is pinned at
       83.0.0 by the overlay lock. pip 26.2.1 is the newest release, so no
       upgrade clears it; re-review when pip re-vendors a newer setuptools.
+      The same PURL matches the pip 26.2.1 inventory in the
+      quay.io/jupyter/datascience-notebook base (#1289 coverage review), where
+      it is the same build-only component; services/jupyterhub drops it from
+      pip's inventory at build time (refresh_pip_vendor.py), so the JupyterHub
+      image does not ship it.
 
   - id: CVE-2026-68497
     paths:

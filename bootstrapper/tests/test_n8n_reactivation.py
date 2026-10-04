@@ -211,6 +211,13 @@ def test_linear_start_rolls_back_when_n8n_reactivation_fails(monkeypatch):
     import start
 
     starter = start.AtlasStarter()
+    # A warm start whose images are current (#989): no build, one `up`.
+    monkeypatch.setattr(
+        starter.docker_manager, "enabled_service_targets", lambda: ["backend"]
+    )
+    monkeypatch.setattr(
+        starter.docker_manager, "prepare_build_args", lambda _cold, _targets: []
+    )
     monkeypatch.setattr(starter.docker_manager, "start_services", lambda **_kwargs: 0)
     monkeypatch.setattr(starter, "verify_one_shot_init_containers", lambda: True)
     monkeypatch.setattr(starter, "_reactivate_n8n_if_needed", lambda: False)

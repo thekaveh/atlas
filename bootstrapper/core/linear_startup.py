@@ -267,10 +267,16 @@ def _print_lines(*lines: str) -> None:
         print(line)
 
 
-def _print_launch_result(outcomes: list[ProbeOutcome], health: ProbeOutcome) -> None:
+def _print_launch_result(
+    outcomes: list[ProbeOutcome],
+    health: ProbeOutcome,
+    not_started: tuple[str, ...] = (),
+) -> None:
     """Print the result block the Textual screen writes for the same outcomes."""
     print()
-    _print_lines(*summarize_launch(outcomes, health=health).lines)
+    _print_lines(
+        *summarize_launch(outcomes, health=health, not_started=not_started).lines
+    )
 
 
 def _finish_linear_startup(
@@ -285,6 +291,9 @@ def _finish_linear_startup(
     outcomes change the reported result, never the exit code.
     """
     outcomes = _run_post_start_probes(starter)
+    # Services the image build left out because their image failed and the
+    # launch could go without them (#989) keep the result from reading verified.
+    not_started = tuple(starter.skipped_builds)
     stop_lines = (
         STOP.line("./stop.sh"),
         COLD_STOP.line("./stop.sh --cold", "--cold is the explicit opt-in"),
@@ -298,10 +307,10 @@ def _finish_linear_startup(
             summary_payload[0] = capture.getvalue()
         else:
             ok = starter.show_detached_status_summary(json_output=False)
-        _print_launch_result(outcomes, detached_health(ok))
+        _print_launch_result(outcomes, detached_health(ok), not_started)
         _print_lines("", f"   Detached — {DETACH.consequences}", *stop_lines)
         return 0 if ok else 1
-    _print_launch_result(outcomes, HEALTH_NOT_AWAITED)
+    _print_launch_result(outcomes, HEALTH_NOT_AWAITED, not_started)
     _print_lines("", DETACH.line("Ctrl+C", "stops following the logs only"), *stop_lines)
     # Startup succeeded; what follows is the log stream (Ctrl+C returns 130).
     starter.startup_reached_log_follow = True
