@@ -1049,6 +1049,40 @@ def test_go_1_24_6_exceptions_stay_scoped_to_gosu_and_migrate() -> None:
     assert not [row.vulnerability_id for row in rows if "RELEASE.2025-08-13" in row.statement]
 
 
+def test_rows_that_matched_unreviewed_images_stay_on_reviewed_paths() -> None:
+    """#1289: rows whose PURL also suppressed unnamed images are exact paths.
+
+    The lakehouse jars sit in Spark's /opt/spark/jars (Spark, and Zeppelin,
+    which copies it) or Airflow's PySpark jars, the Iceberg REST copies in its
+    adapter jar, and Ray's in ray_dist.jar or its vendored aiohttp. A PURL here
+    would again hide the same package in Tika, Trino, crawl4ai or any image.
+    """
+    rows = [
+        row
+        for row in container_security.load_exceptions(REPO_ROOT / ".trivyignore.yaml")
+        if "(#1289)" in row.statement
+    ]
+    spark = "opt/spark/jars/"
+    pyspark = "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/"
+    reviewed = (
+        spark,
+        pyspark,
+        "usr/lib/iceberg-rest/iceberg-rest-adapter.jar",
+        "/site-packages/ray/jars/ray_dist.jar",
+        "/site-packages/ray/_private/runtime_env/agent/thirdparty_files/aiohttp-3.14.1.dist-info/",
+    )
+    lakehouse = [row for row in rows if any(path.startswith(spark) for path in row.paths)]
+
+    assert (len(rows), len(lakehouse)) == (48, 42)
+    assert {row.purls for row in rows} == {()}
+    assert not [p for row in rows for p in row.paths if not any(root in p for root in reviewed)]
+    # Each lakehouse row covers the Airflow copy too, and names that image.
+    assert all(
+        any(path.startswith(pyspark) for path in row.paths) and "Airflow" in row.statement
+        for row in lakehouse
+    )
+
+
 def test_zeppelin_trims_unused_plugins_and_pins_its_server_jar_swaps() -> None:
     """#1312: one guarded RUN drops unused interpreters and swaps lib/ jars.
 
