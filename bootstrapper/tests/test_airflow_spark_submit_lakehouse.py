@@ -5,7 +5,6 @@ from pathlib import Path
 import signal
 import subprocess
 import time
-from typing import Callable
 
 import pytest
 import yaml
@@ -24,6 +23,19 @@ _FAKE_DOCKER_SOURCE = (
     "printf '%s\\n' \"$*\" >> \"$FAKE_DOCKER_LOG\"\n"
     "mkdir -p \"$FAKE_DOCKER_STATE\"\n"
     "resource_file() { printf '%s/%s-%s' \"$FAKE_DOCKER_STATE\" \"$1\" \"$2\"; }\n"
+    # The signal tests interrupt the smoke from inside a hang, never from a
+    # pytest poll. A TERM sent after polling this log raced the smoke's own
+    # command bounds (10s for a cleanup command), so a descheduled test process
+    # signalled a smoke that had already given up and exited (run 37171422362:
+    # `assert 1 == 143`). The log line also precedes the hang, so a prompt
+    # signal could land before it. The bounded helper that launched this fake
+    # docker is the smoke's child, so the smoke is our parent's parent. Each
+    # signal is logged once the smoke is proven alive, before it is sent.
+    "signal_smoke() {\n"
+    "  [[ -n \"$1\" ]] || return 0\n"
+    "  local smoke; smoke=\"$(ps -o ppid= -p \"$PPID\")\"; smoke=\"${smoke// /}\"\n"
+    "  kill -0 \"$smoke\" && printf '%s\\n' \"$1\" >> \"$FAKE_DOCKER_SIGNAL_LOG\" && kill -s \"$1\" \"$smoke\"\n"
+    "}\n"
     "if [[ \"$1 $2\" = 'container inspect' ]]; then\n"
     "  name=\"${@: -1}\"; file=\"$(resource_file container \"$name\")\"\n"
     "  [[ -e \"$file\" ]] || exit 1\n"
@@ -49,7 +61,9 @@ _FAKE_DOCKER_SOURCE = (
     "  [[ \"${FAKE_DOCKER_COLLISION:-}\" != network ]] || exit 125\n"
     "  exit 0\n"
     "fi\n"
-    "if [[ \"$FAKE_DOCKER_HANG\" = pull && \"$1\" = pull ]]; then sleep 30; fi\n"
+    "if [[ \"$FAKE_DOCKER_HANG\" = pull && \"$1\" = pull ]]; then\n"
+    "  signal_smoke \"${FAKE_DOCKER_HANG_SIGNAL:-}\"; sleep 30\n"
+    "fi\n"
     "if [[ \"$1\" = run ]]; then\n"
     "  name=; detached=false; auto_remove=false; args=(\"$@\")\n"
     "  for ((i=0; i<${#args[@]}; i++)); do\n"
@@ -63,15 +77,18 @@ _FAKE_DOCKER_SOURCE = (
     "    printf '%s' \"$token\" > \"$(resource_file container \"$name\")\"\n"
     "    [[ \"${FAKE_DOCKER_COLLISION:-}\" != \"$name\" ]] || exit 125\n"
     "  fi\n"
-    "  if [[ \"$FAKE_DOCKER_HANG\" = readiness && \"$*\" = *pgsty/mc:* ]]; then sleep 30; fi\n"
-    "  if [[ \"$FAKE_DOCKER_HANG\" = *spark* && \"$*\" = *spark-submit* ]]; then sleep 30; fi\n"
+    "  if [[ \"$FAKE_DOCKER_HANG\" = readiness && \"$*\" = *pgsty/mc:* ]] ||\n"
+    "    [[ \"$FAKE_DOCKER_HANG\" = *spark* && \"$*\" = *spark-submit* ]]; then\n"
+    "    signal_smoke \"${FAKE_DOCKER_HANG_SIGNAL:-}\"; sleep 30\n"
+    "  fi\n"
     "  if [[ \"$auto_remove\" = true && \"$detached\" = false && -n \"$name\" ]]; then\n"
     "    rm -f \"$(resource_file container \"$name\")\"\n"
     "  fi\n"
     "  exit 0\n"
     "fi\n"
     "if [[ \"$FAKE_DOCKER_HANG\" = *cleanup* && \"$1\" = rm && ! -e \"$FAKE_DOCKER_CLEANUP_MARKER\" ]]; then\n"
-    "  : > \"$FAKE_DOCKER_CLEANUP_MARKER\"; sleep 30\n"
+    "  : > \"$FAKE_DOCKER_CLEANUP_MARKER\"\n"
+    "  signal_smoke \"${FAKE_DOCKER_CLEANUP_SIGNAL:-}\"; sleep 30\n"
     "fi\n"
     "if [[ \"${FAKE_DOCKER_CLEANUP_FAIL:-}\" = 1 && ( \"$1\" = rm || \"$1 $2\" = 'network rm' ) ]]; then exit 42; fi\n"
     "if [[ \"$1\" = rm ]]; then\n"
@@ -104,6 +121,7 @@ def _fake_docker_environment(
             "FAKE_DOCKER_LOG": str(log),
             "FAKE_DOCKER_HANG": hang_mode,
             "FAKE_DOCKER_CLEANUP_MARKER": str(tmp_path / "cleanup-started"),
+            "FAKE_DOCKER_SIGNAL_LOG": str(tmp_path / "signals.log"),
             "FAKE_DOCKER_STATE": str(tmp_path / "docker-state"),
             "ATLAS_S3A_SMOKE_TIMEOUT_SECONDS": "3",
             "ATLAS_S3A_COMMAND_TIMEOUT_SECONDS": "1",
@@ -123,21 +141,30 @@ def _fake_docker_environment(
 _PROCESS_BARRIER_SECONDS = 30
 
 
-def _wait_for_process_barrier(
-    process: subprocess.Popen[str],
-    ready: Callable[[], bool],
-    failure: str,
-) -> None:
-    deadline = time.monotonic() + _PROCESS_BARRIER_SECONDS
-    while time.monotonic() < deadline:
-        if ready():
-            return
-        if process.poll() is not None:
-            pytest.fail(failure)
-        time.sleep(0.05)
-    os.killpg(process.pid, signal.SIGKILL)
-    process.communicate()
-    pytest.fail(failure)
+def _run_signalled_smoke(env: dict[str, str], failure: str) -> subprocess.Popen[str]:
+    """Run the smoke until it exits; the fake docker delivers the signals."""
+    process = subprocess.Popen(
+        [str(S3A_SMOKE), "atlas-test-spark:latest"],
+        cwd=ROOT,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        process.communicate(timeout=_PROCESS_BARRIER_SECONDS)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.communicate()
+        pytest.fail(failure)
+    return process
+
+
+def _signals_sent(env: dict[str, str]) -> list[str]:
+    """Signals the fake docker sent to the running smoke, in order."""
+    log = Path(env["FAKE_DOCKER_SIGNAL_LOG"])
+    return log.read_text(encoding="utf-8").split() if log.exists() else []
 
 
 def _process_has_exited(pid: int) -> bool:
@@ -578,37 +605,22 @@ def test_s3a_smoke_forwards_signals_then_cleans_owned_resources(
     signal_case: tuple[signal.Signals, int, str, str],
 ) -> None:
     interruption, expected_returncode, hang_mode, active_fragment = signal_case
+    signal_name = interruption.name.removeprefix("SIG")
     env, log = _fake_docker_environment(tmp_path, hang_mode)
     env.update(
         ATLAS_S3A_SMOKE_TIMEOUT_SECONDS="30",
         ATLAS_S3A_COMMAND_TIMEOUT_SECONDS="30",
         ATLAS_S3A_PULL_TIMEOUT_SECONDS="30",
+        FAKE_DOCKER_HANG_SIGNAL=signal_name,
     )
-    process = subprocess.Popen(
-        [str(S3A_SMOKE), "atlas-test-spark:latest"],
-        cwd=ROOT,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        start_new_session=True,
+    process = _run_signalled_smoke(
+        env, f"S3A smoke did not forward {interruption.name}"
     )
-    _wait_for_process_barrier(
-        process,
-        lambda: log.exists()
-        and active_fragment in log.read_text(encoding="utf-8"),
-        "S3A smoke never reached its bounded Docker command",
-    )
-
-    process.send_signal(interruption)
-    try:
-        process.communicate(timeout=_PROCESS_BARRIER_SECONDS)
-    except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGKILL)
-        process.communicate()
-        pytest.fail(f"S3A smoke did not forward {interruption.name}")
 
     calls = log.read_text(encoding="utf-8")
+    # Sent from inside the bounded Docker command, to the running smoke.
+    assert _signals_sent(env) == [signal_name]
+    assert active_fragment in calls
     assert process.returncode == expected_returncode
     if hang_mode == "pull":
         assert "network create" not in calls
@@ -668,44 +680,22 @@ def test_s3a_smoke_handles_signals_at_child_ownership_transitions(
 
 def test_s3a_smoke_reaps_child_when_interruption_is_repeated(tmp_path: Path) -> None:
     env, log = _fake_docker_environment(tmp_path, "spark,cleanup")
+    # TERM from inside the hung Spark probe, then INT from inside the hung
+    # cleanup command that TERM leads to: the second signal always reaches a
+    # smoke that is still waiting on its cleanup child.
     env.update(
         ATLAS_S3A_SMOKE_TIMEOUT_SECONDS="30",
         ATLAS_S3A_COMMAND_TIMEOUT_SECONDS="30",
         ATLAS_S3A_PULL_TIMEOUT_SECONDS="30",
+        FAKE_DOCKER_HANG_SIGNAL="TERM",
+        FAKE_DOCKER_CLEANUP_SIGNAL="INT",
     )
-    process = subprocess.Popen(
-        [str(S3A_SMOKE), "atlas-test-spark:latest"],
-        cwd=ROOT,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        start_new_session=True,
-    )
-    _wait_for_process_barrier(
-        process,
-        lambda: log.exists()
-        and "spark-submit" in log.read_text(encoding="utf-8"),
-        "S3A smoke never reached its Spark probe",
+    process = _run_signalled_smoke(
+        env, "S3A smoke did not reap its child after repeated signals"
     )
 
-    process.send_signal(signal.SIGTERM)
-    cleanup_marker = Path(env["FAKE_DOCKER_CLEANUP_MARKER"])
-    _wait_for_process_barrier(
-        process,
-        cleanup_marker.exists,
-        "S3A smoke never reached the controlled cleanup barrier",
-    )
-
-    assert process.poll() is None
-    process.send_signal(signal.SIGINT)
-    try:
-        process.communicate(timeout=_PROCESS_BARRIER_SECONDS)
-    except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGKILL)
-        process.communicate()
-        pytest.fail("S3A smoke did not reap its child after repeated signals")
-
+    # Each entry is written only after `kill -0` proved the smoke was running.
+    assert _signals_sent(env) == ["TERM", "INT"]
     assert process.returncode == 143
     assert "network rm atlas-s3a-smoke-" in log.read_text(encoding="utf-8")
 
@@ -714,36 +704,20 @@ def test_s3a_smoke_preserves_signal_status_and_retries_interrupted_cleanup(
     tmp_path: Path,
 ) -> None:
     env, log = _fake_docker_environment(tmp_path, "cleanup")
+    # The first cleanup `rm` sends the TERM once it has registered its hang,
+    # so the interrupted attempt is that rm and the retry finds the marker.
     env.update(
         ATLAS_S3A_SMOKE_TIMEOUT_SECONDS="30",
         ATLAS_S3A_COMMAND_TIMEOUT_SECONDS="30",
         ATLAS_S3A_PULL_TIMEOUT_SECONDS="30",
+        FAKE_DOCKER_CLEANUP_SIGNAL="TERM",
     )
-    process = subprocess.Popen(
-        [str(S3A_SMOKE), "atlas-test-spark:latest"],
-        cwd=ROOT,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        start_new_session=True,
+    process = _run_signalled_smoke(
+        env, "S3A smoke did not finish cleanup after SIGTERM"
     )
-    _wait_for_process_barrier(
-        process,
-        lambda: log.exists()
-        and "rm -f atlas-s3a-minio-" in log.read_text(encoding="utf-8"),
-        "S3A smoke never began cleanup",
-    )
-
-    process.send_signal(signal.SIGTERM)
-    try:
-        process.communicate(timeout=_PROCESS_BARRIER_SECONDS)
-    except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGKILL)
-        process.communicate()
-        pytest.fail("S3A smoke did not finish cleanup after SIGTERM")
 
     calls = log.read_text(encoding="utf-8")
+    assert _signals_sent(env) == ["TERM"]
     assert process.returncode == 143
     assert calls.count("rm -f atlas-s3a-minio-") >= 2
     assert "network rm atlas-s3a-smoke-" in calls
