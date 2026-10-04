@@ -309,6 +309,28 @@ cat .env | head -20
 
 If `.env` is corrupted beyond repair, rebuilding it from scratch is a **destructive** path: regenerated secrets no longer match the passwords baked into your existing database volumes (see §4.4), so a from-scratch `.env` only works together with a full project reset that deletes those volumes. Back up first (§10.3), then follow §10.1.
 
+### 7.3. An image fails to build
+
+Atlas builds local images before `docker compose up` in two cases. A cold start (`./start.sh --cold`, or the wizard's cold-start option) builds every enabled service's image without cache. A normal start builds only when the images are stale: on a fresh clone's first start, after the Atlas source or a build setting changed, or when the set of enabled services changed. A normal start whose images are current builds nothing and runs a single `docker compose up`, as before.
+
+Either build is one `docker compose build` of every enabled service. When it fails, Atlas works out which image failed before deciding whether to stop. It rebuilds the required images together: the ones another enabled service lists in `depends_on`, and those of the always-running core (Supabase, Kong, Redis, LiteLLM and Backend). It then rebuilds every other image on its own. A cold start keeps `--no-cache` for this pass, so it can take about as long as the first build; a normal start reuses the build cache.
+
+- **A required image fails:** the launch stops as before with `Failed to build some services`, managed host processes (for example a host ComfyUI) are rolled back, and `./start.sh` exits nonzero.
+- **Only other images fail** (the `jupyterhub` notebook image, for example): Atlas names them, leaves them out of `docker compose up`, starts everything else and keeps managed host processes running. The launch result reads `degraded` and names each one, the way a failed post-start check does, so the start itself still succeeds. Atlas does not record the images as built, so the next start tries the failed build again until it is fixed or the service is disabled:
+
+  ```bash
+  # Skip the service until its build is fixed (or set JUPYTERHUB_SOURCE=disabled in .env)
+  ./start.sh --jupyterhub-source disabled
+  ```
+
+- **Every image builds on its own:** the first failure was transient and the whole stack starts.
+
+**`At least one invalid signature was encountered` while building `jupyterhub`.** The notebook image runs `apt-get update` against the Ubuntu mirror (`ports.ubuntu.com` on arm64 hosts such as Apple Silicon) for the JDK its Scala kernel needs, so this step cannot be skipped. The error commonly means the Docker VM is out of disk space or its clock is wrong, not that the package list is bad. Check the space Docker reports, free some or raise Docker Desktop's disk limit, then build again:
+
+```bash
+docker system df
+```
+
 ## 8. Debug Commands
 
 ### 8.1. System Status Check

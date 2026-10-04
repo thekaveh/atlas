@@ -131,4 +131,6 @@ def test_policy_scan_wording_names_the_live_gate_jobs() -> None:
         assert f"name: {job_name}" in workflow, job_name
         assert job_name in policy, job_name
     assert ".trivyignore.yaml" in policy
-    assert "not yet a required check" in policy
+    # #1002 promoted the final-image scan into the required set.
+    assert "is a **required check** (#1002)" in policy
+    assert "not yet a required check" not in policy

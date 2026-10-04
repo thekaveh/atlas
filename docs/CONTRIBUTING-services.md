@@ -25,7 +25,7 @@ A maintainer who already understands the stack can land a new service in under a
 - [ ] **Add the new folder to the relevant track(s) in `bootstrapper/tracks.yml`** (source-configurable services only). A configurable service absent from a named track's `services:` list is force-disabled (`*_SOURCE=disabled`) there — it only runs under `--track all`. Always-on infra and the always-prompted LLM/Prometheus/Grafana tier are exempt.
 - [ ] **Run the root-safe regen, lint, and required-check checklist** → [After you save the files](#12-after-you-save-the-files--regen--lint-commands-in-order), then [CI gates](#134-ci-gates-that-run-on-every-push)
 - [ ] **Update audit-script allowlists** if your service has hard deps → [Audit-script + CI implications](#13-audit-script--ci-implications)
-- [ ] **Commit and push.** CI gates the change with four required jobs: manifest-lint+pytest, compose-equivalence+permutation matrix, docs-drift+audit-scripts, and build-validation.
+- [ ] **Commit and push.** CI gates the change with five required jobs: manifest-lint+pytest, compose-equivalence+permutation matrix, docs-drift+audit-scripts, build-validation, and the final-image scan.
 
 If you're new to this codebase, read Decisions 1–6 in sequence; the Qdrant worked example illustrates each one.
 
@@ -589,8 +589,8 @@ If your service ships a `requirements.txt` / `pyproject.toml` in a `build/` or `
 
 ### 13.4. CI gates that run on every push
 
-The `.github/workflows/services-lint.yml` workflow produces the four checks below.
-All four are required status checks in the live `gitflow` ruleset. A new push to
+The `.github/workflows/services-lint.yml` workflow produces the five checks below.
+All five are required status checks in the live `gitflow` ruleset. A new push to
 a pull request cancels that pull request's superseded run; runs on `main` and
 `develop` are never cancelled.
 
@@ -600,6 +600,7 @@ a pull request cancels that pull request's superseded run; runs on `main` and
 | **Compose merge + byte-equivalence + source-permutation matrix** | Renders `docker compose config` for the merged fragment list + verifies it matches the golden baseline + tests every source variant of every service. Catches: compose-syntax errors, source-permutation regressions. |
 | **Docs drift + audit scripts** | `regen --all --check` + `make docs-check` + the remaining audits (`check_doc_links` — including `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-kong-routes`, `validate_research_schema`, `check-track-membership`) + lock verification for the Docling localhost provider, Local Deep Researcher, and compiled service runtimes + a vulnerability audit of compiled runtime locks. Catches: stale per-service docs, three-surface drift, cross-surface links, missing local assets, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale or unreproducible runtime locks, vulnerable runtime dependency closures, and track-membership omissions. |
 | **Build-validation** | `docker buildx build` for every local non-GPU Compose build context plus every `services/*/init/Dockerfile` context; GPU provider builds are intentionally excluded for runner size/time. Catches: unsatisfiable pip pins, broken Dockerfiles, and init-image drift. Runs on every workflow execution and is required. |
+| **Final-image scan** | Builds every local Compose and init image for `linux/amd64` and `linux/arm64`, runs the native-platform Spark and MLflow smokes, and Trivy-scans each image against `.trivyignore.yaml` (about two hours). Catches: a fixable HIGH or CRITICAL finding in any local image, including one a new upstream advisory introduces with no change in the pull request. Required since #1002. |
 
 Run this representative local subset before pushing (from the repository root
 unless a subshell changes directory). The authoritative command list is
