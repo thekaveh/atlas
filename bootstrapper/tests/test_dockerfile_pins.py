@@ -1022,6 +1022,67 @@ ZEPPELIN_REMOVED_INTERPRETERS = (
 )
 
 
+def test_go_1_24_6_exceptions_stay_scoped_to_gosu_and_migrate() -> None:
+    """#1288: no row survives for the abandoned official mc.
+
+    Jenkins and backup take mc from the maintained pgsty fork, so the 21 rows
+    only that binary needed are gone. The 22 stdlib 1.24.6 rows it shared stay
+    for gosu (postgres alpine images, the backup base) and migrate (langfuse),
+    scoped to those two paths so the same toolchain elsewhere still fails.
+    """
+    rows = container_security.load_exceptions(REPO_ROOT / ".trivyignore.yaml")
+    toolchain = [row for row in rows if "pkg:golang/stdlib@v1.24.6" in row.purls]
+    official_mc_modules = (
+        "pkg:golang/golang.org/x/crypto@v0.40.0",
+        "pkg:golang/golang.org/x/net@v0.42.0",
+        "pkg:golang/golang.org/x/text@v0.27.0",
+        "pkg:golang/google.golang.org/grpc@v1.71.0",
+        "pkg:golang/github.com/prometheus/prometheus@v0.303.0",
+    )
+
+    assert len(toolchain) == 22
+    assert {(row.paths, row.purls) for row in toolchain} == {
+        (("usr/bin/migrate", "usr/local/bin/gosu"), ("pkg:golang/stdlib@v1.24.6",))
+    }
+    assert all("#1288" in row.statement for row in toolchain)
+    assert not [row.vulnerability_id for row in rows if set(row.purls) & set(official_mc_modules)]
+    assert not [row.vulnerability_id for row in rows if "RELEASE.2025-08-13" in row.statement]
+
+
+def test_rows_that_matched_unreviewed_images_stay_on_reviewed_paths() -> None:
+    """#1289: rows whose PURL also suppressed unnamed images are exact paths.
+
+    The lakehouse jars sit in Spark's /opt/spark/jars (Spark, and Zeppelin,
+    which copies it) or Airflow's PySpark jars, the Iceberg REST copies in its
+    adapter jar, and Ray's in ray_dist.jar or its vendored aiohttp. A PURL here
+    would again hide the same package in Tika, Trino, crawl4ai or any image.
+    """
+    rows = [
+        row
+        for row in container_security.load_exceptions(REPO_ROOT / ".trivyignore.yaml")
+        if "(#1289)" in row.statement
+    ]
+    spark = "opt/spark/jars/"
+    pyspark = "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/"
+    reviewed = (
+        spark,
+        pyspark,
+        "usr/lib/iceberg-rest/iceberg-rest-adapter.jar",
+        "/site-packages/ray/jars/ray_dist.jar",
+        "/site-packages/ray/_private/runtime_env/agent/thirdparty_files/aiohttp-3.14.1.dist-info/",
+    )
+    lakehouse = [row for row in rows if any(path.startswith(spark) for path in row.paths)]
+
+    assert (len(rows), len(lakehouse)) == (48, 42)
+    assert {row.purls for row in rows} == {()}
+    assert not [p for row in rows for p in row.paths if not any(root in p for root in reviewed)]
+    # Each lakehouse row covers the Airflow copy too, and names that image.
+    assert all(
+        any(path.startswith(pyspark) for path in row.paths) and "Airflow" in row.statement
+        for row in lakehouse
+    )
+
+
 def test_zeppelin_trims_unused_plugins_and_pins_its_server_jar_swaps() -> None:
     """#1312: one guarded RUN drops unused interpreters and swaps lib/ jars.
 

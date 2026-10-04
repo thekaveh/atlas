@@ -811,10 +811,16 @@ def test_rollback_does_not_stop_preexisting_managed_host(monkeypatch):
 def test_docker_start_failure_rolls_back_managed_hosts(monkeypatch):
     starter = start_module.AtlasStarter()
     calls: list[str] = []
+    # A warm start whose images are current (#989): one `up`, whose result
+    # is what this test varies. Every Docker call goes through this stand-in.
     monkeypatch.setattr(
-        starter.docker_manager,
-        "start_services",
-        lambda **_kwargs: 1,
+        starter,
+        "docker_manager",
+        SimpleNamespace(
+            enabled_service_targets=lambda: ["backend"],
+            prepare_build_args=lambda _cold, _targets: [],
+            start_services=lambda **_kwargs: 1,
+        ),
     )
     monkeypatch.setattr(
         starter,
@@ -829,10 +835,16 @@ def test_docker_start_failure_rolls_back_managed_hosts(monkeypatch):
 def test_docker_start_success_commits_managed_hosts(monkeypatch):
     starter = start_module.AtlasStarter()
     calls: list[str] = []
+    # A warm start whose images are current (#989): one `up`, whose result
+    # is what this test varies. Every Docker call goes through this stand-in.
     monkeypatch.setattr(
-        starter.docker_manager,
-        "start_services",
-        lambda **_kwargs: 0,
+        starter,
+        "docker_manager",
+        SimpleNamespace(
+            enabled_service_targets=lambda: ["backend"],
+            prepare_build_args=lambda _cold, _targets: [],
+            start_services=lambda **_kwargs: 0,
+        ),
     )
     monkeypatch.setattr(starter, "verify_one_shot_init_containers", lambda: True)
     monkeypatch.setattr(

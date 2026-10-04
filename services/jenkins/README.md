@@ -4,7 +4,7 @@ Jenkins is an optional `apps` service for building Maven-based Spark application
 
 ## 1. Overview
 
-Image: `jenkins/jenkins:lts-jdk21` (MIT), wrapped by `services/jenkins/build/Dockerfile` so the controller has Maven, the MinIO `mc` client, and a small plugin baseline installed at build time.
+Image: `jenkins/jenkins:lts-jdk21` (MIT), wrapped by `services/jenkins/build/Dockerfile` so the controller has Maven, the MinIO `mc` client, and a small plugin baseline installed at build time. `mc` is `RELEASE.2026-09-16T00-00-00Z` from the maintained [pgsty/mc](https://github.com/pgsty/mc) fork (AGPL-3.0), copied from the same digest-pinned `pgsty/mc` image that `minio-init` runs rather than downloaded; it replaced the abandoned official `minio/mc` release `RELEASE.2025-08-13T08-35-41Z` (#1288).
 
 Atlas provides the Jenkins server, JCasC, Maven, and MinIO publishing seam. Downstream projects provide repositories, Jenkinsfiles, seed jobs, credentials, and project-specific job definitions.
 

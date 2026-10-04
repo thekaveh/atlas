@@ -131,19 +131,7 @@ AUDIT_SPECS = (
     AuditSpec("bootstrapper/requirements-locked.txt"),
     AuditSpec("services/asset-baker/app/requirements-locked.txt"),
     AuditSpec("services/asset-worker/app/requirements-locked.txt"),
-    AuditSpec(
-        "services/docling/provider/gpu/requirements-locked.txt",
-        # accelerate==1.14.0: PYSEC-2026-3804 (formerly CVE-2026-69112) had no
-        # fixed release when reviewed. Re-checked 2026-09-28 (#998): PyPI now
-        # lists 1.15.0 as unaffected, so the fix is a pin move that rides with
-        # the #999 docling re-lock of this file. The path traversal is reached through
-        # load_checkpoint_in_model / load_checkpoint_and_dispatch, which trust
-        # weight_map entries inside a sharded checkpoint index. Docling loads its
-        # own pinned model artifacts; no Atlas path passes a caller-supplied
-        # checkpoint to accelerate. Atlas maintainers own re-review by 2026-11-30.
-        frozenset({"PYSEC-2026-3804"}),
-        review_by=date(2026, 11, 30),
-    ),
+    AuditSpec("services/docling/provider/gpu/requirements-locked.txt"),
     AuditSpec("services/docling/provider/adapter/requirements-locked.txt"),
     AuditSpec("services/mcp-servers/runtime/requirements-locked.txt"),
     AuditSpec(

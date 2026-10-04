@@ -85,8 +85,10 @@ from core.launch_outcome import (
     LAUNCH_VERIFIED,
     STOP,
     UNVERIFIED,
+    build_skip_rows,
     probe_log_lines,
     run_probe,
+    started_without,
     summarize_launch,
 )
 
@@ -2380,7 +2382,7 @@ class WizardScreen(Screen):
             )
         return outcome
 
-    def _report_verification(self, outcomes) -> None:
+    def _report_verification(self, outcomes, not_started=()) -> None:
         """State the launch's result, and qualify it when a probe did not pass.
 
         ``✅ All services started`` is written before these probes run, so
@@ -2392,7 +2394,9 @@ class WizardScreen(Screen):
         """
         for message, level in probe_log_lines(outcomes):
             self._safe_log(message, source="verify", level=level)
-        result = summarize_launch(outcomes, where="the Logs tab")
+        result = summarize_launch(
+            outcomes, where="the Logs tab", not_started=not_started
+        )
         for text, tone in result.rows:
             self._write_status(text, style=_TONE_STYLES[tone], source="pipeline")
         if result.outcome != LAUNCH_VERIFIED:
@@ -2402,6 +2406,62 @@ class WizardScreen(Screen):
                 result.lines[0].strip() + " — see the Logs tab.",
                 title="Launch not fully verified", severity="warning", timeout=10,
             )
+
+    async def _build_launch_images(self, cold: bool, targets, compose_executor):
+        """Build local images before ``up`` (#506, #989).
+
+        Returns ``(built, targets, skipped, build_args)``, where ``build_args``
+        is what ``up`` carries. A cold start builds every target without
+        cache. A warm start whose images are stale builds its targets here,
+        so ``up`` runs without ``--build``. With current images, or with no
+        known target set, nothing is built here and ``up`` keeps its
+        ``--build`` decision exactly as before.
+        """
+        build_args = self._starter.docker_manager.prepare_build_args(cold, targets)
+        if not cold and not (build_args and targets):
+            return True, targets, (), build_args
+        if not cold:
+            self._write_status("📦 Building stale images…",
+                               style="bold cyan", source="pipeline")
+        no_cache = ["--no-cache"] if cold else []
+        rc = await self._run_compose(["build", *no_cache, *(targets or [])])
+        if rc == 0:
+            return True, targets, (), []
+        built, targets, skipped = await self._isolate_failed_build(
+            targets, cold, compose_executor
+        )
+        return built, targets, skipped, []
+
+    async def _isolate_failed_build(self, targets, cold: bool, compose_executor):
+        """Decide whether the launch continues after its image build failed.
+
+        Returns ``(built, targets, skipped)``. The failure is handed to the
+        starter's ``isolate_failed_build``, on the same threaded Compose seam
+        the setup steps use, so its rebuilds stream into the Logs tab. The
+        launch continues only when every failed image was one it can go
+        without; those are named here and dropped from the targets.
+        """
+        starter = self._starter
+        built, targets, skipped = await compose_executor.run_in_thread(
+            lambda failed=targets: starter.isolate_failed_build(failed, cold)
+        )
+        if not built:
+            self._write_status("❌ Build failed", style="bold red",
+                               source="pipeline")
+            self._mark_launch_failed()
+            return False, targets, ()
+        for text, tone in build_skip_rows(skipped):
+            self._write_status(text, style=_TONE_STYLES[tone], source="pipeline")
+        return True, targets, skipped
+
+    def _write_started_status(self, skipped) -> None:
+        """``✅ All services started``, or the services the image build left out."""
+        if skipped:
+            self._write_status(f"⚠️  {started_without(skipped)}",
+                               style="bold yellow", source="pipeline")
+            return
+        self._write_status("✅ All services started",
+                           style="bold green", source="pipeline")
 
     def _announce_lifecycle_actions(self) -> None:
         """Name what each way out of a running launch does (#1032).
@@ -3565,22 +3625,26 @@ class WizardScreen(Screen):
                 self._starter.docker_manager.enabled_service_targets
             )
 
-            build_args = self._starter.docker_manager.prepare_build_args(cold, targets)
+            # #506 / #989: build local images before `up` (every image on a
+            # cold start, stale images on a warm one), so a failed image the
+            # launch can go without is named and dropped from `targets`
+            # instead of stopping the launch.
             if cold:
                 self._write_status("📦 Building images (cold start)…",
                                    style="bold cyan", source="pipeline")
-                rc = await self._run_compose(["build", "--no-cache", *(targets or [])])
-                if rc != 0:
-                    self._write_status("❌ Build failed", style="bold red",
-                                       source="pipeline")
-                    self._mark_launch_failed()
-                    return
+            built, targets, skipped_builds, build_args = (
+                await self._build_launch_images(cold, targets, compose_executor)
+            )
+            if not built:
+                return
 
             self._write_status("🚀 Starting containers…",
                                style="bold cyan", source="pipeline")
             # #506: rebuild stale local images after an in-place source upgrade
-            # on the warm TUI launch too (the cold path already builds above);
-            # `source_build_args()` is empty when the source commit is unchanged.
+            # on the warm TUI launch too. `_build_launch_images` above already
+            # built them when the target set is known (#989), so `build_args`
+            # carries `--build` only for a full-graph launch without one, and is
+            # empty when the images are current.
             # Kept on one line — the pipeline-step guards locate this call by the
             # literal `self._run_compose(["up"` substring.
             rc = await self._run_compose(["up", "-d", "--force-recreate", *build_args, *(targets or [])])
@@ -3620,8 +3684,7 @@ class WizardScreen(Screen):
                 return
             starter.commit_managed_host_processes()
             managed_hosts_pending = False
-            self._write_status("✅ All services started",
-                               style="bold green", source="pipeline")
+            self._write_started_status(skipped_builds)
             self._launch_detach_ready = True
             self._launch_succeeded = True
 
@@ -3659,7 +3722,7 @@ class WizardScreen(Screen):
                         _on_verify_line,
                     ),
                 ]
-                self._report_verification(outcomes)
+                self._report_verification(outcomes, skipped_builds)
 
             self.run_worker(_post_up_checks(), exclusive=False, exit_on_error=False)
 

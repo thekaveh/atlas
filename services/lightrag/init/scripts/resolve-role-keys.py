@@ -1,4 +1,15 @@
-"""Scope LightRAG role API keys to LiteLLM, then exec the LightRAG server.
+"""Route LightRAG roles and scope their API keys, then exec the LightRAG server.
+
+The Ollama catalog's model-scoped request_defaults (today think: false) reach
+a model only through LiteLLM, whose litellm-init renders them into that
+model's litellm_params. A native LightRAG 1.5.4 binding does not send them:
+its Ollama binding forwards only Ollama's options object, and think is a
+top-level sibling of it (lightrag/llm/binding_options.py). So a role is kept
+on LiteLLM, at the cost of one gateway hop, when it sets none of its own
+binding, host or key, the base it would inherit points somewhere other than
+LiteLLM, and its model declares catalog request_defaults (#658). A role's
+explicit settings always win, and a role whose model declares none keeps the
+base binding.
 
 Compose cannot express "default a role key to the LiteLLM master key only when
 that role talks to LiteLLM", so the lightrag container runs this first (#1271).
@@ -23,6 +34,7 @@ LightRAG rejects one and signs with AWS credentials instead.
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 from collections.abc import Mapping
@@ -30,6 +42,10 @@ from urllib.parse import urlsplit
 
 ROLES = ("EXTRACT", "KEYWORD", "QUERY")
 LITELLM_HOST = ("litellm", 4000)
+LITELLM_URL = "http://litellm:4000/v1"
+# services/ollama/models.yaml, mounted read-only by the lightrag compose fragment.
+CATALOG = "/atlas/ollama-models.yaml"
+CATALOG_SECTIONS = ("content", "embeddings", "vision")
 
 
 class RoleKeyError(RuntimeError):
@@ -90,18 +106,22 @@ def _role_host(env: Mapping[str, str], role: str, own_binding: str | None, base_
     return default_host(own_binding, env) if own_binding else base_host
 
 
+def _effective(env: Mapping[str, str], role: str, base: str, base_host: str) -> tuple[str, str]:
+    """The role's binding and host, as LightRAG 1.5.4 resolves them."""
+    binding = _binding(_value(env, f"{role}_LLM_BINDING")) or base
+    own_binding = binding if binding != base else None
+    return binding, _role_host(env, role, own_binding, base_host)
+
+
 def _role_key(env: Mapping[str, str], role: str, base: str, base_host: str) -> str | None:
     """The key to give one role, or None to leave it; raise if it needs its own."""
     key_var = f"{role}_LLM_BINDING_API_KEY"
-    role_binding = _binding(_value(env, f"{role}_LLM_BINDING"))
-    binding = role_binding or base
+    binding, host = _effective(env, role, base, base_host)
     if _value(env, key_var) or binding == "bedrock":
         return None
-    own_binding = bool(role_binding) and role_binding != base
-    host = _role_host(env, role, binding if own_binding else None, base_host)
     if is_litellm(host):
         return env.get("LITELLM_MASTER_KEY") or None
-    if own_binding or host != base_host:
+    if binding != base or host != base_host:
         raise RoleKeyError(
             f"LightRAG {role} role uses binding {binding!r} at "
             f"{_display(host)}, which is not the in-network LiteLLM, and has "
@@ -120,13 +140,121 @@ def resolve_role_keys(env: Mapping[str, str]) -> dict[str, str]:
     return {name: key for name, key in keys.items() if key}
 
 
-def main() -> None:
+def catalog_request_defaults(path: str | os.PathLike[str]) -> dict[str, dict]:
+    """Model name -> the request_defaults the Ollama model catalog declares.
+
+    Sections merge as llm_catalog merges them. Only the Ollama catalog counts:
+    litellm-init applies request_defaults to Ollama rows alone. An unreadable
+    catalog declares nothing, so every role keeps the binding it inherits.
+    """
     try:
-        keys = resolve_role_keys(os.environ)
+        import yaml  # a lightrag-hku 1.5.4 dependency
+
+        with open(path, encoding="utf-8") as handle:
+            catalog = yaml.safe_load(handle)
+        entries = [entry for section in CATALOG_SECTIONS for entry in catalog.get(section) or []]
+    except Exception as exc:  # noqa: BLE001 - degrade to the inherited binding
+        print(
+            f"lightrag: model catalog {path} unreadable ({type(exc).__name__}); "
+            "every role keeps the binding it inherits",
+            file=sys.stderr, flush=True,
+        )
+        return {}
+    defaults: dict[str, dict] = {}
+    for entry in entries:
+        if entry.get("request_defaults"):
+            defaults.setdefault(entry["name"], {}).update(entry["request_defaults"])
+    return defaults
+
+
+def request_defaults(catalog: Mapping[str, dict], model: str) -> dict:
+    """The model's catalog request defaults; LightRAG may name it by LiteLLM's ollama/ alias."""
+    return dict(catalog.get(model) or catalog.get(model.removeprefix("ollama/")) or {})
+
+
+def _role_model(env: Mapping[str, str], role: str) -> str:
+    """The role's model, else the base LLM_MODEL that lightrag-init resolved."""
+    return _value(env, f"{role}_LLM_MODEL") or _value(env, "LLM_MODEL") or ""
+
+
+def route_roles(env: Mapping[str, str], catalog: Mapping[str, dict]) -> dict[str, str]:
+    """The settings that keep a role on LiteLLM (#658).
+
+    Only a role that sets none of its binding, host or key, under a base whose
+    host is not LiteLLM, and whose model declares catalog request defaults.
+    """
+    _, base_host = _base(env)
+    routes: dict[str, str] = {}
+    if is_litellm(base_host):
+        return routes
+    for role in ROLES:
+        own = any(_value(env, f"{role}_LLM_BINDING{part}") for part in ("", "_HOST", "_API_KEY"))
+        if not own and request_defaults(catalog, _role_model(env, role)):
+            routes[f"{role}_LLM_BINDING"] = "openai"
+            routes[f"{role}_LLM_BINDING_HOST"] = LITELLM_URL
+    return routes
+
+
+def resolve_role_env(env: Mapping[str, str], catalog: Mapping[str, dict]) -> dict[str, str]:
+    """The role settings to set before LightRAG starts: routes, then keys.
+
+    Raise RoleKeyError for a role that needs a key of its own.
+    """
+    routes = route_roles(env, catalog)
+    return {**routes, **resolve_role_keys({**env, **routes})}
+
+
+def role_transports(env: Mapping[str, str], catalog: Mapping[str, dict]) -> dict[str, dict]:
+    """Each role's effective transport and model, with the catalog request
+    defaults its calls carry through LiteLLM or lose on a native binding.
+
+    Hosts carry no userinfo and no key is ever included.
+    """
+    base, base_host = _base(env)
+    transports: dict[str, dict] = {}
+    for role in ROLES:
+        binding, host = _effective(env, role, base, base_host)
+        model = _role_model(env, role)
+        declared = request_defaults(catalog, model)
+        litellm = is_litellm(host)
+        transports[role] = {
+            "transport": "litellm" if litellm else "native",
+            "binding": binding,
+            "host": _display(host),
+            "model": model,
+            "request_defaults": declared if litellm else {},
+            "unsent_request_defaults": {} if litellm else declared,
+        }
+    return transports
+
+
+def describe(role: str, transport: Mapping[str, object]) -> str:
+    """One line naming a role's transport, model and request defaults."""
+    line = (
+        f"{role} role: {transport['binding']} at {transport['host']} "
+        f"({transport['transport']}), model {transport['model'] or 'resolved by lightrag-init'}, "
+        f"request defaults {json.dumps(transport['request_defaults'])}"
+    )
+    if transport["unsent_request_defaults"]:
+        line += (
+            "; a native binding does not send the catalog request defaults "
+            f"{json.dumps(transport['unsent_request_defaults'])}, so leave "
+            f"LIGHTRAG_{role}_LLM_BINDING, _BINDING_HOST and _BINDING_API_KEY "
+            "empty to keep them (#658)"
+        )
+    return line
+
+
+def main() -> None:
+    catalog = catalog_request_defaults(CATALOG)
+    try:
+        updates = resolve_role_env(os.environ, catalog)
     except RoleKeyError as exc:
         print(f"lightrag: {exc}", file=sys.stderr, flush=True)
         sys.exit(1)
-    os.environ.update(keys)
+    os.environ.update(updates)
+    for role, transport in role_transports(os.environ, catalog).items():
+        print(f"lightrag: {describe(role, transport)}", file=sys.stderr, flush=True)
     os.execvp(sys.executable, [sys.executable, "-m", "lightrag.api.lightrag_server"])
 
 

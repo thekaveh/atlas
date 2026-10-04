@@ -3,10 +3,11 @@
 #   services/backup/run-consistent-backup.sh
 # Direct container execution is supported only with BACKUP_DATABASES=false.
 #
-# mc validation note: the shared entrypoint downloads the exact official
-# RELEASE.2025-08-13T08-35-41Z binary for amd64/arm64, verifies the committed
-# release checksum and version, and atomically installs it as `mc`. Living in
-# the entrypoint (not `command`) means the bootstrap also runs when the
+# mc validation note: init/Dockerfile bakes the maintained pgsty fork's mc
+# RELEASE.2026-09-16T00-00-00Z from its digest-pinned image (#1288), and the
+# shared entrypoint verifies that binary's committed amd64/arm64 checksum and
+# its version before running anything, failing closed on a mismatch. Living in
+# the entrypoint (not `command`) means the check also runs when the
 # command is overridden for a restore, e.g.
 #   docker compose run --rm backup /scripts/restore-postgres.sh
 #

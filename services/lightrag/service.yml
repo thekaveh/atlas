@@ -86,6 +86,7 @@ env:
     default: "2.0"
   - name: LIGHTRAG_LLM_BINDING
     default: openai
+    description: "Base LightRAG LLM binding, through LiteLLM at LIGHTRAG_LLM_BINDING_HOST by default. A role that sets no binding, host or key of its own inherits it, except that while the base points at a provider directly, a role whose model declares catalog request_defaults stays on LiteLLM, because a native LightRAG 1.5.4 binding does not send them (#658)."
   - name: LIGHTRAG_LLM_BINDING_HOST
     default: "http://litellm:4000/v1"
   - name: LIGHTRAG_LLM_MODEL

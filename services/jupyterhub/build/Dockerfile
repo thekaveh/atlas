@@ -40,6 +40,17 @@ USER root
 # Install system dependencies, including OpenJDK 17 for the Almond Scala kernel
 # (Almond runs on the JVM; JDK 17 covers Scala 2.13 + Scala 3). The headless
 # package is ~120 MB smaller than the full openjdk-17-jdk.
+#
+# This step is required on every cold build (#989): the base ships no JDK, and
+# the apt-get upgrade (explained above) is the scan remediation, so apt must
+# read the Ubuntu mirror either way. curl, wget and git already come with the
+# base (docker-stacks-foundation installs wget, minimal-notebook installs curl
+# and git), so they add no download; they are named because this image relies
+# on them (curl fetches Julia and Coursier below and runs the HEALTHCHECK), and
+# a base refresh that dropped one would still get it here. vim is the full
+# editor for terminal users; the base has only vim-tiny. An apt "invalid
+# signature" error here comes from reading the mirror, not from this package
+# list; see "An image fails to build" in docs/quick-start/troubleshooting.md.
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends \
