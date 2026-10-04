@@ -43,8 +43,11 @@
 #   Julia      40  1.12.7 is still the newest 1.12.x; 1.13.1 is a minor move.
 #   Iceberg    24  apache/iceberg-rest-fixture:1.10.1 is still the newest tag;
 #                  iceberg-core 1.11.0 has no fixture image.
-#   mc         43  RELEASE.2025-08-13T08-35-41Z is still the newest official mc
-#                  (git tags); the maintained pgsty fork scans clean (#1288).
+#   Go 1.24.6  22  Was the 43-row mc set. #1288 moved Jenkins and backup to the
+#                  maintained pgsty/mc fork, which scans clean, and removed the
+#                  21 rows only that mc needed; the 22 stdlib 1.24.6 rows are
+#                  path-scoped to the gosu and migrate binaries that still
+#                  carry them (postgres alpine images, langfuse:3.115.0).
 #   Jenkins     4  The pinned jenkins/jenkins:lts-jdk21 digest is still the
 #                  current tag, and git-lfs 3.8.0 the newest release.
 #   Ray         5  2.58.0 drops the jackson and aiohttp rows but still
@@ -572,997 +575,468 @@ vulnerabilities:
       rather than exposing a Thrift endpoint to untrusted callers. Tracked for
       the coordinated upgrade; remove this exception when the Spark family
       moves.
-  - id: CVE-2025-47913
-    purls:
-      - "pkg:golang/golang.org/x/crypto@v0.40.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
   - id: CVE-2025-61726
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2025-61729
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2025-68121
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-25679
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-25681
-    purls:
-      - "pkg:golang/golang.org/x/net@v0.42.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-27136
-    purls:
-      - "pkg:golang/golang.org/x/net@v0.42.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-27145
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-32280
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-32281
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-32283
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-33186
-    purls:
-      - "pkg:golang/google.golang.org/grpc@v1.71.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-33811
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-33814
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
-      - "pkg:golang/golang.org/x/net@v0.42.0"
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-33818
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-39820
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-39821
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
-      - "pkg:golang/golang.org/x/net@v0.42.0"
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-39822
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-39828
-    purls:
-      - "pkg:golang/golang.org/x/crypto@v0.40.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-39829
-    purls:
-      - "pkg:golang/golang.org/x/crypto@v0.40.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-39830
-    purls:
-      - "pkg:golang/golang.org/x/crypto@v0.40.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-39831
-    purls:
-      - "pkg:golang/golang.org/x/crypto@v0.40.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-39832
-    purls:
-      - "pkg:golang/golang.org/x/crypto@v0.40.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-39835
-    purls:
-      - "pkg:golang/golang.org/x/crypto@v0.40.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-39836
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-42151
-    purls:
-      - "pkg:golang/github.com/prometheus/prometheus@v0.303.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-42154
-    purls:
-      - "pkg:golang/github.com/prometheus/prometheus@v0.303.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-42499
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-42504
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-42508
-    purls:
-      - "pkg:golang/golang.org/x/crypto@v0.40.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-46595
-    purls:
-      - "pkg:golang/golang.org/x/crypto@v0.40.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-46597
-    purls:
-      - "pkg:golang/golang.org/x/crypto@v0.40.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-46600
-    purls:
-      - "pkg:golang/golang.org/x/net@v0.42.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-56852
-    purls:
-      - "pkg:golang/golang.org/x/text@v0.27.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-56853
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-56854
-    purls:
-      - "pkg:golang/golang.org/x/crypto@v0.40.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-56858
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-56859
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-56860
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-56862
+    paths:
+      - "usr/bin/migrate"
+      - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
     expired_at: 2026-11-30
     statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-84304
-    purls:
-      - "pkg:golang/google.golang.org/grpc@v1.71.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: CVE-2026-84445
-    purls:
-      - "pkg:golang/google.golang.org/grpc@v1.71.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
-  - id: GHSA-hrxh-6v49-42gf
-    purls:
-      - "pkg:golang/google.golang.org/grpc@v1.71.0"
-    expired_at: 2026-11-30
-    statement: >-
-      Go toolchain (stdlib 1.24.6) or vendored-module finding in the official
-      MinIO client binary mc RELEASE.2025-08-13T08-35-41Z, which
-      services/jenkins bakes into its image at /usr/local/bin/mc (disabled by
-      default). services/backup downloads the same checksum-pinned binary at
-      entrypoint start, outside any scanned image, so these rows record its
-      exposure without suppressing anything there. The stdlib 1.24.6 rows also
-      cover two upstream helper binaries built with that toolchain, found by a
-      --show-suppressed scan on 2026-09-28: gosu in postgres:15.18-alpine
-      (supabase-db and iceberg-rest init) and postgres:17.10-alpine (the
-      backup build base), and migrate in langfuse:3.115.0. Re-checked
-      2026-09-28: that mc is still the newest official release, so no official
-      build carries the fix; the maintained pgsty/mc fork (the MinIO client
-      image since the Silo swap) scans clean, and moving Jenkins and backup
-      onto it is tracked in #1288. None of these binaries serves a listener:
-      mc is an outbound S3 client run by operator-authored Jenkins jobs or the
-      backup schedule against the stack's own Silo endpoint, gosu is a
-      privilege-drop exec helper, and migrate applies Langfuse's schema at
-      start. Remove each purl once no scanned image carries it.
+      Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
+      built with that toolchain: gosu at usr/local/bin/gosu in
+      postgres:15.19-alpine (supabase-db and iceberg-rest init) and
+      postgres:17.11-alpine (the services/backup build base, so the backup
+      image too), and migrate at usr/bin/migrate in langfuse:3.115.0. Neither
+      serves a listener: gosu is a privilege-drop exec helper and migrate
+      applies Langfuse's schema at start. The row also covered the abandoned
+      official MinIO client until services/jenkins and services/backup moved
+      to the maintained pgsty/mc fork (#1288), so it is now scoped to those
+      two paths: the #1289 exception-coverage run over 196 image-platforms
+      on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
+      scan on 2026-10-03 reproduced it in both binaries. Remove it once no
+      scanned image carries stdlib 1.24.6 at either path.
   - id: CVE-2026-75595
     purls:
       - "pkg:maven/io.netty/netty-handler@4.1.115.Final"

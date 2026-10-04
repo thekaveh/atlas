@@ -1,4 +1,8 @@
 docling==2.102.1
+# docling-slim[standard] and docling-ibm-models pull accelerate in
+# transitively. Keep it at or above its PYSEC-2026-3804 fix (1.15.0),
+# matching the localhost provider's floor.
+accelerate>=1.15.0
 torch==2.13.0
 torchvision==0.28.0
 Pillow>=12.3.0

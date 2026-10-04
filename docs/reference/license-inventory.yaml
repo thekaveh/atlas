@@ -126,8 +126,9 @@ open_items:
     modes:
     - redistribution
   R-BUILD:
-    question: Which licenses apply to binaries a local Dockerfile downloads on top of its base image? Known cases are the headless Blender that asset-baker adds and the MinIO mc client that the backup and
-      Jenkins images add; neither has an image row of its own.
+    question: Which licenses apply to binaries a local Dockerfile downloads or copies on top of its base image? Known cases are the headless Blender that asset-baker adds, which has no image row of its
+      own, and the MinIO mc client that the backup and Jenkins images copy from the digest-pinned pgsty/mc image (its minio MINIO_INIT_IMAGE row records AGPL-3.0); what that license asks of those images
+      when redistributed is not settled.
     applies: asset-baker, backup, jenkins.
     modes:
     - redistribution

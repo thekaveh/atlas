@@ -5174,6 +5174,67 @@ def _doctor_check_lightrag_rerank_adapter(starter: "AtlasStarter") -> dict:
     )
 
 
+def _lightrag_runtime_env(env_values: dict) -> dict:
+    """The role environment ``services/lightrag/compose.yml`` renders from .env.
+
+    The base model is the explicit one lightrag-init would take; a model it
+    would pick from LiteLLM's listing stays empty. Only whether a role key is
+    set is kept, so the doctor never holds a key value.
+    """
+    env = {
+        "LLM_BINDING": env_values.get("LIGHTRAG_LLM_BINDING") or "openai",
+        "LLM_BINDING_HOST": env_values.get("LIGHTRAG_LLM_BINDING_HOST") or "http://litellm:4000/v1",
+        "LLM_MODEL": env_values.get("LIGHTRAG_LLM_MODEL") or env_values.get("LITELLM_DEFAULT_MODEL") or "",
+    }
+    for role in ("EXTRACT", "KEYWORD", "QUERY"):
+        for name in ("LLM_MODEL", "LLM_BINDING", "LLM_BINDING_HOST"):
+            env[f"{role}_{name}"] = env_values.get(f"LIGHTRAG_{role}_{name}", "")
+        env[f"{role}_LLM_BINDING_API_KEY"] = (
+            "set" if env_values.get(f"LIGHTRAG_{role}_LLM_BINDING_API_KEY") else ""
+        )
+    return env
+
+
+def _doctor_check_lightrag_role_transport(starter: "AtlasStarter") -> dict:
+    """Name each LightRAG role's effective transport and request defaults (#658).
+
+    Runs the container's own start-time resolver
+    (``services/lightrag/init/scripts/resolve-role-keys.py``) over the values
+    Compose would pass, so the report matches what LightRAG will use. A role
+    that would inherit a native base binding while its model declares catalog
+    ``request_defaults`` is kept on LiteLLM, which applies them. A role pinned
+    to a native host by its own settings cannot receive them, which warns. No
+    key value is read into the result.
+    """
+    env_values = starter.config_parser.parse_env_file()
+    if (env_values.get("LIGHTRAG_SOURCE", "disabled") or "disabled").strip() != "container":
+        return _doctor_result(
+            "lightrag-role-transport",
+            "skipped",
+            "LIGHTRAG_SOURCE is not container; no in-stack LightRAG roles to resolve.",
+        )
+    import importlib.util
+
+    services = starter.root_dir / "services"
+    spec = importlib.util.spec_from_file_location(
+        "lightrag_role_resolver",
+        services / "lightrag" / "init" / "scripts" / "resolve-role-keys.py",
+    )
+    resolver = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(resolver)
+    catalog = resolver.catalog_request_defaults(services / "ollama" / "models.yaml")
+    env = _lightrag_runtime_env(env_values)
+    env.update(resolver.route_roles(env, catalog))
+    roles = resolver.role_transports(env, catalog)
+    lost = [role for role, transport in roles.items() if transport["unsent_request_defaults"]]
+    return _doctor_result(
+        "lightrag-role-transport",
+        "warn" if lost else "pass",
+        "; ".join(resolver.describe(role, transport) for role, transport in roles.items()) + ".",
+        details={"roles": roles},
+    )
+
+
 def _doctor_check_endpoints(starter: "AtlasStarter") -> dict:
     env_values = starter.config_parser.parse_env_file()
     endpoints = {
@@ -5597,6 +5658,7 @@ DOCTOR_CHECKS = [
     _doctor_check_rag_ingestion_profiles,
     _doctor_check_lightrag_query_profiles,
     _doctor_check_lightrag_rerank_adapter,
+    _doctor_check_lightrag_role_transport,
     _doctor_check_comfyui_mps,
     _doctor_check_vllm_metal,
     _doctor_check_blender_mcp,

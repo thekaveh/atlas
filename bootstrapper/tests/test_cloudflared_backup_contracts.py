@@ -11,7 +11,6 @@ import hmac
 import importlib.util
 import json
 import os
-import platform
 import shutil
 import signal
 import stat
@@ -59,11 +58,19 @@ def _stage_backup_script_siblings(tmp_path: Path) -> None:
 MINIO_IMAGE = "pgsty/silo:RELEASE.2026-09-16T00-00-00Z"
 MINIO_CLIENT_IMAGE = "pgsty/mc:RELEASE.2026-09-16T00-00-00Z"
 BACKUP_PRODUCTION_IMAGE = "atlas-backup:local"
-MC_RELEASE = "RELEASE.2025-08-13T08-35-41Z"
+# #1288: the backup image bakes /usr/bin/mc from this digest-pinned image, and
+# these are that binary's SHA-256 values on each platform of the index.
+MC_IMAGE = (
+    f"{MINIO_CLIENT_IMAGE}"
+    "@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd"
+)
+MC_RELEASE = "RELEASE.2026-09-16T00-00-00Z"
 MC_SHA256_BY_ARCH = {
-    "amd64": "01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891",
-    "arm64": "14c8c9616cfce4636add161304353244e8de383b2e2752c0e9dad01d4c27c12c",
+    "amd64": "1e745aaf4684ccda198288466d122ebc5a63609247d27497a196a68511b886b8",
+    "arm64": "d89a6daf059921eb5a1728663c0fa6bd545293631528aee9e810443da99548fa",
 }
+# The abandoned official release the backup used to download at start.
+RETIRED_MC_RELEASE = "RELEASE.2025-08-13T08-35-41Z"
 _CONTAINMENT_TOKEN_ENV = "ATLAS_TEST_CONTAINMENT_ID"
 _CONTAINMENT_STABILIZE_SECONDS = 0.5
 _PID_HINT_MAX_BYTES = 4096
@@ -2498,115 +2505,126 @@ def test_backup_rejects_control_bytes_in_credentials_before_io(
     assert not trace.exists()
 
 
-def test_entrypoint_uses_exact_checksum_verified_mc_release() -> None:
+def test_entrypoint_verifies_exact_checksum_pinned_mc_release() -> None:
     entrypoint = (REPO / "services/backup/init/scripts/entrypoint.sh").read_text(
         encoding="utf-8"
     )
-    assert "RELEASE.2025-08-13T08-35-41Z" in entrypoint
-    assert "01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891" in entrypoint
-    assert "14c8c9616cfce4636add161304353244e8de383b2e2752c0e9dad01d4c27c12c" in entrypoint
-    assert "run_bounded sha256sum" in entrypoint
-    assert 'run_bounded "$mc_candidate" --version' in entrypoint
-    assert "command -v setsid" in entrypoint
-    assert "minio-client" not in entrypoint
-
-
-def test_entrypoint_artifact_override_is_test_only_and_keeps_official_default() -> None:
-    entrypoint = (REPO / "services/backup/init/scripts/entrypoint.sh").read_text(
-        encoding="utf-8"
+    required = (
+        f"MC_RELEASE={MC_RELEASE}",
+        f"MC_SHA256_AMD64={MC_SHA256_BY_ARCH['amd64']}",
+        f"MC_SHA256_ARM64={MC_SHA256_BY_ARCH['arm64']}",
+        "run_bounded sha256sum",
+        'run_bounded "$mc_candidate" --version',
+        "require_pinned_mc || exit $?",
+        "command -v setsid",
     )
-    override = "ATLAS_BACKUP_TEST_MC_ARTIFACT_BASE_URL"
-    assert (
-        "${ATLAS_BACKUP_TEST_MC_ARTIFACT_BASE_URL:-"
-        "https://github.com/minio/mc/releases/download/${MC_RELEASE}}"
-    ) in entrypoint
-    assert override not in (REPO / "services/backup/compose.yml").read_text(
-        encoding="utf-8"
+    # #1288: the image bakes the client, so nothing is fetched at start.
+    retired = (
+        "minio-client", RETIRED_MC_RELEASE, "github.com/minio/mc", "wget", "MC_ARTIFACT",
     )
-    assert override not in (REPO / "services/backup/service.yml").read_text(
-        encoding="utf-8"
-    )
+    assert [text for text in required if text not in entrypoint] == []
+    assert [text for text in retired if text in entrypoint] == []
 
 
-def _entrypoint_installer_fixture(
-    tmp_path: Path, *, arch: str = "x86_64", wget_rc: int = 0, sha_rc: int = 0,
+def test_backup_image_bakes_mc_from_the_minio_init_client_image() -> None:
+    """#1288: the digest-pinned pgsty/mc image minio-init runs, never a download."""
+    dockerfile = (REPO / "services/backup/init/Dockerfile").read_text(encoding="utf-8")
+    minio = yaml.safe_load(
+        (REPO / "services/minio/service.yml").read_text(encoding="utf-8")
+    )
+    minio_init_image = next(
+        row["default"] for row in minio["images"] if row["var"] == "MINIO_INIT_IMAGE"
+    )
+    assert minio_init_image == MC_IMAGE
+    assert f"ARG MC_IMAGE={MC_IMAGE}\nFROM ${{MC_IMAGE}} AS mc\n" in dockerfile
+    assert "COPY --from=mc /usr/bin/mc /usr/local/bin/mc" in dockerfile
+    for surface in ("services/backup/compose.yml", "services/backup/service.yml"):
+        text = (REPO / surface).read_text(encoding="utf-8")
+        assert "ATLAS_BACKUP_TEST_MC_ARTIFACT_BASE_URL" not in text
+        assert RETIRED_MC_RELEASE not in text
+
+
+def _entrypoint_mc_fixture(
+    tmp_path: Path, *, arch: str = "x86_64", mc_version: str | None = MC_RELEASE,
+    checksum: str | None = None,
 ) -> dict[str, str]:
+    """Fake tools on a PATH that holds nothing else, so a host mc never answers.
+
+    ``mc_version=None`` leaves mc out. ``checksum`` replaces the digest the fake
+    sha256sum reports, which is otherwise the pinned value for ``arch``.
+    """
     bin_dir = tmp_path / "bin"
-    install_dir = tmp_path / "install"
     bin_dir.mkdir()
-    install_dir.mkdir()
-    (bin_dir / "openssl").write_text("#!/bin/sh\nexit 0\n")
-    (bin_dir / "uname").write_text(f"#!/bin/sh\nprintf '%s\\n' {arch!r}\n")
-    (bin_dir / "wget").write_text(
-        "#!/bin/sh\n"
-        f"[ {wget_rc} -eq 0 ] || exit {wget_rc}\n"
-        "while [ \"$1\" != -O ]; do shift; done; shift\n"
-        "printf '%s\\n' '#!/bin/sh' "
-        "\"printf '%s\\n' 'mc version RELEASE.2025-08-13T08-35-41Z'\" >\"$1\"\n"
-    )
-    checksum = (
-        "01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891"
-        if arch in {"x86_64", "amd64"}
-        else "14c8c9616cfce4636add161304353244e8de383b2e2752c0e9dad01d4c27c12c"
-    )
-    (bin_dir / "sha256sum").write_text(
-        f"#!/bin/sh\n[ {sha_rc} -eq 0 ] || exit {sha_rc}\nprintf '%s  %s\\n' {checksum} \"$1\"\n"
-    )
-    (bin_dir / "timeout").write_text("#!/bin/sh\nshift 5\nexec \"$@\"\n")
-    for path in bin_dir.iterdir():
-        path.chmod(0o755)
-    return {
-        **os.environ,
-        "PATH": f"{bin_dir}:/usr/bin:/bin",
-        "BACKUP_SOURCE": "container",
-        "ATLAS_BACKUP_MC_INSTALL_DIR": str(install_dir),
+    (bin_dir / "sh").symlink_to("/bin/sh")
+    _write_fake_setsid(bin_dir)
+    pinned = MC_SHA256_BY_ARCH["amd64" if arch in {"x86_64", "amd64"} else "arm64"]
+    fakes = {
+        "openssl": "exit 0\n",
+        "uname": f"printf '%s\\n' {arch!r}\n",
+        "sha256sum": f"printf '%s  %s\\n' {checksum or pinned} \"$1\"\n",
+        "timeout": "shift 5\nexec \"$@\"\n",
     }
+    if mc_version is not None:
+        fakes["mc"] = f"printf '%s\\n' 'mc version {mc_version} (commit-id=fixture)'\n"
+    for name, body in fakes.items():
+        path = bin_dir / name
+        path.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+        path.chmod(0o755)
+    return {**os.environ, "PATH": str(bin_dir), "BACKUP_SOURCE": "container"}
 
 
 @pytest.mark.parametrize(
-    ("arch", "wget_rc", "sha_rc", "message"),
+    "case",
     [
-        ("mips64", 0, 0, "unsupported architecture"),
-        ("x86_64", 7, 0, "download failed"),
-        ("x86_64", 0, 1, "checksum verification failed"),
+        pytest.param(("mips64", MC_RELEASE, None, 64, "unsupported architecture"),
+                     id="unsupported-architecture"),
+        pytest.param(("x86_64", None, None, 69, "missing the pinned mc"), id="missing"),
+        pytest.param(("x86_64", MC_RELEASE, "0" * 64, 65, "checksum verification failed"),
+                     id="wrong-checksum"),
+        pytest.param(("aarch64", MC_RELEASE, MC_SHA256_BY_ARCH["amd64"], 65,
+                      "checksum verification failed"), id="other-architecture-binary"),
+        pytest.param(("x86_64", RETIRED_MC_RELEASE, None, 65, "version verification failed"),
+                     id="retired-release"),
     ],
 )
-def test_entrypoint_fails_closed_installing_pinned_mc(
-    tmp_path: Path, arch: str, wget_rc: int, sha_rc: int, message: str,
+def test_entrypoint_fails_closed_without_the_pinned_mc(
+    tmp_path: Path, case: tuple[str, str | None, str | None, int, str],
 ) -> None:
+    arch, mc_version, checksum, status, message = case
+    command = tmp_path / "command.sh"
+    command.write_text("printf '%s\\n' executed\n", encoding="utf-8")
     result = subprocess.run(
-        ["sh", str(REPO / "services/backup/init/scripts/entrypoint.sh"), "/bin/true"],
-        env=_entrypoint_installer_fixture(
-            tmp_path, arch=arch, wget_rc=wget_rc, sha_rc=sha_rc
+        ["sh", str(REPO / "services/backup/init/scripts/entrypoint.sh"), str(command)],
+        env=_entrypoint_mc_fixture(
+            tmp_path, arch=arch, mc_version=mc_version, checksum=checksum
         ),
         text=True, capture_output=True, check=False, timeout=5,
     )
-    assert result.returncode != 0
+    assert result.returncode == status, result.stderr
     assert message in result.stderr.lower()
-    assert not list((tmp_path / "install").iterdir())
+    # An image built before mc was baked in (#1288) is the likely cause.
+    assert status == 64 or "docker compose build backup" in result.stderr
+    assert "executed" not in result.stdout
 
 
-def test_entrypoint_installs_and_executes_exact_mc_release(tmp_path: Path) -> None:
+@pytest.mark.parametrize("arch", ["x86_64", "aarch64"])
+def test_entrypoint_verifies_baked_mc_then_executes_command(
+    tmp_path: Path, arch: str,
+) -> None:
     command = tmp_path / "command.sh"
-    command.write_text("exit 0\n", encoding="utf-8")
+    command.write_text("printf '%s\\n' executed\n", encoding="utf-8")
     result = subprocess.run(
         ["sh", str(REPO / "services/backup/init/scripts/entrypoint.sh"), str(command)],
-        env=_entrypoint_installer_fixture(tmp_path),
+        env=_entrypoint_mc_fixture(tmp_path, arch=arch),
         text=True, capture_output=True, check=False, timeout=5,
     )
     assert result.returncode == 0, result.stderr
-    installed = tmp_path / "install" / "mc"
-    assert installed.exists()
-    assert "RELEASE.2025-08-13T08-35-41Z" in subprocess.check_output(
-        [str(installed), "--version"], text=True
-    )
+    assert result.stdout == "executed\n"
 
 
-def _blocking_installer_fixture(tmp_path: Path, probe: str) -> dict[str, str]:
+def _blocking_mc_probe_fixture(tmp_path: Path, probe: str) -> dict[str, str]:
     bin_dir = tmp_path / "blocking-bin"
-    install_dir = tmp_path / "blocking-install"
     bin_dir.mkdir()
-    install_dir.mkdir()
     (bin_dir / "openssl").write_text("#!/bin/sh\nexit 0\n")
     (bin_dir / "uname").write_text("#!/bin/sh\nprintf '%s\\n' aarch64\n")
     (bin_dir / "timeout").write_text(
@@ -2630,41 +2648,17 @@ except subprocess.TimeoutExpired:
     raise SystemExit(124)
 """
     )
-    owned_tmp_dir = Path(
-        f"/tmp/atlas-mc-install.{uuid.uuid4().hex[:6]}"
-    )
-    assert not owned_tmp_dir.exists()
-    (bin_dir / "mktemp").write_text(
-        "#!/bin/sh\n"
-        "[ \"$1\" = -d ] && "
-        "[ \"$2\" = /tmp/atlas-mc-install.XXXXXX ] || exit 64\n"
-        "mkdir \"$ATLAS_TEST_MC_TMP_DIR\" || exit 1\n"
-        "printf '%s\\n' \"$ATLAS_TEST_MC_TMP_DIR\"\n"
-    )
-    if probe.startswith("existing"):
-        body = "#!/bin/sh\n"
-        if probe == "existing_version":
-            body += "trap 'exit 143' TERM; while :; do :; done\n"
-        else:
-            body += "printf '%s\\n' 'mc version RELEASE.2025-08-13T08-35-41Z'\n"
-        (bin_dir / "mc").write_text(body)
-    sha_body = "#!/bin/sh\n"
-    if probe in {"existing_hash", "downloaded_hash"}:
-        sha_body += "trap 'exit 143' TERM; while :; do :; done\n"
-    elif probe == "installed_hash":
-        sha_body += "case \"$1\" in */blocking-install/mc) trap 'exit 143' TERM; while :; do :; done;; esac\n"
-    sha_body += "printf '%s  %s\\n' 14c8c9616cfce4636add161304353244e8de383b2e2752c0e9dad01d4c27c12c \"$1\"\n"
-    (bin_dir / "sha256sum").write_text(sha_body)
-    wget_body = "#!/bin/sh\nwhile [ \"$1\" != -O ]; do shift; done; shift\n"
-    if probe.startswith("existing"):
-        wget_body += "exit 7\n"
-    elif probe == "downloaded_version":
-        wget_body += "printf '%s\\n' '#!/bin/sh' \"trap 'exit 143' TERM\" 'while :; do :; done' >\"$1\"\n"
-    elif probe == "installed_version":
-        wget_body += "printf '%s\\n' '#!/bin/sh' 'case \"$0\" in */blocking-install/mc) trap '\"'\"'exit 143'\"'\"' TERM; while :; do :; done;; esac' \"printf '%s\\\\n' 'mc version RELEASE.2025-08-13T08-35-41Z'\" >\"$1\"\n"
+    mc_body = "#!/bin/sh\n"
+    if probe == "baked_version":
+        mc_body += "trap 'exit 143' TERM; while :; do :; done\n"
     else:
-        wget_body += "printf '%s\\n' '#!/bin/sh' \"printf '%s\\\\n' 'mc version RELEASE.2025-08-13T08-35-41Z'\" >\"$1\"\n"
-    (bin_dir / "wget").write_text(wget_body)
+        mc_body += f"printf '%s\\n' 'mc version {MC_RELEASE}'\n"
+    (bin_dir / "mc").write_text(mc_body)
+    sha_body = "#!/bin/sh\n"
+    if probe == "baked_hash":
+        sha_body += "trap 'exit 143' TERM; while :; do :; done\n"
+    sha_body += f"printf '%s  %s\\n' {MC_SHA256_BY_ARCH['arm64']} \"$1\"\n"
+    (bin_dir / "sha256sum").write_text(sha_body)
     for path in bin_dir.iterdir():
         path.chmod(0o755)
     return {
@@ -2672,38 +2666,34 @@ except subprocess.TimeoutExpired:
         "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}",
         "BACKUP_SOURCE": "container",
         "BACKUP_COMMAND_TIMEOUT_SECONDS": "1",
-        "ATLAS_BACKUP_MC_INSTALL_DIR": str(install_dir),
-        "ATLAS_TEST_MC_TMP_DIR": str(owned_tmp_dir),
     }
 
 
 @pytest.mark.parametrize(
-    "probe",
+    ("probe", "message"),
     [
-        "existing_hash", "existing_version", "downloaded_hash",
-        "downloaded_version", "installed_hash", "installed_version",
+        ("baked_hash", "checksum verification failed"),
+        ("baked_version", "version verification failed"),
     ],
 )
 def test_entrypoint_bounds_every_mc_hash_and_version_probe(
-    tmp_path: Path, probe: str,
+    tmp_path: Path, probe: str, message: str,
 ) -> None:
     command = tmp_path / "never.sh"
     command.write_text("exit 99\n", encoding="utf-8")
-    env = _blocking_installer_fixture(tmp_path, probe)
-    owned_tmp_dir = Path(env["ATLAS_TEST_MC_TMP_DIR"])
+    env = _blocking_mc_probe_fixture(tmp_path, probe)
     started = time.monotonic()
     result = subprocess.run(
         ["sh", str(REPO / "services/backup/init/scripts/entrypoint.sh"), str(command)],
         env=env, text=True, capture_output=True, check=False, timeout=10,
     )
     elapsed = time.monotonic() - started
-    assert result.returncode != 0
+    assert result.returncode == 65, result.stderr
+    assert message in result.stderr
     # The script-level one-second deadline remains deliberately tiny.  This
     # wider wall-clock allowance covers repeated Python fixture-wrapper
     # startup on macOS while still proving that a blocked probe exits finitely.
     assert elapsed < 8
-    assert not list((tmp_path / "blocking-install").iterdir())
-    assert not owned_tmp_dir.exists()
 
 
 def _assert_ci_provisions_exact_integration_images(pull_script: str) -> None:
@@ -2730,15 +2720,14 @@ def _assert_ci_provisions_exact_integration_images(pull_script: str) -> None:
     )
     for image in required_images:
         assert f"timeout 5m docker pull {image}" in pull_script
-    # The backup's own pinned mc is provisioned from the official release and
-    # checksum-verified, since the pgsty/mc client image is a newer mc.
-    assert (
-        f"releases/download/{MC_RELEASE}/$pinned_mc" in pull_script,
-        f"pinned_mc=\"mc.linux-amd64.{MC_RELEASE}\"" in pull_script,
-        f"{MC_SHA256_BY_ARCH['amd64']}  $pinned_mc_dir/$pinned_mc" in pull_script,
-        "sha256sum -c -" in pull_script,
-        f"{PINNED_MC_DIR_ENV}=$pinned_mc_dir\" >> \"$GITHUB_ENV\"" in pull_script,
-    ) == (True, True, True, True, True)
+    # #1288: the backup image bakes mc from the digest-pinned pgsty/mc image,
+    # and the tests run that same client from the MinIO client image pulled
+    # above, so no separate release asset is provisioned any more.
+    retired = (
+        "github.com/minio/mc", RETIRED_MC_RELEASE, "pinned_mc",
+        "ATLAS_BACKUP_PINNED_MC_DIR",
+    )
+    assert tuple(map(pull_script.__contains__, retired)) == (False,) * len(retired)
 
 
 def test_services_lint_opts_into_exact_backup_production_image_integration() -> None:
@@ -2985,97 +2974,6 @@ def _wait_for_s3_server(
         time.sleep(0.25)
     assert ready is not None and ready.returncode == 0, (
         ready.stderr if ready else "not ready"
-    )
-
-
-PINNED_MC_DIR_ENV = "ATLAS_BACKUP_PINNED_MC_DIR"
-_HOST_MC_ARCH = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
-
-
-def _pinned_mc_artifact(destination: Path) -> Path:
-    """Copy the backup's pinned official mc release asset into ``destination``.
-
-    The backup image installs mc from the official minio/mc release, verified
-    by SHA-256. CI provisions that same asset in the "Pull exact backup
-    integration images" step and names its directory in
-    ATLAS_BACKUP_PINNED_MC_DIR. The MinIO client image (pgsty/mc) ships a newer
-    mc, so it can no longer stand in for the pinned binary.
-    """
-    mc_arch = _HOST_MC_ARCH.get(platform.machine().lower(), "")
-    source = Path(os.environ.get(PINNED_MC_DIR_ENV, "/nonexistent")) / (
-        f"mc.linux-{mc_arch}.{MC_RELEASE}"
-    )
-    if not source.is_file():
-        message = f"pinned mc {MC_RELEASE} is not provisioned via {PINNED_MC_DIR_ENV}"
-        if os.environ.get("CI", "").lower() in {"1", "true", "yes"}:
-            pytest.fail(message)
-        pytest.skip(message)
-    destination.mkdir(parents=True, exist_ok=True)
-    artifact = destination / source.name
-    shutil.copyfile(source, artifact)
-    artifact.chmod(0o755)
-    assert hashlib.sha256(artifact.read_bytes()).hexdigest() == MC_SHA256_BY_ARCH[mc_arch]
-    return artifact
-
-
-def _write_artifact_responder(tmp_path: Path, artifact: Path) -> Path:
-    responder = tmp_path / "serve-mc-artifact.sh"
-    responder.write_text(
-        "#!/bin/sh\n"
-        "request_cr=$(printf '\\r')\n"
-        "while IFS= read -r request_header; do\n"
-        "  [ \"$request_header\" = \"$request_cr\" ] && break\n"
-        "done\n"
-        f"printf 'HTTP/1.1 200 OK\\r\\nContent-Length: {artifact.stat().st_size}\\r\\n"
-        "Connection: close\\r\\n\\r\\n'\n"
-        f"exec cat /artifacts/{artifact.name}\n",
-        encoding="utf-8",
-    )
-    responder.chmod(0o755)
-    return responder
-
-
-def test_artifact_responder_waits_for_complete_http_headers(tmp_path: Path) -> None:
-    artifact = tmp_path / f"mc.linux-arm64.{MC_RELEASE}"
-    artifact.write_bytes(b"pinned-mc-fixture")
-    responder = _write_artifact_responder(tmp_path, artifact)
-    process = subprocess.Popen(
-        ["sh", str(responder)],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert process.stdin is not None
-    try:
-        process.stdin.write(b"GET /artifact HTTP/1.1\r\nHost: mc-artifacts\r\n")
-        process.stdin.flush()
-        with pytest.raises(subprocess.TimeoutExpired):
-            process.wait(timeout=0.2)
-    finally:
-        process.terminate()
-        process.wait(timeout=2)
-
-
-def _wait_for_artifact_server(
-    network: str, probe: str, owner_token: str,
-) -> None:
-    deadline = time.monotonic() + 10
-    ready: subprocess.CompletedProcess[str] | None = None
-    while time.monotonic() < deadline:
-        ready = _docker_command(
-            "run", "--pull=never", "--rm", "--name", probe,
-            "--label", f"{_EXTERNAL_S3_FIXTURE_OWNER_LABEL}={owner_token}",
-            "--network", network, "--entrypoint", "nc", BACKUP_PRODUCTION_IMAGE,
-            "-z", "-w", "1", "mc-artifacts", "8080", timeout=5,
-        )
-        if ready.returncode == 0:
-            break
-        _remove_exact_docker_fixture(
-            (probe,), None, owner_token, uncertain=ready.returncode == 125
-        )
-        time.sleep(0.1)
-    assert ready is not None and ready.returncode == 0, (
-        ready.stderr if ready else "artifact server not ready"
     )
 
 
@@ -3535,6 +3433,9 @@ def test_external_s3_mode_uses_separate_credentials_with_pinned_minio_client(
     result_dir = tmp_path / "result"
     test_bin.mkdir()
     result_dir.mkdir()
+    # The client image's /usr/bin/mc is the backup's pinned binary (#1288). The
+    # leak-checking wrapper in front of it is not, so the fake sha256sum vouches
+    # for the wrapper and `mc --version` still reaches the real binary.
     fake_tools = {
         "mc": """#!/bin/sh
 case "$*" in
@@ -3543,15 +3444,15 @@ case "$*" in
     [ -z "${MINIO_ROOT_USER+x}${MINIO_ROOT_PASSWORD+x}${AWS_ACCESS_KEY_ID+x}${AWS_SECRET_ACCESS_KEY+x}${AWS_SESSION_TOKEN+x}" ] || printf leak >/result/secret-env-leak
     ;;
 esac
-exec /test-bin/pinned/mc "$@"
+exec /usr/bin/mc "$@"
 """,
         "openssl": "#!/bin/sh\nexit 0\n",
         # This client-shell fixture is not the production backup image.  Its
         # streams are single-process; production provides real /usr/bin/setsid.
         "setsid": "#!/bin/sh\nexec \"$@\"\n",
         "uname": "#!/bin/sh\nprintf '%s\\n' aarch64\n",
-        "sha256sum": """#!/bin/sh
-case "$1" in /test-bin/mc) printf '%s  %s\n' 14c8c9616cfce4636add161304353244e8de383b2e2752c0e9dad01d4c27c12c "$1";; *) exec /usr/bin/sha256sum "$@";; esac
+        "sha256sum": f"""#!/bin/sh
+case "$1" in /test-bin/mc) printf '%s  %s\n' {MC_SHA256_BY_ARCH['arm64']} "$1";; *) exec /usr/bin/sha256sum "$@";; esac
 """,
         "psql": "#!/bin/sh\nprintf 'busy\\n'\nexit 75\n",
         "grep": """#!/bin/sh
@@ -3572,9 +3473,6 @@ esac
         path = test_bin / name
         path.write_text(body, encoding="utf-8")
         path.chmod(0o755)
-    # `mc --version` reports its own file name, and the entrypoint accepts only
-    # "mc version <pinned release>", so the pinned binary must be named mc.
-    _pinned_mc_artifact(test_bin / "pinned").rename(test_bin / "pinned" / "mc")
 
     try:
         created = _docker_command(
@@ -3683,9 +3581,10 @@ esac
         )
 
 
-def test_opted_in_ci_runs_exact_backup_image_entrypoint_and_real_mc_installer(
+def test_opted_in_ci_runs_exact_backup_image_entrypoint_and_baked_mc(
     tmp_path: Path,
 ) -> None:
+    """#1288: the real entrypoint verifies the image's baked mc, offline."""
     _require_opted_in_backup_production_image()
 
     owner_token = uuid.uuid4().hex
@@ -3694,11 +3593,8 @@ def test_opted_in_ci_runs_exact_backup_image_entrypoint_and_real_mc_installer(
     server = f"atlas-backup-production-s3-{suffix}"
     runner = f"atlas-backup-production-runner-{suffix}"
     probe = f"atlas-backup-production-probe-{suffix}"
-    artifact_server = f"atlas-backup-production-artifact-{suffix}"
     access = "productionExternalAccess"
     secret = "productionExternalSecret"
-    artifact = _pinned_mc_artifact(tmp_path / "mc-artifacts")
-    artifact_responder = _write_artifact_responder(tmp_path, artifact)
     server_env = tmp_path / "production-server.env"
     server_env.write_text(
         f"MINIO_ROOT_USER={access}\nMINIO_ROOT_PASSWORD={secret}\n", encoding="utf-8"
@@ -3712,7 +3608,6 @@ def test_opted_in_ci_runs_exact_backup_image_entrypoint_and_real_mc_installer(
         f"BACKUP_S3_ACCESS_KEY={access}\nBACKUP_S3_SECRET_KEY={secret}\n"
         "BACKUP_S3_REGION=us-east-1\nBACKUP_S3_TLS_VERIFY=true\n"
         "BACKUP_COMMAND_TIMEOUT_SECONDS=30\n"
-        "ATLAS_BACKUP_TEST_MC_ARTIFACT_BASE_URL=http://mc-artifacts:8080\n"
         "BACKUP_MANIFEST_HMAC_KEY=" + "b" * 64 + "\n"
         "BACKUP_DEPLOYMENT_ID=atlas-production-image-test\n"
         "BACKUP_TIMESTAMP=20260829_130000\n"
@@ -3745,7 +3640,8 @@ def test_opted_in_ci_runs_exact_backup_image_entrypoint_and_real_mc_installer(
     openssl.chmod(0o755)
     launcher = tmp_path / "production-launcher.sh"
     launcher.write_text(
-        "#!/bin/sh\nset -eu\nmc --version > /result/mc.version\nexec sh /scripts/backup-all.sh\n",
+        "#!/bin/sh\nset -eu\ncommand -v mc > /result/mc.path\n"
+        "mc --version > /result/mc.version\nexec sh /scripts/backup-all.sh\n",
         encoding="utf-8",
     )
     launcher.chmod(0o755)
@@ -3768,18 +3664,6 @@ def test_opted_in_ci_runs_exact_backup_image_entrypoint_and_real_mc_installer(
             timeout=10,
         )
         assert created.returncode == 0, created.stderr
-        artifact_started = _docker_command(
-            "run", "--pull=never", "--detach", "--rm", "--name", artifact_server,
-            "--label", f"{_EXTERNAL_S3_FIXTURE_OWNER_LABEL}={owner_token}",
-            "--network", network, "--network-alias", "mc-artifacts",
-            "--mount", f"type=bind,src={artifact.parent},dst=/artifacts,readonly",
-            "--mount", f"type=bind,src={artifact_responder},dst=/serve-mc-artifact.sh,readonly",
-            "--tmpfs", "/tmp:rw,noexec,size=16m", "--entrypoint", "nc",
-            BACKUP_PRODUCTION_IMAGE, "-lk", "-w", "5", "-p", "8080", "-e",
-            "/serve-mc-artifact.sh", timeout=20,
-        )
-        assert artifact_started.returncode == 0, artifact_started.stderr
-        _wait_for_artifact_server(network, probe, owner_token)
         started = _docker_command(
             "run", "--pull=never", "--detach", "--rm", "--name", server,
             "--label", f"{_EXTERNAL_S3_FIXTURE_OWNER_LABEL}={owner_token}",
@@ -3799,7 +3683,8 @@ def test_opted_in_ci_runs_exact_backup_image_entrypoint_and_real_mc_installer(
             "--mount", f"type=bind,src={result_dir},dst=/result",
             "--mount", f"type=bind,src={REPO / 'services/backup/init/scripts'},dst=/scripts,readonly",
             "--mount", f"type=bind,src={launcher},dst=/production-launcher.sh,readonly",
-            "--tmpfs", "/tmp:rw,exec,size=128m", "--entrypoint",
+            # The client runs from the image, never from scratch space.
+            "--tmpfs", "/tmp:rw,noexec,size=128m", "--entrypoint",
             rendered["backup"]["entrypoint"][0], BACKUP_PRODUCTION_IMAGE,
             *rendered["backup"]["entrypoint"][1:], "/production-launcher.sh",
             timeout=90,
@@ -3807,7 +3692,10 @@ def test_opted_in_ci_runs_exact_backup_image_entrypoint_and_real_mc_installer(
         assert production.returncode == 75, production.stderr
         assert "another backup publication" in production.stderr
         assert not result_dir.joinpath("openssl-invoked").exists()
-        assert "mc version RELEASE.2025-08-13T08-35-41Z" in result_dir.joinpath(
+        assert result_dir.joinpath("mc.path").read_text(
+            encoding="utf-8"
+        ) == "/usr/local/bin/mc\n"
+        assert f"mc version {MC_RELEASE}" in result_dir.joinpath(
             "mc.version"
         ).read_text(encoding="utf-8")
         _assert_raw_values_redacted(
@@ -3826,7 +3714,7 @@ def test_opted_in_ci_runs_exact_backup_image_entrypoint_and_real_mc_installer(
         assert bucket.returncode == 0, bucket.stderr
     finally:
         _remove_exact_docker_fixture(
-            (runner, probe, server, artifact_server), network, owner_token,
+            (runner, probe, server), network, owner_token,
         )
 
 
@@ -3839,12 +3727,12 @@ def _blocking_production_runner_fixture(tmp_path: Path) -> tuple[dict[str, str],
     (bin_dir / "openssl").write_text('#!/bin/sh\nexit 0\n')
     (bin_dir / "uname").write_text("#!/bin/sh\nprintf '%s\\n' aarch64\n")
     (bin_dir / "sha256sum").write_text(
-        '#!/bin/sh\nprintf "%s  %s\\n" 14c8c9616cfce4636add161304353244e8de383b2e2752c0e9dad01d4c27c12c "$1"\n'
+        f'#!/bin/sh\nprintf "%s  %s\\n" {MC_SHA256_BY_ARCH["arm64"]} "$1"\n'
     )
     (bin_dir / "mc").write_text(
         """#!/bin/sh
 case "$1" in
-  --version) printf '%s\n' 'mc version RELEASE.2025-08-13T08-35-41Z'; exit 0 ;;
+  --version) printf '%s\n' 'mc version """ + MC_RELEASE + """'; exit 0 ;;
   alias)
     [ -z "${BACKUP_S3_ACCESS_KEY+x}${BACKUP_S3_SECRET_KEY+x}${BACKUP_S3_SESSION_TOKEN+x}" ] || printf leak >"$LEAK"
     printf '%s\n' "$MC_CONFIG_DIR" >>"$TRACE"
@@ -4303,7 +4191,7 @@ def test_enabled_backup_runner_executes_requested_script(tmp_path) -> None:
     entrypoint = REPO / "services/backup/init/scripts/entrypoint.sh"
     fake_mc = tmp_path / "mc"
     fake_mc.write_text(
-        "#!/bin/sh\nprintf '%s\\n' 'mc version RELEASE.2025-08-13T08-35-41Z'\n",
+        f"#!/bin/sh\nprintf '%s\\n' 'mc version {MC_RELEASE}'\n",
         encoding="utf-8",
     )
     fake_mc.chmod(0o755)
@@ -4312,7 +4200,7 @@ def test_enabled_backup_runner_executes_requested_script(tmp_path) -> None:
     fake_timeout.chmod(0o755)
     fake_sha = tmp_path / "sha256sum"
     fake_sha.write_text(
-        '#!/bin/sh\nprintf "%s  %s\\n" 14c8c9616cfce4636add161304353244e8de383b2e2752c0e9dad01d4c27c12c "$1"\n',
+        f'#!/bin/sh\nprintf "%s  %s\\n" {MC_SHA256_BY_ARCH["arm64"]} "$1"\n',
         encoding="utf-8",
     )
     fake_sha.chmod(0o755)
