@@ -19,6 +19,7 @@ COMPOSE = REPO_ROOT / "docker-compose.yml"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 SMOKE_SCRIPT = REPO_ROOT / "scripts" / "smoke-lightrag-role-models.sh"
 RESOLVER = REPO_ROOT / "services" / "lightrag" / "init" / "scripts" / "resolve-role-keys.py"
+OLLAMA_CATALOG = REPO_ROOT / "services" / "ollama" / "models.yaml"
 
 ROLE_INPUTS = {
     "LIGHTRAG_EXTRACT_LLM_MODEL": {"native": "EXTRACT_LLM_MODEL", "secret": False},
@@ -242,6 +243,148 @@ def test_role_pointed_away_from_litellm_without_key_stops_naming_the_variable(ro
     message = str(raised.value)
     assert (f"LIGHTRAG_{role}_LLM_BINDING_API_KEY" in message, _USERINFO in message) == (
         True, False)
+
+
+# #658: a base binding on a native provider. The hosts are the Ollama
+# endpoints Atlas derives for the in-stack and host sources
+# (services/ollama/service.yml runtime_sc).
+_NATIVE_HOSTS = [
+    pytest.param("http://ollama:11434", id="ollama-container"),
+    pytest.param("http://host.docker.internal:11434", id="ollama-localhost"),
+]
+_NATIVE_BASE = {
+    "LLM_BINDING": "ollama",
+    "LLM_BINDING_HOST": "http://host.docker.internal:11434",
+    "LITELLM_MASTER_KEY": _MASTER_KEY,
+}
+# The catalog chat model that declares request_defaults {think: false}.
+_THINK_OFF_MODEL = "qwen3.8:latest"
+
+
+def _catalog(path: Path = OLLAMA_CATALOG) -> dict[str, dict]:
+    return _resolver().catalog_request_defaults(path)
+
+
+@pytest.mark.parametrize("host", _NATIVE_HOSTS)
+@pytest.mark.parametrize("role", ["KEYWORD", "QUERY"])
+def test_role_inheriting_a_native_base_keeps_catalog_request_defaults(role, host):
+    """#658 AC1: a KEYWORD or QUERY role whose model declares {think: false}
+    and would inherit native Ollama, in the stack or on the host
+    (LLM_PROVIDER_SOURCE=ollama-localhost), stays on LiteLLM with the master
+    key, so the default still applies. EXTRACT, whose model declares none,
+    keeps the native binding."""
+    resolver = _resolver()
+    catalog = _catalog()
+    env = {**_NATIVE_BASE, "LLM_BINDING_HOST": host, "LLM_MODEL": "mistral-small3.2:24b",
+           f"{role}_LLM_MODEL": _THINK_OFF_MODEL}
+    resolved = {**env, **resolver.resolve_role_env(env, catalog)}
+    transports = resolver.role_transports(resolved, catalog)
+
+    assert (
+        [resolved[f"{role}_LLM_BINDING{part}"] for part in ("", "_HOST", "_API_KEY")],
+        transports[role]["transport"], transports[role]["request_defaults"],
+        transports["EXTRACT"]["transport"], "EXTRACT_LLM_BINDING" in resolved,
+    ) == (
+        ["openai", "http://litellm:4000/v1", _MASTER_KEY],
+        "litellm", {"think": False},
+        "native", False,
+    )
+
+
+def test_base_model_alias_keeps_every_inheriting_role_on_litellm():
+    """#658: lightrag-init may resolve the base model to LiteLLM's ollama/
+    alias; the catalog lookup still finds it, for every inheriting role."""
+    routed = {
+        **{f"{role}_LLM_BINDING": "openai" for role in _ROLES},
+        **{f"{role}_LLM_BINDING_HOST": "http://litellm:4000/v1" for role in _ROLES},
+        **_master_for(*_ROLES),
+    }
+    env = {**_NATIVE_BASE, "LLM_MODEL": f"ollama/{_THINK_OFF_MODEL}"}
+
+    assert _resolver().resolve_role_env(env, _catalog()) == routed
+
+
+def _catalog_with_plain_chat(tmp_path: Path) -> Path:
+    """The Ollama catalog plus a chat entry that declares no request_defaults."""
+    data = yaml.safe_load(OLLAMA_CATALOG.read_text(encoding="utf-8"))
+    data["content"].append({
+        "name": "chat-without-defaults", "metadata_version": 1, "kind": "chat",
+        "adapter": "ollama_chat", "capabilities": {"chat": True},
+    })
+    path = tmp_path / "models.yaml"
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize(
+    ("base", "before"),
+    [
+        pytest.param(_LITELLM_BASE, _master_for(*_ROLES), id="litellm-base"),
+        pytest.param(_NATIVE_BASE, {}, id="native-base"),
+    ],
+)
+@pytest.mark.parametrize("model", ["nomic-embed-text", "ollama/nomic-embed-text", "chat-without-defaults"])
+def test_models_without_request_defaults_resolve_as_before(base, before, model, tmp_path):
+    """#658 AC4: an embedding entry, or a chat entry with no request_defaults,
+    resolves to the pre-#658 value, which is what the key resolution alone
+    returns, on either base."""
+    resolver = _resolver()
+    env = {**base, "LLM_MODEL": model}
+    resolved = resolver.resolve_role_env(env, _catalog(_catalog_with_plain_chat(tmp_path)))
+
+    assert (resolved, resolver.resolve_role_keys(env)) == (before, before)
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("KEYWORD_LLM_BINDING", "ollama"),
+        # The base host itself, so the role's own host does not stop it (#1291).
+        ("KEYWORD_LLM_BINDING_HOST", _NATIVE_BASE["LLM_BINDING_HOST"]),
+        ("KEYWORD_LLM_BINDING_API_KEY", "ollama"),
+    ],
+)
+def test_explicit_role_settings_win_over_catalog_routing(name, value):
+    """#658 AC5: a role that sets its own binding, host or key is returned
+    unchanged, while a role that inherits the same base is still routed."""
+    env = {**_NATIVE_BASE, "LLM_MODEL": _THINK_OFF_MODEL, name: value}
+    updates = _resolver().resolve_role_env(env, _catalog())
+
+    assert (
+        {**env, **updates}[name],
+        [key for key in updates if key.startswith("KEYWORD_")],
+        updates["QUERY_LLM_BINDING"],
+    ) == (value, [], "openai")
+
+
+def test_unreadable_catalog_keeps_every_role_on_its_inherited_binding(tmp_path):
+    """#658: with no catalog to read, no role is routed, as before #658."""
+    env = {**_NATIVE_BASE, "LLM_MODEL": _THINK_OFF_MODEL}
+    resolver = _resolver()
+
+    assert resolver.resolve_role_env(env, _catalog(tmp_path / "missing.yaml")) == {}
+
+
+def test_entrypoint_routes_roles_and_logs_transports_without_keys(monkeypatch, capsys):
+    """#658 AC1/AC6: as the entrypoint, the resolver applies the routing before
+    exec-ing LightRAG and logs each role's transport and request defaults, with
+    no key value in the log."""
+    resolver = _resolver()
+    monkeypatch.setattr(resolver, "CATALOG", str(OLLAMA_CATALOG))
+    monkeypatch.setattr(resolver.os, "execvp", lambda *_args: None)
+    role_vars = {f"{role}_LLM_{part}": "" for role in _ROLES
+                 for part in ("MODEL", "BINDING", "BINDING_HOST", "BINDING_API_KEY")}
+    for name, value in {**role_vars, **_NATIVE_BASE, "LLM_MODEL": _THINK_OFF_MODEL}.items():
+        monkeypatch.setenv(name, value)
+
+    resolver.main()
+
+    log = capsys.readouterr().err
+    assert (
+        os.environ["KEYWORD_LLM_BINDING_HOST"],
+        log.count('(litellm), model qwen3.8:latest, request defaults {"think": false}'),
+        _MASTER_KEY in log,
+    ) == ("http://litellm:4000/v1", 3, False)
 
 
 def test_extract_ollama_caps_are_declared_in_all_three_files():

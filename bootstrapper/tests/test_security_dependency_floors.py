@@ -14,6 +14,7 @@ else:  # pragma: no cover - exercised by the Python 3.10 test environment
 
 import yaml
 import pytest
+from packaging.version import Version
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -344,6 +345,38 @@ def test_docling_localhost_and_jupyterhub_take_the_2026_10_01_fixes() -> None:
     assert "\ntornado>=6.5.9\n" in _text("services/jupyterhub/build/requirements.txt")
     assert "\ntornado==6.5.9\n" in _text(
         "services/jupyterhub/build/requirements-locked.txt"
+    )
+
+
+def test_docling_providers_share_one_pin_and_the_gpu_lock_is_patched() -> None:
+    """#999: both providers pin one Docling; the GPU lock is past the fixes."""
+    localhost = tomllib.loads(
+        _text("services/docling/provider/localhost/pyproject.toml")
+    )["project"]["dependencies"]
+    gpu_requirements = _text("services/docling/provider/gpu/requirements.txt")
+    gpu_lock = dict(
+        line.split("==", 1)
+        for line in _text(
+            "services/docling/provider/gpu/requirements-locked.txt"
+        ).splitlines()
+    )
+    pins = [d for d in localhost if d.startswith("docling==")]
+
+    # One pin, moved together in both providers, their locks and the ledger.
+    assert len(pins) == 1 and f"\n{pins[0]}\n" in f"\n{gpu_requirements}"
+    version = pins[0].removeprefix("docling==")
+    assert (
+        _locked_version("services/docling/provider/localhost/uv.lock", "docling"),
+        gpu_lock["docling"],
+    ) == (version, version)
+    ledger = _text("docs/maintenance/external-contract-ledger.md")
+    assert f"`{pins[0]}`" in ledger
+    # accelerate: PYSEC-2026-3804 (fixed in 1.15.0), floored in the GPU image
+    # as in the localhost provider; transformers: PYSEC-2026-3929 (5.10.0).
+    assert "\naccelerate>=1.15.0\n" in gpu_requirements
+    assert (
+        Version(gpu_lock["accelerate"]) >= Version("1.15.0")
+        and Version(gpu_lock["transformers"]) >= Version("5.10.0")
     )
 
 

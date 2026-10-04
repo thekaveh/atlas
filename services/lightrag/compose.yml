@@ -20,8 +20,9 @@ services:
     # this, LightRAG's own dotenv loader looks at /app/.env (its WORKDIR)
     # which doesn't exist, leaving LLM_MODEL / EMBEDDING_MODEL / EMBEDDING_DIM
     # empty. `set -a` auto-exports every var sourced after it. The
-    # resolve-role-keys.py step then scopes the role API keys (#1271) and
-    # execs the server.
+    # resolve-role-keys.py step then keeps a role on LiteLLM when a native
+    # binding cannot send its model's catalog request defaults (#658),
+    # scopes the role API keys (#1271) and execs the server.
     entrypoint:
       - sh
       - -c
@@ -127,6 +128,9 @@ services:
     volumes:
       - lightrag-data:/app/data
       - ./init/scripts/resolve-role-keys.py:/atlas/resolve-role-keys.py:ro
+      # The resolver reads each role model's catalog request_defaults here, to
+      # keep a role on LiteLLM that a native binding would strip them from (#658).
+      - ../ollama/models.yaml:/atlas/ollama-models.yaml:ro
     networks:
       - backend-network
       - docling-lightrag-network

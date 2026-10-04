@@ -965,6 +965,85 @@ def test_doctor_accepts_consumer_env_file_enabling_rerank_adapter(tmp_path, monk
     assert "showcase" in checks["consumer-manifests"]["details"]["consumers"]
 
 
+# ─── LightRAG role transport doctor check (#658) ────────────────────
+
+# Not secret-shaped on purpose: the values only have to be recognisable.
+_LIGHTRAG_KEY_CANARIES = ("litellm-master-canary", "role-key-canary")
+
+
+def _lightrag_role_transport(tmp_path, monkeypatch, extra: str) -> tuple[dict, str]:
+    import start as start_module
+
+    _write_base_env(tmp_path, extra=f"LITELLM_MASTER_KEY={_LIGHTRAG_KEY_CANARIES[0]}\n{extra}")
+    _patch_starter_paths(monkeypatch, tmp_path)
+    _stub_compose_ok(monkeypatch)
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    return checks["lightrag-role-transport"], result.output
+
+
+def test_doctor_lightrag_role_transport_names_transport_and_request_defaults(
+    tmp_path, monkeypatch,
+) -> None:
+    """#658 AC6: with a native-Ollama base, the doctor names each role's
+    effective transport and request defaults (KEYWORD and QUERY stay on
+    LiteLLM for qwen3.8's {think: false}; EXTRACT stays native) and the
+    output carries no key value."""
+    check, output = _lightrag_role_transport(tmp_path, monkeypatch, (
+        "LIGHTRAG_SOURCE=container\n"
+        "LIGHTRAG_LLM_BINDING=ollama\n"
+        "LIGHTRAG_LLM_BINDING_HOST=http://host.docker.internal:11434\n"
+        "LIGHTRAG_LLM_MODEL=qwen3.8:latest\n"
+        "LIGHTRAG_EXTRACT_LLM_MODEL=mistral-small3.2:24b\n"
+    ))
+    roles = check["details"]["roles"]
+
+    assert (
+        check["status"],
+        {role: (roles[role]["transport"], roles[role]["request_defaults"]) for role in roles},
+        'KEYWORD role: openai at http://litellm:4000 (litellm)' in check["message"],
+        any(canary in output for canary in _LIGHTRAG_KEY_CANARIES),
+    ) == (
+        "pass",
+        {"EXTRACT": ("native", {}), "KEYWORD": ("litellm", {"think": False}),
+         "QUERY": ("litellm", {"think": False})},
+        True,
+        False,
+    )
+
+
+def test_doctor_lightrag_role_transport_warns_when_a_native_role_loses_defaults(
+    tmp_path, monkeypatch,
+) -> None:
+    """#658 AC5/AC6: a role pinned to native Ollama by its own settings keeps
+    them, so it cannot receive qwen3.8's {think: false}; the doctor warns and
+    names the lost defaults, without echoing the role's key."""
+    check, output = _lightrag_role_transport(tmp_path, monkeypatch, (
+        "LIGHTRAG_SOURCE=container\n"
+        "LIGHTRAG_LLM_MODEL=qwen3.8:latest\n"
+        "LIGHTRAG_KEYWORD_LLM_BINDING=ollama\n"
+        "LIGHTRAG_KEYWORD_LLM_BINDING_HOST=http://host.docker.internal:11434\n"
+        f"LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY={_LIGHTRAG_KEY_CANARIES[1]}\n"
+    ))
+    keyword = check["details"]["roles"]["KEYWORD"]
+
+    assert (
+        check["status"], keyword["binding"], keyword["unsent_request_defaults"],
+        check["details"]["roles"]["QUERY"]["transport"],
+        any(canary in output for canary in _LIGHTRAG_KEY_CANARIES),
+    ) == ("warn", "ollama", {"think": False}, "litellm", False)
+
+
+def test_doctor_lightrag_role_transport_skipped_without_in_stack_lightrag(
+    tmp_path, monkeypatch,
+) -> None:
+    check, _output = _lightrag_role_transport(tmp_path, monkeypatch, "LIGHTRAG_SOURCE=disabled\n")
+
+    assert check["status"] == "skipped"
+
+
 def test_doctor_base_port_warns_on_default_squat():
     """#717: the base-port doctor check warns when a consumer squats the
     default BASE_PORT (project_name isolates Docker resources, not host ports)."""

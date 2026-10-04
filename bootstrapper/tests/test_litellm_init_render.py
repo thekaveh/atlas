@@ -38,6 +38,42 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 INIT_PY = REPO_ROOT / "services/litellm/init/scripts/init.py"
 UTILS_DIR = REPO_ROOT / "bootstrapper/utils"
 SERVICES_DIR = REPO_ROOT / "services"
+LIGHTRAG_RESOLVER = SERVICES_DIR / "lightrag/init/scripts/resolve-role-keys.py"
+
+
+def _load_lightrag_resolver():
+    """The lightrag container's start-time role resolver (#658)."""
+    spec = importlib.util.spec_from_file_location("lightrag_resolve_role_keys", LIGHTRAG_RESOLVER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _rendered_request_fields(mod, rows) -> dict[str, dict]:
+    """Model name -> the request fields litellm-init renders beyond the route."""
+    return {
+        entry["model_name"]: {
+            key: value for key, value in entry["litellm_params"].items()
+            if key not in ("model", "api_base")
+        }
+        for entry in mod.render_model_list(list(rows))
+    }
+
+
+def _undeclared_request_fields(mod, rows) -> dict[str, set]:
+    """Model name -> rendered request fields its row's request_defaults do not match."""
+    undeclared = {}
+    for row in rows:
+        for name, fields in _rendered_request_fields(mod, [row]).items():
+            if set(fields) != set(row.request_defaults):
+                undeclared[name] = set(fields) ^ set(row.request_defaults)
+    return undeclared
+
+
+def _keyword_request_defaults(resolver, catalog: dict, env: dict) -> dict:
+    """The request defaults a LightRAG KEYWORD role resolves under ``env``."""
+    routed = {**env, **resolver.route_roles(env, catalog)}
+    return resolver.role_transports(routed, catalog)["KEYWORD"]["request_defaults"]
 
 
 def _load_init_module(env_overrides: dict | None = None):
@@ -362,6 +398,38 @@ class TestCapabilityMetadataRendering:
             if entry["model_name"] == qwen.name
         )
         assert qwen_bare["litellm_params"]["think"] is False
+
+        # #658 AC3: the chat entry above and every active catalog model render
+        # only the request fields their own entry declares, so no unrelated
+        # model gains one.
+        assert _undeclared_request_fields(mod, [explicit, *mod.fetch_active_models()]) == {}
+
+    def test_native_role_resolution_agrees_with_rendered_request_defaults(self):
+        """#658 AC2: for every active catalog model, the request defaults a
+        LightRAG role resolves equal the request fields litellm-init renders
+        for that model name, whether the role inherits LiteLLM or is kept on
+        it from a native Ollama base (here the ollama-localhost host)."""
+        mod = _load_init_module({
+            "LLM_PROVIDER_SOURCE": "ollama-localhost",
+            "OLLAMA_USER_MODELS": None,
+        })
+        resolver = _load_lightrag_resolver()
+        catalog = resolver.catalog_request_defaults(SERVICES_DIR / "ollama/models.yaml")
+        bases = (
+            {"LLM_BINDING": "openai", "LLM_BINDING_HOST": "http://litellm:4000/v1"},
+            {"LLM_BINDING": "ollama", "LLM_BINDING_HOST": "http://host.docker.internal:11434"},
+        )
+        rendered = _rendered_request_fields(mod, mod.fetch_active_models())
+        resolved = {
+            name: [
+                _keyword_request_defaults(resolver, catalog, {**base, "KEYWORD_LLM_MODEL": name})
+                for base in bases
+            ]
+            for name in rendered
+        }
+
+        assert resolved == {name: [fields, fields] for name, fields in rendered.items()}
+        assert rendered["qwen3.8:latest"] == rendered["ollama/qwen3.8:latest"] == {"think": False}
 
     def test_legacy_custom_model_uses_warned_embedding_heuristic(self, capsys):
         mod = _load_init_module({

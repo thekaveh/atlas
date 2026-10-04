@@ -30,6 +30,14 @@ start. They always qualify the result, though: ``degraded`` when a probe
 found a problem, ``unverified`` when a probe raised, and a skipped probe is
 named with its reason. Only ``verified`` is an unqualified success.
 
+The image build that precedes ``docker compose up`` (every cold start, and
+a warm start whose local images are stale) is a readiness gate for every
+image another enabled service lists in ``depends_on`` and for the
+always-running core. Any other image is optional there (#989): when it fails
+to build it is named, left out of ``docker compose up`` and the launch
+continues, but the result is at best ``degraded`` and names it, because a
+service that was asked for is not running.
+
 Lifecycle actions
 -----------------
 Detach, cancel startup, stop and cold stop each state what happens to the
@@ -167,13 +175,22 @@ def _named(outcomes: list[ProbeOutcome], wanted: str) -> list[ProbeOutcome]:
     return [item for item in outcomes if item.outcome == wanted]
 
 
-def _headline(outcome: str, probes: list[ProbeOutcome], health: ProbeOutcome) -> str:
+def _headline(
+    outcome: str,
+    probes: list[ProbeOutcome],
+    health: ProbeOutcome,
+    not_started: tuple[str, ...],
+) -> str:
     failed = ", ".join(_with_detail(p) for p in _named(probes, FAILED))
     unverified = ", ".join(p.name for p in _named(probes, UNVERIFIED))
     skipped = ", ".join(p.name for p in _named(probes, SKIPPED))
     if outcome == LAUNCH_FAILED:
         return f"❌ Launch result: failed — service health: {health.detail}"
-    problems = [f"verification failed: {failed}"] if failed else []
+    problems = (
+        [f"image build failed: {', '.join(not_started)} (not started)"]
+        if not_started else []
+    )
+    problems += [f"verification failed: {failed}"] if failed else []
     problems += [f"not verified: {unverified}"] if unverified else []
     if problems:
         return (
@@ -201,10 +218,25 @@ def _verification_stage(probes: list[ProbeOutcome]) -> tuple[str, str]:
     return f"  {_MARKS[worst]} {STAGE_VERIFICATION} — {detail}", _TONES[worst]
 
 
-def _verdict(probes: list[ProbeOutcome], health: ProbeOutcome) -> str:
+def _compose_stage(not_started: tuple[str, ...]) -> tuple[str, str]:
+    if not not_started:
+        return (
+            f"  ✓ {STAGE_COMPOSE} — containers started; required init containers succeeded",
+            "ok",
+        )
+    return (
+        f"  ✗ {STAGE_COMPOSE} — containers started except {', '.join(not_started)} "
+        "(image build failed); required init containers succeeded",
+        "error",
+    )
+
+
+def _verdict(
+    probes: list[ProbeOutcome], health: ProbeOutcome, not_started: tuple[str, ...]
+) -> str:
     if health.outcome == FAILED:
         return LAUNCH_FAILED
-    if _named(probes, FAILED):
+    if not_started or _named(probes, FAILED):
         return LAUNCH_DEGRADED
     if _named(probes, UNVERIFIED):
         return LAUNCH_UNVERIFIED
@@ -216,20 +248,25 @@ def summarize_launch(
     *,
     health: ProbeOutcome = HEALTH_NOT_AWAITED,
     where: str = "the output above",
+    not_started: Iterable[str] = (),
 ) -> LaunchResult:
     """State the result of a launch that got past ``docker compose up``.
 
     ``where`` names the place the front end shows the probe output (the
     Logs tab, or the output above), and appears only in the next action.
-    Everything else is identical for both front ends.
+    ``not_started`` names the services the image build left out because
+    their image failed and the launch could go without them (#989); any
+    makes the result at best ``degraded``. Everything else is identical
+    for both front ends.
     """
     probes = _as_outcomes(probes)
-    outcome = _verdict(probes, health)
+    not_started = tuple(not_started)
+    outcome = _verdict(probes, health, not_started)
     health_detail = f"{health.outcome}: {health.detail}" if health.detail else health.outcome
     rows = [
-        (_headline(outcome, probes, health), _HEADLINE_TONES[outcome]),
+        (_headline(outcome, probes, health, not_started), _HEADLINE_TONES[outcome]),
         (f"  ✓ {STAGE_CONFIGURATION} — .env and generated configuration written", "ok"),
-        (f"  ✓ {STAGE_COMPOSE} — containers started; required init containers succeeded", "ok"),
+        _compose_stage(not_started),
         (f"  {_MARKS[health.outcome]} {STAGE_HEALTH} — {health_detail}", _TONES[health.outcome]),
         _verification_stage(probes),
     ]
@@ -240,6 +277,39 @@ def summarize_launch(
             "info",
         ))
     return LaunchResult(outcome=outcome, rows=tuple(rows))
+
+
+def build_skip_rows(names: Iterable[str]) -> list[tuple[str, str]]:
+    """What the image build says when it leaves failed optional images out (#989).
+
+    Written right after the build, before ``docker compose up``, as
+    ``(text, tone)`` rows; empty when nothing was left out.
+    """
+    names = tuple(names)
+    if not names:
+        return []
+    listed = ", ".join(names)
+    them = "it" if len(names) == 1 else "them"
+    return [
+        (
+            f"Image build failed for {listed}; no enabled service depends on "
+            f"{them}, so the launch continues without {them}.",
+            "warn",
+        ),
+        (
+            "Next: fix the build error shown above and run ./start.sh again, "
+            f"or disable {listed} so later starts do not try to build {them}.",
+            "info",
+        ),
+    ]
+
+
+def started_without(names: Iterable[str]) -> str:
+    """The "services started" line when the image build left images out (#989)."""
+    return (
+        f"Started every enabled service except {', '.join(names)} "
+        "(image build failed)"
+    )
 
 
 # ─── Lifecycle actions ──────────────────────────────────────────────

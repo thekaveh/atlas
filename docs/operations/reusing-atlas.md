@@ -1073,6 +1073,14 @@ In LightRAG 1.5.4 such a role sends no generation options of its own, so Atlas c
 
 Keep both numeric. The [LightRAG service guide](../../services/lightrag/README.md) explains how the defaults were sized, how `LIGHTRAG_EXTRACT_LLM_TIMEOUT` bounds a call, and why one failed chunk fails its document.
 
+**Catalog request defaults on native bindings (#658).** A model's catalog `request_defaults` (today `think: false` on `qwen3.8:latest`) are applied by LiteLLM, and a native LightRAG 1.5.4 binding does not send them. So when `LIGHTRAG_LLM_BINDING` and its host point LightRAG at a provider directly, Atlas decides each role's transport at start:
+
+- a role that sets none of its own binding, host or key, and whose model declares such defaults, stays on LiteLLM and keeps them, at the cost of one gateway hop;
+- a role whose model declares none goes native with the base;
+- a role you configure yourself is never re-routed, so one you pin to native Ollama does not receive its model's defaults.
+
+`./start.sh doctor` names each role's transport and request defaults in its `lightrag-role-transport` check and warns about a role that loses them. The [LightRAG service guide](../../services/lightrag/README.md) has the details.
+
 ### 6.4. Consuming auto-managed endpoint variables
 
 Atlas's bootstrapper computes a set of **auto-managed endpoint variables** in `.env` that resolve to the correct internal URL for whichever `*_SOURCE` mode is active. Downstream consumers (whether Method A standalone or Method B submodule) should bridge these into their own service variables rather than hard-coding a URL.

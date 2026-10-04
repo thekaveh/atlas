@@ -1,15 +1,16 @@
 #!/bin/sh
 # Shared entrypoint for the backup runner.
 #
-# Ensures the pinned MinIO client (`mc`) and OpenSSL are present, then execs the requested script.
-# Running the bootstrap here (in the entrypoint, not in `command`) means it also
+# Verifies the baked, pinned MinIO client (`mc`) and OpenSSL, then execs the requested script.
+# Running the check here (in the entrypoint, not in `command`) means it also
 # applies when the command is overridden for a restore:
 #
 #   docker compose run --rm backup /scripts/restore-postgres.sh
 #
 # If the bootstrap lived in `command` (as it used to), overriding the command to
 # run the restore script silently dropped it, so `mc` was never installed and
-# restore failed at the first `mc` command with `mc: not found`.
+# restore failed at the first `mc` command with `mc: not found`. The image now
+# bakes `mc` (#1288); the check stays here so every command path verifies it.
 #
 # Both this entrypoint and the target script are invoked via `sh` so they work
 # regardless of whether the bind-mounted files carry the executable bit (the
@@ -37,26 +38,19 @@ run_bounded() {
     timeout -s TERM -k 10 "$TIMEOUT_SECONDS" "$@"
 }
 
-MC_RELEASE=RELEASE.2025-08-13T08-35-41Z
-# Official MinIO GitHub release asset SHA-256 values for the two architectures
-# supported by the postgres Alpine backup image.
-MC_SHA256_AMD64=01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891
-MC_SHA256_ARM64=14c8c9616cfce4636add161304353244e8de383b2e2752c0e9dad01d4c27c12c
-MC_INSTALL_DIR=${ATLAS_BACKUP_MC_INSTALL_DIR:-/usr/local/bin}
+MC_RELEASE=RELEASE.2026-09-16T00-00-00Z
+# SHA-256 of /usr/bin/mc in the digest-pinned pgsty/mc image that
+# init/Dockerfile copies to /usr/local/bin/mc (#1288), for the two
+# architectures supported by the postgres Alpine backup image.
+MC_SHA256_AMD64=1e745aaf4684ccda198288466d122ebc5a63609247d27497a196a68511b886b8
+MC_SHA256_ARM64=d89a6daf059921eb5a1728663c0fa6bd545293631528aee9e810443da99548fa
 
 select_mc_architecture() {
     case "$(uname -m)" in
-        x86_64|amd64) mc_arch=amd64; mc_sha256=$MC_SHA256_AMD64 ;;
-        aarch64|arm64) mc_arch=arm64; mc_sha256=$MC_SHA256_ARM64 ;;
+        x86_64|amd64) mc_sha256=$MC_SHA256_AMD64 ;;
+        aarch64|arm64) mc_sha256=$MC_SHA256_ARM64 ;;
         *) echo "backup: unsupported architecture for pinned mc" >&2; return 64 ;;
     esac
-}
-
-mc_is_expected_release() {
-    command -v mc >/dev/null 2>&1 || return 1
-    select_mc_architecture || return $?
-    mc_existing_path=$(command -v mc)
-    verify_mc_candidate "$mc_existing_path"
 }
 
 verify_mc_candidate() {
@@ -75,60 +69,18 @@ verify_mc_candidate() {
     esac
 }
 
-install_pinned_mc() {
-    case "$MC_INSTALL_DIR" in
-        /*) ;;
-        *) echo "backup: mc install directory must be absolute" >&2; return 64 ;;
-    esac
+# The image bakes mc at build time, so backup and restore never download a
+# client at run time. Fail closed rather than run a missing or different one.
+require_pinned_mc() {
     select_mc_architecture || return $?
-
-    mc_tmp_dir=$(mktemp -d /tmp/atlas-mc-install.XXXXXX) || {
-        echo "backup: could not create private mc download directory" >&2
-        return 70
-    }
-    case "$mc_tmp_dir" in
-        /tmp/atlas-mc-install.??????) ;;
-        *) echo "backup: unsafe mc download directory" >&2; return 70 ;;
-    esac
-    mc_download=$mc_tmp_dir/mc
-    mc_install_tmp=$MC_INSTALL_DIR/.atlas-mc.$$.tmp
-    cleanup_mc_install() {
-        case "${mc_download:-}" in /tmp/atlas-mc-install.??????/mc) rm -f "$mc_download" ;; esac
-        case "${mc_tmp_dir:-}" in /tmp/atlas-mc-install.??????) rmdir "$mc_tmp_dir" 2>/dev/null || true ;; esac
-        case "${mc_install_tmp:-}" in "$MC_INSTALL_DIR"/.atlas-mc.*.tmp) rm -f "$mc_install_tmp" ;; esac
-    }
-    trap 'cleanup_mc_install' 0
-    trap 'exit 129' HUP
-    trap 'exit 130' INT
-    trap 'exit 143' TERM
-
-    mc_asset=mc.linux-${mc_arch}.${MC_RELEASE}
-    # The override is intentionally test-only and is not exposed by the
-    # manifest or Compose. Production always uses the exact official release
-    # origin; the integration fixture serves the checksum-identical artifact
-    # on an internal Docker network so it never depends on public internet.
-    mc_artifact_base_url=${ATLAS_BACKUP_TEST_MC_ARTIFACT_BASE_URL:-https://github.com/minio/mc/releases/download/${MC_RELEASE}}
-    mc_url=${mc_artifact_base_url}/${mc_asset}
-    if ! run_bounded wget -q -O "$mc_download" "$mc_url"; then
-        echo "backup: pinned mc download failed" >&2
+    if ! mc_path=$(command -v mc); then
+        echo "backup: backup image is missing the pinned mc; rebuild it with 'docker compose build backup'" >&2
         return 69
     fi
-    chmod 0755 "$mc_download"
-    if ! verify_mc_candidate "$mc_download"; then
-        echo "backup: pinned mc ${mc_verify_error}" >&2
+    if ! verify_mc_candidate "$mc_path"; then
+        echo "backup: pinned mc ${mc_verify_error}; rebuild the image with 'docker compose build backup'" >&2
         return 65
     fi
-    mkdir -p "$MC_INSTALL_DIR"
-    run_bounded cp "$mc_download" "$mc_install_tmp"
-    run_bounded chmod 0755 "$mc_install_tmp"
-    run_bounded mv -f "$mc_install_tmp" "$MC_INSTALL_DIR/mc"
-    if ! verify_mc_candidate "$MC_INSTALL_DIR/mc"; then
-        rm -f "$MC_INSTALL_DIR/mc"
-        echo "backup: installed mc ${mc_verify_error}" >&2
-        return 65
-    fi
-    cleanup_mc_install
-    trap - 0 HUP INT TERM
 }
 
 if ! command -v openssl >/dev/null 2>&1; then
@@ -139,7 +91,5 @@ if [ -d /proc/self/ns ] && ! command -v setsid >/dev/null 2>&1; then
     echo "backup: backup image is missing required setsid" >&2
     exit 69
 fi
-if ! mc_is_expected_release; then
-    install_pinned_mc
-fi
+require_pinned_mc || exit $?
 exec sh "$@"

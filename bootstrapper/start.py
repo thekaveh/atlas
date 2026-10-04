@@ -155,11 +155,18 @@ from utils.banner import BannerDisplay
 from utils.hosts_manager import HostsManager
 from utils.key_generator import KeyGenerator
 from core.linear_startup import LinearStartupOptions, json_cli_guard, run_linear_startup
-from core.launch_outcome import DETACH, ProbeSkipped, cancel_notice
+from core.launch_outcome import (
+    DETACH,
+    ProbeSkipped,
+    build_skip_rows,
+    cancel_notice,
+    started_without,
+)
 from utils.localhost_validator import LocalhostValidator
 from core.config_parser import ConfigParser, DEFAULT_BASE_PORT, DEFAULT_PROJECT_NAME
 from core.docker_manager import DockerManager
 from core.port_manager import PortManager
+from core.process_runner import run_with_deadline
 from services.source_validator import SourceValidator
 from services.service_config import ServiceConfig
 from services.dependency_manager import DependencyManager
@@ -306,6 +313,10 @@ class AtlasStarter:
         # (#677/#681) — surfaced in the --detach --json summary so automation
         # can see the health race happened.
         self._up_converged_after_grace: bool = False
+        # Services the image build left out of `up` because their image failed
+        # and the launch could go without them (#989). Both front ends read it
+        # to name them; one-shot verification skips them.
+        self.skipped_builds: list[str] = []
         # --support-bundle PATH (#1057): where a failed start writes its
         # redacted bundle. Both the linear flow and the Textual launch screen
         # read it from here.
@@ -3234,48 +3245,29 @@ class AtlasStarter:
             return True  # Continue anyway
         
     def start_docker_services(self, cold_start: bool = False, wait: bool = False) -> bool:
-        """Start Docker services with optional fresh build for cold start."""
+        """Start Docker services, building local images first when needed.
+
+        A cold start builds every enabled image without cache; a warm start
+        builds only when its local images are stale (#506). Either way, an
+        image that fails to build stops the launch only when another enabled
+        service depends on it or it belongs to the always-running core;
+        otherwise it is named and left out of ``up`` (#989, see
+        ``isolate_failed_build``).
+        """
         self.banner.show_section_header("Starting Services", "🚀")
+        self.skipped_builds = []
         
         if cold_start:
             self.banner.show_status_message("Starting containers with fresh build (cold start)...", "info")
-
-            # Enabled-service target set from the rendered projection (#504) —
-            # a broken build for a disabled/out-of-track service must not
-            # abort the cold start. None (projection failure) falls back to
-            # the historical full-graph build/up.
-            targets = self.docker_manager.enabled_service_targets()
-            self.docker_manager.capture_build_state(targets)
-
-            # Build images without cache (matching original Bash script behavior)
-            print("    - Building images without cache...")
-            build_result = self.docker_manager.build_services(
-                no_cache=True, pull=False, services=targets
-            )
-
-            if build_result != 0:
-                self.banner.show_status_message("Failed to build some services", "error")
-                self.rollback_managed_host_processes()
-                return False
-
-            # Cold start just built every enabled local image fresh — record the
-            # source commit so the next warm start (#506) doesn't rebuild them
-            # again until the source actually changes.
-            self.docker_manager.mark_source_built(targets)
-
-            print("    - Starting containers...")
-            # Start with force recreate for cold start
-            up_args = ['up', '-d', '--force-recreate']
-            if wait:
-                up_args.extend(['--wait', '--wait-timeout', '900'])
-            if targets:
-                up_args.extend(targets)
-            result = self.docker_manager.execute_compose_command(up_args)
-
+            result = self._cold_compose_up(wait)
         else:
             self.banner.show_status_message("Starting Atlas services...", "info")
-            result = self.docker_manager.start_services(detached=True, wait=wait)
+            result = self._warm_compose_up(wait)
         
+        if result is None:
+            self.banner.show_status_message("Failed to build some services", "error")
+            self.rollback_managed_host_processes()
+            return False
         if result != 0:
             # Known benign race (#508): `up -d --wait` can return nonzero when
             # an enabled one-shot init exits 0 during the wait window (Compose
@@ -3296,8 +3288,198 @@ class AtlasStarter:
             self.rollback_managed_host_processes()
             return False
         self.commit_managed_host_processes()
-        self.banner.show_status_message("All services started successfully", "success")
+        self._show_started_status()
         return True
+
+    def _show_started_status(self) -> None:
+        """Say all services started, or which ones the image build left out."""
+        if self.skipped_builds:
+            self.banner.show_status_message(
+                started_without(self.skipped_builds), "warning"
+            )
+            return
+        self.banner.show_status_message("All services started successfully", "success")
+
+    def _cold_compose_up(self, wait: bool):
+        """Build every enabled image without cache, then ``up``.
+
+        Returns the ``up`` exit code, or None when a build stopped the launch.
+        """
+        # Enabled-service target set from the rendered projection (#504) —
+        # a broken build for a disabled/out-of-track service must not
+        # abort the cold start. None (projection failure) falls back to
+        # the historical full-graph build/up.
+        targets = self.docker_manager.enabled_service_targets()
+        self.docker_manager.capture_build_state(targets)
+
+        # Build images without cache (matching original Bash script behavior)
+        print("    - Building images without cache...")
+        built, targets = self._build_launch_images(targets, no_cache=True)
+        if not built:
+            return None
+
+        # Cold start just built every enabled local image fresh — record the
+        # source commit so the next warm start (#506) doesn't rebuild them
+        # again until the source actually changes. When a failed image was
+        # left out, `targets` no longer matches the captured build state,
+        # so nothing is recorded and the next start rebuilds.
+        self.docker_manager.mark_source_built(targets)
+
+        print("    - Starting containers...")
+        return self._compose_up(targets, wait)
+
+    def _warm_compose_up(self, wait: bool):
+        """``up`` the enabled services, building stale images first (#506).
+
+        Returns the ``up`` exit code, or None when a build stopped the launch.
+        Current images: one ``up`` through ``start_services``, as before.
+        Stale images with a known target set: an explicit build of the
+        targets, so a failed optional image can be left out (#989), then
+        ``up`` without ``--build``; the build state is recorded only when
+        ``up`` succeeded with every target. Without a target set,
+        ``start_services`` keeps the historical full-graph ``up --build``.
+        """
+        targets = self.docker_manager.enabled_service_targets()
+        if not (targets and self.docker_manager.prepare_build_args(False, targets)):
+            return self.docker_manager.start_services(
+                detached=True, wait=wait, services=targets
+            )
+        print("    - Building stale images...")
+        built, targets = self._build_launch_images(targets, no_cache=False)
+        if not built:
+            return None
+        print("    - Starting containers...")
+        result = self._compose_up(targets, wait)
+        if result == 0:
+            self.docker_manager.mark_source_built(targets)
+        return result
+
+    def _compose_up(self, targets, wait: bool) -> int:
+        # Always force-recreate, matching start_services.
+        up_args = ['up', '-d', '--force-recreate']
+        if wait:
+            up_args.extend(['--wait', '--wait-timeout', '900'])
+        if targets:
+            up_args.extend(targets)
+        return self.docker_manager.execute_compose_command(up_args)
+
+    def _build_launch_images(self, targets, no_cache: bool):
+        """Build the targets' local images before ``up`` (#989).
+
+        Returns ``(built, targets)``: the build passed, or every failed image
+        was one the launch can go without, in which case those services are
+        named here and dropped from the returned targets.
+        """
+        build_result = self.docker_manager.build_services(
+            no_cache=no_cache, pull=False, services=targets
+        )
+        if build_result == 0:
+            return True, targets
+        built, targets, skipped = self.isolate_failed_build(targets, no_cache)
+        for text, tone in build_skip_rows(skipped):
+            self.banner.show_status_message(
+                text, {"warn": "warning"}.get(tone, tone)
+            )
+        return built, targets
+
+    def isolate_failed_build(self, targets, no_cache: bool = True):
+        """Find out which images failed after the whole-target build did (#989).
+
+        Returns ``(built, targets_to_start, skipped)``. The normal build is
+        untouched: this runs only after one ``docker compose build`` of every
+        enabled target has failed. The images another enabled service lists
+        in ``depends_on``, and those of the always-running core, are rebuilt
+        together first and still stop the launch if they fail. Each
+        remaining image is then rebuilt on its own;
+        one that fails again is left out of the targets and named in
+        ``skipped`` (and ``self.skipped_builds``) so the rest of the stack
+        starts. Without a known target set, or with no image that could be
+        left out, the launch stops exactly as before, with no rebuild.
+        """
+        self.skipped_builds = []
+        plan = self._local_build_plan(targets)
+        if plan is None:
+            return False, targets, ()
+        required, optional = plan
+        print(
+            "    - Build failed; rebuilding to find which image failed "
+            "(images other services depend on and core images first, then "
+            "each other image on its own)..."
+        )
+        if required and self._build_images(required, no_cache) != 0:
+            print(
+                "    - An image other enabled services depend on, or a core "
+                "image, did not build."
+            )
+            return False, targets, ()
+        skipped = tuple(
+            name
+            for group in optional
+            if self._build_images(group, no_cache) != 0
+            for name in group
+        )
+        self.skipped_builds = list(skipped)
+        return True, [name for name in targets if name not in skipped], skipped
+
+    def _build_images(self, services: list[str], no_cache: bool) -> int:
+        return self.docker_manager.build_services(
+            no_cache=no_cache, pull=False, services=services
+        )
+
+    def _local_build_plan(self, targets):
+        """``(required, optional_groups)`` for ``isolate_failed_build``, or None.
+
+        None when the target set, the rendered configuration or the core
+        services are unknown, or when every local image is required, because
+        then nothing could be left out and the launch stops as before.
+        """
+        if not targets:
+            return None
+        services = self._rendered_compose_services()
+        core = self._always_running_services()
+        if services is None or core is None:
+            return None
+        required, optional = _split_local_builds(services, targets, core)
+        return (required, optional) if optional else None
+
+    def _always_running_services(self) -> Optional[set[str]]:
+        """Compose services of the always-running core, or None if unknown.
+
+        A manifest the topology marks ``locked`` has no source choice, so its
+        containers run in every configuration: Supabase, Kong, Redis, LiteLLM
+        and Backend. (``chatterbox`` and ``speaches`` are also locked, as TTS
+        engines activated through TTS_PROVIDER_SOURCE; neither builds a local
+        image, and a locked image is only ever kept required.)
+        """
+        try:
+            from services.manifests import load_manifests
+            from services.topology import get_topology
+
+            root = self.root_dir / "services"
+            locked = {row.manifest for row in get_topology(root).rows if row.locked}
+            return {
+                str(container)
+                for manifest in load_manifests(root)
+                if manifest.name in locked
+                for container in manifest.containers
+            }
+        except Exception:  # noqa: BLE001 — unknown means stop as before
+            return None
+
+    def _rendered_compose_services(self) -> Optional[dict]:
+        """The resolved ``docker compose config`` services, or None."""
+        try:
+            cmd = self.docker_manager._build_compose_command(
+                ['config', '--format', 'json']
+            )
+            result = run_with_deadline(
+                cmd, cwd=str(self.docker_manager.root_dir), timeout_seconds=60.0
+            )
+            if result.returncode != 0:
+                return None
+            return (json.loads(result.stdout) or {}).get("services") or None
+        except Exception:  # noqa: BLE001 — unknown means stop as before
+            return None
 
     def _reactivate_n8n_if_needed(self) -> bool:
         """Restart n8n once after seeding so a consumer's production webhook
@@ -3656,6 +3838,9 @@ class AtlasStarter:
             return False
         if consumer_config.n8n_workflows:
             services.append("n8n-seed")
+        # An image build that left a failed optional image out never started
+        # it, so there is no one-shot run to wait for (#989).
+        services = [name for name in services if name not in self.skipped_builds]
         if not services:
             return True
 
@@ -4257,6 +4442,43 @@ def _n8n_needs_reactivation_restart(env: "dict[str, str]", consumer) -> bool:
         _n8n_workflow_effective_active(wf)
         for wf in getattr(consumer, "n8n_workflows", ())
     )
+
+
+def _split_local_builds(
+    services: dict, targets: list[str], core: set[str]
+) -> tuple[list[str], list[list[str]]]:
+    """Split the enabled local builds by whether the launch can go on without
+    them (#989).
+
+    An image is required when an enabled service lists one of the services
+    that build it in ``depends_on``, or when one of them is in ``core``, the
+    always-running tier. Services that share an ``image`` name build the
+    same image, so they are one unit: required if any of them is, otherwise
+    rebuilt and reported together. Returns the required services as one
+    list and every other image as its own group of services.
+    """
+    needed, groups = _local_build_groups(services, targets)
+    needed |= core
+    required = [
+        name for group in groups if needed.intersection(group) for name in group
+    ]
+    optional = [group for group in groups if not needed.intersection(group)]
+    return required, optional
+
+
+def _local_build_groups(
+    services: dict, targets: list[str]
+) -> tuple[set[str], list[list[str]]]:
+    """Every service an enabled target lists in ``depends_on``, and the
+    enabled local-build services grouped by the image they build."""
+    needed: set[str] = set()
+    groups: dict[str, list[str]] = {}
+    for name in sorted(set(targets)):
+        spec = services.get(name) or {}
+        needed.update(spec.get("depends_on") or ())
+        if spec.get("build") is not None:
+            groups.setdefault(spec.get("image") or name, []).append(name)
+    return needed, list(groups.values())
 
 
 def _doctor_result(
@@ -5174,6 +5396,67 @@ def _doctor_check_lightrag_rerank_adapter(starter: "AtlasStarter") -> dict:
     )
 
 
+def _lightrag_runtime_env(env_values: dict) -> dict:
+    """The role environment ``services/lightrag/compose.yml`` renders from .env.
+
+    The base model is the explicit one lightrag-init would take; a model it
+    would pick from LiteLLM's listing stays empty. Only whether a role key is
+    set is kept, so the doctor never holds a key value.
+    """
+    env = {
+        "LLM_BINDING": env_values.get("LIGHTRAG_LLM_BINDING") or "openai",
+        "LLM_BINDING_HOST": env_values.get("LIGHTRAG_LLM_BINDING_HOST") or "http://litellm:4000/v1",
+        "LLM_MODEL": env_values.get("LIGHTRAG_LLM_MODEL") or env_values.get("LITELLM_DEFAULT_MODEL") or "",
+    }
+    for role in ("EXTRACT", "KEYWORD", "QUERY"):
+        for name in ("LLM_MODEL", "LLM_BINDING", "LLM_BINDING_HOST"):
+            env[f"{role}_{name}"] = env_values.get(f"LIGHTRAG_{role}_{name}", "")
+        env[f"{role}_LLM_BINDING_API_KEY"] = (
+            "set" if env_values.get(f"LIGHTRAG_{role}_LLM_BINDING_API_KEY") else ""
+        )
+    return env
+
+
+def _doctor_check_lightrag_role_transport(starter: "AtlasStarter") -> dict:
+    """Name each LightRAG role's effective transport and request defaults (#658).
+
+    Runs the container's own start-time resolver
+    (``services/lightrag/init/scripts/resolve-role-keys.py``) over the values
+    Compose would pass, so the report matches what LightRAG will use. A role
+    that would inherit a native base binding while its model declares catalog
+    ``request_defaults`` is kept on LiteLLM, which applies them. A role pinned
+    to a native host by its own settings cannot receive them, which warns. No
+    key value is read into the result.
+    """
+    env_values = starter.config_parser.parse_env_file()
+    if (env_values.get("LIGHTRAG_SOURCE", "disabled") or "disabled").strip() != "container":
+        return _doctor_result(
+            "lightrag-role-transport",
+            "skipped",
+            "LIGHTRAG_SOURCE is not container; no in-stack LightRAG roles to resolve.",
+        )
+    import importlib.util
+
+    services = starter.root_dir / "services"
+    spec = importlib.util.spec_from_file_location(
+        "lightrag_role_resolver",
+        services / "lightrag" / "init" / "scripts" / "resolve-role-keys.py",
+    )
+    resolver = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(resolver)
+    catalog = resolver.catalog_request_defaults(services / "ollama" / "models.yaml")
+    env = _lightrag_runtime_env(env_values)
+    env.update(resolver.route_roles(env, catalog))
+    roles = resolver.role_transports(env, catalog)
+    lost = [role for role, transport in roles.items() if transport["unsent_request_defaults"]]
+    return _doctor_result(
+        "lightrag-role-transport",
+        "warn" if lost else "pass",
+        "; ".join(resolver.describe(role, transport) for role, transport in roles.items()) + ".",
+        details={"roles": roles},
+    )
+
+
 def _doctor_check_endpoints(starter: "AtlasStarter") -> dict:
     env_values = starter.config_parser.parse_env_file()
     endpoints = {
@@ -5597,6 +5880,7 @@ DOCTOR_CHECKS = [
     _doctor_check_rag_ingestion_profiles,
     _doctor_check_lightrag_query_profiles,
     _doctor_check_lightrag_rerank_adapter,
+    _doctor_check_lightrag_role_transport,
     _doctor_check_comfyui_mps,
     _doctor_check_vllm_metal,
     _doctor_check_blender_mcp,

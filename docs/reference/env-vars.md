@@ -415,7 +415,7 @@
 | LIGHTRAG_WORKERS | lightrag | 2 | - |
 | LIGHTRAG_MEMORY_LIMIT | lightrag | 6g | - |
 | LIGHTRAG_CPU_LIMIT | lightrag | 2.0 | - |
-| LIGHTRAG_LLM_BINDING | lightrag | openai | - |
+| LIGHTRAG_LLM_BINDING | lightrag | openai | Base LightRAG LLM binding, through LiteLLM at LIGHTRAG_LLM_BINDING_HOST by default. A role that sets no binding, host or key of its own inherits it, except that while the base points at a provider directly, a role whose model declares catalog request_defaults stays on LiteLLM, because a native LightRAG 1.5.4 binding does not send them (#658). |
 | LIGHTRAG_LLM_BINDING_HOST | lightrag | http://litellm:4000/v1 | - |
 | LIGHTRAG_LLM_MODEL | lightrag |  | Empty = lightrag-init resolves from LITELLM_DEFAULT_MODEL. |
 | LIGHTRAG_EXTRACT_LLM_MODEL | lightrag |  | Optional LightRAG EXTRACT role model. Empty = inherit LLM_MODEL. |
