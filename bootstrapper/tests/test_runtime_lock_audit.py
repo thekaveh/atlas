@@ -907,6 +907,76 @@ def test_npm_audit_requires_vulnerability_totals(
     assert failures == ["n8n: npm audit response omitted vulnerability totals"]
 
 
+def _npm_payload(*advisories: str) -> dict:
+    """An npm audit report: each advisory on one package, plus a transitive parent."""
+    vulnerabilities = {
+        f"pkg-{index}": {"via": [{"url": f"https://github.com/advisories/{ghsa}"}]}
+        for index, ghsa in enumerate(advisories)
+    }
+    if advisories:
+        vulnerabilities["parent"] = {"via": ["pkg-0"]}
+    total = len(vulnerabilities)
+    return {"vulnerabilities": vulnerabilities, "metadata": {"vulnerabilities": {"total": total}}}
+
+
+@pytest.mark.parametrize(
+    ("advisories", "expected"),
+    [
+        (("GHSA-reviewed",), []),
+        (
+            ("GHSA-reviewed", "GHSA-new"),
+            ["svc: unreviewed advisories: GHSA-new"],
+        ),
+        ((), ["svc: stale allowlist entries: GHSA-reviewed"]),
+    ],
+)
+def test_npm_audit_accepts_only_reviewed_advisories(
+    advisories: tuple[str, ...], expected: list[str], monkeypatch
+) -> None:
+    """#1332: npm findings pass only when each is a reviewed, live advisory."""
+    monkeypatch.setattr(
+        audit_runtime_locks,
+        "NPM_PROJECT_EXCEPTIONS",
+        {"svc": (frozenset({"GHSA-reviewed"}), date.today() + timedelta(days=30))},
+    )
+    payload = _npm_payload(*advisories)
+    total = payload["metadata"]["vulnerabilities"]["total"]
+
+    assert audit_runtime_locks._npm_finding_failures("svc", payload, total) == expected
+
+
+def test_npm_audit_exceptions_share_the_review_deadline_contract(monkeypatch) -> None:
+    review_date = date(2026, 10, 3)
+    payload = _npm_payload("GHSA-reviewed")
+    for review_by, expected in (
+        (review_date, "review expired"),
+        (review_date + timedelta(days=91), "horizon exceeds 90 days"),
+    ):
+        monkeypatch.setattr(
+            audit_runtime_locks,
+            "NPM_PROJECT_EXCEPTIONS",
+            {"svc": (frozenset({"GHSA-reviewed"}), review_by)},
+        )
+        failures = audit_runtime_locks._npm_finding_failures(
+            "svc", payload, 2, today=review_date
+        )
+        assert any(expected in failure for failure in failures)
+    # A finding with no reviewed entry still names its advisory.
+    assert audit_runtime_locks._npm_finding_failures("other", payload, 2) == [
+        "other: unreviewed advisories: GHSA-reviewed"
+    ]
+
+
+def test_npm_audit_exceptions_are_the_reviewed_braces_entry() -> None:
+    """The one reviewed npm exception: braces has no fixed release (#1332)."""
+    assert audit_runtime_locks.NPM_PROJECT_EXCEPTIONS == {
+        "services/asset-worker/app": (
+            frozenset({"GHSA-vfj7-8cjw-p6xm"}),
+            date(2026, 12, 31),
+        )
+    }
+
+
 def test_pip_audit_retries_only_an_empty_report(tmp_path: Path, monkeypatch) -> None:
     """An empty pip-audit report is retried, and a later good one is accepted."""
     monkeypatch.setattr(audit_runtime_locks.time, "sleep", lambda _seconds: None)

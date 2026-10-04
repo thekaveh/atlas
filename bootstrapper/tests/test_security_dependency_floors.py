@@ -165,6 +165,10 @@ def test_airflow_uses_supported_core_and_unfrozen_provider_security_fixes() -> N
     assert "ARG BASE_IMAGE=apache/airflow:3.3.2" in dockerfile
     assert "--constraint" not in dockerfile
     assert "setuptools>=83.0.0" in requirements
+    # #1329: the base's own tornado 6.5.8 and virtualenv 21.7.9 carry fixed
+    # advisories, so the overlay raises them.
+    assert "tornado>=6.5.9" in requirements
+    assert "virtualenv>=21.7.13" in requirements
     # #782: the 6.x spark provider swapped its dep to pyspark-client, whose
     # overlapping module tree overwrites the pinned pyspark==4.1.2 files and
     # breaks `import pyspark` (SparkExecutorInfo ImportError → image build
@@ -180,6 +184,7 @@ def test_airflow_overlay_remains_compatible_with_the_upstream_image() -> None:
 
     assert {
         "botocore<1.43.76",
+        "filelock<4",
         "importlib-metadata<9",
         "protobuf<6.34",
         "websockets<17",

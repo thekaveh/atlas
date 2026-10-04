@@ -37,9 +37,33 @@ COPY requirements-locked.txt /tmp/airflow-providers.lock
 # Upstream explicitly limits those constraints to the core install; reapplying
 # them here blocks PySpark 4.1.2's pandas floor and freezes provider transitives
 # below later security fixes.
+#
+# The same layer drops ray/jars and swaps PySpark's jackson-core and
+# jackson-databind 2.21.2 for 2.21.7, so the replaced jars never ship in a lower
+# Atlas layer. Ray 2.58.0 comes from the base (the Google provider needs it) and
+# Airflow never starts a Ray Java worker, so its jars, with jackson 2.18.8
+# inside, are dead weight; as base-layer files they remain only as whiteouts.
+# The jackson swap is the one services/spark/build/Dockerfile explains.
+ARG SPARK_JACKSON_VERSION=2.21.7
+ARG SPARK_JACKSON_CORE_SHA512=a4f38908ebf7cb3da776955c398c7b55b0c056ae7265a511b4a2a37ef5a4c6fed433d611ee4f3a1071aa966cc5d16b1fcb95a0e7d672002ece9d89367a4f8f85
+ARG SPARK_JACKSON_DATABIND_SHA512=3485a31a4815ef2577b91667768eebb10bea7ece6b1b7cc0fa3c06f2746c003f4f32c19c52cc30ad13813eff9941ae212caffa9353c717d00947ab80ecc76bd3
 RUN python -m pip install --no-cache-dir \
       -r /tmp/airflow-providers.txt -c /tmp/airflow-providers.lock \
-    && python -m pip check
+    && python -m pip check \
+    && ray_jars="$(python -c 'import importlib.util, pathlib; print(pathlib.Path(importlib.util.find_spec("ray").origin).parent / "jars")')" \
+    && test -d "$ray_jars" \
+    && rm -rf "$ray_jars" \
+    && pyspark_jars="$(python -c 'from pathlib import Path; import pyspark; print(Path(pyspark.__file__).resolve().parent / "jars")')" \
+    && cd "$pyspark_jars" \
+    && test -f jackson-core-2.21.2.jar \
+    && test -f jackson-databind-2.21.2.jar \
+    && rm -f jackson-core-2.21.2.jar jackson-databind-2.21.2.jar \
+    && curl -fsSL --retry 5 -o "jackson-core-${SPARK_JACKSON_VERSION}.jar" \
+        "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-core/${SPARK_JACKSON_VERSION}/jackson-core-${SPARK_JACKSON_VERSION}.jar" \
+    && echo "${SPARK_JACKSON_CORE_SHA512}  jackson-core-${SPARK_JACKSON_VERSION}.jar" | sha512sum -c - \
+    && curl -fsSL --retry 5 -o "jackson-databind-${SPARK_JACKSON_VERSION}.jar" \
+        "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-databind/${SPARK_JACKSON_VERSION}/jackson-databind-${SPARK_JACKSON_VERSION}.jar" \
+    && echo "${SPARK_JACKSON_DATABIND_SHA512}  jackson-databind-${SPARK_JACKSON_VERSION}.jar" | sha512sum -c -
 
 # SparkSubmitOperator shells out to spark-submit. The PySpark wheel provides
 # the script and Spark distribution, but the Airflow image needs a stable
