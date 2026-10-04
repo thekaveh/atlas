@@ -31,7 +31,7 @@ GPU_DOCKERFILE_EXCLUSIONS = {
 REVIEWED_REMOTE_BASE_DIGESTS = {
     "nginx:alpine": "sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2",
     "node:20": "sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5",
-    "python:3.12-slim": "sha256:eeb8088e67610b37583880c7627e3931f087cba55a35810819e34a398f624a47",
+    "python:3.12-slim": "sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016",
 }
 
 
@@ -1288,6 +1288,7 @@ def _october_expected_rows() -> set[tuple]:
     # CVE-2026-89407's regex arrived in jackson-core 2.17.0, so only the 2.19.2
     # copy in parquet-jackson carries it.
     jackson = {
+        "CVE-2026-68494": spark,
         "CVE-2026-89407": spark[2:],
         "CVE-2026-89425": spark,
         "CVE-2026-91776": spark,
@@ -1299,6 +1300,8 @@ def _october_expected_rows() -> set[tuple]:
         for family in families
     }
     expected |= {(cve, (path,), ()) for cve in jackson for path in singles}
+    # CVE-2026-68494 is fixed in 2.21.4, so Neo4j's 2.22.x copies are clear.
+    expected.discard(("CVE-2026-68494", (singles[2],), ()))
     urllib3 = (
         py37 + "urllib3-2.2.1.dist-info/METADATA",
         "opt/conda/lib/python3.9/site-packages/urllib3-2.1.0.dist-info/METADATA",
@@ -1330,7 +1333,7 @@ def test_october_advisory_exceptions_cover_only_what_cannot_be_patched() -> None
     assert {
         (row.vulnerability_id, tuple(sorted(row.paths)), row.purls) for row in rows
     } == expected
-    assert len(rows) == len(expected) == 26
+    assert len(rows) == len(expected) == 30
     standalone = re.compile(r"/jackson-(core|databind)-[\d.]+\.jar$")
     assert not [path for row in rows for path in row.paths if standalone.search(path)]
 

@@ -5449,3 +5449,87 @@ vulnerabilities:
       files and fetches no URLs. Atlas binds Zeppelin to a fixed loopback port
       with no Kong route, and ZEPPELIN_SOURCE is disabled by default. Remove
       with a Zeppelin release that ships newer Pythons (#1329).
+
+  # CVE-2026-68494 entered the Trivy DB on 2026-10-02/03 and hits the same
+  # shaded jackson-core copies as CVE-2026-89425 above (#1329).
+
+  - id: CVE-2026-68494
+    paths:
+      - "opt/spark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "opt/spark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
+      - "opt/spark/jars/parquet-jackson-1.16.0.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      Jackson 2.12.7 relocated inside hadoop-client-runtime 3.4.2, 2.15.2 inside
+      the Iceberg 1.11.0 Spark runtime and 2.19.2 inside parquet-jackson 1.16.0
+      sit in /opt/spark/jars of the Spark image (services/spark) and of the
+      Zeppelin image (services/zeppelin), which copies that tree. The flaw is an
+      incomplete fix for CVE-2026-18401: jackson-core's non-blocking (async)
+      parser lets a JSON number fed in small chunks without a terminator grow
+      past maxNumberLength, bounded only by maxStringLength; only callers that
+      use NonBlockingJsonParser are affected. Relocated copies are reachable
+      only from Hadoop client, Parquet and Iceberg code, which in Atlas reads
+      JSON only from the stack's own object store and Iceberg catalog. Spark and
+      Zeppelin are disabled by default (SPARK_SOURCE=disabled,
+      ZEPPELIN_SOURCE=disabled). Both Dockerfiles swap the standalone
+      jackson-core 2.21.2 jar for 2.21.7, but relocated copies cannot be
+      swapped. Remove when a Spark, Hadoop and Iceberg set built against a fixed
+      Jackson is pinned (#1329).
+
+  - id: CVE-2026-68494
+    paths:
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/hadoop-client-runtime-3.4.2.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/iceberg-spark-runtime-4.1_2.13-1.11.0.jar"
+      - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/parquet-jackson-1.16.0.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      Jackson 2.12.7 relocated inside hadoop-client-runtime 3.4.2, 2.15.2 inside
+      the Iceberg 1.11.0 Spark runtime and 2.19.2 inside parquet-jackson 1.16.0
+      sit in the PySpark 4.1.2 jars of the Airflow image
+      (services/airflow/build). The flaw is an incomplete fix for
+      CVE-2026-18401: jackson-core's non-blocking (async) parser lets a JSON
+      number fed in small chunks without a terminator grow past maxNumberLength,
+      bounded only by maxStringLength; only callers that use
+      NonBlockingJsonParser are affected. They load only in the spark-submit
+      client JVM that SparkSubmitOperator starts for operator-authored jobs
+      (spark_default submits in cluster deploy mode, so drivers run on the Spark
+      cluster), and relocated copies are reachable only from Hadoop client,
+      Parquet and Iceberg code. Airflow is disabled by default
+      (AIRFLOW_SOURCE=disabled). The Dockerfile swaps the standalone 2.21.2 jars
+      for 2.21.7, but relocated copies cannot be swapped. Scoped to these exact
+      paths so the same jars in any other image still fail the gate. Remove when
+      a PySpark and Iceberg set built against a fixed Jackson is pinned (#1329).
+
+  - id: CVE-2026-68494
+    paths:
+      - "usr/lib/iceberg-rest/iceberg-rest-adapter.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      apache/iceberg-rest-fixture 1.10.1 is the newest published tag and bundles
+      jackson-core 2.18.4.1 inside its shaded iceberg-rest-adapter.jar;
+      replacing individual shaded classes would create an unsupported catalog
+      server. The flaw is an incomplete fix for CVE-2026-18401: jackson-core's
+      non-blocking (async) parser lets a JSON number fed in small chunks without
+      a terminator grow past maxNumberLength, bounded only by maxStringLength;
+      only callers that use NonBlockingJsonParser are affected. Atlas keeps the
+      catalog disabled by default (ICEBERG_REST_SOURCE=disabled), exposes it
+      only on the Compose network and a loopback-bound host port with no Kong
+      route, and the lakehouse track is operator-driven. Remove when Apache
+      publishes a fixture release carrying Jackson 2.18.11 or newer (#1329).
+
+  - id: CVE-2026-68494
+    paths:
+      - "opt/jenkins-plugin-manager.jar"
+    expired_at: 2026-12-30
+    statement: >-
+      jackson-core 2.20.1 ships inside /opt/jenkins-plugin-manager.jar, the
+      plugin-installer CLI the upstream jenkins/jenkins:lts-jdk21 image bundles.
+      The flaw is an incomplete fix for CVE-2026-18401: jackson-core's
+      non-blocking (async) parser lets a JSON number fed in small chunks without
+      a terminator grow past maxNumberLength, bounded only by maxStringLength;
+      only callers that use NonBlockingJsonParser are affected. Atlas runs it
+      only at image build time (jenkins-plugin-cli --plugin-file) against the
+      pinned plugins.txt, and the Jenkins runtime never loads that jar. Jenkins
+      is disabled by default (JENKINS_SOURCE=disabled). Remove when the pinned
+      Jenkins LTS digest ships a plugin manager built against Jackson 2.21.7 or
+      newer (#1329).
