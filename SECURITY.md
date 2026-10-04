@@ -1,6 +1,45 @@
 # 9.8. Security Policy
 
-## 1. Project Posture
+## 1. Reporting a Vulnerability
+
+This is a personal-project repository. Please open a private security
+advisory via the GitHub repository's **Security** tab → **Report a
+vulnerability**. Do not file public issues for security-sensitive
+findings.
+
+Include in the advisory:
+
+- **Revision**: the commit SHA you ran (`git rev-parse HEAD`) and, if you
+  pinned one, the release tag. §2 says which revisions receive fixes.
+- **Enabled SOURCE values**: the `*_SOURCE` settings from your `.env` for
+  every service involved, with keys, tokens, and passwords removed.
+- **Exposure boundary**: where the affected service is reachable from — the
+  local machine only, a private LAN or homelab network, or a public hostname
+  published through Cloudflare Tunnel, together with the Cloudflare Access
+  policy in front of it (§6).
+- **Minimal reproduction**: the smallest steps, request, or proof of concept
+  that shows the issue, shared only inside the private advisory.
+
+Triage uses these to score reachability under the posture and tier rules in
+§3 and §4. Responses and fixes are best-effort; there is no committed
+acknowledgement or fix timeline.
+
+## 2. Supported Revisions
+
+Security fixes target the current tips of `develop` and `main`. A fix lands
+on `develop` by pull request and reaches `main` through the Gitflow
+promotion; `main` is the rolling tip described in
+[Releasing & version tags](docs/operations/releasing.md).
+
+Release tags (`vMAJOR.MINOR.PATCH`, cut on `main`) are pinnable checkpoints,
+not supported release lines. A pushed tag is immutable, and a released
+checkpoint is corrected only by a new tag, so historical tags, including
+`v0.1.0`, and older commits are not supported and receive no backported
+fixes. A consumer pinned to a tag picks up a fix by moving the pin to a
+later tag that contains it or, when no such tag exists yet, to a `main`
+commit that does.
+
+## 3. Project Posture
 
 Atlas is a self-hosted, single-tenant engineering platform intended
 to run on a developer's local machine or a private homelab network —
@@ -20,7 +59,7 @@ A route that is private in the default stack is internet-reachable when an
 operator maps it through Cloudflare Tunnel, even though the application
 container itself still publishes no public listener.
 
-## 2. Operational Tiers
+## 4. Operational Tiers
 
 | Tier | Manifest examples | Where it runs |
 |------|-------------------|---------------|
@@ -32,7 +71,7 @@ Tier-A vulnerabilities are fast-tracked. Tier-B vulnerabilities are
 documented; users who pick the localhost path own the deployment risk
 on their host.
 
-## 3. Reachability Triage Examples
+## 5. Reachability Triage Examples
 
 - `transformers.Trainer` RCE (CVE-2026-1839, medium): **unreachable**.
   We use `transformers` transitively via easyocr for inference only and
@@ -73,7 +112,7 @@ on their host.
   langchain-classic, LangSmith, and Soup Sieve; the refresh command and
   byte-equivalence tests prevent those floors from silently regressing.
 
-## 4. Public Edge Requirements
+## 6. Public Edge Requirements
 
 Enabling `CLOUDFLARED_SOURCE=container` changes the default trust boundary.
 Before publishing a hostname, configure its Cloudflare Access application,
@@ -82,14 +121,7 @@ exact Atlas Kong alias documented for the service. Keep the route's Kong and
 application authentication enabled. Review logs and rotate the tunnel token
 if it is exposed.
 
-## 5. Reporting a Vulnerability
-
-This is a personal-project repository. Please open a private security
-advisory via the GitHub repository's **Security** tab → **Report a
-vulnerability**. Do not file public issues for security-sensitive
-findings.
-
-## 6. Automated Scanning
+## 7. Automated Scanning
 
 Two container-image gates run in `services-lint.yml` on every pull request:
 
@@ -113,9 +145,9 @@ broad, duplicate, or stale entry, and a test fails any statement that names no
 owning service. A package-version scope matches that version in every scanned
 image, not only the one its statement names; reconciling each row against
 per-image scan output is tracked in #1289. Reachability triage for those
-exceptions follows the same tier and edge rules as §1 and §2.
+exceptions follows the same tier and edge rules as §3 and §4.
 
-## 7. Remediation Reports
+## 8. Remediation Reports
 
 Historical Dependabot remediation reports were retired from the working
 tree in commit `ebdc9d4` (the `docs/security/` folder used to host them).
