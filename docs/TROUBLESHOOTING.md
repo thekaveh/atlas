@@ -94,7 +94,7 @@ Then re-run:
 The n8n data volume is corrupted (usually after an interrupted upgrade). Wipe just that one volume rather than the whole stack:
 
 ```bash
-docker volume rm ${PROJECT_NAME}-n8n-data
+docker volume rm "$(sed -n 's/^PROJECT_NAME=//p' .env)-n8n-data"
 ./start.sh
 ```
 

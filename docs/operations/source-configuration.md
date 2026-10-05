@@ -306,20 +306,20 @@ MINIO_SOURCE=container
 MINIO_ENDPOINT=http://minio:9000
 MINIO_PUBLIC_ENDPOINT=http://localhost:63020
 ```
-- **Use case**: S3-compatible artifact-tier object storage (ComfyUI outputs, Backend blobs, n8n files, JupyterHub datasets, Doc Processor output)
+- **Use case**: S3-compatible artifact-tier object storage (lakehouse tables, Spark jobs and history, MLflow/Langfuse/Label Studio artifacts, Jenkins publishing, backend and asset storage, JupyterHub datasets, backups)
 - **Pros**: Sixteen pre-provisioned buckets across thirteen consumers with scoped service-account credentials; complements Supabase Storage; admin console at `http://localhost:63021` (S3 API on `:63020`)
 - **Cons**: Container resource usage
 - **Requirements**: None
 
-Consumer code is not auto-wired in the current release — credentials and bucket names are in `.env` so each consumer integration can opt in via env-only changes in a follow-up PR.
+Consumers are wired through their compose fragments with scoped credentials: Airflow, the asset worker and baker, Backend and Celery, the backup service, Iceberg REST, Jenkins, JupyterHub, Label Studio, Langfuse, MLflow, Spark, Trino and Zeppelin. See [MinIO](../../services/minio/README.md) for the bucket-to-consumer table.
 
 #### 4.4.2. `disabled`
 ```bash
 MINIO_SOURCE=disabled
 ```
 - **Use case**: No artifact-tier object storage needed
-- **Pros**: Saves resources; consumers fall back to Supabase Storage / local volumes
-- **Cons**: No S3-compatible artifact surface available
+- **Pros**: Saves resources
+- **Cons**: No S3-compatible artifact surface available. Spark, Iceberg REST, Trino, Jenkins, MLflow, Label Studio and Langfuse refuse to start without MinIO (startup stops with an error naming the service), so disable those too or keep MinIO on.
 - **Requirements**: None
 
 ### 4.5. OPENCLAW_SOURCE
@@ -540,13 +540,13 @@ SPARK_WORKER_COUNT=2     # number of spark-worker replicas; 1..8 — wizard prom
 - **Pros**: Master + N workers + history server, Kong-aliased UIs at `spark.localhost` + `spark-history.localhost`, Spark Connect on `:15002`, default `lakehouse` Iceberg REST catalog when `iceberg-rest` is enabled.
 - **Cons**: Each worker may use up to 2 CPUs / 4 GB (`SPARK_WORKER_CPU_LIMIT` / `SPARK_WORKER_MEMORY_LIMIT`); heavy on laptops above 2 workers
 - **Containers**: `spark-master`, `spark-worker-1..N`, `spark-history`, `spark-connect` (gRPC Connect sidecar), `spark-init` (one-shot — creates the spark-history MinIO bucket)
-- **Requirements**: ~3 GB image disk + up to 4 GB RAM per worker (the default limit)
+- **Requirements**: `MINIO_SOURCE=container` (startup stops with an error otherwise); ~3 GB image disk + up to 4 GB RAM per worker (the default limit)
 
 ### 4.12. TEI_RERANKER_SOURCE
 
 Cross-encoder reranker inference server (default model `mixedbread-ai/mxbai-rerank-base-v1`). Exposes TEI's `/rerank` endpoint for consumers that send TEI-compatible request bodies.
 
-- **`container-cpu`** — `ghcr.io/huggingface/text-embeddings-inference:cpu-1.9`. Runs anywhere; ~150 ms per pair latency.
+- **`container-cpu`** — `ghcr.io/huggingface/text-embeddings-inference:cpu-1.9` on amd64; on arm64 Atlas resolves the pinned `cpu-arm64` (Candle) image instead. ~150 ms per pair latency.
 - **`container-gpu`** — `:1.9` image with NVIDIA reservation. ~15 ms per pair on RTX-class GPU.
 - **`localhost`** — Existing TEI process on host at `TEI_RERANKER_LOCALHOST_PORT` (default 63049).
 - **`disabled`** — `TEI_RERANKER_ENDPOINT` empties. LightRAG's `RERANK_BINDING` is emitted as `null` in all stock SOURCE combinations so LightRAG disables reranking instead of crashing on an empty binding; direct LightRAG-to-TEI reranking requires an adapter because the request bodies differ.
@@ -573,7 +573,7 @@ SPARK_SOURCE=container   # REQUIRED — Zeppelin hard-fails without Spark
 - **Pros**: Pre-configured Spark interpreter (standalone master RPC + MinIO S3A + Iceberg REST catalog), loopback-only direct UI at `http://127.0.0.1:${ZEPPELIN_PORT}`, and persistent notebooks in a named volume. JDBC interpreter ships with credentials in env but needs a one-time UI setup.
 - **Cons**: Adds ~1.5 GB image disk + ~512 MB RAM
 - **Containers**: `zeppelin`, `zeppelin-init` (one-shot — seeds and restarts the Spark interpreter when Atlas-owned settings drift)
-- **Requirements**: `SPARK_SOURCE=container`
+- **Requirements**: `SPARK_SOURCE=container` and `MINIO_SOURCE=container` (`zeppelin` waits on `minio-init`)
 
 ### 4.14. JENKINS_SOURCE
 
@@ -715,7 +715,7 @@ TIKA_LOCALHOST_PORT=9998
 
 ### 4.19. LANGFUSE_SOURCE
 
-Langfuse is Atlas' optional LLM observability surface. When enabled, Atlas runs Langfuse web, worker, and ClickHouse containers; provisions a dedicated Supabase Postgres database plus Langfuse object-store credentials; and wires LiteLLM with Langfuse tracing keys so OpenAI-compatible requests through LiteLLM produce traces, latency, and cost records. It appears in the AI and ML tracks (`gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `all`) and stays out of the data-engineering track unless a future data-quality/eval workflow needs it directly.
+Langfuse is Atlas' optional LLM observability surface. When enabled, Atlas runs Langfuse web, worker, and ClickHouse containers; provisions a dedicated Supabase Postgres database plus Langfuse object-store credentials; and wires LiteLLM with Langfuse tracing keys so OpenAI-compatible requests through LiteLLM produce traces, latency, and cost records. It appears in the `gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `trading` and `all` tracks and stays out of the data-engineering track. MinIO is not in the three `gen-ai-*` tracks, so it is disabled there and enabling Langfuse fails at startup unless you also pass `--minio-source container`.
 
 #### 4.19.1. `disabled` (Default)
 ```bash

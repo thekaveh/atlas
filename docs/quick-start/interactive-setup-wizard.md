@@ -53,15 +53,15 @@ and inline-image behavior can vary between terminal emulators.
 
 ## 2. Step Order
 
-The wizard's question order isn't fixed — service-source steps are sorted by each service's resolved port (so the wizard's order matches the stack-overview panel beside it), with the LLM cluster spliced in immediately after the LLM Engine step. The shape is roughly:
+Service-source steps follow the canonical topology order (`services/topology.py`, the same order as the stack-overview panel beside them), with the LLM cluster spliced in immediately after the LLM Engine step. The shape is roughly:
 
 ```
 first  Track (skipped when --track is passed)
        Profile: dev or production hardening (skipped when --profile is passed)
        Base port
        Project name (Docker Compose namespace / container family → PROJECT_NAME)
-…      Service-source steps, sorted by resolved port
-       (ComfyUI, LLM Engine, ollama-related, Weaviate, …)
+…      Service-source steps, in topology order
+       (… Weaviate, …, LLM Engine, ollama-related, …, ComfyUI, …)
 …      LLM cluster (spliced right after the LLM Engine step):
          Ollama  ·  models               (single unified multiselect)
          Ollama  ·  additional models    (free-text, container only)
@@ -73,11 +73,11 @@ first  Track (skipped when --track is passed)
          LLM defaults  ·  vision model    (single-select, skippable)
 …      Remaining service-source steps
 near-end  Cold start
-near-end  Hosts file
+near-end  Hosts setup · /etc/hosts
 last   Confirm — Launch the stack with this configuration?
 ```
 
-Steps gated by `skip_if_prev` predicates simply vanish from the flow when their precondition isn't met (e.g. each cloud key/model pair only renders when its `CLOUD_*_SOURCE` is `enabled` after the prior secret step; Ollama variant steps only render when `LLM_PROVIDER_SOURCE` is an `ollama-*` value).
+Steps gated by `skip_if_prev` predicates simply vanish from the flow when their precondition isn't met (e.g. each cloud provider's models step only renders when its `CLOUD_*_SOURCE` is `enabled` after the API-key step, which is always shown; Ollama variant steps only render when `LLM_PROVIDER_SOURCE` is an `ollama-*` value).
 
 ## 3. Prompt Kinds
 
@@ -85,7 +85,7 @@ Each wizard step renders one of five prompt widgets, picked based on the questio
 
 | Kind | Used for | UX |
 |---|---|---|
-| `options` | Single-select with a small fixed option set — every `*_SOURCE`, the `Cold start` toggle, the `Hosts file` choice, and the three **LLM defaults** pickers (chat / embedding / vision, see §4.6). | Up/Down arrows + Enter; the current `.env` value is pre-highlighted. |
+| `options` | Single-select with a small fixed option set — every `*_SOURCE`, the `Cold start` toggle, the `Hosts setup · /etc/hosts` choice, and the three **LLM defaults** pickers (chat / embedding / vision, see §4.6). | Up/Down arrows + Enter; the current `.env` value is pre-highlighted. |
 | `number` | Numeric prompts (`Base port`). | Single-line input. A value outside the step's range, or one that is not a number, is **refused**: the hint under the input becomes the reason and you stay on the step (see §7.2). A bare Enter keeps the displayed default. |
 | `secret` | API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`). | Masked password Input + a live char-count hint as you paste. When a key is already set, the hint shows the source-aware action: press Enter to keep the saved key, type a new key to replace, type `clear` + Enter to remove. No sentinel rows are rendered — the input field IS the prompt. |
 | `multiselect` | Cloud and Ollama model lists. | `[selected]` / `[ ]` rows in a scrollable viewport (capped height; the cursor follows the selection so a 230-row library scrape stays usable). Space toggles, Enter confirms. **Cloud** multiselect: default-active set (intersected with what your account actually returns) is pre-checked on first visit. **Ollama** multiselect: source-aware — container shows the library only, localhost shows a merged `[pulled]` + `[library]` view. Purely additive; the default-active baseline is baked into `services/ollama/models.yaml` with `default: true` and resolved by `model_resolver` on every `docker compose up`. |
@@ -154,7 +154,7 @@ Shown only for `ollama-container-*` sources. Free-text comma-separated list, e.g
 
 ### 4.4. Cloud key + model pairs (secret + multiselect)
 
-Each enabled cloud provider gets two consecutive steps:
+Each cloud provider gets two consecutive steps (the API-key step is always shown; the models step only when the provider ends up enabled):
 
 1. **API key** (`secret` kind). The widget is a masked password Input — no sentinel rows are rendered. Turning a provider on or off and storing or deleting its key are **separate actions** (#1183, see §4.4.1). The hint line below the input always tells you which action Enter will take.
 2. **Models** (`multiselect`). Live fetch from the provider's models endpoint:
@@ -329,7 +329,7 @@ entries is not treated as a fallback trigger.
 
 ## 6. Inline secondary numeric inputs
 
-Three service rows mount an inline numeric input alongside the source prompt
+These service rows mount an inline numeric input alongside the source prompt
 via the `SecondaryNumberInput` widget (see `ui.textual.widgets.prompt_panel`).
 Selections persist as a sibling env var:
 
@@ -338,6 +338,7 @@ Selections persist as a sibling env var:
 | Ray | `RAY_WORKER_COUNT` | `2` | 0..64 | `ray-container-cpu`, `ray-container-gpu` |
 | Spark | `SPARK_WORKER_COUNT` | `2` | 1..8 | `container` |
 | Prometheus | `PROMETHEUS_RETENTION_DAYS` | `7` | 1..365 | `container` |
+| Every localhost-capable service | its `*_LOCALHOST_PORT` (e.g. `OLLAMA_LOCALHOST_PORT`) | the manifest default | 1024..65535 | that service's `localhost` option |
 
 The input renders directly on the source step — no follow-up cascade — so
 the user picks both a source and a numeric refinement in one keystroke
@@ -389,7 +390,7 @@ Before launching, a configuration summary inside the same anchored info-box show
 
 - Every service with its selected source, alias (when hosts are configured), and direct port.
 - Hosted endpoints (e.g., `chat.localhost:63000`) if hosts file entries are configured.
-- A separate **Cloud APIs** sub-section lists OpenAI / Anthropic / OpenRouter status (`enabled · key set present`, `disabled`, `enabled · key missing`). Cloud providers don't run as containers, so they render below the services grid rather than alongside real services.
+- A separate **Cloud APIs** sub-section lists OpenAI / Anthropic / OpenRouter status (`enabled · key set` with a check mark, `disabled`, or `enabled · key MISSING` with a warning mark). Cloud providers don't run as containers, so they render below the services grid rather than alongside real services.
 - Color-coded source choices (container = green, localhost / cloud = cyan, off = slate).
 
 You confirm to launch (the **Launch the stack with this configuration?** step is the wizard's final question), or cancel to exit without changes.
@@ -637,7 +638,7 @@ New services added under `services/<name>/` with a `service.yml` manifest (and i
 
 ## 17. Dependency Validation
 
-The wizard validates service dependencies in real time. For example, if you enable n8n but disable Weaviate (which n8n requires), the wizard warns you and offers to either enable the dependency or disable the dependent service. The same machinery enforces the "LiteLLM must have an upstream" rule (LLM Engine != `none`, at least one cloud provider `enabled`, or `VLLM_METAL_SOURCE=managed-localhost`).
+Dependencies are checked at launch, not while you answer the prompts. A service whose required dependency is disabled (for example n8n with Weaviate disabled) is reported and then disabled itself, so check the launch log if a service you picked does not start. The `gen-ai-eng` track includes n8n but not Weaviate, so n8n is disabled there unless you also pass `--weaviate-source container`. The "LiteLLM must have an upstream" rule (LLM Engine != `none`, at least one cloud provider `enabled`, or `VLLM_METAL_SOURCE=managed-localhost`) is enforced by source validation, which stops the launch before anything starts.
 
 ## 18. Hosts File Setup
 
