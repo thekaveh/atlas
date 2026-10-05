@@ -354,6 +354,12 @@ class PromptStep:
     # this flag the numeric coercion below silently replaces it with
     # ``default_value``. Every other number step stays strictly numeric.
     accepts_auto: bool = False
+    # Opt-in for ``kind="number"`` and ``kind="text"``: the entry must be an
+    # integer in number_min..number_max, and an empty entry is refused when
+    # there is no default to keep (the custom embedding dimension has no safe
+    # fallback; an empty answer used to crash the launch after .env was
+    # half-written). On a text step this also refuses the `clear` sentinel.
+    number_required: bool = False
     # Optional predicate the wizard screen calls before loading this
     # step. Receives the in-progress ``selections`` dict and returns
     # True if this step should be skipped. Used to skip cloud
@@ -474,6 +480,8 @@ def number_entry_error(raw: str, step: "PromptStep") -> str | None:
     """
     text = (raw or "").strip()
     if not text:
+        if step.number_required and not str(step.default_value or "").strip():
+            return f"a value is required \u2014 {_number_range_hint(step)}"
         return None
     if text.lower() == AUTO_PORT:
         if step.accepts_auto:
@@ -1744,7 +1752,10 @@ class PromptPanel(Container):
 
         None when the step isn't a number step or the entry is acceptable.
         """
-        if self._step is None or self._step.kind != "number":
+        if self._step is None:
+            return None
+        validated_text = self._step.kind == "text" and self._step.number_required
+        if self._step.kind != "number" and not validated_text:
             return None
         raw = self._number_input.value if self._number_input else ""
         return number_entry_error(raw, self._step)

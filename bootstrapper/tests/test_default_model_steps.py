@@ -944,3 +944,20 @@ def test_reconcile_never_aborts_on_an_inconsistent_embedding_contract(tmp_path, 
 
     assert starter.reconcile_default_models() is True
     assert "WARNING: default models left unchanged" in capsys.readouterr().out
+
+
+def test_content_default_is_saved_value_on_rerun():
+    """Same as vision: default_value=None selected option 0, so Enter on a
+    re-run replaced a saved LITELLM_DEFAULT_MODEL with the top-ranked model."""
+    from wizard.llm_steps import build_default_model_steps, LLM_DEFAULT_CONTENT_TITLE
+
+    env = {
+        "LLM_PROVIDER_SOURCE": "ollama-container-cpu",
+        "OLLAMA_USER_MODELS": "qwen3.8:latest",
+        "LITELLM_DEFAULT_MODEL": "openai/gpt-4o",
+    }
+    steps = build_default_model_steps(env)
+    content = next(s for s in steps if s.title == LLM_DEFAULT_CONTENT_TITLE)
+    assert content.default_value == "openai/gpt-4o"
+    blank = build_default_model_steps({**env, "LITELLM_DEFAULT_MODEL": ""})
+    assert next(s for s in blank if s.title == LLM_DEFAULT_CONTENT_TITLE).default_value is None

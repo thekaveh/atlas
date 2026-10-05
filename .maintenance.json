@@ -154,8 +154,8 @@
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_selections_to_args",
-        "cyclomatic_complexity": 54,
-        "rationale": "Boundary translator for the wizard selection matrix; embedding-contract selection is extracted into a B-grade helper and CLI/TUI parity tests verify the remaining explicit source and secret-state branches. 59 -> 54 on #1255: fal.ai's hand-written secret branch chain was replaced by one call to cloud_rules.resolve_secret_verdict, the table the cloud providers already use."
+        "cyclomatic_complexity": 52,
+        "rationale": "Boundary translator for the wizard selection matrix; embedding-contract selection is extracted into a B-grade helper and CLI/TUI parity tests verify the remaining explicit source and secret-state branches. 59 -> 54 on #1255: fal.ai's hand-written secret branch chain was replaced by one call to cloud_rules.resolve_secret_verdict, the table the cloud providers already use. 54 -> 52: consumer-declared key mapping moved to tracks.consumer_declared_track_keys."
       },
       {
         "path": "bootstrapper/ui/textual/screens/wizard_screen.py",
@@ -234,8 +234,8 @@
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_selections_to_args",
-        "cyclomatic_complexity": 54,
-        "rationale": "Boundary translator for the same manifest-driven option matrix; embedding-contract selection now lives in a B-grade helper, while CLI/TUI parity tests remain the safer control for the explicit source and secret-state branches. 59 -> 54 on #1255: fal.ai's secret handling now delegates to cloud_rules.resolve_secret_verdict instead of re-implementing the verdict table inline."
+        "cyclomatic_complexity": 52,
+        "rationale": "Boundary translator for the same manifest-driven option matrix; embedding-contract selection now lives in a B-grade helper, while CLI/TUI parity tests remain the safer control for the explicit source and secret-state branches. 59 -> 54 on #1255: fal.ai's secret handling now delegates to cloud_rules.resolve_secret_verdict instead of re-implementing the verdict table inline. 54 -> 52 (overnight maintenance): consumer-declared SOURCE keys are mapped to wizard track keys by tracks.consumer_declared_track_keys (grade A), which also fixed multi-container families being force-disabled over a manifest's env.values."
       },
       {
         "path": "bootstrapper/core/consumer_manifest.py",

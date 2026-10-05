@@ -28,7 +28,7 @@ _THEME_PATH = Path(__file__).parent / "theme.css"
 # truth lives in wizard/comfyui_steps.py; imported here to keep the drain
 # loop (selections.get(COMFYUI_MODELS_TITLE)) aligned with what the step
 # registers without duplicating the string literal.
-from tracks import remark_off_track_rows as _remark_off_track_rows
+from tracks import consumer_declared_track_keys, remark_off_track_rows as _remark_off_track_rows
 from wizard.comfyui_steps import COMFYUI_MODELS_TITLE
 from wizard.model.cloud_rules import (
     SECRET_CLEAR,
@@ -1075,9 +1075,7 @@ def _selections_to_args(
         )
         for svc in services_info
     }
-    _consumer_declared_keys = frozenset(
-        k for k in consumer_declared if k in _track_view
-    )
+    _consumer_declared_keys = consumer_declared_track_keys(consumer_declared, services_info)
     try:
         from tracks import load_tracks as _load_tracks_for_synth
         from tracks import synthesize_track_source_args as _synth_track_args

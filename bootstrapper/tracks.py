@@ -439,3 +439,22 @@ def format_track_list(registry: TrackRegistry) -> str:
         "disabled unless enabled.[/dim]"
     )
     return buf.getvalue()
+
+
+def consumer_declared_track_keys(consumer_declared, services_info) -> frozenset:
+    """Track-view keys of the services a consumer manifest declares.
+
+    `consumer_declared` holds lowercased SOURCE var names (`ray_source`) while
+    the track view is keyed by the wizard's service key (`ray_head_source`
+    for the multi-container families: Ray, Spark, Airflow, Langfuse, Celery,
+    Graph Builder). Matching on the key name dropped those declarations, so a
+    wizard-picked track force-disabled them over the manifest's env.values
+    (#783). Match on each service's own SOURCE variable instead.
+    """
+    keys = set()
+    for svc in services_info:
+        key = svc.key.replace("-", "_") + "_source"
+        source_var = (getattr(svc, "env_var_name", "") or "").lower()
+        if key in consumer_declared or source_var in consumer_declared:
+            keys.add(key)
+    return frozenset(keys)

@@ -490,3 +490,15 @@ def test_deliberately_blank_selection_is_not_pre_ticked_again():
     blank = {"LLM_PROVIDER_SOURCE": "ollama-container-cpu", "OLLAMA_USER_MODELS": ""}
     assert defaults(blank) == []
     assert defaults({"LLM_PROVIDER_SOURCE": "ollama-container-cpu"})  # unset: baseline
+
+
+def test_saved_models_outside_the_listed_families_are_kept():
+    # hf.co pulls and anything beyond the offline curated fallback were not
+    # rows, so Enter rewrote OLLAMA_USER_MODELS without them.
+    from wizard.llm_steps import _with_saved_ollama_rows
+    from wizard.llm_steps import PromptOption
+
+    rows = [PromptOption(value="qwen3", label="qwen3", hint="", badges=[])]
+    env = {"OLLAMA_USER_MODELS": "qwen3:8b,hf.co/bartowski/foo:Q4_K_M,llama3.3:70b"}
+    kept = [r.value for r in _with_saved_ollama_rows(rows, env)]
+    assert kept == ["qwen3", "hf.co/bartowski/foo:Q4_K_M", "llama3.3:70b"]

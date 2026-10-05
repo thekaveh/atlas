@@ -124,3 +124,15 @@ def test_registry_load_failure_degrades_to_no_synthesis(monkeypatch):
     )
 
     assert "comfyui_source" not in source_args
+
+
+def test_multi_container_family_declaration_survives_a_wizard_track():
+    """The manifest declares RAY_SOURCE, but the wizard keys the Ray family
+    by `ray_head` (likewise Spark/Airflow/Langfuse/Celery): matching on key
+    names force-disabled it over the manifest's env.values (#783)."""
+    services_info = [SimpleNamespace(key="ray_head", display_name="Ray", env_var_name="RAY_SOURCE")]
+    source_args, _ = _selections_to_args(
+        {PICKER_STEP_TITLE: "gen-ai-rag"}, services_info, current_base_port=63000, env_vars={},
+        consumer_declared=frozenset({"ray_source"}),
+    )
+    assert "ray_head_source" not in source_args, source_args

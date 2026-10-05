@@ -569,7 +569,9 @@ def build_ollama_steps(
             service_name="",
             kind="multiselect",
             skip_if_prev=lambda sel: not _selected_llm_source(env_vars, sel).startswith("ollama-"),
-            options_provider=_merged_ollama_options,
+            options_provider=lambda selections: _with_saved_ollama_rows(
+                _merged_ollama_options(selections), env_vars
+            ),
             # Capability filter chips. Exact label set matches the
             # ``x-test-capability`` values observed on ollama.com/library
             # — keep these lowercase and aligned with what the parser
@@ -730,6 +732,27 @@ def _with_saved_rows(rows: List[PromptOption], env_vars: Dict[str, str],
         )
         for mid in (s.strip() for s in saved)
         if mid and mid not in known
+    ]
+
+
+def _with_saved_ollama_rows(rows: List[PromptOption], env_vars: Dict[str, str]) -> List[PromptOption]:
+    """Ollama counterpart of _with_saved_rows (#1180).
+
+    A saved `family:tag` pre-ticks whenever its family row is listed, but a
+    model whose family is absent (an `hf.co/...` pull, or anything beyond the
+    curated fallback when the library scrape fails offline) was dropped from
+    OLLAMA_USER_MODELS on the next Enter.
+    """
+    known = {r.value for r in rows if r.value}
+    saved = (s.strip() for s in (env_vars.get("OLLAMA_USER_MODELS", "") or "").split(","))
+    return rows + [
+        PromptOption(
+            value=mid, label=mid,
+            hint="already in .env; kept so it is not dropped when unlisted",
+            badges=[BADGE_SAVED],
+        )
+        for mid in saved
+        if mid and mid not in known and mid.split(":", 1)[0] not in known
     ]
 
 
@@ -1284,6 +1307,11 @@ def build_default_model_steps(
     # the "— none / skip —" sentinel pre-selected. (Mirrors how the embedding
     # step pre-fills from its saved value.)
     _vision_default = (env_vars.get("LITELLM_VISION_MODEL", "") or "").strip()
+    # Same for chat: default_value=None selected option 0, so pressing Enter on
+    # a re-run replaced a saved LITELLM_DEFAULT_MODEL (e.g. openai/gpt-4o) with
+    # the top-ranked model. A saved value not among the options still falls
+    # back to option 0 (the prompt panel drops unknown defaults).
+    _content_default = (env_vars.get("LITELLM_DEFAULT_MODEL", "") or "").strip() or None
 
     # default_value semantics for these options steps:
     #   - content: default_value=None → the WizardScreen pre-selects the FIRST
@@ -1301,11 +1329,12 @@ def build_default_model_steps(
             heading="Which model should be the default for chat?",
             subtitle=(
                 "This sets LITELLM_DEFAULT_MODEL — the fallback used by the backend and "
-                "Open WebUI when no model is specified. Pre-selected to the highest-priority "
-                "content-capable model from your current selections."
+                "Open WebUI when no model is specified. Pre-selected to your saved default "
+                "when it is still offered, otherwise the highest-priority content-capable "
+                "model from your current selections."
             ),
             options=[],
-            default_value=None,
+            default_value=_content_default,
             service_name="",
             kind="options",
             skip_if_prev=_skip_no_llm_or_no_content,
@@ -1344,7 +1373,14 @@ def build_default_model_steps(
             default_value="",
             default_value_provider=_saved_dimension_for_selected_model,
             service_name="",
+            # Free text (keeps the restored answer on back-navigation) but
+            # validated as a required 1-4000 number: an empty, `clear` or
+            # non-numeric answer used to pass the step and fail the launch in
+            # apply_user_model_selections after source overrides were written.
             kind="text",
+            number_min=1,
+            number_max=4000,
+            number_required=True,
             skip_if_prev=_skip_known_embedding_dimension,
         ),
         PromptStep(
