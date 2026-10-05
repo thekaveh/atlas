@@ -52,9 +52,10 @@ Hermes is wired into the stack in two directions:
    the model via `HERMES_DEFAULT_MODEL` (any name LiteLLM exposes).
 2. **LiteLLM → Hermes (inbound)** — `services/litellm/init/scripts/init.py` appends
    a `hermes-agent` row to LiteLLM's `model_list` when `HERMES_SOURCE !=
-   disabled`. Consequence: Open WebUI, n8n, backend, JupyterHub, OpenClaw
-   all see `hermes-agent` in their model dropdowns automatically — no
-   per-consumer wiring.
+   disabled`. Consequence: Open WebUI, n8n, backend and JupyterHub see
+   `hermes-agent` in their model lists automatically — no per-consumer
+   wiring. OpenClaw sees it once its OpenAI provider `baseUrl` points at
+   LiteLLM (an onboarding step; see the OpenClaw README).
 
 The loop is intentional. Hermes is the agent runtime above raw chat; LiteLLM
 is the single front door for LLM traffic.

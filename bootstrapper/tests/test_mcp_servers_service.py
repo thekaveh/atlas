@@ -326,6 +326,9 @@ def test_mcp_servers_docs_describe_consumers_guardrails_and_deferred_gateways() 
         "WITH a AS (SELECT '--'), b AS (DELETE FROM t RETURNING *) SELECT * FROM b",
         "SELECT $$--$$; COMMIT",
         "SELECT '/*'; DROP TABLE t; SELECT '*/'",
+        # E'' strings honor backslash escapes; `$` continues an identifier.
+        "SELECT E'\\' -- ' ; COMMIT; DROP TABLE t",
+        "SELECT 1 AS a$b$, '$b$ -- ', 1; COMMIT; DROP TABLE t",
     ],
 )
 def test_postgres_guard_is_literal_aware(sql: str) -> None:
@@ -334,7 +337,14 @@ def test_postgres_guard_is_literal_aware(sql: str) -> None:
 
 @pytest.mark.parametrize(
     "sql",
-    ["SELECT 'a--b' AS x FROM t", "SELECT 'it''s' /* note */", "SELECT 1 -- ok"],
+    [
+        "SELECT 'a--b' AS x FROM t",
+        "SELECT 'it''s' /* note */",
+        "SELECT 1 -- ok",
+        "SELECT E'it\\'s' AS x",
+        "SELECT name FROM t WHERE x = 'e' -- note",
+        "SELECT /* outer /* nested */ still comment */ 1",
+    ],
 )
 def test_postgres_guard_keeps_literals_and_comments_usable(sql: str) -> None:
     assert _runtime_module().is_safe_postgres_read(sql) is True
@@ -350,3 +360,45 @@ def test_cypher_guard_uses_cypher_comment_syntax() -> None:
     assert "// trailing" not in module.bounded_neo4j_cypher(
         "MATCH (n) RETURN n // trailing note"
     )
+
+
+def test_postgres_query_executes_the_text_the_guard_approved(monkeypatch) -> None:
+    """If the scanner and PostgreSQL ever disagree about a literal, the run
+    must fail as a syntax error rather than execute hidden statements."""
+    import types
+
+    module = _runtime_module()
+    executed = []
+
+    class Cursor:
+        def execute(self, sql, params=None):
+            executed.append(sql)
+
+        def fetchmany(self, _n):
+            return []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    class Conn(Cursor):
+        def cursor(self):
+            return Cursor()
+
+    fake = types.SimpleNamespace(connect=lambda **_kw: Conn())
+    monkeypatch.setitem(sys.modules, "psycopg", fake)
+    monkeypatch.setitem(sys.modules, "psycopg.rows", types.SimpleNamespace(dict_row=None))
+    monkeypatch.setenv("MCP_POSTGRES_DB_USER", "u")
+    monkeypatch.setenv("MCP_POSTGRES_DB_PASSWORD", "p")
+    module.postgres_query("SELECT 1 -- trailing note")
+    assert "SELECT 1" in executed and not any("--" in sql for sql in executed)
+
+
+def test_scanner_follows_postgres_comment_rules() -> None:
+    module = _runtime_module()
+    # Nested block comments close at the matching */, as in PostgreSQL.
+    assert module._without_comments("SELECT /* a /* b */ c */ 1") == "SELECT   1"
+    # A line comment ends at a bare CR too, so FROM t is not swallowed.
+    assert module._without_comments("SELECT 1 --c\rFROM t") == "SELECT 1  \rFROM t"

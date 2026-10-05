@@ -14,7 +14,8 @@ user-facing description, source-variant table, and configuration reference.
 - **License:** MIT (Resemble AI)
 - **Activation:** `TTS_PROVIDER_SOURCE=chatterbox-container-gpu` (or
   `chatterbox-localhost` for a host-installed instance)
-- **In-container port:** 4123
+- **In-container port:** 4123 (compose sets `PORT=4123`; the image's own default is 5123)
+- **Model cache:** the `chatterbox-cache` volume at `/cache` (the image's `MODEL_CACHE_DIR`)
 - **Host port:** `${CHATTERBOX_PORT}` (computed from `BASE_PORT` by the
   bootstrapper)
 

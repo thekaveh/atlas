@@ -218,3 +218,13 @@ def test_public_client_grants_are_conditional_on_row_level_security():
         "the per-table grant loop is gone; client roles on `public` must stay "
         "gated on the table actually carrying RLS"
     )
+
+
+def test_function_grants_never_reexpose_security_definer_routines():
+    """06 runs on every boot, after the definer functions of slices 10/14
+    already exist; a blanket grant to `authenticated` reopened them through
+    PostgREST /rpc until those slices revoked them again."""
+    sql = (SCRIPTS_DIR / "06-permissions.sql").read_text(encoding="utf-8")
+    assert "GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO authenticated" not in sql
+    assert "NOT p.prosecdef" in sql
+    assert "GRANT ALL ON ROUTINE %s TO authenticated" in sql

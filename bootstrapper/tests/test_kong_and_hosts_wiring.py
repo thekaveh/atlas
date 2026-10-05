@@ -281,23 +281,24 @@ def test_passwordless_sudo_is_used_non_interactively(monkeypatch):
     assert messages == []
 
 
-def test_unapproved_sudo_warns_with_the_remedy_and_continues(monkeypatch):
+def test_unapproved_sudo_warns_with_the_remedy_and_continues(monkeypatch, capsys):
     import start
 
     monkeypatch.setattr(start, "_run_privileged_hosts_setup", lambda **_: False)
-    starter, messages = _hosts_starter(["n8n.localhost"])
+    starter, _messages = _hosts_starter(["n8n.localhost"])
     assert start.AtlasStarter.handle_hosts_configuration(starter, True, False)
-    assert [kind for kind, _ in messages] == ["warning"]
-    assert "./start.sh --setup-hosts" in messages[0][1]
+    # stdout, not the banner: the TUI banner is a no-op; its log pane shows stdout.
+    out = capsys.readouterr().out
+    assert out.startswith("WARNING:") and "./start.sh --setup-hosts" in out
 
 
 @pytest.mark.parametrize("missing, warned", [([], False), (["n8n.localhost"], True)])
-def test_default_hosts_answer_warns_only_when_entries_are_missing(missing, warned):
+def test_default_hosts_answer_warns_only_when_entries_are_missing(missing, warned, capsys):
     import start
 
-    starter, messages = _hosts_starter(missing)
+    starter, _messages = _hosts_starter(missing)
     assert start.AtlasStarter.handle_hosts_configuration(starter, False, False)
-    assert [kind for kind, _ in messages] == (["warning"] if warned else [])
+    assert capsys.readouterr().out.startswith("WARNING:") is warned
 
 
 def test_skip_hosts_answer_does_not_check():
@@ -323,7 +324,7 @@ def test_kong_config_is_kong_readable_in_an_owner_only_directory(tmp_path):
     assert "_format_version" in out.read_text()
 
 
-def test_source_conflict_is_reported_not_raised(monkeypatch):
+def test_source_conflict_is_reported_not_raised(monkeypatch, capsys):
     """--no-tui has no handler above this step; a ValueError from a service
     gate (Spark needs MinIO, …) used to escape as a raw traceback."""
     from types import SimpleNamespace
@@ -342,4 +343,4 @@ def test_source_conflict_is_reported_not_raised(monkeypatch):
         ),
     )
     assert start.AtlasStarter.generate_service_configuration(starter) is False
-    assert messages == [("error", "Spark requires MinIO: --minio-source container")]
+    assert capsys.readouterr().out == "ERROR: Spark requires MinIO: --minio-source container\n"

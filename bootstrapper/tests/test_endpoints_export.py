@@ -392,6 +392,34 @@ def test_cli_export_json_to_output_file(tmp_path: Path, monkeypatch: pytest.Monk
     assert out.stat().st_mode & 0o777 == 0o600
 
 
+def test_cli_export_relative_output_lands_in_the_invoking_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """reusing-atlas §6.5: `(cd infra && ./start.sh endpoints export
+    --output ../atlas-consumer.env)` writes next to the parent app, whatever
+    directory the wrapper runs the bootstrapper from."""
+    from click.testing import CliRunner
+    import start as start_module
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("".join(f"{k}={v}\n" for k, v in _base_env().items()), encoding="utf-8")
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env_file))
+    infra = tmp_path / "parent" / "infra"
+    elsewhere = tmp_path / "bootstrapper-cwd"
+    infra.mkdir(parents=True)
+    elsewhere.mkdir()
+    monkeypatch.setenv("ATLAS_INVOKER_CWD", str(infra))
+    monkeypatch.chdir(elsewhere)
+
+    result = CliRunner().invoke(
+        start_module.main,
+        ["endpoints", "export", "--output", "../atlas-consumer.env"],
+    )
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "parent" / "atlas-consumer.env").is_file()
+    assert not (tmp_path / "atlas-consumer.env").exists()
+
+
 def test_cli_secret_export_replaces_existing_file_as_owner_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

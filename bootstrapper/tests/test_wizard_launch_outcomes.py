@@ -855,12 +855,27 @@ def test_stop_and_cold_stop_both_report_configuration_kept(capsys):
 def test_the_stop_confirmation_states_consequences():
     notes: list[str] = []
     screen = SimpleNamespace(
-        _phase="launch", _pending_teardown=None, _pending_teardown_deadline=0.0,
+        _phase="launch", _launch_succeeded=True,
+        _pending_teardown=None, _pending_teardown_deadline=0.0,
         notify=lambda text, **_kwargs: notes.append(text),
     )
     WizardScreen._arm_or_commit_teardown(screen, cold=False)
     assert notes and STOP.consequences.capitalize() in notes[0]
     assert "ctrl+s again" in notes[0]
+
+
+def test_stop_keys_do_nothing_until_the_launch_succeeds():
+    """During setup/build/`up` a teardown would race the in-flight launch."""
+    workers: list[object] = []
+    screen = SimpleNamespace(
+        _phase="launch", _launch_succeeded=False,
+        _pending_teardown=None, _pending_teardown_deadline=0.0,
+        notify=lambda *_a, **_k: workers.append("notified"),
+        run_worker=lambda *a, **_k: workers.append(a),
+    )
+    for _ in range(2):
+        WizardScreen._arm_or_commit_teardown(screen, cold=True)
+    assert workers == [] and screen._pending_teardown is None
 
 
 def test_summarize_launch_is_front_end_neutral_apart_from_where():

@@ -7,9 +7,9 @@ Zeppelin runs as a single container in the stack's `apps` band. The Spark interp
 Image: `apache/zeppelin:0.12.1` (Apache 2.0), wrapped by `services/zeppelin/build/Dockerfile` so `/opt/spark` contains the matching Spark 4.1.2 runtime plus S3A and Iceberg lakehouse jars. All interpreters run in-process (no Kubernetes interpreter isolation). The Spark interpreter is the headline.
 
 The wrapper also removes the interpreters and plugins that Atlas never configures:
-- the Alluxio, Cassandra, Elasticsearch, Neo4j, R and SPARQL interpreters;
+- the Alluxio, BigQuery, Cassandra, Elasticsearch, Neo4j, R and SPARQL interpreters;
 - the Docker and Kubernetes interpreter launchers;
-- the S3 notebook repository.
+- the Azure, GCS and S3 notebook repositories.
 
 It also replaces the server's Jackson and BouncyCastle jars with checksum-pinned 2.18.11 and 1.86 releases (#1312). Spark, JDBC (`%postgres`, `%trino`), Markdown, Python and the other stock interpreters are unchanged. To restore a removed interpreter, drop it from that Dockerfile's removal list; the build fails if a base-image bump moves any listed path.
 

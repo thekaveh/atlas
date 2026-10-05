@@ -799,6 +799,15 @@ async def get_workflow(workflow_id: str):
 
 
 
+def _is_storage_duplicate(exc: Exception) -> bool:
+    """Supabase Storage's existing-object rejection (storage3 StorageApiError
+    with status 409 or error code `Duplicate`; uploads do not upsert)."""
+    return (
+        str(getattr(exc, "status", "")) == "409"
+        or str(getattr(exc, "code", "")).lower() == "duplicate"
+    )
+
+
 @app.post(
     "/storage/upload",
     response_model=StorageResponse,
@@ -844,6 +853,13 @@ async def upload_file(file: UploadFile = File(...), bucket: str = "default"):
             # Get public URL
             url = await asyncio.to_thread(bucket_ref.get_public_url, filename)
         except Exception as e:
+            if _is_storage_duplicate(e):
+                # A permanent conflict, not an outage: a 503 here made clients
+                # retry the same path forever.
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"{bucket}/{filename} already exists",
+                ) from e
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Supabase Storage is unavailable",
@@ -1574,6 +1590,32 @@ def _remaining_comfyui_timeout(deadline: float) -> float:
     if remaining <= 0:
         raise asyncio.TimeoutError
     return remaining
+
+
+async def _wait_or_cancel_comfyui(client, prompt_id: str, deadline: float) -> Dict[str, Any]:
+    """Wait for a queued prompt; on timeout cancel it and return 504 with its id.
+
+    A queued prompt keeps rendering after the HTTP deadline (#676); the old
+    503 "unavailable" also dropped `prompt_id`, so callers retried and queued
+    duplicates instead of cancelling or polling the original.
+    """
+    try:
+        return await client.wait_for_completion(
+            prompt_id, timeout=_remaining_comfyui_timeout(deadline)
+        )
+    except asyncio.TimeoutError as exc:
+        try:
+            await asyncio.wait_for(client.cancel_prompt(prompt_id), timeout=10)
+        except Exception:  # noqa: BLE001 - best effort; the 504 still names the id
+            logger.warning("ComfyUI prompt %s timed out; cancel failed", prompt_id)
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail={
+                "message": "ComfyUI did not finish before timeout_seconds; "
+                           "cancellation was requested",
+                "prompt_id": prompt_id,
+            },
+        ) from exc
 
 
 class ComfyUIGenerateRequest(BaseModel):
@@ -3039,6 +3081,110 @@ async def submit_media_generation(
             _raise_if_cancelled(cleanup_cancellation)
 
 
+async def _poll_terminal_media_status(operation: dict, operation_id: str) -> dict | None:
+    """The provider's payload when it already reports a terminal status, else
+    None (still running, unreachable, or provider disabled)."""
+    try:
+        # Short bound: a hung provider must not turn a deadline poll, which
+        # used to answer `timeout` at once, into a 60s+ wait per retry.
+        payload = await asyncio.wait_for(
+            _poll_media_operation_or_raise(operation, operation_id), timeout=10
+        )
+    except Exception:  # noqa: BLE001 - any failure falls back to the timeout
+        logger.warning(
+            "Media operation %s: provider poll at timeout failed", operation_id,
+            exc_info=True,
+        )
+        return None
+    if str(payload.get("status", "")) in TERMINAL_MEDIA_STATUSES:
+        return payload
+    return None
+
+
+async def _poll_media_operation_or_raise(operation: dict, operation_id: str) -> dict:
+    """Poll the operation's provider, mapping failures to HTTP errors."""
+    provider = operation["provider"]
+    if provider == "fal" and not _fal_source_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="FAL_SOURCE=enabled is required to poll FAL media operations",
+        )
+    if provider not in ("fal", "comfyui"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported media provider for polling: {provider}",
+        )
+
+    try:
+        payload = await _poll_media_provider(
+            provider=provider,
+            operation_id=operation_id,
+            modality=operation["modality"],
+            model=operation["model"],
+        )
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as exc:
+        raise _unexpected_error(
+            f"Poll media operation with {provider}",
+            exc,
+            status_code=status.HTTP_502_BAD_GATEWAY,
+        )
+    return payload
+
+
+async def _time_out_media_operation(
+    operation_id: str, operation: dict, current_status: str
+):
+    """Persist ``timeout``, settle the ledger and cancel the provider job."""
+    payload = dict(operation["last_payload"])
+    payload["status"] = "timeout"
+    persisted, _ = await _transition_media_payload_or_503(
+        operation_id, payload, expected_status=current_status
+    )
+    if persisted is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Media operation {operation_id} not found",
+        )
+    await _maybe_reconcile_ledger(operation_id, persisted)
+    # Best-effort: cancel the underlying provider job so a timed-out op does
+    # not orphan a real workload (a ComfyUI prompt keeps burning MPS/VRAM,
+    # FAL keeps billing) after the gateway has already told the consumer the
+    # op is dead (#676). The cancel machinery already exists (#518); the
+    # timeout path just wasn't calling it. Failures are logged, never
+    # raised, and never change the timeout outcome; the ledger reconcile
+    # above is unaffected.
+    provider = operation.get("provider")
+    if provider in ("fal", "comfyui"):
+        try:
+            cancel_requested = await _cancel_media_provider(
+                provider=provider,
+                operation_id=operation_id,
+                modality=operation["modality"],
+                model=operation["model"],
+            )
+            logger.info(
+                "Media operation %s timed out after %ss; provider cancel "
+                "requested=%s",
+                operation_id,
+                operation["timeout_seconds"],
+                cancel_requested,
+            )
+        except Exception:  # noqa: BLE001 — best-effort by contract
+            logger.warning(
+                "Media operation %s timed out; provider cancel failed",
+                operation_id,
+                exc_info=True,
+            )
+    return _media_response(dict(persisted["last_payload"]))
+
+
 # Terminal media-operation statuses — once reached, polls return the stored
 # payload without re-hitting the provider (a cancelled op must stay cancelled,
 # #518), and _maybe_reconcile_ledger settles the spend exactly once.
@@ -3090,84 +3236,22 @@ async def get_media_operation(
             ) from exc
         return _media_response(dict((refreshed or operation)["last_payload"]))
     elapsed = time.time() - float(operation["created_at_epoch"])
-    if (
+    timed_out = (
         current_status != "cancellation_requested"
         and elapsed > int(operation["timeout_seconds"])
-    ):
-        payload = dict(operation["last_payload"])
-        payload["status"] = "timeout"
-        persisted, _ = await _transition_media_payload_or_503(
-            operation_id, payload, expected_status=current_status
-        )
-        if persisted is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Media operation {operation_id} not found",
+    )
+    if timed_out:
+        # Ask the provider before declaring a timeout: nothing polls in the
+        # background, so a job that finished before the deadline is only
+        # learned here. Overwriting its terminal result with `timeout` lost the
+        # artifact and released spend the provider had already billed.
+        payload = await _poll_terminal_media_status(operation, operation_id)
+        if payload is None:
+            return await _time_out_media_operation(
+                operation_id, operation, current_status
             )
-        await _maybe_reconcile_ledger(operation_id, persisted)
-        # Best-effort: cancel the underlying provider job so a timed-out op does
-        # not orphan a real workload (a ComfyUI prompt keeps burning MPS/VRAM,
-        # FAL keeps billing) after the gateway has already told the consumer the
-        # op is dead (#676). The cancel machinery already exists (#518); the
-        # timeout path just wasn't calling it. Failures are logged, never
-        # raised, and never change the timeout outcome; the ledger reconcile
-        # above is unaffected.
-        provider = operation.get("provider")
-        if provider in ("fal", "comfyui"):
-            try:
-                cancel_requested = await _cancel_media_provider(
-                    provider=provider,
-                    operation_id=operation_id,
-                    modality=operation["modality"],
-                    model=operation["model"],
-                )
-                logger.info(
-                    "Media operation %s timed out after %ss; provider cancel "
-                    "requested=%s",
-                    operation_id,
-                    operation["timeout_seconds"],
-                    cancel_requested,
-                )
-            except Exception:  # noqa: BLE001 — best-effort by contract
-                logger.warning(
-                    "Media operation %s timed out; provider cancel failed",
-                    operation_id,
-                    exc_info=True,
-                )
-        return _media_response(dict(persisted["last_payload"]))
-
-    provider = operation["provider"]
-    if provider == "fal" and not _fal_source_enabled():
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="FAL_SOURCE=enabled is required to poll FAL media operations",
-        )
-    if provider not in ("fal", "comfyui"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported media provider for polling: {provider}",
-        )
-
-    try:
-        payload = await _poll_media_provider(
-            provider=provider,
-            operation_id=operation_id,
-            modality=operation["modality"],
-            model=operation["model"],
-        )
-    except HTTPException:
-        raise
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
-    except Exception as exc:
-        raise _unexpected_error(
-            f"Poll media operation with {provider}",
-            exc,
-            status_code=status.HTTP_502_BAD_GATEWAY,
-        )
+    else:
+        payload = await _poll_media_operation_or_raise(operation, operation_id)
 
     merged_provenance = dict(last_payload.get("provenance") or {})
     merged_provenance.update(dict(payload.get("provenance") or {}))
@@ -3748,8 +3832,8 @@ async def generate_image(request: ComfyUIGenerateRequest):
             
             # If wait_for_completion is True, wait for the image to be generated
             if request.wait_for_completion:
-                completion_result = await client.wait_for_completion(
-                    prompt_id, timeout=_remaining_comfyui_timeout(deadline)
+                completion_result = await _wait_or_cancel_comfyui(
+                    client, prompt_id, deadline
                 )
                 
                 if completion_result.get("success"):
@@ -3818,8 +3902,8 @@ async def execute_comfyui_workflow(request: ComfyUIWorkflowRequest):
             
             # If wait_for_completion is True, wait for the workflow to complete
             if request.wait_for_completion:
-                completion_result = await client.wait_for_completion(
-                    prompt_id, timeout=_remaining_comfyui_timeout(deadline)
+                completion_result = await _wait_or_cancel_comfyui(
+                    client, prompt_id, deadline
                 )
                 
                 if completion_result.get("success"):
@@ -3845,6 +3929,8 @@ async def execute_comfyui_workflow(request: ComfyUIWorkflowRequest):
                     message="Workflow queued"
                 )
                 
+    except HTTPException:
+        raise
     except ComfyUIUpstreamError as exc:
         raise _comfyui_gateway_error(exc) from exc
     except asyncio.TimeoutError as exc:

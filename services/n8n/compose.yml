@@ -55,6 +55,11 @@ services:
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
       LITELLM_DEFAULT_MODEL: ${LITELLM_DEFAULT_MODEL:-ollama/qwen3.8:latest}
       BACKEND_N8N_API_TOKEN: ${BACKEND_N8N_API_TOKEN}
+      # n8n 2.x blocks $env in expressions unless this is exactly "false";
+      # every bundled workflow authenticates with $env.BACKEND_N8N_API_TOKEN
+      # and the research workflow reads $env.LITELLM_*. Workflow authors can
+      # read this container's environment, so keep editor access admin-only.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
       # STT/TTS/DOC endpoints (available for workflows)
       STT_ENDPOINT: ${STT_ENDPOINT}
       TTS_ENDPOINT: ${TTS_ENDPOINT}
@@ -158,6 +163,11 @@ services:
       QUEUE_BULL_REDIS_DB: 0
       QUEUE_HEALTH_CHECK_ACTIVE: true
       BACKEND_N8N_API_TOKEN: ${BACKEND_N8N_API_TOKEN}
+      # n8n 2.x blocks $env in expressions unless this is exactly "false";
+      # every bundled workflow authenticates with $env.BACKEND_N8N_API_TOKEN
+      # and the research workflow reads $env.LITELLM_*. Workflow authors can
+      # read this container's environment, so keep editor access admin-only.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
       # Queue mode means execution-data writes happen HERE, not on the
       # main container — the worker-server serves /metrics when these are
       # set (scraped as the n8n-worker prometheus job).

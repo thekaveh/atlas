@@ -21,7 +21,7 @@ import os
 import re
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import SplitResult, quote, urlsplit
+from urllib.parse import SplitResult, quote, urlencode, urlsplit
 
 import httpx
 
@@ -790,8 +790,10 @@ class ComfyUIMediaClient:
                 # same GET /comfyui/image/{filename} open-webui/n8n use) — NOT
                 # a fal-style absolute hosted URL. Local consumers are in-network.
                 params = {"subfolder": subfolder, "folder_type": folder_type}
-                query = "&".join(f"{k}={v}" for k, v in params.items() if v)
-                url = f"/comfyui/image/{filename}"
+                # Encoded: a subfolder or filename with `&`, `#`, `?` or a
+                # space otherwise produced a URL that names a different file.
+                query = urlencode({k: v for k, v in params.items() if v})
+                url = f"/comfyui/image/{quote(filename, safe='')}"
                 if query:
                     url = f"{url}?{query}"
                 artifacts.append(

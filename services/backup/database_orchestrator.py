@@ -859,8 +859,17 @@ def _env_file_values(repo: Path) -> dict[str, str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        values[key.strip()] = value.split("#", 1)[0].strip().strip('"').strip("'")
+        values[key.strip()] = _env_value(value.strip())
     return values
+
+
+def _env_value(value: str) -> str:
+    """Compose semantics: a quoted value is taken whole (a `#` inside it is
+    data, e.g. a password); an unquoted value ends at ` #`."""
+    if value[:1] in ("'", '"'):
+        end = value.find(value[0], 1)
+        return value[1:end] if end != -1 else value[1:]
+    return re.split(r"\s#", value, maxsplit=1)[0].strip()
 
 
 def _setting(values: dict[str, str], name: str, default: str) -> str:
@@ -914,6 +923,7 @@ class DatabaseCoordinator:
         self.token = token
         self.timeout = timeout
         values = _env_file_values(repo)
+        self.env_values = values
         self.project = _validate_docker_name(_setting(values, "PROJECT_NAME", "atlas"), "PROJECT_NAME")
         scope = hashlib.sha256(str(repo.resolve()).encode()).hexdigest()[:24]
         self.runner = CommandRunner(token=token, timeout=timeout, scope=scope)
@@ -968,7 +978,9 @@ class DatabaseCoordinator:
         self.poison_reason: str | None = None
 
     def _bounded_count(self, name: str, default: str, maximum: int) -> int:
-        value = os.environ.get(name, default)
+        # README §3 documents these as .env settings; the host scripts never
+        # source .env, so read it like every other setting here.
+        value = _setting(getattr(self, "env_values", {}), name, default)
         if not value.isdecimal() or value.startswith("0") or not 1 <= int(value) <= maximum:
             raise ContractError(f"{name} must be a canonical integer from 1 to {maximum}")
         return int(value)
@@ -1388,7 +1400,9 @@ class DatabaseCoordinator:
                 container,
                 [
                     "sh", "-c",
-                    'exec cypher-shell -u "$NEO4J_USERNAME" -p "$NEO4J_PASSWORD" '
+                    # cypher-shell reads NEO4J_USERNAME/NEO4J_PASSWORD from its
+                    # environment; `-p` would put the password in its argv.
+                    "exec cypher-shell "
                     "-d system \"SHOW DATABASES YIELD name,currentStatus WHERE "
                     "name IN ['system','neo4j'] AND currentStatus='online' RETURN name ORDER BY name\"",
                 ],
@@ -1919,8 +1933,19 @@ class DatabaseCoordinator:
 
 
 def _lock_path(repo: Path) -> Path:
+    # Not TMPDIR: it differs per session (macOS gives a terminal
+    # /var/folders/... but a cron/launchd job none), so a scheduled backup and
+    # an interactive restore would each take "the" lock in different places.
+    # Not /tmp either: there another local user could pre-create the
+    # predictable name in a poisoned state that the owner cannot delete.
+    # The checkout's own gitignored volumes/locks is shared by every run of
+    # this repository and writable only by its owner.
+    # ATLAS_DATABASE_LOCK_DIR is an explicit override every run must share.
     digest = hashlib.sha256(str(repo.resolve()).encode()).hexdigest()[:24]
-    return Path(os.environ.get("TMPDIR", "/tmp")) / f"atlas-database-boundary-{digest}.lock"
+    override = os.environ.get("ATLAS_DATABASE_LOCK_DIR")
+    lock_dir = Path(override) if override else repo / "volumes" / "locks"
+    lock_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return lock_dir / f"atlas-database-boundary-{digest}.lock"
 
 
 def _signal_as_exception(signum, _frame):
@@ -1970,11 +1995,11 @@ def main(argv: list[str] | None = None) -> int:
         token = requested_test_token
     else:
         token = secrets.token_hex(16)
-    timeout_text = os.environ.get("BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS", "120")
+    values = _env_file_values(repo)
+    timeout_text = _setting(values, "BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS", "120")
     if not timeout_text.isdecimal() or timeout_text.startswith("0") or not 1 <= int(timeout_text) <= 3600:
         raise ContractError("BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS must be a canonical integer from 1 to 3600")
     timeout = int(timeout_text)
-    values = _env_file_values(repo)
     plan = source_plan(
         _setting(values, "NEO4J_GRAPH_DB_SOURCE", "container"),
         _setting(values, "WEAVIATE_SOURCE", "container"),

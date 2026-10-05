@@ -159,7 +159,12 @@ ensure_login() {
     printf '%s\n%s\n%s' "$PGPASSWORD" "$role_name" "$role_password" | sha256sum
   )
   password_fingerprint=${password_fingerprint%% *}
+  # The password reaches psql through its environment (\getenv, psql 15+),
+  # not `-v password=...`, which exposed every scoped password in the argv.
+  ATLAS_SCOPED_ROLE_PASSWORD=$role_password
+  export ATLAS_SCOPED_ROLE_PASSWORD
   printf '%s\n' \
+    '\getenv password ATLAS_SCOPED_ROLE_PASSWORD' \
     "SELECT format('CREATE ROLE %I LOGIN', :'role')" \
     "WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'role') \\gexec" \
     "SELECT format('ALTER ROLE %I LOGIN PASSWORD %L', :'role', :'password')" \
@@ -169,8 +174,9 @@ ensure_login() {
     "      ANY (COALESCE(rolconfig, ARRAY[]::text[]))" \
     ") \\gexec" \
     "ALTER ROLE :\"role\" SET atlas.password_fingerprint TO :'fingerprint';" \
-    | psql_admin "$PGDATABASE" -v role="$role_name" -v password="$role_password" \
+    | psql_admin "$PGDATABASE" -v role="$role_name" \
         -v fingerprint="$password_fingerprint"
+  unset ATLAS_SCOPED_ROLE_PASSWORD
 }
 
 ensure_restricted_login() {

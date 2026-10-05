@@ -99,6 +99,8 @@ data/
 # file under volumes/litellm/ — plugins, custom prompts, anything we
 # might want to track — doesn't get silently hidden by a directory glob.
 volumes/api/kong-dynamic.yml
+# Host lock for the database backup/restore boundary (services/backup).
+volumes/locks/
 volumes/litellm/config.yaml
 volumes/litellm/consumer-models.yaml
 volumes/litellm/*.yml

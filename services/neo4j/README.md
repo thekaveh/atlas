@@ -98,10 +98,8 @@ GRAPH_DB_AUTH=neo4j/your_password  # Combined form consumed by the Neo4j contain
 GRAPH_DB_PORT=63023            # Bolt protocol (mapped to 7687 inside the container)
 GRAPH_DB_DASHBOARD_PORT=63024  # Browser interface and HTTP API (mapped to 7474)
 
-# Database Settings
-NEO4J_server_memory_heap_initial__size=512m
-NEO4J_server_memory_heap_max__size=1G
-NEO4J_server_memory_pagecache_size=512m
+# Container resources
+NEO4J_MEMORY_LIMIT=2g          # Compose memory limit for the container
 ```
 
 ## 7. Usage Examples
@@ -181,16 +179,14 @@ Neo4j can be integrated into workflows for:
 ## 10. Performance Tuning
 
 ### 10.1. Memory Configuration
-Adjust memory settings based on your data size and available system memory:
+`NEO4J_MEMORY_LIMIT` (default `2g`) caps the container. Without explicit settings, the JVM and Neo4j derive heap and page cache from the memory the container sees. Atlas does not forward `NEO4J_server_memory_*` settings from `.env`; to pin them, add them to the service's `environment:` through a Compose override, for example:
 
-```bash
-# For larger datasets
-NEO4J_server_memory_heap_max__size=2G
-NEO4J_server_memory_pagecache_size=1G
-
-# For smaller datasets or limited memory
-NEO4J_server_memory_heap_max__size=512m
-NEO4J_server_memory_pagecache_size=256m
+```yaml
+services:
+  neo4j-graph-db:
+    environment:
+      NEO4J_server_memory_heap_max__size: 2G
+      NEO4J_server_memory_pagecache_size: 1G
 ```
 
 ### 10.2. Query Optimization
@@ -210,7 +206,7 @@ docker logs ${PROJECT_NAME}-neo4j-graph-db -f
 curl http://localhost:63024/
 
 # Check Bolt connection
-docker exec ${PROJECT_NAME}-neo4j-graph-db cypher-shell -u neo4j -p password "RETURN 'Connection OK'"
+docker exec ${PROJECT_NAME}-neo4j-graph-db cypher-shell -u neo4j -p "$GRAPH_DB_PASSWORD" "RETURN 'Connection OK'"
 ```
 
 ### 11.2. Database Statistics
@@ -315,8 +311,11 @@ docker exec ${PROJECT_NAME}-neo4j-graph-db cat /var/lib/neo4j/conf/neo4j.conf
 
 ### 14.3. Recovery Procedures
 ```bash
-# If database is corrupted, restore from backup
-docker exec -it ${PROJECT_NAME}-neo4j-graph-db /usr/local/bin/restore.sh
+# If database is corrupted, restore the newest legacy snapshot (offline, §4.2)
+docker compose stop neo4j-graph-db
+docker compose run --rm --no-deps --entrypoint /usr/local/bin/restore.sh neo4j-graph-db
+docker compose start neo4j-graph-db
+# Coordinated signed backups restore with services/backup/run-database-restore.sh
 
 # If backup is corrupted, reinitialize (data loss)
 docker volume rm ${PROJECT_NAME}-graph-db-data

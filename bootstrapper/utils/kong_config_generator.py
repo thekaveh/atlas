@@ -736,7 +736,13 @@ class KongConfigGenerator:
                         'paths': ['/realtime/v1/']
                     }
                 ],
-                'plugins': [{'name': 'cors'}]
+                # key-auth as on every other Supabase route (and upstream's
+                # kong.yml); supabase-js sends `apikey` as a query parameter
+                # on the WebSocket URL, which key-auth reads by default.
+                'plugins': [
+                    {'name': 'cors'},
+                    {'name': 'key-auth', 'config': {'key_names': ['apikey']}}
+                ]
             },
             {
                 'name': 'realtime-v1-rest',

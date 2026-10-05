@@ -105,6 +105,32 @@ def test_storage_upload_returns_503_for_storage_dependency_failure(monkeypatch):
     assert resp.json()["detail"] == "Supabase Storage is unavailable"
 
 
+def test_storage_upload_maps_an_existing_object_to_409(monkeypatch):
+    """storage3 does not upsert; a duplicate path is a permanent conflict,
+    and the old 503 made clients retry it forever."""
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    from storage3.exceptions import StorageApiError
+    import main
+
+    class Bucket:
+        def upload(self, **_kwargs):
+            raise StorageApiError("The resource already exists", "Duplicate", "409")
+
+    class Storage:
+        def from_(self, _bucket):
+            return Bucket()
+
+    monkeypatch.setattr(main, "storage_client", Storage())
+    resp = TestClient(main.app).post(
+        "/storage/upload",
+        files={"file": ("example.txt", b"hello", "text/plain")},
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "default/example.txt already exists"
+
+
 def test_storage_upload_rejects_unapproved_bucket_and_path_filename(monkeypatch):
     _stub_required_env(monkeypatch)
     from fastapi.testclient import TestClient

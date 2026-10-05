@@ -1940,3 +1940,28 @@ def test_textual_quit_waits_for_a_running_bundle_export(tmp_path, monkeypatch) -
 
     assert (lines[0].startswith("📦 Launch failed; collecting the support bundle"),
             notices) == (True, ["Writing the support bundle; Ctrl+Q works again when it is done."])
+
+
+def test_a_raising_check_fails_the_json_report_instead_of_crashing(tmp_path, monkeypatch):
+    """`doctor --format json` promises pure JSON and a non-zero exit on fail;
+    a check that raised printed a traceback and no JSON at all."""
+    from click.testing import CliRunner
+    import start as start_module
+
+    _write_base_env(tmp_path, extra="COMFYUI_SOURCE=disabled\n")
+    _patch_starter_paths(monkeypatch, tmp_path)
+
+    def broken(_starter):
+        raise ValueError("invalid literal for int() with base 10: '8188x'")
+
+    broken.__name__ = "_doctor_check_broken_probe"
+    monkeypatch.setattr(start_module, "DOCTOR_CHECKS", [broken])
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+
+    payload = json.loads(result.stdout)
+    assert result.exit_code == 1
+    assert payload["ok"] is False
+    assert payload["checks"][0]["id"] == "broken-probe"
+    assert payload["checks"][0]["status"] == "fail"
+    assert "ValueError" in payload["checks"][0]["message"]

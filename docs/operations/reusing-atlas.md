@@ -693,10 +693,14 @@ status:
 ./start.sh --no-tui --detach --json
 ```
 
-The JSON payload includes a `converged_after_grace` boolean — `true` when the
-start converged only after re-polling still-`starting` rows through the grace
-window, so automation can tell a health race apart from a first-pass-healthy
-start.
+When startup reaches the service summary, the JSON payload is
+`{"ok", "services", "converged_after_grace"}`. `converged_after_grace` is
+`true` when the start converged only after re-polling still-`starting` rows
+through the grace window, so automation can tell a health race apart from a
+first-pass-healthy start. When startup stops earlier (invalid input, a failed
+setup step, or a failed `up`), the payload is only `{"ok": false,
+"exit_code": N}` and the offending services are named on stderr; check `ok`
+before reading the other keys.
 
 **Shared managed-host runtimes and teardown.** Some sources run a **native
 host-global process** rather than a container: Apple-Silicon/Metal ComfyUI
@@ -1507,14 +1511,6 @@ default-port / unpullable-model lints) and `endpoints assert --require <the
 fields you read>` are the standing drift gates: run them against your configured
 stack on every pin bump so an upstream change fails your build loudly instead of
 degrading the running consumer. See [§4.1 step 8](#41-stand-up-a-consumer-from-scratch-the-ordered-walkthrough).
-
-**Known cosmetic caveat.** A `--detach` / non-TTY start can print
-`[ERROR] <svc>: starting, exit code 0` and `Failed to start some services` while
-the containers report **healthy** seconds later — the launcher takes a single
-`compose ps` snapshot and treats `Health=starting` as failure. Until the
-classifier is fixed, verify with `docker ps` before trusting that banner; a
-genuine failure shows a non-zero exit code or a container that never reaches
-`healthy`.
 
 ---
 

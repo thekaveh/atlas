@@ -232,11 +232,18 @@ Each row carries:
   This is the display-group chip used by the filter row above;
   the actual family-grouping mechanism is the **variant tree**
   described below.
-- **Status badges** — `[pulled]` (model file already on disk under
-  `services/comfyui/data/<target_dir>/`, only meaningful for
-  container modes), `[library]` (catalog-only — not yet downloaded).
-- **Capability hints** — `[gpu]` if `min_vram_gb > 0`, `required node: <node>`
-  if the model requires a ComfyUI custom node. For container sources,
+- **Descriptive badges** — `[family]`, category, size in GB, and (when the
+  catalog sets them) `[precision]`, `[variant]` and `[license]`.
+- **`[pulled]`** — every file of the entry is already in the
+  `<project>-comfyui-models` named volume. The wizard finds the volume with
+  `docker volume inspect`; when its mountpoint is not readable from the host
+  (Docker Desktop keeps it inside the VM) the badge is omitted, so its absence
+  does not mean "not downloaded".
+- **Warning badges** (shown with a warning-sign prefix; warn-only, nothing is
+  hidden) — `node: <nodes>` when the model needs ComfyUI custom nodes,
+  `requires GPU` (no GPU detected and the model is not CPU-capable),
+  `requires N GB VRAM` (detected GPU memory is below the model's minimum),
+  `requires N GB RAM`, and any license restriction. For container sources,
   the bootstrapper maps those node names through
   `services/comfyui/custom-nodes.yaml` and writes a pinned
   `active-custom-nodes.tsv` install plan. Dependency-bearing nodes must carry
@@ -292,8 +299,12 @@ ComfyUI sources, but the downstream init pipeline branches:
   the bootstrapper still writes the manifest so the backend
   `/comfyui/db/models` endpoint that Open WebUI and n8n consume can
   serve the active set. You populate your host ComfyUI install's
-  `models/<target_dir>/` directory yourself, same as
-  `ollama pull <name>` for an Ollama localhost upstream.
+  `models/<target_dir>/` directory yourself (unlike `ollama-localhost`,
+  which Atlas provisions automatically).
+- **`managed-localhost-mps`** — Atlas provisions the selected models into
+  `COMFYUI_MPS_MODELS_PATH` on the host at start (no `comfyui-init`
+  container), and installs the required allowlisted custom nodes into the
+  host ComfyUI. See the ComfyUI README §10.
 
 Selection persists as `COMFYUI_USER_MODELS` (comma-separated
 catalog names) in `.env`. CLI flag `--comfyui-models` accepts the

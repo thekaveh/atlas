@@ -2427,7 +2427,11 @@ class WizardScreen(Screen):
         known target set, nothing is built here and ``up`` keeps its
         ``--build`` decision exactly as before.
         """
-        build_args = self._starter.docker_manager.prepare_build_args(cold, targets)
+        # Off the UI loop: this runs `docker compose config` (60s deadline)
+        # and `git rev-parse`; inline it froze the log pane and Ctrl+C.
+        build_args = await asyncio.to_thread(
+            self._starter.docker_manager.prepare_build_args, cold, targets
+        )
         if not cold and not (build_args and targets):
             return True, targets, (), build_args
         if not cold:
@@ -3146,7 +3150,9 @@ class WizardScreen(Screen):
         committing, so ``ctrl+s`` followed by ``ctrl+x`` cannot delete
         volumes without a cold confirmation of its own.
         """
-        if self._phase != "launch":
+        # Only after a successful launch, as the footer hint and #912 say:
+        # during setup/build/`up` a `down` would race the in-flight launch.
+        if self._phase != "launch" or not self._launch_succeeded:
             return
         now = _teardown_clock()
         if self._pending_teardown == cold and now < self._pending_teardown_deadline:

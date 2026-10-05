@@ -939,3 +939,28 @@ def test_dashboard_route_is_basic_auth_gated():
     assert "basic-auth" in plugin_names
     acl = [p for p in dash[0]["plugins"] if p["name"] == "acl"]
     assert acl and acl[0]["config"]["allow"] == ["dashboard_user"]
+
+
+def test_chatterbox_container_listens_where_kong_and_tts_point():
+    """The pinned image defaults PORT=5123 and caches under MODEL_CACHE_DIR
+    (/cache) as user `app`; compose must pin 4123 and mount the cache there."""
+    from pathlib import Path
+
+    import yaml
+
+    compose = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / "services/chatterbox/compose.yml")
+        .read_text(encoding="utf-8")
+    )["services"]["chatterbox"]
+    assert compose["environment"]["PORT"] == "4123"
+    assert compose["ports"][0].endswith(":4123")
+    assert "http://localhost:4123/health" in compose["healthcheck"]["test"]
+    assert "chatterbox-cache:/cache" in compose["volumes"]
+
+
+def test_realtime_websocket_route_requires_the_apikey():
+    """docs/operations/access-and-credentials.md lists /realtime/v1 among the
+    key-auth paths (as upstream Supabase does); the WebSocket had only CORS."""
+    config = _generate("")
+    ws = next(svc for svc in config["services"] if svc["name"] == "realtime-v1-ws")
+    assert {"name": "key-auth", "config": {"key_names": ["apikey"]}} in ws["plugins"]

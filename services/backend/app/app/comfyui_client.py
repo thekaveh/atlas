@@ -199,7 +199,9 @@ class ComfyUIClient:
         """Get execution history"""
         url = f"{self.base_url}/history"
         if prompt_id is not None:
-            url += f"/{prompt_id}"
+            # Encoded like cancel_prompt: a `%3F` or `..` must not reshape
+            # the upstream request (e.g. into the unfiltered history list).
+            url += f"/{quote(prompt_id, safe='')}"
         history = await _request_json(
             self.client.get(url),
             operation="Failed to get ComfyUI history",

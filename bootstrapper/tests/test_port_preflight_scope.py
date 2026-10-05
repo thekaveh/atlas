@@ -107,3 +107,15 @@ def test_the_assignment_pattern_still_handles_comments_and_padding():
         match = re.search(_assignment_pattern("N8N_PORT"), line, re.MULTILINE)
         assert match is not None, line
         assert match.group(2) == value, line
+
+
+def test_secondary_ports_of_a_disabled_service_are_not_probed(tmp_path):
+    """The topology row names one port per service; Ray also publishes GCS
+    and client ports. A squatter on RAY_GCS_PORT aborted a Ray-disabled start."""
+    manager = _manager(tmp_path, "RAY_SOURCE=disabled\n")
+    assignments = manager.calculate_port_assignments(63000)
+    secondary = {assignments["RAY_GCS_PORT"], assignments["RAY_CLIENT_PORT"]}
+    manager.check_port_availability = lambda port: port not in secondary
+
+    conflicts = manager.get_port_conflicts(63000)
+    assert "RAY_GCS_PORT" not in conflicts and "RAY_CLIENT_PORT" not in conflicts

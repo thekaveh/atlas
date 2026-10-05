@@ -677,7 +677,7 @@
 | OPENCLAW_GATEWAY_PORT | openclaw |  | - |
 | OPENCLAW_BRIDGE_PORT | openclaw |  | - |
 | OPENCLAW_GATEWAY_TOKEN | openclaw |  | Optional bearer token for securing the OpenClaw gateway and dashboard. |
-| OPENCLAW_LOCALHOST_PORT | openclaw | 63065 | Host port for the localhost source variant (defaults to the freed OPENCLAW_GATEWAY_PORT slot). URL is derived at compose-render time as http://host.docker.internal:63065. |
+| OPENCLAW_LOCALHOST_PORT | openclaw | 63065 | Host port for the localhost source variant (its own slot, separate from OPENCLAW_GATEWAY_PORT). URL is derived at compose-render time as http://host.docker.internal:63065. |
 | OPENCLAW_INIT_SOURCE | openclaw | container | - |
 | OPENCLAW_ANTHROPIC_API_KEY | openclaw |  | Optional per-OpenClaw Anthropic override. |
 | OPENCLAW_OPENAI_API_KEY | openclaw |  | Optional per-OpenClaw OpenAI override. Leave empty to keep OpenClaw routed through LiteLLM instead of bypassing the stack gateway. |

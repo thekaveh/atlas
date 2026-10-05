@@ -2202,7 +2202,9 @@ class AtlasStarter:
             # The per-service gates (e.g. Spark needs MinIO) raise ValueError
             # with an actionable message; the --no-tui flow has no handler
             # above this step, so report it instead of a raw traceback.
-            self.banner.show_status_message(str(exc), "error")
+            # print, not the banner: the TUI swaps in a no-op banner and
+            # captures stdout into its log pane.
+            print(f"ERROR: {exc}")
             return False
         if not generated:
             return False
@@ -3174,21 +3176,20 @@ class AtlasStarter:
                 return True
             if _run_privileged_hosts_setup(non_interactive=True):
                 return True
-            self.banner.show_status_message(
-                "Hosts entries not added: sudo needs a password, which the "
-                "wizard cannot prompt for. Run ./start.sh --setup-hosts in a "
-                "terminal to add them.",
-                "warning",
+            # print: the TUI's banner is a no-op; its log pane captures stdout.
+            print(
+                "WARNING: hosts entries not added: sudo needs a password, which "
+                "the wizard cannot prompt for. Run ./start.sh --setup-hosts in a "
+                "terminal to add them."
             )
             return True
 
         missing = self.hosts_manager.check_missing_hosts()
         if missing:
-            self.banner.show_status_message(
-                f"{len(missing)} *.localhost hosts entries are missing; "
+            print(
+                f"WARNING: {len(missing)} *.localhost hosts entries are missing; "
                 "friendly URLs need them. Run ./start.sh --setup-hosts to add "
-                "them, or --skip-hosts to silence this check.",
-                "warning",
+                "them, or --skip-hosts to silence this check."
             )
         return True
             
@@ -5946,6 +5947,26 @@ DOCTOR_CHECKS = [
 ]
 
 
+def _comfyui_models_source_note(source: str) -> Optional[str]:
+    """Why ``--comfyui-models`` will not download anything for ``source``.
+
+    container-* downloads via comfyui-init and managed-localhost-mps
+    provisions on the host (#754); only localhost and disabled need a note.
+    """
+    if source == "localhost":
+        return (
+            "⚠️  --comfyui-models was set with COMFYUI_SOURCE=localhost — the "
+            "selection is published to the backend manifest, but Atlas does not "
+            "download it: place the files in your host ComfyUI models directory."
+        )
+    if source == "disabled":
+        return (
+            "⚠️  --comfyui-models was set but COMFYUI_SOURCE=disabled — the "
+            "selection is saved but has no effect until ComfyUI is enabled."
+        )
+    return None
+
+
 def _invoker_path(path: Optional[Path]) -> Optional[Path]:
     """Resolve a user-supplied path against the directory ./start.sh was run
     from (ATLAS_INVOKER_CWD); the bootstrapper itself runs elsewhere."""
@@ -6015,7 +6036,19 @@ def _run_linear_with_support_bundle(starter: "AtlasStarter", options) -> int:
 
 
 def _run_consumer_doctor(starter: "AtlasStarter") -> list[dict]:
-    return [check(starter) for check in DOCTOR_CHECKS]
+    """Run every check; one that raises becomes a ``fail`` result, so
+    ``--format json`` always prints its JSON and exits non-zero (#1057
+    records the same exception as ``unavailable`` in a bundle)."""
+    results = []
+    for check in DOCTOR_CHECKS:
+        try:
+            results.append(check(starter))
+        except Exception as exc:  # noqa: BLE001 - reported, never a traceback
+            check_id = check.__name__.removeprefix("_doctor_check_").replace("_", "-")
+            results.append(_doctor_result(
+                check_id, "fail", f"check raised {type(exc).__name__}: {exc}",
+            ))
+    return results
 
 
 def _print_doctor_text(results: list[dict]) -> None:
@@ -6812,14 +6845,9 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                 or _existing_env.get('COMFYUI_SOURCE', 'disabled')
                 or ''
             ).strip().lower()
-            if not _comfyui_source.startswith('container-'):
-                print(
-                    f"⚠️  --comfyui-models was set but COMFYUI_SOURCE={_comfyui_source} — "
-                    f"comfyui-init won't run (COMFYUI_INIT_SCALE=0 for non-container sources), "
-                    f"so the selection won't take effect. Pass --comfyui-source=container-cpu "
-                    f"(or -gpu) first.",
-                    file=sys.stderr,
-                )
+            note = _comfyui_models_source_note(_comfyui_source)
+            if note:
+                print(note, file=sys.stderr)
 
         # Step 1.6: Apply SOURCE overrides from CLI arguments
         source_args = {
@@ -7481,7 +7509,9 @@ def endpoints_export_command(
     text = render_json(fields) if output_format.lower() == "json" else render_env(fields)
 
     if output_path:
-        out = Path(output_path).expanduser()
+        # Relative to where ./start.sh was run, like doctor --bundle: the
+        # uv wrapper runs the bootstrapper from bootstrapper/.
+        out = _invoker_path(Path(output_path))
         _write_private_text(out, text)
         click.echo(f"Wrote {len(fields)} endpoint field(s) to {out}")
     else:
@@ -7821,6 +7851,7 @@ def blender_mcp_health() -> None:
 
 
 @blender_mcp_group.command("remove")
+@click.confirmation_option(prompt="Stop the process and delete the managed state directory?")
 def blender_mcp_remove() -> None:
     """Stop the bridge and delete the state dir (add-on, launcher, logs)."""
     _blender_mcp_manager().remove()

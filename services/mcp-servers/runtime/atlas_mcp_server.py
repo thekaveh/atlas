@@ -40,11 +40,27 @@ _CYPHER_FORBIDDEN = re.compile(
 _DOLLAR_TAG = re.compile(r"\$[A-Za-z_]?[A-Za-z0-9_]*\$")
 
 
+def _in_word(text: str, i: int) -> bool:
+    """True when position ``i`` continues an identifier (`$` included)."""
+    return i >= 0 and (text[i].isalnum() or text[i] in "_$")
+
+
+def _honors_backslash(text: str, start: int, dialect: str) -> bool:
+    """Cypher strings and PostgreSQL E'...' strings honor backslash escapes."""
+    if dialect == "cypher":
+        return True
+    return (
+        text[start] == "'" and start > 0 and text[start - 1] in "eE"
+        and not _in_word(text, start - 2)
+    )
+
+
 def _quoted_end(text: str, start: int, dialect: str) -> int:
     """Index just past the quoted run opening at ``start``."""
     quote, j, n = text[start], start + 1, len(text)
+    backslash = _honors_backslash(text, start, dialect)
     while j < n:
-        if dialect == "cypher" and text[j] == "\\":
+        if backslash and text[j] == "\\":
             j += 2
         elif text[j] != quote:
             j += 1
@@ -58,12 +74,25 @@ def _quoted_end(text: str, start: int, dialect: str) -> int:
 def _comment_end(text: str, start: int, line_comment: str) -> int | None:
     """Index just past a comment opening at ``start``, or None."""
     if text.startswith(line_comment, start):
-        end = text.find("\n", start)
-        return len(text) if end == -1 else end
+        # PostgreSQL ends a line comment at CR as well as LF.
+        ends = [i for i in (text.find("\n", start), text.find("\r", start)) if i != -1]
+        return min(ends) if ends else len(text)
     if text.startswith("/*", start):
-        end = text.find("*/", start + 2)
-        return len(text) if end == -1 else end + 2
+        return _block_comment_end(text, start, nested=line_comment == "--")
     return None
+
+
+def _block_comment_end(text: str, start: int, *, nested: bool) -> int:
+    """End of the block comment at ``start``; SQL comments nest, Cypher's don't."""
+    depth, j, n = 1, start + 2, len(text)
+    while j < n and depth:
+        if nested and text.startswith("/*", j):
+            depth, j = depth + 1, j + 2
+        elif text.startswith("*/", j):
+            depth, j = depth - 1, j + 2
+        else:
+            j += 1
+    return j
 
 
 def _without_comments(text: str, *, dialect: str = "sql") -> str:
@@ -81,7 +110,11 @@ def _without_comments(text: str, *, dialect: str = "sql") -> str:
     i, n = 0, len(text)
     while i < n:
         comment_end = _comment_end(text, i, line_comment)
-        tag = _DOLLAR_TAG.match(text, i) if dialect == "sql" else None
+        # `$` continues an identifier (a$b$), so a tag never opens mid-word.
+        tag = (
+            _DOLLAR_TAG.match(text, i)
+            if dialect == "sql" and not _in_word(text, i - 1) else None
+        )
         if comment_end is not None:
             out.append(" ")
             i = comment_end
@@ -191,7 +224,10 @@ def postgres_query(sql: str, limit: int | None = None) -> dict[str, Any]:
             cur.execute(
                 "SELECT set_config('statement_timeout', %s, true)", (str(timeout_ms),)
             )
-            cur.execute(sql)
+            # Execute exactly the text the guard approved: if the scanner ever
+            # disagrees with PostgreSQL about where a literal ends, the result
+            # is a syntax error, never hidden statements running.
+            cur.execute(_without_comments(sql))
             rows = cur.fetchmany(row_limit)
             cur.execute("ROLLBACK")
     return {"rows": rows, "returned": len(rows), "limit": row_limit}

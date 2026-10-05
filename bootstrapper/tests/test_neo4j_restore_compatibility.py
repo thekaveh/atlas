@@ -194,3 +194,62 @@ def test_previous_release_dump_restores_into_the_pinned_image(
         assert "previous-release" in query.stdout
     finally:
         owned.cleanup()
+
+
+def _orchestrator():
+    import importlib.util
+    import sys
+
+    spec = importlib.util.spec_from_file_location(
+        "atlas_database_orchestrator_boundary", ORCHESTRATOR
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_boundary_lock_location_ignores_per_session_tmpdir(tmp_path, monkeypatch) -> None:
+    """A cron backup (no TMPDIR) and a terminal restore (TMPDIR=/var/folders/…)
+    must contend for the same lock file."""
+    module = _orchestrator()
+    monkeypatch.delenv("ATLAS_DATABASE_LOCK_DIR", raising=False)
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "session-a"))
+    first = module._lock_path(tmp_path)
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "session-b"))
+    assert module._lock_path(tmp_path) == first
+    # Repo-local, not world-writable /tmp: no other user can pre-poison it.
+    assert first.parent == tmp_path / "volumes" / "locks"
+    monkeypatch.setenv("ATLAS_DATABASE_LOCK_DIR", str(tmp_path))
+    assert module._lock_path(tmp_path).parent == tmp_path
+
+
+def test_retention_counts_read_the_env_file_like_other_settings(tmp_path, monkeypatch) -> None:
+    """README §3 lists the retention counts as .env settings; they used to
+    be read from the process environment only, so `.env` was ignored."""
+    module = _orchestrator()
+    (tmp_path / ".env").write_text(
+        "BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT=10\n", encoding="utf-8"
+    )
+    monkeypatch.delenv("BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT", raising=False)
+    coordinator = object.__new__(module.DatabaseCoordinator)
+    coordinator.env_values = module._env_file_values(tmp_path)
+    assert coordinator._bounded_count("BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT", "3", 100) == 10
+
+
+def test_env_parser_keeps_hash_inside_quoted_values(tmp_path) -> None:
+    """GRAPH_DB_AUTH="neo4j/pa#ss" reached the orchestrator as neo4j/pa, so
+    every Neo4j restore's credential check failed."""
+    module = _orchestrator()
+    (tmp_path / ".env").write_text(
+        'GRAPH_DB_AUTH="neo4j/pa#ss"\n'
+        "SINGLE='a#b'\n"
+        "PLAIN=value # comment\n"
+        "TIGHT=a#b\n",
+        encoding="utf-8",
+    )
+    values = module._env_file_values(tmp_path)
+    assert values["GRAPH_DB_AUTH"] == "neo4j/pa#ss"
+    assert values["SINGLE"] == "a#b"
+    assert values["PLAIN"] == "value"
+    assert values["TIGHT"] == "a#b"

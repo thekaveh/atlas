@@ -286,12 +286,36 @@ class PortManager:
             rows = get_topology().rows
         except Exception:  # noqa: BLE001
             return set()
-        return {
+        disabled = {
             row.port_var
             for row in rows
             if row.port_var
             and row.source_var
             and sources.get(row.source_var) == 'disabled'
+        }
+        return disabled | self._disabled_manifest_port_vars(sources)
+
+    def _disabled_manifest_port_vars(self, sources: dict) -> set:
+        """Every host ``*_PORT`` a disabled manifest declares.
+
+        A topology row names one port per service; Ray (GCS, client),
+        Redpanda (Kafka), OpenClaw (bridge), the exporters and others publish
+        more, all equally unbound. Fails open (empty set) like the caller.
+        """
+        try:
+            from pathlib import Path
+
+            from services.manifests import load_manifests
+
+            manifests = load_manifests(Path(self.config_parser.root_dir) / "services")
+        except Exception:  # noqa: BLE001 — fail open: probe these ports
+            return set()
+        return {
+            decl.name
+            for manifest in manifests
+            if manifest.sources and sources.get(manifest.sources.var) == 'disabled'
+            for decl in manifest.env
+            if decl.name.endswith("_PORT") and "_LOCALHOST_" not in decl.name
         }
 
     def suggest_available_base_port(self, start_from: int = 50000, max_attempts: int = 100) -> Optional[int]:

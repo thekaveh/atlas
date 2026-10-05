@@ -534,3 +534,18 @@ def test_advanced_comfyui_workflow_accepts_only_ready_or_configured_fal_health()
             "operator": {"type": "boolean", "operation": "equals"},
         }
     ]
+
+
+def test_bundled_workflows_can_read_the_env_they_reference():
+    """n8n 2.x blocks `$env` unless N8N_BLOCK_ENV_ACCESS_IN_NODE == "false";
+    the bundled workflows authenticate with $env.BACKEND_N8N_API_TOKEN."""
+    referencing = [
+        path for path in (ROOT / "services" / "n8n").rglob("*.json")
+        if "$env." in path.read_text(encoding="utf-8")
+    ]
+    assert referencing, "expected bundled workflows that read $env"
+    services = yaml.safe_load(
+        (ROOT / "services" / "n8n" / "compose.yml").read_text(encoding="utf-8")
+    )["services"]
+    for name in ("n8n", "n8n-worker"):
+        assert services[name]["environment"]["N8N_BLOCK_ENV_ACCESS_IN_NODE"] == "false"

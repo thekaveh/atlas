@@ -290,6 +290,19 @@ class DependencyManager:
 
         return 1  # Assume enabled if no explicit scale or source
 
+    def _runs_off_compose(self, service_name: str) -> bool:
+        """True when the service's SOURCE points at a host or external
+        instance: no container runs (scale 0), yet the dependency is met.
+        A dependency auto-resolve disabled keeps a container SOURCE, so it
+        still counts as unavailable."""
+        info = self._enablement_lookup().get(service_name)
+        if not info or not info.source_var:
+            return False
+        source = (
+            self.config_parser.parse_service_sources().get(info.source_var) or ""
+        ).strip().lower()
+        return "localhost" in source or "external" in source
+
     def _conditional_dependency_violations(
         self, service_name: str, dep_config: Dict, env_vars: Dict[str, str]
     ) -> List[Dict]:
@@ -366,7 +379,7 @@ class DependencyManager:
             for required_service in required_deps:
                 required_scale = self.get_service_scale(required_service)
                 
-                if required_scale == 0:
+                if required_scale == 0 and not self._runs_off_compose(required_service):
                     # Required dependency is disabled
                     error_msg = dep_config.get('error_message', 
                         f"{service_name} requires {required_service} but it's disabled")

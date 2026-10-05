@@ -29,7 +29,9 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - 'cypher-shell -u "$${NEO4J_AUTH%%/*}" -p "$${NEO4J_AUTH#*/}" "RETURN 1" >/dev/null 2>&1'
+        # Credentials go through cypher-shell's environment, not -u/-p, so the
+        # password never appears in a process argv on every probe.
+        - 'NEO4J_USERNAME="$${NEO4J_AUTH%%/*}" NEO4J_PASSWORD="$${NEO4J_AUTH#*/}" cypher-shell "RETURN 1" >/dev/null 2>&1'
       interval: 10s
       timeout: 10s
       retries: 30

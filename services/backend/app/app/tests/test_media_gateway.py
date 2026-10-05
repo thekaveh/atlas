@@ -639,8 +639,58 @@ def test_media_operation_poll_returns_normalized_glb(monkeypatch):
     assert body["license"] == "MIT"
 
 
+def _provider_still_running(monkeypatch, main):
+    """At the deadline the poll asks the provider first; these timeout tests
+    model a job that is still running there."""
+    async def _running(*, provider, operation_id, modality, model):
+        return {"operation_id": operation_id, "provider": provider,
+                "modality": modality, "model": model, "status": "running"}
+
+    monkeypatch.setattr(main, "_poll_media_provider", _running)
+
+
+def test_poll_after_deadline_keeps_a_result_the_provider_already_has(monkeypatch):
+    """A job that finished before the deadline but was first polled after it
+    used to be overwritten with `timeout`: artifact lost, billed spend released."""
+    main = _fresh_main(monkeypatch)
+    _CapturingFalClient.captured = {}
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+    cancels = []
+
+    async def _record_cancel(**kwargs):
+        cancels.append(kwargs)
+        return True
+
+    monkeypatch.setattr(main, "_cancel_media_provider", _record_cancel)
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    submitted = client.post(
+        "/media/generate",
+        json={
+            "modality": "image_to_3d",
+            "provider": "fal",
+            "input": {"image": "https://cdn.example/sprite.png"},
+        },
+    )
+    assert submitted.status_code == 202
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
+    monkeypatch.setattr(
+        main.time,
+        "time",
+        lambda: operation["created_at_epoch"] + operation["timeout_seconds"] + 1,
+    )
+
+    polled = client.get("/media/operations/fal-3d-9")
+    assert polled.status_code == 200
+    assert polled.json()["status"] == "succeeded"
+    assert cancels == []
+
+
 def test_media_operation_times_out(monkeypatch):
     main = _fresh_main(monkeypatch)
+    _provider_still_running(monkeypatch, main)
     _CapturingFalClient.captured = {}
     monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
 
@@ -675,6 +725,7 @@ def test_media_operation_timeout_cancels_provider_job(monkeypatch):
     cancels the underlying provider job exactly once (a re-poll of the now
     terminal op does not cancel again)."""
     main = _fresh_main(monkeypatch)
+    _provider_still_running(monkeypatch, main)
     _CapturingFalClient.captured = {}
     monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
 
@@ -728,6 +779,7 @@ def test_media_operation_timeout_survives_provider_cancel_failure(monkeypatch):
     """#676 AC#1: a failing provider cancel is swallowed — the op still returns
     the timeout outcome (best-effort, never raised)."""
     main = _fresh_main(monkeypatch)
+    _provider_still_running(monkeypatch, main)
     _CapturingFalClient.captured = {}
     monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
 

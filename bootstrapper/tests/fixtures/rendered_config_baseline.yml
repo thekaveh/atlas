@@ -2871,6 +2871,7 @@ services:
       LITELLM_API_KEY: ''
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: 'false'
       N8N_EDITOR_BASE_URL: http://n8n.localhost:63000
       N8N_ENCRYPTION_KEY: your-random-encryption-key
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: 'true'
@@ -3002,6 +3003,7 @@ services:
       LITELLM_API_KEY: ''
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: 'false'
       N8N_ENCRYPTION_KEY: your-random-encryption-key
       N8N_METRICS: 'true'
       N8N_METRICS_INCLUDE_DEFAULT_METRICS: 'true'
@@ -3055,8 +3057,8 @@ services:
     healthcheck:
       test:
       - CMD-SHELL
-      - cypher-shell -u "$${NEO4J_AUTH%%/*}" -p "$${NEO4J_AUTH#*/}" "RETURN 1" >/dev/null
-        2>&1
+      - NEO4J_USERNAME="$${NEO4J_AUTH%%/*}" NEO4J_PASSWORD="$${NEO4J_AUTH#*/}" cypher-shell
+        "RETURN 1" >/dev/null 2>&1
       timeout: 10s
       interval: 10s
       retries: 30

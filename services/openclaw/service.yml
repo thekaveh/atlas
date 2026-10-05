@@ -8,7 +8,7 @@ capabilities:
   - name: "LiteLLM-backed messaging agent gateway"
     status: partial
     verification: tested
-    note: "Atlas configures OpenClaw to use LiteLLM by default, but messaging channels and approvals require operator onboarding and are not exercised against live platforms."
+    note: "Atlas injects the LiteLLM gateway URL and key, but the operator points OpenClaw's OpenAI provider at it during onboarding; messaging channels and approvals also require onboarding and are not exercised against live platforms."
   - name: "Container and operator-host sources"
     status: partial
     verification: tested
@@ -71,7 +71,7 @@ env:
     description: "Optional bearer token for securing the OpenClaw gateway and dashboard."
   - name: OPENCLAW_LOCALHOST_PORT
     default: "63065"
-    description: "Host port for the localhost source variant (defaults to the freed OPENCLAW_GATEWAY_PORT slot). URL is derived at compose-render time as http://host.docker.internal:63065."
+    description: "Host port for the localhost source variant (its own slot, separate from OPENCLAW_GATEWAY_PORT). URL is derived at compose-render time as http://host.docker.internal:63065."
   - name: OPENCLAW_INIT_SOURCE
     default: container
   - name: OPENCLAW_ANTHROPIC_API_KEY

@@ -297,6 +297,53 @@ def test_legacy_polling_history_outage_returns_503(
     assert "SENTINEL_COMFY_POLL_SECRET" not in response.text
 
 
+@pytest.mark.parametrize("route", ["/comfyui/generate", "/comfyui/workflow"])
+def test_legacy_timeout_cancels_the_prompt_and_returns_its_id(
+    fastapi_client, monkeypatch, route
+):
+    """#676 for the legacy routes: a prompt that outlives timeout_seconds is
+    cancelled, and the 504 names it so the caller can poll it, not re-queue."""
+    import asyncio
+
+    import main
+
+    cancelled = []
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def generate_simple_image(self, **kwargs):
+            return {"success": True, "prompt_id": "prompt-slow",
+                    "client_id": "c", "parameters": kwargs}
+
+        async def queue_prompt(self, _workflow):
+            return {"success": True, "prompt_id": "prompt-slow", "client_id": "c"}
+
+        async def wait_for_completion(self, *_args, **_kwargs):
+            raise asyncio.TimeoutError
+
+        async def cancel_prompt(self, prompt_id):
+            cancelled.append(prompt_id)
+            return True
+
+    monkeypatch.setattr(main, "ComfyUIClient", Client)
+    payload = (
+        {"prompt": "blue observatory"}
+        if route == "/comfyui/generate"
+        else {"workflow": {"1": {"class_type": "SaveImage"}}}
+    )
+
+    response = fastapi_client.post(route, json=payload)
+
+    assert response.status_code == 504
+    assert response.json()["detail"]["prompt_id"] == "prompt-slow"
+    assert cancelled == ["prompt-slow"]
+
+
 @pytest.mark.parametrize(
     ("route", "method_name", "http_method"),
     [
@@ -731,52 +778,6 @@ async def test_completion_continues_after_valid_pending_or_absent_history(
     await client.client.aclose()
 
     assert result["success"] is True
-
-
-@pytest.mark.parametrize("route", ["/comfyui/generate", "/comfyui/workflow"])
-def test_legacy_polling_timeout_returns_truthful_503(
-    fastapi_client, monkeypatch, route
-):
-    import main
-
-    monkeypatch.setenv("FAL_SOURCE", "disabled")
-
-    class Client:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        async def generate_simple_image(self, **kwargs):
-            return {
-                "success": True,
-                "prompt_id": "prompt-timeout",
-                "client_id": "client-timeout",
-                "parameters": kwargs,
-            }
-
-        async def queue_prompt(self, _workflow):
-            return {
-                "success": True,
-                "prompt_id": "prompt-timeout",
-                "client_id": "client-timeout",
-            }
-
-        async def wait_for_completion(self, *_args, **_kwargs):
-            raise asyncio.TimeoutError
-
-    monkeypatch.setattr(main, "ComfyUIClient", Client)
-    payload = (
-        {"prompt": "blue observatory"}
-        if route == "/comfyui/generate"
-        else {"workflow": {"1": {"class_type": "SaveImage"}}}
-    )
-
-    response = fastapi_client.post(route, json=payload)
-
-    assert response.status_code == 503
-    assert response.json() == {"detail": "ComfyUI is unavailable"}
 
 
 @pytest.mark.parametrize("route", ["/comfyui/generate", "/comfyui/workflow"])
@@ -1443,3 +1444,33 @@ def test_image_route_preserves_byte_limit_as_client_error(fastapi_client, monkey
         "detail": "ComfyUI image exceeds configured byte limit"
     }
     assert "SENTINEL_COMFY_IMAGE_LIMIT" not in response.text
+
+
+def test_history_and_workflow_ids_are_path_encoded(monkeypatch):
+    """A `%3F` in the path parameter must not become an upstream query."""
+    import asyncio
+
+    import comfyui_client
+    import n8n_client
+
+    seen = []
+
+    class _Http:
+        async def get(self, url, **_kwargs):
+            seen.append(url)
+            raise RuntimeError("stop")
+
+    comfy = comfyui_client.ComfyUIClient.__new__(comfyui_client.ComfyUIClient)
+    comfy.base_url, comfy.client = "http://comfyui:18188", _Http()
+    n8n = n8n_client.N8nClient.__new__(n8n_client.N8nClient)
+    n8n.base_url, n8n._client, n8n.headers = "http://n8n:5678", _Http(), {}
+    for call in (lambda: comfy.get_history("?max_items=1000"),
+                 lambda: n8n.get_workflow("?limit=250")):
+        try:
+            asyncio.run(call())
+        except Exception:  # noqa: BLE001 - only the URL matters here
+            pass
+    assert seen == [
+        "http://comfyui:18188/history/%3Fmax_items%3D1000",
+        "http://n8n:5678/api/v1/workflows/%3Flimit%3D250",
+    ]
