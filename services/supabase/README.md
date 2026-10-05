@@ -101,7 +101,7 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 - Configured via `GOTRUE_*` environment variables
 - Sign-ups enabled by default (`GOTRUE_DISABLE_SIGNUP="false"`)
 - Emails auto-confirmed for local development (`GOTRUE_MAILER_AUTOCONFIRM="true"`)
-- Together these mean anyone who can reach the auth endpoint can mint an `authenticated` token, which the Backend accepts on `/media/generate` (including the paid FAL provider), `/media/spend`, research and memory routes. Kong binds to loopback by default and media budgets still apply; before widening `HOST_BIND_IP` or publishing the gateway, disable sign-up with a Compose override that sets `GOTRUE_DISABLE_SIGNUP: "true"` on `supabase-auth` (the fragment hard-codes `"false"`, so a `.env` entry has no effect).
+- Together these mean anyone who can reach the auth endpoint can mint an `authenticated` token, which the Backend accepts on `/media/generate` (including the paid FAL provider), `/media/spend`, research and memory routes. Kong binds to loopback by default. Media budgets do not contain this: they are off by default (`MEDIA_BUDGET_ENABLED=false`), and when on, caps apply per consumer and per `project` (a free-text request field), so every new account and every new project name starts with a fresh cap. Before widening `HOST_BIND_IP` or publishing the gateway, disable sign-up with a Compose override that sets `GOTRUE_DISABLE_SIGNUP: "true"` on `supabase-auth` (the fragment hard-codes `"false"`, so a `.env` entry has no effect).
 - Default privileges grant `anon` SELECT and `authenticated` ALL on future `public` tables; db-init revokes them from tables without row-level security, but a table created by a `db/_user/*.sql` script stays exposed through PostgREST until the next db-init run. Enable RLS (or revoke) in the same script.
 
 **supabase-api (PostgREST)**:
@@ -159,6 +159,8 @@ execute privilege is revoked from public API roles despite its required
 **Access**: `http://localhost:${SUPABASE_AUTH_PORT}` (default: 63016)
 **Purpose**: User registration, login, password recovery, email confirmation
 **Features**: JWT authentication, user management, password policies
+**Port**: GoTrue listens on 9999 (`GOTRUE_API_PORT`; its own default is 8081), which is where Kong's `/auth/v1` routes, Storage's `GOTRUE_URL` and the published `SUPABASE_AUTH_PORT` point; the container's healthcheck probes `/health` there.
+
 **Limits**: GoTrue's `SITE_URL` (`http://supabase-studio:3000`) and `API_EXTERNAL_URL` (`http://supabase-auth:9999`) are container-internal and SMTP points at a local relay that does not exist, so email confirmation, recovery, magic-link and OAuth redirect links are not usable from a browser; the stock defaults auto-confirm sign-ups instead.
 
 ### 4.3. Storage Service

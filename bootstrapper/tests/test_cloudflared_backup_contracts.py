@@ -5438,3 +5438,18 @@ def test_bulk_volume_steps_use_the_data_timeout():
     coordinator._copy_volume("src", "dst", "copy")
     coordinator._verify_volume_copy("src", "dst", "verify")
     assert [kw.get("timeout") for _role, kw in calls] == [900, 900]
+
+
+from tests.test_database_role_boundaries import (  # noqa: E402
+    TEST_SECRETS as _ROLE_SECRETS,
+    disposable_postgres,  # noqa: F401 — shared live-database fixture
+)
+
+
+def test_open_webui_role_reads_only_auth_user_ids(disposable_postgres):  # noqa: F811
+    # Existence checks need auth.users.id only; password hashes and recovery
+    # tokens stay out of a role whose service runs admin-authored Python.
+    database = disposable_postgres
+    role = dict(user=_ROLE_SECRETS["OPEN_WEBUI_DB_USER"], password=_ROLE_SECRETS["OPEN_WEBUI_DB_PASSWORD"])
+    assert database.sql("SELECT count(id) FROM auth.users", **role).returncode == 0
+    assert database.sql("SELECT encrypted_password FROM auth.users", check=False, **role).returncode != 0

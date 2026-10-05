@@ -5880,8 +5880,9 @@ GRANT SELECT ON TABLE auth.schema_migrations TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE auth.users TO dashboard_user;
 GRANT ALL ON TABLE auth.users TO postgres;
-GRANT SELECT ON TABLE auth.users TO atlas_open_webui;
 GRANT SELECT ON TABLE auth.users TO atlas_studio_readonly;
+
+GRANT SELECT(id) ON TABLE auth.users TO atlas_open_webui;
 
 GRANT ALL ON TABLE extensions.pg_stat_statements TO postgres WITH GRANT OPTION;
 

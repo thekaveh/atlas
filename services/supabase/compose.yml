@@ -181,6 +181,10 @@ services:
     environment:
       GOTRUE_SITE_URL: http://supabase-studio:3000
       API_EXTERNAL_URL: http://supabase-auth:9999
+      # GoTrue's built-in default is 8081; Kong, Storage (GOTRUE_URL) and the
+      # published port all target 9999, so without these auth was unreachable.
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: "9999"
       GOTRUE_DB_DRIVER: postgres
       DB_NAMESPACE: auth
       GOTRUE_DB_DATABASE_URL: postgres://${SUPABASE_AUTH_DB_USER_URI:?SUPABASE_AUTH_DB_USER_URI is required}:${SUPABASE_AUTH_DB_PASSWORD_URI:?SUPABASE_AUTH_DB_PASSWORD_URI is required}@supabase-db:5432/${SUPABASE_DB_NAME_URI:?SUPABASE_DB_NAME_URI is required}
@@ -200,6 +204,12 @@ services:
       GOTRUE_SMTP_ADMIN_EMAIL: "admin@example.com"
       GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
       GOTRUE_SITE_NAME: "Local Supabase"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9999/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     ports:
       - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_AUTH_PORT}:9999"
     logging:

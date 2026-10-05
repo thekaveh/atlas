@@ -148,7 +148,7 @@ env:
     description: "Default per-consumer/project spend cap in USD. Empty = no default cap (ledger records without hard-stop). Per-consumer overrides go in MEDIA_BUDGET_CONSUMER_CAPS."
   - name: MEDIA_BUDGET_CONSUMER_CAPS
     default: ""
-    description: "Optional JSON map of per-scope caps, keyed by 'consumer' or 'consumer:project', e.g. {\"rag-showcase\":25,\"rag-showcase:demo\":5}. Overrides MEDIA_BUDGET_DEFAULT_USD for matching scopes."
+    description: "Optional JSON map of per-scope caps, keyed by 'consumer' or 'consumer:project', e.g. {\"rag-showcase\":25,\"rag-showcase:demo\":5}. Overrides MEDIA_BUDGET_DEFAULT_USD for matching scopes. A 'consumer' key still caps each project separately, and user callers choose the project name, so it is not a per-user total."
   - name: MEDIA_DISABLED_PROVIDERS
     default: ""
     description: "Comma-separated media providers to kill-switch off (e.g. 'fal'). A disabled provider hard-stops its own submissions without downing the gateway or other providers."

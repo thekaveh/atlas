@@ -325,7 +325,12 @@ GRANT USAGE ON SCHEMA auth TO :"auth_role", :"openwebui_role";
 GRANT ALL ON ALL TABLES IN SCHEMA auth TO :"auth_role";
 GRANT ALL ON ALL SEQUENCES IN SCHEMA auth TO :"auth_role";
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA auth TO :"auth_role";
-GRANT SELECT ON auth.users TO :"openwebui_role";
+-- Only auth.users.id: the identity-sync trigger and RLS policy test existence
+-- by id. A table grant exposed password hashes and recovery tokens to a role
+-- whose service runs admin-authored Python. Revoke first so re-runs narrow an
+-- earlier table-level grant.
+REVOKE SELECT ON auth.users FROM :"openwebui_role";
+GRANT SELECT (id) ON auth.users TO :"openwebui_role";
 
 SELECT set_config('atlas.storage_role', :'storage_role', false);
 SELECT set_config('atlas.realtime_role', :'realtime_role', false);

@@ -4129,6 +4129,8 @@ services:
     environment:
       API_EXTERNAL_URL: http://supabase-auth:9999
       DB_NAMESPACE: auth
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: '9999'
       GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:atlas-db-password@supabase-db:5432/postgres
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DISABLE_SIGNUP: 'false'
@@ -4148,6 +4150,18 @@ services:
       GOTRUE_SMTP_PORT: '1025'
       GOTRUE_SMTP_SENDER_NAME: Supabase Auth
       GOTRUE_SMTP_USER: ''
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:9999/health
+      timeout: 5s
+      interval: 10s
+      retries: 3
+      start_period: 30s
     image: supabase/gotrue:v2.191.0
     logging:
       driver: json-file

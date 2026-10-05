@@ -50,7 +50,9 @@ accepts this caller token only on memory and legacy ComfyUI routes. The init
 container installs an idempotent trigger/backfill that maps valid Open WebUI
 UUIDs into `public.users`, preserving memory foreign-key ownership; `public.users`
 has row-level security, so `supabase-db-init` gives the Open WebUI database role
-its own policy ("Atlas open-webui identity sync") for that trigger.
+its own policy ("Atlas open-webui identity sync") for that trigger. In the
+`auth` schema the role can read only `auth.users.id` (the column those
+existence checks need), not password hashes or recovery tokens.
 Automatic post-conversation extraction uses two daemon workers and a bounded
 four-job waiting queue. Saturated work is skipped with a bounded diagnostic,
 and Backend non-success responses are treated as extraction failures; chat

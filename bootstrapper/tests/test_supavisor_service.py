@@ -268,3 +268,14 @@ def test_supavisor_docs_describe_scope_and_rollback() -> None:
         "No Kong alias",
     ):
         assert expected in readme
+
+
+def test_gotrue_listens_where_kong_storage_and_the_port_map_point():
+    # GoTrue's default is 8081; with no API port set, every 9999 caller
+    # (Kong /auth/v1, Storage GOTRUE_URL, the published port) got nothing.
+    compose = yaml.safe_load((REPO_ROOT / "services/supabase/compose.yml").read_text())
+    auth = compose["services"]["supabase-auth"]
+    assert auth["environment"]["GOTRUE_API_PORT"] == "9999"
+    assert auth["environment"]["GOTRUE_API_HOST"] == "0.0.0.0"
+    assert auth["ports"][0].endswith(":9999")
+    assert "http://localhost:9999/health" in auth["healthcheck"]["test"]
