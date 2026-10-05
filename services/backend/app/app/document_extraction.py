@@ -33,11 +33,10 @@ LONG_TAIL_EXTENSIONS = {
     ".bz2",
 }
 
+# Legacy Office/epub route by extension only: Windows browsers label .csv as
+# application/vnd.ms-excel (and some .docx as application/msword), which
+# would send Docling-capable files to Tika.
 LONG_TAIL_CONTENT_TYPES = {
-    "application/msword",
-    "application/vnd.ms-excel",
-    "application/vnd.ms-powerpoint",
-    "application/epub+zip",
     "message/rfc822",
     "application/vnd.ms-outlook",
     "application/rtf",

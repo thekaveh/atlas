@@ -291,14 +291,25 @@ def neo4j_read_cypher(cypher: str, limit: int | None = None) -> dict[str, Any]:
             # *parameters* (and silently ignored), not applied as a transaction
             # timeout. Query(..., timeout=) is the driver's per-transaction
             # timeout; atlas_limit remains the query parameter.
-            result = session.run(
-                Query(bounded_neo4j_cypher(cypher), timeout=timeout),
-                atlas_limit=row_limit,
-            )
-            rows = [record.data() for record in result.fetch(row_limit)]
+            try:
+                rows = _fetch_rows(session, Query(bounded_neo4j_cypher(cypher), timeout=timeout), row_limit)
+            except Exception as exc:  # noqa: BLE001 - only the alias rejection is retried
+                # The server-side LIMIT wrapper (CALL { ... } RETURN *) rejects
+                # any unaliased RETURN expression (`RETURN n.name`,
+                # `count(*)`), which is what models usually write. Re-run it
+                # unwrapped; result.fetch(row_limit) still caps the rows.
+                if "must be aliased" not in str(exc):
+                    raise
+                statement = _without_comments(cypher, dialect="cypher")
+                rows = _fetch_rows(session, Query(statement, timeout=timeout), row_limit)
     finally:
         driver.close()
     return {"rows": rows, "returned": len(rows), "limit": row_limit}
+
+
+def _fetch_rows(session: Any, query: Any, row_limit: int) -> list[dict[str, Any]]:
+    result = session.run(query, atlas_limit=row_limit)
+    return [record.data() for record in result.fetch(row_limit)]
 
 
 def neo4j_schema() -> dict[str, Any]:

@@ -67,7 +67,7 @@ sources_consulted:
 
 - **RedisInsight** → `../candidates/redisinsight.md`
   - Headline: Official Redis GUI for browsing keys, profiling commands, and inspecting streams across all stack consumers.
-  - Other consumers in stack: backend, n8n, kong, litellm, open-webui, jupyterhub
+  - Other consumers in stack: backend, n8n, litellm, open-webui, jupyterhub (kong only depends_on redis for start ordering)
 
 - **Redis Stack (redis-stack-server)** → `../candidates/redis-stack.md`
   - Headline: Drop-in Redis image bundling RediSearch, RedisJSON, RedisBloom, and RedisTimeSeries — unlocks vector + JSON queries without a second datastore.

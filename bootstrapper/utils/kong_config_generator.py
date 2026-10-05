@@ -5,6 +5,7 @@ Generates Kong API Gateway configuration based on SOURCE values from environment
 Replaces static kong.yml/kong-local.yml with dynamic service routing.
 """
 
+import math
 import yaml
 import socket
 from typing import Dict, Any, List, Optional
@@ -43,6 +44,19 @@ def _basic_auth_hosts(services: list[Dict[str, Any]]) -> frozenset[str]:
                 hosts.update(route.get('hosts') or [])
     return frozenset(hosts)
 
+
+
+def _bake_timeout_ms(raw: object) -> int:
+    """Kong timeout for the asset-baker route: the worker's own
+    float(ASSET_BAKER_TIMEOUT_SECONDS) + 30 s, capped below Kong's 2^31 ms
+    limit (a larger value would stop the whole declarative config loading)."""
+    try:
+        seconds = float(str(raw or "600").strip())
+    except ValueError:
+        seconds = 600.0
+    if not math.isfinite(seconds) or seconds <= 0:
+        seconds = 600.0
+    return min(int((seconds + 30) * 1000), 2**31 - 2)
 
 class KongConfigGenerator:
     """Generates dynamic Kong configuration based on SOURCE values."""
@@ -1206,8 +1220,7 @@ class KongConfigGenerator:
             return None
         # A bake may run ASSET_BAKER_TIMEOUT_SECONDS (600 s default); the
         # gateway's 300 s default 504'd it while the worker kept the slot.
-        raw_timeout = str(self.get_env_value("ASSET_BAKER_TIMEOUT_SECONDS", "600") or "600")
-        bake_ms = (int(raw_timeout) + 30) * 1000 if raw_timeout.isdecimal() else 630_000
+        bake_ms = _bake_timeout_ms(self.get_env_value("ASSET_BAKER_TIMEOUT_SECONDS", "600"))
         return {
             "name": "asset-baker",
             "url": "http://asset-baker:8096/",

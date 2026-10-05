@@ -1513,6 +1513,7 @@ services:
       LITELLM_API_KEY: ''
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
+      LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
       MCP_SERVERS_URL: ''
       MINIO_BUCKET_ICEBERG_CHECKPOINTS: checkpoints
       MINIO_BUCKET_ICEBERG_LANDING: landing

@@ -420,3 +420,45 @@ def test_scanner_follows_postgres_comment_rules() -> None:
     assert module._without_comments("SELECT /* a /* b */ c */ 1") == "SELECT   1"
     # A line comment ends at a bare CR too, so FROM t is not swallowed.
     assert module._without_comments("SELECT 1 --c\rFROM t") == "SELECT 1  \rFROM t"
+
+
+def test_neo4j_read_retries_unaliased_returns_without_the_limit_wrapper(monkeypatch) -> None:
+    """Neo4j rejects `CALL { MATCH (n) RETURN n.name } RETURN *` ("must be
+    aliased"); the tool re-runs the plain read, still capped by fetch()."""
+    import sys
+    import types
+
+    runs = []
+
+    class Record:
+        def data(self):
+            return {"n.name": "x"}
+
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def run(self, query, **params):
+            runs.append(query.text)
+            if query.text.startswith("CALL {"):
+                raise RuntimeError("Expression in CALL { RETURN ... } must be aliased (use AS)")
+            return types.SimpleNamespace(fetch=lambda n: [Record()] * min(n, 2))
+
+    class Query:
+        def __init__(self, text, timeout=None):
+            self.text = text
+
+    driver = types.SimpleNamespace(session=lambda **_kw: Session(), close=lambda: None)
+    monkeypatch.setitem(sys.modules, "neo4j", types.SimpleNamespace(
+        READ_ACCESS="READ", Query=Query,
+        GraphDatabase=types.SimpleNamespace(driver=lambda *_a, **_kw: driver),
+    ))
+    runtime = _runtime_module()
+
+    out = runtime.neo4j_read_cypher("MATCH (n) RETURN n.name", limit=5)
+
+    assert out["rows"] == [{"n.name": "x"}, {"n.name": "x"}]
+    assert runs[0].startswith("CALL {") and runs[1] == "MATCH (n) RETURN n.name"

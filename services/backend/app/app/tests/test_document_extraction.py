@@ -492,4 +492,5 @@ def test_docling_uses_its_own_timeout_and_legacy_formats_go_to_tika(monkeypatch)
     # Markdown/CSV/HTML often arrive labelled text/plain; Docling handles them,
     # and Tika is disabled by default, so text/plain must not reroute them.
     assert not DocumentExtractor(config)._is_long_tail("notes.md", "text/plain")
+    assert not DocumentExtractor(config)._is_long_tail("data.csv", "application/vnd.ms-excel")
     assert module.DOCLING_TIMEOUT_MARGIN_SECONDS == 30.0

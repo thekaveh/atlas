@@ -20,6 +20,8 @@ services:
       - "host.docker.internal:${HOST_GATEWAY_IP}"
     environment:
       JUPYTER_ENABLE_LAB: "yes"
+      # Inert: docker-stacks only adds the sudoers entry when the container
+      # starts as root, and this image ends with USER ${NB_UID}.
       GRANT_SUDO: "yes"
       JUPYTER_TOKEN: ${JUPYTERHUB_TOKEN}
       # VS Code remote-Jupyter connectivity. The Jupyter Server defaults
@@ -39,6 +41,9 @@ services:
       # sys.env only -- it has no dotenv fallback like the Python
       # notebooks -- and aborts on an empty value.
       LITELLM_DEFAULT_MODEL: ${LITELLM_DEFAULT_MODEL}
+      # Notebooks 01/02/14 embed with this; without it they fell back to
+      # ollama/nomic-embed-text, which a cloud-only stack does not serve.
+      LITELLM_EMBEDDING_MODEL: ${LITELLM_EMBEDDING_MODEL}
       # No `:-` default: WEAVIATE_URL is auto-managed and the weaviate
       # manifest blanks it for `disabled`. `${VAR:-x}` substitutes on EMPTY,
       # not just unset, so a default here resurrects an endpoint for a

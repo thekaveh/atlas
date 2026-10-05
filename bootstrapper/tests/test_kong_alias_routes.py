@@ -992,3 +992,8 @@ def test_asset_baker_route_outlasts_the_bake_timeout():
     gen.get_env_value = lambda name, default=None: gen.env_vars.get(name, default)
     service = gen.generate_asset_baker_service()
     assert service["read_timeout"] == service["write_timeout"] == 630_000
+    from utils.kong_config_generator import _bake_timeout_ms
+
+    assert _bake_timeout_ms(" 900.0 ") == 930_000  # the worker reads it with float()
+    assert _bake_timeout_ms("1e9") == 2**31 - 2  # beyond Kong's limit breaks the config
+    assert _bake_timeout_ms("nan") == _bake_timeout_ms("junk") == 630_000

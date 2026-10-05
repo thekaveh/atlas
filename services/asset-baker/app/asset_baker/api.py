@@ -52,7 +52,6 @@ async def _join_request_task(task: asyncio.Task):
     return task.result()
 
 
-
 def _storage_error_status(exc: Exception):
     """404/403 for a missing or forbidden input object (botocore ClientError),
     instead of a bare 500; None for anything else."""
