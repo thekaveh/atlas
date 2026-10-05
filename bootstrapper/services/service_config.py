@@ -15,6 +15,14 @@ from utils.atomic_write import atomic_write_text, render_env_assignment
 from utils.system import get_localhost_host, resolve_host_gateway_ip
 
 
+# Same list as .env.example / compose: the backup contract requires
+# backup-filesystem, and a blank value is written back durably.
+_DEFAULT_WEAVIATE_MODULES = (
+    'text2vec-openai,text2vec-ollama,multi2vec-clip,'
+    'generative-openai,generative-ollama,backup-filesystem'
+)
+
+
 def _configured_weaviate_modules(env_file_vars: dict, default_modules: str) -> str:
     """The declared Weaviate module list, falling back on a BLANK value.
 
@@ -467,11 +475,9 @@ class ServiceConfig:
         # configured module list so advanced users keep any extra modules while
         # the CLIP module is toggled to match MULTI2VEC_CLIP_SOURCE.
         clip_source = self.service_sources.get('MULTI2VEC_CLIP_SOURCE', 'container-cpu')
-        default_modules = (
-            'text2vec-openai,text2vec-ollama,multi2vec-clip,'
-            'generative-openai,generative-ollama'
+        configured_modules = _configured_weaviate_modules(
+            env_file_vars, _DEFAULT_WEAVIATE_MODULES
         )
-        configured_modules = _configured_weaviate_modules(env_file_vars, default_modules)
         weaviate_modules = [
             module.strip()
             for module in configured_modules.split(',')
@@ -612,6 +618,9 @@ class ServiceConfig:
 
         endpoint = config.get('environment', {}).get('TTS_ENDPOINT', '')
         endpoint = endpoint.replace('host.docker.internal', self.localhost_host)
+        # As for STT: resolve ${CHATTERBOX_LOCALHOST_PORT:-...} so the derived
+        # URLs never depend on .env line order.
+        endpoint = _expand_interpolation(endpoint, self.config_parser.parse_env_file())
         env_vars['TTS_ENDPOINT'] = endpoint
 
         if source_value.startswith('speaches-container'):

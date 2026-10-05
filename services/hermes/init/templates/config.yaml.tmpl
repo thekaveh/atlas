@@ -32,8 +32,8 @@ tts:
   provider: openai
   openai:
     base_url: ${TTS_INTERNAL_URL}/v1
-    model: tts-1-hd
-    voice: alloy
+    model: ${TTS_INTERNAL_MODEL}
+    voice: ${TTS_INTERNAL_VOICE}
 # END-TTS
 
 # ─── STT — engine-neutral OpenAI-compatible endpoint ─────────────────

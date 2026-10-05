@@ -34,14 +34,20 @@ class ChunkRequest(BaseModel):
         return self
 
 
-class CorpusChunkRequest(ChunkRequest):
-    """In-process RAG ingestion request: no HTTP body cap on ``text``.
+#: Chunking peaks at roughly 20-25 bytes of RSS per character, so a corpus
+#: document is bounded well below RAG_INGESTION_MAX_FILE_BYTES (100 MiB would
+#: need ~2.5 GB and an OOM kill redelivers the same job under acks_late).
+CORPUS_CHUNK_MAX_CHARS = 20_000_000
 
-    RAG_INGESTION_MAX_FILE_BYTES bounds a corpus document; the 1M-char API
-    cap silently dropped larger ones as per-file validation errors.
+
+class CorpusChunkRequest(ChunkRequest):
+    """In-process RAG ingestion request with a corpus-sized ``text`` bound.
+
+    The 1M-char API cap silently dropped ordinary large documents as
+    per-file validation errors; longer ones are still isolated that way.
     """
 
-    text: str = Field(min_length=1)
+    text: str = Field(min_length=1, max_length=CORPUS_CHUNK_MAX_CHARS)
 
 
 class TextChunk(BaseModel):

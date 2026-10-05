@@ -98,6 +98,8 @@ def test_hermes_template_renders_server_side_stt_key(api_key):
             "HERMES_CONTEXT_LENGTH": "65536",
             "LITELLM_MASTER_KEY": "litellm-test",
             "TTS_INTERNAL_URL": "http://tts",
+            "TTS_INTERNAL_MODEL": "tts-1-hd",
+            "TTS_INTERNAL_VOICE": "alloy",
             "STT_INTERNAL_URL": "http://stt",
             "STT_INTERNAL_API_KEY": api_key,
             "SEARXNG_INTERNAL_URL": "http://search",
@@ -144,3 +146,15 @@ def test_hermes_default_model_fallback_skips_non_chat_routes():
         capture_output=True, text=True, check=True,
     ).stdout.split()
     assert kept == ["ollama/llama3.2:3b"]
+
+
+def test_hermes_tts_uses_the_engine_voice_open_webui_uses():
+    # Speaches' Kokoro has no OpenAI "alloy" voice; hermes-init receives the
+    # same per-engine model/voice the bootstrapper computes for Open WebUI.
+    template = (ROOT / "services/hermes/init/templates/config.yaml.tmpl").read_text(encoding="utf-8")
+    assert "model: ${TTS_INTERNAL_MODEL}" in template
+    assert "voice: ${TTS_INTERNAL_VOICE}" in template
+    compose = yaml.safe_load((ROOT / "services/hermes/compose.yml").read_text(encoding="utf-8"))
+    env = compose["services"]["hermes-init"]["environment"]
+    assert env["TTS_INTERNAL_VOICE"] == "${OPEN_WEB_UI_TTS_VOICE:-alloy}"
+    assert env["TTS_INTERNAL_MODEL"] == "${OPEN_WEB_UI_TTS_MODEL:-tts-1-hd}"

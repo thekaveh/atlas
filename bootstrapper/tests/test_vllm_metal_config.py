@@ -1,6 +1,7 @@
 """Tests for _generate_vllm_metal_config() (#379)."""
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from services.service_config import ServiceConfig
@@ -93,3 +94,24 @@ def test_localhost_stt_endpoint_resolves_the_configured_port():
     })
     env = sc._generate_stt_provider_config()
     assert env["STT_ENDPOINT"] == "http://host.docker.internal:63099"
+
+
+def test_localhost_tts_endpoint_resolves_the_configured_port():
+    sc = ServiceConfig(config_parser=MagicMock())
+    sc.localhost_host = "host.docker.internal"
+    sc.service_sources = {"TTS_PROVIDER_SOURCE": "chatterbox-localhost"}
+    sc.config_parser.parse_env_file.return_value = {"CHATTERBOX_LOCALHOST_PORT": "63099"}
+    sc.get_service_config = MagicMock(return_value={
+        "environment": {"TTS_ENDPOINT": "http://host.docker.internal:${CHATTERBOX_LOCALHOST_PORT:-63044}"},
+    })
+    env = sc._generate_tts_provider_config()
+    assert env["TTS_ENDPOINT"] == "http://host.docker.internal:63099"
+
+
+def test_blank_weaviate_modules_fallback_matches_env_example():
+    # The fallback is written back durably; without backup-filesystem the
+    # backup contract refuses to run.
+    from services.service_config import _DEFAULT_WEAVIATE_MODULES
+
+    example = (Path(__file__).resolve().parents[2] / ".env.example").read_text(encoding="utf-8")
+    assert f"WEAVIATE_ENABLE_MODULES={_DEFAULT_WEAVIATE_MODULES}\n" in example

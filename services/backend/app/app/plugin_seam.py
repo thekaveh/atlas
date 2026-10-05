@@ -236,10 +236,10 @@ def _router_path_error(router, manifest: PluginManifest | None) -> str | None:
         if path in {"", "/"}:
             return "manifest-less router cannot shadow the built-in root route"
         head = path.strip("/").split("/", 1)[0]
-        if head.startswith("{"):
+        if "{" in head:
             # Plugins mount before the built-ins, so "/{slug}" would answer
             # /health, /ready, /plugins, ... in registration order.
-            return f"manifest-less router path {path!r} starts with a path parameter"
+            return f"manifest-less router path {path!r} has a path parameter in its first segment"
         if head in RESERVED_ROUTE_PREFIXES:
             return f"manifest-less router path {path!r} shadows built-in prefix {head!r}"
     return None

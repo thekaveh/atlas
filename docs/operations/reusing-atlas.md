@@ -553,7 +553,7 @@ service's source was set by an explicit CLI flag this run or is declared in the
 manifest's `env` with a non-empty value (precedence: CLI flag > manifest > profile);
 a profile's `env` value replaces an unset value, the shipped `.env.example`
 default, or (on a switch) the prior profile's value for the same key, unless
-the key is pinned in `.env.user` or the manifest's `env` (any other
+the key is pinned in `.env.user` / `ATLAS_ENV_USER_FILE` or the manifest's `env` (any other
 operator-set value is kept with a notice; `env` keys only the old profile
 declared are not reset on a switch); switching profiles resets the prior profile's asserted sources to
 their service defaults (no residue), while a same-profile restart never resets
@@ -1024,7 +1024,7 @@ rag_ingestion_profiles:
         - { backend: lightrag, mode: upload_documents, wait_for_extraction: true, timeout_seconds: 3600, on_unavailable: skip }
 ```
 
-With the Celery tier enabled, the whole job (parse, chunk, embed, write and the LightRAG drain) runs inside one Celery task, so it is bounded by `CELERY_TASK_SOFT_TIME_LIMIT_SECONDS` (default 840 s; past it the job is recorded `failed`). A `timeout_seconds` longer than that cannot be reached: for large corpora raise `CELERY_TASK_SOFT_TIME_LIMIT_SECONDS` / `CELERY_TASK_TIME_LIMIT_SECONDS` and keep `CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS` above the hard limit.
+With the Celery tier enabled, the whole job (parse, chunk, embed, write and the LightRAG drain) runs inside one Celery task, so it is bounded by `CELERY_TASK_SOFT_TIME_LIMIT_SECONDS` (default 840 s; past it the job is recorded `failed`). A `timeout_seconds` longer than that cannot be reached: for large corpora raise `CELERY_TASK_SOFT_TIME_LIMIT_SECONDS` / `CELERY_TASK_TIME_LIMIT_SECONDS` and keep `CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS` above the hard limit. Chunking also holds about 20–25 bytes of memory per character, so a document is chunked only up to 20,000,000 characters; a longer one is recorded as a per-file chunk error (and its earlier vectors are kept), well inside `RAG_INGESTION_MAX_FILE_BYTES`.
 
 On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it into a stable **`revision`**, writes the gitignored `volumes/backend/rag-ingestion-profiles.json`, and generates a compose overlay that bind-mounts that file into both Backend and Celery at a reserved internal contract path. Both services receive the same `RAG_INGESTION_PROFILES_FILE`, Redis state URL, upstream endpoints, and resource limits. For a MinIO corpus, the bucket must also be declared under the same consumer's `storage.buckets`; Atlas compiles that store's access/secret **variable names** into the profile and injects only those scoped credential references into both services. The backend exposes an async job API to submit ingestions headlessly:
 

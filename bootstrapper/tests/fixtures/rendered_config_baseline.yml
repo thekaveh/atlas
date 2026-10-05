@@ -1299,7 +1299,9 @@ services:
       SEARXNG_INTERNAL_URL: ''
       STT_INTERNAL_API_KEY: ''
       STT_INTERNAL_URL: ''
+      TTS_INTERNAL_MODEL: tts-1-hd
       TTS_INTERNAL_URL: ''
+      TTS_INTERNAL_VOICE: alloy
     image: atlas-hermes-init:local
     labels:
       com.atlas.agent: hermes

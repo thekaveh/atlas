@@ -284,15 +284,21 @@ def test_consumer_profile_overrides_reach_the_applier(tmp_path, monkeypatch):
     assert _env(tmp_path)["WEAVIATE_MEMORY_LIMIT"] == "4g"
 
 
+def _starter_with_shipped_limit(tmp_path: Path, current: str):
+    """A starter whose .env.example ships WEAVIATE_MEMORY_LIMIT=2g."""
+    s = _make_starter(tmp_path, f"HOST_BIND_IP=\nWEAVIATE_MEMORY_LIMIT={current}\n")
+    (tmp_path / ".env.example").write_text(
+        "HOST_BIND_IP=127.0.0.1:\nWEAVIATE_MEMORY_LIMIT=2g\n", encoding="utf-8"
+    )
+    return s
+
+
 def test_profile_env_replaces_shipped_default_but_keeps_operator_value(
     tmp_path, monkeypatch
 ):
     # .env.example ships WEAVIATE_MEMORY_LIMIT=2g, so the profile env never
     # applied when only "unset or empty" counted as not operator-set.
-    s = _make_starter(tmp_path, "HOST_BIND_IP=\nWEAVIATE_MEMORY_LIMIT=2g\n")
-    (tmp_path / ".env.example").write_text(
-        "HOST_BIND_IP=127.0.0.1:\nWEAVIATE_MEMORY_LIMIT=2g\n", encoding="utf-8"
-    )
+    s = _starter_with_shipped_limit(tmp_path, "2g")
     overrides = {"dev": {"env": {"WEAVIATE_MEMORY_LIMIT": "4g"}}}
     monkeypatch.setattr(
         s.config_parser, "load_consumer_config",
@@ -301,7 +307,7 @@ def test_profile_env_replaces_shipped_default_but_keeps_operator_value(
     assert s.apply_profile_overrides("dev") is True
     assert _env(tmp_path)["WEAVIATE_MEMORY_LIMIT"] == "4g"
 
-    s = _make_starter(tmp_path, "HOST_BIND_IP=\nWEAVIATE_MEMORY_LIMIT=6g\n")
+    s = _starter_with_shipped_limit(tmp_path, "6g")
     monkeypatch.setattr(
         s.config_parser, "load_consumer_config",
         lambda: NS(profile="dev", profile_overrides=overrides),
@@ -310,11 +316,23 @@ def test_profile_env_replaces_shipped_default_but_keeps_operator_value(
     assert _env(tmp_path)["WEAVIATE_MEMORY_LIMIT"] == "6g"
 
     # A .env.user pin that equals the shipped default is still the operator's.
-    s = _make_starter(tmp_path, "HOST_BIND_IP=\nWEAVIATE_MEMORY_LIMIT=2g\n")
-    s._env_user_keys = {"WEAVIATE_MEMORY_LIMIT"}
+    s = _starter_with_shipped_limit(tmp_path, "2g")
+    (tmp_path / ".env.user").write_text("WEAVIATE_MEMORY_LIMIT=2g\n", encoding="utf-8")
     monkeypatch.setattr(
         s.config_parser, "load_consumer_config",
-        lambda: NS(profile="dev", profile_overrides=overrides),
+        lambda: NS(profile="dev", profile_overrides=overrides, env_overrides={}),
+    )
+    assert s.setup_env_file(cold_start=False) is True
+    assert s.apply_profile_overrides("dev") is True
+    assert _env(tmp_path)["WEAVIATE_MEMORY_LIMIT"] == "2g"
+    (tmp_path / ".env.user").unlink()
+
+    # ...and so is a consumer manifest env value.
+    s = _starter_with_shipped_limit(tmp_path, "2g")
+    monkeypatch.setattr(
+        s.config_parser, "load_consumer_config",
+        lambda: NS(profile="dev", profile_overrides=overrides,
+                   env_overrides={"WEAVIATE_MEMORY_LIMIT": "2g"}),
     )
     assert s.apply_profile_overrides("dev") is True
     assert _env(tmp_path)["WEAVIATE_MEMORY_LIMIT"] == "2g"

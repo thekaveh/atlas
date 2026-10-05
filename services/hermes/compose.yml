@@ -32,6 +32,10 @@ services:
       # Conditional integrations — empty string means "skip this provider".
       # Bootstrapper sets these based on the matching SOURCE.
       TTS_INTERNAL_URL: ${TTS_INTERNAL_URL:-}
+      # Engine-specific model/voice, the values Open WebUI uses (Speaches'
+      # Kokoro has no OpenAI "alloy" voice).
+      TTS_INTERNAL_MODEL: ${OPEN_WEB_UI_TTS_MODEL:-tts-1-hd}
+      TTS_INTERNAL_VOICE: ${OPEN_WEB_UI_TTS_VOICE:-alloy}
       STT_INTERNAL_URL: ${STT_INTERNAL_URL:-}
       STT_INTERNAL_API_KEY: ${STT_INTERNAL_API_KEY:-}
       COMFYUI_INTERNAL_URL: ${COMFYUI_INTERNAL_URL:-}

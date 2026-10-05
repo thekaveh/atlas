@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 def _raise_if_job_missing(exc: RuntimeError, job_id: str) -> None:
     """Map the Ray SDK's 404 (a RuntimeError naming the status code) to 404."""
-    if "status code 404" in str(exc):
+    if str(exc).startswith("Request failed with status code 404:"):
         raise HTTPException(status_code=404, detail=f"Ray job {job_id!r} not found") from exc
 
 _ray_bearer = HTTPBearer(auto_error=False)

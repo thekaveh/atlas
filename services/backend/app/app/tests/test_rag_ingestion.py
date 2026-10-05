@@ -2005,14 +2005,21 @@ def test_chunk_phase_isolates_failing_document(tmp_path, monkeypatch):
 
 
 def test_corpus_document_over_the_api_text_cap_is_chunked(tmp_path, monkeypatch):
-    # The HTTP /chunk body cap (1M chars) silently dropped larger corpus files;
-    # RAG_INGESTION_MAX_FILE_BYTES is the ingestion bound.
-    from chunking_service import ChunkRequest, CorpusChunkRequest
-
+    # The HTTP /chunk body cap (1M chars) silently dropped larger corpus files.
     big = "x " * 600_000
-    with pytest.raises(Exception):
-        ChunkRequest(text=big)
-    assert CorpusChunkRequest(text=big, chunk_size=512, overlap=64).text == big
+    _corpus(tmp_path, monkeypatch, {"big.txt": big})
+    svc = _service(
+        tmp_path,
+        Deps(embedder=FakeEmbedder(), weaviate=FakeWeaviate(),
+             lightrag=FakeLightrag(), poll_interval=0.01),
+        _profiles_file(tmp_path),
+    )
+
+    _, _, final = _run(svc)
+
+    assert final.status == "completed"
+    assert not [e for e in final.errors if "chunk" in str(e)], final.errors
+    assert final.counts.get("chunks", 0) > 1
 
 
 def test_weaviate_class_name_sanitizes_profile_name():

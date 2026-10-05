@@ -22,9 +22,10 @@
 #                 discipline), so transitions leave no source residue.
 #   env           {<ENV_VAR>: <value>}. Applied when the var is unset, empty,
 #                 the shipped .env.example default, or (on a switch) the prior
-#                 profile's value for the same key — unless .env.user or the
-#                 consumer manifest pins it; any other operator-set value is
-#                 kept with a one-line notice (the LOG_MAX_* discipline). Keys
+#                 profile's value for the same key — unless .env.user (or
+#                 ATLAS_ENV_USER_FILE) or the consumer manifest pins it; any
+#                 other operator-set value is kept with a one-line notice
+#                 (the LOG_MAX_* discipline). Keys
 #                 only the prior profile declared are not reset on a switch.
 #                 Use for limits/logging knobs, e.g. WEAVIATE_MEMORY_LIMIT.
 #

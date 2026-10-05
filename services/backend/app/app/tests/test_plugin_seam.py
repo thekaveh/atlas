@@ -736,3 +736,11 @@ def test_manifest_less_router_cannot_open_with_a_path_parameter():
 
     error = plugin_seam._router_path_error(router, None)
     assert error and "path parameter" in error
+
+    partial = APIRouter()
+
+    @partial.get("/h{rest}")  # matches /health in Starlette
+    def partial_catch_all(rest: str):
+        return {"plugin": rest}
+
+    assert "path parameter" in (plugin_seam._router_path_error(partial, None) or "")
