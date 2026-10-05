@@ -49,6 +49,12 @@ class TestDefaultConfig:
         # qwen3.8:latest is the default content+vision model
         assert "qwen3.8:latest" in names
 
+    def test_blank_user_models_activates_no_ollama_model(self):
+        # Deselecting every model writes OLLAMA_USER_MODELS= and ollama-pull
+        # pulls nothing, so LiteLLM must not register the catalog defaults.
+        models = active_models({"LLM_PROVIDER_SOURCE": "ollama-container-cpu", "OLLAMA_USER_MODELS": ""})
+        assert [e for e in models if e.provider == "ollama"] == []
+
     def test_active_models_includes_embedding_model(self):
         models = active_models({})
         names = _names(models)

@@ -26,3 +26,14 @@ def test_open_webui_research_tool_does_not_call_unsupported_run_cancel() -> None
 
     assert "/runs/cancel" not in text
     assert "has been cancelled" not in text
+
+
+def test_streaming_research_tool_is_gated_and_timed_like_research_tool() -> None:
+    # show_progress used to disable the whole tool, and a 300s cap cancelled
+    # typical 3-loop runs that research_tool allows 900s for.
+    text = (TOOLS_DIR / "research_streaming_tool.py").read_text(encoding="utf-8")
+
+    assert "if not self.valves.enable_tool:" in text
+    assert "if not self.valves.show_progress:" not in text
+    assert "default=900" in text
+    assert ":param query:" in text

@@ -35,4 +35,4 @@ neo4j-admin database dump neo4j --to-path="${BACKUP_DIR}" --overwrite-destinatio
 mv "${BACKUP_DIR}/neo4j.dump" "${BACKUP_FILE}"
 
 echo "Backup completed and stored at: ${BACKUP_FILE}"
-echo "Note: auto_restore.sh loads the newest backup_*.dump only when the neo4j database is empty (a fresh data volume)."
+echo "Note: auto_restore.sh loads the newest backup_*.dump only when the neo4j database is empty (a fresh data volume), or to retry an unfinished restore."

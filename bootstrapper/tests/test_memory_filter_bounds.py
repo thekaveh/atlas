@@ -60,3 +60,13 @@ def test_extraction_checks_http_status_and_redacts_error(monkeypatch, capsys):
     error = capsys.readouterr().err
     assert "error_type=RuntimeError" in error
     assert "SENTINEL_BACKEND_SECRET" not in error
+
+
+def test_message_text_fits_the_backend_memory_message_contract():
+    # List content (attachments) and long pastes used to 422 the whole turn.
+    text = _load_module()._message_text
+    parts = [{"type": "text", "text": "see this"}, {"type": "image_url", "image_url": {"url": "x"}}]
+    assert text(parts) == "see this"
+    assert len(text("x" * 30000)) == 20000
+    assert text([{"type": "image_url"}]) == ""
+    assert text(None) == ""

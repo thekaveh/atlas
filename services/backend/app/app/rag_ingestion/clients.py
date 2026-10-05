@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import codecs
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -135,6 +136,17 @@ def _read_bounded(
     return bytes(content)
 
 
+def _bounded_walk(target: Path, max_files: int) -> List[Path]:
+    """Sorted files under ``target``; stops at the first file past the limit
+    instead of listing (and later resolving) an arbitrarily large tree."""
+    found: List[Path] = []
+    for path in target.rglob("*"):
+        if path.is_file():
+            found.append(path)
+            _check_file_count(len(found), max_files)
+    return sorted(found)
+
+
 class MountCorpusReader:
     """Reads a consumer-mounted read-only directory. The resolved path MUST stay
     within the corpus root — the security boundary against arbitrary host paths."""
@@ -153,10 +165,14 @@ class MountCorpusReader:
         if root != target and root not in target.parents:
             raise CorpusPathError(f"corpus path {rel!r} escapes the corpus root {root}")
         if not target.exists():
-            return root, []
-        paths = [target] if target.is_file() else sorted(
-            p for p in target.rglob("*") if p.is_file()
-        )
+            # Not an empty corpus: reconciling against zero files deletes
+            # every vector of the profile. A typo'd override or a corpus
+            # mounted into backend but not celery-worker lands here.
+            raise CorpusPathError(
+                f"corpus path {rel!r} does not exist under {root} "
+                "(is the corpus mounted into this container?)"
+            )
+        paths = [target] if target.is_file() else _bounded_walk(target, _corpus_limits()[2])
         for path in paths:
             # Re-verify containment on the RESOLVED real path of every discovered
             # file: rglob + read_bytes follow symlinks, so a symlink planted inside
@@ -382,6 +398,51 @@ class ParserError(RuntimeError):
         self.body = body
 
 
+# Byte-order marks of the encodings decoded as text despite their NUL bytes.
+_TEXT_BOMS = (
+    (codecs.BOM_UTF32_LE, "utf-32"), (codecs.BOM_UTF32_BE, "utf-32"),
+    (codecs.BOM_UTF8, "utf-8-sig"),
+    (codecs.BOM_UTF16_LE, "utf-16"), (codecs.BOM_UTF16_BE, "utf-16"),
+)
+# Above this share of control characters (other than whitespace) the decoded
+# bytes are not text.
+_MAX_CONTROL_RATIO = 0.01
+
+
+def _decode_text(content: bytes) -> Optional[str]:
+    for bom, encoding in _TEXT_BOMS:
+        if content.startswith(bom):
+            try:
+                return content.decode(encoding)
+            except UnicodeDecodeError:
+                return None
+    if b"\x00" in content:
+        return None
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError:
+        # Windows-1252 text (curly quotes, accented letters) is common in
+        # exported corpora; it ingested before the binary check existed.
+        return content.decode("cp1252", errors="replace")
+
+
+def _plain_text(file: CorpusFile) -> str:
+    """Decode a text file; refuse binary content.
+
+    ``plain_text`` is the last entry of every parser order. Decoding any
+    bytes with ``errors="replace"`` meant a Docling/Tika failure on a PDF
+    silently indexed the PDF's raw bytes as text and reported success,
+    instead of preserving the source for the next run.
+    """
+    text = _decode_text(file.content)
+    controls = sum(1 for ch in text or "" if ord(ch) < 32 and ch not in "\t\n\r\f\v")
+    if text is None or (text and controls / len(text) > _MAX_CONTROL_RATIO):
+        raise ParserError(
+            f"{file.name!r} is not text; plain_text cannot extract it", service="plain_text"
+        )
+    return text
+
+
 class ParserAdapter:
     """Selects the first parser in ``parser_order`` that succeeds. ``plain_text``
     is always available (decode bytes); ``docling``/``tika`` route through the
@@ -403,9 +464,7 @@ class ParserAdapter:
             try:
                 if parser == "plain_text":
                     return ParsedDocument(
-                        name=file.name,
-                        text=file.content.decode("utf-8", errors="replace"),
-                        parser="plain_text",
+                        name=file.name, text=_plain_text(file), parser="plain_text",
                     )
                 if parser in ("docling", "tika"):
                     extractor = self._get_extractor()

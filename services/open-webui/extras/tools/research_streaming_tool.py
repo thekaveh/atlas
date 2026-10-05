@@ -21,7 +21,10 @@ class Tools:
             default="http://local-deep-researcher:2024",
             description="Deep Researcher service URL",
         )
-        timeout: int = Field(default=300, description="Max wait time in seconds")
+        timeout: int = Field(
+            default=900,
+            description="Max wait time in seconds (15 minutes, matching research_tool; a 3-loop run outlasts 300s)",
+        )
         poll_interval: float = Field(
             default=3.0, description="Status check interval in seconds"
         )
@@ -30,8 +33,9 @@ class Tools:
             description="LangGraph assistant/graph id for Local Deep Researcher",
         )
         show_progress: bool = Field(
-            default=True, description="Show research progress updates"
+            default=True, description="Show the start and session lines before the results"
         )
+        enable_tool: bool = Field(default=True, description="Enable this research tool")
 
     def __init__(self):
         self.valves = self.Valves()
@@ -41,23 +45,27 @@ class Tools:
     ) -> str:
         """
         Enhanced research with progress tracking and detailed results
+
+        :param query: The research question or topic to investigate
         """
         if not query.strip():
             return "❌ Please provide a research query"
 
-        if not self.valves.show_progress:
-            return "❌ Research tool is currently disabled"
+        if not self.valves.enable_tool:
+            return "❌ Research tool is currently disabled. Enable it in tool settings if needed."
 
         # Start research session
         try:
             result_parts = []
-            result_parts.append(f"🚀 **Starting research:** {query}\n")
+            if self.valves.show_progress:
+                result_parts.append(f"🚀 **Starting research:** {query}\n")
 
             session_id = self._start_research_session(query)
             if not session_id:
                 return "❌ Failed to start research session"
 
-            result_parts.append(f"📋 **Research session created:** `{session_id}`\n")
+            if self.valves.show_progress:
+                result_parts.append(f"📋 **Research session created:** `{session_id}`\n")
 
             # Track progress and get final results
             final_result = self._track_research_progress(session_id, query)

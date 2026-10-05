@@ -32,7 +32,7 @@ services:
       # Host->container port map, so X-Forwarded-Port (and every upstream
       # that builds absolute URLs from it, e.g. Trino's redirects and query
       # nextUri) carries the published port instead of 8000.
-      KONG_PORT_MAPS: "${KONG_HTTP_PORT}:8000,${KONG_HTTPS_PORT}:8443"
+      KONG_PORT_MAPS: "${KONG_HTTP_PORT:-63000}:8000,${KONG_HTTPS_PORT:-63001}:8443"
       KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
       KONG_DNS_ORDER: LAST,A,CNAME
       # Tight DNS retry/TTL settings so Kong recovers fast when a

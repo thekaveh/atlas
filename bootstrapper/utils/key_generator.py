@@ -495,6 +495,17 @@ class KeyGenerator:
             return True
         return self.update_env_key('CRAWL4AI_API_TOKEN', self.generate_crawl4ai_api_token())
 
+    def generate_and_update_meta_crypto_key(self, force: bool = False) -> bool:
+        """Generate SUPABASE_META_CRYPTO_KEY when absent. Existing keys stick.
+
+        Studio and Postgres Meta otherwise share the public fallback
+        "SAMPLE_KEY", so anyone reaching Meta's port could forge the
+        encrypted connection header and point it at any backend host.
+        """
+        if not force and self.get_current_env_value('SUPABASE_META_CRYPTO_KEY'):
+            return True
+        return self.update_env_key('SUPABASE_META_CRYPTO_KEY', _cli_safe_token_urlsafe(32))
+
     def generate_and_update_openclaw_gateway_token(self, force: bool = False) -> bool:
         """Generate OPENCLAW_GATEWAY_TOKEN when absent. Existing tokens stick.
 
@@ -1213,6 +1224,7 @@ class KeyGenerator:
         # enabling the service later does not require a manual secret edit.
         results['CRAWL4AI_API_TOKEN'] = self.generate_and_update_crawl4ai_api_token(force=False)
         results['OPENCLAW_GATEWAY_TOKEN'] = self.generate_and_update_openclaw_gateway_token(force=False)
+        results['SUPABASE_META_CRYPTO_KEY'] = self.generate_and_update_meta_crypto_key(force=False)
 
         # Backend's Ray routes accept arbitrary job entrypoints, so they always
         # require an application-layer bearer token even when Ray is disabled.

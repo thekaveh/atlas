@@ -120,7 +120,7 @@ if [ "${MINIO_SOURCE}" = "container" ]; then
       "endpoint_url": "http://minio:9000",
       "aws_access_key_id": os.environ["MINIO_ROOT_USER"],
       "aws_secret_access_key": os.environ["MINIO_ROOT_PASSWORD"],
-      "region_name": "us-east-1",
+      "region_name": os.environ.get("MINIO_REGION") or "us-east-1",
       "config_kwargs": {"s3": {"addressing_style": "path"}},
   }))')
   add_conn minio_default \

@@ -20,3 +20,14 @@ overrides:
   defaults:
     metrics_generator:
       processors: []
+
+# Trace retention. Tempo 3 applies it in two places: the scheduler plans
+# retention work and the worker executes it; both read the same duration.
+backend_scheduler:
+  provider:
+    compaction:
+      compaction:
+        block_retention: ${TEMPO_RETENTION_PERIOD:-336h}
+backend_worker:
+  compaction:
+    block_retention: ${TEMPO_RETENTION_PERIOD:-336h}

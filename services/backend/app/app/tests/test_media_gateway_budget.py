@@ -1866,3 +1866,89 @@ def test_partial_attach_failure_recovers_from_either_candidate_id(monkeypatch):
     monkeypatch.setattr(main.MEDIA_BUDGET_ENGINE, "attach_operation", real_attach)
     recovered = client.get("/media/operations/fal-3d-9")
     assert recovered.status_code == 200, recovered.json()
+
+
+# Legacy /comfyui/generate FAL branch vs budgets (kept here: the FAL provider
+# test module is at its size ceiling).
+from tests.test_fal_media_provider import _fresh_main as _fresh_fal_main  # noqa: E402
+
+
+@pytest.mark.parametrize("disabled_providers", ["", "fal"])
+def test_fal_compatibility_path_is_refused_while_budgets_are_enabled(monkeypatch, disabled_providers):
+    """It calls FAL with no reservation or kill-switch check, so with budgets
+    on (including FAL kill-switched) it spent outside every cap."""
+    monkeypatch.setenv("MEDIA_BUDGET_ENABLED", "true")
+    monkeypatch.setenv("MEDIA_DISABLED_PROVIDERS", disabled_providers)
+    main = _fresh_fal_main(monkeypatch, fal_source="enabled", fal_api_key="fal-key")
+
+    class UnexpectedFalClient:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("the budget refusal must happen before FAL execution")
+
+    monkeypatch.setattr(main, "FalClient", UnexpectedFalClient)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post("/comfyui/generate", json={"prompt": "a cat"})
+
+    assert response.status_code == 409
+    assert "/media/generate" in response.json()["detail"]
+
+
+def test_fal_compatibility_timeout_is_a_504_not_a_retryable_200(monkeypatch):
+    main = _fresh_fal_main(monkeypatch, fal_source="enabled", fal_api_key="fal-key")
+
+    class SlowFalClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return False
+
+        async def generate_simple_image(self, **_kwargs):
+            raise asyncio.TimeoutError
+
+    monkeypatch.setattr(main, "FalClient", SlowFalClient)
+
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post("/comfyui/generate", json={"prompt": "a cat"})
+
+    assert response.status_code == 504
+
+
+def test_timed_out_fal_job_keeps_its_reservation_until_settled(monkeypatch):
+    """FAL keeps running (and billing) after the deadline: releasing the
+    reservation at `timeout` let repeated short-timeout jobs spend past the
+    cap. The op holds the reservation as `cancellation_requested`, and an
+    operator can settle one FAL never resolves via /reconcile."""
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+
+    async def _running(*, provider, operation_id, modality, model):
+        return {"operation_id": operation_id, "provider": provider,
+                "modality": modality, "model": model, "status": "running"}
+
+    monkeypatch.setattr(main, "_poll_media_provider", _running)
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    assert _submit(client).status_code == 202
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
+    monkeypatch.setattr(
+        main.time, "time",
+        lambda: operation["created_at_epoch"] + operation["timeout_seconds"] + 1,
+    )
+
+    polled = client.get("/media/operations/fal-3d-9").json()
+    assert (polled["status"], polled["provenance"]["timed_out"]) == ("cancellation_requested", True)
+    record = asyncio.run(main.MEDIA_BUDGET_ENGINE.store.get("fal-3d-9"))
+    assert record.status != main.media_ledger.STATUS_RELEASED
+
+    settled = client.post("/media/operations/fal-3d-9/reconcile", json={"outcome": "release"})
+    assert settled.status_code == 200 and settled.json()["status"] == "failed"
+    record = asyncio.run(main.MEDIA_BUDGET_ENGINE.store.get("fal-3d-9"))
+    assert record.status == main.media_ledger.STATUS_RELEASED

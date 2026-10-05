@@ -1422,6 +1422,12 @@ _LEAKS = [
     (_COLOURED_PASSWORD_LINE, "-".join(["abc", "123", "def", "456"])),
     (f"export key {_GOOGLE_SHAPED_KEY}", _GOOGLE_SHAPED_KEY),
     (f"shell-exported {_SHELL_KEY}", _SHELL_KEY),
+    # CLI flags, redis-cli -a, *_AUTH user/password, prose, escaped JSON quotes.
+    ("psql --password Xy9!kLm2pq", "Xy9!kLm2pq"),
+    ("redis-cli -h redis -a abc12 ping", "abc12"),
+    ("NEO4J_AUTH=neo4j/wordlikepass", "wordlikepass"),
+    ('connecting with secret "Xy9!kLm2pq"', "Xy9!kLm2pq"),
+    ('{"password":"a\\"b tail-leak"}', "tail-leak"),
 ]
 _KEPT = [
     # (text, content redaction must not destroy)
@@ -1432,6 +1438,10 @@ _KEPT = [
     ("?access_token=x&model=llama3.2&port=11434", "&model=llama3.2&port=11434"),
     ("COMFYUI_SOURCE is disabled; check not required.", "is disabled; check not required."),
     ("token rotation happened", "token rotation happened"),
+    # Auth-mode toggles are diagnostics, not credentials.
+    ("BACKEND_KONG_AUTH=disabled", "BACKEND_KONG_AUTH=disabled"),
+    ("BACKEND_IDENTITY_AUTH: required", "BACKEND_IDENTITY_AUTH: required"),
+    ("Unexpected token '<'", "Unexpected token '<'"),
 ]
 
 
@@ -1465,6 +1475,15 @@ def test_support_bundle_redactor_scrubs_keys_and_secret_named_values() -> None:
         "DB_PASSWORD": "short", "PORT": "5432",
         "postgres://atlas:hunter22@db/x": "seen",
     }) == {"DB_PASSWORD": "[REDACTED]", "PORT": "5432", "postgres://[REDACTED]@db/x": "seen"}
+    # *_PASS / *_AUTH are secret-named too, and a lowercase passphrase is
+    # scrubbed by value from free text.
+    assert redactor.value({"SMTP_PASS": "Xy9!kLm2pq", "GRAPH_DB_AUTH": "neo4j/pw"}) == {
+        "SMTP_PASS": "[REDACTED]", "GRAPH_DB_AUTH": "[REDACTED]",
+    }
+    sb = _bundle_module()
+    assert "correcthorsebattery" not in sb.Redactor(
+        {"GRAPH_DB_PASSWORD": "correcthorsebattery"}
+    ).text("login correcthorsebattery")
 
 
 def test_support_bundle_redaction_stays_linear_on_long_lines() -> None:
@@ -1965,3 +1984,31 @@ def test_a_raising_check_fails_the_json_report_instead_of_crashing(tmp_path, mon
     assert payload["checks"][0]["id"] == "broken-probe"
     assert payload["checks"][0]["status"] == "fail"
     assert "ValueError" in payload["checks"][0]["message"]
+
+
+@pytest.mark.parametrize(
+    ("configured", "status"),
+    [("/custom-models.yaml", "skipped"), ("/nonexistent/atlas-models.yaml", "fail")],
+)
+def test_doctor_fails_a_missing_operator_configured_model_sidecar(configured, status) -> None:
+    """Only the shipped container-path default is expected to be missing; an
+    operator path that is missing silently dropped its models."""
+    from types import SimpleNamespace
+
+    import start as start_module
+
+    starter = SimpleNamespace(config_parser=SimpleNamespace(
+        parse_env_file=lambda: {"COMFYUI_CUSTOM_MODELS_FILE": configured},
+        root_dir=REPO_ROOT,
+    ))
+    assert start_module._doctor_check_model_sidecars(starter)["status"] == status
+
+
+def test_custom_models_flag_resolves_against_the_invoking_directory(tmp_path, monkeypatch) -> None:
+    import os
+
+    import start as start_module
+
+    monkeypatch.setenv("ATLAS_INVOKER_CWD", str(tmp_path))
+    resolved = start_module._invoker_path_list(f"./a.yaml{os.pathsep}/abs/b.yaml")
+    assert resolved.split(os.pathsep) == [str((tmp_path / "a.yaml").resolve()), "/abs/b.yaml"]

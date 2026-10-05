@@ -497,3 +497,38 @@ def test_conditional_env_null_branch_is_empty(tmp_path: Path, monkeypatch) -> No
     monkeypatch.delenv("NOPE_UNSET", raising=False)
     config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
     assert config.env_overrides["EXTRA_TOKEN"] == ""
+
+
+def test_yaml_booleans_are_written_lowercase(tmp_path: Path, monkeypatch) -> None:
+    """YAML 1.1 reads yes/on/true as booleans; str(True) wrote "True", which
+    `true|false` checks in the service scripts (e.g. BACKUP_DATABASES) reject."""
+    _write_root(tmp_path)
+    manifest = _write_manifest(
+        tmp_path, "c",
+        "env:\n  values:\n    BACKUP_DATABASES: yes\n    FLAG_OFF: off\n"
+        "    GATED:\n      enabled_if_env: NOPE_UNSET\n      then: true\n      else: false\n",
+    )
+    monkeypatch.delenv("NOPE_UNSET", raising=False)
+    config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    assert config.env_overrides["BACKUP_DATABASES"] == "true"
+    assert config.env_overrides["FLAG_OFF"] == "false"
+    assert config.env_overrides["GATED"] == "false"
+
+
+def test_the_same_manifest_named_twice_loads_once(tmp_path: Path) -> None:
+    from core.consumer_manifest import discover_consumer_manifest_paths
+
+    _write_root(tmp_path)
+    manifest = _write_manifest(tmp_path, "c", "")
+    paths = discover_consumer_manifest_paths(
+        tmp_path, explicit_paths=[str(manifest), str(manifest.parent / "." / manifest.name)],
+    )
+    assert paths == [manifest.resolve()]
+
+
+def test_invalid_manifest_project_name_is_rejected_at_load(tmp_path: Path) -> None:
+    """Written to .env, an invalid name made ./stop.sh refuse to run."""
+    _write_root(tmp_path)
+    manifest = _write_manifest(tmp_path, "c", "project_name: 'bad name!'\n")
+    with pytest.raises(ConsumerManifestError, match="project_name"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])

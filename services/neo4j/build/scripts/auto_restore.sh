@@ -49,6 +49,13 @@ if [ -n "${LATEST_BACKUP}" ] && [ -f "${LATEST_BACKUP}" ]; then
     echo "ERROR: the neo4j database may be in a partially-overwritten state; inspect before trusting data." >&2
     exit 1
   fi
+elif [ -e "${RESTORE_MARKER}" ]; then
+  # A load failed part-way and its dump is gone: refuse to boot the partial
+  # store. Put a backup_*.dump back to retry, or delete the marker to accept
+  # the current data.
+  echo "ERROR: ${RESTORE_MARKER} marks an unfinished restore and no backup_*.dump is left to retry it." >&2
+  echo "ERROR: restore a dump into ${SNAPSHOT_DIR}, or remove the marker to start on the current data." >&2
+  exit 1
 else
   echo "No backup file found. Skipping automatic restore."
 fi

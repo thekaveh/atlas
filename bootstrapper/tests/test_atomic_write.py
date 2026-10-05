@@ -1126,3 +1126,28 @@ def test_the_reader_and_the_writer_share_one_decoder():
     assert "decode_env_value" in source
     # ...and no re-implementation of the quote/comment rules alongside it
     assert "find(quote" not in source
+
+
+def test_atomic_write_keeps_a_symlinked_destination_linked(tmp_path: Path) -> None:
+    real = tmp_path / "real.env"
+    real.write_text("A=1\n", encoding="utf-8")
+    link = tmp_path / ".env"
+    link.symlink_to(real)
+
+    atomic_write.atomic_write_text(link, "A=2\n")
+
+    assert link.is_symlink()
+    assert real.read_text(encoding="utf-8") == "A=2\n"
+
+
+def test_atomic_write_can_replace_a_symlink_instead_of_following_it(tmp_path: Path) -> None:
+    """PID files and the owner-only Kong config replace the link itself."""
+    elsewhere = tmp_path / "elsewhere.pid"
+    elsewhere.write_text("1\n", encoding="utf-8")
+    link = tmp_path / "service.pid"
+    link.symlink_to(elsewhere)
+
+    atomic_write.atomic_replace_text(link, "2\n")
+
+    assert not link.is_symlink() and link.read_text(encoding="utf-8") == "2\n"
+    assert elsewhere.read_text(encoding="utf-8") == "1\n"

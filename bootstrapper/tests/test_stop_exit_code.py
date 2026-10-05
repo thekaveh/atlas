@@ -427,3 +427,29 @@ def test_stop_wrapper_records_the_invoking_directory_like_start():
         text = (root / wrapper).read_text(encoding="utf-8")
         assert 'ATLAS_INVOKER_CWD="${PWD}"' in text, wrapper
         assert text.index("ATLAS_INVOKER_CWD") < text.index('cd "$(dirname "$0")"')
+
+
+def test_cold_stop_that_dropped_consumer_overlays_is_not_reported_as_a_full_wipe(
+    tmp_path, monkeypatch
+):
+    """Volumes declared only by a broken overlay survive a base-stack
+    `down --volumes`; the cold stop must not claim all data was removed."""
+    from core.consumer_manifest import ConsumerManifestError
+    from core.docker_manager import DockerManager
+
+    manager = DockerManager(str(tmp_path))
+    manager._compose_cmd = "docker compose"
+    monkeypatch.setattr(manager.config_parser, "get_project_name", lambda: "atlas")
+    monkeypatch.setattr(manager.config_parser, "env_file_exists", lambda: False)
+    monkeypatch.setattr(
+        manager.config_parser,
+        "load_consumer_config",
+        lambda: (_ for _ in ()).throw(ConsumerManifestError("invalid yaml")),
+    )
+    monkeypatch.setattr(
+        "core.docker_manager.subprocess.run",
+        lambda command, **_kwargs: type("Result", (), {"returncode": 0})(),
+    )
+
+    assert manager.perform_cold_stop_cleanup() is False
+    assert manager.teardown_overlays_dropped is True

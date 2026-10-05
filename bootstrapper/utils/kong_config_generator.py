@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from core.config_parser import DEFAULT_BASE_PORT
-from utils.atomic_write import atomic_write_text
+from utils.atomic_write import atomic_replace_text
 
 
 def _lua_long_string(value: str) -> str:
@@ -1784,6 +1784,10 @@ class KongConfigGenerator:
                 "BACKEND_KONG_AUTH=key-auth requires BACKEND_KONG_API_KEY"
             )
         return [
+            # No hide_credentials: plugins declaring `auth: key-auth` re-check
+            # the forwarded `apikey` inside the backend (require_plugin_gateway_key),
+            # including via this catch-all. The OTel Collector blanks `apikey`
+            # in span URLs and the access log redacts it instead.
             {'name': 'key-auth', 'config': {'key_names': ['apikey']}},
             {'name': 'acl', 'config': {'allow': ['backend_api']}},
         ]
@@ -2051,7 +2055,9 @@ class KongConfigGenerator:
             # reach it (dockerd sets up the bind mount as root, unaffected).
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.parent.chmod(0o700)
-            atomic_write_text(
+            # The 0700 directory above protects this secret-bearing file;
+            # following a symlink would write it somewhere unprotected.
+            atomic_replace_text(
                 output_path,
                 yaml.dump(config, default_flow_style=False, sort_keys=False),
                 mode=0o644,

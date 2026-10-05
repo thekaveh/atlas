@@ -49,6 +49,24 @@ four-job waiting queue. Saturated work is skipped with a bounded diagnostic,
 and Backend non-success responses are treated as extraction failures; chat
 responses never wait for the extraction timeout.
 
+**Saved admin settings override `.env`.** Open WebUI keeps its connection, audio
+and image settings as persistent config (`ENABLE_PERSISTENT_CONFIG` defaults to
+true and Atlas does not change it). The env vars Atlas injects only seed the
+first boot; once an administrator saves the Connections, Audio or Images page,
+the stored value wins. A later STT/TTS source switch, a regenerated
+`PARAKEET_API_TOKEN` or a new `LITELLM_MASTER_KEY` is then ignored until the
+page is updated again (or the value is reset in Admin Settings).
+
+**Built-in image generation is not wired to a working workflow.** The compose
+fragment turns on `ENABLE_IMAGE_GENERATION` with the ComfyUI engine, but sets no
+`COMFYUI_WORKFLOW`, `COMFYUI_WORKFLOW_NODES` or `IMAGE_GENERATION_MODEL`, so
+Open WebUI submits its stock workflow (checkpoint `model.safetensors`, no prompt
+node mapping) and ComfyUI rejects it. Configure the workflow under Admin
+Settings → Images (for example from `extras/workflows/default-text-to-image.json`),
+or use the bundled ComfyUI tool, which goes through the Backend. The tool and
+function folders are mounted read-only; `open-webui-init` registers them
+through the API.
+
 ### 4.1. Atlas Safe Prompt Middleware
 
 Atlas ships a disabled-by-default `Atlas Safe Prompt Middleware` Filter Function in `extras/functions/atlas_safe_prompt_middleware.py`. The existing `open-webui-init` container registers it with Open WebUI on startup, but the function's own `enabled` valve defaults to `false`, so it is inert until an admin enables it from Open WebUI's Functions settings.
@@ -123,7 +141,7 @@ Support tier: **experimental** — Capability contract declared (#967); no cited
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Unified browser chat through LiteLLM | supported | tested | Atlas initializes an Open WebUI administrator and routes its OpenAI-compatible model traffic through the LiteLLM catalog, including Hermes when enabled. |
-| Source-aware speech and image features | partial | tested | Open WebUI receives selected speech endpoints and ComfyUI settings, while model readiness, disabled providers, and source-specific credentials can leave individual features unavailable. |
+| Source-aware speech and image features | partial | tested | Open WebUI receives selected speech endpoints and ComfyUI settings, while model readiness, disabled providers, source-specific credentials, saved admin settings, and the unconfigured built-in ComfyUI workflow can leave individual features unavailable. |
 | Backend memory and research tools | partial | tested | Bundled server-side tools use scoped Backend tokens and synchronized user identities, but extraction is bounded best-effort and research depends on Local Deep Researcher availability. |
 | Safe prompt secret redaction | partial | tested | The registered filter redacts common secret patterns only after an administrator enables its default-off valve, and it covers Open WebUI user messages rather than stack-wide traffic. |
 | Open WebUI access control | supported | tested | Direct and CORS-only chat.localhost paths rely on Open WebUI's own account and session authentication; Kong provides routing but no additional login layer. |

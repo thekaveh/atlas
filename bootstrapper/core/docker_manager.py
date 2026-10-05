@@ -249,14 +249,19 @@ class DockerManager:
                 "⚠️  Consumer overlays could not be loaded during teardown "
                 f"({type(exc).__name__}); continuing with the base stack."
             )
-            return ['-f', 'docker-compose.yml'], False
+            return ['-f', 'docker-compose.yml'], None  # None: overlays dropped
         return file_args, bool(file_args)
 
     def _validated_compose_file_args(
         self, args: List[str], command_prefix: List[str]
     ) -> tuple[List[str], bool]:
-        """Preflight optional teardown overlays before touching live resources."""
+        """Preflight optional teardown overlays before touching live resources.
+
+        Records ``teardown_overlays_dropped`` so a caller whose promise depends
+        on the overlays (a cold stop removing their volumes) can say so.
+        """
         file_args, optional_included = self._teardown_safe_compose_file_args(args)
+        self.teardown_overlays_dropped = optional_included is None
         if not optional_included or not args or args[0] != "down":
             return file_args, optional_included
         config_cmd = command_prefix + file_args + ["config", "-q"]
@@ -274,6 +279,7 @@ class DockerManager:
                 "⚠️  Optional compose overlays failed teardown preflight; "
                 "continuing with the base stack."
             )
+            self.teardown_overlays_dropped = True
             return ['-f', 'docker-compose.yml'], False
         return file_args, True
 
@@ -388,14 +394,7 @@ class DockerManager:
         Returns:
             int: Return code from the command
         """
-        args = ['down']
-        
-        if remove_volumes:
-            args.append('--volumes')
-            
-        if remove_orphans:
-            args.append('--remove-orphans')
-            
+        args = ['down'] + ['--volumes'] * remove_volumes + ['--remove-orphans'] * remove_orphans
         return self.execute_compose_command(args)
     
     def enabled_service_targets(self) -> Optional[list[str]]:
@@ -750,7 +749,9 @@ class DockerManager:
             ['down', '--volumes', '--remove-orphans'],
             project_name=project_name,
         )
-        return result == 0
+        # Volumes declared only by dropped consumer overlays survive a
+        # base-stack `down --volumes`; never report that as a full wipe.
+        return result == 0 and not getattr(self, "teardown_overlays_dropped", False)
     
     def build_services(
         self,

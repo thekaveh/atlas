@@ -98,32 +98,8 @@
           ]
         },
         "sendBody": true,
-        "bodyContentType": "json",
-        "jsonParameters": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "model",
-              "value": "={{ $env.LITELLM_DEFAULT_MODEL }}"
-            },
-            {
-              "name": "messages",
-              "value": "=[{\"role\":\"user\",\"content\": {{ JSON.stringify($json.formatted_prompt) }} }]"
-            },
-            {
-              "name": "stream",
-              "value": false
-            },
-            {
-              "name": "temperature",
-              "value": 0.3
-            },
-            {
-              "name": "max_tokens",
-              "value": 1000
-            }
-          ]
-        },
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.LITELLM_DEFAULT_MODEL, messages: [{ role: 'user', content: $json.formatted_prompt }], stream: false, temperature: 0.3, max_tokens: 1000 }) }}",
         "options": {
           "timeout": 90000
         }

@@ -164,6 +164,7 @@ runtime_sc:
           -Dspark.hadoop.fs.s3a.access.key=${MINIO_SPARK_ACCESS_KEY}
           -Dspark.hadoop.fs.s3a.secret.key=${MINIO_SPARK_SECRET_KEY}
           -Dspark.hadoop.fs.s3a.path.style.access=true
+          -Dspark.hadoop.fs.s3a.endpoint.region=${MINIO_REGION:-us-east-1}
       deploy: {}
       extra_hosts: []
     disabled:

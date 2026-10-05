@@ -181,6 +181,10 @@ services:
       - spark.hadoop.fs.s3a.secret.key=${MINIO_SPARK_SECRET_KEY}
       - --conf
       - spark.hadoop.fs.s3a.path.style.access=true
+      # Without an explicit region, hadoop-aws 3.4 signs custom-endpoint
+      # requests for us-east-2; MinIO validates its own region.
+      - --conf
+      - spark.hadoop.fs.s3a.endpoint.region=${MINIO_REGION:-us-east-1}
       # Lakehouse catalog defaults. These are inert at Spark startup when
       # ICEBERG_REST_SOURCE=disabled; only lakehouse SQL calls need the
       # iceberg-rest service to be running.
@@ -262,6 +266,7 @@ services:
         -Dspark.hadoop.fs.s3a.access.key=${MINIO_SPARK_ACCESS_KEY}
         -Dspark.hadoop.fs.s3a.secret.key=${MINIO_SPARK_SECRET_KEY}
         -Dspark.hadoop.fs.s3a.path.style.access=true
+        -Dspark.hadoop.fs.s3a.endpoint.region=${MINIO_REGION:-us-east-1}
     command:
       - /opt/spark/bin/spark-class
       - org.apache.spark.deploy.history.HistoryServer

@@ -22,6 +22,8 @@ Every line below is a complete, safe-to-run command:
 ./stop.sh
 ```
 
+Before a subcommand (`doctor`, `endpoints`, `env`, `compose`, `managed-host`, …) only `--consumer` applies; it is exported for the subcommand. Output-mode flags (`--no-tui`, `--json`, `--no-splash`, `--detach`) are accepted there and ignored. Any other start option placed there, such as `-p` or `--base-port`, has no effect, and Atlas prints a warning naming it: subcommands read the project and ports from `.env`.
+
 The managed-host families share one lifecycle synopsis. This is **syntax, not
 shell** — the bars separate alternative actions, so pick exactly one per
 invocation (in a shell, a literal `|` would be parsed as a pipeline):

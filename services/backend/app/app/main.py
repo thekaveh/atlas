@@ -3138,10 +3138,61 @@ async def _poll_media_operation_or_raise(operation: dict, operation_id: str) -> 
     return payload
 
 
+async def _cancel_timed_out_fal_operation(
+    operation_id: str, operation: dict, current_status: str
+):
+    """A FAL job past its deadline becomes ``cancellation_requested``.
+
+    Releasing its reservation at the deadline (``timeout``) let FAL keep
+    running and billing outside the budget: a 1-second timeout repeated
+    spent past the cap. As in the cancel route, the reservation stays until
+    a later poll sees FAL's terminal outcome.
+    """
+    payload = dict(operation["last_payload"])
+    payload["status"] = "cancellation_requested"
+    provenance = dict(payload.get("provenance") or {})
+    provenance.update(timed_out=True, provider_cancellation_requested=False)
+    payload["provenance"] = provenance
+    persisted, changed = await _transition_media_payload_or_503(
+        operation_id, payload, expected_status=current_status
+    )
+    if persisted is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Media operation {operation_id} not found",
+        )
+    if not changed:
+        return _media_response(dict(persisted["last_payload"]))
+    try:
+        requested = await _cancel_media_provider(
+            provider="fal", operation_id=operation_id,
+            modality=operation["modality"], model=operation["model"],
+        )
+    except Exception:  # noqa: BLE001 — best-effort by contract
+        logger.warning("Media operation %s timed out; FAL cancel failed", operation_id, exc_info=True)
+        requested = False
+    if not requested:
+        return _media_response(dict(persisted["last_payload"]))
+    payload = dict(persisted["last_payload"])
+    payload["provenance"] = {**dict(payload.get("provenance") or {}),
+                             "provider_cancellation_requested": True}
+    enriched, _ = await _transition_media_payload_or_503(
+        operation_id, payload, expected_status="cancellation_requested"
+    )
+    return _media_response(dict((enriched or persisted)["last_payload"]))
+
+
 async def _time_out_media_operation(
     operation_id: str, operation: dict, current_status: str
 ):
-    """Persist ``timeout``, settle the ledger and cancel the provider job."""
+    """Persist ``timeout``, settle the ledger and cancel the provider job.
+
+    Budget-tracked FAL jobs instead keep their reservation until FAL reports a
+    terminal state (``_cancel_timed_out_fal_operation``); an operator settles
+    one that never does with the reconcile route.
+    """
+    if operation.get("provider") == "fal" and operation.get("budget_tracked"):
+        return await _cancel_timed_out_fal_operation(operation_id, operation, current_status)
     payload = dict(operation["last_payload"])
     payload["status"] = "timeout"
     persisted, _ = await _transition_media_payload_or_503(
@@ -3407,6 +3458,15 @@ async def cancel_media_operation(
     return _media_response(dict(final_operation["last_payload"]))
 
 
+def _manual_reconciliation_status(current_status: str, provenance: Dict[str, Any]) -> str:
+    """The status an operator may settle by hand: an unknown submission, or a
+    timed-out FAL job holding its reservation that FAL never resolved (job
+    purged, provider disabled, polling stopped)."""
+    if current_status == "cancellation_requested" and provenance.get("timed_out"):
+        return current_status
+    return "submission_unknown"
+
+
 @app.post(
     "/media/operations/{operation_id}/reconcile",
     response_model=MediaOperationResponse,
@@ -3598,8 +3658,8 @@ async def reconcile_unknown_media_submission(
     current_status = str(last_payload.get("status", ""))
     provenance = dict(last_payload.get("provenance") or {})
     prior_outcome = provenance.get("manual_reconciliation_outcome")
-    expected_manual_status = "submission_unknown"
-    if current_status != "submission_unknown":
+    expected_manual_status = _manual_reconciliation_status(current_status, provenance)
+    if current_status != expected_manual_status:
         expected_terminal = "succeeded" if request.outcome == "commit" else "failed"
         if prior_outcome == request.outcome and current_status == expected_terminal:
             require_compatible_retry_cost(last_payload)
@@ -3753,6 +3813,17 @@ async def generate_image(request: ComfyUIGenerateRequest):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="FAL does not support queue-only compatibility requests",
             )
+        if MEDIA_BUDGET_ENGINE.enabled:
+            # This compatibility path calls FAL directly with no reservation
+            # and no kill-switch check, so with budgets on it would spend
+            # outside every cap. 409, not 503: retrying cannot succeed.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "FAL spend budgets are enabled; use /media/generate, which "
+                    "reserves the estimated cost before calling FAL"
+                ),
+            )
         try:
             async with FalClient(
                 api_key=api_key,
@@ -3792,11 +3863,13 @@ async def generate_image(request: ComfyUIGenerateRequest):
             )
         except HTTPException:
             raise
-        except asyncio.TimeoutError:
-            return ComfyUIResponse(
-                success=False,
-                error="Image generation timed out",
-            )
+        except asyncio.TimeoutError as exc:
+            # 504, not a 200 "success": false that callers retried, paying for
+            # a second job. fal-client cancels the timed-out request itself.
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="FAL image generation timed out; cancellation was requested",
+            ) from exc
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -4072,18 +4145,20 @@ async def get_generated_image(filename: str, subfolder: str = "", folder_type: s
         async with ComfyUIClient() as client:
             image_data = await client.get_image_data(filename, subfolder, folder_type)
             
-            # Determine content type based on file extension
-            content_type = "image/png"
-            if filename.lower().endswith(('.jpg', '.jpeg')):
-                content_type = "image/jpeg"
-            elif filename.lower().endswith('.webp'):
-                content_type = "image/webp"
-            
+            from comfyui_media_client import _content_type_for
             from fastapi.responses import Response
+            media_type = _content_type_for(filename)
+            disposition = _inline_content_disposition(filename)
+            if media_type == "application/octet-stream":
+                # Never render an unknown type inline (HTML/SVG would run script).
+                disposition = disposition.replace("inline", "attachment", 1)
             return Response(
                 content=image_data,
-                media_type=content_type,
-                headers={"Content-Disposition": _inline_content_disposition(filename)}
+                media_type=media_type,
+                headers={
+                    "Content-Disposition": disposition,
+                    "X-Content-Type-Options": "nosniff",
+                },
             )
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:

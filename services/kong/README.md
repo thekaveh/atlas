@@ -126,7 +126,9 @@ On a Basic-auth route Kong reads the dashboard credential from `Authorization` o
 
 ### 5.1. Forwarded headers
 
-Kong runs with `KONG_PORT_MAPS=${KONG_HTTP_PORT}:8000,${KONG_HTTPS_PORT}:8443`, so `X-Forwarded-Port` carries the published port and upstreams that build absolute URLs from it (Trino redirects and `nextUri`) point back at Kong. Kong sets `X-Forwarded-Host` itself, without a port, and overwrites any value a plugin adds; the n8n route therefore also adds an RFC 7239 `Forwarded: host=n8n.localhost:<port>;proto=http` header, which n8n's editor origin check reads first.
+Kong runs with `KONG_PORT_MAPS=${KONG_HTTP_PORT}:8000,${KONG_HTTPS_PORT}:8443`, so `X-Forwarded-Port` carries the published port and upstreams that build absolute URLs from it (Trino redirects and `nextUri`) point back at Kong. Kong sets `X-Forwarded-Host` itself, without a port, and overwrites any value a plugin adds; the n8n route therefore also adds an RFC 7239 `Forwarded: host=n8n.localhost:<port>;proto=http` header, which n8n's editor origin check reads first. That header names the HTTP port, so n8n's editor live connection works through Kong over HTTP only.
+
+Inside the Docker network, a client that calls `kong-api-gateway:8000` directly now sees the published port in `X-Forwarded-Port`. Supabase Storage builds S3 signatures and resumable-upload (TUS) URLs from it, so S3 or TUS calls made through Kong from another container would need `STORAGE_PUBLIC_URL`; Atlas's own containers use only the REST API there.
 
 ## 6. CORS Handling
 

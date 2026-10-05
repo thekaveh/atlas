@@ -131,6 +131,7 @@ def test_backend_kong_auth_key_auth_adds_consumer_and_route_plugins():
     plugin_names = [plugin["name"] for plugin in backend["plugins"]]
 
     assert plugin_names == ["cors", "key-auth", "acl"]
+    # The apikey is forwarded: key-auth plugins re-check it in the backend.
     assert backend["plugins"][1]["config"] == {"key_names": ["apikey"]}
     assert backend["plugins"][2]["config"] == {"allow": ["backend_api"]}
 

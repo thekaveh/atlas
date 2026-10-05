@@ -43,6 +43,20 @@ def _cache_ttl(env: Mapping[str, str]) -> int:
     return ttl if ttl > 0 else DEFAULT_CACHE_TTL_SECONDS
 
 
+def _otel_callback_settings(values: Mapping[str, str], litellm_settings: Dict[str, Any]) -> Dict[str, Any]:
+    """Add LiteLLM's "otel" callback when ATLAS_OTEL_ENABLED.
+
+    LiteLLM traces only through that callback; an environment flag alone (the
+    old LITELLM_OTEL_V2) never produced a span. Prompts and completions stay
+    out of span attributes: message_logging is off for this callback only, so
+    Langfuse keeps them. Returns the top-level ``callback_settings`` block.
+    """
+    if (values.get("ATLAS_OTEL_ENABLED") or "").strip().lower() != "true":
+        return {}
+    litellm_settings["callbacks"].append("otel")
+    return {"callback_settings": {"otel": {"message_logging": False}}}
+
+
 def base_settings(env: Mapping[str, str] | None = None) -> Dict[str, Any]:
     """Return the LiteLLM ``litellm_settings`` / ``router_settings`` /
     ``general_settings`` dict. Caller adds ``model_list`` separately.
@@ -87,8 +101,10 @@ def base_settings(env: Mapping[str, str] | None = None) -> Dict[str, Any]:
     }
     if source == "container":
         litellm_settings["success_callback"] = ["langfuse"]
+    callback_settings = _otel_callback_settings(values, litellm_settings)
 
     return {
+        **callback_settings,
         "litellm_settings": litellm_settings,
         "router_settings": {
             "redis_host": "os.environ/REDIS_HOST",

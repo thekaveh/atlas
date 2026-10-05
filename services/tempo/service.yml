@@ -43,6 +43,9 @@ env:
   - name: TEMPO_ENDPOINT
     auto_managed: true
     description: "Internal Tempo query/API endpoint consumed by Grafana."
+  - name: TEMPO_RETENTION_PERIOD
+    default: "336h"
+    description: "Trace retention (Tempo block_retention, applied by its backend scheduler and worker). Tempo's own default, 14 days; lower it to bound the tempo-data volume."
 
 depends_on:
   required:

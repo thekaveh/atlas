@@ -1,6 +1,6 @@
 # 5.2.35. n8n
 
-Workflow automation engine. The stack runs n8n in **queue mode** by default — one `n8n` web/API container plus an `n8n-worker` container that consumes jobs from Redis. A short-lived `n8n-init` container handles first-run setup: installing community nodes (ComfyUI image-to-image). Seeded workflow templates (under `services/n8n/init/config/`) and PostgreSQL credentials are imported **manually** — `n8n-init` prints the next steps; it does not auto-import workflows or seed credentials (see the setup steps below). The result is a fully-wired automation surface that ties LLM (LiteLLM), media (ComfyUI/STT/TTS/Docling/SearXNG), and data (Supabase/Weaviate/MinIO) services together without writing code.
+Workflow automation engine. The stack runs n8n in **queue mode** by default — one `n8n` web/API container plus an `n8n-worker` container that consumes jobs from Redis. A short-lived `n8n-init` container handles first-run setup: installing community nodes (ComfyUI image-to-image). Seeded workflow templates (under `services/n8n/init/config/`) and PostgreSQL credentials are imported **manually** — `n8n-init` only installs the locked community packages; it does not auto-import workflows, seed credentials, or print next steps (see the setup steps below). The result is a fully-wired automation surface that ties LLM (LiteLLM), media (ComfyUI/STT/TTS/Docling/SearXNG), and data (Supabase/Weaviate/MinIO) services together without writing code.
 
 n8n and Hermes are complementary agents-tier services. n8n is event-driven and visual (cron triggers, webhooks, manual runs); Hermes is conversational and skill-driven. n8n reaches Hermes through a shared `HERMES_ENDPOINT` env var so a workflow can hand off to an agent (the reverse edge — Hermes calling a workflow — isn't wired today; see §4).
 
@@ -111,7 +111,7 @@ Only `BACKEND_N8N_API_TOKEN` is route-scoped. Both n8n web and worker also recei
 When `LIGHTRAG_SOURCE != disabled`, the env vars `LIGHTRAG_ENDPOINT` and `LIGHTRAG_API_KEY` are injected into n8n containers. Use the HTTP Request node:
 
 - URL: `={{$env.LIGHTRAG_ENDPOINT}}/query`
-- Auth: Bearer token from `={{$env.LIGHTRAG_API_KEY}}`
+- Auth: header `X-API-Key: ={{$env.LIGHTRAG_API_KEY}}` (LightRAG ignores a Bearer token when only the API key is configured)
 - Body (JSON): `{"query": "/hybrid Your question"}`
 
 <a id="6-dependencies--integrations"></a>

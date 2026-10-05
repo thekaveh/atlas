@@ -1474,3 +1474,49 @@ def test_history_and_workflow_ids_are_path_encoded(monkeypatch):
         "http://comfyui:18188/history/%3Fmax_items%3D1000",
         "http://n8n:5678/api/v1/workflows/%3Flimit%3D250",
     ]
+
+
+# Media provider polling and artifact typing (kept here: the provider test
+# module is at its size ceiling).
+from tests.test_comfyui_media_provider import _run as _provider_run  # noqa: E402
+
+
+def test_poll_rereads_history_when_a_job_finishes_between_the_two_reads():
+    """ComfyUI moves a finished job from the queue into history in one step;
+    finishing between the history and queue reads used to be reported as a
+    permanent "failed" with its image never surfaced."""
+    history_reads = []
+
+    def handler(request):
+        if "/history/" in request.url.path:
+            history_reads.append(1)
+            if len(history_reads) == 1:
+                return httpx.Response(200, json={})
+            return httpx.Response(200, json={"pid-race": {
+                "outputs": {"9": {"images": [
+                    {"filename": "a.png", "subfolder": "", "type": "output"}
+                ]}},
+                "status": {"status_str": "success", "completed": True},
+            }})
+        return httpx.Response(200, json={"queue_running": [], "queue_pending": []})
+
+    async def body(client):
+        payload = await client.get_media_operation(operation_id="pid-race", modality="image")
+        assert payload["status"] == "succeeded"
+        assert len(history_reads) == 2
+
+    _provider_run(handler, body)
+
+
+@pytest.mark.parametrize(
+    ("filename", "expected"),
+    [("a.png", "image/png"), ("a.JPG", "image/jpeg"), ("a.webp", "image/webp"),
+     ("a.gif", "image/gif"), ("clip.mp4", "video/mp4"), ("weights.unknownext", "application/octet-stream"),
+     # Script-capable types never get an inline-renderable media type.
+     ("page.html", "application/octet-stream"), ("x.svg", "application/octet-stream")],
+)
+def test_artifact_content_type_follows_the_extension(filename, expected):
+    """Custom workflows emit GIF/video/audio too; all were labelled image/png."""
+    from comfyui_media_client import _content_type_for
+
+    assert _content_type_for(filename) == expected

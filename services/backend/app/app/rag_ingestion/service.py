@@ -442,6 +442,10 @@ class RagIngestionService:
 
         try:
             record.status = STATUS_RUNNING
+            # Every attempt re-runs all phases from fresh state, so errors
+            # persisted by a superseded attempt (before a Celery retry) are
+            # stale duplicates, not findings of this run.
+            record.errors = []
             await self._persist(record, owner)
 
             state: Dict[str, Any] = {
@@ -500,6 +504,20 @@ class RagIngestionService:
             # recorded, actionable job failure — never a crashed worker.
             await self._record_unexpected_failure(record, exc, owner)
             return record
+        except asyncio.CancelledError:
+            # Celery's soft time limit (or a worker shutdown) escapes the event
+            # loop and asyncio.run cancels this coroutine. Without a terminal
+            # record the job stayed "running", and as a dedup status it
+            # answered every resubmit with the dead job until its TTL expired.
+            try:
+                await self._record_unexpected_failure(
+                    record,
+                    RuntimeError("ingestion interrupted before completion (Celery time limit)"),
+                    owner,
+                )
+            except Exception:  # noqa: BLE001 - never replace the cancellation
+                logger.exception("could not record interrupted RAG ingestion %s", record.id)
+            raise
         else:
             record.status = (
                 STATUS_FAILED

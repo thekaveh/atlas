@@ -220,6 +220,12 @@ Examples:
                     self.banner.show_status_message("Cold stop completed successfully - all containers stopped and data removed", "success")
                 else:
                     self.banner.show_status_message("Some issues occurred during cold stop", "warning")
+                    if getattr(self.docker_manager, "teardown_overlays_dropped", False):
+                        self.banner.show_status_message(
+                            "Consumer overlays were not applied: volumes they declare "
+                            "were NOT removed. Fix the overlay and rerun ./stop.sh --cold.",
+                            "warning",
+                        )
 
                 return success
 

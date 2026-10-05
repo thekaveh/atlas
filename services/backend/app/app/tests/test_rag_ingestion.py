@@ -2331,3 +2331,71 @@ def test_embedder_rejects_a_short_response(monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
     with pytest.raises(RuntimeError, match="1 vectors for 2 inputs"):
         asyncio.run(Embedder("http://litellm", model="m").embed(["a", "b"]))
+
+
+def test_plain_text_never_indexes_binary_bytes_after_a_parser_failure():
+    """plain_text closes every parser order; a failed Docling parse of a PDF
+    used to index the PDF's raw bytes as text and report success."""
+    from rag_ingestion.clients import ParserError
+
+    with pytest.raises(ParserError, match="not text"):
+        asyncio.run(
+            ParserAdapter(RaisingExtractor()).parse(
+                CorpusFile("report.pdf", b"%PDF-1.7\x00\x01\x02binary", "application/pdf"),
+                ["docling", "plain_text"],
+            )
+        )
+    png_like = b"\x89PNG\r\n\x1a\n" + bytes(range(1, 32)) * 20
+    with pytest.raises(ParserError, match="not text"):
+        asyncio.run(ParserAdapter().parse(CorpusFile("x.png", png_like, "image/png"), ["plain_text"]))
+
+    def _parse(raw: bytes) -> str:
+        return asyncio.run(
+            ParserAdapter().parse(CorpusFile("ok.txt", raw, "text/plain"), ["plain_text"])
+        ).text
+
+    # Text corpora that ingested before the binary check still do.
+    assert _parse("plain café".encode()) == "plain café"
+    assert _parse("“quoted” café".encode("cp1252")) == "“quoted” café"
+    assert _parse("helloé".encode("utf-16")) == "helloé"
+    assert _parse(b"\xef\xbb\xbfbom text") == "bom text"
+
+
+def test_missing_corpus_path_is_an_error_not_an_empty_corpus(tmp_path, monkeypatch):
+    """An empty discovery reconciles away every vector of the profile."""
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    with pytest.raises(CorpusPathError, match="does not exist"):
+        MountCorpusReader().discover({"source": "mount", "path": "docs-typo"})
+
+
+def test_interrupted_run_is_recorded_failed_not_left_running(tmp_path, monkeypatch):
+    """Celery's soft time limit cancels the coroutine via asyncio.run; a job
+    left "running" deduplicated every resubmit until its TTL expired."""
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+
+    class BlockingService(RagIngestionService):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.phase_started = asyncio.Event()
+
+        async def _run_phase(self, *args, **kwargs):
+            self.phase_started.set()
+            await asyncio.Event().wait()
+
+    store = InMemoryIngestionStore()
+    service = BlockingService(store=store, deps=Deps(), profiles_path=profile_path)
+    record, _ = service.submit("showcase-default")
+
+    async def scenario():
+        running = asyncio.create_task(service.run(record.id))
+        await service.phase_started.wait()
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running
+
+    asyncio.run(scenario())
+
+    final = store.get(record.id)
+    assert final.status == "failed"
+    assert any("interrupted" in error["message"] for error in final.errors)

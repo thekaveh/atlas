@@ -16,7 +16,7 @@ Tempo has no built-in authentication layer, so Atlas keeps it internal-only and 
 
 ## 3. Configuration
 
-The service reads `./config/tempo.yaml`, mounted to `/etc/tempo/tempo.yaml`. Atlas computes `TEMPO_ENDPOINT` from `TEMPO_SOURCE`.
+The service reads `./config/tempo.yaml`, mounted to `/etc/tempo/tempo.yaml`. Atlas computes `TEMPO_ENDPOINT` from `TEMPO_SOURCE`. `TEMPO_RETENTION_PERIOD` (default `336h`, Tempo's own 14-day default) sets trace retention; Tempo 3 reads it in two places, the backend scheduler that plans retention work and the backend worker that runs it, and the config sets both from this one variable.
 
 The pinned image is distroless (no shell, no `wget`), so the health check runs the binary's own `/tempo -health`, which probes `/ready` and exits nonzero until Tempo is ready. The Collector waits for this check to pass.
 

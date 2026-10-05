@@ -9,6 +9,7 @@ import re
 from typing import Dict, Any, Optional
 from urllib.parse import quote
 from core.config_parser import ConfigParser
+from core.endpoints_contract import _expand_interpolation
 from utils.atomic_write import atomic_write_text, render_env_assignment
 from utils.system import get_localhost_host, resolve_host_gateway_ip
 
@@ -305,6 +306,11 @@ class ServiceConfig:
         # is one of the ollama-* values). Empty string when source=none.
         endpoint = config.get('environment', {}).get('OLLAMA_ENDPOINT', 'http://ollama:11434')
         endpoint = endpoint.replace('host.docker.internal', self.localhost_host)
+        # Resolve ${OLLAMA_LOCALHOST_PORT:-11434} here: compose's .env parser
+        # substitutes the default when the port line sits *after* this one (it
+        # does in .env.example), so LiteLLM pointed at 11434 while the host
+        # pull used the configured port.
+        endpoint = _expand_interpolation(endpoint, self.config_parser.parse_env_file())
         env_vars['LITELLM_OLLAMA_UPSTREAM'] = endpoint
 
         # Set GPU devices if specified

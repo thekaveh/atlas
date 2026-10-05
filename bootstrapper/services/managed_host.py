@@ -52,7 +52,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
-from utils.atomic_write import atomic_write_text
+from utils.atomic_write import atomic_replace_text
 from services import (
     clear_owned_process_tracking,
     clear_owned_group_if_reaped,
@@ -281,7 +281,7 @@ def write_pid_file_with_identity(pid_file: Path, pid: int, start_time: Optional[
     ``None`` remains supported only for legacy-format tests and migration.
     """
     body = str(pid) if start_time is None else f"{pid}\nstart_utc={start_time}"
-    atomic_write_text(pid_file, body + "\n")
+    atomic_replace_text(pid_file, body + "\n")
 
 
 def require_process_start_time(pid: int, probe) -> str:
@@ -653,7 +653,7 @@ class ManagedHostManager:
         # concurrent read mid-write yields a file with a pid and NO stamp.
         # `_recorded_start_time` then returns None and ownership becomes
         # untrusted. Atomic replacement prevents that torn state.
-        atomic_write_text(self.pid_file, body + "\n")
+        atomic_replace_text(self.pid_file, body + "\n")
 
     def _spawn(self) -> subprocess.Popen:
         argv = self._resolved_command()

@@ -63,6 +63,7 @@ def configure_otel(app: Any) -> bool:
     try:
         from opentelemetry.instrumentation.celery import CeleryInstrumentor
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
     except Exception as exc:
         raise RuntimeError(
             "ATLAS_OTEL_ENABLED=true but OpenTelemetry dependencies are unavailable"
@@ -76,6 +77,9 @@ def configure_otel(app: Any) -> bool:
         ),
     )
     CeleryInstrumentor().instrument(tracer_provider=provider)
+    # Outbound calls (LiteLLM, ComfyUI, Weaviate, …) get client spans and a
+    # `traceparent` header, so their own spans join the request's trace.
+    HTTPXClientInstrumentor().instrument(tracer_provider=provider)
     app.state.otel_configured = True
     return True
 

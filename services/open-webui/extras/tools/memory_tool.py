@@ -136,7 +136,8 @@ class Tools:
                 output_lines.append(
                     f"- [{mem.get('fact_type', 'observation')}] "
                     f"{mem.get('content', '')} "
-                    f"(confidence: {mem.get('confidence', 0):.1%})"
+                    f"(id: {mem.get('id') or 'N/A'}, "
+                    f"confidence: {mem.get('confidence', 0):.1%})"
                 )
 
             if summary:
@@ -230,7 +231,8 @@ class Tools:
                 output_lines.append(
                     f"- [{mem.get('fact_type', 'observation')}] "
                     f"{mem.get('content', '')} "
-                    f"(id: {(mem.get('id') or 'N/A')[:8]}..., "
+                    # Full id: forget_memory's DELETE accepts only a whole UUID.
+                    f"(id: {mem.get('id') or 'N/A'}, "
                     f"confidence: {mem.get('confidence', 0):.1%})"
                 )
 

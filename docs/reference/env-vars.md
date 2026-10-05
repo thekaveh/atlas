@@ -854,6 +854,7 @@
 | SUPABASE_REALTIME_DB_PASSWORD | supabase | atlas-db-password | Auto-generated password for the replication-scoped Realtime role. |
 | SUPABASE_META_DB_USER | supabase | atlas_meta | - |
 | SUPABASE_META_DB_PASSWORD | supabase | atlas-db-password | Auto-generated password for the dashboard metadata role used by Meta and Studio. |
+| SUPABASE_META_CRYPTO_KEY | supabase |  | Auto-generated key (PG_META_CRYPTO_KEY) shared by Studio and Postgres Meta to encrypt the connection header Studio sends Meta. Empty falls back to the images' public SAMPLE_KEY constant. |
 | SUPABASE_META_DB_USER_URI | supabase | atlas_meta | Bootstrapper-synchronized percent-encoded SUPABASE_META_DB_USER for DSN userinfo. |
 | SUPABASE_META_DB_PASSWORD_URI | supabase | atlas-db-password | Bootstrapper-synchronized percent-encoded SUPABASE_META_DB_PASSWORD for DSN userinfo. |
 | SUPABASE_STUDIO_DB_USER | supabase | atlas_studio_readonly | Read-only SQL-editor identity used by Studio; it shares Studio's single password interface with Meta but has no Meta admin authority. |
@@ -931,6 +932,7 @@
 | TEMPO_SOURCE | tempo | disabled | - |
 | TEMPO_SCALE | tempo |  | - |
 | TEMPO_ENDPOINT | tempo |  | Internal Tempo query/API endpoint consumed by Grafana. |
+| TEMPO_RETENTION_PERIOD | tempo | 336h | Trace retention (Tempo block_retention, applied by its backend scheduler and worker). Tempo's own default, 14 days; lower it to bound the tempo-data volume. |
 | TEMPO_IMAGE | tempo | grafana/tempo:3.0.0 | Container image for `tempo`. |
 | TIKA_SOURCE | tika | disabled | - |
 | TIKA_PORT | tika | 63057 | - |

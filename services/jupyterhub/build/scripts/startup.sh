@@ -62,15 +62,22 @@ EOF
 echo "Environment file created at /home/jovyan/work/.env"
 
 # Copy sample notebooks to work directory for easy access
-if [ -d /home/jovyan/notebooks ] && [ ! -d /home/jovyan/work/examples ]; then
+if [ -d /home/jovyan/notebooks ]; then
     mkdir -p /home/jovyan/work/examples
     # nullglob-safe: an empty notebooks dir would leave the glob literal and
     # make cp error under set -e, crash-looping the container on custom images
     # or empty bind-mounts.
     if compgen -G "/home/jovyan/notebooks/*" > /dev/null; then
-        echo "Copying sample notebooks to work/examples/..."
-        cp -r /home/jovyan/notebooks/* /home/jovyan/work/examples/
-        echo "Sample notebooks copied to /home/jovyan/work/examples/"
+        # Every start adds notebooks the persistent work volume lacks (new
+        # examples after an upgrade) and never overwrites the user's copies.
+        # A loop, not `cp -n`: recent coreutils exit non-zero when -n skips.
+        echo "Copying new sample notebooks to work/examples/..."
+        for notebook in /home/jovyan/notebooks/*; do
+            if [ ! -e "/home/jovyan/work/examples/$(basename "$notebook")" ]; then
+                cp -r "$notebook" /home/jovyan/work/examples/
+            fi
+        done
+        echo "Sample notebooks available in /home/jovyan/work/examples/"
     else
         echo "No sample notebooks found to copy."
     fi

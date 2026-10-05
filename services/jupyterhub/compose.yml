@@ -60,7 +60,9 @@ services:
       RAY_ADDRESS: ${RAY_ADDRESS:-}
       # Spark Connect endpoint for notebook 09_spark_connect. Defaults to the
       # in-stack sidecar (needs SPARK_SOURCE != disabled); override to point a
-      # notebook at a remote/managed Spark Connect server (e.g. EMR Serverless).
+      # notebook at a remote Spark Connect server running Spark 4.1 (the kernel
+      # ships pyspark-client 4.1.2; EMR Serverless needs a separate
+      # pyspark[connect]==3.5 environment, see services/spark/examples).
       SPARK_REMOTE: ${SPARK_REMOTE:-sc://spark-connect:15002}
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
       # MLflow tracking server. Empty when MLFLOW_SOURCE=disabled.

@@ -107,6 +107,7 @@ services:
       GRAPH_DB_USER: neo4j
       ICEBERG_REST_SOURCE: disabled
       LITELLM_MASTER_KEY: ''
+      MINIO_REGION: us-east-1
       MINIO_ROOT_PASSWORD: ''
       MINIO_ROOT_USER: minioadmin
       MINIO_SOURCE: container
@@ -2202,7 +2203,6 @@ services:
       LANGFUSE_PUBLIC_KEY: ''
       LANGFUSE_SECRET_KEY: ''
       LITELLM_MASTER_KEY: ''
-      LITELLM_OTEL_V2: 'false'
       OPENAI_API_KEY: ''
       OPENROUTER_API_KEY: ''
       OTEL_ENDPOINT: ''
@@ -2270,6 +2270,7 @@ services:
       ANTHROPIC_API_KEY: ''
       ANTHROPIC_USER_MODELS: ''
       ATLAS_MODELS_DIR: /atlas-models
+      ATLAS_OTEL_ENABLED: 'false'
       FAL_API_KEY: ''
       FAL_MODEL: fal-ai/flux/dev
       FAL_SOURCE: disabled
@@ -3272,10 +3273,12 @@ services:
     - type: bind
       source: '{REPO_ROOT}/services/open-webui/extras/tools'
       target: /app/backend/data/tools
+      read_only: true
       bind: {}
     - type: bind
       source: '{REPO_ROOT}/services/open-webui/extras/functions'
       target: /app/backend/data/functions
+      read_only: true
       bind: {}
   open-webui-init:
     build:
@@ -3873,6 +3876,8 @@ services:
     - --conf
     - spark.hadoop.fs.s3a.path.style.access=true
     - --conf
+    - spark.hadoop.fs.s3a.endpoint.region=us-east-1
+    - --conf
     - spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
     - --conf
     - spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog
@@ -3946,7 +3951,7 @@ services:
     environment:
       SPARK_HISTORY_OPTS: -Dspark.history.fs.logDirectory=s3a://spark-history/ -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000
         -Dspark.hadoop.fs.s3a.access.key= -Dspark.hadoop.fs.s3a.secret.key=
-        -Dspark.hadoop.fs.s3a.path.style.access=true
+        -Dspark.hadoop.fs.s3a.path.style.access=true -Dspark.hadoop.fs.s3a.endpoint.region=us-east-1
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
     image: atlas-spark:local
     logging:
@@ -4095,7 +4100,6 @@ services:
       PGRST_DB_ANON_ROLE: anon
       PGRST_DB_SCHEMA: public,storage
       PGRST_DB_URI: postgres://authenticator:atlas-db-password@supabase-db:5432/postgres
-      PGRST_DB_USE_LEGACY_GUCS: 'false'
       PGRST_JWT_SECRET: ''
     image: postgrest/postgrest:v12.2.10
     logging:
@@ -4159,6 +4163,8 @@ services:
     command:
     - sh
     - /usr/local/bin/enforce-scram-host-auth.sh
+    - -D
+    - /etc/postgresql
     container_name: atlas-supabase-db
     environment:
       POSTGRES_DB: postgres
@@ -4191,6 +4197,10 @@ services:
     - type: volume
       source: supabase-db-data
       target: /var/lib/postgresql/data
+      volume: {}
+    - type: volume
+      source: supabase-db-config
+      target: /etc/postgresql-custom
       volume: {}
     - type: bind
       source: '{REPO_ROOT}/services/supabase/db/snapshot'
@@ -4291,6 +4301,7 @@ services:
       PG_META_DB_HOST: supabase-db
       PG_META_DB_NAME: postgres
       PG_META_DB_PASSWORD: atlas-db-password
+      PG_META_CRYPTO_KEY: ''
       PG_META_DB_PORT: '5432'
       PG_META_DB_USER: atlas_meta
       PG_META_PORT: '8080'
@@ -4423,9 +4434,9 @@ services:
         required: true
     environment:
       AUTH_JWT_SECRET: ''
-      DATABASE_URL: postgresql://atlas_meta:atlas-db-password@supabase-db:5432/postgres
       DEFAULT_ORGANIZATION_NAME: atlas
       HOSTNAME: 0.0.0.0
+      PG_META_CRYPTO_KEY: ''
       POSTGRES_DB: postgres
       POSTGRES_HOST: supabase-db
       POSTGRES_PASSWORD: atlas-db-password
@@ -4577,6 +4588,8 @@ services:
     container_name: atlas-tempo
     deploy:
       replicas: 0
+    environment:
+      TEMPO_RETENTION_PERIOD: 336h
     healthcheck:
       test:
       - CMD
@@ -5210,6 +5223,9 @@ volumes:
     driver: local
   searxng-data:
     name: atlas-searxng-data
+    driver: local
+  supabase-db-config:
+    name: atlas-supabase-db-config
     driver: local
   supabase-db-data:
     name: atlas-supabase-db-data

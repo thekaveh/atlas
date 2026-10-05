@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 from collections.abc import Awaitable, Callable
 
@@ -37,13 +38,24 @@ async def _redis_ready() -> None:
         await client.aclose()
 
 
+def _untraced():
+    """Keep the container healthcheck's probe out of tracing: with httpx
+    instrumented, each 30-second /ready call became a stray root trace."""
+    try:
+        from opentelemetry.instrumentation.utils import suppress_instrumentation
+    except Exception:  # noqa: BLE001 - tracing is optional here
+        return contextlib.nullcontext()
+    return suppress_instrumentation()
+
+
 async def _litellm_ready() -> None:
     base_url = (os.getenv("LITELLM_BASE_URL") or "").rstrip("/")
     if not base_url:
         raise RuntimeError("LITELLM_BASE_URL is unset")
-    async with httpx.AsyncClient(timeout=3.0) as client:
-        response = await client.get(f"{base_url}/health/liveliness")
-        response.raise_for_status()
+    with _untraced():
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            response = await client.get(f"{base_url}/health/liveliness")
+            response.raise_for_status()
 
 
 async def check_backend_readiness() -> dict[str, str]:

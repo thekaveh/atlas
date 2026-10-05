@@ -226,7 +226,8 @@ def test_hostile_database_names_round_trip_through_rendered_dsn_paths(
     services = json.loads(rendered.stdout)["services"]
     urls = (
         services["backend"]["environment"]["DATABASE_URL"],
-        services["supabase-studio"]["environment"]["DATABASE_URL"],
+        # Studio has no DATABASE_URL (unread by the image); its POSTGRES_DB
+        # tuple is checked below.
         services["litellm"]["environment"]["DATABASE_URL"],
         services["langfuse-web"]["environment"]["DATABASE_URL"],
         services["mlflow"]["environment"]["_MLFLOW_SERVER_FILE_STORE"],

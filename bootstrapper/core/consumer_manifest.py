@@ -528,6 +528,17 @@ _BRAND_ENV_MAP = {
 }
 
 
+def _manifest_project_name(value: Any, manifest_path: Path) -> str:
+    """Validate ``project_name`` at load: an invalid name written to .env made
+    ./stop.sh refuse to run until .env was edited by hand."""
+    from core.config_parser import normalize_project_name  # noqa: PLC0415 - cycle
+
+    try:
+        return normalize_project_name(str(value))
+    except ValueError as exc:
+        raise ConsumerManifestError(f"project_name in {manifest_path}: {exc}") from exc
+
+
 def _invoker_relative_base(root_dir: Path) -> Path:
     invoker = os.environ.get("ATLAS_INVOKER_CWD", "").strip()
     if invoker:
@@ -564,7 +575,9 @@ def discover_consumer_manifest_paths(
         if not path.is_absolute():
             path = base_dir / path
         resolved.append(path.resolve())
-    return resolved
+    # The same manifest named twice (./a.yml and a.yml, or via a symlink)
+    # would load as two consumers and collide with itself.
+    return list(dict.fromkeys(resolved))
 
 
 def _read_env_overlay(path: Path) -> dict[str, str]:
@@ -728,6 +741,16 @@ def _set_scalar(
 
 
 _CONDITIONAL_ENV_KEYS = frozenset({"enabled_if_env", "then", "else"})
+
+
+def _env_text(value: Any) -> Any:
+    """``.env`` spelling of a YAML scalar. YAML 1.1 reads ``yes``/``on``/``true``
+    as booleans, and ``str(True)`` wrote ``True``, which shell scripts checking
+    ``true|false`` (e.g. BACKUP_DATABASES) reject. Quote other values whose
+    YAML type would change their text (``0755``, ``1.10``, ``12:30``)."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return value
 
 
 def _resolve_env_value(key: str, value: Any, manifest_path: Path) -> Any:
@@ -2054,12 +2077,23 @@ def _parse_host_port(raw: Any, *, name: str, origin: str) -> int:
     return port
 
 
+_BUILTIN_MANAGED_HOSTS = frozenset({"comfyui-mps", "vllm-metal", "blender-mcp"})
+
+
 def _host_service_name(raw: Mapping[str, Any], *, origin: str, seen: set[str]) -> str:
     name = str(raw.get("name") or "").strip()
     if not _HOST_NAME_RE.match(name):
         raise ConsumerManifestError(
             f"managed_host_services name {name!r} must match [a-z0-9][a-z0-9-]* — it "
             f"becomes a state directory and an env-var name ({origin})"
+        )
+    if name in _BUILTIN_MANAGED_HOSTS:
+        # Same ~/.atlas/<name>/<name>.pid as the built-in: a declared host
+        # with this name could stop the built-in's process or remove its
+        # checkout and venv.
+        raise ConsumerManifestError(
+            f"managed_host_services name {name!r} is reserved for Atlas's built-in "
+            f"managed host ({origin})"
         )
     if name in seen:
         raise ConsumerManifestError(
@@ -2453,6 +2487,13 @@ def _parse_rag_ingestion_profiles_block(
             _parse_rag_graph_target(g, profile=name, origin=origin)
             for g in _as_list(raw.get("graph_targets"))
         )
+        if len(graph_targets) > 1:
+            # Every graph target uploads to the single LIGHTRAG_ENDPOINT, so a
+            # second one only doubled the uploads and the reported count.
+            raise ConsumerManifestError(
+                f"rag_ingestion_profiles[{name!r}] declares more than one graph_target; "
+                f"Atlas has one LightRAG endpoint ({origin})"
+            )
         if not vector_targets and not graph_targets:
             raise ConsumerManifestError(
                 f"rag_ingestion_profiles[{name!r}] must declare at least one vector_target or "
@@ -3038,6 +3079,7 @@ def load_consumer_config(
             )
 
         if project_name := data.get("project_name"):
+            project_name = _manifest_project_name(project_name, manifest_path)
             _set_scalar(env_overrides, env_origins, "PROJECT_NAME", project_name, origin)
 
         if raw_profile := data.get("profile"):
@@ -3120,7 +3162,9 @@ def load_consumer_config(
                         "" if value is None
                         else _resolve_env_value(str(key), value, manifest_path)
                     )
-                    _set_scalar(env_overrides, env_origins, str(key), resolved, origin)
+                    _set_scalar(
+                        env_overrides, env_origins, str(key), _env_text(resolved), origin
+                    )
 
         record_overlays: list[Path] = []
         for raw_overlay in _as_list(data.get("compose_overlays")):

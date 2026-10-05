@@ -1984,3 +1984,13 @@ def test_the_grace_period_is_a_maximum_not_a_fixed_delay() -> None:
 
     assert process.poll() is not None
     assert elapsed < 4.0, f"burned {elapsed:.1f}s of an 8s grace on a child that died at once"
+
+
+def test_readiness_probe_uses_the_declared_health_timeout():
+    from types import SimpleNamespace
+    from services import _readiness_probe_timeout
+
+    slow = SimpleNamespace(spec=SimpleNamespace(health=SimpleNamespace(timeout=5.0)))
+    assert _readiness_probe_timeout(slow, 60.0) == 5.0
+    assert _readiness_probe_timeout(slow, 2.0) == 2.0  # never past the deadline
+    assert _readiness_probe_timeout(SimpleNamespace(), 60.0) == 0.5

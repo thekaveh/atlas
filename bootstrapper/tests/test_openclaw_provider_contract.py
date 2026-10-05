@@ -81,3 +81,17 @@ def test_key_generator_creates_and_keeps_the_openclaw_gateway_token(tmp_path: Pa
 
     KeyGenerator(str(tmp_path)).generate_missing_keys()
     assert ConfigParser(str(tmp_path)).parse_env_file()["OPENCLAW_GATEWAY_TOKEN"] == token
+
+
+def test_key_generator_creates_the_shared_meta_crypto_key(tmp_path: Path) -> None:
+    """Unset, Studio and Postgres Meta fall back to the public "SAMPLE_KEY"."""
+    from core.config_parser import ConfigParser
+    from utils.key_generator import KeyGenerator
+
+    (tmp_path / ".env").write_text("PROJECT_NAME=atlas-test\nSUPABASE_META_CRYPTO_KEY=\n")
+    assert KeyGenerator(str(tmp_path)).generate_missing_keys()["SUPABASE_META_CRYPTO_KEY"] is True
+    key = ConfigParser(str(tmp_path)).parse_env_file()["SUPABASE_META_CRYPTO_KEY"]
+    assert len(key) >= 32
+    compose = yaml.safe_load((Path(__file__).resolve().parents[2] / "services/supabase/compose.yml").read_text())
+    for service in ("supabase-meta", "supabase-studio"):
+        assert compose["services"][service]["environment"]["PG_META_CRYPTO_KEY"] == "${SUPABASE_META_CRYPTO_KEY:-}"

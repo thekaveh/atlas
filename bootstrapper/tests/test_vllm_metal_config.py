@@ -45,3 +45,18 @@ def test_managed_localhost_uses_localhost_host_seam():
     # localhost host must be honoured (mirrors _generate_lightrag_config).
     env = _make("managed-localhost", host="localhost")._generate_vllm_metal_config()
     assert env["VLLM_METAL_ENDPOINT"] == "http://localhost:8000"
+
+
+def test_ollama_localhost_upstream_resolves_the_configured_port():
+    # Compose's .env parser falls back to the :-11434 default when
+    # OLLAMA_LOCALHOST_PORT sits after LITELLM_OLLAMA_UPSTREAM (it does in
+    # .env.example), so the port must be resolved before it reaches .env.
+    sc = ServiceConfig(config_parser=MagicMock())
+    sc.localhost_host = "host.docker.internal"
+    sc.service_sources = {"LLM_PROVIDER_SOURCE": "ollama-localhost"}
+    sc.config_parser.parse_env_file.return_value = {"OLLAMA_LOCALHOST_PORT": "11500"}
+    sc.get_service_config = MagicMock(return_value={
+        "environment": {"OLLAMA_ENDPOINT": "http://host.docker.internal:${OLLAMA_LOCALHOST_PORT:-11434}"},
+    })
+    env = sc._generate_llm_provider_config()
+    assert env["LITELLM_OLLAMA_UPSTREAM"] == "http://host.docker.internal:11500"

@@ -63,7 +63,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
       "id": 6,
       "targets": [
-        { "expr": "topk(10, sum by (name) (rate(container_cpu_usage_seconds_total{name!=\"\"}[5m])))", "refId": "A" }
+        { "expr": "topk(10, sum by (container) (label_replace(rate(container_cpu_usage_seconds_total{id=~\".*docker[-/][0-9a-f]{64}(\\\\.scope)?\"}[5m]), \"container\", \"$1\", \"id\", \".*docker[-/]([0-9a-f]{12}).*\")))", "refId": "A" }
       ]
     }
   ],

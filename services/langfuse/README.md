@@ -60,7 +60,7 @@ Coverage is **exactly what passes through the LiteLLM gateway**. That is the lar
 
 The documented exception is LightRAG's **per-role binding overrides**. `LIGHTRAG_EXTRACT_LLM_BINDING_HOST`, `LIGHTRAG_KEYWORD_LLM_BINDING_HOST` and `LIGHTRAG_QUERY_LLM_BINDING_HOST` can point a role straight at a native provider (e.g. Ollama), bypassing LiteLLM entirely. Those calls produce **no Langfuse traces**, and nothing warns about it — if you have set any of them, expect a gap in coverage for that role.
 
-Direct ComfyUI traces, Hermes custom spans, backend custom spans, n8n step spans, and OpenTelemetry fan-out remain out of scope; LiteLLM's OTel export (`LITELLM_OTEL_V2`) is independent of the Langfuse callback.
+Direct ComfyUI traces, Hermes custom spans, backend custom spans, n8n step spans, and OpenTelemetry fan-out remain out of scope; LiteLLM's OTel export (its `otel` callback, enabled with `ATLAS_OTEL_ENABLED`) is independent of the Langfuse callback.
 
 ## 5. Dependencies & Integrations
 

@@ -234,7 +234,7 @@ def _run_privileged_hosts_setup(non_interactive: bool = False) -> bool:
 # Add the current directory to the path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent))
 
-from utils.atomic_write import atomic_write_text, env_lines, render_env_assignment
+from utils.atomic_write import atomic_replace_text, atomic_write_text, env_lines, render_env_assignment
 from utils.banner import BannerDisplay
 from utils.hosts_manager import HostsManager
 from utils.key_generator import KeyGenerator
@@ -5062,6 +5062,10 @@ def _doctor_check_ollama_residency(starter: "AtlasStarter") -> dict:
     return _doctor_result("ollama-residency", "pass", explanation)
 
 
+def _missing_sidecar_status(sidecar: Path) -> str:
+    return "skipped" if str(sidecar) == "/custom-models.yaml" else "fail"
+
+
 def _doctor_check_model_sidecars(starter: "AtlasStarter") -> dict:
     env_values = starter.config_parser.parse_env_file()
     raw_path = env_values.get("COMFYUI_CUSTOM_MODELS_FILE", "").strip()
@@ -5086,9 +5090,11 @@ def _doctor_check_model_sidecars(starter: "AtlasStarter") -> dict:
     parsed = 0
     for sidecar in sidecars:
         if not sidecar.exists():
+            # The shipped default is a container path, absent on the host; a
+            # path the operator configured that is missing drops its models.
             return _doctor_result(
                 "model-sidecars",
-                "skipped",
+                _missing_sidecar_status(sidecar),
                 f"Model sidecar does not exist: {sidecar}",
             )
         try:
@@ -6084,6 +6090,14 @@ def _comfyui_models_source_note(source: str) -> Optional[str]:
     return None
 
 
+def _invoker_path_list(value: str) -> str:
+    """``_invoker_path`` applied to each entry of an os.pathsep path list."""
+    return os.pathsep.join(
+        str(_invoker_path(Path(part.strip())))
+        for part in value.split(os.pathsep) if part.strip()
+    )
+
+
 def _invoker_path(path: Optional[Path]) -> Optional[Path]:
     """Resolve a user-supplied path against the directory ./start.sh was run
     from (ATLAS_INVOKER_CWD); the bootstrapper itself runs elsewhere."""
@@ -6273,6 +6287,36 @@ def _track_suggestions(entered: str, registry) -> list[str]:
         if key not in ordered:
             ordered.append(key)
     return ordered[:3]
+
+
+#: Root options harmless before a subcommand: --consumer is exported as
+#: ATLAS_CONSUMER_MANIFEST before the subcommand runs, and the output/mode
+#: flags are what consumer scripts habitually pass on every invocation.
+_SUBCOMMAND_ROOT_OPTIONS = frozenset(
+    {"consumer_manifests", "no_tui", "json_output", "no_splash", "detach"}
+)
+
+
+def _reject_root_options_for_subcommand(ctx: click.Context) -> None:
+    """Warn about start options a subcommand silently ignores.
+
+    Every subcommand builds its own AtlasStarter from .env, so
+    ``./start.sh -p other doctor`` checks the .env project. A warning, not an
+    error: consumer scripts and CI already pass such flags before
+    subcommands, and failing them would break working invocations.
+    """
+    ignored = sorted(
+        max(param.opts, key=len)
+        for param in ctx.command.params
+        if param.name not in _SUBCOMMAND_ROOT_OPTIONS
+        and ctx.get_parameter_source(param.name) == click.core.ParameterSource.COMMANDLINE
+    )
+    if ignored:
+        click.echo(
+            f"Warning: {', '.join(ignored)} {'has' if len(ignored) == 1 else 'have'} no "
+            f"effect on '{ctx.invoked_subcommand}'; it reads the project and ports from .env.",
+            err=True,
+        )
 
 
 def _prompt_for_track(registry, *, max_attempts: int = 5) -> str:
@@ -6651,6 +6695,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         ctx.call_on_close(_restore_consumer_manifest_env)
 
     if ctx.invoked_subcommand is not None:
+        _reject_root_options_for_subcommand(ctx)
         return
 
     # ─── Project name (-p / --project) ───────────────────────────────
@@ -6888,7 +6933,11 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         if comfyui_models is not None:
             user_model_selections['COMFYUI_USER_MODELS'] = comfyui_models
         if comfyui_custom_models_file is not None:
-            user_model_selections['COMFYUI_CUSTOM_MODELS_FILE'] = comfyui_custom_models_file
+            # Relative to where ./start.sh was run, like --consumer; stored
+            # absolute so the resolver never depends on the process cwd.
+            user_model_selections['COMFYUI_CUSTOM_MODELS_FILE'] = _invoker_path_list(
+                comfyui_custom_models_file
+            )
 
         # Warn on cloud --*-models flags passed WITHOUT enabling the
         # provider. model_resolver produces zero active entries for a disabled
@@ -7634,7 +7683,9 @@ def endpoints_export_command(
         # Relative to where ./start.sh was run, like doctor --bundle: the
         # uv wrapper runs the bootstrapper from bootstrapper/.
         out = _invoker_path(Path(output_path))
-        _write_private_text(out, text)
+        # Replace, never follow, a symlink at the destination: the export can
+        # carry secrets (--with-secrets) and must not land on a link target.
+        atomic_replace_text(out, text, mode=0o600)
         click.echo(f"Wrote {len(fields)} endpoint field(s) to {out}")
     else:
         click.echo(text, nl=False)

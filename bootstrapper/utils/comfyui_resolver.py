@@ -135,6 +135,18 @@ _DEFAULT_SIDECAR_PATH = "/custom-models.yaml"
 # Private helpers
 # ---------------------------------------------------------------------------
 
+def _warn_missing_sidecars(configured: list[str], existing: list[str]) -> None:
+    """Name operator-configured sidecars that do not exist; only the shipped
+    container-path default is expected to be absent on the host."""
+    for path in configured:
+        if path != _DEFAULT_SIDECAR_PATH and path not in existing:
+            print(
+                f"WARNING: COMFYUI_CUSTOM_MODELS_FILE entry {path!r} does not exist; "
+                "its models are not included.",
+                file=sys.stderr,
+            )
+
+
 def _path_list(val: str | None) -> list[str]:
     """Split an os.pathsep-separated path list into non-empty paths."""
     if not val:
@@ -302,6 +314,7 @@ def active_comfyui_models(
         if not configured_paths:
             configured_paths = [_DEFAULT_SIDECAR_PATH]
         existing_paths = [path for path in configured_paths if os.path.isfile(path)]
+        _warn_missing_sidecars(configured_paths, existing_paths)
         if existing_paths:
             sidecar_paths = existing_paths
         else:

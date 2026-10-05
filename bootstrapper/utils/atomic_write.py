@@ -235,8 +235,24 @@ def atomic_write_text(
     encoding: str = "utf-8",
     mode: int | None = None,
 ) -> None:
-    """Replace destination only after a complete, flushed temporary write."""
-    path = Path(destination)
+    """Replace destination only after a complete, flushed temporary write.
+
+    A symlinked destination is written through to its target: replacing the
+    link itself turned a parent-owned, symlinked ``.env`` into a detached
+    regular file that the parent's copy silently stopped receiving. Use
+    ``atomic_replace_text`` where replacing the link is the safe choice.
+    """
+    _atomic_write(Path(os.path.realpath(destination)), content, encoding, mode)
+
+
+def atomic_replace_text(destination: str | Path, content: str, *, mode: int | None = None) -> None:
+    """``atomic_write_text`` that replaces a symlinked destination instead of
+    following it: PID files, and generated config whose protection is the
+    owner-only directory it sits in."""
+    _atomic_write(Path(destination), content, "utf-8", mode)
+
+
+def _atomic_write(path: Path, content: str, encoding: str, mode: int | None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     target_mode = (
         mode

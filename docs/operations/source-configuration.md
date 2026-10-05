@@ -253,7 +253,7 @@ FAL_MODEL=fal-ai/flux/dev
 - **Pros**: No local GPU or ComfyUI container required for compatible prompt-to-image requests.
 - **Cons**: Requires internet access, provider quota, and per-generation provider cost.
 - **Requirements**: `FAL_API_KEY` when `FAL_SOURCE=enabled`; no key required when `FAL_SOURCE=disabled`. The switch is independent of the stored key: `FAL_SOURCE=disabled` alongside a populated `FAL_API_KEY` is a valid, supported state, and the wizard can produce and preserve it (#1255). Its fal.ai key step takes the same words as the cloud providers' — Enter changes nothing, `enable` / `disable` flip `FAL_SOURCE` and keep the key, and only `remove` blanks it. See [Interactive Setup Wizard §4.4.1](https://github.com/thekaveh/atlas/blob/main/docs/quick-start/interactive-setup-wizard.md).
-- **Behavior**: `POST /comfyui/generate` uses FAL when enabled, for backward compatibility with existing Open WebUI and n8n callers. `POST /media/generate` is the provider-neutral route for FAL image and image-to-3D generation (TRELLIS, Hunyuan3D, Tripo, Rodin); the full request/response contract is served at the backend's `/docs` (Swagger) endpoint.
+- **Behavior**: `POST /comfyui/generate` uses FAL when enabled, for backward compatibility with existing Open WebUI and n8n callers; with `MEDIA_BUDGET_ENABLED=true` it answers `409` (it cannot reserve budget), so budgeted callers use `POST /media/generate`. `POST /media/generate` is the provider-neutral route for FAL image and image-to-3D generation (TRELLIS, Hunyuan3D, Tripo, Rodin); the full request/response contract is served at the backend's `/docs` (Swagger) endpoint.
 
 ### 4.3. WEAVIATE_SOURCE
 

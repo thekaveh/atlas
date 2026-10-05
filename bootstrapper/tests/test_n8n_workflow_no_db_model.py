@@ -55,12 +55,15 @@ def test_generate_ai_summary_uses_env_model():
         None,
     )
     assert summary_node is not None, "'Generate AI Summary' node not found"
-    params = summary_node["parameters"]["bodyParameters"]["parameters"]
-    model_entry = next((p for p in params if p["name"] == "model"), None)
-    assert model_entry is not None, "No 'model' body param in Generate AI Summary"
-    assert model_entry["value"] == "={{ $env.LITELLM_DEFAULT_MODEL }}", (
-        f"Expected '={{{{ $env.LITELLM_DEFAULT_MODEL }}}}', got {model_entry['value']!r}"
-    )
+    params = summary_node["parameters"]
+    # HTTP Request v4 ignores the v1 bodyContentType/jsonParameters keys and
+    # sends key-pair values as-is, which turned `messages` into a string that
+    # LiteLLM rejects; the body must be one JSON expression.
+    assert params["specifyBody"] == "json"
+    assert not {"bodyContentType", "jsonParameters", "bodyParameters"} & set(params)
+    body = params["jsonBody"]
+    assert body.startswith("={{ JSON.stringify({") and "model: $env.LITELLM_DEFAULT_MODEL" in body
+    assert "messages: [{ role: 'user', content: $json.formatted_prompt }]" in body
 
 
 def test_connection_integrity():

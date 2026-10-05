@@ -7,6 +7,9 @@ services:
     deploy:
       replicas: ${TEMPO_SCALE:-0}
     command: ["-config.file=/etc/tempo/tempo.yaml", "-config.expand-env=true"]
+    environment:
+      # Read by config/tempo.yaml through -config.expand-env.
+      TEMPO_RETENTION_PERIOD: ${TEMPO_RETENTION_PERIOD:-336h}
     volumes:
       - ./config/tempo.yaml:/etc/tempo/tempo.yaml:ro
       - tempo-data:/var/tempo

@@ -184,16 +184,28 @@ def test_log_redaction_has_an_exact_attribute_and_body_scope() -> None:
     assert statements.count('delete_matching_keys(') == 2
     assert "(?i)^" in statements
     assert "authorization|proxy-authorization" in statements
-    assert "api[_-]key|x-api-key|token" in statements
+    assert "api[_-]key|apikey|x-api-key|token" in statements
 
     log_statements = "\n".join(groups["log"])
-    assert log_statements.count("replace_pattern(log.body") == 2
+    # Two key=value rules, then connection-string and sk- key rules.
+    assert log_statements.count("replace_pattern(log.body") == 4
     assert "authorization|proxy-authorization" in log_statements
-    assert "api[_-]key|x-api-key|token" in log_statements
+    assert "api[_-]key|apikey|x-api-key|token" in log_statements
     assert "where IsString(log.body)" in log_statements
-    for body_statement in groups["log"][-2:]:
+    # Prefixed / dotted keys (db.password, openai_api_key) and cookies match.
+    assert "(?i)^(.*[._-])?(" in statements and "cookie" in statements
+    for body_statement in groups["log"][2:4]:
         value_terminator = body_statement.rsplit("[^", maxsplit=1)[1]
         assert r"\\]" in value_terminator
+
+
+def test_trace_urls_have_credential_query_values_blanked() -> None:
+    config = _yaml(SERVICES / "otel-collector" / "config" / "config.yaml")
+    traces = config["service"]["pipelines"]["traces"]
+    assert traces["processors"] == ["memory_limiter", "transform/traces", "batch"]
+    statements = "\n".join(config["processors"]["transform/traces"]["trace_statements"][0]["statements"])
+    for attribute in ("url.query", "url.full", "http.url"):
+        assert f'span.attributes["{attribute}"]' in statements
 
 
 def test_collector_compose_waits_for_loki_start_without_storage_privilege() -> None:
@@ -274,7 +286,7 @@ def test_observability_docs_bound_durability_and_redaction_claims() -> None:
     for exact_claim in (
         "bounded and in memory",
         "queued records do not survive a Collector restart",
-        "keys case-insensitively match this exact allowlist",
+        "keys case-insensitively end in one of",
         "does not recursively inspect nested attribute maps",
         "4,194,304 bytes",
         "400 Bad Request",

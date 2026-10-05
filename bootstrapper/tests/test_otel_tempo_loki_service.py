@@ -242,7 +242,11 @@ def test_observability_tracing_compose_contract() -> None:
 def test_litellm_and_backend_receive_otel_env_only_from_atlas_vars() -> None:
     litellm = yaml.safe_load((SERVICES / "litellm" / "compose.yml").read_text())
     litellm_env = litellm["services"]["litellm"]["environment"]
-    assert litellm_env["LITELLM_OTEL_V2"] == "${ATLAS_OTEL_ENABLED:-false}"
+    # LiteLLM only traces through its "otel" callback, which litellm-init
+    # adds when ATLAS_OTEL_ENABLED; the old LITELLM_OTEL_V2 flag was inert.
+    assert "LITELLM_OTEL_V2" not in litellm_env
+    init_env = litellm["services"]["litellm-init"]["environment"]
+    assert init_env["ATLAS_OTEL_ENABLED"] == "${ATLAS_OTEL_ENABLED:-false}"
     assert litellm_env["OTEL_EXPORTER"] == "otlp_http"
     assert litellm_env["OTEL_ENDPOINT"] == "${OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT:-}"
     assert litellm_env["OTEL_SERVICE_NAME"] == "litellm"
@@ -318,3 +322,15 @@ def test_observability_tracing_docs_state_internal_only_and_grafana_surface() ->
             "local development",
         ):
             assert expected in readme
+
+
+def test_litellm_otel_callback_excludes_message_content() -> None:
+    from utils.litellm_settings import base_settings
+
+    off = base_settings({"ATLAS_OTEL_ENABLED": "false"})
+    assert "otel" not in off["litellm_settings"]["callbacks"]
+    assert "callback_settings" not in off
+
+    on = base_settings({"ATLAS_OTEL_ENABLED": "true"})
+    assert on["litellm_settings"]["callbacks"] == ["prometheus", "otel"]
+    assert on["callback_settings"] == {"otel": {"message_logging": False}}

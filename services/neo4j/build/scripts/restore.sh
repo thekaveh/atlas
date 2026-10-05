@@ -33,7 +33,13 @@ if [ -n "${LATEST_BACKUP}" ] && [ -f "${LATEST_BACKUP}" ]; then
     # enterprise `backup`); dumps are restored with `database load`.
     # --from-stdin sidesteps load's <database>.dump naming requirement for
     # our timestamped files.
+    # Same marker as auto_restore.sh: if this load dies part-way, the next
+    # container start retries it instead of booting the partial store.
+    RESTORE_MARKER="${NEO4J_RESTORE_MARKER:-/data/.atlas-restore-incomplete}"
+    mkdir -p "$(dirname "${RESTORE_MARKER}")"
+    touch "${RESTORE_MARKER}"
     if neo4j-admin database load neo4j --from-stdin --overwrite-destination < "${LATEST_BACKUP}"; then
+        rm -f "${RESTORE_MARKER}"
         echo "Database restored successfully. Start the service again."
     else
         echo "ERROR: restore from ${LATEST_BACKUP} FAILED (load exited non-zero)." >&2

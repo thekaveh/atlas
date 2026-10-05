@@ -548,17 +548,32 @@ class ComfyUIMediaClient:
             },
         )
 
+    async def _history_entry(self, operation_id: str) -> Optional[Dict[str, Any]]:
+        history = await self._get_history(operation_id)
+        return history.get(operation_id) if isinstance(history, dict) else None
+
+    async def _history_or_queue(self, operation_id: str):
+        """(history entry, queue, queue status). Not yet in history means
+        queued or running, so probe the live queue for an honest status."""
+        entry = await self._history_entry(operation_id)
+        if entry is not None:
+            return entry, None, None
+        queue = await self._get_queue()
+        status = self._queue_status(operation_id, queue)
+        if status == "failed":
+            # ComfyUI moves a finished job from the queue into history in one
+            # step, so a job that finished between the two reads is in neither.
+            # Read history again before calling it lost: a terminal "failed" is
+            # never re-polled.
+            entry = await self._history_entry(operation_id)
+        return entry, queue, status
+
     async def get_media_operation(self, *, operation_id: str, modality: str) -> Dict[str, Any]:
         if modality not in self.SUPPORTED_MODALITIES:
             raise ValueError(f"Unsupported ComfyUI media modality: {modality}")
 
-        history = await self._get_history(operation_id)
-        entry = history.get(operation_id) if isinstance(history, dict) else None
+        entry, queue, status = await self._history_or_queue(operation_id)
         if entry is None:
-            # Not yet in history → queued or running. Probe the live queue so
-            # the consumer sees an honest in-progress status (not "failed").
-            queue = await self._get_queue()
-            status = self._queue_status(operation_id, queue)
             return self._operation_payload(
                 operation_id=operation_id,
                 status=status,
@@ -929,10 +944,23 @@ def _coerce_float(value: Any, *, default: float) -> float:
         return default
 
 
+# Output types served inline. Anything else (HTML, SVG, scripts) is served as
+# an opaque download: an inline text/html or image/svg+xml from an uploaded
+# input would run script on the backend/Kong origin.
+_INLINE_MEDIA_TYPES = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".webp": "image/webp", ".gif": "image/gif", ".apng": "image/apng",
+    ".mp4": "video/mp4", ".webm": "video/webm",
+    ".wav": "audio/wav", ".flac": "audio/flac", ".mp3": "audio/mpeg",
+    ".glb": "model/gltf-binary",
+}
+
+
 def _content_type_for(filename: str) -> str:
-    lower = (filename or "").lower()
-    if lower.endswith((".jpg", ".jpeg")):
-        return "image/jpeg"
-    if lower.endswith(".webp"):
-        return "image/webp"
-    return "image/png"
+    """Media type from the extension: custom workflows also emit GIF, video
+    and audio, which were all labelled image/png."""
+    import os.path  # noqa: PLC0415
+
+    return _INLINE_MEDIA_TYPES.get(
+        os.path.splitext(filename or "")[1].lower(), "application/octet-stream"
+    )

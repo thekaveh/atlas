@@ -392,10 +392,13 @@ def _active_ollama(
     if not source.startswith("ollama-"):
         return []
 
-    # Base name set: explicit user selection or catalog defaults
-    user_models = _csv(env.get("OLLAMA_USER_MODELS", ""))
-    if user_models:
-        active_names: set[str] = set(user_models)
+    # Base name set: explicit user selection or catalog defaults. A present but
+    # blank OLLAMA_USER_MODELS is the wizard's "deselected everything" answer
+    # (start.py keeps it blank on purpose) and ollama-pull pulls nothing for it,
+    # so falling back to the defaults here would register models nobody pulls.
+    # Only an unset variable means "never chosen".
+    if "OLLAMA_USER_MODELS" in env:
+        active_names: set[str] = set(_csv(env["OLLAMA_USER_MODELS"]))
     else:
         active_names = set(llm_catalog.default_active_names("ollama"))
 

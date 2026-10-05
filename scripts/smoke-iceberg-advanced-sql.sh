@@ -182,7 +182,7 @@ spark.sql(
     "CALL lakehouse.system.expire_snapshots(table => 'atlas_smoke.advanced_sql', retain_last => 1)"
 ).collect()
 spark.sql(
-    "CALL lakehouse.system.remove_orphan_files(table => 'atlas_smoke.advanced_sql', dry_run => true)"
+    "CALL lakehouse.system.remove_orphan_files(table => 'atlas_smoke.advanced_sql', dry_run => true, prefix_listing => true)"
 ).collect()
 
 print("[smoke] Spark Connect advanced Iceberg SQL passed via", spark_remote)

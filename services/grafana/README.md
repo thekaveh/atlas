@@ -51,7 +51,7 @@ The provisioned datasource reads `${PROMETHEUS_ENDPOINT}`. When Prometheus is `d
 | `litellm.json` | LiteLLM | Per-model requests, tokens, spend, latency p50/p95/p99, errors |
 | `kong.json` | Kong API Gateway | Per-route req rate, status codes, p95 latency, bandwidth |
 | `postgres-redis.json` | Postgres + Redis | Connections, query rate, table sizes, memory, ops/sec, hit ratio |
-| `containers-and-host.json` | Containers + Host | cAdvisor per-container CPU/mem/IO, node-exporter host load/disk |
+| `containers-and-host.json` | Containers + Host | cAdvisor per-container CPU/mem/IO, node-exporter host load/disk. cAdvisor runs without Docker discovery (see the Prometheus README), so series carry no container name; panels group by the first 12 characters of the container ID (match them with `docker ps`). |
 | `n8n.json` | n8n | Workflow executions, status, active count |
 | `app-tier.json` | App tier (Weaviate + MinIO) | Vector queries, S3 traffic, bucket sizes |
 

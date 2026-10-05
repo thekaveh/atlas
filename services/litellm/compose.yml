@@ -93,6 +93,8 @@ services:
       # Langfuse tracing toggle — init.py reads this when rendering
       # litellm_settings.success_callback.
       LANGFUSE_SOURCE: ${LANGFUSE_SOURCE:-disabled}
+      # OpenTelemetry toggle — adds the "otel" callback (content excluded).
+      ATLAS_OTEL_ENABLED: ${ATLAS_OTEL_ENABLED:-false}
     extra_hosts:
       # Required for OLLAMA_AUTO_IMPORT_LOCAL_MODELS=true with
       # LLM_PROVIDER_SOURCE=ollama-localhost — the script needs to
@@ -185,10 +187,10 @@ services:
       LANGFUSE_BASE_URL: ${LANGFUSE_ENDPOINT:-}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
-      # OpenTelemetry v2 traces — opt-in through ATLAS_OTEL_ENABLED and sent
+      # OpenTelemetry traces — opt-in through ATLAS_OTEL_ENABLED, which makes
+      # litellm-init add the "otel" callback (prompt content excluded); sent
       # to the internal OTel Collector. Prometheus metrics and Langfuse
       # callbacks remain independent.
-      LITELLM_OTEL_V2: ${ATLAS_OTEL_ENABLED:-false}
       OTEL_EXPORTER: otlp_http
       OTEL_ENDPOINT: ${OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT:-}

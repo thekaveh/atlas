@@ -203,8 +203,8 @@ storage:                                 # parent-owned MinIO buckets + scoped c
 
 **Reserved-namespace rules:** litellm aliases may not shadow a stack-owned model
 (runtime `hermes-agent`/`lightrag` + every catalog model name); n8n ids are
-namespaced `atlas-consumer-<id>`; a storage bucket may **not** reuse a built-in bucket name (`comfyui`, `backend`, `n8n`, `lakehouse`, and the others in `_BUILTIN_BUCKET_NAMES`)
-(a built-in). Unknown top-level keys are rejected. See
+namespaced `atlas-consumer-<id>`; a storage bucket may **not** reuse a built-in bucket name (`comfyui`, `backend`, `n8n`, `lakehouse`, and the others in `_BUILTIN_BUCKET_NAMES`).
+Unknown top-level keys are rejected. See
 [§6.1](#61-registering-a-parent-project-with-atlasconsumeryml) for the full key
 reference.
 
@@ -492,6 +492,11 @@ env:
 The gate reads `FAL_API_KEY` from the environment at `./start.sh` time (a blank
 value counts as absent). Malformed forms — a missing `else`, an unknown key, or a
 non-`^[A-Z][A-Z0-9_]*$` env-var name — fail validation up front.
+
+`env.values` are parsed as YAML 1.1, so unquoted `yes`, `no`, `on`, `off`,
+`true` and `false` are booleans; Atlas writes them to `.env` as `true` /
+`false`. Quote any value whose YAML type would change its text: `"0755"`
+(otherwise octal 493), `"1.10"` (otherwise 1.1), `"12:30"` (otherwise 750).
 
 A `<SVC>_SOURCE` entry may also be the **`auto` sentinel** — the source-selection
 analog of `BASE_PORT: auto` (#753). It resolves once, before source validation,
@@ -1005,7 +1010,7 @@ rag_ingestion_profiles:
         source: mount                         # mount | minio — NEVER an arbitrary host path
         path: corpus/raw                       # mount: relative, under the backend corpus root
         # bucket / prefix                      # minio: the object prefix to ingest
-      parser_order: [docling, tika, plain_text]  # first parser that succeeds wins; plain_text is the always-available fallback
+      parser_order: [docling, tika, plain_text]  # first parser that succeeds wins; plain_text (appended last) decodes text files only
       chunker: { strategy: recursive, chunk_size: 700, overlap: 120 }  # Chonkie strategy
       vector_targets:
         - { backend: weaviate, collection_prefix: RagShowcase, on_unavailable: fail }
@@ -1035,7 +1040,7 @@ services:
       - ./corpus:/app/corpus:ro
 ```
 
-**What the contract enforces.** A `mount` corpus must be a relative path under the shared execution root (`RAG_INGESTION_CORPUS_ROOT`, default `/app/corpus`) — an absolute path, a `~`, or a `..` segment is rejected; a MinIO corpus must reference a store the same consumer declared. Corpus discovery is bounded by manifest-owned limits (`RAG_INGESTION_MAX_FILE_BYTES`, default 100 MiB; `RAG_INGESTION_MAX_CORPUS_BYTES`, default 1 GiB; `RAG_INGESTION_MAX_FILES`, default 10,000) before content is retained in memory. `parser_order` is invoked exactly as declared — no silent fallback across parsers — and each job records observable phases (`discover → parse → chunk → embed → vector_write → lightrag_upload → drain → finalize`) with per-file errors isolated so one bad file doesn't fail the batch. Each `vector_target`/`graph_target` declares `on_unavailable: fail | skip` so a disabled backend fails or visibly skips rather than silently degrading. Ingestions are idempotent and leased: the job key is consumer + profile + revision + corpus fingerprint (so a resubmit of unchanged content returns the existing job, changed content creates a fresh one), and each execution holds an owner-fenced Redis lease (`RAG_INGESTION_EXECUTION_LEASE_SECONDS`, default 30) so duplicate deliveries and lost workers can't double-write. A `wait_for_extraction: true` graph target polls LightRAG until idle or `timeout_seconds`, then finalizes.
+**What the contract enforces.** A `mount` corpus must be a relative path under the shared execution root (`RAG_INGESTION_CORPUS_ROOT`, default `/app/corpus`) — an absolute path, a `~`, or a `..` segment is rejected; a MinIO corpus must reference a store the same consumer declared. Corpus discovery is bounded by manifest-owned limits (`RAG_INGESTION_MAX_FILE_BYTES`, default 100 MiB; `RAG_INGESTION_MAX_CORPUS_BYTES`, default 1 GiB; `RAG_INGESTION_MAX_FILES`, default 10,000) before content is retained in memory. `parser_order` is tried in the declared order; the `plain_text` entry Atlas appends last accepts only text (UTF-8, Windows-1252, or BOM-marked UTF-16/32), so a binary file that Docling/Tika failed on is recorded as a per-file error (and its prior vectors preserved) instead of being indexed as raw bytes. A missing corpus path is never treated as an empty corpus: submission rejects it with HTTP 400, and a worker that lacks the mount the backend had fails the job, and a profile may declare at most one `graph_target` (Atlas has one LightRAG endpoint). Each job records observable phases (`discover → parse → chunk → embed → vector_write → lightrag_upload → drain → finalize`) with per-file errors isolated so one bad file doesn't fail the batch. Each `vector_target`/`graph_target` declares `on_unavailable: fail | skip` so a disabled backend fails or visibly skips rather than silently degrading. Ingestions are idempotent and leased: the job key is consumer + profile + revision + corpus fingerprint (so a resubmit of unchanged content returns the existing job, changed content creates a fresh one), and each execution holds an owner-fenced Redis lease (`RAG_INGESTION_EXECUTION_LEASE_SECONDS`, default 30) so duplicate deliveries of one job and lost workers can't double-write. The lease is per ingestion, not per profile: two different jobs of the same profile (for example after the corpus changed) can still run at once, so let one finish before submitting the next. A job interrupted by the Celery soft time limit is recorded `failed`, so a resubmit starts a fresh job. A `wait_for_extraction: true` graph target polls LightRAG until idle or `timeout_seconds`, then finalizes.
 
 List ingestion state in bounded pages. `GET /api/rag/ingestions` keeps the historical JSON-list body, returns 100 records by default (maximum 200), and exposes the exclusive continuation token in `X-Atlas-Next-Cursor`; send that value as the next request's `cursor` query parameter. Stateful Backend routes use Redis by default and return a typed `state_store_unavailable` HTTP 503 during an outage. The only in-memory alternative is the explicit `BACKEND_STATE_STORE_MODE=memory` single-process, non-durable mode; it is not an automatic outage fallback, and RAG submissions run synchronously rather than crossing into a Celery worker-local store.
 
@@ -1295,7 +1300,7 @@ URL no HTTP client can use.
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `name` | yes | `[a-z0-9][a-z0-9-]*`. Becomes `~/.atlas/<name>` and `ATLAS_<NAME>_HOST_ENDPOINT`, so two consumers cannot share one. |
+| `name` | yes | `[a-z0-9][a-z0-9-]*`. Becomes `~/.atlas/<name>` and `ATLAS_<NAME>_HOST_ENDPOINT`, so two consumers loaded together cannot share one; `comfyui-mps`, `vllm-metal` and `blender-mcp` are reserved for the built-ins. The state directory is per user, not per project, so separate consumer repos on one machine must also use distinct names. |
 | `command` | yes | String (POSIX-split) or list. Argv — **not** a shell line. |
 | `port` | yes | 1–65535. |
 | `workdir` | no | Defaults to the manifest's directory. Must resolve inside the consumer root. |
@@ -1303,7 +1308,7 @@ URL no HTTP client can use.
 | `env` | no | Extra environment for the process. |
 | `venv` | no | `python`, `metal`, `requirements`, `packages`. A leading `python`/`python3` in `command` is rewritten to the venv interpreter. |
 | `install` | no | Extra argv steps run after dependency install. |
-| `health` | no | `kind` (`tcp`/`http`), `path`, `expect_json`, `timeout`. Defaults to a TCP port knock. |
+| `health` | no | `kind` (`tcp`/`http`), `path`, `expect_json`, `timeout`. Defaults to a TCP port knock. `timeout` (default 5s) also bounds each readiness probe during `start`, capped by the time left in the start wait. |
 | `allow_remote` | no | Required to bind anything other than loopback. |
 
 > **Three deliberate constraints.** (1) A declared command is argv handed

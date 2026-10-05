@@ -317,3 +317,33 @@ def test_auto_restore_retries_after_a_failed_load(tmp_path: Path) -> None:
     )
 
     assert "skipping automatic restore" not in result.stdout
+
+
+def test_auto_restore_refuses_a_partial_store_with_no_dump_left(tmp_path: Path) -> None:
+    database = tmp_path / "databases" / "neo4j"
+    database.mkdir(parents=True)
+    (database / "partial").write_bytes(b"half")
+    marker = tmp_path / ".atlas-restore-incomplete"
+    marker.touch()
+    (tmp_path / "snapshot").mkdir()
+
+    result = subprocess.run(
+        ["bash", str(SCRIPTS / "auto_restore.sh")],
+        env={
+            **os.environ,
+            "NEO4J_SNAPSHOT_DIR": str(tmp_path / "snapshot"),
+            "NEO4J_DATABASE_DIR": str(database),
+            "NEO4J_RESTORE_MARKER": str(marker),
+        },
+        text=True, capture_output=True, check=False, timeout=30,
+    )
+
+    assert result.returncode == 1
+    assert "unfinished restore" in result.stderr
+
+
+def test_manual_restore_marks_an_unfinished_load() -> None:
+    script = (SCRIPTS / "restore.sh").read_text(encoding="utf-8")
+    load = script.index("neo4j-admin database load")
+    assert script.index('touch "${RESTORE_MARKER}"') < load
+    assert 'rm -f "${RESTORE_MARKER}"' in script[load:]

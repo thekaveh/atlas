@@ -63,21 +63,26 @@ ALLOWLIST = {
 
 _SECRET_NAME = re.compile(
     r"(PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|ACCESS_KEY|PRIVATE_KEY|"
-    r"CREDENTIAL|SALT|JWT|COOKIE|_KEY$|^KEY$)",
+    r"CREDENTIAL|SALT|JWT|COOKIE|_KEY$|^KEY$|_PASS$|_PWD$|"
+    # user/password pairs; mode toggles such as BACKEND_KONG_AUTH stay visible.
+    r"(?:NEO4J|GRAPH_DB|BASIC)_AUTH$)",
     re.IGNORECASE,
 )
 _MIN_SECRET_LEN = 6
-#: A value made only of these is an enum toggle or a public .env.example
-#: placeholder (``disabled``, ``atlas-db-password``), not a secret worth
-#: matching by value; the patterns still catch it as ``KEY=value``.
-_WORDLIKE = re.compile(r"^[a-z_-]+$")
+#: A short value made only of these is an enum toggle (``disabled``), not a
+#: secret worth matching by value; the patterns still catch it as
+#: ``KEY=value``. Longer lowercase values (``correcthorsebattery``) are
+#: passphrases and are scrubbed, which also scrubs public .env.example
+#: placeholders such as ``atlas-db-password`` (harmless over-redaction).
+_WORDLIKE = re.compile(r"^[a-z_-]{1,11}$")
 _ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 # Every quantifier is bounded: an unbounded prefix class made one long log
 # line quadratic (a 40k-character line took about a minute).
 _W = r"[A-Za-z0-9_.-]{0,64}"
 _SECRET_WORD = (
     rf"{_W}(?:password|passwd|secret|token(?![a-z])|api[_-]?key|access[_-]?key"
-    rf"|private[_-]?key|[_-]key(?![a-z])|credential|salt){_W}"
+    rf"|private[_-]?key|[_-]key(?![a-z])|(?:neo4j|graph[_-]db|basic)[_-]auth(?![a-z])"
+    rf"|credential|salt){_W}"
 )
 _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     # A key block, including one cut off at either end of a log window.
@@ -100,8 +105,22 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
                 r"[A-Za-z0-9._~+/=-]{8,4096}"), rf"\1\2{REDACTED}"),
     (re.compile(rf"(?i)([?&]{_SECRET_WORD}=)(?!\[REDACTED\])[^&\s#\"']{{1,4096}}"),
      rf"\1{REDACTED}"),
-    (re.compile(rf"(?i)(([\"']){_SECRET_WORD}\2\s*:\s*)([\"'])(?!\[REDACTED\])[^\"'\n]{{0,4096}}\3"),
-     rf"\1\3{REDACTED}\3"),
+    # JSON/YAML quoted values, honouring backslash escapes so an escaped
+    # quote cannot end the match early and leak the tail.
+    (re.compile(
+        rf"(?i)(([\"']){_SECRET_WORD}\2\s*:\s*)([\"'])(?!\[REDACTED\])"
+        r"(?:\\.|(?!\3)[^\\\n]){0,4096}\3"
+    ), rf"\1\3{REDACTED}\3"),
+    # CLI flags: --password X, --token=X, and redis-cli's -a X.
+    (re.compile(
+        r"(?i)(--(?:password|passwd|pass|secret|token|api-key|apikey)(?:\s+|=))"
+        r"(?!\[REDACTED\])(\"[^\"\n]{0,4096}\"|'[^'\n]{0,4096}'|\S{1,4096})"
+    ), rf"\1{REDACTED}"),
+    (re.compile(r"(\bredis-cli\b[^\n]{0,256}?\s-a\s+)(?!\[REDACTED\])\S{1,4096}"),
+     rf"\1{REDACTED}"),
+    (re.compile(
+        r"(?i)\b((?:with\s+)?(?:secret|password|token)\s+)([\"'])(?!\[REDACTED\])[^\"'\n]{6,4096}\2"
+    ), rf"\1\2{REDACTED}\2"),
     (re.compile(
         rf"(?i)\b({_SECRET_WORD}\s*[=:]\s*)(?!\[REDACTED\]|variable is not set)"
         r"(\"[^\"\n]{0,4096}\"|'[^'\n]{0,4096}'|[^\s'\",;&]{1,4096})"

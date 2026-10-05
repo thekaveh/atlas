@@ -11,9 +11,19 @@ services:
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
     volumes:
       - supabase-db-data:/var/lib/postgresql/data
+      # The image's /etc/postgresql-custom holds pgsodium_root.key, which
+      # pgsodium and Vault generate on first start. Unpersisted, every
+      # container recreate (each ./start.sh) minted a new key and existing
+      # Vault secrets became undecryptable. A new named volume is seeded
+      # from the image's directory, so its shipped .conf files are kept.
+      - supabase-db-config:/etc/postgresql-custom
       - ./db/snapshot:/snapshot
       - ./db/scripts/enforce-scram-host-auth.sh:/usr/local/bin/enforce-scram-host-auth.sh:ro
-    command: ["sh", "/usr/local/bin/enforce-scram-host-auth.sh"]
+    # The script execs the image entrypoint with these arguments. They must
+    # keep the image's own `-D /etc/postgresql`: without it Postgres reads the
+    # data directory's minimal postgresql.conf, listening on localhost only
+    # (nothing else can connect) with no logical WAL or Supabase preloads.
+    command: ["sh", "/usr/local/bin/enforce-scram-host-auth.sh", "-D", "/etc/postgresql"]
     ports:
       - "${HOST_BIND_IP:-127.0.0.1:}${SUPABASE_DB_PORT}:5432"
     networks:
@@ -115,6 +125,8 @@ services:
       PG_META_DB_NAME: ${SUPABASE_DB_NAME}
       PG_META_DB_USER: ${SUPABASE_META_DB_USER:?SUPABASE_META_DB_USER is required}
       PG_META_DB_PASSWORD: ${SUPABASE_META_DB_PASSWORD:?SUPABASE_META_DB_PASSWORD is required}
+      # Decrypts Studio's x-connection-encrypted header; must match Studio's.
+      PG_META_CRYPTO_KEY: ${SUPABASE_META_CRYPTO_KEY:-}
     ports:
       - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_META_PORT}:8080"
     logging:
@@ -210,7 +222,6 @@ services:
       PGRST_DB_SCHEMA: "public,storage"
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: ${SUPABASE_JWT_SECRET}
-      PGRST_DB_USE_LEGACY_GUCS: "false"
     ports:
       - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_API_PORT}:3000"
     logging:
@@ -307,8 +318,10 @@ services:
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
       SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
       DEFAULT_ORGANIZATION_NAME: ${PROJECT_NAME}
-      DATABASE_URL: postgresql://${SUPABASE_META_DB_USER_URI:?SUPABASE_META_DB_USER_URI is required}:${SUPABASE_META_DB_PASSWORD_URI:?SUPABASE_META_DB_PASSWORD_URI is required}@supabase-db:5432/${SUPABASE_DB_NAME_URI:?SUPABASE_DB_NAME_URI is required}
       AUTH_JWT_SECRET: ${SUPABASE_JWT_SECRET}
+      # Shared with Postgres Meta: encrypts the connection header Studio sends
+      # it. Unset, both fall back to the public constant "SAMPLE_KEY".
+      PG_META_CRYPTO_KEY: ${SUPABASE_META_CRYPTO_KEY:-}
       # Studio constructs its SQL-editor connection URI from this tuple. The
       # user/password fields therefore use bootstrapper-synchronized encoded
       # components; Postgres Meta above keeps the raw discrete credentials.
@@ -373,6 +386,9 @@ services:
 volumes:
   supabase-db-data:
     name: ${PROJECT_NAME}-supabase-db-data
+    driver: local
+  supabase-db-config:
+    name: ${PROJECT_NAME}-supabase-db-config
     driver: local
   supabase-storage-data:
     name: ${PROJECT_NAME}-supabase-storage-data

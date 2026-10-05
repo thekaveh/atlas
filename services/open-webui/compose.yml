@@ -70,8 +70,8 @@ services:
       BACKEND_OPEN_WEBUI_API_TOKEN: ${BACKEND_OPEN_WEBUI_API_TOKEN}
     volumes:
       - open-web-ui-data:/app/backend/data
-      - ./extras/tools:/app/backend/data/tools
-      - ./extras/functions:/app/backend/data/functions
+      - ./extras/tools:/app/backend/data/tools:ro
+      - ./extras/functions:/app/backend/data/functions:ro
     ports:
       - "${HOST_BIND_IP-127.0.0.1:}${OPEN_WEB_UI_PORT}:8080"
     logging:

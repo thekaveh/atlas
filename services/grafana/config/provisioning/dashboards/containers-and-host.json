@@ -13,7 +13,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "id": 1,
       "targets": [
-        { "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name!=\"\"}[5m]))", "refId": "A" }
+        { "expr": "sum by (container) (label_replace(rate(container_cpu_usage_seconds_total{id=~\".*docker[-/][0-9a-f]{64}(\\\\.scope)?\"}[5m]), \"container\", \"$1\", \"id\", \".*docker[-/]([0-9a-f]{12}).*\"))", "refId": "A" }
       ]
     },
     {
@@ -23,7 +23,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "id": 2,
       "targets": [
-        { "expr": "sum by (name) (container_memory_working_set_bytes{name!=\"\"})", "refId": "A" }
+        { "expr": "sum by (container) (label_replace(container_memory_working_set_bytes{id=~\".*docker[-/][0-9a-f]{64}(\\\\.scope)?\"}, \"container\", \"$1\", \"id\", \".*docker[-/]([0-9a-f]{12}).*\"))", "refId": "A" }
       ]
     },
     {
@@ -33,7 +33,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "id": 3,
       "targets": [
-        { "expr": "sum by (name) (rate(container_fs_reads_bytes_total{name!=\"\"}[5m]))", "refId": "A" }
+        { "expr": "sum by (container) (label_replace(rate(container_fs_reads_bytes_total{id=~\".*docker[-/][0-9a-f]{64}(\\\\.scope)?\"}[5m]), \"container\", \"$1\", \"id\", \".*docker[-/]([0-9a-f]{12}).*\"))", "refId": "A" }
       ]
     },
     {
@@ -43,7 +43,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "id": 4,
       "targets": [
-        { "expr": "sum by (name) (rate(container_fs_writes_bytes_total{name!=\"\"}[5m]))", "refId": "A" }
+        { "expr": "sum by (container) (label_replace(rate(container_fs_writes_bytes_total{id=~\".*docker[-/][0-9a-f]{64}(\\\\.scope)?\"}[5m]), \"container\", \"$1\", \"id\", \".*docker[-/]([0-9a-f]{12}).*\"))", "refId": "A" }
       ]
     },
     {

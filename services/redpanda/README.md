@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-Redpanda adds a disabled-by-default Kafka API broker for Atlas data-engineering streaming work. It is scoped to a single-node local broker, a topic bootstrap init container, and Redpanda Console. Spark gets the matching Kafka Structured Streaming jars baked into the Atlas Spark image, so notebooks, Zeppelin, Airflow Spark jobs, and Spark Connect jobs can read and write Kafka streams without runtime `--packages` downloads.
+Redpanda adds a disabled-by-default Kafka API broker for Atlas data-engineering streaming work. It is scoped to a single-node local broker, a topic bootstrap init container, and Redpanda Console. Spark gets the matching Kafka Structured Streaming jars baked into the Atlas Spark image, so Spark Connect jobs (the JupyterHub notebooks) and cluster-mode Airflow Spark submits can read and write Kafka streams without runtime `--packages` downloads. Zeppelin and client-mode Airflow submits run their Spark driver in their own images, which do not carry the Kafka jars; add them with `--packages org.apache.spark:spark-sql-kafka-0-10_2.13:<spark version>` there.
 
 ## 2. Access
 

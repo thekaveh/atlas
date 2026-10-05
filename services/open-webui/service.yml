@@ -12,7 +12,7 @@ capabilities:
   - name: "Source-aware speech and image features"
     status: partial
     verification: tested
-    note: "Open WebUI receives selected speech endpoints and ComfyUI settings, while model readiness, disabled providers, and source-specific credentials can leave individual features unavailable."
+    note: "Open WebUI receives selected speech endpoints and ComfyUI settings, while model readiness, disabled providers, source-specific credentials, saved admin settings, and the unconfigured built-in ComfyUI workflow can leave individual features unavailable."
   - name: "Backend memory and research tools"
     status: partial
     verification: tested

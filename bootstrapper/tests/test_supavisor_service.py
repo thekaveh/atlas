@@ -248,7 +248,7 @@ def test_pooler_consumers_use_generated_envs_and_supabase_internals_stay_direct(
     assert supa_services["supabase-realtime"]["environment"]["DB_PORT"] == 5432
     assert "supabase-db:5432" in supa_services["supabase-auth"]["environment"]["GOTRUE_DB_DATABASE_URL"]
     assert "supabase-db:5432" in supa_services["supabase-storage"]["environment"]["DATABASE_URL"]
-    assert "supabase-db:5432" in supa_services["supabase-studio"]["environment"]["DATABASE_URL"]
+    assert supa_services["supabase-studio"]["environment"]["POSTGRES_HOST"] == "supabase-db"
 
 
 def test_supavisor_docs_describe_scope_and_rollback() -> None:
