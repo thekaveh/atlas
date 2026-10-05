@@ -53,7 +53,7 @@ The stack orchestrates repository-defined containerized and virtual service fami
 - Semantic memory recall via Weaviate with pgvector fallback
 - Memory consolidation and deduplication, with an optional n8n workflow that operators may schedule; Atlas does not install a nightly schedule automatically
 - Open WebUI tool for manual memory management (remember, recall, forget)
-- Auto-extraction filter for conversations
+- Auto-extraction filter for conversations (registered inactive; an admin activates it and makes it global or attaches it to models)
 - Embedded in Backend service (no separate container)
 - Dual vector backend: Weaviate preferred, pgvector fallback
 

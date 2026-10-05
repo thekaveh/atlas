@@ -9,6 +9,7 @@ version: 1.0.0
 license: MIT
 """
 
+import asyncio
 import os
 import requests
 from pydantic import BaseModel, Field
@@ -22,7 +23,7 @@ def _backend_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
-class Tools:
+class _Blocking:
     class Valves(BaseModel):
         backend_url: str = Field(
             default="http://backend:8000", description="Backend API URL"
@@ -50,28 +51,13 @@ class Tools:
     def __init__(self):
         self.valves = self.Valves()
 
-    def generate_image(
-        self,
-        prompt: str,
-        negative_prompt: str = "",
-        width: Optional[int] = None,
-        height: Optional[int] = None,
-        steps: Optional[int] = None,
-        cfg: Optional[float] = None,
-        checkpoint: str = "v1-5-pruned-emaonly.safetensors",
-    ) -> str:
-        """
-        Generate an image using ComfyUI with the specified parameters.
-
-        :param prompt: The text prompt describing the image to generate
-        :param negative_prompt: Text describing what to avoid in the image (optional)
-        :param width: Image width in pixels (default: 512)
-        :param height: Image height in pixels (default: 512)
-        :param steps: Number of denoising steps (default: 20)
-        :param cfg: CFG scale for guidance strength (default: 7.0)
-        :param checkpoint: Model checkpoint to use (default: v1-5-pruned-emaonly.safetensors)
-        :return: Image generation result with an artifact filename or error message
-        """
+    def generate_image(self, request: dict) -> str:
+        """Blocking body of Tools.generate_image (documented there)."""
+        prompt = request["prompt"]
+        negative_prompt = request["negative_prompt"]
+        width, height = request["width"], request["height"]
+        steps, cfg = request["steps"], request["cfg"]
+        checkpoint = request["checkpoint"]
 
         if not self.valves.enable_tool:
             return "❌ Image generation tool is currently disabled."
@@ -344,3 +330,58 @@ class Tools:
             return "❌ Cannot connect to backend service. Please check if the backend is running."
         except Exception:
             return "❌ ComfyUI status is unavailable. Please try again later."
+
+
+class Tools:
+    # Open WebUI 0.6.32 runs a sync tool on its single event loop, so a
+    # blocking HTTP call stalled every user for its whole timeout. Each tool
+    # runs the blocking body (kept off this class, which Open WebUI exposes
+    # method-by-method to the model) in a worker thread.
+    Valves = _Blocking.Valves
+
+    def __init__(self):
+        self.valves = self.Valves()
+
+    async def generate_image(
+        self,
+        prompt: str,
+        negative_prompt: str = "",
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        steps: Optional[int] = None,
+        cfg: Optional[float] = None,
+        checkpoint: str = "v1-5-pruned-emaonly.safetensors",
+    ) -> str:
+        """
+        Generate an image using ComfyUI with the specified parameters.
+
+        :param prompt: The text prompt describing the image to generate
+        :param negative_prompt: Text describing what to avoid in the image (optional)
+        :param width: Image width in pixels (default: 512)
+        :param height: Image height in pixels (default: 512)
+        :param steps: Number of denoising steps (default: 20)
+        :param cfg: CFG scale for guidance strength (default: 7.0)
+        :param checkpoint: Model checkpoint to use (default: v1-5-pruned-emaonly.safetensors)
+        :return: Image generation result with an artifact filename or error message
+        """
+        request = {
+            "prompt": prompt, "negative_prompt": negative_prompt, "width": width,
+            "height": height, "steps": steps, "cfg": cfg, "checkpoint": checkpoint,
+        }
+        return await asyncio.to_thread(_Blocking.generate_image, self, request)
+
+    async def get_available_models(self) -> str:
+        """
+        Get list of available ComfyUI models.
+
+        :return: List of available models from the database
+        """
+        return await asyncio.to_thread(_Blocking.get_available_models, self)
+
+    async def check_comfyui_status(self) -> str:
+        """
+        Check ComfyUI service health and queue status.
+
+        :return: Current status of ComfyUI service
+        """
+        return await asyncio.to_thread(_Blocking.check_comfyui_status, self)

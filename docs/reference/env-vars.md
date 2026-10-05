@@ -512,7 +512,7 @@
 | LLM_GRAPH_BUILDER_SOURCE | llm-graph-builder | disabled | - |
 | LLM_GRAPH_BUILDER_REF | llm-graph-builder | 4a412f4688cf4096976045c019edc0a7f6ddcb6b | Pinned upstream neo4j-labs/llm-graph-builder git ref used by the source-build containers. |
 | LLM_GRAPH_BUILDER_PORT | llm-graph-builder | 63095 | Host port for the Graph Builder frontend (in-container 8080). |
-| LLM_GRAPH_BUILDER_MODEL_ID | llm-graph-builder | atlas_litellm | Model id shown in the Graph Builder UI. Atlas maps this id to LiteLLM's OpenAI-compatible endpoint. |
+| LLM_GRAPH_BUILDER_MODEL_ID | llm-graph-builder | atlas_litellm | Model id shown in the Graph Builder UI. Keep atlas_litellm: compose only exports LLM_MODEL_CONFIG_ATLAS_LITELLM, and Graph Builder reads LLM_MODEL_CONFIG_&lt;ID&gt;, so another id breaks extraction and chat. |
 | LLM_GRAPH_BUILDER_LLM_MODEL | llm-graph-builder |  | LiteLLM model alias used behind atlas_litellm. Empty = use LITELLM_DEFAULT_MODEL. |
 | LLM_GRAPH_BUILDER_NEO4J_DATABASE | llm-graph-builder | neo4j | Neo4j database name for Graph Builder data. Use a dedicated database on editions that support it. |
 | LLM_GRAPH_BUILDER_DIFFBOT_API_KEY | llm-graph-builder |  | Optional Diffbot API key for upstream Diffbot extraction/model features. Atlas' default LiteLLM path does not require it. |

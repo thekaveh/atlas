@@ -78,7 +78,7 @@ through the API.
 
 ### 4.1. Atlas Safe Prompt Middleware
 
-Atlas ships a disabled-by-default `Atlas Safe Prompt Middleware` Filter Function in `extras/functions/atlas_safe_prompt_middleware.py`. The existing `open-webui-init` container registers it with Open WebUI on startup, but the function's own `enabled` valve defaults to `false`, so it is inert until an admin enables it from Open WebUI's Functions settings.
+Atlas ships a disabled-by-default `Atlas Safe Prompt Middleware` Filter Function in `extras/functions/atlas_safe_prompt_middleware.py`. The existing `open-webui-init` container registers it with Open WebUI on startup, but the function's own `enabled` valve defaults to `false`, so it is inert until an admin enables it from Open WebUI's Functions settings. Like every registered Filter Function (including `Memory Auto-Extraction`), it is also created inactive and not global: an admin must switch it on and either make it global or attach it to models before it runs on any chat, whatever its valve says.
 
 When enabled, the filter runs inside Open WebUI before requests reach LiteLLM and redacts obvious accidental secrets from user messages, such as bearer tokens, `sk-...` API keys, AWS access keys, and password assignments. This covers Open WebUI-originated chat traffic only. LiteLLM remains the universal model gateway for the stack, and LiteLLM + Langfuse remains the stack-wide observability path for tracing, latency, and cost. OpenLIT remains deferred as a separate UI/service.
 

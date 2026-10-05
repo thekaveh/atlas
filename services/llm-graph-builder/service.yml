@@ -57,7 +57,7 @@ env:
     description: "Host port for the Graph Builder frontend (in-container 8080)."
   - name: LLM_GRAPH_BUILDER_MODEL_ID
     default: atlas_litellm
-    description: "Model id shown in the Graph Builder UI. Atlas maps this id to LiteLLM's OpenAI-compatible endpoint."
+    description: "Model id shown in the Graph Builder UI. Keep atlas_litellm: compose only exports LLM_MODEL_CONFIG_ATLAS_LITELLM, and Graph Builder reads LLM_MODEL_CONFIG_<ID>, so another id breaks extraction and chat."
   - name: LLM_GRAPH_BUILDER_LLM_MODEL
     default: ""
     description: "LiteLLM model alias used behind atlas_litellm. Empty = use LITELLM_DEFAULT_MODEL."
