@@ -309,10 +309,30 @@ def _env_example_values(env_example_path) -> dict[str, str]:
     return values
 
 
+def _known_applied_profile(env_vars: dict) -> str:
+    """``ATLAS_PROFILE_APPLIED`` canonicalized, or "" when blank/unknown."""
+    from services.profiles import canonical_profile, is_known_profile
+
+    applied = (env_vars.get("ATLAS_PROFILE_APPLIED") or "").strip()
+    return canonical_profile(applied) if applied and is_known_profile(applied) else ""
+
+
 def _manifest_source_vars(consumer_config) -> set[str]:
-    """``*_SOURCE`` keys a consumer manifest declares in ``env.values``."""
+    """Non-empty ``*_SOURCE`` keys a consumer manifest declares (env.values
+    or env.file)."""
     declared = getattr(consumer_config, "env_overrides", None) or {}
-    return {var for var in declared if var.endswith("_SOURCE")}
+    return {var for var, value in declared.items() if var.endswith("_SOURCE") and value}
+
+
+def _operator_env_keys(starter, consumer_config) -> set[str]:
+    """Keys an operator pinned this run: ``.env.user`` overlay + manifest env."""
+    keys = set(getattr(starter, "_env_user_keys", None) or ())
+    return keys | set(getattr(consumer_config, "env_overrides", None) or {})
+
+
+def _replaceable_env(maps: list[dict], protected: set[str]) -> list[dict]:
+    """Drop operator-pinned keys so a profile never treats them as defaults."""
+    return [{k: v for k, v in m.items() if k not in protected} for m in maps]
 
 
 def _prior_profile_env(bundles: dict, prior_applied: str, switching: bool) -> dict:
@@ -338,6 +358,11 @@ def _profile_env_overrides(
             continue
         if not current or any(current == m.get(env_key) for m in replaceable):
             overrides[env_key] = declared_value
+            if current:
+                print(
+                    f"profile={active}: set {env_key}={declared_value!r} "
+                    f"(was the shipped or prior-profile default {current!r})"
+                )
         else:
             print(
                 f"profile={active}: keeping operator-set {env_key}={current!r} "
@@ -561,8 +586,9 @@ class AtlasStarter:
           restart never resets (a wizard/operator selection that happens to
           equal a bundle value is safe).
         - ``env``: applied when the var is unset/empty, the shipped
-          ``.env.example`` default, or the prior profile's value; any other
-          operator-set value is kept with a one-line notice (LOG_MAX_*).
+          ``.env.example`` default, or (on a switch) the prior profile's value
+          for the same key, unless ``.env.user`` or the consumer manifest pins
+          it; any other operator-set value is kept with a notice (LOG_MAX_*).
           Consumer-manifest ``env.values`` ``*_SOURCE`` keys count as explicit
           (CLI flag > manifest > profile).
 
@@ -690,10 +716,13 @@ class AtlasStarter:
         # ── env: defaults unless operator-set ────────────────────────
         overrides.update(_profile_env_overrides(
             active, bundle.env, env_vars,
-            [
-                _env_example_values(self.config_parser.env_example_path),
-                _prior_profile_env(bundles, prior_applied, switching),
-            ],
+            _replaceable_env(
+                [
+                    _env_example_values(self.config_parser.env_example_path),
+                    _prior_profile_env(bundles, prior_applied, switching),
+                ],
+                _operator_env_keys(self, consumer_config),
+            ),
         ))
 
         # Write the marker only when this run actually changes something (or
@@ -1119,11 +1148,9 @@ class AtlasStarter:
             # cannot poison a prod deployment's .env with dev-only sources.
             # A running stack's applied profile (a launch-time --profile)
             # outranks the manifest default.
-            applied = (
-                self.config_parser.parse_env_file().get("ATLAS_PROFILE_APPLIED") or ""
-            ).strip()
             self.profile = (
-                applied or getattr(consumer_config, "profile", None) or "default"
+                _known_applied_profile(self.config_parser.parse_env_file())
+                or getattr(consumer_config, "profile", None) or "default"
             )
         overrides = self._resolve_auto_source_overrides(
             self._resolve_auto_base_port_override(
@@ -1548,6 +1575,7 @@ class AtlasStarter:
                 self.banner.show_status_message(f"  •     to {env_file_path}", "info")
 
                 overlay_overrides = self._apply_env_user_overlay()
+                self._env_user_keys = set(overlay_overrides)
 
                 # Unset potentially lingering port environment variables if cold start and custom base port are used
                 effective_base_port = base_port if base_port is not None else DEFAULT_BASE_PORT
@@ -1572,6 +1600,7 @@ class AtlasStarter:
 
         os.chmod(env_file_path, 0o600)
         overlay_overrides = self._apply_env_user_overlay()
+        self._env_user_keys = set(overlay_overrides)
         if not self._persist_project_name(project_name):  # .env already exists and not cold start
             return False
         if project_name is None and overlay_overrides:

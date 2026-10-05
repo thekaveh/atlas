@@ -1958,12 +1958,26 @@ def test_invalid_ingestion_ttl_cannot_crash_module_import():
     assert result.stdout.strip() == "imported"
 
 
-def test_chunk_phase_isolates_oversize_document(tmp_path, monkeypatch):
-    # A single document over ChunkRequest's 1M-char cap must not abort the whole
-    # job — it is recorded as a chunk-phase error and other documents still
-    # chunk (matching _phase_parse's per-file isolation).
-    big = "x " * 600_000  # 1,200,000 chars > 1,000,000 → ChunkRequest ValidationError
-    _corpus(tmp_path, monkeypatch, {"big.txt": big, "small.txt": "the quick brown fox"})
+def _poison_chunker(monkeypatch):
+    """Make chunking fail for any document containing POISON."""
+    import chunking_service
+
+    real = chunking_service.chunk_text
+
+    def chunk_text(request, **kwargs):
+        if "POISON" in request.text:
+            raise chunking_service.ChunkingError("poisoned document")
+        return real(request, **kwargs)
+
+    monkeypatch.setattr(chunking_service, "chunk_text", chunk_text)
+
+
+def test_chunk_phase_isolates_failing_document(tmp_path, monkeypatch):
+    # A single document the chunker rejects must not abort the whole job — it
+    # is recorded as a chunk-phase error and other documents still chunk
+    # (matching _phase_parse's per-file isolation).
+    _poison_chunker(monkeypatch)
+    _corpus(tmp_path, monkeypatch, {"big.txt": "POISON", "small.txt": "the quick brown fox"})
     pf = _profiles_file(tmp_path)
     svc = _service(
         tmp_path,
@@ -1988,6 +2002,17 @@ def test_chunk_phase_isolates_oversize_document(tmp_path, monkeypatch):
         str(_field(e, "file") or "").endswith("big.txt") for e in chunk_errors
     ), final.errors
     assert final.counts.get("chunks", 0) > 0  # small.txt still chunked
+
+
+def test_corpus_document_over_the_api_text_cap_is_chunked(tmp_path, monkeypatch):
+    # The HTTP /chunk body cap (1M chars) silently dropped larger corpus files;
+    # RAG_INGESTION_MAX_FILE_BYTES is the ingestion bound.
+    from chunking_service import ChunkRequest, CorpusChunkRequest
+
+    big = "x " * 600_000
+    with pytest.raises(Exception):
+        ChunkRequest(text=big)
+    assert CorpusChunkRequest(text=big, chunk_size=512, overlap=64).text == big
 
 
 def test_weaviate_class_name_sanitizes_profile_name():
@@ -2090,9 +2115,10 @@ def test_a_failed_document_keeps_its_previously_ingested_vectors(tmp_path, monke
     both = set(weaviate.object_ids)
     assert len(both) >= 2, "precondition: both files ingested"
 
-    # big.txt now exceeds ChunkRequest's 1M-char cap -> a recorded chunk-phase
-    # error, while a.txt is unchanged.
-    (root / "docs" / "big.txt").write_text("x " * 600_000, encoding="utf-8")
+    # big.txt now fails to chunk -> a recorded chunk-phase error, while a.txt
+    # is unchanged.
+    _poison_chunker(monkeypatch)
+    (root / "docs" / "big.txt").write_text("POISON", encoding="utf-8")
     second, _ = service.submit("showcase-default")
     final = asyncio.run(service.run(second.id))
 
@@ -2152,7 +2178,8 @@ def test_a_permanently_failing_document_does_not_block_stale_cleanup(tmp_path, m
     first, _ = service.submit("showcase-default")
     assert asyncio.run(service.run(first.id)).status == "completed"
 
-    (root / "docs" / "bad.txt").write_text("x " * 600_000, encoding="utf-8")  # always fails
+    _poison_chunker(monkeypatch)
+    (root / "docs" / "bad.txt").write_text("POISON", encoding="utf-8")  # always fails
     (root / "docs" / "gone.txt").unlink()                                     # operator deleted
 
     for _ in range(3):
@@ -2197,7 +2224,8 @@ def test_a_retry_does_not_inherit_the_previous_attempt_s_failures(tmp_path, monk
     # Celery retry path, not a fresh submission. A new `submit()` would create
     # a new record with an empty errors[], which is why the earlier version of
     # this test could not tell the two implementations apart.
-    (root / "docs" / "flaky.txt").write_text("x " * 600_000, encoding="utf-8")
+    _poison_chunker(monkeypatch)
+    (root / "docs" / "flaky.txt").write_text("POISON", encoding="utf-8")
     record, _ = service.submit("showcase-default")
 
     boom = {"raise": True}

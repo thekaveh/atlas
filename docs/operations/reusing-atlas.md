@@ -550,10 +550,12 @@ legacy-blank published ports loopback-bound; a non-empty `HOST_BIND_IP` is an
 explicit operator choice and is preserved. Semantics per field: a profile's
 `sources` are asserted on every start of that profile **except** when that
 service's source was set by an explicit CLI flag this run or is declared in the
-manifest's `env.values` (precedence: CLI flag > manifest > profile);
-`env` values replace an unset value, the shipped `.env.example` default, or
-the prior profile's value (any other operator-set value is kept with a
-notice); switching profiles resets the prior profile's asserted sources to
+manifest's `env` with a non-empty value (precedence: CLI flag > manifest > profile);
+a profile's `env` value replaces an unset value, the shipped `.env.example`
+default, or (on a switch) the prior profile's value for the same key, unless
+the key is pinned in `.env.user` or the manifest's `env` (any other
+operator-set value is kept with a notice; `env` keys only the old profile
+declared are not reset on a switch); switching profiles resets the prior profile's asserted sources to
 their service defaults (no residue), while a same-profile restart never resets
 anything — tracked via the `ATLAS_PROFILE_APPLIED` marker in `.env`. The
 `profile` doctor check reports the effective bundle and the precedence tier
@@ -868,7 +870,7 @@ def health():
     return {"ok": True}
 ```
 
-The package directory name is imported as a top-level module, so it must be unique across every plugin root and must not match a module the backend already imports (for example `observability`, `rag_ingestion`, or `redis`). A plugin whose name matches a module already imported at load time is skipped and listed with status `skipped` in the plugin inventory; a name matching a library the backend imports later shadows that library, so avoid those names too.
+The package directory name is imported as a top-level module, so it must be unique across every plugin root and must not match a module the backend already imports (for example `observability`, `rag_ingestion`, or `redis`). A plugin whose name matches a module already imported at load time is skipped and listed with status `skipped` in the plugin inventory; a name matching a library the backend imports later shadows that library, so avoid those names too. A plugin without a `plugin.yml` is also skipped when a route's first path segment is a reserved built-in name or a path parameter (e.g. `@router.get("/{slug}")`), because plugins mount ahead of the built-in routes and would otherwise answer `/health`; give its router a literal prefix.
 
 Your routes are then served by the same backend — reachable at `backend:8000` in-network, or via Kong at `api.localhost/...`. This is the recommended way to add backend endpoints (e.g. a `/rag` surface) for a downstream showcase without maintaining a fork. See [`services/backend/README.md` §4](https://github.com/thekaveh/atlas/blob/main/services/backend/README.md) for the backend-side description.
 
@@ -1021,6 +1023,8 @@ rag_ingestion_profiles:
       graph_targets:
         - { backend: lightrag, mode: upload_documents, wait_for_extraction: true, timeout_seconds: 3600, on_unavailable: skip }
 ```
+
+With the Celery tier enabled, the whole job (parse, chunk, embed, write and the LightRAG drain) runs inside one Celery task, so it is bounded by `CELERY_TASK_SOFT_TIME_LIMIT_SECONDS` (default 840 s; past it the job is recorded `failed`). A `timeout_seconds` longer than that cannot be reached: for large corpora raise `CELERY_TASK_SOFT_TIME_LIMIT_SECONDS` / `CELERY_TASK_TIME_LIMIT_SECONDS` and keep `CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS` above the hard limit.
 
 On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it into a stable **`revision`**, writes the gitignored `volumes/backend/rag-ingestion-profiles.json`, and generates a compose overlay that bind-mounts that file into both Backend and Celery at a reserved internal contract path. Both services receive the same `RAG_INGESTION_PROFILES_FILE`, Redis state URL, upstream endpoints, and resource limits. For a MinIO corpus, the bucket must also be declared under the same consumer's `storage.buckets`; Atlas compiles that store's access/secret **variable names** into the profile and injects only those scoped credential references into both services. The backend exposes an async job API to submit ingestions headlessly:
 

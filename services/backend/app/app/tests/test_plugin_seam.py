@@ -720,3 +720,19 @@ def test_plugin_named_like_a_loaded_module_is_skipped_not_aliased(tmp_path, monk
     assert "/__shadow__" not in {r.path for r in app.router.routes}
     entry = plugin_seam.PLUGIN_INVENTORY[-1]
     assert "already loaded" in str(entry)
+
+
+def test_manifest_less_router_cannot_open_with_a_path_parameter():
+    # Plugins mount before the built-ins, so "/{slug}" answered GET /health.
+    from fastapi import APIRouter
+
+    import plugin_seam
+
+    router = APIRouter()
+
+    @router.get("/{slug}")
+    def catch_all(slug: str):
+        return {"plugin": slug}
+
+    error = plugin_seam._router_path_error(router, None)
+    assert error and "path parameter" in error

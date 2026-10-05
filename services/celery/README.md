@@ -38,7 +38,7 @@ LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS=30
 RAG_INGESTION_TTL_SECONDS=604800
 ```
 
-All Celery numeric controls must be positive integers. The soft limit must be less than the hard limit, and the Redis visibility timeout must be greater than the hard limit; malformed or contradictory values fail worker and Backend startup rather than falling back to defaults. The RAG execution lease must be an integer from 10 through 300 seconds.
+All Celery numeric controls must be positive integers. The soft limit must be less than the hard limit, and the Redis visibility timeout must be greater than the hard limit; malformed or contradictory values fail worker and Backend startup rather than falling back to defaults. The RAG execution lease must be an integer from 10 through 300 seconds. The soft limit bounds each whole task, including a complete RAG ingestion and its LightRAG drain, so raise both limits (and the visibility timeout) for corpora that take longer than 840 seconds.
 
 The Backend and worker receive identical semantic-chunking and RAG lifecycle
 controls. A blank Chonkie model uses `minishlab/potion-base-32M`; the LightRAG

@@ -519,8 +519,11 @@ download_one() {
   fi
 
   if [ -s "$dest" ]; then
-    # Heal models an earlier run published owner-only (0600).
-    chmod 644 "$dest" 2>/dev/null || true
+    # Heal models an earlier run published owner-only (0600); re-check the
+    # path in place because busybox chmod follows symlinks.
+    if [ ! -L "$dest" ] && [ -f "$dest" ]; then
+      chmod 644 "$dest" 2>/dev/null || true
+    fi
     if [ -n "$sha" ]; then
       if verify_file "$sha" "$dest"; then
         echo "= $name (cached, sha verified)"

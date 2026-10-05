@@ -309,6 +309,16 @@ def test_profile_env_replaces_shipped_default_but_keeps_operator_value(
     assert s.apply_profile_overrides("dev") is True
     assert _env(tmp_path)["WEAVIATE_MEMORY_LIMIT"] == "6g"
 
+    # A .env.user pin that equals the shipped default is still the operator's.
+    s = _make_starter(tmp_path, "HOST_BIND_IP=\nWEAVIATE_MEMORY_LIMIT=2g\n")
+    s._env_user_keys = {"WEAVIATE_MEMORY_LIMIT"}
+    monkeypatch.setattr(
+        s.config_parser, "load_consumer_config",
+        lambda: NS(profile="dev", profile_overrides=overrides),
+    )
+    assert s.apply_profile_overrides("dev") is True
+    assert _env(tmp_path)["WEAVIATE_MEMORY_LIMIT"] == "2g"
+
 
 def test_manifest_declared_source_beats_profile_assert_and_reset(
     tmp_path, monkeypatch

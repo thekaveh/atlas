@@ -2062,6 +2062,9 @@ def test_preflight_resolves_auto_under_the_applied_profile(
     starter = start_module.AtlasStarter()
     starter.materialize_consumer_env_for_preflight()
     assert starter.profile == "prod"
+    assert start_module._known_applied_profile({"ATLAS_PROFILE_APPLIED": "dev"}) == "default"
+    assert start_module._known_applied_profile({"ATLAS_PROFILE_APPLIED": "staging"}) == ""
+    assert start_module._known_applied_profile({}) == ""
 
 
 def test_preflight_invalid_base_port_keeps_stdout_clean(

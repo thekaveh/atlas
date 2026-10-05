@@ -674,7 +674,7 @@ class RagIngestionService:
         from chunking_service import (
             ChunkingDependencyError,
             ChunkingError,
-            ChunkRequest,
+            CorpusChunkRequest,
             chunk_text,
         )
 
@@ -691,7 +691,7 @@ class RagIngestionService:
             try:
                 resp = await asyncio.to_thread(
                     chunk_text,
-                    ChunkRequest(
+                    CorpusChunkRequest(
                         text=doc.text,
                         strategy=strategy,
                         chunk_size=chunk_size,
@@ -703,8 +703,8 @@ class RagIngestionService:
                 # job rather than silently isolating it to a zero-chunk success.
                 raise
             except (ValidationError, ChunkingError) as exc:
-                # Per-document failure — e.g. doc.text over ChunkRequest's length
-                # cap, or a chonkie chunking error. Isolate it and continue like
+                # Per-document failure — e.g. a chonkie chunking error or an
+                # invalid chunker setting. Isolate it and continue like
                 # _phase_parse does, instead of aborting the whole corpus.
                 state.setdefault("failed_sources", set()).add(doc.name)
                 record.add_error(

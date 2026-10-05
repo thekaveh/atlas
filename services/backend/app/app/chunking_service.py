@@ -34,6 +34,16 @@ class ChunkRequest(BaseModel):
         return self
 
 
+class CorpusChunkRequest(ChunkRequest):
+    """In-process RAG ingestion request: no HTTP body cap on ``text``.
+
+    RAG_INGESTION_MAX_FILE_BYTES bounds a corpus document; the 1M-char API
+    cap silently dropped larger ones as per-file validation errors.
+    """
+
+    text: str = Field(min_length=1)
+
+
 class TextChunk(BaseModel):
     index: int
     start_char: int
