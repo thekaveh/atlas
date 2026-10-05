@@ -338,7 +338,7 @@ Selections persist as a sibling env var:
 | Ray | `RAY_WORKER_COUNT` | `2` | 0..64 | `ray-container-cpu`, `ray-container-gpu` |
 | Spark | `SPARK_WORKER_COUNT` | `2` | 1..8 | `container` |
 | Prometheus | `PROMETHEUS_RETENTION_DAYS` | `7` | 1..365 | `container` |
-| Every localhost-capable service | its `*_LOCALHOST_PORT` (e.g. `OLLAMA_LOCALHOST_PORT`) | the manifest default | 1024..65535 | that service's `localhost` option |
+| ComfyUI, Document Processor, Apache Tika, Hermes Agent, OpenClaw, LLM Engine, Neo4j, Weaviate, STT/TTS providers, LightRAG, TEI Reranker | that option's `*_LOCALHOST_PORT` (e.g. `OLLAMA_LOCALHOST_PORT`) | the current `.env` value | 1024..65535 | the service's localhost-type option (`localhost`, `ollama-localhost`, `docling-localhost`, `managed-localhost-mps`, …) |
 
 The input renders directly on the source step — no follow-up cascade — so
 the user picks both a source and a numeric refinement in one keystroke

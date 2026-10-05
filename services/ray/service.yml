@@ -11,7 +11,7 @@ capabilities:
   - name: "NVIDIA GPU worker execution"
     status: partial
     verification: tested
-    note: "The GPU source selects CUDA images and NVIDIA reservations, but successful execution still depends on an operator-provided NVIDIA container runtime and compatible hardware."
+    note: "The GPU source selects the CUDA images only; the compose fragment does not yet request an NVIDIA device, so GPU tasks stay pending until GPU reservations are wired."
   - name: "Remote Ray surface security"
     status: partial
     verification: tested

@@ -364,7 +364,7 @@
 | JENKINS_ADMIN_PASSWORD | jenkins |  | Auto-generated on first bootstrap by KeyGenerator.generate_jenkins_admin_password(). |
 | JENKINS_MEMORY_LIMIT | jenkins | 3g | Container memory limit for Jenkins controller and local Maven builds. |
 | JENKINS_CPU_LIMIT | jenkins | 2.0 | Container CPU limit for Jenkins controller and local Maven builds. |
-| JENKINS_IMAGE | jenkins | jenkins/jenkins:lts-jdk21@sha256:c1e4c349365f6d16d88595b2c5f7e8ff39b8ae1d061f62420bac193b4b9616d0 | Jenkins LTS with JDK 21; Atlas builds a local derived image with Maven, MinIO mc, and plugins. Rolling `lts-jdk21` tag — repointed by Jenkins upstream on each new LTS line, so two builds days apart resolve to different Jenkins versions. Pin to a digest in production via `docker pull jenkins/jenkins:lts-jdk21` then set JENKINS_IMAGE to `jenkins/jenkins:lts-jdk21@sha256:<digest>`. |
+| JENKINS_IMAGE | jenkins | jenkins/jenkins:lts-jdk21@sha256:c1e4c349365f6d16d88595b2c5f7e8ff39b8ae1d061f62420bac193b4b9616d0 | Jenkins LTS with JDK 21; Atlas builds a local derived image with Maven, MinIO mc, and plugins. The default is `lts-jdk21` pinned to a reviewed digest; refresh it deliberately (`docker pull jenkins/jenkins:lts-jdk21`, then set `jenkins/jenkins:lts-jdk21@sha256:<digest>`), since the bare tag is repointed on each new LTS line. |
 | JUPYTER_DB_USER | jupyterhub | atlas_jupyter | Read-only PostgreSQL login exposed to curated notebooks. |
 | JUPYTER_DB_PASSWORD | jupyterhub | atlas-db-password | Auto-generated password for JupyterHub's read-only database role. |
 | JUPYTER_DB_USER_URI | jupyterhub | atlas_jupyter | Bootstrapper-synchronized percent-encoded JUPYTER_DB_USER for DSN userinfo. |

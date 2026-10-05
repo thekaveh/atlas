@@ -311,7 +311,7 @@ MINIO_PUBLIC_ENDPOINT=http://localhost:63020
 - **Cons**: Container resource usage
 - **Requirements**: None
 
-Consumers are wired through their compose fragments with scoped credentials: Airflow, the asset worker and baker, Backend and Celery, the backup service, Iceberg REST, Jenkins, JupyterHub, Label Studio, Langfuse, MLflow, Spark, Trino and Zeppelin. See [MinIO](../../services/minio/README.md) for the bucket-to-consumer table.
+Consumers are wired through their compose fragments: Airflow, the asset worker and baker, Backend and Celery, the backup service, Iceberg REST, Jenkins, JupyterHub, Label Studio, Langfuse, MLflow, Spark, Trino and Zeppelin. Most get scoped service-account credentials; Airflow and the backup service use the root credentials, and Backend/Celery get the endpoint plus whatever credential variables a consumer manifest's `storage` block declares. See [MinIO](../../services/minio/README.md) for the bucket-to-consumer table.
 
 #### 4.4.2. `disabled`
 ```bash
@@ -319,7 +319,7 @@ MINIO_SOURCE=disabled
 ```
 - **Use case**: No artifact-tier object storage needed
 - **Pros**: Saves resources
-- **Cons**: No S3-compatible artifact surface available. Spark, Iceberg REST, Trino, Jenkins, MLflow, Label Studio and Langfuse refuse to start without MinIO (startup stops with an error naming the service), so disable those too or keep MinIO on.
+- **Cons**: No S3-compatible artifact surface available. Spark, Iceberg REST, Trino, Jenkins, MLflow, Label Studio and Langfuse refuse to start without MinIO (startup stops with an error naming the service), so disable those too or keep MinIO on; the asset worker/baker and a local-mode backup are instead auto-disabled by the launch-time dependency check.
 - **Requirements**: None
 
 ### 4.5. OPENCLAW_SOURCE
@@ -546,7 +546,7 @@ SPARK_WORKER_COUNT=2     # number of spark-worker replicas; 1..8 — wizard prom
 
 Cross-encoder reranker inference server (default model `mixedbread-ai/mxbai-rerank-base-v1`). Exposes TEI's `/rerank` endpoint for consumers that send TEI-compatible request bodies.
 
-- **`container-cpu`** — `ghcr.io/huggingface/text-embeddings-inference:cpu-1.9` on amd64; on arm64 Atlas resolves the pinned `cpu-arm64` (Candle) image instead. ~150 ms per pair latency.
+- **`container-cpu`** — `ghcr.io/huggingface/text-embeddings-inference:cpu-1.9` on amd64; on arm64 Atlas resolves the digest-pinned `cpu-arm64-latest` (Candle) image instead. ~150 ms per pair latency.
 - **`container-gpu`** — `:1.9` image with NVIDIA reservation. ~15 ms per pair on RTX-class GPU.
 - **`localhost`** — Existing TEI process on host at `TEI_RERANKER_LOCALHOST_PORT` (default 63049).
 - **`disabled`** — `TEI_RERANKER_ENDPOINT` empties. LightRAG's `RERANK_BINDING` is emitted as `null` in all stock SOURCE combinations so LightRAG disables reranking instead of crashing on an empty binding; direct LightRAG-to-TEI reranking requires an adapter because the request bodies differ.

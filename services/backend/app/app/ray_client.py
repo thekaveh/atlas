@@ -179,11 +179,13 @@ class RayClient:
             # Sent but unanswered: acceptance is AMBIGUOUS. Never resubmit
             # blindly — hand back the stable id for reconciliation.
             raise RaySubmissionAmbiguousError(submission.submission_id) from exc
-        except RuntimeError:
+        except RuntimeError as submit_error:
             try:
                 client.get_job_info(submission.submission_id)
             except Exception:
-                raise
+                # The probe's 404 ("does not exist") hid the real rejection
+                # (e.g. an invalid runtime_env); report the submit error.
+                raise submit_error from None
             raise RayJobAlreadyExistsError(submission.submission_id) from None
 
     def get_job_status(self, job_id: str) -> dict:

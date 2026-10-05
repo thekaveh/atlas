@@ -154,6 +154,19 @@ def test_submit_job_classifies_existing_stable_id(
     assert exc_info.value.submission_id == "raysubmit_stable_123"
 
 
+def test_rejected_submission_reports_the_submit_error_not_the_probe_404(
+    ray_enabled_env, mock_job_submission_client
+):
+    mock_instance = mock_job_submission_client.return_value
+    mock_instance.submit_job.side_effect = RuntimeError("invalid runtime_env")
+    mock_instance.get_job_info.side_effect = RuntimeError(
+        "Request failed with status code 404: Job raysubmit_x does not exist."
+    )
+
+    with pytest.raises(RuntimeError, match="invalid runtime_env"):
+        RayClient.get().submit_job(RayJobSubmission("echo hi", "raysubmit_x"))
+
+
 def test_get_job_status_succeeds_when_enabled(ray_enabled_env, mock_job_submission_client):
     from types import SimpleNamespace
     mock_instance = mock_job_submission_client.return_value

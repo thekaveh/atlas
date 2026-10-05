@@ -26,7 +26,7 @@ and the existing `GET`/`DELETE .../{job_id}` routes reconcile or stop it.
 
 | Env var | Default | When | Description |
 |---|---|---|---|
-| `RAY_SOURCE` | `disabled` | always | One of `ray-container-cpu`, `ray-container-gpu`, `disabled`. |
+| `RAY_SOURCE` | `disabled` | always | One of `ray-container-cpu`, `ray-container-gpu`, `disabled`. `ray-container-gpu` only swaps in the CUDA image: the compose fragment requests no GPU device yet, so Ray reports `GPU: 0` and `num_gpus` tasks stay pending. |
 | `RAY_WORKER_COUNT` | `2` | when source ∈ {cpu, gpu} | Number of `ray-worker` containers. Use `0` for head-only single-node mode. No hard upper bound — bounded by host RAM and CPUs. |
 | `RAY_DASHBOARD_PORT`, `RAY_GCS_PORT`, `RAY_CLIENT_PORT` | auto-assigned | always | Topology-allocated in the infra block and published only on `127.0.0.1`. |
 | `RAY_JOB_API_TOKEN` | auto-generated | always | Required as `Authorization: Bearer <token>` on every Backend `/api/ray` route. Stored in `.env` and injected only into Backend. |
@@ -97,6 +97,6 @@ Support tier: **experimental** — Capability contract declared (#967); no cited
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Containerized CPU distributed compute | supported | tested | Atlas configures a Ray head plus an operator-selected worker count and supplies the backend with the resulting cluster address. |
-| NVIDIA GPU worker execution | partial | tested | The GPU source selects CUDA images and NVIDIA reservations, but successful execution still depends on an operator-provided NVIDIA container runtime and compatible hardware. |
+| NVIDIA GPU worker execution | partial | tested | The GPU source selects the CUDA images only; the compose fragment does not yet request an NVIDIA device, so GPU tasks stay pending until GPU reservations are wired. |
 | Remote Ray surface security | partial | tested | Kong protects the dashboard and the backend API uses bearer authentication, while native client and GCS ports remain unauthenticated loopback bindings. |
 | Persistent Ray session state | not-supported | documented | The stock Ray cluster has no named volume for session state, so jobs and cluster metadata do not survive container replacement. |

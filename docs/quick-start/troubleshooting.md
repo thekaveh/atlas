@@ -5,7 +5,7 @@ This guide covers common issues and their solutions when using Atlas.
 Every copy block below works from a shell at the repository root after one setup line. Plain `docker compose` names the project after the checkout folder (or `COMPOSE_PROJECT_NAME`), not after Atlas's `PROJECT_NAME`, so run this once per shell; without it the commands only find the stack when the folder is named like the project (the default `atlas` checkout with `PROJECT_NAME=atlas`), never in a submodule checkout such as `infra/` or after `--project`:
 
 ```bash
-export COMPOSE_PROJECT_NAME="$(sed -n 's/^PROJECT_NAME=//p' .env)"
+export COMPOSE_PROJECT_NAME="$(sed -n 's/^PROJECT_NAME=["'\'']\{0,1\}\([A-Za-z0-9_-]*\).*/\1/p' .env | tail -n1)"
 ```
 
 Configuration then comes from the checked-out `docker-compose.yml` plus your `.env`, and the few authenticated examples read the needed value from `.env` inline without printing it. Examples use the default `BASE_PORT=63000` port block; if you started with a custom `--base-port`, get your stack's real endpoints from `./start.sh endpoints export --format env` instead of translating port numbers by hand.
