@@ -2012,3 +2012,30 @@ def test_custom_models_flag_resolves_against_the_invoking_directory(tmp_path, mo
     monkeypatch.setenv("ATLAS_INVOKER_CWD", str(tmp_path))
     resolved = start_module._invoker_path_list(f"./a.yaml{os.pathsep}/abs/b.yaml")
     assert resolved.split(os.pathsep) == [str((tmp_path / "a.yaml").resolve()), "/abs/b.yaml"]
+
+
+def test_preflight_base_port_override_recomputes_service_ports(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """doctor's preflight wrote BASE_PORT alone, leaving *_PORT on the old
+    block, so `endpoints export` emitted another stack's ports."""
+    import start as start_module
+    from tests.test_consumer_manifest import _patch_starter_root, _write_consumer, _write_minimal_root
+
+    _write_minimal_root(tmp_path)
+    with (tmp_path / ".env").open("a", encoding="utf-8") as env:
+        env.write("BASE_PORT=63000\nLITELLM_PORT=63040\n")
+    manifest = _write_consumer(tmp_path, "ports")
+    with (manifest.parent / "atlas.env.user").open("a", encoding="utf-8") as user_env:
+        user_env.write("BASE_PORT=20000\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_root(start_module, monkeypatch, tmp_path)
+
+    starter = start_module.AtlasStarter()
+    starter.materialize_consumer_env_for_preflight()
+
+    expected = starter.port_manager.calculate_port_assignments(20000)["LITELLM_PORT"]
+    parsed = starter.config_parser.parse_env_file()
+    assert parsed["BASE_PORT"] == "20000"
+    assert parsed["LITELLM_PORT"] == str(expected) != "63040"

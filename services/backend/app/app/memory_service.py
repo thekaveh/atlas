@@ -16,7 +16,12 @@ from uuid import UUID, uuid4
 import httpx
 
 from db_connection import acquire_conn, connect_postgres
-from memory_store import MemoryStore, _to_uuid, _weaviate_vectorizer_failure
+from memory_store import (
+    MemoryStore,
+    _to_uuid,
+    _weaviate_vectorizer_failure,
+    _weaviate_vectorizer_row_rejection,
+)
 
 logger = logging.getLogger("memory_service")
 
@@ -41,9 +46,13 @@ _TARGET_HEALTH_STATUSES = frozenset({401, 408, 429})
 
 
 def _counts_toward_reconcile_halt(exc: BaseException, target_signal: bool) -> bool:
-    """Target failures halt the pass; so do vectorizer failures, which never
-    raise (Weaviate is up) but are usually systematic across rows."""
-    return target_signal or _weaviate_vectorizer_failure(exc)
+    """Target failures halt the pass; so do systematic vectorizer failures
+    (Weaviate up, embedding provider failing every row), which never raise.
+    A vectorizer 4xx that rejects one fact's content is per-row: counting it
+    let three such rows at the head of the queue stall every later pass."""
+    if target_signal:
+        return True
+    return _weaviate_vectorizer_failure(exc) and not _weaviate_vectorizer_row_rejection(exc)
 
 
 def _is_target_health_signal(exc: BaseException) -> bool:
@@ -762,10 +771,6 @@ Extract the facts as JSON:"""
                         type(exc).__name__,
                     )
                     if not _counts_toward_reconcile_halt(exc, target_signal):
-                        # A vectorizer failure (Weaviate up, its LiteLLM embed
-                        # failing) never raises, but it is usually systematic,
-                        # so it still counts toward the halt below; recall runs
-                        # this loop and must not retry 100 doomed rows.
                         # A row-specific failure says nothing about the
                         # target's health, so it must not COUNT toward the
                         # streak — and it must not RESET it either. Resetting

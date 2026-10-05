@@ -905,7 +905,7 @@ N8N_SOURCE=container
 ./start.sh
 ```
 
-`BASE_PORT` is the preferred way to move the whole stack to another port range. Individual `*_PORT` variables are advanced overrides; normal users should change `BASE_PORT` manually or run `./start.sh --base-port <port>`.
+`BASE_PORT` is the way to move the stack to another port range: change it manually or run `./start.sh --base-port <port>`. Individual `*_PORT` variables are recomputed from `BASE_PORT` on every start, so editing one by hand does not persist.
 
 ### 6.2. Using CLI Overrides
 Temporary configuration for testing:

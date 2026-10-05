@@ -16,6 +16,8 @@ Run once to add them to `/etc/hosts`:
 ./start.sh --setup-hosts
 ```
 
+The flag is part of a normal start: after the hosts write it launches the stack with the current `.env` (without the wizard). On a fresh checkout, run `./start.sh` once first so the wizard picks the track and sources.
+
 Active aliases (every `*-localhost` source also routes through `host.docker.internal`):
 
 - `airflow.localhost` → Airflow Web UI + REST API (`AIRFLOW_SOURCE != disabled`; same alias serves UI at `/` and REST API under `/api/v2/`). Web UI auth: `admin` / auto-generated `AIRFLOW_ADMIN_PASSWORD` (FAB session cookie). REST API auth: JWT bearer — POST credentials to `/auth/token` first, then attach `Authorization: Bearer <jwt>` to `/api/v2/...` calls. See [services/airflow/README.md](https://github.com/thekaveh/atlas/blob/main/services/airflow/README.md) §6 for the full two-step curl.
@@ -104,6 +106,6 @@ entry in `docs/CHANGELOG.md` for the design rationale.
 
 ## 5. Advanced overrides
 
-`BASE_PORT` is the preferred mechanism for moving the whole stack. Individual `*_PORT` variables are advanced overrides; if you change one, the wizard / Kong / dependent services need a `./start.sh` to re-emit `kong-dynamic.yml` and pick up the new value. The port migration framework (`bootstrapper/services/migrations/`) handles cross-version layout shifts; on a bump like topology v1, your `.env` is auto-rewritten with the new defaults (a backup is taken to `.env.backup.<timestamp>`; user-customized values are preserved). Pass `--no-port-migrate` to opt out.
+`BASE_PORT` is the only supported mechanism for moving ports. Every `./start.sh` recomputes all `*_PORT` variables from `BASE_PORT` (`port_manager.update_env_ports`), so a hand-edited single `*_PORT` in `.env`, `.env.user` or a consumer manifest's `env.values` is reset on the next start; change `BASE_PORT` (or pass `--base-port`) instead. Localhost-source `*_LOCALHOST_PORT` variables are not derived from `BASE_PORT` and stay as set. The port migration framework (`bootstrapper/services/migrations/`) handles cross-version layout shifts; on a bump like topology v1, your `.env` is auto-rewritten with the new defaults (a backup is taken to `.env.backup.<timestamp>`; user-customized values are preserved). Pass `--no-port-migrate` to opt out.
 
 Every operation that rewrites `.env` — a base-port change, Supabase key generation, an env migration — snapshots the file first, mode `0600`. Atlas keeps the five most recent snapshots per migration version and prunes older ones, so a rotated secret does not stay readable on disk indefinitely. `.env.backup.*` is gitignored and never committed.

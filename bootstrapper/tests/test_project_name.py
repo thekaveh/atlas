@@ -185,7 +185,7 @@ def test_cold_start_applies_env_user_overlay_and_preserves_project_name(tmp_path
     assert parsed["QUOTED_HASH"] == "a#b"
     assert parsed["INLINE_COMMENT"] == "kept"
     # The replaced .env survives as a private backup (backup HMAC key etc.).
-    backups = list(tmp_path.glob(".env.backup.cold.*"))
+    backups = list(tmp_path.glob(".env.backup.cold.*"))  # separate retention slot
     assert len(backups) == 1
     assert "PROJECT_NAME=myshowcase" in backups[0].read_text(encoding="utf-8")
     assert backups[0].stat().st_mode & 0o077 == 0

@@ -2166,7 +2166,71 @@ async def test_failed_shadow_write_still_raises_the_weaviate_error():
         response=httpx.Response(500, text="vectorize failed", request=request),
     )
     store = memory_store.MemoryStore("postgresql://atlas", weaviate_url="http://weaviate")
+    # A per-row shadow failure (LiteLLM rejects the content) is not a target
+    # outage, so the Weaviate vectorizer error is the one surfaced.
+    store._store_pgvector = AsyncMock(side_effect=httpx.HTTPStatusError(
+        "x", request=request, response=httpx.Response(400, request=request),
+    ))
+
+    with pytest.raises(httpx.HTTPStatusError) as raised:
+        await store._after_weaviate_write_failure(failure, "f", "content")
+    assert raised.value is failure
+
+
+@pytest.mark.asyncio
+async def test_per_row_vectorizer_rejections_do_not_stall_reconcile(monkeypatch):
+    """A LiteLLM 400 for one oversize fact, wrapped in Weaviate's 500, is per
+    row: three of them at the head of the queue must not block later rows."""
+    import httpx
+    import memory_service as mod
+
+    request = httpx.Request("POST", "http://weaviate/v1/objects")
+    seen = []
+
+    class Store:
+        async def update_embedding(self, **kwargs):
+            seen.append(kwargs["fact_id"])
+            if len(seen) <= 3:
+                raise httpx.HTTPStatusError(
+                    "x", request=request,
+                    response=httpx.Response(
+                        500, request=request,
+                        text="vectorize: connection to: OpenAI API failed with status: 400 error: context length",
+                    ),
+                )
+            return None
+
+    class FakeConn:
+        async def fetch(self, *_a, **_k):
+            return _pending_rows(6)
+
+        async def execute(self, *_a, **_k):
+            return "UPDATE 1"
+
+        async def close(self):
+            return None
+
+    svc = mod.MemoryService.__new__(mod.MemoryService)
+    svc.store = Store()
+    svc.database_url = "postgresql://x"
+    monkeypatch.setattr(mod, "connect_postgres", AsyncMock(return_value=FakeConn()))
+    _also_route_acquire(monkeypatch, mod, FakeConn)
+
+    assert await svc._reconcile_pending_vectors() == 3
+    assert len(seen) == 6
+
+
+@pytest.mark.asyncio
+async def test_unreachable_provider_during_shadow_write_is_raised_as_target_failure():
+    import httpx
+    import memory_store
+
+    request = httpx.Request("POST", "http://weaviate/v1/objects")
+    failure = httpx.HTTPStatusError(
+        "x", request=request, response=httpx.Response(500, text="update vector failed", request=request),
+    )
+    store = memory_store.MemoryStore("postgresql://atlas", weaviate_url="http://weaviate")
     store._store_pgvector = AsyncMock(side_effect=httpx.ConnectError("litellm down"))
 
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(httpx.ConnectError):
         await store._after_weaviate_write_failure(failure, "f", "content")

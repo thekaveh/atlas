@@ -36,7 +36,7 @@ Current Langfuse self-hosting uses a web container, worker container, Postgres, 
 
 When enabled, the family starts:
 
-- `langfuse-init`: verifies the Langfuse Postgres database (created by `supabase-db-init` (`services/supabase/db/scripts/05-scoped-roles.sh`)) after `minio-init` provisions the bucket/service account.
+- `langfuse-init`: verifies the Langfuse Postgres database, which `supabase-db-init` creates in `services/supabase/db/scripts/05-scoped-roles.sh`, after `minio-init` provisions the bucket/service account.
 - `langfuse-clickhouse`: stores traces, observations, and scores.
 - `langfuse-web`: serves the UI and ingestion APIs.
 - `langfuse-worker`: processes queued ingestion work.

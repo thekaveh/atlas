@@ -258,7 +258,7 @@ from services.service_config import ServiceConfig
 from services.dependency_manager import DependencyManager
 from utils.source_override_manager import SourceOverrideManager
 
-#: Multi-select lists the wizard writes, where BLANK is a deliberate answer —
+#: Lists (mostly wizard multi-selects) where BLANK is a deliberate answer —
 #: "I selected none" — not a missing value. `.env.example` ships a non-empty
 #: default for each, so the blank-backfill in backfill_missing_env_vars would
 #: otherwise re-seed them on the very run that cleared them: deselecting every
@@ -1070,6 +1070,13 @@ class AtlasStarter:
         )
         if overrides:
             self._merge_env_file_overrides(overrides)
+            # Writing BASE_PORT alone left every *_PORT on the old block, so
+            # `endpoints export` after `doctor` passed its drift check while
+            # emitting ports from the wrong stack. Recompute them, as a start does.
+            if "BASE_PORT" in overrides and str(overrides["BASE_PORT"]).isdecimal():
+                # Same env file as the merge above (ATLAS_ENV_FILE / test roots).
+                self.port_manager.config_parser = self.config_parser
+                self.port_manager.update_env_ports(int(overrides["BASE_PORT"]), create_backup=False)
         return overrides
 
     def _merge_env_file_overrides(self, overrides: Dict[str, str]) -> None:
@@ -1431,10 +1438,11 @@ class AtlasStarter:
             # first. It holds generated secrets plus operator-only values such
             # as BACKUP_MANIFEST_HMAC_KEY, without which backups cannot be
             # restored.
-            # Versioned and never pruned: routine start-up backups share the
-            # plain slot (5 kept) and would rotate this copy out within starts.
+            # Versioned: routine start-up backups share the plain slot and
+            # would rotate this copy out within a couple of starts; the cold
+            # slot keeps its own five most recent copies.
             try:
-                saved_env = create_private_backup(env_file_path, version="cold", keep=-1)
+                saved_env = create_private_backup(env_file_path, version="cold")
             except OSError as exc:
                 self.banner.show_status_message(
                     f"Could not back up {env_file_path} before the cold start: {exc}",
@@ -6646,16 +6654,18 @@ def _prompt_for_track(registry, *, max_attempts: int = 5) -> str:
               help='Disable the opening splash animation in the wizard.')
 @click.option('--no-port-migrate', is_flag=True, default=False,
               help='Skip the chained .env migrations (port-layout v1, URL→PORT v2, '
-                   'model-set v3, catalog v4) for this run. Version sentinels are NOT stamped, '
-                   'so the migration re-prompts on the next run.')
+                   'model-set v3, catalog v4, Weaviate backup module v5) for this run. '
+                   'Version sentinels are NOT stamped, so the migrations run again on '
+                   'the next start.')
 @click.option('--profile',
               type=click.Choice(['default', 'dev', 'prod'], case_sensitive=False),
               help='Deployment profile (declarative bundles in '
                    'bootstrapper/profiles.yml; "dev" aliases "default"). '
-                   '"prod": bind service ports to 127.0.0.1 unless HOST_BIND_IP '
-                   'already holds an operator bind (public edge fronts Kong), '
-                   'enable log rotation, default observability '
-                   'ON, and hide dev-only (localhost) sources. Unset: the '
+                   'Both profiles bind service ports to 127.0.0.1 unless HOST_BIND_IP '
+                   'already holds an operator bind. "prod" also enables log rotation, '
+                   're-applies observability ON on every start (a source flag '
+                   'overrides; a hand edit to .env does not stick), and hides '
+                   'dev-only (localhost) sources. Unset: the '
                    'consumer manifest may name its default via `profile:`. '
                    'Does not bypass the wizard.')
 @click.option('--support-bundle', 'support_bundle',
@@ -7478,6 +7488,11 @@ def env_backfill_command() -> None:
     starter = AtlasStarter()
     env_path = starter.config_parser.env_file_path
     env_example_path = starter.config_parser.env_example_path
+    if not env_path.exists():
+        # backfill_missing_env_vars no-ops without a .env; reporting "No env
+        # changes needed" and exiting 0 hid that nothing was there to fill.
+        click.echo(f"No env file at {env_path}; run ./start.sh once to create it.", err=True)
+        raise click.exceptions.Exit(1)
     before = _parse_env_values(env_path)
     if not starter.backfill_missing_env_vars():
         raise click.exceptions.Exit(1)

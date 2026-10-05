@@ -9,6 +9,7 @@ explicit readiness probe.
 import os
 import asyncio
 import logging
+import re
 from typing import Optional, List, Dict, Any, Union
 from uuid import UUID
 
@@ -87,6 +88,23 @@ def _weaviate_vectorizer_failure(exc: BaseException) -> bool:
             return False
         return "vectoriz" in body or "update vector" in body
     return False
+
+
+# Weaviate wraps the embedding provider's status in its error text ("failed
+# with status: 400 ..."). A 4xx other than 408/429 rejects that one fact (too
+# long, filtered); anything else (5xx, connection, DNS) is systematic.
+_VECTORIZER_ROW_REJECTION = re.compile(r"status:?\s*4(?!08|29)\d\d")
+
+
+def _weaviate_vectorizer_row_rejection(exc: BaseException) -> bool:
+    """A vectorizer failure caused by this row's content, not the provider."""
+    if not _weaviate_vectorizer_failure(exc) or isinstance(exc, WeaviateQueryError):
+        return False
+    try:
+        body = exc.response.text
+    except Exception:  # noqa: BLE001 - unreadable body: not classifiable
+        return False
+    return bool(_VECTORIZER_ROW_REJECTION.search(body))
 
 
 def _weaviate_target_unavailable(exc: BaseException) -> bool:
@@ -859,13 +877,16 @@ class MemoryStore:
         if _weaviate_vectorizer_failure(exc):
             try:
                 await self._store_pgvector(fact_id, content, mark_dirty=False)
-            except Exception as shadow_exc:  # noqa: BLE001 - re-raise the original below
-                # The shadow embed usually fails for the same reason; surface
-                # the Weaviate error so callers classify it as a vectorizer one.
+            except Exception as shadow_exc:  # noqa: BLE001 - classified below
                 logger.warning(
                     "pgvector shadow write after vectorizer failure failed (error_type=%s)",
                     type(shadow_exc).__name__,
                 )
+                # An unreachable embedding provider is a target failure: raise
+                # it so reconcile halts and Celery retries; otherwise keep the
+                # Weaviate error so the row is classified as a vectorizer one.
+                if _weaviate_target_unavailable(shadow_exc):
+                    raise shadow_exc from exc
             raise exc
         if not _weaviate_target_unavailable(exc):
             raise exc
