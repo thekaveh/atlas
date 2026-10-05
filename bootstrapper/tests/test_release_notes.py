@@ -125,6 +125,80 @@ def test_changes_are_deduplicated_by_pull_request(history: Path) -> None:
     assert [note.pr for note in notes].count(21) == 1
 
 
+@pytest.fixture
+def promoted(tmp_path: Path) -> Path:
+    """develop squashes, main squash promotions of them, then main synced back into develop."""
+    repo = tmp_path / "promoted"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _commit(repo, "chore: initial")
+    _git(repo, "tag", "-a", "v0.1.0", "-m", "v0.1.0")
+    _git(repo, "checkout", "-q", "-b", "develop")
+    _commit(repo, "feat(llm): add managed vLLM Metal Apple-silicon source (#379) (#507)")
+    _commit(repo, "feat(cache): bound the response cache (#12) (#40)")
+    _commit(repo, "feat(cache): bound the response cache (#12) (#41)")
+    _commit(repo, "fix(stack): take mc from the pgsty fork (#1333)")
+    _commit(repo, "fix(stack): scope multi-image exception rows (#1334)")
+    _git(repo, "checkout", "-q", "main")
+    # A pre-convention promotion repeats the develop subject under its own
+    # number; a release title names the develop pull requests it carries.
+    _commit(
+        repo,
+        "feat(llm): add managed vLLM Metal Apple-silicon source (#379) (#509)",
+        "Promotes the managed vLLM Metal source from develop to main.",
+    )
+    _commit(repo, "chore(release): merge develop into main for #1333 and #1334 (#1335)")
+    _commit(repo, "chore(release): merge develop into main for #77 (#78)")  # #77 is not in range
+    _git(repo, "checkout", "-q", "develop")
+    _git(repo, "merge", "-q", "-s", "ours", "--no-ff", "-m", "Merge pull request #510 from thekaveh/main", "main")
+    return repo
+
+
+def test_distinct_features_with_near_identical_subjects_both_survive(promoted: Path) -> None:
+    """#40 and #41 differ only in their pull-request number, exactly as a
+    develop/main pair does, but nothing records one as the other's promotion,
+    so both stay: a subject is never an identity (#968)."""
+    notes = release_notes.collect_notes(promoted, "v0.1.0..develop")
+    cache = [note for note in notes if note.scope == "cache"]
+
+    assert [(note.pr, note.promoted_in) for note in cache] == [(41, ()), (40, ())]
+    assert {note.subject for note in cache} == {"bound the response cache"}
+    text = release_notes.render_markdown(notes, rev_range="v0.1.0..develop")
+    assert "- **cache:** bound the response cache (#41)" in text
+    assert "- **cache:** bound the response cache (#40)" in text
+
+
+def test_develop_squash_and_its_main_promotion_collapse_into_one_entry(promoted: Path) -> None:
+    notes = release_notes.collect_notes(promoted, "v0.1.0..develop")
+    folded = {note.pr: note.promoted_in for note in notes}
+
+    # A reviewed entry folds main's #509 into develop's #507; the release title
+    # names its sources, so #1335 folds into #1333 and #1334; #78 names a source
+    # outside the range and stays its own Promotions entry.
+    assert release_notes.REVIEWED_PROMOTIONS[509] == (507,)
+    assert {pr: folded[pr] for pr in (507, 1333, 1334, 78)} == {507: (509,), 1333: (1335,), 1334: (1335,), 78: ()}
+    assert not {509, 1335} & set(folded)
+    text = release_notes.render_markdown(notes, rev_range="v0.1.0..develop")
+    assert "- **llm:** add managed vLLM Metal Apple-silicon source (#507, #509)" in text
+    assert text.count("add managed vLLM Metal Apple-silicon source") == 1
+    assert "- **stack:** take mc from the pgsty fork (#1333, #1335)" in text
+    assert heading_number_findings(text) == []
+
+
+@pytest.mark.parametrize(
+    "subject, sources",
+    [
+        ("merge develop into main for #1333 and #1334", (1333, 1334)),
+        ("merge develop into main for #1323, #1324, #1325 and #1327", (1323, 1324, 1325, 1327)),
+        ("promote the wizard fixes to main", ()),
+    ],
+)
+def test_release_titles_name_their_develop_sources(subject: str, sources: tuple[int, ...]) -> None:
+    release = release_notes.Note("0" * 40, 1326, "Promotions", "release", subject)
+
+    assert release_notes.promotion_sources(release) == sources
+
+
 def test_unclassified_subjects_are_kept_verbatim(history: Path) -> None:
     notes = release_notes.collect_notes(history, "v0.1.0..main")
     unclassified = [note for note in notes if note.bucket == "Unclassified"]

@@ -89,6 +89,18 @@ def test_inventory_mermaid_url_is_the_one_material_bundles():
     assert referenced == scripts
 
 
+def test_inventory_checksums_exactly_the_urls_that_name_a_version():
+    """#1282: a sha256 belongs on a URL that names an exact version, and on no
+    other. The font URLs carry `/v24/`-style versions. unpkg resolves
+    `mermaid@11` to the newest 11.x at fetch time, so a checksum there would
+    fail the first cold build after the next Mermaid 11 release. If
+    mkdocs-material names an exact Mermaid version, the test above moves the
+    inventory to it and this one then requires its checksum."""
+    exact = re.compile(r"/v\d+/|@\d+\.\d+\.\d+(?:-[\w.]+)?/")
+    for asset in _inventory().assets:
+        assert bool(asset.sha256) == bool(exact.search(asset.url)), (asset.name, asset.url)
+
+
 def _synthetic(tmp_path, *, pinned: bool = True):
     body = b"font bytes"
     digest = hashlib.sha256(body).hexdigest() if pinned else "null"
