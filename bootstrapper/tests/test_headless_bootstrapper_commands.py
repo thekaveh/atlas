@@ -169,7 +169,7 @@ def test_consumer_upgrade_docs_name_headless_backfill_and_compose_validate() -> 
         assert "headless" in text.lower()
 
 
-def test_env_backfill_without_an_env_file_fails_loudly(tmp_path, monkeypatch) -> None:
+def test_env_backfill_without_an_env_file_says_so(tmp_path, monkeypatch) -> None:
     import start as start_module
 
     _write_env_pair(tmp_path)
@@ -178,6 +178,6 @@ def test_env_backfill_without_an_env_file_fails_loudly(tmp_path, monkeypatch) ->
 
     result = CliRunner().invoke(start_module.main, ["env", "backfill"])
 
-    assert result.exit_code == 1
-    assert "No env file" in result.output
+    assert result.exit_code == 0  # fresh-clone CI recipes run this first
+    assert "No env file" in result.output and "No env changes needed" not in result.output
     assert not (tmp_path / ".env").exists()

@@ -130,7 +130,7 @@ class KongConfigGenerator:
             '_format_version': '2.1',
             '_transform': True,
             'consumers': self.get_consumers(),
-            'services': self.get_all_services(),
+            'services': self._with_default_timeouts(self.get_all_services()),
             # Global Prometheus plugin — exposes /metrics on Kong's Status
             # API (port 8100). Prometheus's observability bundle scrapes it
             # at `kong-api-gateway:8100/metrics`. The plugin is harmless when Prom isn't
@@ -260,6 +260,20 @@ class KongConfigGenerator:
             )
         return mode
     
+    @staticmethod
+    def _with_default_timeouts(services: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Give every service the gateway's intended 300s read/write timeout.
+
+        Kong 3.x has no global proxy-timeout setting (KONG_PROXY_READ_TIMEOUT
+        was silently ignored), so its 60s per-service default cut off slow
+        non-streaming LLM calls and idle streams/WebSockets. A service that
+        declares its own timeouts keeps them.
+        """
+        for service in services:
+            service.setdefault('read_timeout', 300000)
+            service.setdefault('write_timeout', 300000)
+        return services
+
     def get_all_services(self) -> List[Dict[str, Any]]:
         """
         Get all Kong services based on current SOURCE configurations.

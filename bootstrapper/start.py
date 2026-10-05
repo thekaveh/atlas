@@ -1073,10 +1073,13 @@ class AtlasStarter:
             # Writing BASE_PORT alone left every *_PORT on the old block, so
             # `endpoints export` after `doctor` passed its drift check while
             # emitting ports from the wrong stack. Recompute them, as a start does.
-            if "BASE_PORT" in overrides and str(overrides["BASE_PORT"]).isdecimal():
+            base_port = str(overrides.get("BASE_PORT", ""))
+            # Validate first: update_env_ports prints to stdout on a bad value,
+            # which would corrupt `doctor --format json`; doctor reports it.
+            if base_port.isdecimal() and self.port_manager.validate_base_port(int(base_port)):
                 # Same env file as the merge above (ATLAS_ENV_FILE / test roots).
                 self.port_manager.config_parser = self.config_parser
-                self.port_manager.update_env_ports(int(overrides["BASE_PORT"]), create_backup=False)
+                self.port_manager.update_env_ports(int(base_port), create_backup=False)
         return overrides
 
     def _merge_env_file_overrides(self, overrides: Dict[str, str]) -> None:
@@ -7489,10 +7492,11 @@ def env_backfill_command() -> None:
     env_path = starter.config_parser.env_file_path
     env_example_path = starter.config_parser.env_example_path
     if not env_path.exists():
-        # backfill_missing_env_vars no-ops without a .env; reporting "No env
-        # changes needed" and exiting 0 hid that nothing was there to fill.
-        click.echo(f"No env file at {env_path}; run ./start.sh once to create it.", err=True)
-        raise click.exceptions.Exit(1)
+        # backfill_missing_env_vars no-ops without a .env. Say so instead of
+        # "No env changes needed"; still exit 0, since documented headless
+        # recipes run this on fresh clones before ./start.sh creates .env.
+        click.echo(f"No env file at {env_path}; nothing to backfill (./start.sh creates it).", err=True)
+        return
     before = _parse_env_values(env_path)
     if not starter.backfill_missing_env_vars():
         raise click.exceptions.Exit(1)

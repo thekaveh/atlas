@@ -2039,3 +2039,25 @@ def test_preflight_base_port_override_recomputes_service_ports(
     parsed = starter.config_parser.parse_env_file()
     assert parsed["BASE_PORT"] == "20000"
     assert parsed["LITELLM_PORT"] == str(expected) != "63040"
+
+
+def test_preflight_invalid_base_port_keeps_stdout_clean(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """update_env_ports prints on a bad base port; doctor --format json must
+    not get that line ahead of its JSON."""
+    import start as start_module
+    from tests.test_consumer_manifest import _patch_starter_root, _write_consumer, _write_minimal_root
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "badport")
+    with (manifest.parent / "atlas.env.user").open("a", encoding="utf-8") as user_env:
+        user_env.write("BASE_PORT=80\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_root(start_module, monkeypatch, tmp_path)
+
+    start_module.AtlasStarter().materialize_consumer_env_for_preflight()
+
+    assert "Invalid base port" not in capsys.readouterr().out

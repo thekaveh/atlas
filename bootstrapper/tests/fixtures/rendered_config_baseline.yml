@@ -1607,18 +1607,13 @@ services:
         condition: service_started
         required: true
     environment:
-      DASHBOARD_PASSWORD: kong_password
-      DASHBOARD_USERNAME: kong_admin
       KONG_DATABASE: 'off'
       KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
       KONG_DNS_NOT_FOUND_TTL: '1'
       KONG_DNS_ORDER: LAST,A,CNAME
       KONG_DNS_STALE_TTL: '4'
-      KONG_NGINX_HTTP_LOG_FORMAT: atlas '$$request_method $$uri $$server_protocol'
-        $$status $$body_bytes_sent '"$$http_user_agent"' $$kong_request_id
-      KONG_NGINX_HTTP_UPSTREAM_KEEPALIVE: '16'
-      KONG_NGINX_HTTP_UPSTREAM_KEEPALIVE_REQUESTS: '100'
-      KONG_NGINX_HTTP_UPSTREAM_KEEPALIVE_TIMEOUT: 60s
+      KONG_NGINX_HTTP_LOG_FORMAT: atlas '$$request_method $$uri $$server_protocol $$status
+        $$body_bytes_sent "$$http_user_agent" $$kong_request_id'
       KONG_NGINX_PROXY_CHUNKED_TRANSFER_ENCODING: 'on'
       KONG_NGINX_PROXY_KEEPALIVE_TIMEOUT: '300'
       KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
@@ -1630,14 +1625,7 @@ services:
       KONG_PORT_MAPS: 63000:8000,63001:8443
       KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,rate-limiting,pre-function,prometheus
       KONG_PROXY_ACCESS_LOG: /dev/stdout atlas
-      KONG_PROXY_READ_TIMEOUT: '300'
-      KONG_PROXY_SEND_TIMEOUT: '300'
-      KONG_REDIS_HOST: redis
-      KONG_REDIS_PASSWORD: redis_password
-      KONG_REDIS_PORT: '6379'
       KONG_STATUS_LISTEN: 0.0.0.0:8100
-      SUPABASE_ANON_KEY: ''
-      SUPABASE_SERVICE_KEY: ''
     expose:
     - '8100'
     extra_hosts:

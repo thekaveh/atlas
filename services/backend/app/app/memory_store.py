@@ -91,9 +91,13 @@ def _weaviate_vectorizer_failure(exc: BaseException) -> bool:
 
 
 # Weaviate wraps the embedding provider's status in its error text ("failed
-# with status: 400 ..."). A 4xx other than 408/429 rejects that one fact (too
-# long, filtered); anything else (5xx, connection, DNS) is systematic.
-_VECTORIZER_ROW_REJECTION = re.compile(r"status:?\s*4(?!08|29)\d\d")
+# with status: 400 ..."). A 4xx rejects that one fact (too long, filtered),
+# except auth/timeouts/rate limits and model-configuration errors, which hit
+# every row; anything else (5xx, connection, DNS) is systematic too.
+_VECTORIZER_ROW_REJECTION = re.compile(r"status:?\s*4(?!01|03|04|08|29)\d\d\b")
+_VECTORIZER_SYSTEMATIC_TEXT = re.compile(
+    r"invalid model|model not found|no such model|authentication|api key", re.IGNORECASE
+)
 
 
 def _weaviate_vectorizer_row_rejection(exc: BaseException) -> bool:
@@ -104,7 +108,7 @@ def _weaviate_vectorizer_row_rejection(exc: BaseException) -> bool:
         body = exc.response.text
     except Exception:  # noqa: BLE001 - unreadable body: not classifiable
         return False
-    return bool(_VECTORIZER_ROW_REJECTION.search(body))
+    return bool(_VECTORIZER_ROW_REJECTION.search(body)) and not _VECTORIZER_SYSTEMATIC_TEXT.search(body)
 
 
 def _weaviate_target_unavailable(exc: BaseException) -> bool:

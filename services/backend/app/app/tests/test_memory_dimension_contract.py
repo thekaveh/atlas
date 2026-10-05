@@ -2234,3 +2234,22 @@ async def test_unreachable_provider_during_shadow_write_is_raised_as_target_fail
 
     with pytest.raises(httpx.ConnectError):
         await store._after_weaviate_write_failure(failure, "f", "content")
+
+
+@pytest.mark.parametrize("body,per_row", [
+    ("connection to: OpenAI API failed with status: 400 error: context length exceeded", True),
+    ("connection to: OpenAI API failed with status: 401 error: invalid api key", False),
+    ("connection to: OpenAI API failed with status: 400 error: Invalid model name passed", False),
+    ("connection to: OpenAI API failed with status: 404 error: model not found", False),
+    ("connection to: OpenAI API failed with status: 4000 error", False),
+])
+def test_vectorizer_row_rejection_excludes_systematic_4xx(body, per_row):
+    import httpx
+
+    from memory_store import _weaviate_vectorizer_row_rejection
+
+    request = httpx.Request("POST", "http://weaviate/v1/objects")
+    exc = httpx.HTTPStatusError(
+        "x", request=request, response=httpx.Response(500, text="vectorize: " + body, request=request),
+    )
+    assert _weaviate_vectorizer_row_rejection(exc) is per_row

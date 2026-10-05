@@ -31,7 +31,7 @@ Active aliases (every `*-localhost` source also routes through `host.docker.inte
 - `flower.localhost` → Flower Celery monitor (`CELERY_SOURCE=container`; Kong dashboard basic-auth/ACL plus Flower basic-auth)
 - `graph.localhost` → Neo4j Browser (`NEO4J_GRAPH_DB_SOURCE != disabled`)
 - `graphbuilder.localhost` / `graphbuilder-api.localhost` → LLM Graph Builder UI / API (`LLM_GRAPH_BUILDER_SOURCE != disabled`; Kong dashboard basic-auth/ACL)
-- `hermes.localhost` → Hermes Agent dashboard (`HERMES_SOURCE != disabled` AND `HERMES_DASHBOARD_ENABLED=true`)
+- `hermes.localhost` → Hermes Agent dashboard (`HERMES_SOURCE != disabled` AND `HERMES_DASHBOARD_ENABLED=true`; Kong requires the dashboard Basic credential)
 - `jenkins.localhost` → Jenkins CI (`JENKINS_SOURCE != disabled`)
 - `jupyter.localhost` → JupyterHub (`JUPYTERHUB_SOURCE != disabled`)
 - `label-studio.localhost` → Label Studio (`LABEL_STUDIO_SOURCE != disabled`; Kong dashboard basic-auth/ACL, then the Label Studio login)

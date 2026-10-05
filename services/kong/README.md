@@ -92,16 +92,26 @@ Each `*-localhost` source still gets a Kong route — Kong proxies through `host
 
 ### 4.1. ComfyUI Routes
 ```python
-# Generated based on COMFYUI_SOURCE
-if source == 'localhost':
-    port = os.environ.get('COMFYUI_LOCALHOST_PORT', '8000')
-    service['url'] = f'http://host.docker.internal:{port}/'
-elif source in ['container-cpu', 'container-gpu']:
+# Generated based on COMFYUI_SOURCE (simplified)
+if source == 'managed-localhost-mps':
+    service['url'] = localhost_url('COMFYUI_MPS_LOCALHOST_PORT', '8188')
+elif source == 'localhost':
+    service['url'] = localhost_url('COMFYUI_LOCALHOST_PORT', '8000')
+else:  # container-cpu / container-gpu
     service['url'] = 'http://comfyui:18188/'
 # No route created if source == 'disabled'
 ```
 
-### 4.2. Localhost Service Health Checks
+### 4.2. Proxy timeouts
+
+Every generated service gets a 300-second `read_timeout` / `write_timeout`
+unless it declares its own (n8n keeps 60 s; backend plugins may set theirs).
+Kong 3.x has no global proxy-timeout setting, so these live per service in
+`kong-dynamic.yml`; Kong's own 60-second default otherwise cuts off slow
+non-streaming LLM calls and idle streams or WebSockets. Kong keeps its default
+of 5 retries, so an idempotent request that times out is re-sent.
+
+### 4.3. Localhost Service Health Checks
 When routing to localhost services, Kong generator performs health checks:
 
 ```python

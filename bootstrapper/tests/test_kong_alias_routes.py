@@ -310,7 +310,8 @@ def test_backend_timeout_partial_override_gets_dedicated_service():
     ]
     assert timed["read_timeout"] == 900_000
     assert "connect_timeout" not in timed
-    assert "write_timeout" not in timed
+    # Unset fields take the gateway's 300s default, not Kong's 60s.
+    assert timed["write_timeout"] == 300_000
     assert timed["url"] == "http://backend:8000/"
     assert timed["plugins"] == [{"name": "cors"}]
     assert timed["routes"] == [
@@ -970,3 +971,13 @@ def test_realtime_websocket_route_requires_the_apikey():
     config = _generate("")
     ws = next(svc for svc in config["services"] if svc["name"] == "realtime-v1-ws")
     assert {"name": "key-auth", "config": {"key_names": ["apikey"]}} in ws["plugins"]
+
+
+def test_every_service_gets_the_gateway_timeout_unless_it_declares_one():
+    """KONG_PROXY_READ_TIMEOUT is not a Kong setting; without per-service
+    values the 60s default cut off slow LLM calls and idle streams."""
+    config = _generate_with_plugin_auth("", [], [("tableau", "/tableau", {"read_timeout": 900_000})])
+    for service in config["services"]:
+        assert service["read_timeout"] >= 60_000 and service["write_timeout"] >= 60_000, service["name"]
+    assert _service(config, "backend-api")["read_timeout"] == 300_000
+    assert _service(config, "backend-api-plugin-tableau")["read_timeout"] == 900_000
