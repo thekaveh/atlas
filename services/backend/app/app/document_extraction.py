@@ -12,7 +12,14 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Formats Docling cannot convert go to Tika first. Atlas's Docling providers
+# turn every conversion failure into a 500 (never 415), so the
+# "unsupported format" fallback below never fires for these.
 LONG_TAIL_EXTENSIONS = {
+    ".doc",
+    ".xls",
+    ".ppt",
+    ".epub",
     ".eml",
     ".msg",
     ".rtf",
@@ -27,6 +34,10 @@ LONG_TAIL_EXTENSIONS = {
 }
 
 LONG_TAIL_CONTENT_TYPES = {
+    "application/msword",
+    "application/vnd.ms-excel",
+    "application/vnd.ms-powerpoint",
+    "application/epub+zip",
     "message/rfc822",
     "application/vnd.ms-outlook",
     "application/rtf",
@@ -50,18 +61,23 @@ UNSUPPORTED_MARKERS = (
 MAX_TIMEOUT_SECONDS = 3600.0
 
 
-def _timeout_from_env() -> float:
-    raw = os.getenv("TIKA_TIMEOUT_SECONDS", "30")
+def _timeout_from_env(name: str = "TIKA_TIMEOUT_SECONDS", default: str = "30") -> float:
+    raw = os.getenv(name, default)
     try:
         value = float(raw)
     except (TypeError, ValueError) as exc:
-        raise ValueError("TIKA_TIMEOUT_SECONDS must be a finite number") from exc
+        raise ValueError(f"{name} must be a finite number") from exc
     if not math.isfinite(value) or value <= 0 or value > MAX_TIMEOUT_SECONDS:
         raise ValueError(
-            "TIKA_TIMEOUT_SECONDS must be finite, greater than 0, and at most "
+            f"{name} must be finite, greater than 0, and at most "
             "3600 seconds"
         )
     return value
+
+
+# Margin over Docling's own inference deadline so the server's 504 (not a
+# client-side cut) reports a conversion that ran out of time.
+DOCLING_TIMEOUT_MARGIN_SECONDS = 30.0
 
 
 def _positive_int_from_env(name: str, default: int) -> int:
@@ -94,6 +110,9 @@ class DocumentExtractorConfig:
     tika_endpoint: str = ""
     max_file_size: int = 50 * 1024 * 1024
     timeout_seconds: float = 30.0
+    # Docling has its own deadline (DOCLING_INFERENCE_TIMEOUT_SECONDS, 900 s):
+    # a cold GPU model load or a large accurate-table PDF outlasts Tika's 30 s.
+    docling_timeout_seconds: float = 930.0
 
     @classmethod
     def from_env(cls) -> "DocumentExtractorConfig":
@@ -105,6 +124,11 @@ class DocumentExtractorConfig:
                 "TIKA_MAX_FILE_SIZE", 50 * 1024 * 1024
             ),
             timeout_seconds=_timeout_from_env(),
+            docling_timeout_seconds=min(
+                _timeout_from_env("DOCLING_INFERENCE_TIMEOUT_SECONDS", "900")
+                + DOCLING_TIMEOUT_MARGIN_SECONDS,
+                MAX_TIMEOUT_SECONDS,
+            ),
         )
 
 
@@ -280,7 +304,7 @@ class DocumentExtractor:
         )
 
     async def _post(self, url: str, **kwargs: Any) -> Any:
-        kwargs.setdefault("timeout", self.config.timeout_seconds)
+        kwargs.setdefault("timeout", self.config.docling_timeout_seconds)
         try:
             if self._http_client is not None:
                 return await self._http_client.post(url, **kwargs)
@@ -288,7 +312,7 @@ class DocumentExtractor:
                 return await client.post(url, **kwargs)
         except httpx.TimeoutException as exc:
             raise DocumentExtractionError(
-                f"Docling extraction request timed out after {self.config.timeout_seconds} seconds"
+                f"Docling extraction request timed out after {self.config.docling_timeout_seconds} seconds"
             ) from exc
         except httpx.RequestError as exc:
             logger.warning("Docling extraction request failed", exc_info=True)

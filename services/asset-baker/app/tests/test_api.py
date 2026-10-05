@@ -519,3 +519,23 @@ def test_non_ascii_bearer_token_is_401_not_500() -> None:
         json={"input": {"bucket": "raw-assets", "key": "mesh.glb"}, "params": {}},
     )
     assert response.status_code == 401
+
+
+@pytest.mark.parametrize("code, status", [("NoSuchKey", 404), ("AccessDenied", 403)])
+def test_bake_ref_maps_missing_or_forbidden_input_objects(monkeypatch, code, status):
+    from botocore.exceptions import ClientError
+
+    from asset_baker import api
+
+    class FakeStorage:
+        output_bucket = "asset-baker"
+
+        def fetch(self, bucket, key):
+            raise ClientError({"Error": {"Code": code, "Message": "x"}}, "GetObject")
+
+    monkeypatch.setattr(api, "ArtifactStorage", FakeStorage)
+    response = _client(api).post(
+        "/assets/bake/ref",
+        json={"input": {"bucket": "raw-assets", "key": "incoming/missing.glb"}, "params": {}},
+    )
+    assert response.status_code == status, response.text

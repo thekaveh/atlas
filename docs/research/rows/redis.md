@@ -77,7 +77,7 @@ sources_consulted:
 
 - **Redis Streams (XADD/XREAD/consumer groups)** — Why pursue: replace ad-hoc HTTP fan-out between backend, n8n, ComfyUI, and doc-processor with a single durable event bus already present in the image. Effort: medium.
 - **Pub/Sub channels** — Why pursue: live progress streaming for ComfyUI and local-deep-researcher to the open-webui chat surface without polling. Effort: small.
-- **Redis ACL users** — Why pursue: replace the single shared `REDIS_PASSWORD` with per-service users so a compromised n8n container cannot read the kong rate-limit cache. Effort: small.
+- **Redis ACL users** — Why pursue: replace the single shared `REDIS_PASSWORD` with per-service users so a compromised n8n container cannot read LiteLLM's budget counters. Effort: small.
 - **`maxmemory` + eviction policy** — Why pursue: cache use-cases (embedding cache, doc cache) need `allkeys-lru`; currently unbounded. Effort: small.
 - **RDB snapshots alongside AOF** — Why pursue: faster cold-start restore; current `--appendonly yes` is durable but slow to replay. Effort: small.
 

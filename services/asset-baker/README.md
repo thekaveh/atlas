@@ -4,7 +4,7 @@
 
 Asset Baker is Atlas' containerized **Blender headless HP→LP bake worker**. It turns messy AI-generated high-poly meshes — the interpenetrating shells/flaps, texture distortion, and missing normal maps that make img2mesh output unusable as game/web assets — into clean low-poly GLBs with a baked BaseColor + tangent-normal map. The pipeline is the industry HP→LP bake: **voxel-remesh → decimate → fresh Smart-UV → selected-to-active bake** of color + normal from the original.
 
-It is a **distinct service from the [Asset Worker](../asset-worker/README.md)** (#343): that Node/glTF-Transform worker does weld/simplify/compress and *cannot* voxel-remesh, regenerate UVs, or bake textures/normals — those need Blender. Asset Baker rides the same content-addressed MinIO artifact schema and sits behind the same `/assets/*` route family, so `generate → image→3D → bake (this) → optimize (asset-worker)` speak one job idiom while remaining separate containers (Blender vs Node images).
+It is a **distinct service from the [Asset Worker](../asset-worker/README.md)** (#343): that Node/glTF-Transform worker does weld/simplify/compress and *cannot* voxel-remesh, regenerate UVs, or bake textures/normals — those need Blender. Asset Baker rides the same content-addressed MinIO artifact schema and the same `/assets/*` path idiom on its own `asset-baker.localhost` route (the Backend gateway has no bake route), so `generate → image→3D → bake (this) → optimize (asset-worker)` speak one job idiom while remaining separate containers (Blender vs Node images).
 
 It is **disabled by default** (`ASSET_BAKER_SOURCE=disabled`); the recommended enabled mode is `container-cpu`. Cycles bakes on **CPU** by design: deterministic, runs anywhere (CI, Linux prod), measured 30–200 s/asset at 2k textures, and GPU-contention-safe (Docker on macOS can't pass Metal into a container anyway). GPU (`container-gpu`) and managed `localhost` are deferred until separate lifecycle/performance evidence exists. The Blender image is ~1.5–2.5 GB, so the service is track-membered (`gen-ai-creative`) and never always-on.
 
@@ -132,7 +132,7 @@ Both endpoints return a content-addressed artifact envelope — the baked LP GLB
 
 When `ASSET_BAKER_MINIO_ENABLED=false`, artifacts are stored under `ASSET_BAKER_ARTIFACT_DIR/bake/<sha256>.{glb,png}` and `download_url=/assets/artifacts/<sha256>.glb`. A `skip` (foliage) bake emits `textures: []` and `color_mean: null`.
 
-Failure statuses: `400` (empty / non-GLB), `413` (over `ASSET_BAKER_MAX_UPLOAD_MB`), `422` (bake failed — including the **black-bake QA gate**), `429` (worker busy — bounded concurrency), `504` (bake timeout).
+Failure statuses: `400` (empty / non-GLB), `413` (over `ASSET_BAKER_MAX_UPLOAD_MB`), `422` (bake failed — including the **black-bake QA gate**), `429` (worker busy — bounded concurrency), `504` (bake timeout); `/assets/bake/ref` also returns `404` for a missing input object and `403` for one the service account cannot read. The Kong route's read/write timeout follows `ASSET_BAKER_TIMEOUT_SECONDS` + 30 s, so a long bake is not cut at the gateway's 300 s default.
 
 ## 5. Architecture & Wiring
 

@@ -89,7 +89,7 @@ sources_consulted:
 
 - **Native vector index (HNSW)** — Why pursue: Neo4j 5 ships an HNSW vector index, letting us store embeddings on graph nodes and combine ANN search with graph traversal in one DB. Effort: small.
 - **GenAI plugin (`genai.vector.encode*`)** — Why pursue: Embed text directly inside Cypher via OpenAI / Vertex / Bedrock — wire it to LiteLLM and ingestion becomes one query. Effort: small.
-- **APOC core + extended** — Why pursue: Image is plain `neo4j:5.26.31`; APOC is not preinstalled. APOC unlocks bulk import, periodic-iterate, JSON / HTTP, and the LLM procedures the rest of the stack assumes. Effort: small.
+- **APOC extended** — Why pursue: APOC core is loaded (`NEO4J_PLUGINS=["apoc"]` from the image's `labs/` jar); the extended library adds more JSON / HTTP, import and LLM procedures. Effort: small.
 - **Neosemantics (n10s)** — Why pursue: RDF / ontology import/export bridges Neo4j with external semantic-web sources (Wikidata, schema.org). Effort: medium.
 - **Read-only role for LLM-generated Cypher** — Why pursue: Safe execution of model-authored queries from open-webui / hermes; mitigates prompt-injection-to-`DETACH DELETE`. Effort: small.
 - **Cluster / causal-read replica mode** — Why pursue: Currently single-instance; replicas enable horizontal read scale-out once GraphRAG traffic grows. Effort: large.

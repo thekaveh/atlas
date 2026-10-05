@@ -981,3 +981,14 @@ def test_every_service_gets_the_gateway_timeout_unless_it_declares_one():
         assert service["read_timeout"] >= 60_000 and service["write_timeout"] >= 60_000, service["name"]
     assert _service(config, "backend-api")["read_timeout"] == 300_000
     assert _service(config, "backend-api-plugin-tableau")["read_timeout"] == 900_000
+
+
+def test_asset_baker_route_outlasts_the_bake_timeout():
+    """Kong's 300 s default cut 300-600 s bakes (ASSET_BAKER_TIMEOUT_SECONDS=600)."""
+    from utils.kong_config_generator import KongConfigGenerator
+
+    gen = KongConfigGenerator.__new__(KongConfigGenerator)
+    gen.env_vars = {"ASSET_BAKER_SOURCE": "container-cpu", "ASSET_BAKER_TIMEOUT_SECONDS": "600"}
+    gen.get_env_value = lambda name, default=None: gen.env_vars.get(name, default)
+    service = gen.generate_asset_baker_service()
+    assert service["read_timeout"] == service["write_timeout"] == 630_000

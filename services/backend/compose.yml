@@ -144,6 +144,8 @@ services:
       TIKA_ENDPOINT: ${TIKA_ENDPOINT:-}
       TIKA_MAX_FILE_SIZE: ${TIKA_MAX_FILE_SIZE:-52428800}
       TIKA_TIMEOUT_SECONDS: ${TIKA_TIMEOUT_SECONDS:-30}
+      # Docling calls use Docling's own deadline (+30s margin), not Tika's.
+      DOCLING_INFERENCE_TIMEOUT_SECONDS: ${DOCLING_INFERENCE_TIMEOUT_SECONDS:-900}
       # Hermes Agent — optional direct path (LiteLLM-routed `hermes-agent`
       # model is the default surface). Empty when HERMES_SOURCE=disabled.
       HERMES_ENDPOINT: ${HERMES_ENDPOINT:-}

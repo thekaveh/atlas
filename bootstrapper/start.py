@@ -1073,14 +1073,14 @@ class AtlasStarter:
             # Writing BASE_PORT alone left every *_PORT on the old block, so
             # `endpoints export` after `doctor` passed its drift check while
             # emitting ports from the wrong stack. Recompute them, as a start does.
-            base_port = str(overrides.get("BASE_PORT", ""))
+            base_port = _parsed_base_port(str(overrides.get("BASE_PORT", "")))
             # Validate first: update_env_ports prints to stdout on a bad value,
             # which would corrupt `doctor --format json`; the doctor base-port
             # check fails on it instead.
-            if base_port.isdecimal() and self.port_manager.validate_base_port(int(base_port)):
+            if base_port is not None and self.port_manager.validate_base_port(base_port):
                 # Same env file as the merge above (ATLAS_ENV_FILE / test roots).
                 self.port_manager.config_parser = self.config_parser
-                self.port_manager.update_env_ports(int(base_port), create_backup=False)
+                self.port_manager.update_env_ports(base_port, create_backup=False)
         return overrides
 
     def _merge_env_file_overrides(self, overrides: Dict[str, str]) -> None:
@@ -5828,17 +5828,31 @@ def _doctor_check_vllm_metal(starter: "AtlasStarter") -> dict:
     )
 
 
-def _base_port_problem(raw: str, base_port: int, starter: "AtlasStarter"):
-    """(status, message) for a BASE_PORT start cannot use as written, else None."""
-    if raw and not raw.isdecimal() and raw.lower() != "auto":
-        # start falls back to the default block for an unparseable value.
+def _parsed_base_port(raw: str) -> Optional[int]:
+    """BASE_PORT as start parses it (strip + int(), so `+64000` / `64_000`
+    count); None for blank, `auto` or unparseable."""
+    try:
+        return int(raw.strip())
+    except ValueError:
+        return None
+
+
+def _base_port_problem(raw: str, starter: "AtlasStarter"):
+    """(status, message) for a BASE_PORT start cannot use as written, else None.
+
+    Mirrors start's own parse (int(), so `+64000` / `64_000` are fine): an
+    unparseable value falls back to the default, an out-of-range one is
+    rejected, and `auto` is resolved by start itself."""
+    if not raw or raw.lower() == "auto":
+        return None
+    value = _parsed_base_port(raw)
+    if value is None:
         return (
             "warn",
             f"BASE_PORT {raw!r} is not a number or 'auto'; ./start.sh falls back to "
             f"{DEFAULT_BASE_PORT}.",
         )
-    if raw.isdecimal() and not starter.port_manager.validate_base_port(base_port):
-        # The preflight skips recomputing ports for it and start rejects it.
+    if not starter.port_manager.validate_base_port(value):
         return (
             "fail",
             f"BASE_PORT {raw} is outside the usable range; ./start.sh will reject it.",
@@ -5865,7 +5879,7 @@ def _doctor_check_base_port(starter: "AtlasStarter") -> dict:
         base_port = DEFAULT_BASE_PORT
     project = starter.config_parser.get_project_name()
     details = {"base_port": base_port, "project_name": project}
-    problem = _base_port_problem(raw, base_port, starter)
+    problem = _base_port_problem(raw, starter)
     if problem:
         return _doctor_result("base-port", problem[0], problem[1], details=details)
     if base_port == DEFAULT_BASE_PORT and project != DEFAULT_PROJECT_NAME:

@@ -475,3 +475,21 @@ def test_upstream_failure_body_is_not_exposed() -> None:
         )
 
     assert "secret" not in str(captured.value)
+
+
+def test_docling_uses_its_own_timeout_and_legacy_formats_go_to_tika(monkeypatch) -> None:
+    """TIKA_TIMEOUT_SECONDS (30 s) cut Docling's cold-start/large-PDF runs, and
+    Atlas's Docling answers unsupported formats with 500, never 415."""
+    import document_extraction as module
+
+    monkeypatch.setenv("DOCLING_INFERENCE_TIMEOUT_SECONDS", "600")
+    config = DocumentExtractorConfig.from_env()
+    assert config.timeout_seconds == 30.0
+    assert config.docling_timeout_seconds == 630.0
+    for name in ("old.doc", "sheet.xls", "deck.ppt", "book.epub"):
+        assert DocumentExtractor(config)._is_long_tail(name, None), name
+    assert not DocumentExtractor(config)._is_long_tail("paper.pdf", "application/pdf")
+    # Markdown/CSV/HTML often arrive labelled text/plain; Docling handles them,
+    # and Tika is disabled by default, so text/plain must not reroute them.
+    assert not DocumentExtractor(config)._is_long_tail("notes.md", "text/plain")
+    assert module.DOCLING_TIMEOUT_MARGIN_SECONDS == 30.0

@@ -37,6 +37,26 @@ _CYPHER_FORBIDDEN = re.compile(
 )
 
 
+# APOC core is loaded (Neo4j compose NEO4J_PLUGINS): apoc.load.* sends HTTP to
+# any backend-network service and apoc.meta.*.of / apoc.cypher.* run Cypher
+# strings, all from a "read-only" session. Name-pattern filters were bypassed
+# (unicode escapes, string concatenation inside .of), so APOC is allowed only
+# as one of these exact argument-free schema calls; any other mention of
+# "apoc" (even in a string literal) is rejected.
+_APOC_SCHEMA_CALL = re.compile(
+    r"\s*call\s+apoc\.meta\.(?:schema|stats|data)\s*\(\s*\)"
+    r"(?:\s+yield\s+[a-z_][a-z0-9_]*(?:\s*,\s*[a-z_][a-z0-9_]*)*"
+    r"(?:\s+return\s+[a-z_][a-z0-9_]*(?:\s*,\s*[a-z_][a-z0-9_]*)*)?)?\s*",
+    re.IGNORECASE,
+)
+
+
+def _normalize_cypher_names(statement: str) -> str:
+    """Replace backticks with spaces (deleting them glued `y`SET into one word
+    and hid the keyword) and drop spaces around dots (checking only)."""
+    return re.sub(r"\s*\.\s*", ".", statement.replace("`", " "))
+
+
 _DOLLAR_TAG = re.compile(r"\$[A-Za-z_]?[A-Za-z0-9_]*\$")
 
 
@@ -157,10 +177,17 @@ def is_safe_neo4j_read(cypher: str) -> bool:
     statement = _without_comments(cypher, dialect="cypher")
     if not statement or ";" in statement:
         return False
-    lowered = statement.lower().lstrip()
+    # Neo4j decodes \uXXXX in names (and in place of the dot), which hid
+    # `\u0061poc.load.json`; reject backslashes outright (fail closed).
+    if "\\" in statement:
+        return False
+    normalized = _normalize_cypher_names(statement)
+    lowered = normalized.lower().lstrip()
     if not lowered.startswith(("match", "return", "with", "call db.", "call apoc.meta")):
         return False
-    return _CYPHER_FORBIDDEN.search(statement) is None
+    if "apoc" in lowered and not _APOC_SCHEMA_CALL.fullmatch(normalized):
+        return False
+    return _CYPHER_FORBIDDEN.search(normalized) is None
 
 
 def bounded_neo4j_cypher(cypher: str) -> str:

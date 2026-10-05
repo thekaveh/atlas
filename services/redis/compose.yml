@@ -14,7 +14,7 @@ services:
     # long-running or multi-consumer deployment.
     #
     # The policy is volatile-lru, NOT noeviction: db 0 mixes LiteLLM's
-    # response cache with n8n's BullMQ queue, Kong's rate-limit counters,
+    # response cache with n8n's BullMQ queue,
     # Langfuse's queue and the backend's media store. volatile-lru evicts
     # only keys that carry a TTL — which is the cache — so memory pressure
     # sheds recomputable data and leaves queue entries (written without a

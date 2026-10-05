@@ -202,6 +202,24 @@ def test_mcp_runtime_guards_reject_write_and_unbounded_inputs() -> None:
     assert runtime.is_safe_neo4j_read("CALL db.labels()")
     assert not runtime.is_safe_neo4j_read("CREATE (n:User)")
     assert not runtime.is_safe_neo4j_read("MATCH (n) DETACH DELETE n")
+    # APOC core is loaded: its load/periodic/cypher procedures send HTTP or run
+    # writes from a read-only session; backticks/spaces must not hide them.
+    assert runtime.is_safe_neo4j_read("CALL apoc.meta.data()")
+    for escape in (
+        "MATCH (n) WITH count(n) AS c CALL apoc.load.jsonParams('http://ollama:11434/x', {}, '{}') "
+        "YIELD value RETURN value",
+        "MATCH (n) CALL `apoc`.periodic.iterate('MATCH (m) RETURN m', 'DETACH DELETE m', {}) YIELD batches RETURN batches",
+        "RETURN apoc . cypher.runFirstColumnSingle('CREATE (x) RETURN x', {})",
+        # live-confirmed bypasses of name filters (Neo4j 5.26.31 + APOC core)
+        "CALL apoc.meta.graph.of('CALL ap'+'oc.load.json(\"http://x\") YIELD value RETURN value') "
+        "YIELD nodes RETURN size(nodes)",
+        "CALL \\u0061poc.load.json('http://x') YIELD value RETURN value",
+        "CALL apoc\\u002Eload.json('http://x') YIELD value RETURN value",
+        "MATCH (n) WITH n AS `y`SET y.p = 1 RETURN y",
+    ):
+        assert not runtime.is_safe_neo4j_read(escape), escape
+    for schema_call in ("CALL apoc.meta.schema()", "CALL apoc.meta.data() YIELD label, property RETURN label, property"):
+        assert runtime.is_safe_neo4j_read(schema_call), schema_call
     # A MATCH statement ends in RETURN, so it's wrapped with a server-side LIMIT.
     assert runtime.bounded_neo4j_cypher("MATCH (n) RETURN n") == (
         "CALL {\nMATCH (n) RETURN n\n}\nRETURN *\nLIMIT $atlas_limit"

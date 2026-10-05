@@ -52,6 +52,20 @@ async def _join_request_task(task: asyncio.Task):
     return task.result()
 
 
+
+def _storage_error_status(exc: Exception):
+    """404/403 for a missing or forbidden input object (botocore ClientError),
+    instead of a bare 500; None for anything else."""
+    response = getattr(exc, "response", None)
+    error = response.get("Error", {}) if isinstance(response, dict) else {}
+    code = str(error.get("Code", "")) if isinstance(error, dict) else ""
+    if code in ("NoSuchKey", "NoSuchBucket", "404", "NotFound"):
+        return 404
+    if code in ("AccessDenied", "403", "Forbidden"):
+        return 403
+    return None
+
+
 def create_app(*, api_token: str | None = None) -> FastAPI:
     app = FastAPI(
         title="Atlas Asset Baker",
@@ -162,6 +176,15 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
             data = storage.fetch(request.input.bucket, request.input.key)
         except ArtifactTooLargeError as exc:
             raise HTTPException(status_code=413, detail=str(exc)) from exc
+        except Exception as exc:
+            status = _storage_error_status(exc)
+            if status is None:
+                raise
+            raise HTTPException(
+                status_code=status,
+                detail=f"Input object {request.input.bucket}/{request.input.key} "
+                + ("was not found" if status == 404 else "is not readable"),
+            ) from exc
         return _process_bytes(data, request.params, storage=storage)
 
     @app.get("/assets/artifacts/{sha256}.{ext}")

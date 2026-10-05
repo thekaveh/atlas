@@ -2067,7 +2067,8 @@ def test_preflight_invalid_base_port_keeps_stdout_clean(
 
 
 @pytest.mark.parametrize("raw, status", [
-    ("80", "fail"), ("70000", "fail"),  # start rejects; preflight skips the recompute
+    ("80", "fail"), ("70000", "fail"), ("-1", "fail"),  # start rejects them
+    ("+64000", "pass"), ("64_000", "pass"),             # int() accepts these
     ("abc", "warn"),                    # start falls back to the default block
     ("auto", "pass"),                   # start resolves it itself
 ])

@@ -417,7 +417,7 @@ HERMES_SOURCE=disabled
 
 LightRAG runs out-of-process as either an in-stack container or a host-installed process.
 
-- **`container`** — Pulls `ghcr.io/hkuds/lightrag:v1.5.4` and runs it on `backend-network`. Storage backends are adapted from existing services (Supabase pgvector, Neo4j, Redis); when any of those is `disabled`, LightRAG falls back to in-process file backends.
+- **`container`** — Pulls `ghcr.io/hkuds/lightrag:v1.5.4` and runs it on `backend-network`. Storage backends are adapted from existing services (Supabase pgvector, Neo4j, Redis); when any of those is `disabled`, there is no automatic fallback: LightRAG fails to start (the bootstrapper warns) unless the matching `LIGHTRAG_*_STORAGE` names an in-process class.
 - **`localhost`** — Expects an existing LightRAG running on the host at `LIGHTRAG_LOCALHOST_PORT` (default 63068). Backend-network consumers reach it via `host.docker.internal`.
 - **`disabled`** — `LIGHTRAG_ENDPOINT` empties; hermes/n8n/backend skip the LightRAG capability; LiteLLM's `model_list` omits the `lightrag` entry.
 

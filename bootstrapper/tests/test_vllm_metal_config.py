@@ -79,3 +79,17 @@ def test_lightrag_follows_graph_db_user_and_warns_on_missing_backends(capsys):
         "LIGHTRAG_KV_STORAGE": "JsonKVStorage", "LIGHTRAG_DOC_STATUS_STORAGE": "JsonDocStatusStorage",
     })
     assert capsys.readouterr().err == ""
+
+
+def test_localhost_stt_endpoint_resolves_the_configured_port():
+    # Derived .env lines sit above WHISPER_CPP_LOCALHOST_PORT, where compose
+    # substituted the :-default, so Open WebUI/Hermes called the wrong port.
+    sc = ServiceConfig(config_parser=MagicMock())
+    sc.localhost_host = "host.docker.internal"
+    sc.service_sources = {"STT_PROVIDER_SOURCE": "whisper-cpp-localhost"}
+    sc.config_parser.parse_env_file.return_value = {"WHISPER_CPP_LOCALHOST_PORT": "63099"}
+    sc.get_service_config = MagicMock(return_value={
+        "environment": {"STT_ENDPOINT": "http://host.docker.internal:${WHISPER_CPP_LOCALHOST_PORT:-63042}"},
+    })
+    env = sc._generate_stt_provider_config()
+    assert env["STT_ENDPOINT"] == "http://host.docker.internal:63099"

@@ -562,6 +562,11 @@ class ServiceConfig:
         # URLs we swap in the platform-correct gateway hostname.
         endpoint = config.get('environment', {}).get('STT_ENDPOINT', '')
         endpoint = endpoint.replace('host.docker.internal', self.localhost_host)
+        # Resolve ${PARAKEET/WHISPER_CPP_LOCALHOST_PORT:-...} here, as for Ollama:
+        # the .env lines derived from it (OPEN_WEB_UI_STT_API_URL,
+        # STT_INTERNAL_URL) sit above the port lines, where compose falls back
+        # to the default, so Open WebUI and Hermes called the wrong port.
+        endpoint = _expand_interpolation(endpoint, self.config_parser.parse_env_file())
         env_vars['STT_ENDPOINT'] = endpoint
 
         if source_value.startswith('speaches-container'):

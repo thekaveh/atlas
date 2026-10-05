@@ -479,6 +479,7 @@ services:
       DATABASE_URL: postgresql://atlas_backend:atlas-db-password@supabase-db:5432/postgres
       DOCLING_API_TOKEN: ''
       DOCLING_ENDPOINT: ''
+      DOCLING_INFERENCE_TIMEOUT_SECONDS: '900'
       FAL_API_KEY: ''
       FAL_ENABLE_SAFETY_CHECKER: 'true'
       FAL_IMAGE_TO_3D_MODEL: fal-ai/trellis
@@ -757,6 +758,7 @@ services:
       DATABASE_URL: postgresql://atlas_backend:atlas-db-password@supabase-db:5432/postgres
       DOCLING_API_TOKEN: ''
       DOCLING_ENDPOINT: ''
+      DOCLING_INFERENCE_TIMEOUT_SECONDS: '900'
       LANGMEM_EMBEDDING_DIM: '768'
       LANGMEM_EMBEDDING_MODEL: ''
       LANGMEM_ENABLED: 'true'

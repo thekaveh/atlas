@@ -1204,9 +1204,15 @@ class KongConfigGenerator:
         """
         if self.get_env_value("ASSET_BAKER_SOURCE", "disabled") == "disabled":
             return None
+        # A bake may run ASSET_BAKER_TIMEOUT_SECONDS (600 s default); the
+        # gateway's 300 s default 504'd it while the worker kept the slot.
+        raw_timeout = str(self.get_env_value("ASSET_BAKER_TIMEOUT_SECONDS", "600") or "600")
+        bake_ms = (int(raw_timeout) + 30) * 1000 if raw_timeout.isdecimal() else 630_000
         return {
             "name": "asset-baker",
             "url": "http://asset-baker:8096/",
+            "read_timeout": bake_ms,
+            "write_timeout": bake_ms,
             "routes": [
                 {
                     "name": "asset-baker-all",
