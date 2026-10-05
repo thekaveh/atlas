@@ -9,6 +9,7 @@ version: 1.0.0
 license: MIT
 """
 
+import asyncio
 import time
 import requests
 from typing import Dict, Any
@@ -40,7 +41,7 @@ class Tools:
     def __init__(self):
         self.valves = self.Valves()
 
-    def research_with_progress(
+    async def research_with_progress(
         self, query: str, __user__: Dict[str, Any] = None
     ) -> str:
         """
@@ -48,6 +49,11 @@ class Tools:
 
         :param query: The research question or topic to investigate
         """
+        # Open WebUI runs a sync tool on its event loop; a run of up to
+        # `timeout` seconds would stall every user, so block in a worker thread.
+        return await asyncio.to_thread(self._research_blocking, query)
+
+    def _research_blocking(self, query: str) -> str:
         if not query.strip():
             return "❌ Please provide a research query"
 

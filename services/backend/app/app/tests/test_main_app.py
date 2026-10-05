@@ -299,7 +299,7 @@ def test_research_cancel_reports_best_effort_local_cancellation(monkeypatch):
     assert resp.status_code == 202
     body = resp.json()
     assert body["status"] == "cancel_requested"
-    assert "remote LangGraph cancellation is not supported" in body["message"]
+    assert "makes LangGraph cancel the remote run" in body["message"]
 
 
 def test_research_logs_returns_404_when_session_is_absent(monkeypatch):

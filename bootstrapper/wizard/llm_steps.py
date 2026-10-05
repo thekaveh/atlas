@@ -333,8 +333,12 @@ def build_ollama_steps(
         for s in (env_vars.get("OLLAMA_USER_MODELS", "") or "").split(",")
         if s.strip()
     }
+    # A present-but-blank OLLAMA_USER_MODELS is a deliberate "none" (start.py
+    # keeps it); pre-ticking the baseline again would re-pull it on Enter.
     ollama_default_values = (
-        sorted(ollama_existing) if ollama_existing else ollama_default_actives
+        sorted(ollama_existing)
+        if "OLLAMA_USER_MODELS" in env_vars
+        else ollama_default_actives
     )
     existing_custom = (env_vars.get("OLLAMA_CUSTOM_MODELS", "") or "").strip()
 

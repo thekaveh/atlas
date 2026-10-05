@@ -396,7 +396,8 @@ def _active_ollama(
     # blank OLLAMA_USER_MODELS is the wizard's "deselected everything" answer
     # (start.py keeps it blank on purpose) and ollama-pull pulls nothing for it,
     # so falling back to the defaults here would register models nobody pulls.
-    # Only an unset variable means "never chosen".
+    # Only a missing key means "never chosen" (litellm-init always receives the
+    # key from compose; start.sh backfills it into .env).
     if "OLLAMA_USER_MODELS" in env:
         active_names: set[str] = set(_csv(env["OLLAMA_USER_MODELS"]))
     else:

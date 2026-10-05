@@ -172,7 +172,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Handle ComfyUI service unhealthy or error cases\nconst healthResponse = $input.first().json;\n\nconst errorResponse = {\n  success: false,\n  error: 'ComfyUI service is not available',\n  details: {\n    service_status: healthResponse.status || 'unknown',\n    service_error: healthResponse.error,\n    workflow_info: {\n      execution_id: $execution.id,\n      workflow_name: $workflow.name,\n      failed_at: new Date().toISOString()\n    }\n  }\n};\n\nreturn errorResponse;"
+        "jsCode": "// Handle an unhealthy ComfyUI or a failed Generate Image call (its error\n// output carries the request item merged with `error`)\nconst healthResponse = $input.first().json;\n\nconst errorResponse = {\n  success: false,\n  error: $prevNode.name === 'Generate Image' ? 'Image generation failed' : 'ComfyUI service is not available',\n  details: {\n    service_status: healthResponse.status || 'unknown',\n    service_error: healthResponse.error?.message ?? healthResponse.error,\n    workflow_info: {\n      execution_id: $execution.id,\n      workflow_name: $workflow.name,\n      failed_at: new Date().toISOString()\n    }\n  }\n};\n\nreturn errorResponse;"
       },
       "id": "gh4f31h9-3h54-0h57-h17h-k1h9h4k4h4k7",
       "name": "Handle Service Error",

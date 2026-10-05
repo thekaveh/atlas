@@ -160,7 +160,7 @@ curl -s http://localhost:${LOCAL_DEEP_RESEARCHER_PORT}/threads/$THREAD/state | j
 
 Returns `running_summary`, `sources_gathered`, `loop_count`, current node — useful for debugging stalls.
 
-**Tune the research depth.** `LOCAL_DEEP_RESEARCHER_LOOPS=3` is a balance between report quality and cost. Bump to 5+ for thorough surveys; drop to 1 for fast lookups.
+**Tune the research depth.** `LOCAL_DEEP_RESEARCHER_LOOPS=3` is a balance between report quality and cost. Bump to 5+ for thorough surveys; drop to 1 for fast lookups. These two variables are defaults: a run's own `max_web_research_loops` / `search_api` (sent by the Backend `/research/start`, n8n and the Open WebUI tools) take precedence, because the startup patch makes `Configuration.from_runnable_config` read those two keys from the run config before the environment. Every other setting (provider, model, LiteLLM base URL and key) stays environment-first, so a caller cannot redirect the LiteLLM key.
 
 **Configure the LLM used per step.** The upstream repo's `init-config.py` hard-pins models; to swap them, edit that file in the clone (inside the container) and restart, or override via `LANGCHAIN_*` env vars supported upstream.
 

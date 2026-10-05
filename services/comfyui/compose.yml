@@ -71,7 +71,9 @@ services:
       - comfyui-output:/opt/ComfyUI/output
       - comfyui-input:/opt/ComfyUI/input
       - comfyui-custom-nodes:/opt/ComfyUI/custom_nodes
-      - ${COMFYUI_LOCAL_MODELS_PATH:-./empty}:/host_models
+      # Read-only: nothing in the container reads /host_models, and a writable
+      # mount let the unauthenticated ComfyUI write into the host models dir.
+      - ${COMFYUI_LOCAL_MODELS_PATH:-./empty}:/host_models:ro
       - ../../volumes/comfyui:/comfyui-manifest:ro
       - ./provisioning/provision_custom_nodes.sh:/opt/ai-dock/bin/provisioning.sh:ro
       - ./provisioning/healthcheck.sh:/opt/ai-dock/bin/atlas-comfyui-healthcheck.sh:ro

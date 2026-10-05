@@ -111,7 +111,7 @@ Only `BACKEND_N8N_API_TOKEN` is route-scoped. Both n8n web and worker also recei
 When `LIGHTRAG_SOURCE != disabled`, the env vars `LIGHTRAG_ENDPOINT` and `LIGHTRAG_API_KEY` are injected into n8n containers. Use the HTTP Request node:
 
 - URL: `={{$env.LIGHTRAG_ENDPOINT}}/query`
-- Auth: header `X-API-Key: ={{$env.LIGHTRAG_API_KEY}}` (LightRAG ignores a Bearer token when only the API key is configured)
+- Auth: header `X-API-Key: ={{$env.LIGHTRAG_API_KEY}}` only; do not also send `Authorization: Bearer` with the key, which LightRAG rejects with 401
 - Body (JSON): `{"query": "/hybrid Your question"}`
 
 <a id="6-dependencies--integrations"></a>

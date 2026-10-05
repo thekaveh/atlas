@@ -33,7 +33,7 @@ A Kong gate applies only through the `*.localhost` alias. The service's direct p
 | Celery Flower | `flower.localhost` | Atlas-generated secret | Kong dashboard basic-auth; Flower's own basic-auth uses the same pair. | `services/celery/README.md` |
 | Crawl4AI | `crawl4ai.localhost` | Atlas-generated secret | Kong dashboard basic-auth, then `Authorization: Bearer ${CRAWL4AI_API_TOKEN}` on every route except `/health`. | `services/crawl4ai/README.md` |
 | Docling | `docling.localhost` | Atlas-generated secret | `Authorization: Bearer ${DOCLING_API_TOKEN}` except `/health`. | `services/doc-processor/README.md`, `services/docling/README.md` |
-| LightRAG API | `lightrag.localhost` | Atlas-generated secret | API routes take the `X-API-Key: ${LIGHTRAG_API_KEY}` header (a Bearer token is not accepted). | `services/lightrag/README.md` |
+| LightRAG API | `lightrag.localhost` | Atlas-generated secret | Document, query and graph routes take the `X-API-Key: ${LIGHTRAG_API_KEY}` header; a Bearer token carrying the key is rejected with 401. `/health` and the Ollama-compatible `/api/*` chat routes are open by default (LightRAG's `WHITELIST_PATHS`, which Atlas does not override). | `services/lightrag/README.md` |
 | Asset Baker | `asset-baker.localhost` | Atlas-generated secret | `Authorization: Bearer ${ASSET_BAKER_API_TOKEN}`; `/health` and `/metrics` are public. | `services/asset-baker/README.md` |
 | Asset Worker | `asset-worker.localhost` | Atlas-generated secret | `Authorization: Bearer ${ASSET_WORKER_API_TOKEN}`; `/health` and `/metrics` are public. | `services/asset-worker/README.md` |
 | MLflow | `mlflow.localhost` | Atlas-generated secret | Kong dashboard basic-auth. MLflow has no login of its own. | `services/mlflow/README.md` |

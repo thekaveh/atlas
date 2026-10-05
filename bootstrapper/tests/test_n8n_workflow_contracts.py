@@ -587,3 +587,8 @@ def test_comfyui_generate_errors_reach_the_workflow_error_responder() -> None:
         assert generate["onError"] == "continueErrorOutput"
         error_branch = workflow["connections"][node]["main"][1]
         assert [link["node"] for link in error_branch] == [responder]
+    handler = next(
+        n for n in _load(staged / "comfyui-image-generation.json")["nodes"]
+        if n["name"] == "Handle Service Error"
+    )
+    assert "$prevNode.name === 'Generate Image' ? 'Image generation failed'" in handler["parameters"]["jsCode"]

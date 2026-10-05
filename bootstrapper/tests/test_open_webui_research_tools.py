@@ -37,3 +37,15 @@ def test_streaming_research_tool_is_gated_and_timed_like_research_tool() -> None
     assert "if not self.valves.show_progress:" not in text
     assert "default=900" in text
     assert ":param query:" in text
+
+
+def test_research_tools_do_not_block_open_webui_event_loop() -> None:
+    # Open WebUI 0.6.32 awaits a sync tool inline on its event loop, so a
+    # 900s research call stalled every user; block in a worker thread instead.
+    for name, method in (
+        ("research_tool.py", "async def research("),
+        ("research_streaming_tool.py", "async def research_with_progress("),
+    ):
+        text = (TOOLS_DIR / name).read_text(encoding="utf-8")
+        assert method in text
+        assert "await asyncio.to_thread(self._research_blocking, query)" in text

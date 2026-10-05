@@ -141,6 +141,8 @@ def _readiness_probe_timeout(manager, remaining: float) -> float:
     start killed a healthy process at the deadline."""
     health = getattr(getattr(manager, "spec", None), "health", None)
     declared = getattr(health, "timeout", None)
+    if declared is None:
+        declared = getattr(manager, "readiness_probe_timeout", None)
     limit = declared if isinstance(declared, (int, float)) and declared > 0 else 0.5
     return max(0.05, min(limit, remaining))
 

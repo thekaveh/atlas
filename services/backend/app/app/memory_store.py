@@ -59,7 +59,39 @@ def _parse_embedding_dimension(value: Union[str, int, None]) -> int:
     return dimension
 
 
+# Writes and nearText queries make Weaviate call LiteLLM for an embedding; a
+# cold Ollama model load can exceed 10s (the direct pgvector embed allows 30s).
+_WEAVIATE_VECTORIZE_TIMEOUT = 30.0
+
+
+class WeaviateQueryError(RuntimeError):
+    """Weaviate answered, but the query failed (GraphQL ``errors``)."""
+
+
+def _weaviate_vectorizer_failure(exc: BaseException) -> bool:
+    """Weaviate is reachable but its embedding call (via LiteLLM) failed.
+
+    Weaviate reports a vectorizer error as a 5xx on writes and as GraphQL
+    ``errors`` on nearText queries. Neither means Weaviate is down, so they
+    must not latch pgvector (which then holds until restart or a probe).
+    """
+    if isinstance(exc, WeaviateQueryError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        response = getattr(exc, "response", None)
+        if response is None or response.status_code < 500:
+            return False
+        try:
+            body = response.text.lower()
+        except Exception:  # noqa: BLE001 - unreadable body: not classifiable
+            return False
+        return "vectoriz" in body or "update vector" in body
+    return False
+
+
 def _weaviate_target_unavailable(exc: BaseException) -> bool:
+    if _weaviate_vectorizer_failure(exc):
+        return False
     if isinstance(
         exc,
         (TimeoutError, ConnectionError, httpx.TimeoutException, httpx.NetworkError),
@@ -841,7 +873,7 @@ class MemoryStore:
                 "isActive": True,
             },
         }
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=_WEAVIATE_VECTORIZE_TIMEOUT) as client:
             resp = await client.post(
                 f"{self.weaviate_url}/v1/objects", json=obj
             )
@@ -901,6 +933,18 @@ class MemoryStore:
                         "before embedding write"
                     )
 
+    async def _search_after_weaviate_failure(
+        self, exc: Exception, search_args: tuple
+    ) -> List[Dict[str, Any]]:
+        """pgvector recall after a Weaviate search error, latching only outages."""
+        if not _weaviate_vectorizer_failure(exc):
+            # A vectorizer failure serves this query from the pgvector shadow
+            # without latching; anything else must be a real outage to latch.
+            if not _weaviate_target_unavailable(exc):
+                raise exc
+            await self._latch_pgvector_after_runtime_failure(exc)
+        return await self._search_pgvector(*search_args)
+
     async def search_similar(
         self,
         query: str,
@@ -921,11 +965,8 @@ class MemoryStore:
                     query, user_id, namespace, limit
                 )
             except Exception as exc:
-                if not _weaviate_target_unavailable(exc):
-                    raise
-                await self._latch_pgvector_after_runtime_failure(exc)
-                return await self._search_pgvector(
-                    query, user_id, namespace, limit
+                return await self._search_after_weaviate_failure(
+                    exc, (query, user_id, namespace, limit)
                 )
             if self.manage_schema:
                 rebuild_required, generation = await self._get_weaviate_sync_state(
@@ -999,19 +1040,23 @@ class MemoryStore:
                 }}
             }}"""
         }
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=_WEAVIATE_VECTORIZE_TIMEOUT) as client:
             resp = await client.post(
                 f"{self.weaviate_url}/v1/graphql", json=graphql
             )
             resp.raise_for_status()
             data = resp.json()
+        if data.get("errors"):
+            raise WeaviateQueryError(
+                f"Weaviate memory query failed: {data['errors'][0].get('message', 'unknown error')}"
+            )
 
         results = []
         objects = (
-            data.get("data", {})
+            (data.get("data") or {})
             .get("Get", {})
-            .get(WEAVIATE_COLLECTION_NAME, [])
-        )
+            .get(WEAVIATE_COLLECTION_NAME)
+        ) or []
         for obj in objects:
             results.append(
                 {

@@ -1994,3 +1994,5 @@ def test_readiness_probe_uses_the_declared_health_timeout():
     assert _readiness_probe_timeout(slow, 60.0) == 5.0
     assert _readiness_probe_timeout(slow, 2.0) == 2.0  # never past the deadline
     assert _readiness_probe_timeout(SimpleNamespace(), 60.0) == 0.5
+    from services.blender_mcp_manager import BlenderMcpManager
+    assert _readiness_probe_timeout(BlenderMcpManager, 60.0) == 10.0

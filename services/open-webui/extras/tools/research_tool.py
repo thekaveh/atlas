@@ -9,6 +9,7 @@ version: 1.4.0
 license: MIT
 """
 
+import asyncio
 import json
 import time
 import requests
@@ -38,14 +39,18 @@ class Tools:
     def __init__(self):
         self.valves = self.Valves()
 
-    def research(self, query: str):
+    async def research(self, query: str):
         """
         Research a topic using web search and AI analysis.
 
         :param query: The topic or question to research
         :return: Research findings with sources
         """
+        # Open WebUI runs a sync tool on its event loop; a run of up to
+        # `timeout` seconds would stall every user, so block in a worker thread.
+        return await asyncio.to_thread(self._research_blocking, query)
 
+    def _research_blocking(self, query: str):
         if not self.valves.enable_tool:
             return str(
                 "❌ Research tool is currently disabled. Enable it in tool settings if needed."

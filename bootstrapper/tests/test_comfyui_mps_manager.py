@@ -1648,3 +1648,12 @@ def test_only_a_stampless_record_naming_the_pid_is_legacy(tmp_path, body):
     failure = _refusal_for(tmp_path / "host.pid", 88428, ComfyUiMpsError, body=body)
     assert services.legacy_pid_refusal_file(failure) is None
     assert "inspect the pid file and process manually" in str(failure)
+
+
+def test_extra_model_paths_cover_every_provisioned_category_dir():
+    # provision_models writes into each category's target dir; a dir missing
+    # from extra_model_paths.yaml is downloaded but never listed by ComfyUI.
+    from services.comfyui_mps_manager import _MODEL_SUBDIRS
+    from utils.comfyui_library import CATEGORY_TARGET_DIR
+
+    assert set(CATEGORY_TARGET_DIR.values()) <= set(_MODEL_SUBDIRS)

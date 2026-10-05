@@ -59,9 +59,14 @@ _INSTALL_COMMAND_TIMEOUT_SECONDS = 30 * 60.0
 
 # Standard ComfyUI model subdirs mapped onto the reused host models dir so a
 # managed process never re-downloads weights the user already has.
+# Must cover every CATEGORY_TARGET_DIR value: provision_models downloads into
+# <models_path>/<target_dir> for each category, and ComfyUI only searches the
+# keys listed in extra_model_paths.yaml.
 _MODEL_SUBDIRS = (
     "checkpoints", "vae", "loras", "clip", "clip_vision", "controlnet",
     "unet", "diffusion_models", "text_encoders", "upscale_models",
+    "embeddings", "ipadapter", "instantid", "animatediff_models",
+    "animatediff_motion_lora", "mesh_models", "voice", "audio",
 )
 
 # Pinned Torch/vision/audio for a REPRODUCIBLE managed-MPS install (#648).

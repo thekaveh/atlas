@@ -478,3 +478,15 @@ def test_port_typed_on_the_engine_step_wins_over_env(
     })
     provider({"__secondary__:OLLAMA_LOCALHOST_PORT": "11500"})
     assert urls and all(url == "http://localhost:11500" for url in urls)
+
+
+def test_deliberately_blank_selection_is_not_pre_ticked_again():
+    # Deselecting everything writes OLLAMA_USER_MODELS=; re-ticking the
+    # baseline on the next visit would re-pull several GB on Enter.
+    def defaults(env_vars):
+        steps = build_ollama_steps(env_vars=env_vars, warn=lambda _msg: None)
+        return next(s for s in steps if s.title == OLLAMA_MODELS_TITLE).default_values
+
+    blank = {"LLM_PROVIDER_SOURCE": "ollama-container-cpu", "OLLAMA_USER_MODELS": ""}
+    assert defaults(blank) == []
+    assert defaults({"LLM_PROVIDER_SOURCE": "ollama-container-cpu"})  # unset: baseline

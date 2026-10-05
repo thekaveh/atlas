@@ -6,7 +6,7 @@ Four source variants cover the common deployment shapes: containerized CPU and G
 
 ## 1. Overview
 
-Image: `ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7` (CPU default) or an operator-provided CUDA ai-dock variant for GPU. Atlas pins the upstream ComfyUI core through `COMFYUI_REF=v0.27.0` and keeps `COMFYUI_AUTO_UPDATE=true` so the ai-dock startup path checks out that release even when the base image tag lags. Output behavior: generated images land in the `comfyui-output` volume and are served by the `/view` endpoint. The `COMFYUI_UPLOAD_TO_SUPABASE=true` / `COMFYUI_STORAGE_BUCKET=comfyui-images` env vars are **reserved but currently inert** — no component in the stock ai-dock image, Atlas provisioning, or the backend consumes them, so outputs are *not* uploaded to Supabase today (see §5.4). A second volume (`comfyui-custom-nodes`) holds allowlisted community nodes cloned from `services/comfyui/custom-nodes.yaml`.
+Image: `ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7` (CPU default). **`container-gpu` is not GPU-accelerated today:** `COMFYUI_IMAGE` stays the CPU image (which forces `--cpu`), and the fragment reserves no NVIDIA device, so it behaves like `container-cpu`, including under `COMFYUI_SOURCE=auto` on NVIDIA hosts. Swapping in a CUDA ai-dock image alone does not help without a GPU reservation. Atlas pins the upstream ComfyUI core through `COMFYUI_REF=v0.27.0` and keeps `COMFYUI_AUTO_UPDATE=true` so the ai-dock startup path checks out that release even when the base image tag lags. Output behavior: generated images land in the `comfyui-output` volume and are served by the `/view` endpoint. The `COMFYUI_UPLOAD_TO_SUPABASE=true` / `COMFYUI_STORAGE_BUCKET=comfyui-images` env vars are **reserved but currently inert** — no component in the stock ai-dock image, Atlas provisioning, or the backend consumes them, so outputs are *not* uploaded to Supabase today (see §5.4). A second volume (`comfyui-custom-nodes`) holds allowlisted community nodes cloned from `services/comfyui/custom-nodes.yaml`.
 
 ## 2. Access
 
@@ -40,7 +40,7 @@ Localhost overrides:
 
 ```bash
 COMFYUI_LOCALHOST_PORT=8000                 # URL is derived as http://host.docker.internal:8000 at compose-render time
-COMFYUI_LOCAL_MODELS_PATH=~/Documents/ComfyUI/models   # bind-mounted when SOURCE=localhost
+COMFYUI_LOCAL_MODELS_PATH=~/Documents/ComfyUI/models   # host models dir for managed-localhost-mps; container sources mount it read-only at /host_models (unused)
 ```
 
 Managed Apple-Silicon / Metal (MPS) overrides (`SOURCE=managed-localhost-mps`; see §10):
@@ -114,7 +114,7 @@ _No high-confidence opportunities identified._
 
 ## 6. Troubleshooting
 
-**`AssertionError: Torch not compiled with CUDA enabled` on GPU mode.** You selected `container-gpu` but the host lacks NVIDIA Container Toolkit. Verify with `docker info | grep -i runtime`; expect `nvidia` listed. Otherwise switch to `container-cpu` or install the toolkit.
+**`AssertionError: Torch not compiled with CUDA enabled` on GPU mode.** You selected `container-gpu` but the host lacks NVIDIA Container Toolkit. Verify with `docker info | grep -i runtime`; expect `nvidia` listed. Otherwise switch to `container-cpu` or install the toolkit. Even with the toolkit, Atlas reserves no GPU for `container-gpu` today (see §1), so expect CPU speed.
 
 **Init container downloads stall mid-workflow.** `comfyui-init` runs in the background of the first `./start.sh`; large `COMFYUI_USER_MODELS` selections can total ~10 GB and take 5-15 min. Workflows referencing not-yet-downloaded models 404 until init exits. `docker logs <project>-comfyui-init -f` shows progress.
 
@@ -354,7 +354,7 @@ Support tier: **experimental** — Capability contract declared (#967); no cited
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| Container and managed-MPS image generation | supported | tested | Atlas configures CPU and NVIDIA containers plus an Apple-Silicon Metal host process behind the same endpoint contract. |
+| Container and managed-MPS image generation | supported | tested | Atlas configures a CPU container and an Apple-Silicon Metal host process behind the same endpoint contract; `container-gpu` currently runs the same CPU image with no GPU device reservation, so it gets no CUDA acceleration. |
 | Workflow and model provisioning | partial | tested | Atlas stages selected catalog models and pinned custom nodes and gates container readiness on their exact required plan; arbitrary third-party workflow dependencies remain operator-managed. |
 | Supabase output upload | stubbed | documented | The upload flag and bucket variables are placeholders with no stock image, provisioning, or backend consumer. |
 | Authenticated ComfyUI ingress | not-supported | documented | The published container UI/API and CORS-only comfyui.localhost route run without Atlas authentication; keep HOST_BIND_IP=127.0.0.1:, remove the publish, or add an authentication proxy before remote exposure. |

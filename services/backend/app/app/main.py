@@ -1488,8 +1488,9 @@ async def cancel_research(
                 session_id=session_id,
                 status="cancel_requested",
                 message=(
-                    "Local research task cancellation requested; remote "
-                    "LangGraph cancellation is not supported by this integration"
+                    "Local research task cancellation requested; closing its "
+                    "stream makes LangGraph cancel the remote run "
+                    "(on_disconnect=cancel)"
                 ),
             ).model_dump(),
         )

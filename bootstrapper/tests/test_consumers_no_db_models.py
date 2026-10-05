@@ -204,3 +204,21 @@ def test_weaviate_init_no_double_prefix():
     assert "LITELLM_EMBEDDING_MODEL" in text, (
         "init-weaviate.sh must read LITELLM_EMBEDDING_MODEL to source the model."
     )
+
+
+def test_ldr_run_config_wins_for_loops_and_search_api_only():
+    """Container SEARCH_API/MAX_WEB_RESEARCH_LOOPS must not override per-run values."""
+    patcher = _load_ldr_provider_patcher()
+    upstream = (
+        "import os\n\n\nclass Configuration(BaseModel):\n"
+        "        raw_values: dict[str, Any] = {\n"
+        "            name: os.environ.get(name.upper(), configurable.get(name))\n"
+        "            for name in cls.model_fields.keys()\n"
+        "        }\n"
+    )
+    patched = patcher._patch_run_config_precedence(upstream)
+    assert patcher._patch_run_config_precedence(patched) == patched
+    assert '_ATLAS_RUN_CONFIG_FIRST = frozenset({"max_web_research_loops", "search_api"})' in patched
+    assert "if name in _ATLAS_RUN_CONFIG_FIRST" in patched
+    entry = _read("services/local-deep-researcher/build/scripts/patch-litellm-openai-provider.py")
+    assert "_patch_run_config_precedence(_patch_configuration(configuration))" in entry

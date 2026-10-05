@@ -940,6 +940,7 @@ services:
     - type: bind
       source: '{HOME}/Documents/ComfyUI/models'
       target: /host_models
+      read_only: true
       bind: {}
     - type: bind
       source: '{REPO_ROOT}/volumes/comfyui'

@@ -991,3 +991,54 @@ async def test_a_per_row_http_400_does_not_halt_the_backlog(monkeypatch):
 
     assert attempted["n"] == 10, "a per-row 400 halted the pass"
     assert reconciled == 7
+
+
+@pytest.mark.parametrize("body,unavailable", [
+    ('{"error":[{"message":"vectorize target vector default: update vector: '
+     'connection to: OpenAI API failed with status: 500"}]}', False),
+    ("internal server error", True),
+])
+def test_weaviate_vectorizer_failure_does_not_latch_pgvector(body, unavailable):
+    """A LiteLLM embedding error surfaces as a Weaviate 5xx; Weaviate itself is up."""
+    import httpx
+
+    from memory_store import _weaviate_target_unavailable
+
+    request = httpx.Request("POST", "http://weaviate/v1/objects")
+    exc = httpx.HTTPStatusError(
+        "x", request=request, response=httpx.Response(500, text=body, request=request)
+    )
+    assert _weaviate_target_unavailable(exc) is unavailable
+
+
+@pytest.mark.asyncio
+async def test_recall_graphql_vectorizer_error_serves_pgvector_without_latching(monkeypatch):
+    import memory_store
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, _url, json=None, **_kwargs):
+            return SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: {
+                    "data": {"Get": {"Memory": None}},
+                    "errors": [{"message": "vectorize params: remote client failed"}],
+                },
+            )
+
+    store = memory_store.MemoryStore("postgresql://atlas", weaviate_url="http://weaviate")
+    store.backend = "weaviate"
+    store._initialized = True
+    store._clean_weaviate_generation = AsyncMock(return_value=1)
+    store._search_pgvector = AsyncMock(return_value=[{"pg_fact_id": "f"}])
+    store._latch_pgvector_after_runtime_failure = AsyncMock()
+    monkeypatch.setattr(memory_store.httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    assert await store.search_similar("q", "u") == [{"pg_fact_id": "f"}]
+    store._latch_pgvector_after_runtime_failure.assert_not_awaited()
+    assert store.backend == "weaviate"
