@@ -23,6 +23,12 @@ _DEFAULT_WEAVIATE_MODULES = (
 )
 
 
+def _speaches_tts_model(env_file_vars: dict) -> str:
+    """SPEACHES_TTS_MODEL, or Kokoro when blank (a present-but-empty key
+    otherwise reached Open WebUI/Hermes as no model next to af_heart)."""
+    return env_file_vars.get('SPEACHES_TTS_MODEL') or 'speaches-ai/Kokoro-82M-v1.0-ONNX'
+
+
 def _configured_weaviate_modules(env_file_vars: dict, default_modules: str) -> str:
     """The declared Weaviate module list, falling back on a BLANK value.
 
@@ -1830,9 +1836,7 @@ class ServiceConfig:
         # so we read the model knob directly from .env with a hard-coded fallback.
         if tts_source.startswith('speaches-container'):
             speaches_env = self.config_parser.parse_env_file()
-            env_vars['OPEN_WEB_UI_TTS_MODEL'] = speaches_env.get(
-                'SPEACHES_TTS_MODEL', 'speaches-ai/Kokoro-82M-v1.0-ONNX'
-            )
+            env_vars['OPEN_WEB_UI_TTS_MODEL'] = _speaches_tts_model(speaches_env)
             env_vars['OPEN_WEB_UI_TTS_VOICE'] = 'af_heart'
         elif tts_source.startswith('chatterbox'):
             # Chatterbox's /v1/audio/speech accepts any model string; the

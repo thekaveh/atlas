@@ -1164,3 +1164,16 @@ def test_hosts_writer_survives_a_platform_without_chown(tmp_path, monkeypatch):
     monkeypatch.delattr(os, "chown")
     HostsManager._atomic_write_hosts(str(hosts), "127.0.0.1 n8n.localhost\n")
     assert hosts.read_text(encoding="utf-8") == "127.0.0.1 n8n.localhost\n"
+
+
+def test_hosts_writer_updates_a_symlinked_hosts_target(tmp_path):
+    # os.replace on the link swapped it for a regular file (NixOS, MDM tools).
+    from utils.hosts_manager import HostsManager
+
+    target = tmp_path / "real-hosts"
+    target.write_text("127.0.0.1 localhost\n", encoding="utf-8")
+    link = tmp_path / "hosts"
+    link.symlink_to(target)
+    HostsManager._atomic_write_hosts(str(link), "127.0.0.1 n8n.localhost\n")
+    assert link.is_symlink()
+    assert target.read_text(encoding="utf-8") == "127.0.0.1 n8n.localhost\n"

@@ -117,4 +117,4 @@ def test_legacy_env_backfill_then_migrations_still_run(tmp_path):
     assert not any(l.startswith("COMFYUI_MODEL_SET=") for l in active_lines)
     assert any(l.startswith("COMFYUI_USER_MODELS=") for l in active_lines)
     # v5 applied rather than being suppressed by a backfilled sentinel.
-    assert "WEAVIATE_ENABLE_MODULES=backup-filesystem" in out
+    assert "WEAVIATE_ENABLE_MODULES=text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem" in out

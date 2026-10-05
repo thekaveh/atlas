@@ -734,7 +734,9 @@ class DockerManager:
                 ['down', '--volumes', '--remove-orphans'],
                 on_line=self._on_command,
             )
-            return result == 0
+            # As for a cold stop: a dropped consumer overlay leaves its volumes
+            # holding credentials that the cold start is about to rotate.
+            return result == 0 and not getattr(self, "teardown_overlays_dropped", False)
         finally:
             self.project_name_override = previous_project
     

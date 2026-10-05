@@ -33,12 +33,18 @@ def test_existing_backup_module_is_not_duplicated(tmp_path: Path):
     assert env.read_text().count("backup-filesystem") == 1
 
 
-def test_blank_modules_gain_minimum_safe_module(tmp_path: Path):
+def test_blank_modules_become_the_shipped_default_list(tmp_path: Path):
+    # Blank meant compose's :- default (every vectorizer); a bare
+    # backup-filesystem started Weaviate with no vectorizer modules.
+    from services.migrations.migration_v5 import WEAVIATE_DEFAULT_MODULES
+    from services.service_config import _DEFAULT_WEAVIATE_MODULES
+
+    assert WEAVIATE_DEFAULT_MODULES == _DEFAULT_WEAVIATE_MODULES
     env = tmp_path / ".env"
     env.write_text("BOOTSTRAPPER_PORT_LAYOUT_VERSION=4\nWEAVIATE_ENABLE_MODULES=\n")
     assert apply(env)
     stamp_version(env)
-    assert "WEAVIATE_ENABLE_MODULES=backup-filesystem\n" in env.read_text()
+    assert f"WEAVIATE_ENABLE_MODULES={WEAVIATE_DEFAULT_MODULES}\n" in env.read_text()
 
 
 def test_v5_is_idempotent(tmp_path: Path):

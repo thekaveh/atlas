@@ -115,3 +115,10 @@ def test_blank_weaviate_modules_fallback_matches_env_example():
 
     example = (Path(__file__).resolve().parents[2] / ".env.example").read_text(encoding="utf-8")
     assert f"WEAVIATE_ENABLE_MODULES={_DEFAULT_WEAVIATE_MODULES}\n" in example
+
+
+def test_blank_speaches_tts_model_falls_back_to_kokoro():
+    from services.service_config import _speaches_tts_model
+
+    assert _speaches_tts_model({"SPEACHES_TTS_MODEL": ""}) == "speaches-ai/Kokoro-82M-v1.0-ONNX"
+    assert _speaches_tts_model({"SPEACHES_TTS_MODEL": "x/y"}) == "x/y"

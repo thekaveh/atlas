@@ -44,7 +44,9 @@ class HostsManager:
         ownership, since /etc/hosts is root-owned when --setup-hosts runs
         under sudo.
         """
-        dst = Path(hosts_file_path)
+        # Resolve a symlinked /etc/hosts (NixOS, MDM tools): os.replace on the
+        # link would swap it for a regular file and never update the target.
+        dst = Path(os.path.realpath(hosts_file_path))
         st = dst.stat()
         fd, tmp = tempfile.mkstemp(dir=str(dst.parent), prefix=f".{dst.name}.", suffix=".tmp")
         try:
@@ -59,7 +61,7 @@ class HostsManager:
                 # that owns the write. Windows has no os.chown at all
                 # (AttributeError), which used to abort --setup/--clean-hosts.
                 pass
-            os.replace(tmp, hosts_file_path)
+            os.replace(tmp, dst)
         except BaseException:
             try:
                 os.unlink(tmp)
