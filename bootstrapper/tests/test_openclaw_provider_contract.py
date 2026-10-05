@@ -95,3 +95,24 @@ def test_key_generator_creates_the_shared_meta_crypto_key(tmp_path: Path) -> Non
     compose = yaml.safe_load((Path(__file__).resolve().parents[2] / "services/supabase/compose.yml").read_text())
     for service in ("supabase-meta", "supabase-studio"):
         assert compose["services"][service]["environment"]["PG_META_CRYPTO_KEY"] == "${SUPABASE_META_CRYPTO_KEY:-}"
+
+
+def test_openclaw_init_points_the_bundled_litellm_provider_at_the_gateway() -> None:
+    # The bundled litellm plugin reads LITELLM_API_KEY but defaults its base
+    # URL to localhost:4000 (unreachable in-container); set it only if unset.
+    import json
+    import shutil
+    import subprocess
+
+    init = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]["openclaw-init"]
+    script = init["entrypoint"][-1]
+    filter_line = next(line for line in script.splitlines() if ".models.providers.litellm.baseUrl" in line)
+    program = filter_line.split("jq '", 1)[1].split("'", 1)[0]
+    assert program == (
+        '.models.providers.litellm.baseUrl //= "http://litellm:4000" '
+        "| .models.providers.litellm.models //= []"
+    )
+    if shutil.which("jq"):
+        kept = '{"models":{"providers":{"litellm":{"baseUrl":"http://x","models":[{"id":"a"}]}}}}'
+        out = subprocess.run(["jq", "-c", program], input=kept, capture_output=True, text=True, check=True)
+        assert json.loads(out.stdout) == json.loads(kept)

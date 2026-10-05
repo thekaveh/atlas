@@ -450,7 +450,9 @@ def render_model_list(active_rows: list[Any]) -> list[dict[str, Any]]:
             entry = {
                 "model_name": name,
                 "litellm_params": {
-                    "model": name,
+                    # Explicit provider: a bare id LiteLLM's model map does not
+                    # know yet (a newly released gpt-*) fails provider lookup.
+                    "model": name if name.startswith("openai/") else f"openai/{name}",
                     "api_key": "os.environ/OPENAI_API_KEY",
                 },
             }

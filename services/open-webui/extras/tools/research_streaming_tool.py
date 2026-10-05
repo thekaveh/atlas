@@ -51,9 +51,17 @@ class Tools:
         """
         # Open WebUI runs a sync tool on its event loop; a run of up to
         # `timeout` seconds would stall every user, so block in a worker thread.
-        return await asyncio.to_thread(self._research_blocking, query)
+        return await asyncio.to_thread(_ResearchRun(self.valves).run, query)
 
-    def _research_blocking(self, query: str) -> str:
+
+class _ResearchRun:
+    """Blocking research call, kept off ``Tools``: Open WebUI 0.6.32
+    exposes every ``Tools`` method not prefixed ``__`` as a model tool."""
+
+    def __init__(self, valves):
+        self.valves = valves
+
+    def run(self, query: str) -> str:
         if not query.strip():
             return "❌ Please provide a research query"
 

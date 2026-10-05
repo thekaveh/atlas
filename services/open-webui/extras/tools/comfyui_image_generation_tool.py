@@ -15,6 +15,13 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 
 
+# Module level, not a Tools method: Open WebUI 0.6.32 offers every Tools
+# method not prefixed `__` to the model, and this one returns the bearer token.
+def _backend_headers() -> dict[str, str]:
+    token = (os.getenv("BACKEND_OPEN_WEBUI_API_TOKEN") or "").strip()
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 class Tools:
     class Valves(BaseModel):
         backend_url: str = Field(
@@ -42,11 +49,6 @@ class Tools:
 
     def __init__(self):
         self.valves = self.Valves()
-
-    @staticmethod
-    def _backend_headers() -> dict[str, str]:
-        token = (os.getenv("BACKEND_OPEN_WEBUI_API_TOKEN") or "").strip()
-        return {"Authorization": f"Bearer {token}"} if token else {}
 
     def generate_image(
         self,
@@ -87,7 +89,7 @@ class Tools:
             # First check if ComfyUI service is healthy
             health_resp = requests.get(
                 f"{self.valves.backend_url}/comfyui/health",
-                headers=self._backend_headers(),
+                headers=_backend_headers(),
                 timeout=10,
             )
 
@@ -119,7 +121,7 @@ class Tools:
             # Send generation request
             resp = requests.post(
                 f"{self.valves.backend_url}/comfyui/generate",
-                headers=self._backend_headers(),
+                headers=_backend_headers(),
                 json=generation_data,
                 timeout=self.valves.timeout + 5,
             )
@@ -215,7 +217,7 @@ class Tools:
         try:
             resp = requests.get(
                 f"{self.valves.backend_url}/comfyui/db/models?active_only=true",
-                headers=self._backend_headers(),
+                headers=_backend_headers(),
                 timeout=30,
             )
 
@@ -283,7 +285,7 @@ class Tools:
             # Check health
             health_resp = requests.get(
                 f"{self.valves.backend_url}/comfyui/health",
-                headers=self._backend_headers(),
+                headers=_backend_headers(),
                 timeout=10,
             )
 
@@ -306,7 +308,7 @@ class Tools:
             try:
                 queue_resp = requests.get(
                     f"{self.valves.backend_url}/comfyui/queue",
-                    headers=self._backend_headers(),
+                    headers=_backend_headers(),
                     timeout=10,
                 )
 

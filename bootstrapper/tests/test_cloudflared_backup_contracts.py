@@ -5365,3 +5365,37 @@ def test_s3_client_config_is_never_inside_the_published_artifact_root() -> None:
         "artifact upload no longer publishes $WORK recursively -- re-derive "
         "which directories reach the bucket before relaxing this contract"
     )
+
+
+def test_backup_orchestrator_scopes_compose_to_the_atlas_project(tmp_path: Path) -> None:
+    """Bare `docker compose` named the project after the working directory,
+    so from cron or a consumer submodule the running databases looked stopped."""
+    from tests.test_database_volume_backup_contracts import REPO, _fake_docker
+
+    _trace, env = _fake_docker(tmp_path)
+    Path(env["NEO4J_STATE"]).write_text("stopped", encoding="utf-8")
+    real = tmp_path / "bin" / "docker"
+    real.rename(tmp_path / "bin" / "docker.real")
+    scope = tmp_path / "scope.trace"
+    real.write_text(
+        "#!/bin/sh\n"
+        f"printf '%s|%s\\n' \"$COMPOSE_PROJECT_NAME\" \"$COMPOSE_FILE\" >>'{scope}'\n"
+        f"exec '{tmp_path / 'bin' / 'docker.real'}' \"$@\"\n",
+        encoding="utf-8",
+    )
+    real.chmod(0o755)
+    clean = {k: v for k, v in env.items() if k not in ("COMPOSE_PROJECT_NAME", "COMPOSE_FILE")}
+    result = subprocess.run(
+        ["sh", str(REPO / "services/backup/run-consistent-backup.sh")],
+        env={**clean, "NEO4J_INITIAL_STATE": "stopped"},
+        cwd=tmp_path, text=True, capture_output=True, check=False, timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    env_file = REPO / ".env"
+    project = "atlas"
+    if env_file.is_file():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            if line.startswith("PROJECT_NAME="):
+                project = line.split("=", 1)[1].strip().strip("'\"") or "atlas"
+    seen = set(scope.read_text(encoding="utf-8").split())
+    assert seen == {f"{project}|{REPO / 'docker-compose.yml'}"}, seen

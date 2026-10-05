@@ -16,7 +16,7 @@ from uuid import UUID, uuid4
 import httpx
 
 from db_connection import acquire_conn, connect_postgres
-from memory_store import MemoryStore, _to_uuid
+from memory_store import MemoryStore, _to_uuid, _weaviate_vectorizer_failure
 
 logger = logging.getLogger("memory_service")
 
@@ -54,6 +54,11 @@ def _is_target_health_signal(exc: BaseException) -> bool:
     """
     if isinstance(exc, _TARGET_TRANSIENT):
         return True
+    if _weaviate_vectorizer_failure(exc):
+        # Weaviate is up; its LiteLLM embedding call failed. Defer the row
+        # (it stays pending with a pgvector shadow) instead of halting or, in
+        # the Celery path, raising a non-retryable error.
+        return False
     if isinstance(exc, httpx.HTTPStatusError):
         # `getattr`, not `exc.response`: this runs INSIDE the loop's
         # `except Exception` handler, so an AttributeError here would escape

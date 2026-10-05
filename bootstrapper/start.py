@@ -1422,6 +1422,19 @@ class AtlasStarter:
                 existing_project_name = self.config_parser.get_project_name()
             except ValueError:
                 existing_project_name = None
+            # A cold start replaces .env with .env.example; keep a private copy
+            # first. It holds generated secrets plus operator-only values such
+            # as BACKUP_MANIFEST_HMAC_KEY, without which backups cannot be
+            # restored.
+            try:
+                saved_env = self.config_parser.create_env_backup()
+            except OSError as exc:
+                self.banner.show_status_message(
+                    f"Could not back up {env_file_path} before the cold start: {exc}",
+                    "error",
+                )
+                return False
+            self.banner.show_status_message(f"Saved the previous env file to {saved_env}", "info")
 
         # Check if .env exists, if not or if cold start is requested, create from .env.example
         if not env_file_path.exists() or cold_start:

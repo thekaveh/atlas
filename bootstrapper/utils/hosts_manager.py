@@ -53,10 +53,11 @@ class HostsManager:
             os.chmod(tmp, st.st_mode)
             try:
                 os.chown(tmp, st.st_uid, st.st_gid)
-            except (OSError, PermissionError):
+            except (OSError, PermissionError, AttributeError):
                 # chown needs root; if unavailable the replace still lands —
                 # only the owner field may differ, benign under the sudo path
-                # that owns the write.
+                # that owns the write. Windows has no os.chown at all
+                # (AttributeError), which used to abort --setup/--clean-hosts.
                 pass
             os.replace(tmp, hosts_file_path)
         except BaseException:

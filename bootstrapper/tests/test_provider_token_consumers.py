@@ -109,4 +109,38 @@ def test_hermes_template_renders_server_side_stt_key(api_key):
     rendered = Template(template.read_text(encoding="utf-8")).substitute(environment)
 
     config = yaml.safe_load(rendered)
-    assert config["stt"]["api_key"] == api_key
+    # Hermes v2026.6.19 reads only the nested openai blocks; flat keys were
+    # ignored and audio went to api.openai.com.
+    assert config["stt"]["openai"] == {
+        "base_url": "http://stt/v1", "api_key": api_key, "model": "whisper-1",
+    }
+    assert config["tts"]["openai"]["base_url"] == "http://tts/v1"
+    assert "base_url" not in config["stt"] and "base_url" not in config["tts"]
+    init = (ROOT / "services/hermes/init/scripts/init-hermes.sh").read_text(encoding="utf-8")
+    assert 'STT_INTERNAL_API_KEY="${STT_INTERNAL_API_KEY:-not-required}"' in init
+    compose = yaml.safe_load((ROOT / "services/hermes/compose.yml").read_text(encoding="utf-8"))
+    assert compose["services"]["hermes"]["environment"]["VOICE_TOOLS_OPENAI_KEY"] == "not-required"
+    # Hermes reads web.search_backend + the SEARXNG_URL env var (no `search:`),
+    # has no config-declared HTTP tools, and indexes only <dir>/SKILL.md.
+    assert config["web"] == {"search_backend": "searxng"} and "search" not in config
+    assert "tools" not in config
+    assert compose["services"]["hermes"]["environment"]["SEARXNG_URL"] == "${SEARXNG_INTERNAL_URL:-}"
+    assert '"${SKILLS_DIR}/creative/atlas-comfyui-host/SKILL.md"' in init
+
+
+def test_hermes_default_model_fallback_skips_non_chat_routes():
+    # The name filter ('embed') let bge-m3 become Hermes's default model and
+    # 500 every request; the fallback must drop LiteLLM non-chat modes too.
+    import re
+    import subprocess
+
+    script = (ROOT / "services/hermes/init/scripts/init-hermes.sh").read_text(encoding="utf-8")
+    assert '"${litellm_url}/model/info"' in script
+    assert 'select((.model_info.mode // "chat") != "chat")' in script
+    program = re.search(r"awk '(BEGIN \{ n = split\(ENVIRON\[\"NON_CHAT_IDS\"\].*?)'", script).group(1)
+    kept = subprocess.run(
+        ["awk", program], input="ollama/bge-m3\nollama/llama3.2:3b\n",
+        env={**os.environ, "NON_CHAT_IDS": "ollama/bge-m3\nfal-image"},
+        capture_output=True, text=True, check=True,
+    ).stdout.split()
+    assert kept == ["ollama/llama3.2:3b"]

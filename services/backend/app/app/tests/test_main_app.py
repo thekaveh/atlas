@@ -440,3 +440,19 @@ def test_lifespan_rejects_invalid_media_recovery_config_before_task_start(
         with TestClient(main.app):
             pass
     assert started is False
+
+
+def test_research_defaults_follow_the_operator_ldr_settings(monkeypatch):
+    """Omitted values use LOCAL_DEEP_RESEARCHER_*; a run's own values win in LDR."""
+    import main
+
+    monkeypatch.setenv("LOCAL_DEEP_RESEARCHER_LOOPS", "5")
+    monkeypatch.setenv("LOCAL_DEEP_RESEARCHER_SEARCH_API", "duckduckgo")
+    assert main._research_default_loops() == 5
+    assert main._research_default_search_api() == "duckduckgo"
+    monkeypatch.setenv("LOCAL_DEEP_RESEARCHER_LOOPS", "50")
+    monkeypatch.delenv("LOCAL_DEEP_RESEARCHER_SEARCH_API")
+    assert main._research_default_loops() == 3
+    assert main._research_default_search_api() == "searxng"
+    request = main.ResearchStartRequest(query="q")
+    assert request.max_loops is None and request.search_api is None

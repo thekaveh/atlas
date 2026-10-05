@@ -1341,9 +1341,21 @@ async def cancel_rag_ingestion(ingestion_id: str):
 class ResearchStartRequest(BaseModel):
     """Request model for starting research"""
     query: str = Field(min_length=1, max_length=4000)
-    max_loops: Optional[int] = Field(default=3, ge=1, le=10)
-    search_api: Optional[Literal["duckduckgo", "searxng"]] = "searxng"
+    # Omitted values fall back to the operator's Local Deep Researcher
+    # defaults; the LDR startup patch makes a run's own values take precedence
+    # over its env, so hard-coded 3/"searxng" here would override them.
+    max_loops: Optional[int] = Field(default=None, ge=1, le=10)
+    search_api: Optional[Literal["duckduckgo", "searxng"]] = None
     user_id: Optional[str] = None
+
+
+def _research_default_loops() -> int:
+    value = (os.getenv("LOCAL_DEEP_RESEARCHER_LOOPS") or "").strip()
+    return int(value) if value.isdecimal() and 1 <= int(value) <= 10 else 3
+
+
+def _research_default_search_api() -> str:
+    return (os.getenv("LOCAL_DEEP_RESEARCHER_SEARCH_API") or "").strip() or "searxng"
 
 
 class ResearchResponse(BaseModel):
@@ -1405,8 +1417,8 @@ async def start_research(
     try:
         result = await research_service.start_research(
             query=request.query,
-            max_loops=request.max_loops or 3,
-            search_api=request.search_api or "searxng",
+            max_loops=request.max_loops or _research_default_loops(),
+            search_api=request.search_api or _research_default_search_api(),
             user_id=user_id
         )
         return ResearchResponse(**result)

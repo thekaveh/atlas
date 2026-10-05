@@ -94,13 +94,10 @@ services:
       HERMES_DASHBOARD: ${HERMES_DASHBOARD_ENABLED:-true}
       HERMES_DASHBOARD_HOST: 0.0.0.0
       HERMES_DASHBOARD_PORT: "9119"
-      # Embed an in-browser Chat tab in the dashboard (uses
-      # PTY+WebSocket to wrap a ``hermes --tui`` session). Lets users
-      # talk to the agent directly from the dashboard without needing
-      # Open WebUI / curl. Upstream documents this as
-      # ``HERMES_DASHBOARD_TUI=1`` (or the ``--tui`` CLI flag);
-      # ``ptyprocess`` is already in the image. Default on; flip to
-      # ``0`` via .env if you want a read-only dashboard.
+      # Inert in v2026.6.19: web_server.py hard-codes the embedded Chat tab
+      # (/api/pty, /api/ws) on and nothing reads this variable, so ``0`` does
+      # NOT give a read-only dashboard. Only HERMES_DASHBOARD_ENABLED=false
+      # removes the Chat tab. Kept so existing .env files stay valid.
       HERMES_DASHBOARD_TUI: ${HERMES_DASHBOARD_TUI:-1}
       # Allow the dashboard to bind to 0.0.0.0 without a Nous Portal OAuth
       # provider. The upstream image stopped implicitly inferring insecure
@@ -122,6 +119,13 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      # Hermes TTS takes its key from VOICE_TOOLS_OPENAI_KEY before
+      # OPENAI_API_KEY; pin a placeholder so voice audio never authenticates
+      # to api.openai.com with the real key (the in-stack engines need none).
+      VOICE_TOOLS_OPENAI_KEY: not-required
+      # Hermes reads its SearXNG endpoint from this env var only (empty when
+      # SEARXNG_SOURCE=disabled, which leaves web search unconfigured).
+      SEARXNG_URL: ${SEARXNG_INTERNAL_URL:-}
     volumes:
       - hermes-data:/opt/data
     ports:

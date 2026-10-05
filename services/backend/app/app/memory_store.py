@@ -833,10 +833,7 @@ class MemoryStore:
                 fact_id, content, user_id, namespace, fact_type, confidence
             )
         except Exception as exc:
-            if not _weaviate_target_unavailable(exc):
-                raise
-            await self._latch_pgvector_after_runtime_failure(exc)
-            await self._store_pgvector(fact_id, content)
+            await self._after_weaviate_write_failure(exc, fact_id, content)
             return None
         # Weaviate is the serving backend, but pgvector must remain a current
         # shadow so a later outage can latch it without missing facts from the
@@ -849,6 +846,23 @@ class MemoryStore:
             await self._latch_pgvector_for_generation_change()
             return None
         return weaviate_id
+
+    async def _after_weaviate_write_failure(
+        self, exc: Exception, fact_id: str, content: str
+    ) -> None:
+        """Resolve a failed Weaviate store/update write.
+
+        A vectorizer failure keeps the fact recallable from the pgvector
+        shadow and re-raises so the row stays ``vector_sync_pending``; any
+        other non-outage error propagates; an outage latches pgvector.
+        """
+        if _weaviate_vectorizer_failure(exc):
+            await self._store_pgvector(fact_id, content, mark_dirty=False)
+            raise exc
+        if not _weaviate_target_unavailable(exc):
+            raise exc
+        await self._latch_pgvector_after_runtime_failure(exc)
+        await self._store_pgvector(fact_id, content)
 
     async def _store_weaviate(
         self,
@@ -1274,10 +1288,7 @@ class MemoryStore:
                 confidence, weaviate_id,
             )
         except Exception as exc:
-            if not _weaviate_target_unavailable(exc):
-                raise
-            await self._latch_pgvector_after_runtime_failure(exc)
-            await self._store_pgvector(fact_id, content)
+            await self._after_weaviate_write_failure(exc, fact_id, content)
             return None
         await self._store_pgvector(fact_id, content, mark_dirty=False)
         if await self._weaviate_mutation_crossed_generation(clean_generation):

@@ -1042,3 +1042,36 @@ async def test_recall_graphql_vectorizer_error_serves_pgvector_without_latching(
     assert await store.search_similar("q", "u") == [{"pg_fact_id": "f"}]
     store._latch_pgvector_after_runtime_failure.assert_not_awaited()
     assert store.backend == "weaviate"
+
+
+def test_vectorizer_failure_is_a_per_row_deferral_in_reconcile():
+    import httpx
+
+    from memory_service import _is_target_health_signal
+
+    request = httpx.Request("POST", "http://weaviate/v1/objects")
+    exc = httpx.HTTPStatusError(
+        "x", request=request,
+        response=httpx.Response(500, text="vectorize target vector: update vector failed", request=request),
+    )
+    assert _is_target_health_signal(exc) is False
+
+
+@pytest.mark.asyncio
+async def test_vectorizer_write_failure_keeps_a_pgvector_shadow_then_raises():
+    import httpx
+    import memory_store
+
+    request = httpx.Request("POST", "http://weaviate/v1/objects")
+    failure = httpx.HTTPStatusError(
+        "x", request=request,
+        response=httpx.Response(500, text="update vector: remote client failed", request=request),
+    )
+    store = memory_store.MemoryStore("postgresql://atlas", weaviate_url="http://weaviate")
+    store._store_pgvector = AsyncMock()
+    store._latch_pgvector_after_runtime_failure = AsyncMock()
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await store._after_weaviate_write_failure(failure, "f", "content")
+    store._store_pgvector.assert_awaited_once_with("f", "content", mark_dirty=False)
+    store._latch_pgvector_after_runtime_failure.assert_not_awaited()

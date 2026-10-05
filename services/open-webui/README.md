@@ -37,6 +37,11 @@ Speech-to-text authentication is source-aware. For either Parakeet source, `OPEN
 
 If a dependency is disabled, adaptive services should degrade where supported. Some implementation-level dependency cleanup is tracked separately as bootstrapper work and is outside this documentation pass.
 
+Open WebUI offers every `Tools` method whose name does not start with `__`
+to the model, so the bundled tools keep helpers (the Backend header builder,
+the blocking research runner) outside the `Tools` class; long research calls
+run in a worker thread so they do not stall the server's event loop.
+
 Bundled memory and ComfyUI tools call the Backend from Open WebUI's server
 process with the auto-generated `BACKEND_OPEN_WEBUI_API_TOKEN`. The header is
 attached to every Backend request and never sent to browser JavaScript. The

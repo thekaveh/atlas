@@ -296,6 +296,9 @@ class TestCloudEnabled:
         gpt5_entries = [e for e in model_list if e["model_name"] == "gpt-5"]
         assert gpt5_entries, "Expected gpt-5 entry in model_list"
         assert gpt5_entries[0]["litellm_params"]["api_key"] == "os.environ/OPENAI_API_KEY"
+        # Explicit provider: LiteLLM cannot infer one for a bare id its model
+        # map does not know yet (e.g. a newly released gpt-*).
+        assert gpt5_entries[0]["litellm_params"]["model"] == "openai/gpt-5"
 
     def test_disabled_cloud_provider_not_included(self):
         """Without LITELLM_OPENAI_ENABLED=true, no openai rows appear."""

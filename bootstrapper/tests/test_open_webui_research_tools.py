@@ -39,6 +39,7 @@ def test_streaming_research_tool_is_gated_and_timed_like_research_tool() -> None
     assert ":param query:" in text
 
 
+
 def test_research_tools_do_not_block_open_webui_event_loop() -> None:
     # Open WebUI 0.6.32 awaits a sync tool inline on its event loop, so a
     # 900s research call stalled every user; block in a worker thread instead.
@@ -48,4 +49,21 @@ def test_research_tools_do_not_block_open_webui_event_loop() -> None:
     ):
         text = (TOOLS_DIR / name).read_text(encoding="utf-8")
         assert method in text
-        assert "await asyncio.to_thread(self._research_blocking, query)" in text
+        assert "await asyncio.to_thread(_ResearchRun(self.valves).run, query)" in text
+
+
+def test_tools_classes_expose_only_intended_model_tools() -> None:
+    # get_functions_from_tool (0.6.32) offers every Tools method whose name
+    # does not start with "__"; a single-underscore helper became a model
+    # tool (one returned the Backend bearer token, one blocked the loop).
+    import ast
+
+    for path in sorted(TOOLS_DIR.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tools = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Tools")
+        leaked = [
+            n.name for n in tools.body
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and n.name.startswith("_") and not n.name.startswith("__")
+        ]
+        assert leaked == [], f"{path.name}: {leaked}"

@@ -515,6 +515,8 @@ services:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
+      LOCAL_DEEP_RESEARCHER_LOOPS: '3'
+      LOCAL_DEEP_RESEARCHER_SEARCH_API: searxng
       MAX_UPLOAD_BYTES: '104857600'
       MEDIA_BUDGET_ALLOW_UNKNOWN_COST: 'false'
       MEDIA_BUDGET_CONSUMER_CAPS: ''
@@ -1224,6 +1226,8 @@ services:
       LITELLM_MASTER_KEY: ''
       OPENAI_API_KEY: ''
       OPENROUTER_API_KEY: ''
+      SEARXNG_URL: ''
+      VOICE_TOOLS_OPENAI_KEY: not-required
     extra_hosts:
     - host.docker.internal=
     healthcheck:
@@ -3405,15 +3409,19 @@ services:
     entrypoint:
     - sh
     - -c
-    - "set -e\nCONFIG=/home/node/.openclaw/openclaw.json\nPATCH='{\"gateway\":{\"\
-      controlUi\":{\"dangerouslyAllowHostHeaderOriginFallback\":true}}}'\n# Write\
-      \ via tmp + mv on BOTH branches: `> \"$$CONFIG\"` truncates\n# the target before\
-      \ jq runs, so a missing/failed jq used to\n# leave a 0-byte config the gateway\
-      \ chokes on (and re-runs\n# could not self-heal \u2014 jq errors on the empty\
-      \ file).\nif [ -s \"$$CONFIG\" ]; then\n  jq --argjson patch \"$$PATCH\" '.\
-      \ * $$patch' \"$$CONFIG\" > \"$$CONFIG.tmp\" && mv \"$$CONFIG.tmp\" \"$$CONFIG\"\
-      \nelse\n  echo \"$$PATCH\" | jq . > \"$$CONFIG.tmp\" && mv \"$$CONFIG.tmp\"\
-      \ \"$$CONFIG\"\nfi\nchown -R 1000:1000 /home/node/.openclaw\n"
+    - "set -e\nCONFIG=/home/node/.openclaw/openclaw.json\nPATCH='{\"gateway\":{\"controlUi\"\
+      :{\"dangerouslyAllowHostHeaderOriginFallback\":true}}}'\n# Write via tmp + mv on\
+      \ BOTH branches: `> \"$$CONFIG\"` truncates\n# the target before jq runs, so a missing/failed\
+      \ jq used to\n# leave a 0-byte config the gateway chokes on (and re-runs\n# could\
+      \ not self-heal \u2014 jq errors on the empty file).\nif [ -s \"$$CONFIG\" ]; then\n\
+      \  jq --argjson patch \"$$PATCH\" '. * $$patch' \"$$CONFIG\" > \"$$CONFIG.tmp\"\
+      \ && mv \"$$CONFIG.tmp\" \"$$CONFIG\"\nelse\n  echo \"$$PATCH\" | jq . > \"$$CONFIG.tmp\"\
+      \ && mv \"$$CONFIG.tmp\" \"$$CONFIG\"\nfi\n# The bundled litellm provider reads\
+      \ LITELLM_API_KEY but defaults its\n# base URL to http://localhost:4000 (ECONNREFUSED\
+      \ in this container).\n# Point it at the gateway only when unset, keeping operator\
+      \ values.\njq '.models.providers.litellm.baseUrl //= \"http://litellm:4000\" | .models.providers.litellm.models\
+      \ //= []' \"$$CONFIG\" > \"$$CONFIG.tmp\" && mv \"$$CONFIG.tmp\" \"$$CONFIG\"\n\
+      chown -R 1000:1000 /home/node/.openclaw\n"
     image: atlas-openclaw-init:local
     networks:
       backend-network: null

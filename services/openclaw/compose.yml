@@ -29,6 +29,10 @@ services:
         else
           echo "$$PATCH" | jq . > "$$CONFIG.tmp" && mv "$$CONFIG.tmp" "$$CONFIG"
         fi
+        # The bundled litellm provider reads LITELLM_API_KEY but defaults its
+        # base URL to http://localhost:4000 (ECONNREFUSED in this container).
+        # Point it at the gateway only when unset, keeping operator values.
+        jq '.models.providers.litellm.baseUrl //= "http://litellm:4000" | .models.providers.litellm.models //= []' "$$CONFIG" > "$$CONFIG.tmp" && mv "$$CONFIG.tmp" "$$CONFIG"
         chown -R 1000:1000 /home/node/.openclaw
     networks:
       - backend-network

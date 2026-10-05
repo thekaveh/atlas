@@ -23,7 +23,7 @@ OpenClaw runs as a single gateway process that:
 - Stores configuration in `~/.openclaw/` directory
 - Stores workspace files in `~/.openclaw/workspace/`
 
-For LLM access, the container receives the stack's **LiteLLM gateway** credentials (`LITELLM_BASE_URL` + `LITELLM_API_KEY`) — one URL fronts the Ollama upstream and any enabled cloud providers (OpenAI, Anthropic, OpenRouter). OpenClaw does not read these variables on its own and `openclaw-init` writes no provider configuration: set `models.providers.openai.baseUrl` to `http://litellm:4000/v1` and the provider's API key to the value of `LITELLM_API_KEY` once (commands in §7) so requests go through the gateway. Leave `OPENCLAW_OPENAI_API_KEY` empty when doing so: a real OpenAI key in that override would then be sent to LiteLLM. Direct provider keys (`OPENCLAW_OPENAI_API_KEY`, `OPENCLAW_ANTHROPIC_API_KEY`) remain available as explicit overrides for cases where OpenClaw should bypass LiteLLM; empty override keys keep traffic on the gateway path. The gateway also connects to messaging platforms (WhatsApp, Telegram, etc.) for user interaction.
+For LLM access, the container receives the stack's **LiteLLM gateway** credentials (`LITELLM_BASE_URL` + `LITELLM_API_KEY`) — one URL fronts the Ollama upstream and any enabled cloud providers (OpenAI, Anthropic, OpenRouter). OpenClaw's bundled `litellm` provider reads `LITELLM_API_KEY` itself but defaults its base URL to `http://localhost:4000`, which is unreachable inside the container, so `openclaw-init` sets `models.providers.litellm.baseUrl` to `http://litellm:4000` when it is unset (an operator value is kept). `LITELLM_BASE_URL` is not read by OpenClaw. Pick models from the `litellm` provider; its built-in default (`litellm/claude-opus-4-6`) only works if the Atlas catalog serves a model of that name. Alternatively, repurpose the `openai` provider as described in §7. Leave `OPENCLAW_OPENAI_API_KEY` empty when doing so: a real OpenAI key in that override would then be sent to LiteLLM. Direct provider keys (`OPENCLAW_OPENAI_API_KEY`, `OPENCLAW_ANTHROPIC_API_KEY`) remain available as explicit overrides for cases where OpenClaw should bypass LiteLLM; empty override keys keep traffic on the gateway path. The gateway also connects to messaging platforms (WhatsApp, Telegram, etc.) for user interaction.
 
 **Container Mode Initialization**: When running in container mode, an `openclaw-init` container runs first to:
 - Set correct volume permissions (uid 1000/node) on config and workspace volumes
@@ -63,7 +63,7 @@ docker exec -it ${PROJECT_NAME}-openclaw-gateway openclaw onboard
 
 **Note:**
 - OpenClaw is **disabled by default** - you must explicitly enable it
-- First run requires onboarding to configure messaging channels and to point the OpenAI provider at LiteLLM (`models.providers.openai.baseUrl`)
+- First run requires onboarding to configure messaging channels; the bundled `litellm` provider is pre-pointed at the gateway by `openclaw-init`
 
 ### 3.2. Localhost Mode (Native)
 
@@ -144,7 +144,7 @@ These bypass LiteLLM and let OpenClaw call providers directly — useful when yo
 OpenClaw inherits LLM access from the always-on LiteLLM gateway (the variables
 themselves are documented in §4.2–§4.3):
 
-- **Default path (LiteLLM)**: once `models.providers.openai.baseUrl` points at `LITELLM_BASE_URL` and the provider key is set to `LITELLM_API_KEY` (§7), OpenClaw is an OpenAI-compatible client of the gateway. Whatever Ollama / OpenAI / Anthropic / OpenRouter upstreams you've enabled in the stack are routed transparently through LiteLLM. To pick a model, use the model IDs registered in `volumes/litellm/config.yaml` (e.g. `ollama/qwen3.8:latest`, `gpt-4o`, `claude-sonnet-4-6`).
+- **Default path (LiteLLM)**: the bundled `litellm` provider (key from `LITELLM_API_KEY`, base URL set by `openclaw-init`) or a repurposed `openai` provider (§7) makes OpenClaw an OpenAI-compatible client of the gateway. Whatever Ollama / OpenAI / Anthropic / OpenRouter upstreams you've enabled in the stack are routed transparently through LiteLLM. To pick a model, use the model IDs registered in `volumes/litellm/config.yaml` (e.g. `ollama/qwen3.8:latest`, `gpt-4o`, `claude-sonnet-4-6`).
 - **Anthropic override**: Set `OPENCLAW_ANTHROPIC_API_KEY` in `.env` to make OpenClaw call Anthropic directly, bypassing LiteLLM. When unset, OpenClaw uses any stack-wide Anthropic key only through LiteLLM.
 - **OpenAI override**: Set `OPENCLAW_OPENAI_API_KEY` in `.env` to bypass LiteLLM for OpenAI traffic. When unset, OpenClaw stays on the LiteLLM gateway path and does not inherit the stack-wide `OPENAI_API_KEY`.
 

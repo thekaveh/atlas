@@ -68,10 +68,10 @@ environment. When the underlying service is enabled, Hermes gets:
 | Hermes feature | Stack service | Mechanism |
 |---|---|---|
 | LLM reasoning | LiteLLM | `model.provider: custom`, `base_url: http://litellm:4000/v1` |
-| TTS (text-to-speech) | Speaches (Kokoro/Piper, default) / Chatterbox (voice cloning) | `tts.provider: openai`, `base_url: ${TTS_ENDPOINT}/v1` — auto-set from the active TTS engine (e.g. `http://speaches:8000/v1` or `http://chatterbox:4123/v1`) |
-| STT (speech-to-text) | Speaches (Faster-Whisper, default) / Parakeet (NVIDIA NeMo) / whisper.cpp (Apple Silicon) | `stt.provider: openai`, `base_url: ${STT_ENDPOINT}/v1`, `api_key: ${STT_INTERNAL_API_KEY}` — all derived from the active STT engine |
-| Web search | SearXNG | `search.provider: searxng`, `base_url: http://searxng:8080` |
-| Image generation | ComfyUI | Skill override at `/opt/data/skills/creative-comfyui-host-override.md` pinning the bundled `creative-comfyui` skill to `http://comfyui:18188` (Hermes's default is hardcoded to `127.0.0.1:8188`). |
+| TTS (text-to-speech) | Speaches (Kokoro/Piper, default) / Chatterbox (voice cloning) | `tts.provider: openai`, `tts.openai.base_url: ${TTS_ENDPOINT}/v1` — auto-set from the active TTS engine (e.g. `http://speaches:8000/v1` or `http://chatterbox:4123/v1`); the key is the placeholder `VOICE_TOOLS_OPENAI_KEY=not-required`, so audio never reaches api.openai.com even when `OPENAI_API_KEY` is set. With TTS disabled the block is omitted and voice output fails rather than falling back to OpenAI. |
+| STT (speech-to-text) | Speaches (Faster-Whisper, default) / Parakeet (NVIDIA NeMo) / whisper.cpp (Apple Silicon) | `stt.provider: openai`, `stt.openai.base_url: ${STT_ENDPOINT}/v1`, `stt.openai.api_key: ${STT_INTERNAL_API_KEY}` (placeholder `not-required` when blank; Hermes ignores the base URL without a key) — all derived from the active STT engine |
+| Web search | SearXNG | `SEARXNG_URL=http://searxng:8080` on the hermes container plus `web.search_backend: searxng` |
+| Image generation | ComfyUI | Companion skill `/opt/data/skills/creative/atlas-comfyui-host/SKILL.md` telling the agent ComfyUI is at `http://comfyui:18188`; the bundled `comfyui` skill still hardcodes `127.0.0.1:8188`, so this is guidance, not a config override. |
 
 When a dependency is `disabled`, the corresponding block is omitted from
 `config.yaml` and Hermes simply doesn't expose that capability. Graceful
@@ -85,7 +85,7 @@ HERMES_IMAGE=nousresearch/hermes-agent:v2026.6.19
 HERMES_API_PORT=63072
 HERMES_DASHBOARD_PORT=63073
 HERMES_DASHBOARD_ENABLED=true
-HERMES_DASHBOARD_TUI=1              # 1 = embed Chat tab (PTY+WS); 0 = read-only dashboard
+HERMES_DASHBOARD_TUI=1              # inert in v2026.6.19 — the Chat tab is always on (see below)
 HERMES_DEFAULT_MODEL=               # blank = hermes-init auto-picks from LiteLLM's model_list
 HERMES_CONTEXT_LENGTH=65536         # hard floor; leave alone
 HERMES_API_KEY=                     # auto-generated if empty
@@ -101,13 +101,15 @@ match from a priority list (`ollama/qwen3.8:latest` → `claude-sonnet-4-6`
 available non-hermes-agent model). Cheapest-local-first, big-context-
 cloud-second. Operator-supplied values are never overridden.
 
-**Dashboard Chat tab.** With `HERMES_DASHBOARD_TUI=1` (the default), the
-dashboard exposes `/chat` and a `/ws/chat` WebSocket route, embedding a
-PTY-backed `hermes --tui` session as a tab — letting you talk to the
-agent directly from the web UI without going through Open WebUI or
-`curl`. The upstream `nousresearch/hermes-agent` image already ships
-`ptyprocess` for this. Set `HERMES_DASHBOARD_TUI=0` for a read-only
-dashboard. Reference: [upstream Web-Dashboard docs](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard).
+**Dashboard Chat tab.** The dashboard always embeds a PTY-backed
+`hermes --tui` session (`/api/pty`, `/api/ws`) as a Chat tab: Hermes
+v2026.6.19 hard-codes it on and ignores `HERMES_DASHBOARD_TUI`, so `0` does
+**not** produce a read-only dashboard. That tab is a full agent with a
+terminal tool, reachable without login on the direct port and from peers on
+the backend network while `HERMES_DASHBOARD_INSECURE=true`, and the agent's
+environment and `/opt/data/config.yaml` hold `LITELLM_MASTER_KEY`. To remove
+it, set `HERMES_DASHBOARD_ENABLED=false` (or require Nous Portal OAuth with
+`HERMES_DASHBOARD_INSECURE=false`). Reference: [upstream Web-Dashboard docs](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard).
 
 Use `./start.sh` for the guided wizard, or pass `--hermes-source <option>`
 for scripted changes.
@@ -122,6 +124,8 @@ for scripted changes.
 | Hermes operates your real machine (real shell, real browser) | `localhost` |
 | Microphone-driven live voice mode | `localhost` (container mic passthrough is non-trivial) |
 | Resource-constrained machine | `disabled` |
+
+With `localhost`, LiteLLM's `hermes-agent` route sends Atlas's `HERMES_API_KEY` as the bearer token, so set `HERMES_API_KEY` in `.env` to the host instance's own `API_SERVER_KEY`; otherwise every call through LiteLLM returns 401. The host instance also renders none of the config above (TTS, STT, SearXNG, ComfyUI); configure those on the host yourself.
 
 ## 5. Known caveats
 
@@ -209,7 +213,7 @@ their env exposes `HERMES_ENDPOINT`):
 
 ## 8. RAG capability via LightRAG
 
-When `LIGHTRAG_SOURCE != disabled`, hermes-init injects `LIGHTRAG_INTERNAL_URL` into `/opt/data/config.yaml` as a `rag_query` tool. Hermes can call LightRAG's `/query` endpoint with the configured `LIGHTRAG_API_KEY`. Disabled when LightRAG is off.
+Hermes has no direct LightRAG tool: this release cannot declare an HTTP tool in `config.yaml` (its `tools:` section holds built-in tool settings), so the former `rag_query` entry was silently ignored and has been removed. LightRAG stays reachable as the `lightrag` model through LiteLLM. `LIGHTRAG_INTERNAL_URL` / `LIGHTRAG_API_KEY` are still passed to hermes-init for a future MCP or skill integration.
 
 ## 9. Hermes → Airflow integration
 
@@ -319,7 +323,7 @@ Support tier: **experimental** — Capability contract declared (#967); no cited
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | LiteLLM-backed programmable agent | supported | tested | Atlas renders one usable default chat model from LiteLLM, filters recursive aliases, and exposes Hermes back through LiteLLM as hermes-agent. |
-| Source-aware agent tools | partial | tested | Init renders enabled speech, ComfyUI, SearXNG, and LightRAG providers, while unavailable services are omitted and Airflow triggering remains a user-authored skill or curl pattern. |
+| Source-aware agent tools | partial | tested | Init renders enabled speech and SearXNG settings in the shape Hermes reads plus a ComfyUI host companion skill, while unavailable services are omitted; LightRAG is reachable only through LiteLLM and Airflow triggering remains a user-authored skill or curl pattern. |
 | Container and operator-host lifecycle | partial | tested | Atlas manages the container and its generated config, but localhost mode only resolves an operator-run API and dashboard and cannot guarantee its setup, tools, or process supervision. |
 | Hermes API and dashboard authentication | partial | documented | The OpenAI-compatible API uses HERMES_API_KEY and hermes.localhost requires the Kong dashboard Basic credential, but the dashboard runs in upstream insecure mode, so the direct host port and backend-network peers reach it without authentication. |
 | Agent workspace persistence | partial | documented | Sessions, memories, skills, auth, and logs persist in one hermes-data volume, with no shared database, tenant isolation, replication, or cross-service artifact store. |

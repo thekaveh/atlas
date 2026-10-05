@@ -2002,6 +2002,14 @@ def main(argv: list[str] | None = None) -> int:
     else:
         token = secrets.token_hex(16)
     values = _env_file_values(repo)
+    # Every `docker compose` call below is bare, so without these Compose names
+    # the project after the working directory: from cron, a worktree or a
+    # consumer submodule it saw no running databases, passed the stopped-service
+    # checks and copied over the live ${PROJECT_NAME}-* volumes. Explicit
+    # values (the live integration harness sets both) are honored.
+    project = _validate_docker_name(_setting(values, "PROJECT_NAME", "atlas"), "PROJECT_NAME")
+    os.environ.setdefault("COMPOSE_PROJECT_NAME", project)
+    os.environ.setdefault("COMPOSE_FILE", str(repo / "docker-compose.yml"))
     timeout_text = _setting(values, "BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS", "120")
     if not timeout_text.isdecimal() or timeout_text.startswith("0") or not 1 <= int(timeout_text) <= 3600:
         raise ContractError("BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS must be a canonical integer from 1 to 3600")

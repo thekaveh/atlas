@@ -329,7 +329,7 @@
 | HERMES_DEFAULT_MODEL | hermes |  | Empty = hermes-init picks from LiteLLM /v1/models priority list. |
 | HERMES_CONTEXT_LENGTH | hermes | 65536 | - |
 | HERMES_DASHBOARD_ENABLED | hermes | true | - |
-| HERMES_DASHBOARD_TUI | hermes | 1 | Embed PTY-backed Chat tab in dashboard. 1 = on, 0 = read-only. |
+| HERMES_DASHBOARD_TUI | hermes | 1 | Inert: Hermes v2026.6.19 always embeds the dashboard Chat tab (PTY terminal) and ignores this value; disable the dashboard (HERMES_DASHBOARD_ENABLED=false) to remove it. |
 | HERMES_DASHBOARD_INSECURE | hermes | true | Allow the dashboard to bind to its non-loopback container address (0.0.0.0) without a Nous Portal OAuth provider. Required since the upstream image stopped implicitly inferring insecure mode from the bind host; without it the dashboard fails closed and s6 restart-loops it. The dashboard then has no login of its own: Kong's hermes.localhost route requires the dashboard Basic credential, but the direct host port (loopback unless HOST_BIND_IP is widened) and other backend-network containers reach it unauthenticated. Set to false (and provide HERMES_DASHBOARD_OAUTH_CLIENT_ID) to enforce the OAuth auth gate instead. |
 | HERMES_UID | hermes | 10000 | Container user — match a host UID to read hermes-data from outside. |
 | HERMES_GID | hermes | 10000 | - |

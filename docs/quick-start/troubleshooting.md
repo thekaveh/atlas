@@ -424,7 +424,7 @@ Atlas recovery is **project-scoped by design**: everything Atlas creates — con
 
 ### 10.1. Complete Reset (destructive — deletes this project's data)
 
-`./stop.sh --cold` stops the stack and **deletes every named Atlas project volume**: databases, n8n workflows, downloaded models, generated artifacts. There is no undo. Take a backup first (§10.3).
+`./stop.sh --cold` stops the stack and **deletes every named Atlas project volume**: databases, n8n workflows, downloaded models, generated artifacts. There is no undo. Take a backup first (§10.3), and note that with the default `BACKUP_S3_MODE=local` the backup itself lives in this project's MinIO volume (and the Neo4j/Weaviate snapshot volumes), so `--cold` deletes it too: use `BACKUP_S3_MODE=external` or copy the bucket off the host before resetting. `./start.sh --cold` then rebuilds `.env` from `.env.example`; it saves the previous file as `.env.backup.<timestamp>` next to it, but keep your own copy of `BACKUP_MANIFEST_HMAC_KEY` and `BACKUP_DEPLOYMENT_ID`, since a backup cannot be restored without them.
 
 ```bash
 # Full project reset — removes THIS project's containers, network, and
@@ -465,6 +465,6 @@ Do **not** copy a running database's data directory as a "backup" — a live Pos
 services/backup/run-consistent-backup.sh
 ```
 
-Coverage and limits: the backup captures the databases and Supabase Storage listed above — it does not capture `.env` (keep your own copy of it; it holds the keys that decrypt what the databases store) and Postgres and Storage are archived at slightly different instants. A backup is only proven by restoring it: before you rely on one — and before deleting anything — follow the restore procedure in [`services/backup/README.md`](../../services/backup/README.md) (`run-database-restore.sh` / `restore-postgres.sh`) on a disposable project. A guided restore rehearsal is tracked in [#1034](https://github.com/thekaveh/atlas/issues/1034).
+Coverage and limits: the backup captures the main Supabase database (`SUPABASE_DB_NAME`), Neo4j, Weaviate and Supabase Storage listed above. The per-service databases on the same Postgres server (LiteLLM, Airflow, Langfuse, MLflow, Label Studio, the Iceberg catalog, Supavisor and similar) are **not** dumped, so their keys, spend, traces, registries and metadata are lost by a reset. Local-mode artifacts live in this project's MinIO volume and do not survive `./stop.sh --cold` (§10.1). The backup does not capture `.env` (keep your own copy of it; it holds the keys that decrypt what the databases store) and Postgres and Storage are archived at slightly different instants. A backup is only proven by restoring it: before you rely on one — and before deleting anything — follow the restore procedure in [`services/backup/README.md`](../../services/backup/README.md) (`run-database-restore.sh` / `restore-postgres.sh`) on a disposable project. A guided restore rehearsal is tracked in [#1034](https://github.com/thekaveh/atlas/issues/1034).
 
 Remember: Most issues can be resolved without losing data. Try targeted solutions before doing a complete reset!

@@ -1151,3 +1151,16 @@ def test_atomic_write_can_replace_a_symlink_instead_of_following_it(tmp_path: Pa
 
     assert not link.is_symlink() and link.read_text(encoding="utf-8") == "2\n"
     assert elsewhere.read_text(encoding="utf-8") == "1\n"
+
+
+def test_hosts_writer_survives_a_platform_without_chown(tmp_path, monkeypatch):
+    # Windows has no os.chown; the AttributeError aborted --setup/--clean-hosts.
+    import os
+
+    from utils.hosts_manager import HostsManager
+
+    hosts = tmp_path / "hosts"
+    hosts.write_text("127.0.0.1 localhost\n", encoding="utf-8")
+    monkeypatch.delattr(os, "chown")
+    HostsManager._atomic_write_hosts(str(hosts), "127.0.0.1 n8n.localhost\n")
+    assert hosts.read_text(encoding="utf-8") == "127.0.0.1 n8n.localhost\n"

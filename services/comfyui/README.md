@@ -40,7 +40,7 @@ Localhost overrides:
 
 ```bash
 COMFYUI_LOCALHOST_PORT=8000                 # URL is derived as http://host.docker.internal:8000 at compose-render time
-COMFYUI_LOCAL_MODELS_PATH=~/Documents/ComfyUI/models   # host models dir for managed-localhost-mps; container sources mount it read-only at /host_models (unused)
+COMFYUI_LOCAL_MODELS_PATH=~/Documents/ComfyUI/models   # SOURCE=localhost preflight path (managed MPS uses COMFYUI_MPS_MODELS_PATH); container sources mount it read-only at /host_models (unused)
 ```
 
 Managed Apple-Silicon / Metal (MPS) overrides (`SOURCE=managed-localhost-mps`; see §10):
