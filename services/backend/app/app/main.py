@@ -242,8 +242,9 @@ def _validate_uuid_param(value: str, name: str = "parameter"):
 # Get project name from environment
 PROJECT_NAME = os.getenv("PROJECT_NAME", "atlas")
 
-# Maximum body size for /storage/upload, in bytes. Default 100 MiB matches
-# Supabase Storage's default object cap; operators can override via env.
+# Maximum body size for /storage/upload, in bytes (default 100 MiB). Supabase
+# Storage enforces its own STORAGE_FILE_SIZE_LIMIT (50 MiB in Atlas) and its
+# 413 is mapped to a 413 below; operators can override either via env.
 # Without this guard `file.read()` will buffer arbitrarily large uploads
 # into memory and OOM the worker.
 def _positive_byte_cap(name: str, default: int) -> int:
@@ -799,6 +800,34 @@ async def get_workflow(workflow_id: str):
 
 
 
+def _is_storage_too_large(exc: Exception) -> bool:
+    """Supabase Storage's object-size rejection (its FILE_SIZE_LIMIT)."""
+    return (
+        str(getattr(exc, "status", "")) == "413"
+        or str(getattr(exc, "code", "")).lower() == "entitytoolarge"
+    )
+
+
+def _storage_upload_error(exc: Exception, object_path: str) -> HTTPException:
+    """Map a Storage upload failure. Duplicates and oversize objects are
+    permanent (a 503 made clients retry them forever); the rest is an outage."""
+    if _is_storage_duplicate(exc):
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{object_path} already exists",
+        )
+    if _is_storage_too_large(exc):
+        # Storage's cap (STORAGE_FILE_SIZE_LIMIT) is below MAX_UPLOAD_BYTES.
+        return HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="File exceeds the Supabase Storage size limit",
+        )
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Supabase Storage is unavailable",
+    )
+
+
 def _is_storage_duplicate(exc: Exception) -> bool:
     """Supabase Storage's existing-object rejection (storage3 StorageApiError
     with status 409 or error code `Duplicate`; uploads do not upsert)."""
@@ -853,17 +882,7 @@ async def upload_file(file: UploadFile = File(...), bucket: str = "default"):
             # Get public URL
             url = await asyncio.to_thread(bucket_ref.get_public_url, filename)
         except Exception as e:
-            if _is_storage_duplicate(e):
-                # A permanent conflict, not an outage: a 503 here made clients
-                # retry the same path forever.
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"{bucket}/{filename} already exists",
-                ) from e
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Supabase Storage is unavailable",
-            ) from e
+            raise _storage_upload_error(e, f"{bucket}/{filename}") from e
 
         return StorageResponse(bucket=bucket, path=filename, url=url)
     except HTTPException:

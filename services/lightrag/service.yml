@@ -80,6 +80,7 @@ env:
     description: "Auto-generated JWT signing key for LightRAG's /login endpoint. Without this, LightRAG falls back to a hardcoded default key (security risk)."
   - name: LIGHTRAG_WORKERS
     default: 2
+    description: "Passed as WORKERS but inert: the image starts lightrag.api.lightrag_server under a single uvicorn process (WORKERS is read only by lightrag-gunicorn)."
   - name: LIGHTRAG_MEMORY_LIMIT
     default: 6g
   - name: LIGHTRAG_CPU_LIMIT
@@ -291,7 +292,7 @@ runtime_adaptive:
       LIGHTRAG_NEO4J_PASSWORD: ${GRAPH_DB_PASSWORD}
       LIGHTRAG_REDIS_URI: "redis://:${REDIS_PASSWORD}@redis:6379/2"
     extra_hosts_adaptation: none
-    failure_mode: "Storage falls back to NanoVectorDB / NetworkX / JsonKV when supabase/neo4j/redis source is disabled. Reranking remains off unless a compatible adapter is configured. Docling skipped → multimodal images become text-only."
+    failure_mode: "Storage does NOT fall back automatically: with supabase/neo4j/redis disabled the default storage class gets a blank URI and LightRAG fails to start (the bootstrapper warns); set LIGHTRAG_*_STORAGE to a local class (NanoVectorDB / NetworkX / JsonKV) to run without them. Reranking remains off unless a compatible adapter is configured. Docling skipped → multimodal images become text-only."
   lightrag-init:
     adapts_to:
       - llm_provider

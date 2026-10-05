@@ -174,7 +174,7 @@ Key modules:
   from `wizard.model.cloud_rules` instead of through
   `widgets/prompt_panel.py`'s re-export.)
 - `utils/kong_config_generator.py` — dynamic Kong route generation (the `kong-dynamic.yml` it emits is regenerated at every startup; do NOT edit by hand)
-- `generate_supabase_keys.py` (and `.sh` sibling) — auto-runs at startup, generates Supabase JWT keys into `.env`
+- `generate_supabase_keys.py` (and `.sh` sibling) — runs at startup only when all three Supabase keys are blank, generating JWT keys into `.env` (no `.env` snapshot is taken)
 
 The layer direction (`view -> viewmodel -> model`) is enforced by
 `bootstrapper/tests/test_wizard_layer_boundaries.py`, to the extent each layer

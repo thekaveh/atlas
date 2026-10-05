@@ -1180,6 +1180,12 @@ CREATE POLICY "Atlas backend direct role access" ON public.research_sources TO a
 
 CREATE POLICY "Atlas backend schema-state read" ON public.memory_embedding_schema_state FOR SELECT TO atlas_backend USING (true);
 
+CREATE POLICY "Atlas open-webui identity sync" ON public.users TO atlas_open_webui USING ((NOT (EXISTS ( SELECT 1
+   FROM auth.users a
+  WHERE (a.id = users.id))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM auth.users a
+  WHERE (a.id = users.id)))));
+
 CREATE POLICY "Atlas upstream migration roles" ON public.schema_migrations TO supabase_auth_admin, atlas_realtime USING (true) WITH CHECK (true);
 
 CREATE POLICY "Service role can access all comfyui generations" ON public.comfyui_generations USING ((auth.role() = 'service_role'::text));

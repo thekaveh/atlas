@@ -96,7 +96,7 @@ def _weaviate_vectorizer_failure(exc: BaseException) -> bool:
 # every row; anything else (5xx, connection, DNS) is systematic too.
 _VECTORIZER_ROW_REJECTION = re.compile(r"status:?\s*4(?!01|03|04|08|29)\d\d\b")
 _VECTORIZER_SYSTEMATIC_TEXT = re.compile(
-    r"invalid model|model not found|no such model|authentication|api key", re.IGNORECASE
+    r"invalid model|model not found|no such model|authentication|api key|budget", re.IGNORECASE
 )
 
 

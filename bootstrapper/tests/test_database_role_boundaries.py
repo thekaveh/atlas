@@ -1312,3 +1312,28 @@ def test_role_provisioning_is_idempotent_and_restart_safe(
     assert before == after
     refused = disposable_postgres.network_sql("SELECT 1", password=None, check=False)
     assert refused.returncode != 0 and "password" in refused.stderr, refused.stderr
+
+
+def test_open_webui_role_can_upsert_its_identity_rows(
+    disposable_postgres: DisposablePostgres,
+) -> None:
+    """open-webui-init's sync trigger writes public.users (RLS on) as the
+    direct Open WebUI role; without a policy every signup failed. GoTrue-backed
+    identities (memory/research cascade from them) stay out of its reach."""
+    role = dict(user=TEST_SECRETS["OPEN_WEBUI_DB_USER"], password=TEST_SECRETS["OPEN_WEBUI_DB_PASSWORD"])
+    for name in ("Open WebUI user", "renamed"):  # insert, then the conflict path
+        assert disposable_postgres.sql(
+            "INSERT INTO public.users (id, name) VALUES ('00000000-0000-4000-8000-0000000000ee', "
+            f"'{name}') ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name", check=False, **role,
+        ).returncode == 0
+    disposable_postgres.sql(
+        "INSERT INTO auth.users (id, email) VALUES ('00000000-0000-4000-8000-0000000000ef', "
+        "'gotrue@example.test') ON CONFLICT (id) DO NOTHING"
+    )
+    disposable_postgres.sql(
+        "DELETE FROM public.users WHERE id = '00000000-0000-4000-8000-0000000000ef'; "
+        "UPDATE public.users SET name = 'x' WHERE id = '00000000-0000-4000-8000-0000000000ef'", **role,
+    )
+    assert disposable_postgres.sql(
+        "SELECT name FROM public.users WHERE id = '00000000-0000-4000-8000-0000000000ef'"
+    ).stdout.strip() == "gotrue"

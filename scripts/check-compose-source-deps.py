@@ -48,9 +48,9 @@ FORBIDDEN_OPTIONAL_DEPENDS_ON = {
     ("jupyterhub", "neo4j-graph-db"),
     ("weaviate", "multi2vec-clip"),
     # LightRAG (2026-06-05): storage + capability services are
-    # SOURCE-replaceable. LightRAG transparently falls back to in-process
-    # backends (NanoVectorDB / NetworkX / JsonKV) when the corresponding
-    # source is disabled. LiteLLM is the only hard dependency — see
+    # SOURCE-replaceable: with a source disabled, LIGHTRAG_*_STORAGE can name
+    # an in-process backend (NanoVectorDB / NetworkX / JsonKV); there is no
+    # automatic fallback. LiteLLM is the only hard dependency — see
     # REQUIRED_DEPENDS_ON below.
     ("lightrag", "supabase-db"),
     ("lightrag", "redis"),

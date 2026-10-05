@@ -35,7 +35,7 @@ The first slice offers only `container` and `disabled` source values. A localhos
 ## 5. Architecture & Wiring
 Graph Builder depends on in-stack Neo4j and LiteLLM. Atlas fails before compose if the service is enabled while `NEO4J_GRAPH_DB_SOURCE` is `disabled` or `localhost`; this keeps the first implementation aligned with the compose dependency graph and the `bolt://neo4j-graph-db:7687` internal URI.
 
-Upstream requires Neo4j 5.23 or later with APOC installed. Atlas pins Neo4j 5.26.x, but APOC is **not** preinstalled (the image is plain `neo4j:5.26.31`; see [services/neo4j/README.md](../neo4j/README.md)). APOC procedures must be enabled before Graph Builder's APOC-dependent operations will work.
+Upstream requires Neo4j 5.23 or later with APOC installed. Atlas pins Neo4j 5.26.x and loads APOC core (`NEO4J_PLUGINS=["apoc"]`, installed from the jar the image ships in `labs/`), which Graph Builder's extraction (`apoc.merge.node`), auto-connect, duplicate merging and neighbour views need. APOC extended is not installed.
 
 LiteLLM is exposed to Graph Builder as an OpenAI-compatible model named `atlas_litellm`. The upstream backend reads `LLM_MODEL_CONFIG_ATLAS_LITELLM`, which Atlas auto-manages as:
 
@@ -128,7 +128,7 @@ Support tier: **experimental** — Capability contract declared (#967); no cited
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| Document-to-Neo4j graph workflow | partial | tested | Atlas builds the pinned upstream UI/backend and wires Neo4j plus LiteLLM, but APOC is not bundled and APOC-dependent operations require operator installation. |
+| Document-to-Neo4j graph workflow | partial | tested | Atlas builds the pinned upstream UI/backend and wires Neo4j (with APOC core) plus LiteLLM; APOC extended procedures are not installed. |
 | LiteLLM extraction and graph chat | partial | tested | Atlas exposes one OpenAI-compatible model alias, while graph quality and structured extraction remain dependent on the operator-selected model. |
 | Graph Builder access control | partial | tested | Kong protects both browser and backend aliases with Basic Auth and ACL, but the host-published frontend skips app auth and the internal backend sets authentication off. |
 | Optional Google Cloud features | partial | tested | Atlas validates complete logging or GCS-cache configuration and mounts ADC read-only, but the disabled default uses a placeholder and no live cloud operation is certified. |

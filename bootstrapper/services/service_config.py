@@ -6,6 +6,7 @@ Python implementation of generate_service_environment() and related functions fr
 
 import os
 import re
+import sys
 from typing import Dict, Any, Optional
 from urllib.parse import quote
 from core.config_parser import ConfigParser
@@ -32,6 +33,35 @@ def _uri_component(env_file_vars: dict, name: str, default: str = '') -> str:
         env_file_vars.get(name, default), safe=''
     )
 
+
+
+def _lightrag_neo4j_username(raw_env: Dict[str, str]) -> str:
+    """LightRAG's Neo4j user follows GRAPH_DB_USER like every other consumer
+    (only a host-run Neo4j can use a name other than `neo4j`)."""
+    return (raw_env.get('GRAPH_DB_USER') or '').strip() or 'neo4j'
+
+
+# LightRAG storage selector -> (default class, connection var, backing service).
+_LIGHTRAG_STORAGE_BACKENDS = (
+    ('LIGHTRAG_GRAPH_STORAGE', 'Neo4JStorage', 'LIGHTRAG_NEO4J_URI', 'Neo4j'),
+    ('LIGHTRAG_VECTOR_STORAGE', 'PGVectorStorage', 'LIGHTRAG_PG_URI', 'Supabase Postgres'),
+    ('LIGHTRAG_KV_STORAGE', 'RedisKVStorage', 'LIGHTRAG_REDIS_URI', 'Redis'),
+    ('LIGHTRAG_DOC_STATUS_STORAGE', 'RedisDocStatusStorage', 'LIGHTRAG_REDIS_URI', 'Redis'),
+)
+
+
+def _warn_lightrag_storage_gaps(env_vars: Dict[str, str], raw_env: Dict[str, str]) -> None:
+    """Nothing switches LightRAG's storage classes when a backend is disabled,
+    so a blank connection URI with the default selector crash-loops it."""
+    for selector, default, uri_var, service in _LIGHTRAG_STORAGE_BACKENDS:
+        chosen = (raw_env.get(selector) or default).strip()
+        if chosen == default and not env_vars.get(uri_var):
+            print(
+                f"WARNING: LightRAG is enabled but {service} is disabled while "
+                f"{selector}={chosen}; LightRAG will fail to start. Enable {service} "
+                f"or set {selector} to a local storage class.",
+                file=sys.stderr,
+            )
 
 class ServiceConfig:
     """Generates service configurations based on YAML and SOURCE values."""
@@ -1872,7 +1902,7 @@ class ServiceConfig:
                 # services/neo4j/service.yml). A fixed container URI broke
                 # LightRAG whenever Neo4j ran on the host.
                 env_vars['LIGHTRAG_NEO4J_URI'] = self._neo4j_bolt_uri(neo4j_source)
-                env_vars['LIGHTRAG_NEO4J_USERNAME'] = 'neo4j'
+                env_vars['LIGHTRAG_NEO4J_USERNAME'] = _lightrag_neo4j_username(lightrag_raw_env)
                 env_vars['LIGHTRAG_NEO4J_PASSWORD'] = lightrag_raw_env.get('GRAPH_DB_PASSWORD', '')
             else:
                 env_vars['LIGHTRAG_NEO4J_URI'] = ''
@@ -1888,6 +1918,7 @@ class ServiceConfig:
                 )
             else:
                 env_vars['LIGHTRAG_REDIS_URI'] = ''
+            _warn_lightrag_storage_gaps(env_vars, lightrag_raw_env)
 
         else:
             # LightRAG disabled — emit blanks so any stale .env values are

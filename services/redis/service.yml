@@ -5,7 +5,7 @@
 # the migration is now complete and the bootstrapper reads manifests
 # directly (bootstrapper/service-configs.yml has been retired). Redis
 # has a single container, no source variants, and is consumed by half
-# the stack (n8n, kong, open-webui, backend, local-deep-researcher).
+# the stack (n8n, litellm, open-webui, backend, local-deep-researcher).
 
 name: redis
 label: "Redis (cache & queue)"
@@ -53,7 +53,7 @@ env:
     description: "Redis memory cap (redis-server --maxmemory), e.g. 512mb. 0 means unlimited, which is the historical behaviour: Redis grows until the CONTAINER is OOM-killed, losing in-flight queue state rather than shedding anything. Setting a cap lets REDIS_MAXMEMORY_POLICY shed recomputable data instead. Recommended for long-running or multi-consumer deployments; size it to roughly 75% of the container's memory budget."
   - name: REDIS_MAXMEMORY_POLICY
     default: volatile-lru
-    description: "Eviction policy once REDIS_MAXMEMORY is reached. volatile-lru evicts only keys carrying a TTL, which on this stack means LiteLLM's response cache — db 0 also holds n8n's BullMQ queue, Kong's counters, Langfuse's queue and the backend's media store, all written WITHOUT a TTL, so they survive. Under the previous noeviction a full instance rejected writes instead, letting an oversized cache take the queue down with it. With nothing volatile left, volatile-lru returns the same OOM error noeviction would."
+    description: "Eviction policy once REDIS_MAXMEMORY is reached. volatile-lru evicts only keys carrying a TTL, which on this stack means LiteLLM's response cache — db 0 also holds n8n's BullMQ queue, Langfuse's queue and the backend's media store, all written WITHOUT a TTL, so they survive. Under the previous noeviction a full instance rejected writes instead, letting an oversized cache take the queue down with it. With nothing volatile left, volatile-lru returns the same OOM error noeviction would."
   - name: REDIS_PORT
     # default removed — computed by services/topology.py slot allocator
     description: "Host port. Container port is always 6379."
@@ -61,7 +61,7 @@ env:
     default: redis_password
     secret: true
     description: |
-      Used by every consumer (n8n queue, kong rate-limit cache,
+      Used by every consumer (n8n queue, litellm cache,
       open-webui websocket store, backend session/queue, local-deep-
       researcher worker queue). The default is for fresh-install
       convenience only; rotate before any deployment.
@@ -69,7 +69,7 @@ env:
     default: "redis://:${REDIS_PASSWORD}@redis:6379/0"
     description: |
       Default connection string (database index 0; also n8n's queue and
-      Kong's rate-limit cache). Consumers that need a different DB index
+      LiteLLM's cache). Consumers that need a different DB index
       build their own URL (open-webui + lightrag share /2, jupyterhub
       uses /3). REDIS_PASSWORD is substituted at compose-interpolation
       time.
@@ -102,7 +102,7 @@ rows:
 # that each named consumer is itself a known manifest. Until the consumer
 # manifests exist (Phase C), this stays empty so the validator stays clean.
 #
-# The compose-time wiring (KONG_REDIS_HOST: redis, REDIS_URL: ${REDIS_URL},
+# The compose-time wiring (REDIS_URL: ${REDIS_URL},
 # WEBSOCKET_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/2", etc.)
 # continues to work via the flat .env regardless of this exports list.
 exports: []

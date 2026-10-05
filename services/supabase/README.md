@@ -101,6 +101,8 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 - Configured via `GOTRUE_*` environment variables
 - Sign-ups enabled by default (`GOTRUE_DISABLE_SIGNUP="false"`)
 - Emails auto-confirmed for local development (`GOTRUE_MAILER_AUTOCONFIRM="true"`)
+- Together these mean anyone who can reach the auth endpoint can mint an `authenticated` token, which the Backend accepts on `/media/generate` (including the paid FAL provider), `/media/spend`, research and memory routes. Kong binds to loopback by default and media budgets still apply; before widening `HOST_BIND_IP` or publishing the gateway, disable sign-up with a Compose override that sets `GOTRUE_DISABLE_SIGNUP: "true"` on `supabase-auth` (the fragment hard-codes `"false"`, so a `.env` entry has no effect).
+- Default privileges grant `anon` SELECT and `authenticated` ALL on future `public` tables; db-init revokes them from tables without row-level security, but a table created by a `db/_user/*.sql` script stays exposed through PostgREST until the next db-init run. Enable RLS (or revoke) in the same script.
 
 **supabase-api (PostgREST)**:
 - Expects valid JWT in `Authorization: Bearer <token>` header

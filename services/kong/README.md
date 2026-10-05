@@ -108,8 +108,10 @@ Every generated service gets a 300-second `read_timeout` / `write_timeout`
 unless it declares its own (n8n keeps 60 s; backend plugins may set theirs).
 Kong 3.x has no global proxy-timeout setting, so these live per service in
 `kong-dynamic.yml`; Kong's own 60-second default otherwise cuts off slow
-non-streaming LLM calls and idle streams or WebSockets. Kong keeps its default
-of 5 retries, so an idempotent request that times out is re-sent.
+non-streaming LLM calls and idle streams or WebSockets. Retries happen only on
+connection errors (`KONG_NGINX_PROXY_PROXY_NEXT_UPSTREAM=error`), so a request
+that times out (connect, send or read) fails after one wait instead of being
+re-sent.
 
 ### 4.3. Localhost Service Health Checks
 When routing to localhost services, Kong generator performs health checks:

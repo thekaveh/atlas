@@ -102,6 +102,14 @@ GRAPH_DB_DASHBOARD_PORT=63024  # Browser interface and HTTP API (mapped to 7474)
 NEO4J_MEMORY_LIMIT=2g          # Compose memory limit for the container
 ```
 
+The compose fragment also loads the APOC core plugin (`NEO4J_PLUGINS=["apoc"]`,
+installed at start from the jar the image ships in `labs/`, no download) and
+allows `apoc.*`; LLM Graph Builder depends on it. In container mode the image
+accepts only the `neo4j` admin user, so `GRAPH_DB_USER` matters only for a
+host-run Neo4j (`NEO4J_GRAPH_DB_SOURCE=localhost`). The Browser on the
+published port pre-fills `neo4j://neo4j-graph-db:7687` (the in-network
+advertised address); change it to `bolt://localhost:${GRAPH_DB_PORT}`.
+
 ## 7. Usage Examples
 
 ### 7.1. Connect via Cypher Shell (container mode)
@@ -284,7 +292,7 @@ _Rows marked planned are documented or intended, not wired yet._
 
 - **Native vector index (HNSW)** — *Why pursue:* Neo4j 5 ships an HNSW vector index, letting us store embeddings on graph nodes and combine ANN search with graph traversal in one DB. *Effort:* small.
 - **GenAI plugin (`genai.vector.encode*`)** — *Why pursue:* embed text directly inside Cypher via OpenAI/Vertex/Bedrock — wire it to LiteLLM and ingestion becomes one query. *Effort:* small.
-- **APOC core + extended** — *Why pursue:* image is plain `neo4j:5.26.31`; APOC is not preinstalled. APOC unlocks bulk import, periodic-iterate, JSON/HTTP, and LLM procedures. *Effort:* small.
+- **APOC extended** — *Why pursue:* APOC core is loaded (`NEO4J_PLUGINS=["apoc"]` from the image's `labs/` jar); the extended library would add more JSON/HTTP, import and LLM procedures. *Effort:* small.
 - **Neosemantics (n10s)** — *Why pursue:* RDF/ontology import/export bridges Neo4j with external semantic-web sources (Wikidata, schema.org). *Effort:* medium.
 - **Read-only role for LLM-generated Cypher** — *Why pursue:* safe execution of model-authored queries from open-webui/hermes; mitigates prompt-injection-to-`DETACH DELETE`. *Effort:* small.
 

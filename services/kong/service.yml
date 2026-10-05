@@ -43,8 +43,8 @@ env:
 
 depends_on:
   # Kong is a proxy — it does not need its upstream targets to be UP to start
-  # serving traffic. Only Supabase (config storage) + Redis (rate-limit state)
-  # are real bootstrap blockers. The proxy targets (open-webui, n8n, backend,
+  # serving traffic. Supabase and Redis are listed for start ordering only:
+  # Kong is DB-less and its rate limiter uses policy: local, not Redis. The proxy targets (open-webui, n8n, backend,
   # …) are listed in data_flow.calls below, which is the correct abstraction
   # for "what does Kong route to" and drives the architecture diagram.
   required:

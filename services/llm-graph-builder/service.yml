@@ -9,7 +9,7 @@ capabilities:
   - name: "Document-to-Neo4j graph workflow"
     status: partial
     verification: tested
-    note: "Atlas builds the pinned upstream UI/backend and wires Neo4j plus LiteLLM, but APOC is not bundled and APOC-dependent operations require operator installation."
+    note: "Atlas builds the pinned upstream UI/backend and wires Neo4j (with APOC core) plus LiteLLM; APOC extended procedures are not installed."
   - name: "LiteLLM extraction and graph chat"
     status: partial
     verification: tested

@@ -131,6 +131,31 @@ def test_storage_upload_maps_an_existing_object_to_409(monkeypatch):
     assert resp.json()["detail"] == "default/example.txt already exists"
 
 
+def test_storage_upload_maps_a_storage_size_rejection_to_413(monkeypatch):
+    """Storage caps objects at 50 MiB, below MAX_UPLOAD_BYTES; its 413 must not
+    become a retryable 503."""
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    from storage3.exceptions import StorageApiError
+    import main
+
+    class Bucket:
+        def upload(self, **_kwargs):
+            raise StorageApiError("The object exceeded the maximum allowed size", "EntityTooLarge", "413")
+
+    class Storage:
+        def from_(self, _bucket):
+            return Bucket()
+
+    monkeypatch.setattr(main, "storage_client", Storage())
+    resp = TestClient(main.app).post(
+        "/storage/upload",
+        files={"file": ("example.txt", b"hello", "text/plain")},
+    )
+
+    assert resp.status_code == 413
+
+
 def test_storage_upload_rejects_unapproved_bucket_and_path_filename(monkeypatch):
     _stub_required_env(monkeypatch)
     from fastapi.testclient import TestClient

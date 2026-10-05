@@ -48,7 +48,9 @@ attached to every Backend request and never sent to browser JavaScript. The
 tool code may delegate the authenticated Open WebUI user id, while the Backend
 accepts this caller token only on memory and legacy ComfyUI routes. The init
 container installs an idempotent trigger/backfill that maps valid Open WebUI
-UUIDs into `public.users`, preserving memory foreign-key ownership.
+UUIDs into `public.users`, preserving memory foreign-key ownership; `public.users`
+has row-level security, so `supabase-db-init` gives the Open WebUI database role
+its own policy ("Atlas open-webui identity sync") for that trigger.
 Automatic post-conversation extraction uses two daemon workers and a bounded
 four-job waiting queue. Saturated work is skipped with a bounded diagnostic,
 and Backend non-success responses are treated as extraction failures; chat

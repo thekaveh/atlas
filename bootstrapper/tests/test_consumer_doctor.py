@@ -1060,9 +1060,12 @@ def test_doctor_base_port_warns_on_default_squat():
         def get_project_name(self):
             return self._project
 
+    from core.port_manager import PortManager
+
     class _Starter:
         def __init__(self, env, project):
             self.config_parser = _CP(env, project)
+            self.port_manager = PortManager()
 
     # consumer squatting the default port -> warn
     r = start_module._doctor_check_base_port(_Starter({"BASE_PORT": "63000"}, "tableau"))
@@ -2061,3 +2064,23 @@ def test_preflight_invalid_base_port_keeps_stdout_clean(
     start_module.AtlasStarter().materialize_consumer_env_for_preflight()
 
     assert "Invalid base port" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("raw, status", [
+    ("80", "fail"), ("70000", "fail"),  # start rejects; preflight skips the recompute
+    ("abc", "warn"),                    # start falls back to the default block
+    ("auto", "pass"),                   # start resolves it itself
+])
+def test_doctor_base_port_matches_what_start_does(raw, status):
+    from types import SimpleNamespace
+
+    import start as start_module
+    from core.port_manager import PortManager
+
+    starter = SimpleNamespace(
+        config_parser=SimpleNamespace(
+            parse_env_file=lambda: {"BASE_PORT": raw}, get_project_name=lambda: "atlas",
+        ),
+        port_manager=PortManager(),
+    )
+    assert start_module._doctor_check_base_port(starter)["status"] == status

@@ -60,3 +60,22 @@ def test_ollama_localhost_upstream_resolves_the_configured_port():
     })
     env = sc._generate_llm_provider_config()
     assert env["LITELLM_OLLAMA_UPSTREAM"] == "http://host.docker.internal:11500"
+
+
+def test_lightrag_follows_graph_db_user_and_warns_on_missing_backends(capsys):
+    from services.service_config import _lightrag_neo4j_username, _warn_lightrag_storage_gaps
+
+    assert _lightrag_neo4j_username({"GRAPH_DB_USER": "graphops"}) == "graphops"
+    assert _lightrag_neo4j_username({}) == "neo4j"
+    # Neo4j disabled -> blank URI with the default Neo4JStorage selector.
+    _warn_lightrag_storage_gaps(
+        {"LIGHTRAG_NEO4J_URI": "", "LIGHTRAG_PG_URI": "postgresql://x", "LIGHTRAG_REDIS_URI": "redis://x"},
+        {},
+    )
+    err = capsys.readouterr().err
+    assert "LIGHTRAG_GRAPH_STORAGE=Neo4JStorage" in err and "Redis" not in err
+    _warn_lightrag_storage_gaps({"LIGHTRAG_NEO4J_URI": ""}, {
+        "LIGHTRAG_GRAPH_STORAGE": "NetworkXStorage", "LIGHTRAG_VECTOR_STORAGE": "NanoVectorDBStorage",
+        "LIGHTRAG_KV_STORAGE": "JsonKVStorage", "LIGHTRAG_DOC_STATUS_STORAGE": "JsonDocStatusStorage",
+    })
+    assert capsys.readouterr().err == ""

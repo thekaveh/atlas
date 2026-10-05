@@ -627,6 +627,28 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA n8n TO :"n8n_role";
 
 GRANT USAGE, CREATE ON SCHEMA public TO :"openwebui_role", :"lightrag_role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.users TO :"openwebui_role";
+-- public.users has row-level security, and open-webui-init's identity-sync
+-- trigger runs as this direct role (no auth.uid()/auth.role() claims). Without
+-- a policy naming it, every Open WebUI signup, including the first admin,
+-- failed with "new row violates row-level security policy". The policy covers
+-- only identities with no GoTrue (auth.users) row, the only rows the trigger
+-- writes: memory/research rows cascade from public.users, so the Open WebUI
+-- credential must not be able to delete or rewrite Backend/GoTrue identities.
+SELECT set_config('atlas.openwebui_sync_role', :'openwebui_role', false);
+DO $body$
+DECLARE
+  policy_name text := 'Atlas open-webui identity sync';
+  target name := current_setting('atlas.openwebui_sync_role');
+BEGIN
+  EXECUTE format('DROP POLICY IF EXISTS %I ON public.users', policy_name);
+  EXECUTE format(
+    'CREATE POLICY %I ON public.users FOR ALL TO %I '
+    'USING (NOT EXISTS (SELECT 1 FROM auth.users a WHERE a.id = public.users.id)) '
+    'WITH CHECK (NOT EXISTS (SELECT 1 FROM auth.users a WHERE a.id = public.users.id))',
+    policy_name, target
+  );
+END
+$body$;
 
 SELECT format('CREATE SCHEMA IF NOT EXISTS lightrag AUTHORIZATION %I', :'lightrag_role') \gexec
 ALTER SCHEMA lightrag OWNER TO :"lightrag_role";

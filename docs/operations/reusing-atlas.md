@@ -771,7 +771,9 @@ its checks.
 Exit codes:
 
 - `env backfill` exits `0` when the env file is already current or was updated
-  successfully, and `1` if the backfill write fails.
+  successfully, and `1` if the backfill write fails. With no env file yet it
+  writes nothing, says so on stderr, and still exits `0` (`./start.sh` creates
+  the file).
 - `compose validate` exits `0` when Compose accepts the assembled stack, and
   otherwise exits with Compose's failing status code.
 

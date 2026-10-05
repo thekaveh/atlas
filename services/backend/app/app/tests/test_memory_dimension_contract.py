@@ -2242,6 +2242,7 @@ async def test_unreachable_provider_during_shadow_write_is_raised_as_target_fail
     ("connection to: OpenAI API failed with status: 400 error: Invalid model name passed", False),
     ("connection to: OpenAI API failed with status: 404 error: model not found", False),
     ("connection to: OpenAI API failed with status: 4000 error", False),
+    ("connection to: OpenAI API failed with status: 400 error: Budget has been exceeded", False),
 ])
 def test_vectorizer_row_rejection_excludes_systematic_4xx(body, per_row):
     import httpx

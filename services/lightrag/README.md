@@ -238,6 +238,8 @@ _No high-confidence opportunities identified._
 | Graph | `Neo4JStorage` on Neo4j | Neo4j URI is cleared; selector remains `Neo4JStorage`. |
 | Doc-status | `RedisDocStatusStorage` on Redis `db=2` | Redis URI is cleared; selector remains `RedisDocStatusStorage`. |
 
+A cleared URI with the default selector makes LightRAG fail at startup (the bootstrapper prints a warning naming the selector); set the `LIGHTRAG_*_STORAGE` variable to a local class to run without that backend. The KV and doc-status stores in Redis `db=2` are not covered by the stack backup (`services/backup`), so a restore brings back the graph and vectors without the documents and chunks they reference. `LIGHTRAG_WORKERS` has no effect: the server runs as a single uvicorn process.
+
 ## 7. Init container
 
 `lightrag-init` runs once per `docker compose up`. It:
