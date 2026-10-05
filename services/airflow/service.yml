@@ -11,7 +11,7 @@ capabilities:
   - name: "Untrusted DAG code isolation"
     status: not-supported
     verification: tested
-    note: "LocalExecutor operator-authored DAGs execute unsandboxed with Airflow Connections holding MinIO root, LiteLLM master, Supabase and Neo4j administrator, and Redis password credentials; admit only trusted DAG authors."
+    note: "LocalExecutor operator-authored DAGs execute unsandboxed with Airflow Connections holding MinIO root, LiteLLM master, Neo4j administrator, scoped Supabase reader, and Redis password credentials; admit only trusted DAG authors."
   - name: "Seeded stack service connections"
     status: partial
     verification: tested

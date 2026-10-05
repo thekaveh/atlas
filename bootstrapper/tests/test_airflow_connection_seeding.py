@@ -89,7 +89,9 @@ def test_airflow_contract_discloses_unsandboxed_privileged_dag_execution():
         "operator-authored DAGs execute unsandboxed",
         "MinIO root",
         "LiteLLM master",
-        "Supabase and Neo4j administrator",
+        "Neo4j administrator",
+        # The Supabase connection uses the scoped reader role (AIRFLOW_ATLAS_DB_USER).
+        "scoped Supabase reader",
         "Redis password",
         "trusted DAG authors",
     ))

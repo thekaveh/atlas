@@ -768,3 +768,41 @@ def test_vision_default_empty_on_fresh_setup():
     assert vision_step.default_value == "", (
         f"fresh setup must default to none/skip, got {vision_step.default_value!r}"
     )
+
+
+@pytest.mark.parametrize(
+    "verdict, saved_source, routed",
+    [
+        ("<KEEP>", "disabled", False),   # #1183: a saved key no longer promotes
+        ("<DISABLE>", "enabled", False),
+        ("<ENABLE>", "disabled", True),
+        ("<KEEP>", "enabled", True),
+        (None, "disabled", False),
+    ],
+)
+def test_only_routed_cloud_providers_count_as_active(verdict, saved_source, routed):
+    """The default-model pickers offer a cloud provider only if the launch
+    will route it — the same verdict ``resolve_secret_verdict`` writes."""
+    from wizard.llm_steps import (
+        build_default_model_steps,
+        LLM_DEFAULT_CONTENT_TITLE,
+        cloud_secret_title,
+    )
+
+    env = {
+        **_default_env(),
+        "LLM_PROVIDER_SOURCE": "none",
+        "OLLAMA_USER_MODELS": "",
+        "CLOUD_OPENAI_SOURCE": saved_source,
+        "OPENAI_API_KEY": "sk-saved",
+        "OPENAI_USER_MODELS": "gpt-5",
+    }
+    content = next(
+        s for s in build_default_model_steps(env)
+        if s.title == LLM_DEFAULT_CONTENT_TITLE
+    )
+    selections = {"LLM Engine  ·  source": "none"}
+    if verdict is not None:
+        selections[cloud_secret_title("OpenAI")] = verdict
+
+    assert content.skip_if_prev(selections) is (not routed)

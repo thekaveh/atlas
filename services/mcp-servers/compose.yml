@@ -34,6 +34,8 @@ services:
       MCP_SEARXNG_MAX_RESULTS: ${MCP_SEARXNG_MAX_RESULTS:-5}
       MCP_TOOL_TIMEOUT_SECONDS: ${MCP_TOOL_TIMEOUT_SECONDS:-15}
     ports:
+      # Loopback regardless of HOST_BIND_IP: the tools query Postgres and
+      # Neo4j with service credentials and the endpoint has no auth.
       - "127.0.0.1:${MCP_SERVERS_PORT}:8000"
     networks:
       - backend-network

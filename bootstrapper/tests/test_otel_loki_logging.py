@@ -196,13 +196,20 @@ def test_log_redaction_has_an_exact_attribute_and_body_scope() -> None:
         assert r"\\]" in value_terminator
 
 
-def test_collector_compose_waits_for_loki_health_without_storage_privilege() -> None:
+def test_collector_compose_waits_for_loki_start_without_storage_privilege() -> None:
     compose = _yaml(SERVICES / "otel-collector" / "compose.yml")
     collector = compose["services"]["otel-collector"]
 
+    # Loki's distroless image cannot run any probe, so service_healthy would
+    # never be satisfied; the exporter's unbounded retry queue covers startup.
     assert collector["depends_on"]["loki"] == {
-        "condition": "service_healthy",
+        "condition": "service_started",
     }
+    exporter = _yaml(SERVICES / "otel-collector" / "config" / "config.yaml")[
+        "exporters"
+    ]["otlp_http/loki"]
+    assert exporter["retry_on_failure"]["max_elapsed_time"] == "0s"
+    assert exporter["sending_queue"]["enabled"] is True
     assert collector["volumes"] == [
         "./config/config.yaml:/etc/otelcol/config.yaml:ro"
     ]

@@ -478,7 +478,13 @@ class ManagedHostManager:
             interpreter = shutil.which(venv.python)
             if interpreter is None:
                 raise ManagedHostError(f"interpreter {venv.python!r} not found on PATH")
-            self._run_step([interpreter, "-m", "venv", str(self.venv_dir)], what="venv create")
+            # --clear on update: without it venv keeps the old interpreter
+            # links and site-packages, so a changed `venv.python` left a
+            # mismatched pyvenv.cfg and removed packages stayed installed.
+            self._run_step(
+                [interpreter, "-m", "venv", *(["--clear"] if update else []), str(self.venv_dir)],
+                what="venv create",
+            )
         pip = [str(self.venv_python), "-m", "pip", "install", "--upgrade"]
         if venv.requirements is not None:
             self._run_step(pip + ["-r", str(venv.requirements)], what="requirements install")

@@ -75,7 +75,7 @@ A few services have engine-specific listen ports that won't match a naive `*_POR
 - **Parakeet GPU** — container listens on `8000`; host-facing on `STT_PROVIDER_PORT`.
 - **Neo4j Browser** — container listens on `7474` regardless of the `GRAPH_DB_DASHBOARD_PORT` mapping.
 - **Ollama** — container listens on `11434`; same on host for `ollama-localhost`.
-- **Weaviate** — container listens on `8080`; same on host for `weaviate-localhost`.
+- **Weaviate** — container listens on `8080`; same on host for `WEAVIATE_SOURCE=localhost`.
 
 ## 4. Localhost-mode port overrides
 

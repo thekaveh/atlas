@@ -319,6 +319,9 @@ def test_lakehouse_spark_submit_smoke_dag_prepares_assets_and_submits_s3a_jar() 
     assert "deploy_mode=DEPLOY_MODE" in body
     assert 'os.environ.get("MINIO_ROOT_USER", "")' in body
     assert '"MINIO_ICEBERG_ACCESS_KEY", ""' in body
+    # Event logs go to the configurable history bucket, not a literal.
+    assert 'os.environ.get("MINIO_BUCKET_SPARK_HISTORY", "spark-history")' in body
+    assert '"s3a://spark-history/"' not in body
     for expected in [
         "spark.eventLog.enabled",
         "spark.eventLog.dir",

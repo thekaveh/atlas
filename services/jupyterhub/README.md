@@ -163,13 +163,9 @@ JupyterHub itself is configured through `.env` and the stack startup flow. Prefe
 
 Avoid direct `docker-compose.yml` edits for normal operation; local compose edits are unsupported experiments and can be overwritten or invalidated by future stack changes.
 
-### 9.2. Multi-user Setup
+### 9.2. Multi-user access
 
-For authentication, create `jupyterhub_config.py`:
-
-```python
-c.JupyterHub.authenticator_class = 'firstuseauthenticator.FirstUseAuthenticator'
-```
+Not supported. Despite the service name, the container runs a single `start-notebook.sh` JupyterLab server, not a JupyterHub spawner, so there is no authenticator to configure and no `jupyterhub_config.py` is read. The only access control is the `JUPYTERHUB_TOKEN` token (passed to the server as `JUPYTER_TOKEN`); everyone who has it shares one server and one home directory. See §17 (Capabilities & limitations) for the full limitation.
 
 ## 10. Connecting from VS Code (run local notebooks on this container)
 

@@ -97,12 +97,19 @@ def test_trino_compose_catalog_contract() -> None:
     assert service["depends_on"]["iceberg-rest"]["condition"] == "service_healthy"
     assert service["depends_on"]["minio-init"]["condition"] == "service_completed_successfully"
     assert "./catalog:/etc/trino/catalog:ro" in service["volumes"]
+    assert service["environment"]["MINIO_BUCKET_ICEBERG_LAKEHOUSE"] == (
+        "${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}"
+    )
 
     catalog = (SERVICE_DIR / "catalog" / "lakehouse.properties").read_text()
     assert "connector.name=iceberg" in catalog
     assert "iceberg.catalog.type=rest" in catalog
     assert "iceberg.rest-catalog.uri=http://iceberg-rest:8181" in catalog
-    assert "iceberg.rest-catalog.warehouse=s3://lakehouse/" in catalog
+    # Follows the bucket iceberg-rest/Spark/minio-init use, not a literal.
+    assert (
+        "iceberg.rest-catalog.warehouse=s3://${ENV:MINIO_BUCKET_ICEBERG_LAKEHOUSE}/"
+        in catalog
+    )
     assert "fs.native-s3.enabled=true" in catalog
     assert "s3.endpoint=http://minio:9000" in catalog
     assert "s3.region=${ENV:MINIO_REGION}" in catalog

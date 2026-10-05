@@ -369,7 +369,8 @@ Extract the facts as JSON:"""
                 async with conn.transaction():
                     await conn.execute(
                         "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
-                        user_uuid,
+                        # asyncpg's text codec accepts only str, not UUID.
+                        str(user_uuid),
                     )
                     current_count = await conn.fetchval(
                         """

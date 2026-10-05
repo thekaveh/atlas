@@ -143,10 +143,9 @@ def load_compose() -> dict:
     delegate to `docker compose config` which renders the merged shape.
 
     Falls back to `.env.example` when `.env` is missing (matching CI's
-    `cp .env.example .env` step), and only falls back to the raw parse
-    when the docker CLI itself isn't available — a `docker compose config`
-    that exits non-zero is an audit-script failure, not a recoverable
-    condition. Silently returning the wrapper's empty `services:` block
+    `cp .env.example .env` step). A missing docker CLI or a `docker compose
+    config` that exits non-zero is an audit-script failure (exit 2), not a
+    recoverable condition. Silently returning the wrapper's empty `services:` block
     would emit spurious `missing required dependency` lines for every
     edge in REQUIRED_DEPENDS_ON.
     """
@@ -161,10 +160,11 @@ def load_compose() -> dict:
     try:
         result = run_bounded(args, cwd=ROOT)
     except CommandLaunchError:
-        # docker not on PATH — fall through to the raw parse so the script
-        # is still importable / linter-runnable on machines without docker.
-        with COMPOSE_FILE.open("r", encoding="utf-8") as handle:
-            return yaml.safe_load(handle) or {}
+        # docker not on PATH. The raw parse sees only the include-only
+        # wrapper's empty `services:` and reported every required edge as a
+        # regression (exit 1); a missing tool is an internal failure (exit 2).
+        print("FAIL load_compose: docker CLI not found on PATH", file=sys.stderr)
+        sys.exit(2)
     except CommandTimedOut:
         print("FAIL load_compose: docker compose config timed out", file=sys.stderr)
         sys.exit(2)

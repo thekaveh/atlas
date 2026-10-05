@@ -1011,8 +1011,12 @@ def test_extract_releases_db_during_llm_and_locks_quota_transaction(monkeypatch)
 
     assert result["status"] == "completed"
     assert len(connections) >= 2
-    transaction_sql = "\n".join(query for query, _ in connections[1].execute_calls)
-    assert "pg_advisory_xact_lock" in transaction_sql
+    lock_params = [
+        params for query, params in connections[1].execute_calls
+        if "pg_advisory_xact_lock" in query
+    ]
+    # `$1::text` makes asyncpg encode the argument as text, which rejects UUID.
+    assert lock_params and all(isinstance(p, str) for p in lock_params[0])
 
 
 def test_extract_marks_session_failed_for_malformed_fact_shape(monkeypatch):

@@ -1600,8 +1600,13 @@ def test_weaviate_reconciliation_deletes_stale_profile_objects(monkeypatch):
                     "data": {
                         "Get": {
                             "Rag": [
-                                {"_additional": {"id": "keep"}},
-                                {"_additional": {"id": "stale"}},
+                                {"profile": "showcase-default",
+                                 "_additional": {"id": "keep"}},
+                                {"profile": "showcase-default",
+                                 "_additional": {"id": "stale"}},
+                                # Another profile's object is never stale here.
+                                {"profile": "other",
+                                 "_additional": {"id": "foreign"}},
                             ]
                         }
                     }
@@ -1622,6 +1627,45 @@ def test_weaviate_reconciliation_deletes_stale_profile_objects(monkeypatch):
 
     assert count == 1
     assert deleted == ["http://weaviate/v1/objects/Rag/stale"]
+
+
+def test_weaviate_reconciliation_pages_by_cursor_past_the_offset_cap(monkeypatch):
+    """Offset paging fails at QUERY_MAXIMUM_RESULTS (10k); the lookup must
+    walk the class with `after` cursors instead."""
+    queries = []
+    pages = [
+        [{"profile": "p", "_additional": {"id": f"id-{n:04d}"}} for n in range(1000)],
+        [{"profile": "p", "_additional": {"id": "id-last"}}],
+    ]
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, json):
+            queries.append(json["query"])
+            page = pages[len(queries) - 1]
+            return httpx.Response(
+                200, request=httpx.Request("POST", url),
+                json={"data": {"Get": {"Rag": page}}},
+            )
+
+        async def delete(self, url):
+            return httpx.Response(204, request=httpx.Request("DELETE", url))
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
+    keep = [f"id-{n:04d}" for n in range(1000)]
+    count = asyncio.run(
+        WeaviateClient("http://weaviate").reconcile_objects("Rag", "p", keep)
+    )
+
+    assert count == 1
+    assert len(queries) == 2
+    assert "offset" not in queries[0] and "after" not in queries[0]
+    assert 'after: "id-0999"' in queries[1]
 
 
 # ── #673: drain resilience to transient pipeline_status failures ────────────
@@ -2234,3 +2278,56 @@ def test_an_emptied_file_loses_its_vectors(tmp_path, monkeypatch):
         "an emptied file's stale vectors survived — they can never be cleaned up"
     )
     assert any("keep" in (s or "") for s in sources)
+
+
+def test_embedder_batches_requests_and_keeps_input_order(monkeypatch):
+    from rag_ingestion.clients import Embedder
+
+    posted = []
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, headers, json):
+            batch = json["input"]
+            posted.append(len(batch))
+            rows = [
+                {"index": i, "embedding": [float(text.split("-")[1])]}
+                for i, text in enumerate(batch)
+            ]
+            return httpx.Response(
+                200, request=httpx.Request("POST", url),
+                json={"data": list(reversed(rows))},  # any order on the wire
+            )
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
+    texts = [f"t-{n}" for n in range(300)]
+    vectors = asyncio.run(Embedder("http://litellm", model="m").embed(texts))
+
+    assert posted == [128, 128, 44]
+    assert vectors == [[float(n)] for n in range(300)]
+
+
+def test_embedder_rejects_a_short_response(monkeypatch):
+    from rag_ingestion.clients import Embedder
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, headers, json):
+            return httpx.Response(
+                200, request=httpx.Request("POST", url),
+                json={"data": [{"index": 0, "embedding": [0.0]}]},
+            )
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
+    with pytest.raises(RuntimeError, match="1 vectors for 2 inputs"):
+        asyncio.run(Embedder("http://litellm", model="m").embed(["a", "b"]))

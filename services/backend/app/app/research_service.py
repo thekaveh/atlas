@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import json
 from uuid import UUID, uuid4
 
-from db_connection import get_pg_pool
+from db_connection import acquire_bounded, get_pg_pool
 from research_client import (
     ResearchClient,
     ResearchRequest,
@@ -90,19 +90,26 @@ class ResearchService:
         self._maintenance_task: Optional[asyncio.Task[Any]] = None
         self._pool = None
 
-    async def _get_db_connection(self):
+    async def _get_db_connection(self, *, bounded: bool = True):
         """Acquire a research-session database connection from the shared pool.
 
         Every research query is short-lived and never holds the connection
         across the long research-poll I/O (that runs on a separate task with no
         connection held), so drawing from the shared pool (#804) is safe here.
         The pool preserves the 10s connect / 30s command timeouts so a hung
-        Postgres bouncer or stuck query cannot pin a uvicorn worker. Callers
-        MUST return the connection via ``_release_db_connection``.
+        Postgres bouncer or stuck query cannot pin a uvicorn worker, and a
+        saturated pool raises ``PoolSaturatedError`` instead of queuing
+        (#1171) — for request paths, whose client can retry on 503.
+        Background writers (status, heartbeat, logs, result, recovery) pass
+        ``bounded=False`` and wait for a slot: there is no client to retry,
+        and dropping a finished result on a brief spike loses the run.
+        Callers MUST return the connection via ``_release_db_connection``.
         """
         pool = await get_pg_pool(self.db_url)
         self._pool = pool
-        return await pool.acquire()
+        if not bounded:
+            return await pool.acquire()
+        return await acquire_bounded(pool)
 
     async def _release_db_connection(self, conn) -> None:
         """Return a research connection (paired with _get_db_connection).
@@ -278,7 +285,7 @@ class ResearchService:
 
     async def _mark_research_running(self, session_id: str) -> bool:
         """Claim a pending session without reviving a cancelled one."""
-        conn = await self._get_db_connection()
+        conn = await self._get_db_connection(bounded=False)
         try:
             row = await conn.fetchrow("""
                 UPDATE public.research_sessions
@@ -299,7 +306,7 @@ class ResearchService:
             await self._release_db_connection(conn)
 
     async def _write_research_heartbeat(self, session_id: str) -> None:
-        conn = await self._get_db_connection()
+        conn = await self._get_db_connection(bounded=False)
         try:
             await conn.execute("""
                 UPDATE public.research_sessions
@@ -324,7 +331,7 @@ class ResearchService:
     async def recover_stale_sessions(self) -> int:
         """Terminalize abandoned pending/running sessions under one transaction."""
 
-        conn = await self._get_db_connection()
+        conn = await self._get_db_connection(bounded=False)
         try:
             async with conn.transaction():
                 rows = await conn.fetch("""
@@ -399,7 +406,7 @@ class ResearchService:
     async def _append_research_log(
         self, session_id: str, step: int, step_type: str, message: str
     ) -> None:
-        conn = await self._get_db_connection()
+        conn = await self._get_db_connection(bounded=False)
         try:
             await conn.execute("""
                 INSERT INTO public.research_logs
@@ -413,7 +420,7 @@ class ResearchService:
         self, session_id: str, error_message: str
     ) -> bool:
         """Record failure only while the session is still non-terminal."""
-        conn = await self._get_db_connection()
+        conn = await self._get_db_connection(bounded=False)
         try:
             row = await conn.fetchrow("""
                 UPDATE public.research_sessions
@@ -485,7 +492,7 @@ class ResearchService:
         research_result: ResearchResult
     ) -> bool:
         """Store a result atomically if cancellation has not won the race."""
-        conn = await self._get_db_connection()
+        conn = await self._get_db_connection(bounded=False)
         try:
             async with conn.transaction():
                 row = await conn.fetchrow("""

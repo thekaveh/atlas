@@ -277,7 +277,7 @@
 | FAL_ENABLE_SAFETY_CHECKER | fal | True | Whether to request the provider-side safety checker for compatible fal.ai image models. |
 | PROJECT_NAME | globals | atlas | Docker Compose project name — the container/volume/network prefix (<name>-…) and `docker compose -p` namespace. start.sh AND stop.sh read it from here, so stop tears down exactly what start launched. Override with `./start.sh --project <name>` (also -p; persists back here) or by editing this value. Set a unique name when running Atlas as a submodule so you don't collide with a base Atlas stack. |
 | BASE_PORT | globals | 63000 | Base port. Every service's *_PORT derives from this + a fixed offset. |
-| HOST_BIND_IP | globals | 127.0.0.1: | Host interface prefix for ALL published service ports. Default "127.0.0.1:" keeps service ports reachable only from the host (the public edge — Cloudflare Tunnel or Caddy — reaches Kong locally). Existing .env files with HOST_BIND_IP= are upgraded by ./start.sh's blank-value backfill. Set "0.0.0.0:" only for deliberate remote access. Values must include the trailing colon. |
+| HOST_BIND_IP | globals | 127.0.0.1: | Host interface prefix for ALL published service ports. Default "127.0.0.1:" keeps service ports reachable only from the host (the public edge — Cloudflare Tunnel or Caddy — reaches Kong locally). Existing .env files with HOST_BIND_IP= are upgraded by ./start.sh's blank-value backfill. Set "0.0.0.0:" only for deliberate remote access. Values must include the trailing colon. Deliberate exceptions: Ray, Zeppelin and mcp-servers always bind 127.0.0.1 (unauthenticated job, notebook and database-tool APIs), and the Supabase DB, Docling and Parakeet ports fall back to 127.0.0.1 when this value is empty. |
 | HOST_GATEWAY_IP | globals | host-gateway | Bootstrapper computes this at runtime based on the runtime (Docker: "host-gateway"; Podman: literal gateway IP). If you copy this file to .env manually without running ./start.sh, set this to "host-gateway" on Linux/macOS Docker, or the real bridge IP on rootless setups. |
 | BRAND_NAME | globals | Atlas | - |
 | BRAND_TAGLINE | globals | A self-hosted, source-configurable, multi-disciplinary engineering platform — gen-AI, ML, and data. | - |
@@ -303,7 +303,7 @@
 | GRAFANA_SOURCE | grafana | disabled | - |
 | GRAFANA_PORT | grafana |  | Host port for Grafana's HTTP server (in-container 3000). |
 | GRAFANA_ADMIN_USERNAME | grafana | admin | Grafana admin login. Override in .env if needed. |
-| GRAFANA_ADMIN_PASSWORD | grafana |  | Auto-generated on first bootstrap by generate_grafana_admin_password() (mirrors LiteLLM UI_PASSWORD pattern). Persisted to .env; users can rotate by editing .env and restarting. |
+| GRAFANA_ADMIN_PASSWORD | grafana |  | Auto-generated on first bootstrap by generate_grafana_admin_password() (mirrors LiteLLM UI_PASSWORD pattern). Persisted to .env. Grafana applies it only when it creates its database (first start on an empty grafana-data volume); to rotate later, run `grafana cli admin reset-admin-password` in the container and update .env to match. |
 | GRAFANA_ENDPOINT | grafana |  | - |
 | GRAFANA_SCALE | grafana |  | - |
 | HERMES_SOURCE | hermes | container | - |

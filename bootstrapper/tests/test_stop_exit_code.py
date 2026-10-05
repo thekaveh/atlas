@@ -376,3 +376,40 @@ def test_main_exits_2_for_invalid_persisted_project_before_preflights(tmp_path, 
 
     assert result.exit_code == 2
     assert "invalid PROJECT_NAME" in result.output
+
+
+def test_consumer_manifest_reaches_the_teardown_compose_seam(monkeypatch):
+    """--cold must load the consumer's overlays to remove their volumes."""
+    import os
+
+    seen = []
+    # setenv first so monkeypatch restores the variable main() writes.
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", "")
+    monkeypatch.setattr(
+        stop_module.AtlasStopper, "show_configuration_info",
+        lambda self, cold, clean, project_name_override=None: "atlas",
+    )
+    monkeypatch.setattr(
+        stop_module.AtlasStopper, "stop_services",
+        lambda self, cold, project_name: seen.append(
+            os.environ.get("ATLAS_CONSUMER_MANIFEST")
+        ) or True,
+    )
+    monkeypatch.setattr(
+        stop_module.AtlasStopper, "ensure_dependencies_available", lambda self: True,
+    )
+    result = click.testing.CliRunner().invoke(
+        stop_module.main, ["--consumer", "a.yml", "--consumer", "b.yml"]
+    )
+    assert result.exit_code == 0, result.output
+    assert seen == [os.pathsep.join(["a.yml", "b.yml"])]
+
+
+def test_stop_wrapper_records_the_invoking_directory_like_start():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    for wrapper in ("start.sh", "stop.sh"):
+        text = (root / wrapper).read_text(encoding="utf-8")
+        assert 'ATLAS_INVOKER_CWD="${PWD}"' in text, wrapper
+        assert text.index("ATLAS_INVOKER_CWD") < text.index('cd "$(dirname "$0")"')

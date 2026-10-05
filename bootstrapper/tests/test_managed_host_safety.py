@@ -24,6 +24,7 @@ from services.managed_host import (
     HostProcessSpec,
     ManagedHostError,
     ManagedHostManager,
+    VenvSpec,
 )
 
 
@@ -306,3 +307,60 @@ def test_endpoint_scheme_matches_the_declared_probe(health, expected):
     spec = _spec(health=health)
     fields = {field.name: field.value for field in build_export({}, host_services=[spec])}
     assert fields["ATLAS_SAFE_SERVICE_HOST_ENDPOINT"] == expected
+
+
+def test_one_consumer_name_in_two_manifests_cannot_claim_one_service(tmp_path):
+    """The owner is the consumer `name`, so two manifests sharing it used to
+    pass the owner check and fight over one ~/.atlas/<name> state dir."""
+    paths = []
+    for folder, command in (("one", "app"), ("two", "other")):
+        root = tmp_path / folder
+        root.mkdir()
+        manifest = root / "atlas.consumer.yml"
+        manifest.write_text(yaml.safe_dump({
+            "name": "same",
+            "managed_host_services": [
+                {"name": "svc", "command": command, "port": 9001},
+            ],
+        }), encoding="utf-8")
+        paths.append(str(manifest))
+    with pytest.raises(ConsumerManifestError, match="cannot be shared"):
+        load_consumer_config(tmp_path, explicit_paths=paths)
+
+
+def test_the_same_manifest_loaded_twice_declares_the_service_once(tmp_path):
+    root = tmp_path / "daydreams"
+    root.mkdir()
+    manifest = root / "atlas.consumer.yml"
+    manifest.write_text(yaml.safe_dump({
+        "name": "daydreams",
+        "managed_host_services": [{"name": "svc", "command": "app", "port": 9001}],
+    }), encoding="utf-8")
+    config = load_consumer_config(
+        tmp_path, explicit_paths=[str(manifest), str(manifest)]
+    )
+    assert [spec.name for spec in config.managed_host_services] == ["svc"]
+
+
+@pytest.mark.parametrize("update, clears", [(True, True), (False, False)])
+def test_install_update_recreates_the_venv(tmp_path: Path, monkeypatch, update, clears):
+    """`--update` is documented as "Recreate the venv": without --clear,
+    venv keeps the old interpreter links and every removed package."""
+    manager = ManagedHostManager(
+        HostProcessSpec(
+            name="venvsvc", command=("app",), port=8398,
+            venv=VenvSpec(python=Path(sys.executable).name),
+        ),
+        state_dir=tmp_path / "venvsvc",
+    )
+    steps = []
+    monkeypatch.setattr(
+        manager, "_run_step", lambda argv, *, what: steps.append((what, argv))
+    )
+    monkeypatch.setattr(
+        "services.managed_host.shutil.which", lambda _name: sys.executable
+    )
+    manager._install_venv(update=update)
+    create = [argv for what, argv in steps if what == "venv create"]
+    if update or not manager.venv_python.exists():
+        assert ("--clear" in create[0]) is clears

@@ -17,6 +17,8 @@ from pathlib import Path
 import os
 import shlex
 
+import pytest
+
 
 def _make_starter(tmp_path: Path):
     (tmp_path / ".env").write_text("BASE_PORT=63000\n")
@@ -58,7 +60,7 @@ def test_unwritable_directory_gets_chmodded(tmp_path):
     of mode, so the function takes the no-op branch).
     """
     if os.geteuid() == 0:
-        return
+        pytest.skip("root bypasses directory write permissions")
     starter = _make_starter(tmp_path)
     d = tmp_path / "volumes" / "litellm"
     d.mkdir(parents=True)

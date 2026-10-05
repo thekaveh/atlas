@@ -404,6 +404,18 @@ def prepare_image_input(
                 "provider requires a hosted image URL but no storage uploader "
                 "is configured"
             )
+        if not conditioned:
+            # Hosted objects are served with this MIME type, so the declared
+            # type must match the decoded raster (no text/html polyglots).
+            declared = content_type.split(";", 1)[0].strip().lower()
+            content_type, _ = validate_raster_image(
+                data,
+                # `image/jpg` is a common non-standard alias clients send.
+                "image/jpeg" if declared == "image/jpg" else content_type,
+                _positive_env_int(
+                    "MEDIA_INPUT_MAX_BYTES", DEFAULT_MEDIA_INPUT_MAX_BYTES
+                ),
+            )
         digest = hashlib.sha256(data).hexdigest()[:16]
         key = f"{key_prefix}/{digest}.{_content_ext(content_type)}"
         try:

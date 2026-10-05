@@ -101,3 +101,35 @@ def test_malformed_module_assignment_fails_closed(tmp_path: Path, assignment: st
     )
     with pytest.raises(MigrationV5Error, match="malformed"):
         apply(env)
+
+
+def test_malformed_env_warns_instead_of_crashing_start(tmp_path: Path, monkeypatch):
+    """A hand-edited duplicate line must not traceback every ./start.sh."""
+    import start
+
+    (tmp_path / ".env").write_text(
+        "WEAVIATE_ENABLE_MODULES=a\nWEAVIATE_ENABLE_MODULES=b\n", encoding="utf-8"
+    )
+    (tmp_path / ".env.example").write_text("BASE_PORT=63000\n", encoding="utf-8")
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    for name in ("_needs_v1", "_needs_v2", "_needs_v3", "_needs_v4"):
+        monkeypatch.setattr(start, name, lambda _path: False)
+    monkeypatch.setattr(start, "_needs_v5", lambda _path: True)
+    stamped = []
+    monkeypatch.setattr(start, "_stamp_v5", stamped.append)
+
+    starter = start.AtlasStarter()
+    starter.config_parser.root_dir = tmp_path
+    starter.config_parser.env_file_path = tmp_path / ".env"
+    starter.config_parser.env_example_path = tmp_path / ".env.example"
+    messages = []
+    monkeypatch.setattr(
+        starter.banner, "show_status_message",
+        lambda text, kind="info": messages.append((kind, text)),
+    )
+
+    starter.run_port_migration(no_port_migrate=False)
+
+    assert stamped == []
+    assert [kind for kind, _ in messages] == ["warning"]
+    assert "duplicate WEAVIATE_ENABLE_MODULES" in messages[0][1]

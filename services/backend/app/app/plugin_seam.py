@@ -293,6 +293,21 @@ def _load_plugins_from_dir(
                 _inventory_entry(name, "error", manifest=manifest, error="requirements install failed")
             )
             continue
+        loaded = sys.modules.get(entry.name)
+        loaded_file = getattr(loaded, "__file__", None) if loaded else None
+        if loaded is not None and (
+            loaded_file is None
+            or not Path(loaded_file).resolve().is_relative_to(entry.resolve())
+        ):
+            # A bare-name import would return the cached backend module (or a
+            # same-named plugin from another root) and report it "loaded".
+            collision = f"module name {entry.name!r} is already loaded from another location"
+            _log.error("plugin seam: %s; skipping plugin %r", collision, entry.name)
+            name = manifest.name if manifest else entry.name
+            PLUGIN_INVENTORY.append(
+                _inventory_entry(name, "skipped", manifest=manifest, error=collision)
+            )
+            continue
         try:
             module = importlib.import_module(entry.name)
             router = getattr(module, "router", None)

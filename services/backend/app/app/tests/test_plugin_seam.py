@@ -8,6 +8,18 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _forget_imported_plugins():
+    """Tests reuse plugin names in fresh tmp dirs; drop modules a test
+    imported so the next one loads its own copy, as a fresh process would."""
+    before = set(sys.modules)
+    yield
+    for name in set(sys.modules) - before:
+        module = sys.modules.get(name)
+        if "pytest-of-" in str(getattr(module, "__file__", "") or ""):
+            del sys.modules[name]
+
+
 def test_load_plugins_includes_router(tmp_path, monkeypatch):
     # Arrange: a fake plugin package exposing `router`
     pkg = tmp_path / "demoplugin"
@@ -681,3 +693,30 @@ def test_no_home_environment_regression_shape(tmp_path, monkeypatch):
     plugin_seam.load_plugins(FastAPI())
     assert pip_calls and all("--target" in cmd for cmd in pip_calls)
     assert all("--user" not in cmd for cmd in pip_calls)
+
+
+def test_plugin_named_like_a_loaded_module_is_skipped_not_aliased(tmp_path, monkeypatch):
+    """A bare-name import of `observability` returned the backend's own
+    module, so the plugin was reported loaded without its router."""
+    import observability  # noqa: F401 - ensure the backend module is cached
+
+    pkg = tmp_path / "observability"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text(
+        "from fastapi import APIRouter\n"
+        "router = APIRouter()\n"
+        "@router.get('/__shadow__')\n"
+        "def ping():\n"
+        "    return {'ok': True}\n"
+    )
+    from fastapi import FastAPI
+    app = FastAPI()
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+
+    import plugin_seam
+    plugin_seam.PLUGIN_INVENTORY.clear()
+    plugin_seam.load_plugins(app)
+
+    assert "/__shadow__" not in {r.path for r in app.router.routes}
+    entry = plugin_seam.PLUGIN_INVENTORY[-1]
+    assert "already loaded" in str(entry)

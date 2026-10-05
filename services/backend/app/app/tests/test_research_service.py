@@ -52,7 +52,7 @@ def test_research_session_creation_and_start_log_are_atomic():
     service._active_tasks = {}
     service._maintenance_task = None
 
-    async def get_conn():
+    async def get_conn(**_kwargs):
         return conn
 
     async def background(*_args):
@@ -76,7 +76,7 @@ def test_research_admission_rejects_before_database_work():
     service._active_tasks = {"occupied": object()}
     database_called = False
 
-    async def get_conn():
+    async def get_conn(**_kwargs):
         nonlocal database_called
         database_called = True
         raise AssertionError("capacity rejection must happen before database work")
@@ -123,7 +123,7 @@ def test_cancelled_research_retains_capacity_until_cleanup_and_close_waits():
         finally:
             service._active_tasks.pop("session-1", None)
 
-    async def get_conn():
+    async def get_conn(**_kwargs):
         return Conn()
 
     service._get_db_connection = get_conn
@@ -155,7 +155,7 @@ def test_failed_research_creation_releases_admission_slot():
     service.max_concurrent_research = 1
     service._active_tasks = {}
 
-    async def get_conn():
+    async def get_conn(**_kwargs):
         raise RuntimeError("database unavailable")
 
     service._get_db_connection = get_conn
@@ -185,7 +185,7 @@ def test_cancel_after_research_commit_retains_background_ownership():
     service._active_tasks = {}
     service._maintenance_task = None
 
-    async def get_conn():
+    async def get_conn(**_kwargs):
         return Conn()
 
     async def release_conn(_conn):
@@ -248,7 +248,7 @@ def test_cancel_during_commit_retains_background_ownership():
     service._active_tasks = {}
     service._maintenance_task = None
 
-    async def get_conn():
+    async def get_conn(**_kwargs):
         return Conn()
 
     async def background(*_args):
@@ -477,7 +477,7 @@ def test_stale_research_sessions_are_terminalized_with_logs():
     service = object.__new__(ResearchService)
     service.lease_seconds = 300
 
-    async def get_conn():
+    async def get_conn(**_kwargs):
         return conn
 
     service._get_db_connection = get_conn
@@ -502,7 +502,7 @@ def test_research_heartbeat_updates_only_running_session():
     conn = Conn()
     service = object.__new__(ResearchService)
 
-    async def get_conn():
+    async def get_conn(**_kwargs):
         return conn
 
     service._get_db_connection = get_conn
@@ -633,7 +633,7 @@ def test_background_research_releases_database_before_remote_execution():
     service._active_tasks = {}
     connections = []
 
-    async def get_conn():
+    async def get_conn(**_kwargs):
         conn = TrackingConn()
         connections.append(conn)
         return conn
@@ -688,7 +688,7 @@ def test_store_research_result_does_not_clobber_cancellation():
     conn = CancelledConn()
     service = object.__new__(ResearchService)
 
-    async def get_conn():
+    async def get_conn(**_kwargs):
         return conn
 
     service._get_db_connection = get_conn
@@ -735,7 +735,7 @@ def test_cancel_research_does_not_clobber_terminal_status_after_stale_read():
     service = object.__new__(ResearchService)
     service._active_tasks = {}
 
-    async def get_conn():
+    async def get_conn(**_kwargs):
         return conn
 
     service._get_db_connection = get_conn
@@ -785,7 +785,7 @@ def test_cancel_research_rolls_back_before_cancelling_task_when_log_fails():
     service = object.__new__(ResearchService)
     service._active_tasks = {"session-1": task}
 
-    async def get_conn():
+    async def get_conn(**_kwargs):
         return conn
 
     service._get_db_connection = get_conn
@@ -825,7 +825,7 @@ def test_research_record_access_applies_owner_predicate(method_name):
     service = object.__new__(ResearchService)
     service._active_tasks = {}
 
-    async def get_conn():
+    async def get_conn(**_kwargs):
         return conn
 
     service._get_db_connection = get_conn

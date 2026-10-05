@@ -445,21 +445,37 @@ class Embedder:
     def available(self) -> bool:
         return bool(self._base_url.strip())
 
+    # One request per batch: a whole corpus in one call outran the 60s
+    # timeout on CPU embedders and was retried in full each time.
+    _BATCH_SIZE = 128
+
     async def embed(self, texts: List[str]) -> List[List[float]]:
         import httpx
 
         headers = {"Content-Type": "application/json"}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
+        vectors: List[List[float]] = []
         async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                f"{self._base_url}/embeddings",
-                headers=headers,
-                json={"model": self._model, "input": texts},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        return [row["embedding"] for row in data.get("data", [])]
+            for start in range(0, len(texts), self._BATCH_SIZE):
+                batch = texts[start:start + self._BATCH_SIZE]
+                resp = await client.post(
+                    f"{self._base_url}/embeddings",
+                    headers=headers,
+                    json={"model": self._model, "input": batch},
+                )
+                resp.raise_for_status()
+                rows = resp.json().get("data", [])
+                if len(rows) != len(batch):
+                    # zip() downstream would silently drop the missing chunks.
+                    raise RuntimeError(
+                        f"embedding endpoint returned {len(rows)} vectors "
+                        f"for {len(batch)} inputs"
+                    )
+                # OpenAI-compatible rows carry their input position.
+                rows = sorted(rows, key=lambda row: row.get("index", 0))
+                vectors.extend(row["embedding"] for row in rows)
+        return vectors
 
 
 # ─── vector store (Weaviate) ─────────────────────────────────────────
@@ -547,28 +563,31 @@ class WeaviateClient:
         return written
 
     async def _fetch_reconcilable_ids(
-        self, client, class_name: str, safe_profile: str, keep_sources: set
+        self, client, class_name: str, profile_name: str, keep_sources: set
     ) -> set:
         """Object ids for this profile, EXCLUDING preserved sources.
 
         A preserved source is one this run could not process; its objects are
         absent from `desired_ids` for a reason that is not staleness.
+
+        Pages with Weaviate's `after` cursor: `offset` paging fails once
+        offset + limit passes QUERY_MAXIMUM_RESULTS (default 10,000), which
+        failed every ingestion of a profile past 10k chunks. The cursor API
+        rejects `where`, so the profile filter runs here.
         """
         existing_ids = set()
         page_size = 1000
-        offset = 0
+        after = None
         while True:
+            cursor = f', after: "{after}"' if after else ""
             response = await client.post(
                 f"{self._url}/v1/graphql",
                 json={
                     "query": f"""{{
                         Get {{
-                            {class_name}(
-                                where: {{path: [\"profile\"], operator: Equal,
-                                        valueText: \"{safe_profile}\"}}
-                                limit: {page_size}
-                                offset: {offset}
-                            ) {{ source _additional {{ id }} }}
+                            {class_name}(limit: {page_size}{cursor}) {{
+                                profile source _additional {{ id }}
+                            }}
                         }}
                     }}"""
                 },
@@ -588,12 +607,14 @@ class WeaviateClient:
                 object_id = obj.get("_additional", {}).get("id")
                 if object_id is None:
                     continue
+                after = object_id
+                if obj.get("profile") != profile_name:
+                    continue
                 if obj.get("source") in keep_sources:
                     continue  # this run could not produce it; not stale
                 existing_ids.add(object_id)
             if len(page) < page_size:
                 break
-            offset += page_size
         return existing_ids
 
     async def reconcile_objects(
@@ -612,13 +633,10 @@ class WeaviateClient:
         """
         import httpx
 
-        safe_profile = (
-            profile_name.replace("\\", "\\\\").replace('"', '\\"')
-        )
         keep_sources = set(preserve_sources or ())
         async with httpx.AsyncClient(timeout=60.0) as client:
             existing_ids = await self._fetch_reconcilable_ids(
-                client, class_name, safe_profile, keep_sources
+                client, class_name, profile_name, keep_sources
             )
             stale_ids = existing_ids - set(desired_ids) - {None}
             for object_id in sorted(stale_ids):

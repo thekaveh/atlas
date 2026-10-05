@@ -39,6 +39,7 @@ from services.migrations.migration_v4 import (
     stamp_version as _stamp_v4,
 )
 from services.migrations.migration_v5 import (
+    MigrationV5Error,
     apply as _apply_v5,
     needs_migration as _needs_v5,
     stamp_version as _stamp_v5,
@@ -100,12 +101,16 @@ def _profile_host_bind_overrides(
     return {}, prior_applied, switching
 
 
-def _run_privileged_hosts_setup() -> bool:
+def _run_privileged_hosts_setup(non_interactive: bool = False) -> bool:
     """Run only the hosts-file mutation in a sudo child process.
 
     The shell wrapper intentionally refuses to run the whole startup flow as
     root because that creates root-owned repo artifacts. For `--setup-hosts`,
     ask for elevation only around the one operation that needs it.
+
+    ``non_interactive`` uses ``sudo -n`` with captured output, for callers
+    that cannot hand the terminal to a password prompt (the Textual wizard):
+    it succeeds only when sudo needs no password.
     """
     from utils.system import is_elevated
 
@@ -130,10 +135,12 @@ def _run_privileged_hosts_setup() -> bool:
         "from utils.hosts_manager import HostsManager; "
         "raise SystemExit(0 if HostsManager().setup_hosts_entries() else 1)"
     )
-    print("  • --setup-hosts needs to edit your hosts file; requesting sudo for that write only.")
+    if not non_interactive:
+        print("  • --setup-hosts needs to edit your hosts file; requesting sudo for that write only.")
     result = subprocess.run(
         [
             "sudo",
+            *(["-n"] if non_interactive else []),
             "env",
             f"PYTHONPATH={env['PYTHONPATH']}",
             "PYTHONDONTWRITEBYTECODE=1",
@@ -144,6 +151,7 @@ def _run_privileged_hosts_setup() -> bool:
         cwd=repo_root,
         env=env,
         check=False,
+        capture_output=non_interactive,
     )
     return result.returncode == 0
 
@@ -399,10 +407,11 @@ class AtlasStarter:
         ``profile_overrides:`` merged on top. Field semantics (preserving the
         behaviors this method used to hard-code):
 
-        - ``host_bind_ip``: non-empty → asserted on every start of this
-          profile (the defining prod property). Empty/undeclared → cleared
-          only when the current value equals another profile's non-empty
-          bind (sentinel discipline; an operator's custom bind is kept).
+        - ``host_bind_ip``: non-empty → fills a blank ``HOST_BIND_IP`` and
+          replaces a bind the prior profile asserted during a profile switch;
+          an operator's non-empty bind (e.g. ``0.0.0.0:``) is kept, as
+          ``profiles.yml`` documents. Empty/undeclared → cleared only when
+          the current value equals another profile's non-empty bind.
         - ``sources``: asserted on every start of this profile, EXCEPT when
           that service's source was set by an explicit CLI flag this run
           (operator wins — tracked via ``_explicit_source_vars`` plus the
@@ -2166,16 +2175,36 @@ class AtlasStarter:
                     "(--no-port-migrate); will re-prompt next run.[/dim]"
                 )
             else:
-                _apply_v5(env_path)
-                _stamp_v5(env_path)
-                self.banner.show_status_message(
-                    "Weaviate backup-module migration complete (v5).",
-                    "success",
-                )
+                try:
+                    _apply_v5(env_path)
+                except MigrationV5Error as exc:
+                    # A hand-edited .env (duplicate or malformed
+                    # WEAVIATE_ENABLE_MODULES line) must not crash every start
+                    # with a traceback. Like v4: report, leave unstamped, retry.
+                    self.banner.show_status_message(
+                        f"Weaviate backup-module migration (v5) skipped: {exc} "
+                        f"in {env_path}. Fix the line; the migration retries on "
+                        "the next start.",
+                        "warning",
+                    )
+                else:
+                    _stamp_v5(env_path)
+                    self.banner.show_status_message(
+                        "Weaviate backup-module migration complete (v5).",
+                        "success",
+                    )
 
     def generate_service_configuration(self) -> bool:
         """Generate and update service configuration."""
-        if not self.service_config.generate_and_update_env():
+        try:
+            generated = self.service_config.generate_and_update_env()
+        except ValueError as exc:
+            # The per-service gates (e.g. Spark needs MinIO) raise ValueError
+            # with an actionable message; the --no-tui flow has no handler
+            # above this step, so report it instead of a raw traceback.
+            self.banner.show_status_message(str(exc), "error")
+            return False
+        if not generated:
             return False
         # Finalize consumer object-storage (#404) AFTER endpoints are resolved
         # into .env by generate_and_update_env, and before compose up. Covers
@@ -3126,14 +3155,41 @@ class AtlasStarter:
         return True
         
     def handle_hosts_configuration(self, setup_hosts: bool, skip_hosts: bool) -> bool:
-        """Handle hosts file configuration. Silent unless setting up or errors."""
+        """Handle hosts file configuration. Never fatal: missing entries only
+        break the friendly ``*.localhost`` URLs, not the stack.
+
+        skip: no check. setup: add missing entries (see below). default:
+        warn once when entries are missing, as the wizard option and
+        ``--skip-hosts`` help promise.
+        """
         if skip_hosts:
             return True
 
         if setup_hosts:
-            return self.hosts_manager.setup_hosts_entries()
+            # The wizard runs this inside the Textual app, which the
+            # non-root wrapper never elevates and where sudo cannot prompt.
+            # Nothing to write needs no privilege; a passwordless sudo is
+            # used; otherwise the missing entries are reported, not fatal.
+            if not self.hosts_manager.check_missing_hosts():
+                return True
+            if _run_privileged_hosts_setup(non_interactive=True):
+                return True
+            self.banner.show_status_message(
+                "Hosts entries not added: sudo needs a password, which the "
+                "wizard cannot prompt for. Run ./start.sh --setup-hosts in a "
+                "terminal to add them.",
+                "warning",
+            )
+            return True
 
-        # Default: silent check, no warnings for missing entries
+        missing = self.hosts_manager.check_missing_hosts()
+        if missing:
+            self.banner.show_status_message(
+                f"{len(missing)} *.localhost hosts entries are missing; "
+                "friendly URLs need them. Run ./start.sh --setup-hosts to add "
+                "them, or --skip-hosts to silence this check.",
+                "warning",
+            )
         return True
             
     def perform_cold_start_cleanup(self, project_name: Optional[str] = None) -> bool:
@@ -6382,8 +6438,9 @@ def _prompt_for_track(registry, *, max_attempts: int = 5) -> str:
               type=click.Choice(['default', 'dev', 'prod'], case_sensitive=False),
               help='Deployment profile (declarative bundles in '
                    'bootstrapper/profiles.yml; "dev" aliases "default"). '
-                   '"prod": bind all service ports to 127.0.0.1 (public edge '
-                   'fronts Kong), enable log rotation, default observability '
+                   '"prod": bind service ports to 127.0.0.1 unless HOST_BIND_IP '
+                   'already holds an operator bind (public edge fronts Kong), '
+                   'enable log rotation, default observability '
                    'ON, and hide dev-only (localhost) sources. Unset: the '
                    'consumer manifest may name its default via `profile:`. '
                    'Does not bypass the wizard.')

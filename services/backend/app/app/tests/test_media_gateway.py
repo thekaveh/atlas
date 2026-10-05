@@ -10,6 +10,18 @@ import types
 import pytest
 
 
+def _valid_png_data_uri() -> str:
+    """A decodable PNG: hosted inputs are raster-validated before upload."""
+    import base64
+    from io import BytesIO
+
+    from PIL import Image
+
+    out = BytesIO()
+    Image.new("RGB", (1, 1)).save(out, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(out.getvalue()).decode()
+
+
 def _stub_required_env(monkeypatch):
     for var, default in (
         ("KONG_URL", "http://kong-api-gateway:8000"),
@@ -525,7 +537,7 @@ def test_media_generate_image_to_3d_hosts_datauri_for_tripo(monkeypatch):
             "modality": "image_to_3d",
             "provider": "fal",
             "model": "tripo",  # needs a hosted URL — rejects data URIs
-            "input": {"image": "data:image/png;base64,aGVsbG8="},
+            "input": {"image": _valid_png_data_uri()},
         },
     )
 
@@ -561,7 +573,7 @@ def test_media_generate_image_to_3d_storage_failure_returns_503(monkeypatch):
             "modality": "image_to_3d",
             "provider": "fal",
             "model": "tripo",
-            "input": {"image": "data:image/png;base64,aGVsbG8="},
+            "input": {"image": _valid_png_data_uri()},
         },
     )
 

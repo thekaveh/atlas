@@ -42,8 +42,19 @@ if create_output=$(airflow users create \
   --role=Admin \
   --email=admin@localhost \
   --password="${AIRFLOW_ADMIN_PASSWORD}" 2>&1); then
-  if echo "$create_output" | grep -qE "already exists|already a user"; then
-    echo "(admin user already exists — skipping)"
+  # FAB releases word this "already exists" or "already exist in the db".
+  if echo "$create_output" | grep -qiE "already exist|already a user"; then
+    # `users create` never touches an existing user, so re-apply the .env
+    # password: a rotated AIRFLOW_ADMIN_PASSWORD reaches the DB on the next
+    # start (README troubleshooting relies on this).
+    if ! reset_output=$(airflow users reset-password \
+      --username=admin \
+      --password="${AIRFLOW_ADMIN_PASSWORD}" 2>&1); then
+      echo "airflow-init: ERROR re-syncing the existing admin password:" >&2
+      echo "$reset_output" >&2
+      exit 1
+    fi
+    echo "(admin user already exists — password re-synced from .env)"
   else
     echo "$create_output"
   fi

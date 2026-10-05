@@ -462,3 +462,38 @@ def test_storage_skipped_when_minio_disabled(
     assert _starter_at(tmp_path)._finalize_consumer_storage() is True
     assert not (tmp_path / MINIO_STORAGE_OVERLAY_PATH).exists()
     assert "ATLAS_STORE_DAYDREAMS_ARTIFACTS" not in (tmp_path / ".env").read_text()
+
+
+# ── nested block key guards (#649 contract, applied below top level) ────────
+
+@pytest.mark.parametrize(
+    "body, typo",
+    [
+        ("storage:\n  bucket:\n    - name: assets\n", "bucket"),
+        ("storage:\n  buckets:\n    - name: assets\n      buckt: x\n", "buckt"),
+        ("custom_nodes:\n  comfyUI: []\n", "comfyUI"),
+        ("model_sidecars:\n  ollamas: [llama3]\n", "ollamas"),
+        ("env:\n  value:\n    X: '1'\n", "value"),
+        ("brand:\n  taglin: hi\n", "taglin"),
+    ],
+)
+def test_unknown_nested_key_raises_and_names_it(tmp_path: Path, body: str, typo: str) -> None:
+    """A typo'd nested key used to load cleanly and apply nothing."""
+    _write_root(tmp_path)
+    manifest = _write_manifest(tmp_path, "c", body)
+    with pytest.raises(ConsumerManifestError, match="unknown field") as excinfo:
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    assert typo in str(excinfo.value)
+
+
+def test_conditional_env_null_branch_is_empty(tmp_path: Path, monkeypatch) -> None:
+    """A null `else` means empty, never the string "None" in .env."""
+    _write_root(tmp_path)
+    manifest = _write_manifest(
+        tmp_path, "c",
+        "env:\n  values:\n    EXTRA_TOKEN:\n"
+        "      enabled_if_env: NOPE_UNSET\n      else: null\n",
+    )
+    monkeypatch.delenv("NOPE_UNSET", raising=False)
+    config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    assert config.env_overrides["EXTRA_TOKEN"] == ""

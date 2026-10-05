@@ -37,6 +37,7 @@ services:
       MINIO_BUCKET_ICEBERG_JARS: jars
       MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
       MINIO_BUCKET_ICEBERG_LANDING: landing
+      MINIO_BUCKET_SPARK_HISTORY: spark-history
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ICEBERG_ACCESS_KEY: ''
       MINIO_ICEBERG_SECRET_KEY: ''
@@ -164,6 +165,7 @@ services:
       MINIO_BUCKET_ICEBERG_JARS: jars
       MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
       MINIO_BUCKET_ICEBERG_LANDING: landing
+      MINIO_BUCKET_SPARK_HISTORY: spark-history
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ICEBERG_ACCESS_KEY: ''
       MINIO_ICEBERG_SECRET_KEY: ''
@@ -234,6 +236,7 @@ services:
       MINIO_BUCKET_ICEBERG_JARS: jars
       MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
       MINIO_BUCKET_ICEBERG_LANDING: landing
+      MINIO_BUCKET_SPARK_HISTORY: spark-history
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ICEBERG_ACCESS_KEY: ''
       MINIO_ICEBERG_SECRET_KEY: ''
@@ -1503,6 +1506,8 @@ services:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
       MCP_SERVERS_URL: ''
+      MINIO_BUCKET_ICEBERG_CHECKPOINTS: checkpoints
+      MINIO_BUCKET_ICEBERG_LANDING: landing
       MINIO_ENDPOINT: http://minio:9000
       MLFLOW_TRACKING_URI: ''
       N8N_BASE_URL: http://n8n:5678
@@ -2526,17 +2531,6 @@ services:
       replicas: 0
     environment:
       LOKI_RETENTION_PERIOD: 24h
-    healthcheck:
-      test:
-      - CMD
-      - wget
-      - -q
-      - --spider
-      - http://localhost:3100/ready
-      timeout: 10s
-      interval: 30s
-      retries: 5
-      start_period: 20s
     image: grafana/loki:3.7.0
     logging:
       driver: json-file
@@ -3428,7 +3422,7 @@ services:
     container_name: atlas-otel-collector
     depends_on:
       loki:
-        condition: service_healthy
+        condition: service_started
         required: true
       tempo:
         condition: service_healthy
@@ -4580,10 +4574,8 @@ services:
     healthcheck:
       test:
       - CMD
-      - wget
-      - -q
-      - --spider
-      - http://localhost:3200/ready
+      - /tempo
+      - -health
       timeout: 10s
       interval: 30s
       retries: 5
@@ -4657,6 +4649,7 @@ services:
     deploy:
       replicas: 0
     environment:
+      MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
       MINIO_ICEBERG_ACCESS_KEY: ''
       MINIO_ICEBERG_SECRET_KEY: ''
       MINIO_REGION: us-east-1

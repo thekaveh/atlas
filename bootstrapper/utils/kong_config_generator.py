@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from core.config_parser import DEFAULT_BASE_PORT
+from utils.atomic_write import atomic_write_text
 
 
 def _lua_long_string(value: str) -> str:
@@ -2008,12 +2009,19 @@ class KongConfigGenerator:
             bool: True if successful
         """
         try:
-            # Ensure output directory exists
+            # The file carries the service-role JWT, the anon key and gateway
+            # credentials. It stays 0644 because Kong reads the bind mount as
+            # its own in-container uid, which need not match the host owner;
+            # the directory is owner-only instead, so other host users cannot
+            # reach it (dockerd sets up the bind mount as root, unaffected).
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            with open(output_path, 'w', encoding="utf-8") as f:
-                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-            
+            output_path.parent.chmod(0o700)
+            atomic_write_text(
+                output_path,
+                yaml.dump(config, default_flow_style=False, sort_keys=False),
+                mode=0o644,
+            )
+
             return True
         except Exception as e:
             print(f"❌ Failed to write Kong configuration: {e}")

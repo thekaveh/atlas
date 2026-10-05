@@ -36,7 +36,7 @@ The mounted catalog file at `services/trino/catalog/lakehouse.properties` define
 - `connector.name=iceberg`
 - `iceberg.catalog.type=rest`
 - `iceberg.rest-catalog.uri=http://iceberg-rest:8181`
-- `iceberg.rest-catalog.warehouse=s3://lakehouse/`
+- `iceberg.rest-catalog.warehouse=s3://${ENV:MINIO_BUCKET_ICEBERG_LAKEHOUSE}/` (the bucket iceberg-rest, Spark and minio-init use; default `lakehouse`)
 - `fs.native-s3.enabled=true` for Trino 482 native S3 access to MinIO at `http://minio:9000`
 - scoped Iceberg MinIO credentials through `${ENV:MINIO_ICEBERG_ACCESS_KEY}` and `${ENV:MINIO_ICEBERG_SECRET_KEY}`
 

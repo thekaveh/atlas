@@ -454,3 +454,27 @@ def test_localhost_mode_few_entries_gets_notice_too(
 
     notices = [o for o in opts if o.value == ""]
     assert len(notices) == 1
+
+
+def test_port_typed_on_the_engine_step_wins_over_env(
+    monkeypatch, library_qwen3_custom_chat,
+):
+    """The LLM Engine step's inline port is only written to .env at launch;
+    the picker must query the port typed in this session."""
+    urls = []
+
+    def _recording(url, timeout=2.0):
+        urls.append(url)
+        return []
+
+    monkeypatch.setattr("wizard.llm_steps.list_pulled_models", _recording)
+    monkeypatch.setattr(
+        "wizard.llm_steps.list_library_entries",
+        lambda timeout=5.0: library_qwen3_custom_chat,
+    )
+    provider = _get_options_provider({
+        "LLM_PROVIDER_SOURCE": "ollama-localhost",
+        "OLLAMA_LOCALHOST_PORT": "11434",
+    })
+    provider({"__secondary__:OLLAMA_LOCALHOST_PORT": "11500"})
+    assert urls and all(url == "http://localhost:11500" for url in urls)

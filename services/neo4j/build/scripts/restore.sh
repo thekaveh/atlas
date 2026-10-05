@@ -1,60 +1,43 @@
 #!/bin/bash
 
-# This script restores a Neo4j database from the latest backup file
+# Legacy restore of the newest /snapshot/backup_*.dump into the neo4j database.
+#
+# Like backup.sh, this cannot run inside the live container (`neo4j stop`
+# kills it). Run it against the stopped database volume:
+#
+#   docker compose stop neo4j-graph-db
+#   docker compose run --rm --no-deps --entrypoint /usr/local/bin/restore.sh neo4j-graph-db
+#   docker compose start neo4j-graph-db
+#
+# Coordinated restores use services/backup/run-database-restore.sh.
 
-# /snapshot is the bind-mount target from services/neo4j/compose.yml; the
-# previous ${SCRIPT_DIR}/../snapshot expression resolved to
-# /usr/local/snapshot inside the container and never saw the host volume.
+# /snapshot is the named-volume target from services/neo4j/compose.yml.
 SNAPSHOT_DIR=/snapshot
 
-# Ensure snapshot directory exists
+if neo4j status 2>/dev/null | grep -q "Neo4j is running"; then
+  echo "ERROR: Neo4j is running in this container; stopping it would kill the container." >&2
+  echo "Run this script offline (see its header) or use services/backup/run-database-restore.sh." >&2
+  exit 75
+fi
+
 mkdir -p "${SNAPSHOT_DIR}"
 
 # Find the latest backup file
 LATEST_BACKUP=$(find "${SNAPSHOT_DIR}" -name "backup_*.dump" -type f -printf "%T@ %p\n" 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2)
 
-# If a backup file exists, restore it
 if [ -n "${LATEST_BACKUP}" ] && [ -f "${LATEST_BACKUP}" ]; then
     echo "Found backup file: ${LATEST_BACKUP}"
     echo "Restoring Neo4j database from backup..."
-    
-    # Stop Neo4j service
-    neo4j stop
-    
-    # Wait for Neo4j to stop. Bounded (60s) so a wedged JVM/lock aborts the
-    # restore (leaving the DB running, untouched) instead of hanging forever.
-    echo "Waiting for Neo4j to stop..."
-    WAITED=0
-    until ! neo4j status | grep -q "Neo4j is running"; do
-      WAITED=$((WAITED + 1))
-      if [ "$WAITED" -ge 60 ]; then
-        echo "ERROR: Neo4j did not stop after 60s; aborting restore." >&2
-        exit 1
-      fi
-      sleep 1
-    done
-    
-    
-    # Restore the database. 5.x community has no `database restore`
-    # subcommand (that pairs with enterprise `backup`); dumps are
-    # restored with `database load`. --from-stdin sidesteps load's
-    # <database>.dump naming requirement for our timestamped files.
+
+    # 5.x community has no `database restore` subcommand (that pairs with
+    # enterprise `backup`); dumps are restored with `database load`.
+    # --from-stdin sidesteps load's <database>.dump naming requirement for
+    # our timestamped files.
     if neo4j-admin database load neo4j --from-stdin --overwrite-destination < "${LATEST_BACKUP}"; then
-        restore_ok=1
+        echo "Database restored successfully. Start the service again."
     else
-        restore_ok=0
         echo "ERROR: restore from ${LATEST_BACKUP} FAILED (load exited non-zero)." >&2
         echo "ERROR: the neo4j database may be in a partially-overwritten state; inspect before trusting data." >&2
-    fi
-
-    # Start Neo4j service (even after a failed load, so the server isn't left stopped)
-    neo4j start
-
-    if [ "${restore_ok}" -eq 1 ]; then
-        echo "Database restored successfully."
-        echo "Neo4j service restarted."
-    else
-        echo "Neo4j service restarted WITHOUT a successful restore." >&2
         exit 1
     fi
 else

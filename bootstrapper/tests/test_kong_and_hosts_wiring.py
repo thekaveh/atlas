@@ -239,3 +239,107 @@ def test_cleanup_is_idempotent_on_operator_lines(tmp_path):
     for _ in range(3):
         manager.remove_hosts_entries_silent(str(hosts))
     assert hosts.read_text(encoding="utf-8") == original
+
+
+# The wizard's "set up hosts" answer must not abort an unelevated launch.
+
+def _hosts_starter(missing):
+    from types import SimpleNamespace
+
+    messages = []
+    return SimpleNamespace(
+        hosts_manager=SimpleNamespace(check_missing_hosts=lambda: list(missing)),
+        banner=SimpleNamespace(
+            show_status_message=lambda text, kind: messages.append((kind, text))
+        ),
+    ), messages
+
+
+def test_present_entries_need_no_privilege(monkeypatch):
+    import start
+
+    monkeypatch.setattr(
+        start, "_run_privileged_hosts_setup",
+        lambda **_: (_ for _ in ()).throw(AssertionError("no sudo needed")),
+    )
+    starter, messages = _hosts_starter([])
+    assert start.AtlasStarter.handle_hosts_configuration(starter, True, False)
+    assert messages == []
+
+
+def test_passwordless_sudo_is_used_non_interactively(monkeypatch):
+    import start
+
+    calls = []
+    monkeypatch.setattr(
+        start, "_run_privileged_hosts_setup",
+        lambda **kw: calls.append(kw) or True,
+    )
+    starter, messages = _hosts_starter(["n8n.localhost"])
+    assert start.AtlasStarter.handle_hosts_configuration(starter, True, False)
+    assert calls == [{"non_interactive": True}]
+    assert messages == []
+
+
+def test_unapproved_sudo_warns_with_the_remedy_and_continues(monkeypatch):
+    import start
+
+    monkeypatch.setattr(start, "_run_privileged_hosts_setup", lambda **_: False)
+    starter, messages = _hosts_starter(["n8n.localhost"])
+    assert start.AtlasStarter.handle_hosts_configuration(starter, True, False)
+    assert [kind for kind, _ in messages] == ["warning"]
+    assert "./start.sh --setup-hosts" in messages[0][1]
+
+
+@pytest.mark.parametrize("missing, warned", [([], False), (["n8n.localhost"], True)])
+def test_default_hosts_answer_warns_only_when_entries_are_missing(missing, warned):
+    import start
+
+    starter, messages = _hosts_starter(missing)
+    assert start.AtlasStarter.handle_hosts_configuration(starter, False, False)
+    assert [kind for kind, _ in messages] == (["warning"] if warned else [])
+
+
+def test_skip_hosts_answer_does_not_check():
+    import start
+
+    starter, messages = _hosts_starter(["n8n.localhost"])
+    starter.hosts_manager.check_missing_hosts = lambda: pytest.fail("skip means no check")
+    assert start.AtlasStarter.handle_hosts_configuration(starter, False, True)
+    assert messages == []
+
+
+
+def test_kong_config_is_kong_readable_in_an_owner_only_directory(tmp_path):
+    """The rendered config holds gateway secrets (service-role JWT)."""
+    import stat
+
+    out = tmp_path / "volumes" / "api" / "kong-dynamic.yml"
+    assert KongConfigGenerator.__new__(KongConfigGenerator).write_config(
+        {"_format_version": "3.0", "services": []}, out
+    )
+    assert stat.S_IMODE(out.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(out.stat().st_mode) == 0o644
+    assert "_format_version" in out.read_text()
+
+
+def test_source_conflict_is_reported_not_raised(monkeypatch):
+    """--no-tui has no handler above this step; a ValueError from a service
+    gate (Spark needs MinIO, …) used to escape as a raw traceback."""
+    from types import SimpleNamespace
+
+    import start
+
+    messages = []
+
+    def conflict():
+        raise ValueError("Spark requires MinIO: --minio-source container")
+
+    starter = SimpleNamespace(
+        service_config=SimpleNamespace(generate_and_update_env=conflict),
+        banner=SimpleNamespace(
+            show_status_message=lambda text, kind: messages.append((kind, text))
+        ),
+    )
+    assert start.AtlasStarter.generate_service_configuration(starter) is False
+    assert messages == [("error", "Spark requires MinIO: --minio-source container")]

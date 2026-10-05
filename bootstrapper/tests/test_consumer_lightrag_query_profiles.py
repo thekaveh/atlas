@@ -630,3 +630,22 @@ def test_consumer_env_false_overrides_operator_enabled(tmp_path: Path) -> None:
         load_consumer_config(
             tmp_path, explicit_paths=[str(manifest)], lightrag_rerank_adapter_enabled=True
         )
+
+
+@pytest.mark.parametrize("order", ["profile-first", "flag-first"])
+def test_rerank_gate_reads_env_merged_from_every_manifest(tmp_path: Path, order) -> None:
+    """One manifest declares the rerank profile, another enables the adapter:
+    the result must not depend on which manifest loads first."""
+    _write_root(tmp_path)
+    profile = tmp_path / "a" / "atlas.consumer.yml"
+    profile.parent.mkdir()
+    profile.write_text("name: a\n" + _RERANK_ON, encoding="utf-8")
+    flag = tmp_path / "b" / "atlas.consumer.yml"
+    flag.parent.mkdir()
+    flag.write_text(
+        'name: b\nenv:\n  values:\n    LIGHTRAG_RERANK_ADAPTER_ENABLED: "true"\n',
+        encoding="utf-8",
+    )
+    paths = [profile, flag] if order == "profile-first" else [flag, profile]
+    config = load_consumer_config(tmp_path, explicit_paths=[str(p) for p in paths])
+    assert config.lightrag_query_profiles[0].enable_rerank is True

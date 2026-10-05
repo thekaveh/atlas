@@ -70,8 +70,8 @@
       {
         "path": "bootstrapper/core/consumer_manifest.py",
         "symbol": "load_consumer_config",
-        "cyclomatic_complexity": 73,
-        "rationale": "Fail-closed parser for the versioned consumer manifest; each branch emits a distinct validation failure and the contract suite exercises those outcomes."
+        "cyclomatic_complexity": 72,
+        "rationale": "Fail-closed parser for the versioned consumer manifest; each branch emits a distinct validation failure and the contract suite exercises those outcomes. 73 -> 72 in the 2026-10-04 maintenance pass: the LightRAG rerank gate moved to _check_rerank_adapter_gate after the manifest loop so it reads env merged from every manifest."
       },
       {
         "path": "bootstrapper/services/service_config.py",
@@ -240,7 +240,7 @@
       {
         "path": "bootstrapper/core/consumer_manifest.py",
         "symbol": "load_consumer_config",
-        "cyclomatic_complexity": 73,
+        "cyclomatic_complexity": 72,
         "rationale": "Fail-closed parser and validator for a versioned external manifest. Its branches correspond to distinct validation errors and are covered by schema and consumer-contract tests."
       },
       {

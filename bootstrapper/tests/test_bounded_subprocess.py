@@ -997,10 +997,14 @@ def _run_final_image_scan(
         for step in workflow["jobs"]["final-image-scan"]["steps"]
         if step.get("name") == "Build and scan local Compose and init images"
     )
-    workspace, stubs = tmp_path / "workspace", tmp_path / "bin"
+    # Resolved, so the step's `realpath` output keeps the workspace prefix on
+    # hosts where the temp dir is a symlink (macOS /var -> /private/var).
+    workspace, stubs = tmp_path.resolve() / "workspace", tmp_path / "bin"
     for context, dockerfile in re.findall(r'"(services/[^"|]+)\|([^"]+)"', script):
         (workspace / context).mkdir(parents=True, exist_ok=True)
         (workspace / context / dockerfile).parent.mkdir(parents=True, exist_ok=True)
+        # BSD realpath, unlike GNU, fails on a missing final component.
+        (workspace / context / dockerfile).touch()
     stubs.mkdir()
     (workspace / "scripts").mkdir()
     for path, body in (

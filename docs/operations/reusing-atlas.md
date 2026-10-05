@@ -265,12 +265,14 @@ the **exported scoped vars** (`ATLAS_STORE_<store>_*`), never a hand-wired
 **7. Teardown.**
 
 ```bash
-./infra/stop.sh --project myproject          # stop this stack's containers
-./infra/stop.sh --project myproject --cold   # also remove this project's volumes (data loss)
+./infra/stop.sh --project myproject --consumer ./atlas.consumer.yml          # stop this stack's containers
+./infra/stop.sh --project myproject --consumer ./atlas.consumer.yml --cold   # also remove this project's volumes (data loss)
 ```
 
 `--cold` removes the project's named volumes (DB, MinIO, model caches) — a clean
-slate; omit it to preserve data across restarts.
+slate; omit it to preserve data across restarts. Pass the same `--consumer`
+manifest you started with (or set `ATLAS_CONSUMER_MANIFEST`): without it, volumes
+declared only in the manifest's `compose_overlays` are not removed.
 
 **8. CI drift gates.** Wire these into your consumer CI so an Atlas pin bump can't
 break you silently:
@@ -558,8 +560,10 @@ instead of silently dropping the block and surfacing later as mysterious runtime
 404s. The allowed top-level keys are exactly those shown above: `name`,
 `project_name`, `profile`, `profile_overrides`, `brand`, `env`,
 `compose_overlays`, `backend_plugins`, `model_sidecars`, `custom_nodes`, `storage`,
-`litellm_models`, `n8n_workflows`, `rag_ingestion_profiles`, and
-`lightrag_query_profiles`.
+`litellm_models`, `n8n_workflows`, `rag_ingestion_profiles`,
+`lightrag_query_profiles`, and `managed_host_services`. Unknown keys inside the
+`brand`, `env`, `model_sidecars`, `custom_nodes`, and `storage` blocks (and each
+`storage.buckets` entry) are rejected the same way.
 
 #### 6.1.1. Back-compatible `services/_user/` overlay slot
 
@@ -850,6 +854,8 @@ router = APIRouter(prefix="/rag", tags=["rag"])
 def health():
     return {"ok": True}
 ```
+
+The package directory name is imported as a top-level module, so it must be unique across every plugin root and must not match a module the backend already imports (for example `observability`, `rag_ingestion`, or `redis`). A plugin whose name matches a module already imported at load time is skipped and listed with status `skipped` in the plugin inventory; a name matching a library the backend imports later shadows that library, so avoid those names too.
 
 Your routes are then served by the same backend — reachable at `backend:8000` in-network, or via Kong at `api.localhost/...`. This is the recommended way to add backend endpoints (e.g. a `/rag` surface) for a downstream showcase without maintaining a fork. See [`services/backend/README.md` §4](https://github.com/thekaveh/atlas/blob/main/services/backend/README.md) for the backend-side description.
 
@@ -1367,7 +1373,9 @@ identity and branding that should be identical on every machine.
 ### 7.3. Select sources once; keep `.env` as the source of truth
 
 Every `--<svc>-source` CLI flag is **persisted into `.env` as an explicit
-override, silently** — there is no "you changed a previously-set value" warning.
+override**. When it replaces a different saved value the run prints one
+warning line naming the variable, the old and new values, and the flag, and the
+new value then applies to every later run.
 That turns an innocent wrapper script into a footgun: a launcher that runs
 
 ```bash

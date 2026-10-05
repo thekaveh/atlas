@@ -797,3 +797,37 @@ async def test_slow_result_download_times_out_and_releases_cleanup(
 
     assert finished
     assert not result_path.exists()
+
+
+@_run_async
+async def test_upstream_read_is_bounded_by_the_job_deadline_not_5s(monkeypatch, tmp_path):
+    """The bundle route answers only after conversion finishes; httpx2's 5s
+    default read timeout failed every conversion longer than that."""
+    adapter_app = _load_app_module(monkeypatch)
+    upstream_module = sys.modules["adapter.upstream"]
+    seen = {}
+    real_client = upstream_module.httpx.AsyncClient
+
+    def recording_client(*args, **kwargs):
+        seen["timeout"] = kwargs.get("timeout")
+        return real_client(*args, **kwargs)
+
+    monkeypatch.setattr(upstream_module.httpx, "AsyncClient", recording_client)
+    upstream_app = FastAPI()
+
+    @upstream_app.post("/internal/lightrag/bundle")
+    async def bundle():
+        return Response(_bundle(), media_type="application/zip")
+
+    source = tmp_path / "upload.pdf"
+    source.write_bytes(b"document")
+    upstream = adapter_app.DoclingUpstream(
+        endpoint="http://docling.test/internal/lightrag/bundle",
+        token="provider-token",
+        transport=ASGITransport(app=upstream_app, raise_app_exceptions=False),
+    )
+    (await upstream.convert(source, "report.pdf", timeout_seconds=5)).unlink()
+
+    assert seen["timeout"].read is None
+    assert seen["timeout"].write is None
+    assert seen["timeout"].connect == 10.0

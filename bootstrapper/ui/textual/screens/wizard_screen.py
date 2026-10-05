@@ -641,9 +641,15 @@ _TEARDOWN_HINTS = [
 _TAB_HINT = (("1", "2"), "tabs")
 
 
-def prune_skip_hidden_selections(steps, selections: dict) -> dict:
+def prune_skip_hidden_selections(
+    steps, selections: dict, pinned: "dict | frozenset | None" = None
+) -> dict:
     """Return a copy of ``selections`` without commits from steps whose
     skip-predicate is true.
+
+    ``pinned`` names step titles whose answer came from the CLI (``--track``,
+    ``--profile``). Those steps are skipped *because* they are answered, so
+    their answer is kept.
 
     A user can visit a step (e.g. the ComfyUI picker), commit, then go
     Back and disable the owning service — the stale commit would
@@ -662,7 +668,7 @@ def prune_skip_hidden_selections(steps, selections: dict) -> dict:
             hidden = bool(skip(pruned))
         except Exception:  # noqa: BLE001 — buggy predicate must not crash launch
             hidden = False
-        if hidden:
+        if hidden and step.title not in (pinned or ()):
             pruned.pop(step.title, None)
             for key in _step_secondary_keys(step):
                 pruned.pop(key, None)
@@ -1210,6 +1216,8 @@ class WizardScreen(Screen):
 
         self._step_index = 0
         self._selections: dict[str, str] = dict(prefilled_selections or {})
+        # CLI-pinned answers (--track/--profile) survive skip-pruning.
+        self._pinned_selections = frozenset(prefilled_selections or ())
         # Frozen defaults snapshot — used to compute "N changed from
         # defaults" correctly (only count selections that DIFFER from
         # their step's default_value).
@@ -2310,7 +2318,9 @@ class WizardScreen(Screen):
         return bool(offered) and self._selections[step.title] not in offered
 
     def _prune_hidden_selections(self) -> None:
-        pruned = prune_skip_hidden_selections(self._steps, self._selections)
+        pruned = prune_skip_hidden_selections(
+            self._steps, self._selections, self._pinned_selections
+        )
         self._selections.clear()
         self._selections.update(pruned)
 
@@ -2861,7 +2871,7 @@ class WizardScreen(Screen):
                 # Drop commits from steps whose skip-predicate is true at
                 # LAUNCH time (see prune_skip_hidden_selections).
                 _launch_selections = prune_skip_hidden_selections(
-                    self._steps, self._selections
+                    self._steps, self._selections, self._pinned_selections
                 )
                 self._source_args, self._stack_options = self._stack_options_resolver(
                     _launch_selections

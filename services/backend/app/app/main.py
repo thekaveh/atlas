@@ -158,7 +158,17 @@ configure_uvicorn_access_log_redaction()
 
 
 def _unexpected_error(operation: str, exc: Exception, *, status_code: int = 500) -> HTTPException:
-    """Log an unexpected failure without exposing its details to API clients."""
+    """Log an unexpected failure without exposing its details to API clients.
+
+    Pool saturation is expected overload, not an unexpected failure: it keeps
+    the 503 + Retry-After contract of ``_pg_pool_saturated`` (#1171).
+    """
+    if isinstance(exc, PoolSaturatedError):
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+            headers={"Retry-After": "1"},
+        )
     stack = " <- ".join(
         f"{os.path.basename(frame.filename)}:{frame.lineno}:{frame.name}"
         for frame in traceback.extract_tb(exc.__traceback__)
@@ -4082,6 +4092,8 @@ async def memory_extract(
             conversation_id=request.conversation_id,
         )
         return MemoryExtractResponse(**result)
+    except PoolSaturatedError:
+        raise
     except RuntimeError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
@@ -4106,6 +4118,8 @@ async def memory_recall(
             min_confidence=request.min_confidence,
         )
         return MemoryRecallResponse(**result)
+    except PoolSaturatedError:
+        raise
     except RuntimeError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
@@ -4171,6 +4185,8 @@ async def memory_consolidate(
     try:
         result = await memory_service.consolidate(user_id=user_id)
         return MemoryConsolidateResponse(**result)
+    except PoolSaturatedError:
+        raise
     except RuntimeError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
@@ -4192,6 +4208,8 @@ async def memory_summarize(
             namespace=request.namespace,
         )
         return MemorySummarizeResponse(**result)
+    except PoolSaturatedError:
+        raise
     except RuntimeError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
@@ -4218,6 +4236,8 @@ async def memory_list(
             offset=offset,
         )
         return MemoryListResponse(**result)
+    except PoolSaturatedError:
+        raise
     except RuntimeError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
@@ -4247,6 +4267,8 @@ async def memory_update(
         return {"success": True, "memory": result}
     except HTTPException:
         raise
+    except PoolSaturatedError:
+        raise
     except RuntimeError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
@@ -4273,6 +4295,8 @@ async def memory_delete(
             )
         return {"success": True, "message": "Memory deleted successfully"}
     except HTTPException:
+        raise
+    except PoolSaturatedError:
         raise
     except RuntimeError as e:
         raise HTTPException(

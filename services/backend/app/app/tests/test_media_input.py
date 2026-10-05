@@ -30,6 +30,10 @@ def _valid_png_bytes() -> bytes:
     return out.getvalue()
 
 
+def _valid_png_data_uri() -> str:
+    return "data:image/png;base64," + base64.b64encode(_valid_png_bytes()).decode()
+
+
 def test_parse_data_uri_decodes_base64():
     data, content_type = parse_data_uri(_DATA_URI)
     assert data == _PNG_BYTES
@@ -259,15 +263,52 @@ def test_opaque_datauri_hosted_when_provider_needs_url(monkeypatch):
         return "https://storage.example/media-inputs/hosted.png"
 
     prepared = prepare_image_input(
-        _DATA_URI,
+        _valid_png_data_uri(),
         needs_hosted_url=True,
         accepts_data_uri=False,
         uploader=fake_uploader,
     )
     assert prepared.hosted is True
     assert prepared.image == "https://storage.example/media-inputs/hosted.png"
-    assert captured["data"] == _PNG_BYTES
+    assert captured["data"] == _valid_png_bytes()
+    assert captured["content_type"] == "image/png"
     assert captured["key"].startswith("media-inputs/")
+
+
+def test_hosted_input_rejects_declared_type_that_is_not_the_raster(monkeypatch):
+    monkeypatch.setattr(media_input, "has_transparency", lambda data: False)
+    polyglot = "data:text/html;base64," + base64.b64encode(
+        _PNG_BYTES + b"<script>alert(1)</script>"
+    ).decode("ascii")
+
+    with pytest.raises(ImageInputError):
+        prepare_image_input(
+            polyglot,
+            needs_hosted_url=True,
+            accepts_data_uri=False,
+            uploader=lambda *a: pytest.fail("mismatched MIME must not be hosted"),
+        )
+
+
+def test_hosted_input_accepts_the_image_jpg_alias(monkeypatch):
+    from PIL import Image
+
+    monkeypatch.setattr(media_input, "has_transparency", lambda data: False)
+    out = BytesIO()
+    Image.new("RGB", (1, 1)).save(out, format="JPEG")
+    captured = {}
+
+    def fake_uploader(data, content_type, key):
+        captured["content_type"] = content_type
+        return "https://storage.example/media-inputs/x.jpg"
+
+    prepare_image_input(
+        "data:image/jpg;base64," + base64.b64encode(out.getvalue()).decode(),
+        needs_hosted_url=True,
+        accepts_data_uri=False,
+        uploader=fake_uploader,
+    )
+    assert captured["content_type"] == "image/jpeg"
 
 
 def test_transparent_input_conditioned_then_hosted(monkeypatch):
@@ -325,7 +366,7 @@ def test_storage_failure_raises_hosting_error(monkeypatch):
 
     with pytest.raises(ImageHostingError):
         prepare_image_input(
-            _DATA_URI,
+            _valid_png_data_uri(),
             needs_hosted_url=True,
             accepts_data_uri=False,
             uploader=boom,

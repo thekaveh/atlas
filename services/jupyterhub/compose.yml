@@ -83,6 +83,9 @@ services:
       AWS_DEFAULT_REGION: ${MINIO_REGION:-us-east-1}
       ICEBERG_REST_URI: http://iceberg-rest:8181
       ICEBERG_WAREHOUSE: s3://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/
+      # Bucket names notebook 12 writes through Spark Connect.
+      MINIO_BUCKET_ICEBERG_LANDING: ${MINIO_BUCKET_ICEBERG_LANDING:-landing}
+      MINIO_BUCKET_ICEBERG_CHECKPOINTS: ${MINIO_BUCKET_ICEBERG_CHECKPOINTS:-checkpoints}
       PYICEBERG_CATALOG__REST__TYPE: rest
       PYICEBERG_CATALOG__REST__URI: http://iceberg-rest:8181
       PYICEBERG_CATALOG__REST__WAREHOUSE: s3://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/

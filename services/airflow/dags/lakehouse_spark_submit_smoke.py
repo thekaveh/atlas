@@ -112,7 +112,10 @@ spark_conf = {
     ),
     "spark.sql.catalog.lakehouse.client.region": REGION,
     "spark.eventLog.enabled": "true",
-    "spark.eventLog.dir": "s3a://spark-history/",
+    # Same bucket the Spark cluster and history server use (minio service.yml).
+    "spark.eventLog.dir": "s3a://"
+    + os.environ.get("MINIO_BUCKET_SPARK_HISTORY", "spark-history")
+    + "/",
 }
 
 

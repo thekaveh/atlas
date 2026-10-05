@@ -56,6 +56,7 @@ from ui.textual.widgets.prompt_panel import (
     PromptOption,
     PromptStep,
 )
+from wizard.model.cloud_rules import resolve_secret_verdict
 from wizard.model.llm_rules import (
     LLM_ENGINE_TITLE,
     is_container_ollama as _is_container_ollama,
@@ -344,7 +345,13 @@ def build_ollama_steps(
             # Honor the user's port override — the 5th consumer site of
             # the localhost-port symmetry rule (runtime_sc, Kong,
             # service_config, localhost_validator already read it).
-            port = (env_vars.get("OLLAMA_LOCALHOST_PORT", "") or "").strip() or "11434"
+            # A port typed on the LLM Engine step this session wins over
+            # .env (it is only written to .env at launch).
+            port = (
+                str(selections.get("__secondary__:OLLAMA_LOCALHOST_PORT", "")).strip()
+                or (env_vars.get("OLLAMA_LOCALHOST_PORT", "") or "").strip()
+                or "11434"
+            )
             return f"http://localhost:{port}"
         if "external" in src and url:
             return url
@@ -748,7 +755,10 @@ def _make_cloud_options_provider(provider, env_vars: Dict[str, str],
 
     def _resolve_key(selections: dict) -> str:
         v = selections.get(secret_title)
-        if isinstance(v, str) and v and v not in (SECRET_KEEP, SECRET_CLEAR):
+        # Every sentinel is a verdict about the stored key, never a key.
+        if isinstance(v, str) and v and v not in (
+            SECRET_KEEP, SECRET_CLEAR, SECRET_ENABLE, SECRET_DISABLE,
+        ):
             return v
         return (env_vars.get(api_key_var, "") or "").strip()
 
@@ -1041,42 +1051,35 @@ def build_default_model_steps(
     selected custom model.
     """
 
+    def _cloud_provider_active(p, selections: dict) -> bool:
+        """True when the launch will route ``p``: the #1183 verdict (or the
+        saved source when there is none) is enabled and a key remains.
+        A saved key alone no longer promotes a disabled provider."""
+        existing_key = (env_vars.get(p.api_key_var, "") or "").strip()
+        verdict = resolve_secret_verdict(
+            selections.get(cloud_secret_title(p.name)),
+            existing_key_set=bool(existing_key),
+        )
+        source = verdict.source
+        if source is None:
+            source = (env_vars.get(p.source_var, "disabled") or "").strip().lower()
+        key = existing_key if verdict.api_key is None else verdict.api_key
+        return source == "enabled" and bool(key)
+
     def _no_llm_active(selections: dict) -> bool:
         """Return True (→ skip) when no LLM provider is active.
 
         Ollama: source must start with ``ollama-``.
-        Cloud: any provider must have a real key (or SECRET_KEEP on an
-        existing key) to be considered active.
+        Cloud: any provider that ``_cloud_provider_active`` reports.
         """
         # Check Ollama
         src = _selected_llm_source(env_vars, selections)
         ollama_active = src.startswith("ollama-")
 
         # Check cloud providers
-        cloud_active = False
-        for p in CLOUD_PROVIDERS:
-            v = selections.get(cloud_secret_title(p.name))
-            if v is None:
-                # Step not visited — check .env
-                existing_source = (env_vars.get(p.source_var, "disabled") or "").strip().lower()
-                existing_key = (env_vars.get(p.api_key_var, "") or "").strip()
-                if existing_source == "enabled" and existing_key:
-                    cloud_active = True
-                    break
-            elif v == SECRET_KEEP:
-                existing_source = (env_vars.get(p.source_var, "disabled") or "").strip().lower()
-                existing_key = (env_vars.get(p.api_key_var, "") or "").strip()
-                if existing_source == "enabled" and existing_key:
-                    cloud_active = True
-                    break
-                # Disabled in .env but has key → auto-promote path
-                if existing_key:
-                    cloud_active = True
-                    break
-            elif v and v not in (SECRET_CLEAR,):
-                # Real key typed → provider is active
-                cloud_active = True
-                break
+        cloud_active = any(
+            _cloud_provider_active(p, selections) for p in CLOUD_PROVIDERS
+        )
 
         return not (ollama_active or cloud_active)
 
@@ -1115,22 +1118,7 @@ def build_default_model_steps(
                 names = _csv(env_vars.get(p.user_models_var, ""))
             else:
                 names = _csv(models_v)
-            # Determine if provider is active
-            if secret_v is not None and secret_v not in (SECRET_KEEP, SECRET_CLEAR, ""):
-                # Real key was typed
-                provider_active = True
-            elif secret_v == SECRET_KEEP or secret_v is None:
-                # Auto-promote: a saved key makes the provider active for the
-                # default-model pickers regardless of its source flag (matches
-                # _no_llm_active's disabled-but-keyed-as-active stance). The
-                # prior `existing_key and (existing_source == "enabled" or
-                # existing_key)` was a tautology — the outer `existing_key and`
-                # already required truthiness, so the RHS always reduced to
-                # existing_key — which always evaluated to bool(existing_key).
-                existing_key = (env_vars.get(p.api_key_var, "") or "").strip()
-                provider_active = bool(existing_key)
-            else:
-                provider_active = False
+            provider_active = _cloud_provider_active(p, selections)
             if provider_active:
                 for name in names:
                     pairs.append((p.key, name))

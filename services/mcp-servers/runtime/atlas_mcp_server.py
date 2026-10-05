@@ -37,10 +37,67 @@ _CYPHER_FORBIDDEN = re.compile(
 )
 
 
-def _without_comments(text: str) -> str:
-    text = re.sub(r"/\*.*?\*/", " ", text, flags=re.DOTALL)
-    text = re.sub(r"--[^\n\r]*", " ", text)
-    return text.strip()
+_DOLLAR_TAG = re.compile(r"\$[A-Za-z_]?[A-Za-z0-9_]*\$")
+
+
+def _quoted_end(text: str, start: int, dialect: str) -> int:
+    """Index just past the quoted run opening at ``start``."""
+    quote, j, n = text[start], start + 1, len(text)
+    while j < n:
+        if dialect == "cypher" and text[j] == "\\":
+            j += 2
+        elif text[j] != quote:
+            j += 1
+        elif dialect == "sql" and text.startswith(quote * 2, j):
+            j += 2  # SQL doubles a quote to escape it
+        else:
+            return j + 1
+    return n
+
+
+def _comment_end(text: str, start: int, line_comment: str) -> int | None:
+    """Index just past a comment opening at ``start``, or None."""
+    if text.startswith(line_comment, start):
+        end = text.find("\n", start)
+        return len(text) if end == -1 else end
+    if text.startswith("/*", start):
+        end = text.find("*/", start + 2)
+        return len(text) if end == -1 else end + 2
+    return None
+
+
+def _without_comments(text: str, *, dialect: str = "sql") -> str:
+    """Drop comments, keeping quoted text verbatim.
+
+    Literal-aware on purpose: a regex that treats ``--`` inside ``'--'`` as a
+    comment hid everything after it from the guards while the database still
+    ran the original text (``SELECT '--'; COMMIT; …``). Quoted text is kept,
+    so a ``;`` or keyword inside a literal still fails the guard closed.
+    ``dialect`` selects the comment syntax: ``sql`` (``--``, ``/* */``,
+    ``$tag$`` quoting) or ``cypher`` (``//``, ``/* */``, backslash escapes).
+    """
+    line_comment = "--" if dialect == "sql" else "//"
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        comment_end = _comment_end(text, i, line_comment)
+        tag = _DOLLAR_TAG.match(text, i) if dialect == "sql" else None
+        if comment_end is not None:
+            out.append(" ")
+            i = comment_end
+        elif text[i] in "'\"`":
+            end = _quoted_end(text, i, dialect)
+            out.append(text[i:end])
+            i = end
+        elif tag:
+            close = text.find(tag.group(0), tag.end())
+            end = n if close == -1 else close + len(tag.group(0))
+            out.append(text[i:end])
+            i = end
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out).strip()
 
 
 def clamp_limit(value: Any, *, default: int, maximum: int) -> int:
@@ -64,7 +121,7 @@ def is_safe_postgres_read(sql: str) -> bool:
 
 
 def is_safe_neo4j_read(cypher: str) -> bool:
-    statement = _without_comments(cypher)
+    statement = _without_comments(cypher, dialect="cypher")
     if not statement or ";" in statement:
         return False
     lowered = statement.lower().lstrip()
@@ -74,7 +131,7 @@ def is_safe_neo4j_read(cypher: str) -> bool:
 
 
 def bounded_neo4j_cypher(cypher: str) -> str:
-    statement = _without_comments(cypher)
+    statement = _without_comments(cypher, dialect="cypher")
     # A standalone procedure call (`CALL db.*` / `CALL apoc.meta.*`, allowed by
     # is_safe_neo4j_read for the schema tools) CANNOT be wrapped in a
     # `CALL { … } RETURN *` subquery: inside a subquery a procedure needs an

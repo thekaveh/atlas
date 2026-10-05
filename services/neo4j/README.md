@@ -27,16 +27,20 @@ After running `./start.sh --setup-hosts`, the Kong browser alias is `http://grap
 
 ## 4. Container-mode backup and restore
 
-These commands and paths apply only to `NEO4J_GRAPH_DB_SOURCE=container`. In `localhost` mode, use the backup and restore procedures of the host-managed Neo4j installation. The Atlas container provides a manual full-dump backup command; restore from the latest existing snapshot is automatic at container startup, but backup creation is never scheduled automatically.
+These commands and paths apply only to `NEO4J_GRAPH_DB_SOURCE=container`. In `localhost` mode, use the backup and restore procedures of the host-managed Neo4j installation. Neo4j Community has no online dump, and inside the container the server is the main process, so every dump or load runs against the stopped database volume. Restore from the latest legacy snapshot is automatic at container startup; backup creation is never scheduled automatically.
 
 ### 4.1. Manual Backup
 
 To manually create a graph database backup:
 
 ```bash
-# Create a backup (will temporarily stop and restart Neo4j)
-docker exec -it ${PROJECT_NAME}-neo4j-graph-db /usr/local/bin/backup.sh
+# Legacy single-database dump into /snapshot (database offline for the duration)
+docker compose stop neo4j-graph-db
+docker compose run --rm --no-deps --entrypoint /usr/local/bin/backup.sh neo4j-graph-db
+docker compose start neo4j-graph-db
 ```
+
+`backup.sh` refuses to run (exit 75) inside the running container: stopping the server there stops the container before the dump starts.
 
 The legacy backup is stored in the `${PROJECT_NAME}-neo4j-backups` named volume mounted at `/snapshot`. Images created before the coordinated workflow may also contain the legacy repository bind path `build/snapshot`; Atlas leaves that path and its files operator-accessible rather than deleting or silently migrating them. Import a legacy dump manually after verifying its origin and exact Neo4j compatibility. For coordinated Atlas backups, use `services/backup/run-consistent-backup.sh`; it preserves the initial running state, dumps both `system` and `neo4j` with the exact 5.26.31 image, and publishes signed metadata with the other database artifacts.
 
@@ -45,15 +49,19 @@ The legacy backup is stored in the `${PROJECT_NAME}-neo4j-backups` named volume 
 To restore from a previous backup:
 
 ```bash
-# Restore from the latest backup
-docker exec -it ${PROJECT_NAME}-neo4j-graph-db /usr/local/bin/restore.sh
+# Load the newest /snapshot/backup_*.dump (database offline for the duration)
+docker compose stop neo4j-graph-db
+docker compose run --rm --no-deps --entrypoint /usr/local/bin/restore.sh neo4j-graph-db
+docker compose start neo4j-graph-db
 ```
+
+For coordinated restores of the signed `system` + `neo4j` artifacts, use `services/backup/run-database-restore.sh` (see the backup service README).
 
 ### 4.3. Automatic Restore
 
 - **Automatic restoration at startup** is enabled by default
 - When the container starts, it automatically restores from the latest backup if available
-- To disable automatic restore, remove or rename the `auto_restore.sh` script in the Dockerfile
+- To disable automatic restore, remove the `auto_restore.sh` `COPY` from the Dockerfile and rebuild; the entrypoint then logs that automatic restore is disabled and starts normally
 
 ### 4.4. Important Backup Notes
 
@@ -62,8 +70,10 @@ docker exec -it ${PROJECT_NAME}-neo4j-graph-db /usr/local/bin/restore.sh
   automatic restore-on-startup (§4.3) overwrites the live volume with that
   snapshot on every boot. Disable `auto_restore.sh` (§4.3) if you need the volume
   to survive restarts unchanged
-- Backups are FULL dumps (`neo4j-admin database dump`); the database
-  is stopped for the duration and restarted automatically (EXIT trap)
+- Backups are FULL dumps (`neo4j-admin database dump`) taken while the
+  service is stopped; restart it yourself with `docker compose start`.
+  Coordinated backups (`services/backup/run-consistent-backup.sh`) write
+  `/snapshot/<timestamp>/neo4j.dump`, which the automatic restore ignores
 - Backup files are timestamped for easy identification
 
 ## 5. Container-mode data persistence

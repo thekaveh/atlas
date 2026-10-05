@@ -315,3 +315,38 @@ def test_mcp_servers_docs_describe_consumers_guardrails_and_deferred_gateways() 
         "namespace",
     ):
         assert expected in readme
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        # `--` inside a literal used to hide the rest from the guard while
+        # psycopg's simple protocol ran every statement (COMMIT ends READ ONLY).
+        "SELECT '--'; COMMIT; SELECT pg_sleep(1e6)",
+        "WITH a AS (SELECT '--'), b AS (DELETE FROM t RETURNING *) SELECT * FROM b",
+        "SELECT $$--$$; COMMIT",
+        "SELECT '/*'; DROP TABLE t; SELECT '*/'",
+    ],
+)
+def test_postgres_guard_is_literal_aware(sql: str) -> None:
+    assert _runtime_module().is_safe_postgres_read(sql) is False
+
+
+@pytest.mark.parametrize(
+    "sql",
+    ["SELECT 'a--b' AS x FROM t", "SELECT 'it''s' /* note */", "SELECT 1 -- ok"],
+)
+def test_postgres_guard_keeps_literals_and_comments_usable(sql: str) -> None:
+    assert _runtime_module().is_safe_postgres_read(sql) is True
+
+
+def test_cypher_guard_uses_cypher_comment_syntax() -> None:
+    module = _runtime_module()
+    # `--` is not a Cypher comment, so it must not hide the DELETE.
+    assert module.is_safe_neo4j_read(
+        "MATCH (n) WITH n, '--' AS x DETACH DELETE n RETURN x"
+    ) is False
+    assert module.is_safe_neo4j_read("MATCH (n) RETURN n // trailing note") is True
+    assert "// trailing" not in module.bounded_neo4j_cypher(
+        "MATCH (n) RETURN n // trailing note"
+    )

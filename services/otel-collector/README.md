@@ -25,7 +25,9 @@ Attribute redaction deletes top-level log and resource attributes whose keys cas
 
 The pinned upstream image is distroless. Its container health check therefore
 runs the Collector's own `validate` subcommand against the exact mounted config;
-Docker separately observes main-process liveness. Backend startup fails fast if
+Docker separately observes main-process liveness. At startup the Collector waits
+for Tempo's health check and for Loki to start; Loki's distroless image cannot run
+a probe, and the bounded Loki export queue retries until Loki accepts writes. Backend startup fails fast if
 tracing is explicitly enabled without an exporter endpoint or required OTel
 packages instead of silently dropping telemetry.
 

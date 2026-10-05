@@ -18,6 +18,8 @@ Tempo has no built-in authentication layer, so Atlas keeps it internal-only and 
 
 The service reads `./config/tempo.yaml`, mounted to `/etc/tempo/tempo.yaml`. Atlas computes `TEMPO_ENDPOINT` from `TEMPO_SOURCE`.
 
+The pinned image is distroless (no shell, no `wget`), so the health check runs the binary's own `/tempo -health`, which probes `/ready` and exits nonzero until Tempo is ready. The Collector waits for this check to pass.
+
 ## 4. Architecture & Wiring
 
 OpenTelemetry Collector forwards traces to Tempo over OTLP HTTP. Grafana queries Tempo for trace exploration. This service is local development oriented and not a high-availability production tracing deployment.

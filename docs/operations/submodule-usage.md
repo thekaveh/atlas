@@ -633,10 +633,11 @@ DATABASE_URL=postgresql://user:pass@localhost:63012/db
 
 **Symptom**: Updated `.env` values don't apply to running services.
 
-**Solution**: Restart with cold start
+**Solution**: Run a normal start. Every `./start.sh` recreates the containers
+(`--force-recreate`) with the current `.env`; a cold start would instead rebuild
+`.env` from `.env.example` (losing the edit) and delete the project volumes.
 ```bash
-./infra/stop.sh
-./infra/start.sh --cold
+./infra/start.sh
 ```
 
 ### 8.6. Issue: Permission Denied for Volumes

@@ -214,7 +214,7 @@ def test_observability_tracing_compose_contract() -> None:
     assert otel["volumes"] == ["./config/config.yaml:/etc/otelcol/config.yaml:ro"]
     assert otel["command"] == ["--config=/etc/otelcol/config.yaml"]
     assert otel["depends_on"]["tempo"]["condition"] == "service_healthy"
-    assert otel["depends_on"]["loki"]["condition"] == "service_healthy"
+    assert otel["depends_on"]["loki"]["condition"] == "service_started"
     healthcheck = otel["healthcheck"]
     assert healthcheck["test"] == [
         "CMD",
@@ -228,6 +228,9 @@ def test_observability_tracing_compose_contract() -> None:
     assert "ports" not in tempo
     assert tempo["command"] == ["-config.file=/etc/tempo/tempo.yaml", "-config.expand-env=true"]
     assert "tempo-data:/var/tempo" in tempo["volumes"]
+    # Distroless images: probes must use the service binary, never wget/sh.
+    assert tempo["healthcheck"]["test"] == ["CMD", "/tempo", "-health"]
+    assert "healthcheck" not in loki
 
     assert loki["image"] == "${LOKI_IMAGE:-grafana/loki:3.7.0}"
     assert loki["deploy"]["replicas"] == "${LOKI_SCALE:-0}"

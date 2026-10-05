@@ -6,7 +6,7 @@ n8n and Hermes are complementary agents-tier services. n8n is event-driven and v
 
 ## 1. Overview
 
-Image: `n8nio/n8n:2.28.2`. The web/API container handles HTTP + UI; the worker container handles execution. Both share state through Supabase Postgres (workflow definitions, executions history, credentials) and Redis (queue + execution coordination). The `n8n-init` container runs after the web/API container is reachable, installs required community nodes, then exits. The launcher checks that one-shot exit code and fails if it exited nonzero.
+Image: `n8nio/n8n:2.28.2`. The web/API container handles HTTP + UI; the worker container handles execution. Both share state through Supabase Postgres (workflow definitions, executions history, credentials) and Redis (queue + execution coordination). The `n8n-init` container runs first, installs required community nodes, then exits; the web/API and worker containers start only after it completes successfully. The launcher checks that one-shot exit code and fails if it exited nonzero.
 
 Track placement: n8n is available in `all`, `gen-ai-eng`, and `gen-ai-rag`. In the RAG track it provides workflow orchestration for document ingestion, search-to-extraction flows, vector-store operations, and human-reviewed automation around the RAG services.
 

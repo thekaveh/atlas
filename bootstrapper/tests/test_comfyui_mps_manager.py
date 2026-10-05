@@ -238,6 +238,7 @@ def test_install_idempotent_skips_dependencies_when_fingerprint_matches(tmp_path
     mgr._write_status(
         installed_ref=mgr.ref,
         requirements_sha256=mgr._requirements_sha256(),
+        torch_pin=mgr.torch_pin,
     )
 
     calls = []
@@ -257,6 +258,64 @@ def test_install_idempotent_skips_dependencies_when_fingerprint_matches(tmp_path
     assert not any("git clone" in j for j in joined)  # no re-clone
     assert not any("venv" in j and "-m" in j for j in joined)  # no venv rebuild
     assert any(f"checkout --force {mgr.ref}" in j for j in joined)  # ref still pinned
+    assert not any("pip install" in j for j in joined)  # fingerprint matched
+
+
+def _seed_installed(mgr, pin):
+    mgr.repo_dir.mkdir(parents=True)
+    (mgr.repo_dir / "requirements.txt").write_text("torch\n")
+    mgr.venv_python.parent.mkdir(parents=True)
+    mgr.venv_python.write_text("#!/bin/sh\n")
+    mgr._write_status(
+        installed_ref=mgr.ref,
+        requirements_sha256=mgr._requirements_sha256(),
+        torch_pin=pin,
+    )
+
+
+def test_a_changed_torch_pin_reconciles_on_a_plain_install(tmp_path, monkeypatch):
+    """services/comfyui/README.md: the pin is reconciled automatically."""
+    _darwin_arm64(monkeypatch)
+    mgr = _mgr(tmp_path)
+    _seed_installed(mgr, ["torch==0.0.1"])
+    # stop() rewrites status; it must carry the installed pin, not the new one.
+    mgr._write_status(installed_ref=mgr.ref, pid=None)
+    calls = []
+
+    def rec_run(cmd, *a, **k):
+        calls.append(cmd)
+        if cmd[:1] == ["sysctl"]:
+            return _FakeCompleted(0, str(64 * 1024 ** 3))
+        if str(mgr.venv_python) in cmd and "-c" in cmd:
+            return _FakeCompleted(0, "1")
+        return _FakeCompleted(0)
+
+    monkeypatch.setattr(mod.subprocess, "run", rec_run)
+    monkeypatch.setattr(mod, "run_with_deadline", rec_run)
+    mgr.install()
+    joined = [" ".join(c) for c in calls]
+    assert any("pip install " + " ".join(mgr.torch_pin) in j for j in joined)
+
+
+def test_a_failed_reconcile_leaves_no_installed_marker(tmp_path, monkeypatch):
+    _darwin_arm64(monkeypatch)
+    mgr = _mgr(tmp_path)
+    _seed_installed(mgr, ["torch==0.0.1"])
+
+    def run(cmd, *a, **k):
+        if cmd[:1] == ["sysctl"]:
+            return _FakeCompleted(0, str(64 * 1024 ** 3))
+        if str(mgr.venv_python) in cmd and "-c" in cmd:
+            return _FakeCompleted(0, "1")
+        if "pip" in cmd:
+            return _FakeCompleted(1)
+        return _FakeCompleted(0)
+
+    monkeypatch.setattr(mod.subprocess, "run", run)
+    monkeypatch.setattr(mod, "run_with_deadline", run)
+    with pytest.raises(mod.ComfyUiMpsError):
+        mgr.install()
+    assert not mgr._installed_environment_matches(mgr._requirements_sha256())
 
 
 def test_install_reconciles_changed_requirements_without_update_flag(tmp_path, monkeypatch):

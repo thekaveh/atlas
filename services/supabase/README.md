@@ -273,7 +273,7 @@ docker exec -it ${PROJECT_NAME}-supabase-db psql -U supabase_admin -d postgres
 docker exec ${PROJECT_NAME}-supabase-db pg_isready
 
 # Services
-curl http://localhost:${SUPABASE_API_PORT}/health
+curl -I http://localhost:${SUPABASE_API_PORT}/   # PostgREST serves its OpenAPI root; it has no /health on this port
 curl http://localhost:${SUPABASE_AUTH_PORT}/health
 ```
 

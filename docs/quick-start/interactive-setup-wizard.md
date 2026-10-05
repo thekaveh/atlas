@@ -104,7 +104,7 @@ The wizard refuses to launch when **LLM Engine = `none`**, vLLM Metal is disable
 A single unified multi-select shown for every `ollama-*` source. The option list is **source-aware**:
 
 - **`ollama-container-*`** — only the live scrape of `https://ollama.com/library` (~230 entries). Nothing is pulled yet (the in-stack container isn't running at wizard time), so the library is the primary discovery surface. The `ollama-pull` init container fetches checked entries at startup.
-- **`ollama-localhost`** — the upstream's `/api/tags` (already-pulled models) merged with the library scrape. Each row carries a status badge: `[pulled]` (on disk on the upstream — checking activates it immediately) or `[library]` (catalog-only — checking saves the name to `OLLAMA_USER_MODELS` in `.env` but you must `ollama pull <name>` on the host yourself so it's available when LiteLLM routes to it).
+- **`ollama-localhost`** — the upstream's `/api/tags` (already-pulled models) merged with the library scrape. Each row carries a status badge: `[pulled]` (on disk on the upstream — checking activates it immediately) or `[library]` (catalog-only — checking saves the name to `OLLAMA_USER_MODELS` in `.env`, and the bootstrapper pulls it onto the host daemon at start, #757, so it's available when LiteLLM routes to it).
 
 Each row is 2 cells tall and surfaces:
 
@@ -322,7 +322,7 @@ Selections persist as a sibling env var:
 
 | Row | Env var | Default | Range | Visible when |
 |---|---|---|---|---|
-| Ray | `RAY_WORKER_COUNT` | `2` | 0..(no upper cap) | `ray-container-cpu`, `ray-container-gpu` |
+| Ray | `RAY_WORKER_COUNT` | `2` | 0..64 | `ray-container-cpu`, `ray-container-gpu` |
 | Spark | `SPARK_WORKER_COUNT` | `2` | 1..8 | `container` |
 | Prometheus | `PROMETHEUS_RETENTION_DAYS` | `7` | 1..365 | `container` |
 
@@ -538,8 +538,8 @@ The prompt panel's top border shows the step title, a counter and a small progre
 The wizard reads your current `.env` values as defaults and produces the same `--*-source` overrides that CLI flags would. After confirmation, these overrides are applied to `.env` and the stack launches normally.
 
 - **Wizard selections are persistent** in `.env` and carry over to future runs
-- **CLI flags always skip the wizard** and apply directly
-- **Any flag** (including `--cold`, `--base-port`, etc.) skips the wizard
+- **Configuration flags skip the whole wizard** and apply directly: any `--*-source`, model-list, or API-key flag, and the stack flags `--base-port`, `--cold`, `--setup-hosts`, `--skip-hosts`, `--detach`, and `--json`
+- **Selection flags keep the wizard**: `--track` and `--profile` pre-answer (and hide) their own steps; `--project` and `--consumer` change no prompt
 
 ## 14. Requirements
 
@@ -631,7 +631,9 @@ The hosts file configuration step enables friendly URLs routed through Kong API 
 | Option | Behavior |
 |--------|----------|
 | **Default** | Checks `/etc/hosts` for required entries, warns if missing |
-| **Setup hosts now** | Adds entries to `/etc/hosts` (requires `sudo`) |
+| **Setup now** | Adds missing entries to `/etc/hosts`. The wizard cannot show a `sudo` password prompt, so this works only when `sudo` needs no password; otherwise the launch continues with a warning and you run `./start.sh --setup-hosts` from a terminal. |
 | **Skip** | No hosts check, use `localhost:PORT` URLs only |
+
+None of the three options stops the launch: missing entries affect only the friendly `*.localhost` URLs.
 
 When hosts are configured, the pre-launch summary table shows both the direct `localhost:PORT` URL and the friendly `service.localhost:KONG_PORT` URL for applicable services.
