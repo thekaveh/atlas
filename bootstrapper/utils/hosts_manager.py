@@ -44,9 +44,13 @@ class HostsManager:
         ownership, since /etc/hosts is root-owned when --setup-hosts runs
         under sudo.
         """
-        # Resolve a symlinked /etc/hosts (NixOS, MDM tools): os.replace on the
-        # link would swap it for a regular file and never update the target.
+        # Resolve a symlinked /etc/hosts (MDM / hosts-manager tools): os.replace
+        # on the link would swap it for a regular file and never update the
+        # target. A read-only target (NixOS /nix/store) keeps the old
+        # replace-the-link behaviour, which the next system rebuild reverts.
         dst = Path(os.path.realpath(hosts_file_path))
+        if not os.access(dst.parent, os.W_OK):
+            dst = Path(hosts_file_path)
         st = dst.stat()
         fd, tmp = tempfile.mkstemp(dir=str(dst.parent), prefix=f".{dst.name}.", suffix=".tmp")
         try:

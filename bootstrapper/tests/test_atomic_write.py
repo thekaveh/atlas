@@ -1177,3 +1177,23 @@ def test_hosts_writer_updates_a_symlinked_hosts_target(tmp_path):
     HostsManager._atomic_write_hosts(str(link), "127.0.0.1 n8n.localhost\n")
     assert link.is_symlink()
     assert target.read_text(encoding="utf-8") == "127.0.0.1 n8n.localhost\n"
+
+
+def test_hosts_writer_falls_back_to_the_link_for_a_read_only_target(tmp_path):
+    # NixOS: /etc/hosts -> read-only /nix/store; writing beside the target
+    # failed outright, so keep replacing the link (a rebuild reverts it).
+    from utils.hosts_manager import HostsManager
+
+    store = tmp_path / "store"
+    store.mkdir()
+    target = store / "hosts"
+    target.write_text("127.0.0.1 localhost\n", encoding="utf-8")
+    store.chmod(0o555)
+    link = tmp_path / "hosts"
+    link.symlink_to(target)
+    try:
+        HostsManager._atomic_write_hosts(str(link), "127.0.0.1 n8n.localhost\n")
+    finally:
+        store.chmod(0o755)
+    assert link.read_text(encoding="utf-8") == "127.0.0.1 n8n.localhost\n"
+    assert target.read_text(encoding="utf-8") == "127.0.0.1 localhost\n"

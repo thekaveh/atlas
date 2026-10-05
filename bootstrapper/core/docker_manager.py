@@ -277,7 +277,8 @@ class DockerManager:
         if result.returncode:
             self._on_command(
                 "⚠️  Optional compose overlays failed teardown preflight; "
-                "continuing with the base stack."
+                "continuing with the base stack (overlay-only volumes are kept, "
+                "so a cold start stops before rotating secrets)."
             )
             self.teardown_overlays_dropped = True
             return ['-f', 'docker-compose.yml'], False

@@ -299,7 +299,7 @@ def test_backup_restart_compensation_failure_marks_boundary_for_poisoning():
     coordinator._service_state = lambda _service: module.DatabaseServiceState(True, True, True)
     coordinator._service_running = lambda _service: False
     coordinator.runner = types.SimpleNamespace(
-        scope="scope", unique_name=lambda _role: "job", register_container=lambda _name: None,
+        scope="scope", unique_name=lambda _role: "job", register_container=lambda _name, **_kw: None,
         run=lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, "", ""),
     )
     coordinator.containers_disappeared_after_compose_run = lambda _name: None
@@ -322,7 +322,7 @@ def test_backup_probe_signal_restarts_neo4j_and_propagates_cancellation():
         module.SignalInterruption("received signal 15")
     )
     coordinator.runner = types.SimpleNamespace(
-        scope="scope", unique_name=lambda _role: "job", register_container=lambda _name: None,
+        scope="scope", unique_name=lambda _role: "job", register_container=lambda _name, **_kw: None,
         run=lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, "", ""),
     )
     coordinator.containers_disappeared_after_compose_run = lambda _name: None
@@ -341,7 +341,7 @@ def test_owned_container_cleanup_failure_preserves_signal_and_poisons(capsys):
     coordinator.runner = types.SimpleNamespace(
         scope="scope",
         unique_name=lambda _role: "owned-job",
-        register_container=lambda _name: None,
+        register_container=lambda _name, **_kw: None,
         run=lambda *_args, **_kwargs: (_ for _ in ()).throw(
             module.SignalInterruption("received signal 15")
         ),
@@ -412,7 +412,7 @@ def test_backup_body_signal_survives_restart_failure(capsys):
     coordinator._service_state = lambda _service: module.DatabaseServiceState(True, True, True)
     coordinator._service_running = lambda _service: False
     coordinator.runner = types.SimpleNamespace(
-        scope="scope", unique_name=lambda _role: "job", register_container=lambda _name: None,
+        scope="scope", unique_name=lambda _role: "job", register_container=lambda _name, **_kw: None,
         run=lambda *_args, **_kwargs: (_ for _ in ()).throw(
             module.SignalInterruption("received signal 15")
         ),
@@ -439,7 +439,7 @@ def test_backup_probe_oserror_still_restarts_neo4j():
         OSError("transient Docker probe failure")
     )
     coordinator.runner = types.SimpleNamespace(
-        scope="scope", unique_name=lambda _role: "job", register_container=lambda _name: None,
+        scope="scope", unique_name=lambda _role: "job", register_container=lambda _name, **_kw: None,
         run=lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, "", ""),
     )
     coordinator.containers_disappeared_after_compose_run = lambda _name: None
@@ -461,7 +461,7 @@ def _prune_coordinator(module, *, both=False, run_error=None):
     )
     coordinator.runner = types.SimpleNamespace(
         scope="scope", unique_name=lambda _role: "prune-job",
-        register_container=lambda _name: None,
+        register_container=lambda _name, **_kw: None,
         run=lambda *_args, **_kwargs: (
             (_ for _ in ()).throw(run_error) if run_error else None
         ),

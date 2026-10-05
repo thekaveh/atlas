@@ -18,6 +18,7 @@ import stat
 import subprocess
 import sys
 import time
+import types
 import uuid
 
 import pytest
@@ -5399,3 +5400,33 @@ def test_backup_orchestrator_scopes_compose_to_the_atlas_project(tmp_path: Path)
                 project = (line.split("=", 1)[1].strip().strip("'\"") or "atlas").lower()
     seen = set(scope.read_text(encoding="utf-8").split())
     assert seen == {f"{project}|{REPO / 'docker-compose.yml'}"}, seen
+
+
+def test_poisoned_boundary_keeps_rollback_and_stage_volumes(tmp_path: Path):
+    # After a failed copy-back the rollback volume can be the only original
+    # data; cleanup deleted it with every other tracked volume.
+    from tests.test_database_backup_third_rereview import _coordinator, _module
+
+    module = _module(); lock = module.OwnedFileLock(tmp_path / "boundary.lock", token="a" * 32)
+    lock.acquire()
+    seen: dict[str, set] = {}
+    coordinator = types.SimpleNamespace(
+        poison_reason="copy-back failed",
+        rollback={"neo4j": "atlas-db-neo4j-rollback-x"},
+        stage={"neo4j": "atlas-db-neo-stage-x"},
+        runner=types.SimpleNamespace(cleanup=lambda **kw: seen.update(kw)),
+    )
+    module.finalize_boundary_lock(lock, coordinator, retained=set())
+    assert seen["retain_volumes"] == {"atlas-db-neo4j-rollback-x", "atlas-db-neo-stage-x"}
+
+
+def test_bulk_volume_steps_use_the_data_timeout():
+    from tests.test_database_backup_third_rereview import _coordinator, _module
+
+    module = _module(); coordinator = _coordinator(module)
+    coordinator.timeout = 120
+    calls: list = []
+    coordinator._owned_run = lambda role, command, **kw: calls.append((role, kw))
+    coordinator._copy_volume("src", "dst", "copy")
+    coordinator._verify_volume_copy("src", "dst", "verify")
+    assert [kw.get("timeout") for _role, kw in calls] == [900, 900]

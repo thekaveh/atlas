@@ -977,6 +977,12 @@ class DatabaseCoordinator:
         self.boundary_state = "pre-cutover"
         self.poison_reason: str | None = None
 
+    @property
+    def data_timeout(self) -> int:
+        """Bulk copy/verify/load/dump steps scale with data size; the quiesce
+        timeout (stop/start/status, default 120 s) is far too short for them."""
+        return max(self.timeout, 900)
+
     def _bounded_count(self, name: str, default: str, maximum: int) -> int:
         # README §3 documents these as .env settings; the host scripts never
         # source .env, so read it like every other setting here.
@@ -1319,6 +1325,7 @@ class DatabaseCoordinator:
                 "find /target -mindepth 1 -delete; "
                 "set -o pipefail; (cd /source && tar cpf - .) | (cd /target && tar xpf -); sync",
             ],
+            timeout=self.data_timeout,
         )
 
     def _verify_volume_copy(self, source: str, target: str, role: str) -> None:
@@ -1335,6 +1342,7 @@ class DatabaseCoordinator:
                 "manifest /source /compare/source; manifest /target /compare/target; "
                 "cmp /compare/source /compare/target",
             ],
+            timeout=self.data_timeout,
         )
 
     def _start_owned(
@@ -1437,6 +1445,7 @@ class DatabaseCoordinator:
                 "--entrypoint", "bash", NEO4J_IMAGE,
                 "/scripts/offline-restore.sh", f"/restore/{artifact_stage}/neo4j",
             ],
+            timeout=self.data_timeout,
         )
         self._validate_neo4j_data_volume(stage_volume, "neo-validate")
         return stage_volume
@@ -1904,7 +1913,7 @@ class DatabaseCoordinator:
             if initially_running:
                 self.compose("stop", "--timeout", str(self.timeout), service)
             name = self.runner.unique_name("neo-backup")
-            self.runner.register_container(name)
+            self.runner.register_container(name, timeout=self.data_timeout)
             try:
                 self.runner.run(
                     [
@@ -1916,7 +1925,8 @@ class DatabaseCoordinator:
                         "-e", f"BACKUP_TIMESTAMP={timestamp}",
                         "-e", f"BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS={self.timeout}",
                         "--entrypoint", "bash", service, "/scripts/offline-backup.sh",
-                    ]
+                    ],
+                    timeout=self.data_timeout,
                 )
             except BaseException:
                 self._finish_compose_job(name, preserve_primary=True)
@@ -1960,6 +1970,15 @@ def _signal_as_exception(signum, _frame):
     raise SignalInterruption(f"received signal {signum}")
 
 
+def _recovery_volumes(coordinator: "DatabaseCoordinator") -> set[str]:
+    """Rollback + stage volumes kept (and named) for a poisoned boundary."""
+    kept = set(getattr(coordinator, "rollback", {}).values())
+    kept |= set(getattr(coordinator, "stage", {}).values())
+    for name in sorted(kept):
+        print(f"database recovery: retained volume {name}", file=sys.stderr)
+    return kept
+
+
 def finalize_boundary_lock(
     lock: OwnedFileLock,
     coordinator: DatabaseCoordinator | None,
@@ -1972,6 +1991,9 @@ def finalize_boundary_lock(
     if coordinator is not None:
         if coordinator.poison_reason:
             reasons.append(coordinator.poison_reason)
+            # Manual recovery needs the rollback and validated stage copies:
+            # after a failed copy-back they can be the only original data.
+            retained = retained | _recovery_volumes(coordinator)
         if getattr(coordinator.runner, "process_group_cleanup_failed", False):
             reasons.append("owned process-group cleanup was not proven")
         try:

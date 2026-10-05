@@ -207,7 +207,7 @@ def test_neo_backup_stop_compensation_uses_observed_state(
     coordinator.runner = types.SimpleNamespace(
         scope="scope",
         unique_name=lambda _role: "job",
-        register_container=lambda _name: None,
+        register_container=lambda _name, **_kw: None,
         run=lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, "", ""),
     )
     coordinator.containers_disappeared_after_compose_run = lambda _name: None
@@ -457,7 +457,7 @@ def _fourth_prune_coordinator(module, *, both=False, run_error=None):
     )
     coordinator.runner = types.SimpleNamespace(
         scope="scope", unique_name=lambda _role: "prune-job",
-        register_container=lambda _name: None,
+        register_container=lambda _name, **_kw: None,
         run=lambda *_args, **_kwargs: (
             (_ for _ in ()).throw(run_error) if run_error else None
         ),
@@ -478,7 +478,7 @@ def test_successful_owned_command_cleanup_failure_poisons_and_raises():
     coordinator.poison_reason = None; coordinator.token = "1" * 32
     coordinator.runner = types.SimpleNamespace(
         scope="scope", unique_name=lambda _role: "owned-job",
-        register_container=lambda _name: None,
+        register_container=lambda _name, **_kw: None,
         run=lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, "", ""),
         remove_container=lambda _name: (_ for _ in ()).throw(
             module.ContractError("removal unproven")
@@ -497,7 +497,7 @@ def test_backup_job_cleanup_timeout_does_not_replace_body_signal(capsys):
     coordinator._service_state = lambda _service: module.DatabaseServiceState(True, True, True)
     coordinator._service_running = lambda _service: True
     coordinator.runner = types.SimpleNamespace(
-        scope="scope", unique_name=lambda _role: "job", register_container=lambda _name: None,
+        scope="scope", unique_name=lambda _role: "job", register_container=lambda _name, **_kw: None,
         run=lambda *_args, **_kwargs: (_ for _ in ()).throw(
             module.SignalInterruption("received signal 15")
         ),
@@ -619,7 +619,7 @@ def test_backup_unhealthy_restart_poisons_and_fails():
     coordinator._service_state = state
     coordinator._service_running = lambda _service: False
     coordinator.runner = types.SimpleNamespace(
-        scope="scope", unique_name=lambda _role: "job", register_container=lambda _name: None,
+        scope="scope", unique_name=lambda _role: "job", register_container=lambda _name, **_kw: None,
         run=lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, "", ""),
     )
     coordinator.containers_disappeared_after_compose_run = lambda _name: None

@@ -361,7 +361,7 @@ EOF
   run_bounded cp "${database_work}/databases.complete.payload" "${database_work}/databases.complete"
   printf 'hmac_sha256=%s\n' "${database_completion_hmac}" >>"${database_work}/databases.complete"
   rm -f "${database_work}/databases.complete.payload"
-  echo "backup: captured consistent Neo4j and Weaviate snapshots"
+  echo "backup: captured Neo4j (offline) and Weaviate (online) snapshots"
 }
 
 if [ "${0##*/}" = database-snapshots.sh ]; then

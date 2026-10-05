@@ -273,7 +273,7 @@ the **exported scoped vars** (`ATLAS_STORE_<store>_*`), never a hand-wired
 slate; omit it to preserve data across restarts. Pass the same `--consumer`
 manifest you started with (or set `ATLAS_CONSUMER_MANIFEST`): without it, volumes
 declared only in the manifest's `compose_overlays` are not removed. When a
-manifest's overlays cannot be loaded, `./start.sh --cold` fails its cleanup
+manifest's overlays cannot be loaded or fail validation, `./start.sh --cold` fails its cleanup
 step and does not rotate secrets (the surviving overlay volumes would keep the
 old credentials).
 
