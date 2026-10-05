@@ -706,7 +706,10 @@ status:
 ```
 
 When startup reaches the service summary, the JSON payload is
-`{"ok", "services", "converged_after_grace"}`. `converged_after_grace` is
+`{"ok", "services", "converged_after_grace", "not_started"}`. `not_started`
+lists services left out of `up` because their image failed to build (the start
+still counts as successful, so check it when completeness matters).
+`converged_after_grace` is
 `true` when the start converged only after re-polling still-`starting` rows
 through the grace window, so automation can tell a health race apart from a
 first-pass-healthy start. When startup stops earlier (invalid input, a failed

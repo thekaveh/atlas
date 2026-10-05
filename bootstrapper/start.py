@@ -2249,6 +2249,7 @@ class AtlasStarter:
                 self.banner.show_status_message(
                     "Previous instance stopped successfully", "success"
                 )
+                self.stopped_previous_instance = True
 
                 # Re-check ports after cleanup
                 conflicts = self.port_manager.get_port_conflicts(base_port)
@@ -4114,6 +4115,9 @@ class AtlasStarter:
             "ok": ok,
             "services": services,
             "converged_after_grace": converged_after_grace,
+            # Images that failed to build were left out of `up` (#989); the
+            # stack still counts as started, but automation must see the gap.
+            "not_started": list(self.skipped_builds),
         }
 
         if json_output:
@@ -6826,7 +6830,9 @@ def _prompt_for_track(registry, *, max_attempts: int = 5) -> str:
                    'Does not bypass the wizard.')
 @click.option('--support-bundle', 'support_bundle',
               type=click.Path(dir_okay=False, path_type=Path), default=None,
-              help='If the start fails, show and then write a redacted support '
+              help='If the start fails after its preflight (not on an '
+                   'unavailable Docker daemon or an earlier setup error), '
+                   'show and then write a redacted support '
                    'bundle (.tar.gz) to PATH: doctor checks, the configuration '
                    'with the file that set each key, and a log excerpt. Local '
                    'only, nothing is sent; redaction is best-effort.')

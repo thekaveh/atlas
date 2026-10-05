@@ -232,7 +232,9 @@ def _run_linear_startup(
         # Declining happens after .env was written and before anything
         # starts, so say exactly that (#1032).
         starter.banner.console.print(
-            f"\n  [color(245)]{launch_cancelled_notice(options.cold)}[/color(245)]"
+            "\n  [color(245)]"
+            f"{launch_cancelled_notice(options.cold, getattr(starter, 'stopped_previous_instance', False))}"
+            "[/color(245)]"
         )
         return 0
     if not starter.start_managed_host_processes():

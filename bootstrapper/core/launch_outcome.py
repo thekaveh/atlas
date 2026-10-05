@@ -364,12 +364,19 @@ def cancel_notice() -> str:
     )
 
 
-def launch_cancelled_notice(cold_start: bool = False) -> str:
+def launch_cancelled_notice(cold_start: bool = False, stopped_previous: bool = False) -> str:
     """The pre-launch summary was declined, so nothing was started.
 
     A cold start has already removed the volumes and recreated .env by the
-    time the summary is shown, so it must not claim no data was deleted.
+    time the summary is shown, so it must not claim no data was deleted. The
+    port check may already have stopped this project's running stack.
     """
+    if stopped_previous and not cold_start:
+        return (
+            f"Launch cancelled — nothing was started · {CANCEL.configuration} · "
+            f"{CANCEL.data} · the previously running stack was stopped to free "
+            "its ports; run ./start.sh again to bring it back."
+        )
     if cold_start:
         return (
             "Launch cancelled — nothing was started · .env was recreated · "
