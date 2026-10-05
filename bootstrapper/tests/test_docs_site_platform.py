@@ -161,7 +161,7 @@ def test_generated_reference_pages_cover_core_sources() -> None:
     assert "LLM_PROVIDER_SOURCE" in source_values
     assert "CLOUD_OPENAI_SOURCE" in source_values
     dependencies = (DOCS_SITE / "reference" / "service-dependencies.md").read_text(encoding="utf-8")
-    assert "| Service | Required | Optional | Runtime Calls |" in dependencies
+    assert "| Service | Start order (depends_on.required) | Optional | Runtime Calls |" in dependencies
     assert "open-webui" in dependencies
 
 

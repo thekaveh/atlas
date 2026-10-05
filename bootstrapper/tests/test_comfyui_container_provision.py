@@ -570,3 +570,13 @@ def test_temporary_clone_symlink_is_rejected_before_destination_replacement(
     assert "clone failed" in result.stdout
     assert _node_status_fields(nodes)[2:] == ["failed", "1", "0"]
     assert not (nodes / "node").exists()
+
+
+def test_hook_is_executable_in_git():
+    # ai-dock exec()s the read-only mounted hook; chmod there fails (EROFS),
+    # so a 0644 checkout never provisions and the healthcheck never passes.
+    mode = subprocess.run(
+        ["git", "ls-files", "-s", str(SCRIPT.relative_to(ROOT))],
+        cwd=ROOT, capture_output=True, text=True, check=True,
+    ).stdout.split()[0]
+    assert mode == "100755"

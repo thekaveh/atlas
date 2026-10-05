@@ -591,7 +591,30 @@ def _secret_input_hint(step: "PromptStep", *, include_restored: bool = True) -> 
     return "paste a key + Enter to enable  ·  Enter (empty) to leave disabled"
 
 
+def _live_text_hint(step: "PromptStep", value: str) -> str:
+    """Hint under a text input while the user types (``value`` stripped).
+
+    A ``number_required`` step shows its refusal (or range) instead of the
+    free-text skip/clear/char-count wording, which it does not accept.
+    """
+    if step.number_required:
+        error = number_entry_error(value, step)
+        if error or not value:
+            return error or _number_input_hint(step)
+        return f"✓ {value}  ·  Enter to confirm"
+    if not value:
+        return _text_input_hint(step, include_restored=False)
+    if value.lower() == "clear":
+        return "pending clear  ·  Enter to confirm clear  ·  edit to change"
+    n = len(value)
+    return f"✓ {n} char{'s' if n != 1 else ''} entered  ·  Enter to confirm"
+
+
 def _text_input_hint(step: "PromptStep", *, include_restored: bool = True) -> str:
+    if step.number_required:
+        # A validated text step (custom embedding dimension): no skip or
+        # `clear` sentinel, so never advertise them.
+        return _number_input_hint(step)
     default = (step.default_value or "").strip()
     restored = (step.restored_input_value or "").strip() if include_restored else ""
     if restored.lower() == "clear":
@@ -1949,20 +1972,9 @@ class PromptPanel(Container):
             and self._number_hint is not None
             and event.input is self._number_input
         ):
-            value = (event.value or "").strip()
-            if not value:
-                self._number_hint.update(
-                    _text_input_hint(self._step, include_restored=False)
-                )
-            elif value.lower() == "clear":
-                self._number_hint.update(
-                    "pending clear  ·  Enter to confirm clear  ·  edit to change"
-                )
-            else:
-                n = len(value)
-                self._number_hint.update(
-                    f"✓ {n} char{'s' if n != 1 else ''} entered  ·  Enter to confirm"
-                )
+            self._number_hint.update(
+                _live_text_hint(self._step, (event.value or "").strip())
+            )
             return
         if (
             self._step.kind != "secret"

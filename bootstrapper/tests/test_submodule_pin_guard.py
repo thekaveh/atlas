@@ -118,8 +118,9 @@ def test_submodule_head_drift_warns_and_does_not_mutate(tmp_path):
     assert status.is_submodule is True
     assert status.head_drifted is True  # recorded committed gitlink != working HEAD
     assert status.recorded_gitlink == recorded
-    # The exact staged/working-tree column git reports for a moved submodule
-    # is porcelain-internal; what matters is that drift was detected (above).
+    # Nothing was `git add`ed: no "unstage" advice for a bare HEAD drift.
+    assert status.staged_in_superproject is False
+    assert "restore --staged" not in msg
 
 
 def test_submodule_staged_in_superproject_warns(tmp_path):

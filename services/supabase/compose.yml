@@ -356,7 +356,9 @@ services:
       replicas: ${POSTGRES_EXPORTER_SCALE:-0}
     environment:
       DATA_SOURCE_NAME: "postgresql://${POSTGRES_EXPORTER_DB_USER_URI:?POSTGRES_EXPORTER_DB_USER_URI is required}:${POSTGRES_EXPORTER_DB_PASSWORD_URI:?POSTGRES_EXPORTER_DB_PASSWORD_URI is required}@supabase-db:5432/${SUPABASE_DB_NAME_URI:?SUPABASE_DB_NAME_URI is required}?sslmode=disable"
-      PG_EXPORTER_AUTO_DISCOVER_DATABASES: "true"
+      # No PG_EXPORTER_AUTO_DISCOVER_DATABASES: per-service databases revoke
+      # CONNECT from the metrics role (05-scoped-roles.sh), so discovery only
+      # pinned pg_exporter_last_scrape_error at 1 and added no metrics.
       # Disable the built-in pg_settings collector. On supabase/postgres 17.6 a
       # GUC row has a NULL short_desc, and the exporter's settings scrape can't
       # map NULL→string → it logs `error scraping dsn … converting NULL to

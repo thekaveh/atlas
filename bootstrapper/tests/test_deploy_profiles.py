@@ -284,6 +284,55 @@ def test_consumer_profile_overrides_reach_the_applier(tmp_path, monkeypatch):
     assert _env(tmp_path)["WEAVIATE_MEMORY_LIMIT"] == "4g"
 
 
+def test_profile_env_replaces_shipped_default_but_keeps_operator_value(
+    tmp_path, monkeypatch
+):
+    # .env.example ships WEAVIATE_MEMORY_LIMIT=2g, so the profile env never
+    # applied when only "unset or empty" counted as not operator-set.
+    s = _make_starter(tmp_path, "HOST_BIND_IP=\nWEAVIATE_MEMORY_LIMIT=2g\n")
+    (tmp_path / ".env.example").write_text(
+        "HOST_BIND_IP=127.0.0.1:\nWEAVIATE_MEMORY_LIMIT=2g\n", encoding="utf-8"
+    )
+    overrides = {"dev": {"env": {"WEAVIATE_MEMORY_LIMIT": "4g"}}}
+    monkeypatch.setattr(
+        s.config_parser, "load_consumer_config",
+        lambda: NS(profile="dev", profile_overrides=overrides),
+    )
+    assert s.apply_profile_overrides("dev") is True
+    assert _env(tmp_path)["WEAVIATE_MEMORY_LIMIT"] == "4g"
+
+    s = _make_starter(tmp_path, "HOST_BIND_IP=\nWEAVIATE_MEMORY_LIMIT=6g\n")
+    monkeypatch.setattr(
+        s.config_parser, "load_consumer_config",
+        lambda: NS(profile="dev", profile_overrides=overrides),
+    )
+    assert s.apply_profile_overrides("dev") is True
+    assert _env(tmp_path)["WEAVIATE_MEMORY_LIMIT"] == "6g"
+
+
+def test_manifest_declared_source_beats_profile_assert_and_reset(
+    tmp_path, monkeypatch
+):
+    body = (
+        "HOST_BIND_IP=\nPROMETHEUS_SOURCE=disabled\nGRAFANA_SOURCE=container\n"
+        "ATLAS_PROFILE_APPLIED=prod\n"
+    )
+    s = _make_starter(tmp_path, body)
+    monkeypatch.setattr(
+        s.config_parser, "load_consumer_config",
+        lambda: NS(
+            profile="prod", profile_overrides={},
+            env_overrides={
+                "PROMETHEUS_SOURCE": "disabled", "GRAFANA_SOURCE": "container",
+            },
+        ),
+    )
+    assert s.apply_profile_overrides("prod") is True
+    assert _env(tmp_path)["PROMETHEUS_SOURCE"] == "disabled"  # no prod assert
+    assert s.apply_profile_overrides("default") is True
+    assert _env(tmp_path)["GRAFANA_SOURCE"] == "container"  # no switch reset
+
+
 def test_profile_auto_source_delegates_to_753_resolver(tmp_path, monkeypatch):
     import services.host_capabilities as hc
 

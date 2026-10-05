@@ -391,7 +391,6 @@ runtime_sc:
       scale: 0   # placeholder — _generate_prometheus_config overwrites
       environment:
         DATA_SOURCE_NAME: "postgresql://${POSTGRES_EXPORTER_DB_USER_URI}:${POSTGRES_EXPORTER_DB_PASSWORD_URI}@supabase-db:5432/${SUPABASE_DB_NAME_URI}?sslmode=disable"
-        PG_EXPORTER_AUTO_DISCOVER_DATABASES: "true"
       deploy: {}
       extra_hosts: []
 

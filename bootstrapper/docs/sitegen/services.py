@@ -315,7 +315,7 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 6. Dependencies And Topology
 
-- Required dependencies: `{required}`
+- Start order (depends_on.required): `{required}`
 - Optional dependencies: `{optional}`
 - Runtime calls: `{runtime_calls}`
 
@@ -387,7 +387,7 @@ def service_pages(model: DocsModel) -> dict[Path, str]:
                 f"### 1.{index}. {category}",
                 "",
                 table(
-                    ["Service", "Title", "Support", "Tracks", "SOURCE", "Default", "Values", "Dependencies"],
+                    ["Service", "Title", "Support", "Tracks", "SOURCE", "Default", "Values", "Start order"],
                     rows,
                 ),
                 "",

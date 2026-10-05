@@ -3477,7 +3477,6 @@ services:
       replicas: 0
     environment:
       DATA_SOURCE_NAME: postgresql://atlas_metrics:atlas-db-password@supabase-db:5432/postgres?sslmode=disable
-      PG_EXPORTER_AUTO_DISCOVER_DATABASES: 'true'
       PG_EXPORTER_DISABLE_SETTINGS_METRICS: 'true'
     healthcheck:
       test:

@@ -784,6 +784,21 @@ def replace_step_secondary_selections(
         selections[f"__secondary__:{env_var}"] = value
 
 
+def _reruns_default_provider(step: PromptStep, selections: dict) -> bool:
+    """Whether to recompute ``step``'s default when it is (re)rendered.
+
+    A "keep" answer restores no input, so on a revisit the provider must
+    supply the shown default again; otherwise a required step (the custom
+    embedding dimension) refused Enter on the value it had kept.
+    """
+    from wizard.model.cloud_rules import SECRET_KEEP
+
+    return (
+        step.default_value_provider is not None
+        and selections.get(step.title) in (None, SECRET_KEEP)
+    )
+
+
 def _restored_primary_defaults(original, selections: dict):
     """Return defaults plus active input state for a revisited step."""
     from wizard.model.cloud_rules import SECRET_CLEAR, SECRET_KEEP
@@ -1805,10 +1820,7 @@ class WizardScreen(Screen):
         ) = _restored_primary_defaults(
             original, self._selections
         )
-        if (
-            original.title not in self._selections
-            and original.default_value_provider is not None
-        ):
+        if _reruns_default_provider(original, self._selections):
             live_default_value = original.default_value_provider(
                 dict(self._selections)
             )

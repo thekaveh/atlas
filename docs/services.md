@@ -6,7 +6,7 @@ The *Support* column is each family's declared support tier (`stable`, `experime
 
 ### 1.1. agents
 
-| Service | Title | Support | Tracks | SOURCE | Default | Values | Dependencies |
+| Service | Title | Support | Tracks | SOURCE | Default | Values | Start order |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | [airflow](../services/airflow/README.md) | Apache Airflow (DAG orchestrator) | experimental | all, data-eng | AIRFLOW_SOURCE | disabled | container, disabled | supabase, litellm, redis |
 | [celery](../services/celery/README.md) | Celery + Flower (async jobs) | experimental | all, gen-ai-eng, gen-ai-rag | CELERY_SOURCE | disabled | container, disabled | redis, backend, supabase, litellm |
@@ -19,7 +19,7 @@ The *Support* column is each family's declared support tier (`stable`, `experime
 
 ### 1.2. aggregate
 
-| Service | Title | Support | Tracks | SOURCE | Default | Values | Dependencies |
+| Service | Title | Support | Tracks | SOURCE | Default | Values | Start order |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | [doc-processor](../services/doc-processor/README.md) | doc-processor | n/a | all, gen-ai-creative, gen-ai-rag | - | - | - | - |
 | [multi2vec-clip](../services/multi2vec-clip/README.md) | multi2vec-clip | n/a | all, gen-ai-creative | - | - | - | - |
@@ -27,7 +27,7 @@ The *Support* column is each family's declared support tier (`stable`, `experime
 
 ### 1.3. apps
 
-| Service | Title | Support | Tracks | SOURCE | Default | Values | Dependencies |
+| Service | Title | Support | Tracks | SOURCE | Default | Values | Start order |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | [backend](../services/backend/README.md) | Backend API (FastAPI) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | BACKEND_SOURCE | container | - | supabase, redis, litellm |
 | [jenkins](../services/jenkins/README.md) | Jenkins (Maven Spark app builder) | experimental | all, data-eng | JENKINS_SOURCE | disabled | container, disabled | minio |
@@ -42,7 +42,7 @@ The *Support* column is each family's declared support tier (`stable`, `experime
 
 ### 1.4. data
 
-| Service | Title | Support | Tracks | SOURCE | Default | Values | Dependencies |
+| Service | Title | Support | Tracks | SOURCE | Default | Values | Start order |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | [iceberg-rest](../services/iceberg-rest/README.md) | Apache Iceberg REST Catalog | experimental | all, data-eng | ICEBERG_REST_SOURCE | disabled | container, disabled | minio, supabase |
 | [minio](../services/minio/README.md) | MinIO (S3-compatible object storage) | experimental | all, data-eng, ml-eng, trading | MINIO_SOURCE, MINIO_INIT_SOURCE | container | container, disabled | supabase |
@@ -57,7 +57,7 @@ The *Support* column is each family's declared support tier (`stable`, `experime
 
 ### 1.5. infra
 
-| Service | Title | Support | Tracks | SOURCE | Default | Values | Dependencies |
+| Service | Title | Support | Tracks | SOURCE | Default | Values | Start order |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | [backup](../services/backup/README.md) | Backup / restore (Postgres + consistent database snapshots -&gt; S3) | experimental | all, data-eng, ml-eng, trading | BACKUP_SOURCE | disabled | container, disabled | supabase |
 | [cloudflared](../services/cloudflared/README.md) | Cloudflare Tunnel (public edge) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | CLOUDFLARED_SOURCE | disabled | container, disabled | kong |
@@ -73,7 +73,7 @@ The *Support* column is each family's declared support tier (`stable`, `experime
 
 ### 1.6. llm
 
-| Service | Title | Support | Tracks | SOURCE | Default | Values | Dependencies |
+| Service | Title | Support | Tracks | SOURCE | Default | Values | Start order |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | [cloud-providers](../services/cloud-providers/README.md) | Cloud LLM providers (OpenAI, Anthropic, OpenRouter) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | CLOUD_OPENAI_SOURCE, CLOUD_ANTHROPIC_SOURCE, CLOUD_OPENROUTER_SOURCE | disabled | enabled, disabled | litellm |
 | [litellm](../services/litellm/README.md) | LiteLLM gateway (LLM router) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | LITELLM_SOURCE | container | container | supabase, redis |
@@ -83,7 +83,7 @@ The *Support* column is each family's declared support tier (`stable`, `experime
 
 ### 1.7. media
 
-| Service | Title | Support | Tracks | SOURCE | Default | Values | Dependencies |
+| Service | Title | Support | Tracks | SOURCE | Default | Values | Start order |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | [asset-baker](../services/asset-baker/README.md) | Asset Baker (Blender HP→LP bake) | experimental | all, gen-ai-creative | ASSET_BAKER_SOURCE | disabled | container-cpu, disabled | minio |
 | [asset-worker](../services/asset-worker/README.md) | Asset Worker (glTF post-processing) | experimental | all, gen-ai-creative | ASSET_WORKER_SOURCE | disabled | container, disabled | minio |

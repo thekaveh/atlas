@@ -205,7 +205,7 @@ Realtime creates and manages its own logical replication slots. Database initial
 **Image**: `prometheuscommunity/postgres-exporter:v0.19.1`
 **Access**: `http://localhost:${POSTGRES_EXPORTER_PORT}/metrics` (in-container `9187`)
 **Purpose**: Prometheus exporter exposing `pg_stat_*` views as a `/metrics` endpoint for the observability bundle.
-**Configuration**: connects to `supabase-db:5432` using the dedicated `${POSTGRES_EXPORTER_DB_USER}`/`${POSTGRES_EXPORTER_DB_PASSWORD}` login with `pg_monitor`; it does not receive the database-owner credential.
+**Configuration**: connects to `supabase-db:5432` using the dedicated `${POSTGRES_EXPORTER_DB_USER}`/`${POSTGRES_EXPORTER_DB_PASSWORD}` login with `pg_monitor`; it does not receive the database-owner credential. It scrapes only the primary database: database auto-discovery is off because the per-service databases (`airflow`, `langfuse`, …) revoke `CONNECT` from it, which would pin `pg_exporter_last_scrape_error` at 1.
 **Lifecycle**: scales **1↔0 with `PROMETHEUS_SOURCE`** — the bootstrapper's `_generate_prometheus_config()` hook writes `POSTGRES_EXPORTER_SCALE` from this single switch, so the sidecar is dormant when Prometheus is off. The `Postgres + Redis` Grafana dashboard renders connections, query rate, and table sizes from its output.
 
 ## 5. Environment Variables

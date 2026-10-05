@@ -549,8 +549,10 @@ log rotation, prod sources). Both shipped profiles keep newly configured and
 legacy-blank published ports loopback-bound; a non-empty `HOST_BIND_IP` is an
 explicit operator choice and is preserved. Semantics per field: a profile's
 `sources` are asserted on every start of that profile **except** when that
-service's source was set by an explicit CLI flag this run (operator wins);
-`env` values apply only when unset (an operator-set value is kept with a
+service's source was set by an explicit CLI flag this run or is declared in the
+manifest's `env.values` (precedence: CLI flag > manifest > profile);
+`env` values replace an unset value, the shipped `.env.example` default, or
+the prior profile's value (any other operator-set value is kept with a
 notice); switching profiles resets the prior profile's asserted sources to
 their service defaults (no residue), while a same-profile restart never resets
 anything — tracked via the `ATLAS_PROFILE_APPLIED` marker in `.env`. The

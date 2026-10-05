@@ -294,6 +294,58 @@ _USER_OWNED_BLANKABLE: frozenset = frozenset({
 })
 
 
+def _env_example_values(env_example_path) -> dict[str, str]:
+    """Shipped ``.env.example`` scalar defaults (``KEY=value`` lines)."""
+    try:
+        text = env_example_path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    values: dict[str, str] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, val = line.partition("=")
+            values[key.strip()] = val.strip()
+    return values
+
+
+def _manifest_source_vars(consumer_config) -> set[str]:
+    """``*_SOURCE`` keys a consumer manifest declares in ``env.values``."""
+    declared = getattr(consumer_config, "env_overrides", None) or {}
+    return {var for var in declared if var.endswith("_SOURCE")}
+
+
+def _prior_profile_env(bundles: dict, prior_applied: str, switching: bool) -> dict:
+    """The env the prior profile wrote, when this run switches profiles."""
+    prior = bundles.get(prior_applied) if switching else None
+    return prior.env if prior is not None else {}
+
+
+def _profile_env_overrides(
+    active: str, declared: dict, env_vars: dict, replaceable: list[dict],
+) -> dict[str, str]:
+    """A profile's ``env`` values for .env, keeping operator-set ones.
+
+    A value is operator-set only when it differs from every ``replaceable``
+    map (the shipped ``.env.example`` defaults, the prior profile's env): every
+    profile-managed knob ships a non-empty default, so "unset or empty" alone
+    never let a profile (or a consumer ``profile_overrides`` env) apply.
+    """
+    overrides: dict[str, str] = {}
+    for env_key, declared_value in declared.items():
+        current = env_vars.get(env_key)
+        if current == declared_value:
+            continue
+        if not current or any(current == m.get(env_key) for m in replaceable):
+            overrides[env_key] = declared_value
+        else:
+            print(
+                f"profile={active}: keeping operator-set {env_key}={current!r} "
+                f"(profile default is {declared_value!r})"
+            )
+    return overrides
+
+
 def _detect_env_image_drift(
     existing_env: dict, env_example_path,
 ) -> list[tuple[str, str, str]]:
@@ -508,8 +560,11 @@ class AtlasStarter:
           default first, so transitions leave no residue; a same-profile
           restart never resets (a wizard/operator selection that happens to
           equal a bundle value is safe).
-        - ``env``: applied only when the var is unset/empty; an operator-set
-          value is kept with a one-line notice (the LOG_MAX_* discipline).
+        - ``env``: applied when the var is unset/empty, the shipped
+          ``.env.example`` default, or the prior profile's value; any other
+          operator-set value is kept with a one-line notice (LOG_MAX_*).
+          Consumer-manifest ``env.values`` ``*_SOURCE`` keys count as explicit
+          (CLI flag > manifest > profile).
 
         Called from both the linear (--no-tui) path and the TUI wizard
         pipeline so profile configuration applies regardless of how Atlas is
@@ -550,6 +605,9 @@ class AtlasStarter:
         )
 
         explicit_vars = set(getattr(self, "_explicit_source_vars", set()) or set())
+        # Consumer manifest env.values beat the profile, as they beat the
+        # track (#783): CLI flag > manifest > profile.
+        explicit_vars.update(_manifest_source_vars(consumer_config))
         for legacy_service, legacy_value in (
             ("prometheus", explicit_prometheus),
             ("grafana", explicit_grafana),
@@ -630,15 +688,13 @@ class AtlasStarter:
             overrides[var] = source_id
 
         # ── env: defaults unless operator-set ────────────────────────
-        for env_key, declared_value in bundle.env.items():
-            current = env_vars.get(env_key)
-            if not current:
-                overrides[env_key] = declared_value
-            elif current != declared_value:
-                print(
-                    f"profile={active}: keeping operator-set {env_key}={current!r} "
-                    f"(profile default is {declared_value!r})"
-                )
+        overrides.update(_profile_env_overrides(
+            active, bundle.env, env_vars,
+            [
+                _env_example_values(self.config_parser.env_example_path),
+                _prior_profile_env(bundles, prior_applied, switching),
+            ],
+        ))
 
         # Write the marker only when this run actually changes something (or
         # completes a switch) — a no-op run must leave .env byte-identical.
@@ -1061,7 +1117,14 @@ class AtlasStarter:
             # Standalone doctor/endpoints runs never pass --profile; resolve
             # against the consumer manifest's declared default so `auto`
             # cannot poison a prod deployment's .env with dev-only sources.
-            self.profile = getattr(consumer_config, "profile", None) or "default"
+            # A running stack's applied profile (a launch-time --profile)
+            # outranks the manifest default.
+            applied = (
+                self.config_parser.parse_env_file().get("ATLAS_PROFILE_APPLIED") or ""
+            ).strip()
+            self.profile = (
+                applied or getattr(consumer_config, "profile", None) or "default"
+            )
         overrides = self._resolve_auto_source_overrides(
             self._resolve_auto_base_port_override(
                 dict(consumer_config.env_overrides or {})

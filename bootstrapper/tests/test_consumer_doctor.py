@@ -2044,6 +2044,26 @@ def test_preflight_base_port_override_recomputes_service_ports(
     assert parsed["LITELLM_PORT"] == str(expected) != "63040"
 
 
+def test_preflight_resolves_auto_under_the_applied_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stack launched with --profile prod (no manifest `profile:`) must not
+    have `auto` sources re-resolved under "default" by doctor."""
+    import start as start_module
+    from tests.test_consumer_manifest import _patch_starter_root, _write_consumer, _write_minimal_root
+
+    _write_minimal_root(tmp_path)
+    with (tmp_path / ".env").open("a", encoding="utf-8") as env:
+        env.write("ATLAS_PROFILE_APPLIED=prod\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(_write_consumer(tmp_path, "applied")))
+    _patch_starter_root(start_module, monkeypatch, tmp_path)
+
+    starter = start_module.AtlasStarter()
+    starter.materialize_consumer_env_for_preflight()
+    assert starter.profile == "prod"
+
+
 def test_preflight_invalid_base_port_keeps_stdout_clean(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

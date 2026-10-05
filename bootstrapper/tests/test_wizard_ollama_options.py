@@ -499,6 +499,15 @@ def test_saved_models_outside_the_listed_families_are_kept():
     from wizard.llm_steps import PromptOption
 
     rows = [PromptOption(value="qwen3", label="qwen3", hint="", badges=[])]
-    env = {"OLLAMA_USER_MODELS": "qwen3:8b,hf.co/bartowski/foo:Q4_K_M,llama3.3:70b"}
+    env = {"OLLAMA_USER_MODELS": "qwen3:8b,hf.co/bartowski/foo:Q4_K_M,llama3.3:70b,llama3.3:70b"}
     kept = [r.value for r in _with_saved_ollama_rows(rows, env)]
     assert kept == ["qwen3", "hf.co/bartowski/foo:Q4_K_M", "llama3.3:70b"]
+
+
+def test_saved_untagged_model_does_not_swallow_its_tagged_sibling():
+    # A kept bare name must not act as a family row for a later tagged entry.
+    from wizard.llm_steps import _with_saved_ollama_rows
+
+    env = {"OLLAMA_USER_MODELS": "hf.co/x/foo,hf.co/x/foo:Q8_0,mymodel,mymodel:13b"}
+    kept = [r.value for r in _with_saved_ollama_rows([], env)]
+    assert kept == ["hf.co/x/foo", "hf.co/x/foo:Q8_0", "mymodel", "mymodel:13b"]

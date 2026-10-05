@@ -178,7 +178,7 @@ env:
     description: "Opt-in uvicorn --reload for live development (#679). Disabled by default so the production/consumer image runs a stable process: with backend_plugins bind-mounted, host-side git churn in the plugin tree would otherwise restart or crash-loop the backend. The plugin seam installs at boot, so recreate the backend to apply plugin changes."
   - name: BACKEND_KONG_AUTH
     default: disabled
-    description: "Default gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header). A backend plugin's plugin.yml `auth: open|key-auth` overrides this per route prefix (#402)."
+    description: "Default gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header). A backend plugin's plugin.yml `auth:` setting (`open` or `key-auth`) overrides this per route prefix (#402)."
   - name: BACKEND_KONG_API_KEY
     default: ""
     secret: true

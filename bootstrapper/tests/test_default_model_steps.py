@@ -954,10 +954,11 @@ def test_content_default_is_saved_value_on_rerun():
     env = {
         "LLM_PROVIDER_SOURCE": "ollama-container-cpu",
         "OLLAMA_USER_MODELS": "qwen3.8:latest",
-        "LITELLM_DEFAULT_MODEL": "openai/gpt-4o",
+        "LITELLM_DEFAULT_MODEL": "ollama/qwen3.8:latest",
     }
     steps = build_default_model_steps(env)
     content = next(s for s in steps if s.title == LLM_DEFAULT_CONTENT_TITLE)
-    assert content.default_value == "openai/gpt-4o"
+    # A value the picker really offers (cloud ids are bare, e.g. gpt-4o).
+    assert content.default_value == "ollama/qwen3.8:latest"
     blank = build_default_model_steps({**env, "LITELLM_DEFAULT_MODEL": ""})
     assert next(s for s in blank if s.title == LLM_DEFAULT_CONTENT_TITLE).default_value is None

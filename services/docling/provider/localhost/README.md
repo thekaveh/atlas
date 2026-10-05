@@ -242,7 +242,7 @@ uv run server.py
 
 ```bash
 # Use different port
-export DOCLING_LOCALHOST_PORT=63090
+export DOCLING_LOCALHOST_PORT=18160
 uv run server.py
 ```
 

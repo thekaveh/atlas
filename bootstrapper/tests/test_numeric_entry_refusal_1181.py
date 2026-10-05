@@ -314,3 +314,15 @@ def test_custom_embedding_dimension_step_refuses_entries_the_launch_rejects():
         assert number_entry_error(bad, step) is not None, bad
     assert number_entry_error("768", step) is None
     assert number_entry_error("", replace(step, default_value="2048")) is None  # keeps the saved dim
+
+
+def test_custom_dimension_hints_do_not_advertise_skip_or_clear():
+    from ui.textual.widgets.prompt_panel import _live_text_hint, _text_input_hint
+    from wizard.llm_steps import LLM_DEFAULT_EMBED_DIM_TITLE, build_default_model_steps
+
+    step = next(s for s in build_default_model_steps({}) if s.title == LLM_DEFAULT_EMBED_DIM_TITLE)
+    resting = _text_input_hint(step)
+    assert "skip" not in resting and "clear" not in resting and "1–4000" in resting
+    assert "1–4000" in _live_text_hint(step, "abc")
+    assert "pending clear" not in _live_text_hint(step, "clear")
+    assert _live_text_hint(step, "768").startswith("✓ 768")

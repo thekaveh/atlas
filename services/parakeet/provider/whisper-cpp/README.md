@@ -86,7 +86,7 @@ If you used a port other than 63042, update `.env` (URL is derived inline
 as `http://host.docker.internal:${WHISPER_CPP_LOCALHOST_PORT:-63042}`):
 
 ```bash
-WHISPER_CPP_LOCALHOST_PORT=63099
+WHISPER_CPP_LOCALHOST_PORT=18143
 ```
 
 ## 7. Verify

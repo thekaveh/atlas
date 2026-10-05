@@ -1121,7 +1121,10 @@ def reference_pages(model: DocsModel) -> dict[Path, str]:
             ports_rows,
         ),
         ref / "service-dependencies.md": "# Service Dependencies\n\n## 1. Generated Dependency Matrix\n\n"
-        + table(["Service", "Required", "Optional", "Runtime Calls"], deps_rows),
+        "The start-order column is each manifest's `depends_on.required`: it orders "
+        "startup and display (some entries only pin a port slot) and is not a list of "
+        "runtime requirements. Runtime edges are in the Runtime Calls column.\n\n"
+        + table(["Service", "Start order (depends_on.required)", "Optional", "Runtime Calls"], deps_rows),
         ref / "manifest-fields.md": "# Manifest Fields\n\n## 1. Manifest Schema Quick Reference\n\nGenerated manifest schema quick reference.\n\n"
         + table(
             ["Field", "Purpose"],

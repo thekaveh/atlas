@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import sys
 import urllib.error
 import urllib.request
@@ -139,8 +140,9 @@ def main() -> None:
     # writing the prefixed names leaves them sitting unused in the env
     # while LightRAG falls back to internal defaults (caught 2026-06-07:
     # /health showed embedding_model=None despite prefixed vars being set).
-    print(f"LLM_MODEL={chat}")
-    print(f"EMBEDDING_MODEL={embed}")
+    # The entrypoint `sh`-sources this file: quote user-controlled names.
+    print(f"LLM_MODEL={shlex.quote(chat)}")
+    print(f"EMBEDDING_MODEL={shlex.quote(embed)}")
     print(f"EMBEDDING_DIM={dim}")
 
 
