@@ -295,3 +295,25 @@ def test_spark_image_bakes_kafka_connector_jars_with_sha512() -> None:
         "commons-pool2-${COMMONS_POOL2_VERSION}.jar",
     ):
         assert jar in dockerfile
+
+
+def test_blank_demo_topics_create_no_topic(tmp_path):
+    # README: "Leave it blank ... a broker with no Atlas-created demo topics".
+    # `:-` (and the start.py backfill) turned blank back into the default.
+    import subprocess
+
+    from start import _USER_OWNED_BLANKABLE
+
+    assert "REDPANDA_DEMO_TOPICS" in _USER_OWNED_BLANKABLE
+    root = Path(__file__).resolve().parents[2]
+    compose = (root / "services/redpanda/compose.yml").read_text(encoding="utf-8")
+    assert "${REDPANDA_DEMO_TOPICS-atlas_stream_events}" in compose
+    rpk = tmp_path / "rpk"
+    rpk.write_text(f"#!/bin/sh\necho \"$3\" >> '{tmp_path / 'created'}'\n", encoding="utf-8")
+    rpk.chmod(0o755)
+    script = root / "services/redpanda/init/scripts/init-redpanda.sh"
+    env = {"PATH": f"{tmp_path}:/usr/bin:/bin"}
+    subprocess.run(["bash", str(script)], env={**env, "REDPANDA_DEMO_TOPICS": ""}, check=True)
+    assert not (tmp_path / "created").exists()
+    subprocess.run(["bash", str(script)], env=env, check=True)
+    assert (tmp_path / "created").read_text().split() == ["atlas_stream_events"]

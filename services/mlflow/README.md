@@ -31,7 +31,7 @@ MINIO_BUCKET_MLFLOW=mlflow
 
 ## 4. Architecture & Wiring
 
-When enabled, `mlflow-init` creates the dedicated Postgres database and role after `minio-init` provisions the MLflow bucket and scoped service account. Atlas builds the exact reviewed MLflow base with pinned PostgreSQL and S3 drivers, then starts the guarded server with:
+When enabled, the dedicated Postgres database and role are created by `supabase-db-init` (`services/supabase/db/scripts/05-scoped-roles.sh`); `mlflow-init` only verifies it can log in to that database after `minio-init` provisions the MLflow bucket and scoped service account. Atlas builds the exact reviewed MLflow base with pinned PostgreSQL and S3 drivers, then starts the guarded server with:
 
 - a Postgres backend store at `supabase-db:5432/${MLFLOW_DB_NAME}`;
 - proxied artifacts under `s3://${MINIO_BUCKET_MLFLOW}`;
@@ -91,7 +91,7 @@ MLflow model serving, deployment plugins, and promotion workflows are intentiona
 
 - **No tracking URI in notebooks:** confirm `MLFLOW_SOURCE=container` and restart after the bootstrapper regenerates `.env`.
 - **Artifacts fail to upload:** keep `MINIO_SOURCE=container`; MLflow requires MinIO-backed artifact storage in this Atlas slice.
-- **Database errors on first boot:** check `mlflow-init` logs. It creates the `mlflow` database/role idempotently before the tracking server starts.
+- **Database errors on first boot:** `mlflow-init` only runs a login check; the `mlflow` database/role are created by `supabase-db-init` (`services/supabase/db/scripts/05-scoped-roles.sh`), so check `supabase-db-init` logs for the cause.
 - **`atlas-mlflow: upgrading the MLflow database schema` in the server log:** expected once after an MLflow image move. A database created by an earlier pin (3.15.1 is three migrations behind 3.16.1) is migrated with `mlflow db upgrade` before the server starts, the same way `airflow-init` runs `airflow db migrate`. Take a backup first if you need a rollback point; migrations do not run backwards.
 - **AI Gateway endpoints return 404:** this is intentional. MLflow 3.16.1 fixes CVE-2026-71211, but Atlas configures no gateway endpoints and keeps that secrets-holding surface closed. Atlas supports MLflow tracking, registry metadata, and artifact APIs; it disables the native, REST, and AJAX AI Gateway route families at the outer ASGI boundary, including when `_MLFLOW_STATIC_PREFIX` is configured.
 - **A custom `MLFLOW_IMAGE` exits at startup:** Atlas currently accepts exactly MLflow 3.16.1. Any version change must be reviewed with the route guard, private server environment, dependency image, and required multi-architecture smoke before the allowlist is updated.

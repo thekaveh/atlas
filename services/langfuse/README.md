@@ -36,12 +36,14 @@ Current Langfuse self-hosting uses a web container, worker container, Postgres, 
 
 When enabled, the family starts:
 
-- `langfuse-init`: creates the Langfuse Postgres database after `minio-init` provisions the bucket/service account.
+- `langfuse-init`: verifies the Langfuse Postgres database (created by `supabase-db-init` (`services/supabase/db/scripts/05-scoped-roles.sh`)) after `minio-init` provisions the bucket/service account.
 - `langfuse-clickhouse`: stores traces, observations, and scores.
 - `langfuse-web`: serves the UI and ingestion APIs.
 - `langfuse-worker`: processes queued ingestion work.
 
 LiteLLM receives `LANGFUSE_HOST`, `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRET_KEY`. The generated LiteLLM config adds `success_callback: ["langfuse"]` only while `LANGFUSE_SOURCE=container`; disabling Langfuse removes the callback on the next config render. Existing Prometheus callbacks stay in place.
+
+Media attachments are not browser-viewable: `LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT` is the in-network `http://minio:9000`, so the presigned upload/download URLs Langfuse hands to the browser point at a host it cannot resolve. Text traces (all LiteLLM traffic) are unaffected.
 
 ### 4.1. Why two host variables
 

@@ -20,6 +20,8 @@ Image: `cloudflare/cloudflared:2026.6.1` (pin a dated tag; bump deliberately).
 
 All public hostnames and routing rules are defined in the Cloudflare Zero Trust dashboard, not in this repository. Kong selects Atlas routes by their internal Host values (`api.localhost`, `chat.localhost`, `n8n.localhost`, and the other aliases in the [Ports and Routes](../../docs/reference/ports-routes.md) reference). A public hostname therefore needs an Origin HTTP Host Header override (`httpHostHeader` in an ingress rule) set to the exact Kong alias for the service it exposes. Forwarding an arbitrary public Host header to Kong without this override returns a Kong 404.
 
+The Host override only selects the route; apps that pin their own origin still see the public one. MLflow (`MLFLOW_SERVER_CORS_ALLOWED_ORIGINS` lists only `mlflow.localhost` and loopback, so state-changing requests get 403), Label Studio (`CSRF_TRUSTED_ORIGINS` / `LABEL_STUDIO_HOST` pinned to its Kong alias, so login fails the CSRF check) and Langfuse (`NEXTAUTH_URL` pinned to `langfuse.localhost`, so sign-in redirects to an unreachable host) are therefore not usable through a public tunnel hostname without overriding those settings yourself.
+
 ## 3. Configuration
 
 ```bash

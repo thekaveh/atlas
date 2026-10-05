@@ -40,6 +40,12 @@ _TARGET_TRANSIENT = (
 _TARGET_HEALTH_STATUSES = frozenset({401, 408, 429})
 
 
+def _counts_toward_reconcile_halt(exc: BaseException, target_signal: bool) -> bool:
+    """Target failures halt the pass; so do vectorizer failures, which never
+    raise (Weaviate is up) but are usually systematic across rows."""
+    return target_signal or _weaviate_vectorizer_failure(exc)
+
+
 def _is_target_health_signal(exc: BaseException) -> bool:
     """True when `exc` says the TARGET is unhealthy, not that a row is bad.
 
@@ -755,7 +761,11 @@ Extract the facts as JSON:"""
                         "Memory vector reconciliation deferred (error_type=%s)",
                         type(exc).__name__,
                     )
-                    if not target_signal:
+                    if not _counts_toward_reconcile_halt(exc, target_signal):
+                        # A vectorizer failure (Weaviate up, its LiteLLM embed
+                        # failing) never raises, but it is usually systematic,
+                        # so it still counts toward the halt below; recall runs
+                        # this loop and must not retry 100 doomed rows.
                         # A row-specific failure says nothing about the
                         # target's health, so it must not COUNT toward the
                         # streak — and it must not RESET it either. Resetting

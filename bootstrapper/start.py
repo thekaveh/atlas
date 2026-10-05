@@ -234,7 +234,9 @@ def _run_privileged_hosts_setup(non_interactive: bool = False) -> bool:
 # Add the current directory to the path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent))
 
-from utils.atomic_write import atomic_replace_text, atomic_write_text, env_lines, render_env_assignment
+from utils.atomic_write import (
+    atomic_replace_text, atomic_write_text, create_private_backup, env_lines, render_env_assignment,
+)
 from utils.banner import BannerDisplay
 from utils.hosts_manager import HostsManager
 from utils.key_generator import KeyGenerator
@@ -286,6 +288,9 @@ _USER_OWNED_BLANKABLE: frozenset = frozenset({
     # ServiceConfig restores the URL itself when CLIP is enabled again (its
     # `... or 'http://multi2vec-clip:8080'` treats a blank as unset).
     "CLIP_INFERENCE_API",
+    # Documented as "blank = no Atlas-created demo topics"; refilling it from
+    # .env.example re-created atlas_stream_events on every launch.
+    "REDPANDA_DEMO_TOPICS",
 })
 
 
@@ -1426,8 +1431,10 @@ class AtlasStarter:
             # first. It holds generated secrets plus operator-only values such
             # as BACKUP_MANIFEST_HMAC_KEY, without which backups cannot be
             # restored.
+            # Versioned and never pruned: routine start-up backups share the
+            # plain slot (5 kept) and would rotate this copy out within starts.
             try:
-                saved_env = self.config_parser.create_env_backup()
+                saved_env = create_private_backup(env_file_path, version="cold", keep=-1)
             except OSError as exc:
                 self.banner.show_status_message(
                     f"Could not back up {env_file_path} before the cold start: {exc}",

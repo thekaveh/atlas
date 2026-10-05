@@ -1514,6 +1514,7 @@ services:
       MCP_SERVERS_URL: ''
       MINIO_BUCKET_ICEBERG_CHECKPOINTS: checkpoints
       MINIO_BUCKET_ICEBERG_LANDING: landing
+      MINIO_BUCKET_JUPYTER: jupyter
       MINIO_ENDPOINT: http://minio:9000
       MLFLOW_TRACKING_URI: ''
       N8N_BASE_URL: http://n8n:5678

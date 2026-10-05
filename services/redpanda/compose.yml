@@ -57,7 +57,8 @@ services:
       redpanda:
         condition: service_healthy
     environment:
-      REDPANDA_DEMO_TOPICS: ${REDPANDA_DEMO_TOPICS:-atlas_stream_events}
+      # `-`, not `:-`: an explicitly blank value means "no demo topics".
+      REDPANDA_DEMO_TOPICS: ${REDPANDA_DEMO_TOPICS-atlas_stream_events}
     entrypoint:
       - /bin/bash
       - /scripts/init-redpanda.sh

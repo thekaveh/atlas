@@ -2008,7 +2008,9 @@ def main(argv: list[str] | None = None) -> int:
     # checks and copied over the live ${PROJECT_NAME}-* volumes. Explicit
     # values (the live integration harness sets both) are honored.
     project = _validate_docker_name(_setting(values, "PROJECT_NAME", "atlas"), "PROJECT_NAME")
-    os.environ.setdefault("COMPOSE_PROJECT_NAME", project)
+    # Compose project names are lowercase-only; the bootstrapper lowercases
+    # PROJECT_NAME the same way (volume names keep the literal value).
+    os.environ.setdefault("COMPOSE_PROJECT_NAME", project.lower())
     os.environ.setdefault("COMPOSE_FILE", str(repo / "docker-compose.yml"))
     timeout_text = _setting(values, "BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS", "120")
     if not timeout_text.isdecimal() or timeout_text.startswith("0") or not 1 <= int(timeout_text) <= 3600:

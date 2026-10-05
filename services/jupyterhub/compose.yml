@@ -86,6 +86,9 @@ services:
       ICEBERG_REST_URI: http://iceberg-rest:8181
       ICEBERG_WAREHOUSE: s3://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/
       # Bucket names notebook 12 writes through Spark Connect.
+      # Notebook 11 writes here; without it a renamed bucket fell back to
+      # `jupyter`, which the scoped account may not create.
+      MINIO_BUCKET_JUPYTER: ${MINIO_BUCKET_JUPYTER:-jupyter}
       MINIO_BUCKET_ICEBERG_LANDING: ${MINIO_BUCKET_ICEBERG_LANDING:-landing}
       MINIO_BUCKET_ICEBERG_CHECKPOINTS: ${MINIO_BUCKET_ICEBERG_CHECKPOINTS:-checkpoints}
       PYICEBERG_CATALOG__REST__TYPE: rest

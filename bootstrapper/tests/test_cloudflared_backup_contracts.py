@@ -5396,6 +5396,6 @@ def test_backup_orchestrator_scopes_compose_to_the_atlas_project(tmp_path: Path)
     if env_file.is_file():
         for line in env_file.read_text(encoding="utf-8").splitlines():
             if line.startswith("PROJECT_NAME="):
-                project = line.split("=", 1)[1].strip().strip("'\"") or "atlas"
+                project = (line.split("=", 1)[1].strip().strip("'\"") or "atlas").lower()
     seen = set(scope.read_text(encoding="utf-8").split())
     assert seen == {f"{project}|{REPO / 'docker-compose.yml'}"}, seen
