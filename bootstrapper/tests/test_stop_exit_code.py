@@ -53,15 +53,20 @@ def test_main_exits_nonzero_when_stop_fails(monkeypatch):
         stop_module.AtlasStopper, "show_configuration_info",
         lambda self, cold, clean, project_name_override=None: "atlas",
     )
+    calls = []
     monkeypatch.setattr(
         stop_module.AtlasStopper, "stop_services",
-        lambda self, cold, project_name: False,
+        lambda self, cold, project_name: calls.append(project_name) or False,
     )
     monkeypatch.setattr(
         stop_module.AtlasStopper, "ensure_dependencies_available", lambda self: True,
     )
     result = click.testing.CliRunner().invoke(stop_module.main, [])
+    assert calls == ["atlas"], "stop_services never ran"
     assert result.exit_code == 1
+    # The generic crash handler also exits 1; the failure must be the
+    # reported stop result, not a crash before stop ran.
+    assert "Unexpected error" not in result.output, result.output
 
 
 def test_main_exits_zero_when_stop_succeeds(monkeypatch):
@@ -163,6 +168,9 @@ def test_main_exits_nonzero_when_managed_host_remains_running(monkeypatch):
     result = click.testing.CliRunner().invoke(stop_module.main, ["--stop-managed-hosts"])
 
     assert result.exit_code == 1
+    # The generic crash handler also exits 1; the failure must be the
+    # reported stop result, not a crash before stop ran.
+    assert "Unexpected error" not in result.output, result.output
 
 
 def test_main_exits_nonzero_when_requested_hosts_cleanup_fails(monkeypatch):
@@ -184,6 +192,9 @@ def test_main_exits_nonzero_when_requested_hosts_cleanup_fails(monkeypatch):
     result = click.testing.CliRunner().invoke(stop_module.main, ["--clean-hosts"])
 
     assert result.exit_code == 1
+    # The generic crash handler also exits 1; the failure must be the
+    # reported stop result, not a crash before stop ran.
+    assert "Unexpected error" not in result.output, result.output
     assert "stopped successfully" not in result.output
     assert "completed with errors" in result.output
 
@@ -349,6 +360,9 @@ def test_main_exits_nonzero_when_compose_version_preflight_fails(monkeypatch):
     result = click.testing.CliRunner().invoke(stop_module.main, ["--stop-managed-hosts"])
 
     assert result.exit_code == 1
+    # The generic crash handler also exits 1; the failure must be the
+    # reported stop result, not a crash before stop ran.
+    assert "Unexpected error" not in result.output, result.output
     assert native_stops == ["comfyui", "vllm", "blender"]
 
 

@@ -31,7 +31,7 @@ capabilities:
   - name: "Hermes API and dashboard authentication"
     status: partial
     verification: documented
-    note: "The OpenAI-compatible API uses HERMES_API_KEY, but the direct dashboard and CORS-only hermes.localhost route default to upstream insecure dashboard mode without an Atlas authentication proxy."
+    note: "The OpenAI-compatible API uses HERMES_API_KEY and hermes.localhost requires the Kong dashboard Basic credential, but the dashboard runs in upstream insecure mode, so the direct host port and backend-network peers reach it without authentication."
   - name: "Agent workspace persistence"
     status: partial
     verification: documented
@@ -98,7 +98,7 @@ env:
     description: "Embed PTY-backed Chat tab in dashboard. 1 = on, 0 = read-only."
   - name: HERMES_DASHBOARD_INSECURE
     default: true
-    description: "Allow the dashboard to bind to its non-loopback container address (0.0.0.0) without a Nous Portal OAuth provider. Required since the upstream image stopped implicitly inferring insecure mode from the bind host; without it the dashboard fails closed and s6 restart-loops it. Safe here: the dashboard binds inside the isolated backend-network and is only reachable via the localhost host-port + Kong. Set to false (and provide HERMES_DASHBOARD_OAUTH_CLIENT_ID) to enforce the OAuth auth gate instead."
+    description: "Allow the dashboard to bind to its non-loopback container address (0.0.0.0) without a Nous Portal OAuth provider. Required since the upstream image stopped implicitly inferring insecure mode from the bind host; without it the dashboard fails closed and s6 restart-loops it. The dashboard then has no login of its own: Kong's hermes.localhost route requires the dashboard Basic credential, but the direct host port (loopback unless HOST_BIND_IP is widened) and other backend-network containers reach it unauthenticated. Set to false (and provide HERMES_DASHBOARD_OAUTH_CLIENT_ID) to enforce the OAuth auth gate instead."
   - name: HERMES_UID
     default: 10000
     description: "Container user — match a host UID to read hermes-data from outside."
@@ -233,8 +233,6 @@ runtime_deps:
     - chatterbox
     - comfyui
     - searxng
-    info_message: Hermes enabled - will wire optional services into /opt/data/config.yaml
-      when available (parakeet, speaches, chatterbox, comfyui, searxng)
 
 data_flow:
   calls:

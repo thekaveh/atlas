@@ -12,7 +12,7 @@ The first Atlas slice is intentionally narrow: one single-node coordinator, one 
 
 | Surface | URL | Notes |
 |---|---|---|
-| Kong | `http://trino.localhost:${KONG_HTTP_PORT}` | Routed only when `TRINO_SOURCE=container`. |
+| Kong | `http://trino.localhost:${KONG_HTTP_PORT}` | Routed only when `TRINO_SOURCE=container`. Kong checks the dashboard Basic credential and strips it before forwarding (Trino rejects any password over plain HTTP); the coordinator runs with `http-server.process-forwarded=true` (via `JAVA_TOOL_OPTIONS`) so it accepts Kong's `X-Forwarded-*` headers instead of answering 406. |
 | Direct | `http://localhost:${TRINO_PORT}` | Coordinator UI and HTTP API. |
 | In-network | `http://trino:8080` | Use from notebooks, Zeppelin JDBC, Airflow tasks, and other containers. |
 

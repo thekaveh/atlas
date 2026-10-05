@@ -311,17 +311,33 @@ def test_exact_weaviate_138_status_enum(status: str, kind: str):
     assert _module().weaviate_status_kind(status) == kind
 
 
-def test_restore_rejects_unbounded_limits_and_unsafe_test_root(tmp_path: Path):
+_SAFE_RESTORE_ROOT = "/tmp/atlas-database-restore-test-" + "e" * 32
+
+
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ({"BACKUP_COMMAND_TIMEOUT_SECONDS": "86401"}, "timeout"),
+        ({"BACKUP_MAX_DATABASE_ARCHIVE_BYTES": "1099511627777"}, "archive"),
+        ({"DATABASE_RESTORE_ROOT": _SAFE_RESTORE_ROOT + "/../escape"}, "restore root"),
+    ],
+    ids=["timeout", "archive-cap", "restore-root-escape"],
+)
+def test_restore_rejects_unbounded_limits_and_unsafe_test_root(
+    tmp_path: Path, override: dict, message: str
+):
+    # One bad input per case: the script exits at the first failed check, so
+    # combining them only ever exercised the timeout check.
     env = {
         **os.environ,
         "BACKUP_TIMESTAMP": "20260830_010203", "BACKUP_RESTORE_TOKEN": "e" * 32,
         "BACKUP_MANIFEST_HMAC_KEY": "f" * 64, "BACKUP_DEPLOYMENT_ID": "test",
-        "BACKUP_COMMAND_TIMEOUT_SECONDS": "86401", "BACKUP_MAX_DATABASE_ARCHIVE_BYTES": "1099511627777",
-        "DATABASE_RESTORE_ROOT": "/tmp/atlas-database-restore-test-" + "e" * 32 + "/../escape",
+        "DATABASE_RESTORE_ROOT": _SAFE_RESTORE_ROOT,
+        **override,
     }
     result = subprocess.run(["sh", str(RESTORE_SCRIPT), "prepare"], env=env, text=True, capture_output=True)
-    assert result.returncode == 64
-    assert "timeout" in result.stderr or "archive" in result.stderr or "restore root" in result.stderr
+    assert result.returncode == 64, result.stderr
+    assert message in result.stderr, result.stderr
 
 
 def test_prepared_plan_parser_requires_exact_correlated_values():

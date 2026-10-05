@@ -6,6 +6,7 @@ from typing import Any
 
 import yaml
 
+from docs.deps_resolver import _AGGREGATE_DOC_FOLDERS, doc_folder_to_manifests
 from services.manifests import Manifest, call_edges, load_manifests
 from services.topology import get_topology
 
@@ -122,14 +123,23 @@ def _track_membership(
     all_track_keys = {track.key for track in tracks}
     curated_track_keys = {track.key for track in tracks if not track.all_services and track.services}
 
+    # tracks.py's always-on tier ({llm-provider, prometheus, grafana}) is in
+    # every track; llm-provider is the role Ollama fills.
+    always_on = {"ollama", "llm-provider", "prometheus", "grafana"}
+    aggregate_members = {m for members in _AGGREGATE_DOC_FOLDERS.values() for m in members}
+
     for track in tracks:
         if track.all_services:
             for name in names:
                 membership[name].add(track.key)
             continue
-        for service in track.services:
-            if service in membership:
-                membership[service].add(track.key)
+        listed = set(track.services) | always_on
+        for service in listed:
+            # A role folder (tts-provider, doc-processor, ...) stands for the
+            # manifests that implement it.
+            for member in {service, *doc_folder_to_manifests(service)}:
+                if member in membership:
+                    membership[member].add(track.key)
 
     for name, manifest in manifests.items():
         if (
@@ -142,6 +152,9 @@ def _track_membership(
             # not wizard-selectable services. They belong to the unfiltered
             # `all` view only; assigning every curated track would imply that
             # each track enables them independently.
+            continue
+        if name in aggregate_members:
+            # No SOURCE of its own: it follows its role's track membership.
             continue
         if manifest.sources is None or len(manifest.sources.options) <= 1:
             membership.setdefault(name, set()).update(curated_track_keys)
@@ -248,12 +261,58 @@ def _readme_path(root: Path, services_dir: Path, name: str, manifest: Manifest |
     return services_dir / name / "README.md"
 
 
+def _template_defaults(path: Path) -> dict[str, str]:
+    """Values as written in the generated ``.env.example``.
+
+    The template is the canonical rendering: slot-allocated ports, lower-case
+    booleans and model-resolver defaults that the raw manifest default lacks.
+    """
+    if not path.is_file():
+        return {}
+    values: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line and not line.startswith("#") and "=" in line:
+            key, _, value = line.partition("=")
+            values[key.strip()] = value
+    return values
+
+
+def _manifest_default(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _env_surfaces(manifest: Manifest, template: dict[str, str]) -> list[EnvVarSurface]:
+    surfaces = [
+        EnvVarSurface(
+            name=env.name,
+            default=template.get(env.name, _manifest_default(env.default)),
+            description=env.description,
+        )
+        for env in manifest.env
+    ]
+    # Image references are env vars in .env.example too.
+    surfaces.extend(
+        EnvVarSurface(
+            name=image.var,
+            default=template.get(image.var, image.default),
+            description=image.notes or f"Container image for `{image.container}`.",
+        )
+        for image in manifest.images
+    )
+    return surfaces
+
+
 def _manifest_docs(root: Path, tracks: list[TrackPage]) -> list[ServicePage]:
     services_dir = root / "services"
     manifests = {manifest.name: manifest for manifest in load_manifests(services_dir)}
     service_dirs = _service_dirs(services_dir)
     membership = _track_membership(set(service_dirs), tracks, manifests)
     topology = _topology_lookup(services_dir)
+    template = _template_defaults(root / ".env.example")
     docs: list[ServicePage] = []
 
     for name in sorted(service_dirs):
@@ -276,18 +335,7 @@ def _manifest_docs(root: Path, tracks: list[TrackPage]) -> list[ServicePage]:
             list(topological.get("aliases", []))
             + (list(manifest.extra_kong_aliases) if manifest else [])
         )
-        env_vars = (
-            [
-                EnvVarSurface(
-                    name=env.name,
-                    default="" if env.default is None else str(env.default),
-                    description=env.description,
-                )
-                for env in manifest.env
-            ]
-            if manifest
-            else []
-        )
+        env_vars = _env_surfaces(manifest, template) if manifest else []
         port_vars = [env.name for env in manifest.env if env.name.endswith("_PORT")] if manifest else []
         diagram_svg = services_dir / name / "architecture.svg"
         diagram_html = services_dir / name / "architecture.html"

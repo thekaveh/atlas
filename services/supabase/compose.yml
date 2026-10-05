@@ -116,7 +116,7 @@ services:
       PG_META_DB_USER: ${SUPABASE_META_DB_USER:?SUPABASE_META_DB_USER is required}
       PG_META_DB_PASSWORD: ${SUPABASE_META_DB_PASSWORD:?SUPABASE_META_DB_PASSWORD is required}
     ports:
-      - "${HOST_BIND_IP:-}${SUPABASE_META_PORT}:8080"
+      - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_META_PORT}:8080"
     logging:
       driver: json-file
       options:
@@ -148,7 +148,7 @@ services:
       POSTGREST_URL: http://supabase-api:3000
       GOTRUE_URL: http://supabase-auth:9999
     ports:
-      - "${HOST_BIND_IP:-}${SUPABASE_STORAGE_PORT}:5000"
+      - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_STORAGE_PORT}:5000"
     volumes:
       - supabase-storage-data:/var/lib/storage
     logging:
@@ -189,7 +189,7 @@ services:
       GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
       GOTRUE_SITE_NAME: "Local Supabase"
     ports:
-      - "${HOST_BIND_IP:-}${SUPABASE_AUTH_PORT}:9999"
+      - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_AUTH_PORT}:9999"
     logging:
       driver: json-file
       options:
@@ -212,7 +212,7 @@ services:
       PGRST_JWT_SECRET: ${SUPABASE_JWT_SECRET}
       PGRST_DB_USE_LEGACY_GUCS: "false"
     ports:
-      - "${HOST_BIND_IP:-}${SUPABASE_API_PORT}:3000"
+      - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_API_PORT}:3000"
     logging:
       driver: json-file
       options:
@@ -238,7 +238,6 @@ services:
       DB_NAME: ${SUPABASE_DB_NAME}
       DB_USER: ${SUPABASE_REALTIME_DB_USER:?SUPABASE_REALTIME_DB_USER is required}
       DB_PASSWORD: ${SUPABASE_REALTIME_DB_PASSWORD:?SUPABASE_REALTIME_DB_PASSWORD is required}
-      DB_SLOT: supabase_realtime_slot
       DB_CHANNEL_ENABLED: "true"
       JWT_SECRET: ${SUPABASE_JWT_SECRET}
       JWT_ROLE: service_role
@@ -273,7 +272,7 @@ services:
       DNS_NODES: supabase-realtime-noop.invalid
       APP_NAME: realtime
     ports:
-      - "${HOST_BIND_IP:-}${SUPABASE_REALTIME_PORT}:4000"
+      - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_REALTIME_PORT}:4000"
     logging:
       driver: json-file
       options:
@@ -321,7 +320,7 @@ services:
       POSTGRES_PASSWORD: ${SUPABASE_META_DB_PASSWORD_URI:?SUPABASE_META_DB_PASSWORD_URI is required}
       HOSTNAME: 0.0.0.0
     ports:
-      - "${HOST_BIND_IP:-}${SUPABASE_STUDIO_PORT}:3000"
+      - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_STUDIO_PORT}:3000"
     healthcheck:
       test: ["CMD-SHELL", "node -e 'require(\"net\").createConnection({port:3000,host:\"localhost\"},()=>process.exit(0)).on(\"error\",()=>process.exit(1))'"]
       interval: 30s
@@ -353,7 +352,7 @@ services:
       # turning it off removes the recurring error without losing useful series.
       PG_EXPORTER_DISABLE_SETTINGS_METRICS: "true"
     ports:
-      - "${HOST_BIND_IP:-}${POSTGRES_EXPORTER_PORT}:9187"
+      - "${HOST_BIND_IP-127.0.0.1:}${POSTGRES_EXPORTER_PORT}:9187"
     depends_on:
       supabase-db:
         condition: service_healthy

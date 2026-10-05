@@ -5,8 +5,8 @@ services:
     image: ${KONG_API_GATEWAY_IMAGE}
     restart: unless-stopped
     ports:
-      - "${HOST_BIND_IP:-}${KONG_HTTP_PORT}:8000/tcp"
-      - "${HOST_BIND_IP:-}${KONG_HTTPS_PORT}:8443/tcp"
+      - "${HOST_BIND_IP-127.0.0.1:}${KONG_HTTP_PORT}:8000/tcp"
+      - "${HOST_BIND_IP-127.0.0.1:}${KONG_HTTPS_PORT}:8443/tcp"
     expose:
       # Kong Status API + /metrics endpoint (Prometheus plugin). Not
       # mapped to a host port — only the in-network Prometheus container
@@ -29,6 +29,10 @@ services:
         condition: service_started
     environment:
       KONG_DATABASE: "off"
+      # Host->container port map, so X-Forwarded-Port (and every upstream
+      # that builds absolute URLs from it, e.g. Trino's redirects and query
+      # nextUri) carries the published port instead of 8000.
+      KONG_PORT_MAPS: "${KONG_HTTP_PORT}:8000,${KONG_HTTPS_PORT}:8443"
       KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
       KONG_DNS_ORDER: LAST,A,CNAME
       # Tight DNS retry/TTL settings so Kong recovers fast when a

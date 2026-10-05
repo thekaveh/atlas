@@ -103,7 +103,7 @@ def test_redpanda_compose_and_topic_init_contract() -> None:
     assert broker["image"] == "${REDPANDA_IMAGE:-docker.redpanda.com/redpandadata/redpanda:v26.1.12}"
     assert broker["container_name"] == "${PROJECT_NAME}-redpanda"
     assert broker["deploy"]["replicas"] == "${REDPANDA_SCALE:-0}"
-    assert broker["ports"] == ["${HOST_BIND_IP:-}${REDPANDA_KAFKA_PORT}:19092"]
+    assert broker["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${REDPANDA_KAFKA_PORT}:19092"]
     assert "redpanda-data:/var/lib/redpanda/data" in broker["volumes"]
     command = broker["command"]
     assert "--kafka-addr" in command
@@ -123,7 +123,7 @@ def test_redpanda_compose_and_topic_init_contract() -> None:
     assert "-X brokers=redpanda:9092" in script
 
     assert console["image"] == "${REDPANDA_CONSOLE_IMAGE:-docker.redpanda.com/redpandadata/console:v3.8.0}"
-    assert console["ports"] == ["${HOST_BIND_IP:-}${REDPANDA_CONSOLE_PORT}:8080"]
+    assert console["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${REDPANDA_CONSOLE_PORT}:8080"]
     assert console["deploy"]["replicas"] == "${REDPANDA_CONSOLE_SCALE:-0}"
     assert console["depends_on"]["redpanda"]["condition"] == "service_healthy"
     assert "KAFKA_BROKERS" in console["environment"]

@@ -122,6 +122,12 @@ Kong handles multiple authentication schemes:
 - **Basic Authentication**: Used for protected admin interfaces
 - **Pass-through Authentication**: For services that handle their own auth
 
+On a Basic-auth route Kong reads the dashboard credential from `Authorization` or `Proxy-Authorization`. Clients that need `Authorization` for the service's own token (Crawl4AI's `Bearer`, Label Studio's `Token`, Langfuse's public-API `Basic pk:sk`) send the dashboard credential as `Proxy-Authorization: Basic …` alongside it. Trino's route strips the credential before forwarding (`hide_credentials`), because Trino rejects any password over plain HTTP.
+
+### 5.1. Forwarded headers
+
+Kong runs with `KONG_PORT_MAPS=${KONG_HTTP_PORT}:8000,${KONG_HTTPS_PORT}:8443`, so `X-Forwarded-Port` carries the published port and upstreams that build absolute URLs from it (Trino redirects and `nextUri`) point back at Kong. Kong sets `X-Forwarded-Host` itself, without a port, and overwrites any value a plugin adds; the n8n route therefore also adds an RFC 7239 `Forwarded: host=n8n.localhost:<port>;proto=http` header, which n8n's editor origin check reads first.
+
 ## 6. CORS Handling
 
 All services automatically get CORS plugin configuration for cross-origin requests:

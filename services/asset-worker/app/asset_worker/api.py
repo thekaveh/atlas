@@ -94,6 +94,12 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
                     content={"detail": "Asset worker is busy; retry later"},
                 )
             admitted = True
+            if _declared_body_too_large(request):
+                app.state.transform_semaphore.release()
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": f"GLB exceeds {_max_input_bytes()} byte limit"},
+                )
         work = asyncio.create_task(call_next(request))
         try:
             return await _join_request_task(work)
@@ -261,6 +267,24 @@ def _copy_upload_to_path(source, path: Path) -> None:
                 )
             stream.write(chunk)
     _enforce_input_size(total)
+
+
+# Multipart framing and form fields on top of the GLB itself.
+_MULTIPART_OVERHEAD_BYTES = 1024 * 1024
+
+
+def _declared_body_too_large(request: Request) -> bool:
+    """Reject an oversized declared body before Starlette spools it to disk.
+
+    The form parser buffers the whole multipart body before the handler's
+    chunked copy runs, so without this a huge upload fills the temp disk
+    first. Chunked bodies without Content-Length still meet the handler cap.
+    """
+    try:
+        declared = int(request.headers.get("content-length", ""))
+    except ValueError:
+        return False
+    return declared > _max_input_bytes() + _MULTIPART_OVERHEAD_BYTES
 
 
 def _max_input_bytes() -> int:

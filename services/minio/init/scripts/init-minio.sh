@@ -156,12 +156,13 @@ printf '%s\n' "$consumer_entries" | while IFS= read -r entry; do
   "Statement": [
     {
       "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject",
+                 "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
       "Resource": [${object_resources}]
     },
     {
       "Effect": "Allow",
-      "Action": ["s3:ListBucket"],
+      "Action": ["s3:ListBucket", "s3:ListBucketMultipartUploads", "s3:GetBucketLocation"],
       "Resource": [${bucket_resources}]
     }${read_only_statements}
   ]

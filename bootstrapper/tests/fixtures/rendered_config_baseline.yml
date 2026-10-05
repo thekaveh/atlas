@@ -1091,7 +1091,6 @@ services:
     - flower
     - --address=0.0.0.0
     - --port=5555
-    - --basic-auth=kong_admin:kong_password
     container_name: atlas-flower
     depends_on:
       celery-worker:
@@ -1104,6 +1103,7 @@ services:
       replicas: 0
     environment:
       CELERY_BROKER_URL: ''
+      FLOWER_BASIC_AUTH: kong_admin:kong_password
     healthcheck:
       test:
       - CMD-SHELL
@@ -1620,6 +1620,7 @@ services:
       KONG_NGINX_PROXY_PROXY_CACHE: 'off'
       KONG_NGINX_PROXY_TCP_NODELAY: 'on'
       KONG_NGINX_PROXY_TCP_NOPUSH: 'on'
+      KONG_PORT_MAPS: 63000:8000,63001:8443
       KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,rate-limiting,pre-function,prometheus
       KONG_PROXY_ACCESS_LOG: /dev/stdout atlas
       KONG_PROXY_READ_TIMEOUT: '300'
@@ -2155,6 +2156,9 @@ services:
       LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
       LITELLM_MASTER_KEY: ''
+      NEO4J_LOCALHOST_HTTP_PORT: '7474'
+    extra_hosts:
+    - host.docker.internal=
     image: atlas-lightrag-init:local
     networks:
       backend-network: null
@@ -2412,7 +2416,7 @@ services:
         DEPLOYMENT_ENV: local
         VITE_AUTH0_CLIENT_ID: ''
         VITE_AUTH0_DOMAIN: ''
-        VITE_BACKEND_API_URL: http://graphbuilder-api.localhost:63000
+        VITE_BACKEND_API_URL: http://graphbuilder.localhost:63000/atlas-api
         VITE_BATCH_SIZE: '2'
         VITE_CHAT_MODES: vector,graph_vector,graph,fulltext,graph_vector_fulltext,entity_vector,global_vector
         VITE_CHUNK_OVERLAP: '20'
@@ -2741,7 +2745,8 @@ services:
       AWS_DEFAULT_REGION: us-east-1
       AWS_SECRET_ACCESS_KEY: ''
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
-      MLFLOW_SERVER_ALLOWED_HOSTS: mlflow,mlflow:5000,localhost,localhost:5000,localhost:63092,mlflow.localhost,mlflow.localhost:63000
+      MLFLOW_SERVER_ALLOWED_HOSTS: mlflow,mlflow:5000,localhost,localhost:5000,localhost:63092,127.0.0.1:63092,mlflow.localhost,mlflow.localhost:63000
+      MLFLOW_SERVER_CORS_ALLOWED_ORIGINS: http://mlflow.localhost:63000,http://localhost:63092,http://127.0.0.1:63092
     healthcheck:
       test:
       - CMD-SHELL
@@ -3633,12 +3638,12 @@ services:
     - --maxmemory-policy
     - volatile-lru
     container_name: atlas-redis
+    environment:
+      REDISCLI_AUTH: redis_password
     healthcheck:
       test:
       - CMD
       - redis-cli
-      - -a
-      - redis_password
       - ping
       timeout: 10s
       interval: 30s
@@ -3803,7 +3808,7 @@ services:
     deploy:
       replicas: 1
     environment:
-      FORCE_OWNERSHIP: '1'
+      FORCE_OWNERSHIP: 'false'
       SEARXNG_BASE_URL: http://localhost:63056
       SEARXNG_SECRET: ''
     healthcheck:
@@ -3862,7 +3867,7 @@ services:
     - --conf
     - spark.hadoop.fs.s3a.endpoint=http://minio:9000
     - --conf
-    - spark.hadoop.fs.s3a.access.key=minioadmin
+    - spark.hadoop.fs.s3a.access.key=
     - --conf
     - spark.hadoop.fs.s3a.secret.key=
     - --conf
@@ -3940,7 +3945,7 @@ services:
       replicas: 0
     environment:
       SPARK_HISTORY_OPTS: -Dspark.history.fs.logDirectory=s3a://spark-history/ -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000
-        -Dspark.hadoop.fs.s3a.access.key=minioadmin -Dspark.hadoop.fs.s3a.secret.key=
+        -Dspark.hadoop.fs.s3a.access.key= -Dspark.hadoop.fs.s3a.secret.key=
         -Dspark.hadoop.fs.s3a.path.style.access=true
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
     image: atlas-spark:local
@@ -4048,7 +4053,7 @@ services:
       \  <property><name>fs.s3a.path.style.access</name><value>true</value></property>\n\
       \  <property><name>fs.s3a.connection.ssl.enabled</name><value>false</value></property>\n\
       \  <property><name>fs.s3a.aws.credentials.provider</name><value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value></property>\n\
-      \  <property><name>fs.s3a.access.key</name><value>minioadmin</value></property>\n\
+      \  <property><name>fs.s3a.access.key</name><value></value></property>\n\
       \  <property><name>fs.s3a.secret.key</name><value></value></property>\n</configuration>\n\
       EOF\nexec /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077\
       \ --webui-port 8081\n"
@@ -4066,7 +4071,7 @@ services:
     - /bin/bash
     - -lc
     environment:
-      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_ACCESS_KEY_ID: ''
       AWS_ENDPOINT_URL_S3: http://minio:9000
       AWS_REGION: us-east-1
       AWS_SECRET_ACCESS_KEY: ''
@@ -4323,7 +4328,6 @@ services:
       DB_NAME: postgres
       DB_PASSWORD: atlas-db-password
       DB_PORT: '5432'
-      DB_SLOT: supabase_realtime_slot
       DB_USER: atlas_realtime
       DNS_NODES: supabase-realtime-noop.invalid
       ERL_AFLAGS: -proto_dist inet_tcp
@@ -4651,6 +4655,7 @@ services:
     deploy:
       replicas: 0
     environment:
+      JAVA_TOOL_OPTIONS: -Dhttp-server.process-forwarded=true
       MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
       MINIO_ICEBERG_ACCESS_KEY: ''
       MINIO_ICEBERG_SECRET_KEY: ''

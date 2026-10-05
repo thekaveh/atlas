@@ -113,9 +113,19 @@ if [ "${MINIO_SOURCE}" = "container" ]; then
   # bucket-level S3 op. region_name avoids NoRegionError on newer
   # boto3. Mirrors the spark.hadoop.fs.s3a.path.style.access=true
   # already set on Spark's compose.
+  # json.dumps, not shell interpolation: a quote or backslash in the
+  # credentials made the extra invalid JSON, failing airflow-init (and so
+  # every Airflow container gated on it).
+  minio_extra=$(python3 -c 'import json, os; print(json.dumps({
+      "endpoint_url": "http://minio:9000",
+      "aws_access_key_id": os.environ["MINIO_ROOT_USER"],
+      "aws_secret_access_key": os.environ["MINIO_ROOT_PASSWORD"],
+      "region_name": "us-east-1",
+      "config_kwargs": {"s3": {"addressing_style": "path"}},
+  }))')
   add_conn minio_default \
     --conn-type aws \
-    --conn-extra "{\"endpoint_url\": \"http://minio:9000\", \"aws_access_key_id\": \"${MINIO_ROOT_USER}\", \"aws_secret_access_key\": \"${MINIO_ROOT_PASSWORD}\", \"region_name\": \"us-east-1\", \"config_kwargs\": {\"s3\": {\"addressing_style\": \"path\"}}}"
+    --conn-extra "$minio_extra"
 fi
 
 # OpenAIHook.get_conn() does:

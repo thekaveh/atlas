@@ -1732,6 +1732,13 @@ class ServiceConfig:
 
         return env_vars
     
+    def _neo4j_bolt_uri(self, neo4j_source: str) -> str:
+        """The source-aware Bolt URI NEO4J_URI carries, for other consumers."""
+        neo4j_uri = self.get_service_config('neo4j-graph-db', neo4j_source).get(
+            'environment', {}
+        ).get('NEO4J_URI') or 'bolt://neo4j-graph-db:7687'
+        return neo4j_uri.replace('host.docker.internal', self.localhost_host)
+
     def _generate_adaptive_services_config(self, all_env_vars: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         """Generate configuration for adaptive services."""
         env_vars = {}
@@ -1853,9 +1860,12 @@ class ServiceConfig:
             # Neo4j graph URI + credentials.
             neo4j_source = sources.get('NEO4J_GRAPH_DB_SOURCE', 'container')
             if neo4j_source != 'disabled':
-                # Neo4j compose service id is `neo4j-graph-db` (NOT `neo4j`).
-                # MUST match services/lightrag/service.yml::runtime_adaptive.
-                env_vars['LIGHTRAG_NEO4J_URI'] = 'bolt://neo4j-graph-db:7687'
+                # Same source-aware Bolt URI as NEO4J_URI: the container's
+                # compose id `neo4j-graph-db` (NOT `neo4j`), or the host's
+                # Bolt port for NEO4J_GRAPH_DB_SOURCE=localhost (runtime_sc in
+                # services/neo4j/service.yml). A fixed container URI broke
+                # LightRAG whenever Neo4j ran on the host.
+                env_vars['LIGHTRAG_NEO4J_URI'] = self._neo4j_bolt_uri(neo4j_source)
                 env_vars['LIGHTRAG_NEO4J_USERNAME'] = 'neo4j'
                 env_vars['LIGHTRAG_NEO4J_PASSWORD'] = lightrag_raw_env.get('GRAPH_DB_PASSWORD', '')
             else:

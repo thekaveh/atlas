@@ -495,6 +495,18 @@ class KeyGenerator:
             return True
         return self.update_env_key('CRAWL4AI_API_TOKEN', self.generate_crawl4ai_api_token())
 
+    def generate_and_update_openclaw_gateway_token(self, force: bool = False) -> bool:
+        """Generate OPENCLAW_GATEWAY_TOKEN when absent. Existing tokens stick.
+
+        With `--bind lan` the gateway refuses to run tokenless, so an empty
+        value made it mint a random per-start token nobody could read back,
+        locking the dashboard and API.
+        """
+        current_value = self.get_current_env_value('OPENCLAW_GATEWAY_TOKEN')
+        if not force and current_value:
+            return True
+        return self.update_env_key('OPENCLAW_GATEWAY_TOKEN', _cli_safe_token_urlsafe(32))
+
     def generate_and_update_supavisor_secrets(self, force: bool = False) -> Dict[str, bool]:
         """Generate Supavisor local-stack secrets when absent.
 
@@ -1200,6 +1212,7 @@ class KeyGenerator:
         # Crawl4AI Docker API bearer token — generated even when disabled so
         # enabling the service later does not require a manual secret edit.
         results['CRAWL4AI_API_TOKEN'] = self.generate_and_update_crawl4ai_api_token(force=False)
+        results['OPENCLAW_GATEWAY_TOKEN'] = self.generate_and_update_openclaw_gateway_token(force=False)
 
         # Backend's Ray routes accept arbitrary job entrypoints, so they always
         # require an application-layer bearer token even when Ray is disabled.

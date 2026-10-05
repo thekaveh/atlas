@@ -200,7 +200,7 @@ def test_langfuse_compose_contract() -> None:
     assert web["image"] == "${LANGFUSE_IMAGE:-langfuse/langfuse:3.115.0}"
     assert worker["image"] == "${LANGFUSE_WORKER_IMAGE:-langfuse/langfuse-worker:3.115.0}"
     assert clickhouse["image"] == "${LANGFUSE_CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:25.8.33.6}"
-    assert web["ports"] == ["${HOST_BIND_IP:-}${LANGFUSE_PORT}:3000"]
+    assert web["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${LANGFUSE_PORT}:3000"]
     assert "ports" not in clickhouse
     assert web["environment"]["LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT"] == "http://minio:9000"
     assert web["environment"]["LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT"] == "http://minio:9000"

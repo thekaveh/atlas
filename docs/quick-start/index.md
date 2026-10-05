@@ -4,7 +4,7 @@
 
 You need Docker with Docker Compose **v2.20.3 or newer** — the top-level `docker-compose.yml` merges the per-service fragments through Compose's native `include:` directive, which older releases do not support. v2.26+ is recommended. `./start.sh` checks this and stops with the detected version if it is too old.
 
-Run `./start.sh` from the repository root. The setup wizard walks through track selection, service SOURCE choices, base-port selection, host aliases, and the launch summary.
+Run `./start.sh` from the repository root. The setup wizard walks through track and profile selection, base port and project name, service SOURCE choices, host aliases, and the launch summary. It needs `uv` or Python 3.10+ (`./start.sh` prefers `uv run` and falls back to the system `python3`).
 
 ## 2. Common Paths
 

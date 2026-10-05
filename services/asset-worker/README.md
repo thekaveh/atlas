@@ -25,7 +25,7 @@ Every route except `GET /health` and `GET /metrics` requires `Authorization: Bea
 | `ASSET_WORKER_SOURCE` | `disabled` | Enables the containerized worker when set to `container`. |
 | `ASSET_WORKER_IMAGE` | `python:3.12.9-slim` | Base image for the local build. |
 | `ASSET_WORKER_GLTF_TRANSFORM_VERSION` | `4.5.0` | Expected pinned `@gltf-transform/cli` lock version. An override is a validation guard and must match both `package.json` and `package-lock.json`; update those files together when refreshing the dependency. |
-| `ASSET_WORKER_MAX_UPLOAD_MB` | `200` | Maximum uploaded or MinIO-referenced GLB size. Inputs are streamed and rejected with `413` before transformation when exceeded. |
+| `ASSET_WORKER_MAX_UPLOAD_MB` | `200` | Maximum uploaded or MinIO-referenced GLB size. Uploads whose declared `Content-Length` exceeds the limit (plus 1 MiB of multipart framing) are rejected with `413` before the body is read; other inputs are rejected with `413` before transformation. |
 | `ASSET_WORKER_TIMEOUT_SECONDS` | `300` | Per-command timeout for `inspect`, `validate`, and `optimize`. A timeout returns `504`. |
 | `ASSET_WORKER_CONCURRENCY` | `1` | Maximum concurrent mutation requests. A saturated worker rejects new work with `429` before acquiring its input. |
 | `ASSET_WORKER_PORT` | computed | Host port assigned by Atlas' topology allocator. |
@@ -67,7 +67,7 @@ curl -H "Authorization: Bearer ${ASSET_WORKER_API_TOKEN}" \
 | `simplify_ratio` | no | glTF-Transform simplification ratio from `0` to `1`. |
 | `draco` | no | Enables Draco mesh compression. |
 | `meshopt` | no | Enables Meshopt mesh compression when Draco is not selected. |
-| `ktx2` | no | Uses KTX2 texture compression; otherwise WebP is used. |
+| `ktx2` | no | Requests KTX2 texture compression; otherwise WebP is used. KTX2 needs the KTX-Software `ktx` binary, which the stock image does not include, so the request is rejected with `422` there. |
 | `collider_decimation` | no | collider decimation ratio used when `simplify_ratio` is absent. |
 
 ### 4.2. MinIO Referenced GLB
@@ -77,7 +77,7 @@ curl -H "Authorization: Bearer ${ASSET_WORKER_API_TOKEN}" \
 ```json
 {
   "input": {"bucket": "raw-assets", "key": "incoming/mesh.glb"},
-  "params": {"target_height_m": 1.8, "draco": true, "ktx2": true}
+  "params": {"target_height_m": 1.8, "draco": true}
 }
 ```
 
@@ -113,7 +113,7 @@ Both endpoints return a normalized artifact envelope:
     "simplify_ratio": 0.5,
     "draco": true,
     "meshopt": true,
-    "ktx2": true,
+    "ktx2": false,
     "collider_decimation": 0.25
   }
 }
@@ -175,6 +175,7 @@ _No high-confidence opportunities identified._
 - `gltf-transform validate` failure: inspect the raw provider output; invalid GLB input is rejected before storage.
 - `401 Invalid Asset Worker bearer token`: pass `Authorization: Bearer ${ASSET_WORKER_API_TOKEN}`.
 - `403 Input bucket is not allowed`: add the intended bucket to `ASSET_WORKER_ALLOWED_INPUT_BUCKETS`; do not broaden the list to unrelated or private buckets.
+- Dependency check fails with "Asset Worker requires MinIO": the container waits on `minio` and `minio-init`, and the `gen-ai-creative` track leaves MinIO off. Add `--minio-source container` (for example `./start.sh --track gen-ai-creative --asset-worker-source container --minio-source container`), declare `MINIO_SOURCE: container` in a consumer manifest, or disable Asset Worker.
 - MinIO upload failure: confirm `MINIO_SOURCE=container`, `ASSET_WORKER_MINIO_BUCKET`, and the generated `MINIO_ASSET_WORKER_*` credentials.
 - Kong alias missing: confirm `ASSET_WORKER_SOURCE=container`, run `./start.sh --setup-hosts`, and regenerate routes through the normal startup flow.
 
@@ -184,7 +185,7 @@ Support tier: **experimental** — Capability contract declared (#967); no cited
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| Mechanical glTF conditioning | supported | tested | Atlas normalizes scale and grounding, validates GLB input, and applies glTF-Transform simplification plus Draco or Meshopt and WebP or KTX2 optimization. |
+| Mechanical glTF conditioning | supported | tested | Atlas normalizes scale and grounding, validates GLB input, and applies opt-in glTF-Transform simplification, Draco or Meshopt compression, and WebP texture compression (KTX2 needs KTX-Software, which the image does not ship). |
 | Bounded authenticated post-processing API | supported | tested | Upload, MinIO-reference, and artifact routes require the generated bearer token and enforce admission, upload-size, and subprocess-timeout bounds; health and metrics remain public. |
 | Content-addressed optimized artifacts | supported | tested | Optimized GLBs use SHA-256 keys in the scoped MinIO bucket by default, with an explicitly selected local-artifact fallback. |
 | Semantic orientation correction | partial | tested | The default trusts glTF Y-up orientation; callers may request explicit-axis or bounded auto reorientation, but product-specific notions of upright remain consumer policy. |

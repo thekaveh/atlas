@@ -123,15 +123,17 @@ services:
         condition: service_started
     environment:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}
+      # Flower reads FLOWER_* options from the environment; as --basic-auth
+      # the shared dashboard credential sat in the process argv for life.
+      FLOWER_BASIC_AUTH: ${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}
     command:
       - celery
       - --broker=${CELERY_BROKER_URL:-}
       - flower
       - --address=0.0.0.0
       - --port=5555
-      - --basic-auth=${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}
     ports:
-      - "${HOST_BIND_IP:-}${FLOWER_PORT}:5555"
+      - "${HOST_BIND_IP-127.0.0.1:}${FLOWER_PORT}:5555"
     healthcheck:
       test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request\nurllib.request.urlopen('http://localhost:5555/healthcheck', timeout=5).read()\nPY"]
       interval: 30s

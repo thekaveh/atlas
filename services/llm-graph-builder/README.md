@@ -6,9 +6,10 @@ Neo4j LLM Graph Builder is a disabled-by-default Atlas `apps` service for turnin
 Atlas builds the upstream Neo4j Labs React/FastAPI pair from a pinned git ref because the current upstream deployment path documents source builds rather than stable public official images. The pin is `LLM_GRAPH_BUILDER_REF=4a412f4688cf4096976045c019edc0a7f6ddcb6b`.
 
 ## 2. Access
-- Direct frontend URL: `http://localhost:${LLM_GRAPH_BUILDER_PORT}`
+- Direct frontend URL: `http://localhost:${LLM_GRAPH_BUILDER_PORT}` (the page loads, but its API calls go to the Kong origin below, so use the Kong URL for a working UI)
 - Kong frontend URL: `http://graphbuilder.localhost:${KONG_HTTP_PORT}`
-- Kong backend API URL: `http://graphbuilder-api.localhost:${KONG_HTTP_PORT}`
+- Browser API path: `http://graphbuilder.localhost:${KONG_HTTP_PORT}/atlas-api` (Kong strips `/atlas-api` and forwards to the backend). The frontend is built with this same-origin URL because the browser resends the Kong Basic credential only to the origin that challenged it; upstream axios sends no credentials cross-origin. Rebuild the frontend image (`docker compose build llm-graph-builder-frontend`) after upgrading so the new URL is baked in.
+- Kong backend API URL for scripts: `http://graphbuilder-api.localhost:${KONG_HTTP_PORT}`
 - Internal frontend URL: `http://llm-graph-builder-frontend:8080`
 - Internal backend URL: `http://llm-graph-builder-backend:8000`
 
@@ -82,7 +83,7 @@ This rollback leaves existing graph data untouched by design.
 
 ## 9. Troubleshooting
 - Kong route missing: confirm `LLM_GRAPH_BUILDER_SOURCE=container`, rerun `./start.sh`, and ensure `--setup-hosts` has added the aliases.
-- API calls fail in the browser: the frontend must use `graphbuilder-api.localhost`, not the internal Docker hostname.
+- API calls fail in the browser (401 or CORS): open the UI at `http://graphbuilder.localhost:${KONG_HTTP_PORT}`; the frontend calls the same-origin `/atlas-api` path, and an image built before that change still targets `graphbuilder-api.localhost`, so rebuild it with `docker compose build llm-graph-builder-frontend`.
 - Model selector errors: confirm `LLM_GRAPH_BUILDER_LITELLM_MODEL_CONFIG` is generated and that the selected LiteLLM model exists.
 - Neo4j connection fails: use in-stack `NEO4J_GRAPH_DB_SOURCE=container` for this first slice.
 - Poor graph quality: choose a stronger structured-extraction model via `LLM_GRAPH_BUILDER_LLM_MODEL`.

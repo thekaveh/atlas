@@ -7,8 +7,13 @@ services:
     deploy:
       replicas: ${TRINO_SCALE:-0}
     ports:
-      - "${HOST_BIND_IP:-}${TRINO_PORT}:8080"
+      - "${HOST_BIND_IP-127.0.0.1:}${TRINO_PORT}:8080"
     environment:
+      # Kong always adds X-Forwarded-* headers; Trino rejects them with 406
+      # unless forwarded-header processing is on. Set as a JVM system
+      # property (Airlift reads those as config) so the image's own
+      # config.properties stays untouched.
+      JAVA_TOOL_OPTIONS: -Dhttp-server.process-forwarded=true
       MINIO_REGION: ${MINIO_REGION:-us-east-1}
       # Same bucket iceberg-rest, Spark and minio-init use (catalog/lakehouse.properties).
       MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}

@@ -1,3 +1,5 @@
+import pytest
+
 from scripts.docs.links import find_links, is_forbidden, navigable_link_targets
 
 
@@ -51,3 +53,21 @@ def test_navigable_links_include_commonmark_autolinks_and_raw_html_anchors() -> 
         "https://example.com/guide",
         "guide.md?one=1&two=2",
     ]
+
+
+@pytest.mark.parametrize("surface", ["site", "wiki"])
+@pytest.mark.parametrize(
+    ("target", "forbidden"),
+    [
+        ("https://github.com/thekaveh/atlas", True),
+        ("https://github.com/thekaveh/atlas/tree/main/docs", True),
+        # Issues and pulls are references, not a documentation surface.
+        ("https://github.com/thekaveh/atlas/issues", False),
+        ("https://github.com/thekaveh/atlas/issues/new", False),
+        ("https://github.com/thekaveh/atlas/pull/505", False),
+    ],
+)
+def test_only_repo_documentation_paths_are_cross_surface(
+    surface: str, target: str, forbidden: bool
+) -> None:
+    assert is_forbidden(target, surface) is forbidden

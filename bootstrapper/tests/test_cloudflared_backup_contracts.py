@@ -11,6 +11,7 @@ import hmac
 import importlib.util
 import json
 import os
+import re
 import shutil
 import signal
 import stat
@@ -612,7 +613,7 @@ def test_local_s3_mode_refuses_to_send_minio_root_credentials_to_remote_endpoint
         ("https://a..b", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
         (f"https://{'a' * 64}.example", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
         (f"https://{'a.' * 126}aa", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
-        ("https://2001:db8::1", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
+        ("https://[2001:db8::1", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
         ("https://s3.example.test:0443", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
         ("http://s3.example.test", "false", "us-east-1", "BACKUP_S3_TLS_VERIFY"),
         ("https://s3.example.test", "maybe", "us-east-1", "BACKUP_S3_TLS_VERIFY"),
@@ -5318,3 +5319,49 @@ def test_owned_helper_reconciles_certain_resource_after_interrupt(
         owned.cleanup()
 
     assert attempted == [name, name]
+
+
+def test_s3_client_config_is_never_inside_the_published_artifact_root() -> None:
+    """The mc config dir must not sit under $WORK.
+
+    `mc alias import` persists the S3 access key, secret key and session token
+    in plaintext under MC_CONFIG_DIR. The artifact upload is
+    `mc cp --recursive "$WORK/" ...`, so any path under $WORK is published into
+    the backup bucket, and the cleanup trap only removes it at exit -- after
+    the upload has already run. Keeping the config dir outside $WORK is what
+    stops every backup from shipping the credentials that can read it.
+    """
+    script = (REPO / "services/backup/init/scripts/backup-all.sh").read_text(encoding="utf-8")
+
+    config_args = re.findall(r"^configure_backup_s3 (.+)$", script, re.MULTILINE)
+    assert config_args, "backup-all.sh no longer configures the S3 client"
+    assignments = dict(
+        re.findall(r'^([A-Z_][A-Z0-9_]*)="([^"]*)"$', script, re.MULTILINE)
+    )
+
+    def resolve(value: str) -> str:
+        # Expand script-level $NAME / ${NAME} so an indirection such as
+        # S3_CONFIG_DIR="${WORK}/s3" cannot hide the path from this check.
+        for _ in range(5):
+            value = re.sub(
+                r"\$\{?([A-Z_][A-Z0-9_]*)\}?",
+                lambda m: assignments.get(m.group(1), m.group(0)),
+                value,
+            )
+        return value.strip('"')
+
+    work = resolve(assignments["WORK"]).rstrip("/")
+    for arg in config_args:
+        resolved = resolve(arg)
+        assert resolved != work and not resolved.startswith(work + "/"), (
+            f"S3 client config {arg} ({resolved}) is inside the published "
+            f"artifact root {work}; mc cp --recursive would upload the "
+            "credentials into the backup bucket"
+        )
+
+    # And the recursive publish still targets $WORK, so the constraint above is
+    # the thing actually keeping the credentials out of the bucket.
+    assert re.search(r'mc cp --recursive "\$WORK/"', script), (
+        "artifact upload no longer publishes $WORK recursively -- re-derive "
+        "which directories reach the bucket before relaxing this contract"
+    )

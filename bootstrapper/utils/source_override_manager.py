@@ -206,9 +206,11 @@ class SourceOverrideManager:
             old_value = current.get(var_name, "")
             if old_value and old_value != new_value:
                 flag = '--' + var_name.lower().replace('_', '-')
+                # A --track run also disables off-track services through this
+                # same path, so the flag alone would name one never passed.
                 print(
                     f"⚠ {var_name}: {old_value} → {new_value} "
-                    f"(overridden by {flag}; persisted to .env)"
+                    f"(overridden by {flag} or the selected track; persisted to .env)"
                 )
 
     def update_env_file(self, overrides: Dict[str, str]) -> bool:

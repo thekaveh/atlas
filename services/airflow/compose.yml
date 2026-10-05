@@ -14,7 +14,7 @@ services:
           memory: ${AIRFLOW_WEBSERVER_MEMORY_LIMIT:-2g}
           cpus: "${AIRFLOW_WEBSERVER_CPU_LIMIT:-1.0}"
     ports:
-      - "${HOST_BIND_IP:-}${AIRFLOW_PORT}:8080"
+      - "${HOST_BIND_IP-127.0.0.1:}${AIRFLOW_PORT}:8080"
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER_URI:?AIRFLOW_DB_USER_URI is required}:${AIRFLOW_DB_PASSWORD_URI:?AIRFLOW_DB_PASSWORD_URI is required}@supabase-db:5432/airflow

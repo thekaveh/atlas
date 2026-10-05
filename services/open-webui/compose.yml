@@ -73,7 +73,7 @@ services:
       - ./extras/tools:/app/backend/data/tools
       - ./extras/functions:/app/backend/data/functions
     ports:
-      - "${HOST_BIND_IP:-}${OPEN_WEB_UI_PORT}:8080"
+      - "${HOST_BIND_IP-127.0.0.1:}${OPEN_WEB_UI_PORT}:8080"
     logging:
       driver: json-file
       options:

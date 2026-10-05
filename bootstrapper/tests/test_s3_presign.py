@@ -56,6 +56,28 @@ def test_known_answer_url_is_stable():
     assert "X-Amz-Credential=AKIAEXAMPLE%2F20260102%2Fus-east-1%2Fs3%2Faws4_request" in url
 
 
+def test_matches_the_aws_published_presigned_url_vector():
+    """AWS's own SigV4 query-auth example (S3 API reference, "Authenticating
+    Requests: Using Query Parameters"): an independent oracle, unlike the
+    self-captured literal above, which would lock in a pre-existing bug."""
+    url = presign_get_url(
+        endpoint="https://s3.amazonaws.com",
+        bucket="examplebucket",
+        key="test.txt",
+        expires=86400,
+        path_style=False,
+        now=datetime(2013, 5, 24, tzinfo=timezone.utc),
+        region="us-east-1",
+        access_key="AKIAIOSFODNN7EXAMPLE",
+        secret_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    )
+    assert url.startswith("https://examplebucket.s3.amazonaws.com/test.txt?")
+    assert url.endswith(
+        "&X-Amz-Signature="
+        "aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404"
+    )
+
+
 def test_signs_against_given_host_no_rewrite():
     """The host is part of the signature — changing BASE_PORT changes both.
 

@@ -364,8 +364,17 @@ def cancel_notice() -> str:
     )
 
 
-def launch_cancelled_notice() -> str:
-    """The pre-launch summary was declined, so nothing was started."""
+def launch_cancelled_notice(cold_start: bool = False) -> str:
+    """The pre-launch summary was declined, so nothing was started.
+
+    A cold start has already removed the volumes and recreated .env by the
+    time the summary is shown, so it must not claim no data was deleted.
+    """
+    if cold_start:
+        return (
+            "Launch cancelled — nothing was started · .env was recreated · "
+            "persistent data was already DELETED by the cold start (volumes removed)."
+        )
     return (
         f"Launch cancelled — nothing was started · {CANCEL.configuration} · "
         f"{CANCEL.data}."

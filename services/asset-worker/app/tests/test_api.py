@@ -282,6 +282,39 @@ def test_postprocess_rejects_oversize_upload_before_transform(
     assert transformed is False
 
 
+def test_postprocess_rejects_declared_oversize_body_before_parsing(
+    monkeypatch, tmp_path
+) -> None:
+    """Starlette spools the whole multipart body before the handler's cap runs."""
+    from asset_worker import api
+
+    parsed = False
+
+    async def fake_form(self, **kwargs):
+        nonlocal parsed
+        parsed = True
+        raise AssertionError("body must not be parsed")
+
+    monkeypatch.setattr("starlette.requests.Request.form", fake_form)
+    monkeypatch.setenv("ASSET_WORKER_MAX_UPLOAD_MB", "0.5")
+    monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
+    app_client = _client(api)
+
+    response = app_client.post(
+        "/gltf/postprocess",
+        files={"file": ("large.glb", b"x" * (2 * 1024 * 1024), "model/gltf-binary")},
+    )
+
+    assert response.status_code == 413
+    assert parsed is False
+    # The admission slot is released, so the next request is not refused as busy.
+    retry = app_client.post(
+        "/gltf/postprocess",
+        files={"file": ("large.glb", b"x" * (2 * 1024 * 1024), "model/gltf-binary")},
+    )
+    assert retry.status_code == 413
+
+
 def test_mutating_routes_require_bearer_token() -> None:
     from asset_worker import api
 

@@ -324,7 +324,10 @@ class DependencyManager:
             if not selected:
                 continue
             for required_service in rule.get('requires', []):
-                if self.get_service_scale(required_service) > 0:
+                if (
+                    self.get_service_scale(required_service) > 0
+                    or self._runs_off_compose(required_service)
+                ):
                     continue
                 violations.append({
                     'service': service_name,
@@ -397,13 +400,17 @@ class DependencyManager:
             if optional_deps:
                 available_optional = []
                 for optional_service in optional_deps:
-                    if self.get_service_scale(optional_service) > 0:
+                    if (
+                        self.get_service_scale(optional_service) > 0
+                        or self._runs_off_compose(optional_service)
+                    ):
                         available_optional.append(optional_service)
                         
                 if available_optional:
-                    info_msg = dep_config.get('info_message', 
-                        f"{service_name} will connect to: {', '.join(available_optional)}")
-                    print(f"[INFO] {info_msg}")
+                    # Name what is actually enabled: the manifests' fixed
+                    # info_message listed every optional service, disabled
+                    # ones included, as available.
+                    print(f"[INFO] {service_name} will connect to: {', '.join(available_optional)}")
                     
         return all_satisfied
         

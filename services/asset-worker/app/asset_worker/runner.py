@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -18,6 +19,13 @@ def run_gltf_transform(input_path: Path, output_path: Path, params: PostprocessP
     binary = os.getenv("ASSET_WORKER_GLTF_TRANSFORM_BIN", "gltf-transform")
     timeout = float(os.getenv("ASSET_WORKER_TIMEOUT_SECONDS", "300"))
     normalized = output_path.with_suffix(".normalized.glb")
+    if params.ktx2 and shutil.which("ktx") is None:
+        # gltf-transform's KTX2 encoder shells out to KTX-Software, which the
+        # image does not ship; fail with a clear 422 instead of "command failed".
+        raise GltfTransformError(
+            "ktx2 texture compression needs KTX-Software (`ktx`), which this "
+            "image does not include; use ktx2=false (WebP) instead"
+        )
     normalize_glb(input_path, normalized, params)
 
     try:
@@ -36,12 +44,18 @@ def run_gltf_transform(input_path: Path, output_path: Path, params: PostprocessP
             "--weld",
         ]
         ratio = params.effective_simplify_ratio
+        # gltf-transform 4.5 defaults --simplify to true and --compress to
+        # meshopt, so "not requested" must be spelled out as false.
         if ratio is not None:
-            command.extend(["--simplify", "--simplify-ratio", str(ratio)])
+            command.extend(["--simplify", "true", "--simplify-ratio", str(ratio)])
+        else:
+            command.extend(["--simplify", "false"])
         if params.draco:
             command.extend(["--compress", "draco"])
         elif params.meshopt:
             command.extend(["--compress", "meshopt"])
+        else:
+            command.extend(["--compress", "false"])
         if params.ktx2:
             command.extend(["--texture-compress", "ktx2"])
         else:

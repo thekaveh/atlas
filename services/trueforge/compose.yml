@@ -18,7 +18,7 @@ services:
       litellm:
         condition: service_healthy
     ports:
-      - "${HOST_BIND_IP:-}${TRUEFORGE_PORT}:8790"
+      - "${HOST_BIND_IP-127.0.0.1:}${TRUEFORGE_PORT}:8790"
     environment:
       NODE_ENV: production
       # Multi-process topology: Postgres + Redis (standalone mode is

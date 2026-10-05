@@ -203,7 +203,7 @@ storage:                                 # parent-owned MinIO buckets + scoped c
 
 **Reserved-namespace rules:** litellm aliases may not shadow a stack-owned model
 (runtime `hermes-agent`/`lightrag` + every catalog model name); n8n ids are
-namespaced `atlas-consumer-<id>`; a storage bucket may **not** be named `backend`
+namespaced `atlas-consumer-<id>`; a storage bucket may **not** reuse a built-in bucket name (`comfyui`, `backend`, `n8n`, `lakehouse`, and the others in `_BUILTIN_BUCKET_NAMES`)
 (a built-in). Unknown top-level keys are rejected. See
 [§6.1](#61-registering-a-parent-project-with-atlasconsumeryml) for the full key
 reference.
@@ -582,7 +582,7 @@ services:
       WEAVIATE_URL: "http://weaviate:8080"
       OPENAI_BASE_URL: "http://litellm:4000/v1"
     ports:
-      - "${HOST_BIND_IP:-}8090:8090"      # choose a free host port yourself
+      - "${HOST_BIND_IP-127.0.0.1:}8090:8090"      # choose a free host port yourself
     networks:
       - backend-network
 
@@ -592,7 +592,7 @@ networks:
     external: true
 ```
 
-**Scope note:** overlay services *launch*, but they are intentionally **not** wired into Atlas's wizard, topology port-allocator, or generated `.env.example` — you manage their image/ports/env directly in the fragment (use `${HOST_BIND_IP:-}` on published ports to inherit Atlas's loopback binding default). If you'd rather keep your service in its *own* repo entirely, use Method A instead (it joins the same network from outside).
+**Scope note:** overlay services *launch*, but they are intentionally **not** wired into Atlas's wizard, topology port-allocator, or generated `.env.example` — you manage their image/ports/env directly in the fragment (use `${HOST_BIND_IP-127.0.0.1:}` on published ports to inherit Atlas's loopback binding default). If you'd rather keep your service in its *own* repo entirely, use Method A instead (it joins the same network from outside).
 
 #### 6.1.2. Adding parent-owned MinIO buckets
 
@@ -824,7 +824,7 @@ See `services/supabase/db/_user/README.md` and
 
 The FastAPI backend exposes a **generic plugin seam** so you can mount your own API routes *into* it without forking `services/backend/`. On startup the backend calls `load_plugins(app)`, which scans `$BACKEND_PLUGINS_DIR` (default `/app/plugins`). An optional shared `$BACKEND_PLUGINS_DIR/requirements.txt` is installed first; then, for each immediate subdirectory that is an importable Python package exposing a module-level `router` (a FastAPI `APIRouter`), that plugin package's own optional `requirements.txt` is installed before the package is imported and included into the running app. A plugin whose requirements fail to install is logged with the requirements path and pip output, then skipped before import; a shared requirements failure skips plugin loading for that startup. Requirements install into a **writable plugin site** (`pip --target $BACKEND_PLUGINS_SITE_DIR`, default `/tmp/atlas-plugins-site`) that the seam pre-creates and prepends to `sys.path` before any plugin import — the image runs as `appuser` with root-owned site-packages and no `$HOME`, so untargeted installs would fail with `EACCES` (#559); no consumer-side tmpfs/`PYTHONUSERBASE` workaround is needed. The seam is a **no-op when the directory doesn't exist** (so base Atlas is unaffected), and a plugin that fails to import is logged and skipped — one bad plugin never crashes the backend.
 
-Plugins are installed and imported **at backend startup**, so **apply plugin changes by recreating the backend** (`docker compose up -d --force-recreate backend`) — a restart, not a hot reload, is the correct pickup path. The backend's dev auto-reloader is off by default (#679): with your `backend_plugins` dir bind-mounted, host-side git churn in that tree (a checkout, branch switch, or rebase) must **not** restart the running backend — that would kill in-flight requests and, under rapid churn, crash-loop the container. Set `BACKEND_DEV_RELOAD=true` only when you are actively editing plugin source and want live reloads.
+Plugins are installed and imported **at backend startup**, so **apply plugin changes by recreating the backend** (re-run `./start.sh --consumer <manifest>`; a bare `docker compose up -d --force-recreate backend` targets the wrong Compose project and drops the consumer overlay that mounts the plugins) — a restart, not a hot reload, is the correct pickup path. The backend's dev auto-reloader is off by default (#679): with your `backend_plugins` dir bind-mounted, host-side git churn in that tree (a checkout, branch switch, or rebase) must **not** restart the running backend — that would kill in-flight requests and, under rapid churn, crash-loop the container. Set `BACKEND_DEV_RELOAD=true` only when you are actively editing plugin source and want live reloads.
 
 To use it, mount a plugins directory into the backend container and (optionally) point `BACKEND_PLUGINS_DIR` at it. With a submodule/overlay layout you extend Atlas's `backend` service from your parent Compose:
 
@@ -909,7 +909,7 @@ env:
 
 **What the contract buys you:**
 
-- **Inventory.** `GET /plugins` on the backend lists every mounted plugin — name, route prefix, health/docs, auth policy, explicitly declared timeouts, declared env (secret values masked as `***`), and load status (`loaded` / `skipped` / `error`). Secret *values* are never exposed, but env-var names/flags are; `/plugins` is served under the backend route, so it inherits `BACKEND_KONG_AUTH` (open in local-dev default, gated once you set `key-auth`).
+- **Inventory.** `GET /plugins` on the backend lists every mounted plugin — name, route prefix, health/docs, auth policy, explicitly declared timeouts, declared env (secret values masked as `***`), and load status (`loaded` / `skipped` / `error`). Secret *values* are never exposed, but env-var names/flags are; `/plugins` requires a Backend service token (for example `BACKEND_INTERNAL_API_TOKEN`), independent of `BACKEND_KONG_AUTH`.
 - **Startup + preflight validation.** The seam validates declared env at boot, and [`./start.sh doctor`](#615-consumer-doctor-for-ci-preflight) re-validates it before launch: required-but-missing and enum/type mismatches are reported by plugin + var name. Secret values are never echoed.
 - **Fail-fast, isolated.** A present-but-malformed `plugin.yml` does **not** degrade to manifest-less loading — that one plugin is **skipped** with a structured error and the others stay healthy. Duplicate plugin names, overlapping prefixes, and prefixes that shadow one of the backend's reserved built-in route names are rejected before mounting; the reserved-name list is defined in the schema linked below.
 - **Per-plugin gateway and application auth.** `auth: key-auth` puts Kong key-auth on that plugin's `route_prefix` and validates the same `BACKEND_KONG_API_KEY` inside FastAPI, preventing direct-port bypass. `auth: open` is an explicit public opt-out. `auth: inherit`, and plugins without a manifest, use the Backend application identity boundary. Atlas composes the matching Kong policy per prefix; distinct per-prefix credentials remain a future extension.
@@ -1344,8 +1344,8 @@ rather than repeating them.
 ### 7.2. Pin instance identity in the manifest, not just `.env`
 
 `PROJECT_NAME` and `BASE_PORT` are your instance's identity. `.env` is
-**machine-local and disposable** — a cold start (`./stop.sh --cold` /
-`./start.sh --cold`) regenerates it from `.env.example`. `PROJECT_NAME` survives
+**machine-local and disposable** — a cold start (`./start.sh --cold`) regenerates it from `.env.example`
+(`./stop.sh --cold` removes volumes but keeps `.env`). `PROJECT_NAME` survives
 that regeneration (Atlas re-persists the previous value), but a non-default
 **`BASE_PORT` resets to the `63000` default** unless something re-supplies it —
 so an instance that carried its port block only in `.env` silently loses it on
@@ -1360,7 +1360,7 @@ ports are resolved:
 project_name: tableau          # top-level key → PROJECT_NAME
 env:
   values:
-    BASE_PORT: "63000"         # re-applied every start; survives cold .env regen
+    BASE_PORT: "63100"         # re-applied every start; survives cold .env regen
 ```
 
 **Inverse rule — do NOT put machine-specific *scalars* in `env.values`.** A

@@ -16,7 +16,7 @@ services:
     environment:
       JAVA_TOOL_OPTIONS: ${TIKA_JAVA_TOOL_OPTIONS:--Xmx768m}
     ports:
-      - "${HOST_BIND_IP:-}${TIKA_PORT}:9998"
+      - "${HOST_BIND_IP-127.0.0.1:}${TIKA_PORT}:9998"
     healthcheck:
       # apache/tika:3.3.1.0 ships bash but NOT curl/wget/nc — the old curl probe
       # could never succeed, leaving tika permanently `unhealthy`. Use a bash

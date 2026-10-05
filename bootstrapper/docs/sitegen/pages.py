@@ -223,7 +223,9 @@ ARCHITECTURE_EDGES: dict[str, list[tuple[str, str, str]]] = {
         ("LightRAG", "Neo4j", "graph"),
         ("MinIO", "Backend", "artifacts"),
         ("Weaviate", "Backend", "retrieve"),
-        ("Neo4j", "Backend", "relationships"),
+        # Backend reaches the graph through LightRAG; its direct neo4j call
+        # is `status: planned` in services/backend/service.yml.
+        ("LightRAG", "Backend", "graph retrieval"),
         ("Backend", "Open WebUI", "API"),
     ],
     "llm-provider-flow": [

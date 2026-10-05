@@ -69,7 +69,6 @@ def route_client():
         ("KONG_URL", "http://kong-api-gateway:8000"),
         ("SUPABASE_SERVICE_KEY", "dummy-key"),
         ("DATABASE_URL", "postgresql://x:x@localhost/x"),
-        ("BACKEND_IDENTITY_AUTH", "disabled"),
     ):
         os.environ.setdefault(var, default)
     from fastapi.testclient import TestClient

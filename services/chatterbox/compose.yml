@@ -32,7 +32,7 @@ services:
       # /root was never written, so models re-downloaded on every recreate.
       - chatterbox-cache:/cache
     ports:
-      - "${HOST_BIND_IP:-}${CHATTERBOX_PORT:-63059}:4123"
+      - "${HOST_BIND_IP-127.0.0.1:}${CHATTERBOX_PORT:-63059}:4123"
     networks:
       - backend-network
     # Chatterbox's docker/Dockerfile installs curl and exposes /health.

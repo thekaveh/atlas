@@ -101,6 +101,82 @@ def _profile_host_bind_overrides(
     return {}, prior_applied, switching
 
 
+def _ollama_is_engine(env: Dict[str, str]) -> bool:
+    return (env.get("LLM_PROVIDER_SOURCE") or "").strip().lower().startswith("ollama-")
+
+
+def _stale_ollama_default_keys(env: Dict[str, str]) -> set:
+    """Default-model keys naming ``ollama/*`` while Ollama is not the engine."""
+    if _ollama_is_engine(env):
+        return set()
+    return {
+        key for key in (
+            "LITELLM_DEFAULT_MODEL", "LITELLM_VISION_MODEL",
+            "LITELLM_EMBEDDING_MODEL", "LANGMEM_EMBEDDING_MODEL",
+        )
+        if (env.get(key) or "").strip().startswith("ollama/")
+    }
+
+
+def _embedding_replacement(env: Dict[str, str], stale: set) -> str:
+    """The embedding model the stale ``ollama/*`` embedding pair moves to.
+
+    A deliberate non-Ollama LangMem override wins, so the pair stays aligned
+    (``apply_user_model_selections`` refuses a misaligned pair); otherwise
+    the best active embedding model, or the already non-Ollama LiteLLM one.
+    """
+    from utils.model_resolver import best  # noqa: PLC0415
+
+    langmem = (env.get("LANGMEM_EMBEDDING_MODEL") or "").strip()
+    if langmem and "LANGMEM_EMBEDDING_MODEL" not in stale:
+        return langmem
+    if "LITELLM_EMBEDDING_MODEL" not in stale:
+        return (env.get("LITELLM_EMBEDDING_MODEL") or "").strip()
+    return best("embeddings", env) or ""
+
+
+def _ollama_default_replacements(env: Dict[str, str]) -> Dict[str, str]:
+    """Replacements for ``ollama/*`` default models when Ollama is not the
+    LLM engine (see ``AtlasStarter.reconcile_default_models``). Blank
+    resolutions are dropped: the end-of-run backfill would only restore the
+    template's ``ollama/*`` value in the same launch."""
+    from utils.cloud_providers import CLOUD_PROVIDERS  # noqa: PLC0415
+    from utils.model_resolver import resolved_defaults  # noqa: PLC0415
+
+    # The LITELLM_<PROVIDER>_ENABLED flags the resolver reads are written
+    # later (generate_service_configuration); derive them from this run's
+    # CLOUD_*_SOURCE values so a first launch, or a provider just toggled,
+    # is judged by what this launch will route.
+    env = {
+        **env,
+        **{
+            p.enabled_flag_var: "true" if env.get(p.source_var) == "enabled" else "false"
+            for p in CLOUD_PROVIDERS
+        },
+    }
+    stale = _stale_ollama_default_keys(env)
+    updates = {
+        key: value for key, value in resolved_defaults(env).items()
+        if key in stale and value
+    }
+    if not stale & {"LITELLM_EMBEDDING_MODEL", "LANGMEM_EMBEDDING_MODEL"}:
+        return updates
+    embedding = _embedding_replacement(env, stale)
+    if not embedding:
+        print(
+            "WARNING: the default embedding model names Ollama, which is not "
+            "enabled, and no active provider offers an embedding model; memory "
+            "and RAG embedding calls will fail until one is selected."
+        )
+        return updates
+    # Both keys are always passed so apply_user_model_selections recomputes
+    # LANGMEM_EMBEDDING_DIM for the pair.
+    updates["LITELLM_EMBEDDING_MODEL"] = embedding
+    if (env.get("LANGMEM_EMBEDDING_MODEL") or "").strip():
+        updates["LANGMEM_EMBEDDING_MODEL"] = embedding
+    return updates
+
+
 def _run_privileged_hosts_setup(non_interactive: bool = False) -> bool:
     """Run only the hosts-file mutation in a sudo child process.
 
@@ -205,6 +281,11 @@ _USER_OWNED_BLANKABLE: frozenset = frozenset({
     # is belt-and-braces: `services/n8n/compose.yml` substitutes its defaults
     # with `${N8N_INIT_NODES:-...}`, so a blank there is already harmless.
     "N8N_INIT_NODES",
+    # Blanked on purpose by ServiceConfig when MULTI2VEC_CLIP_SOURCE is
+    # disabled; refilling it here contradicted that decision every launch.
+    # ServiceConfig restores the URL itself when CLIP is enabled again (its
+    # `... or 'http://multi2vec-clip:8080'` treats a blank as unset).
+    "CLIP_INFERENCE_API",
 })
 
 
@@ -660,6 +741,42 @@ class AtlasStarter:
                 embedding_dimension_contract(effective_embed, configured_dimension)
             )
         return self.source_override_manager.update_env_file(selections)
+
+    def reconcile_default_models(self) -> bool:
+        """Repoint default models that name an inactive Ollama engine.
+
+        `.env.example` ships ``ollama/*`` chat, vision and embedding defaults.
+        The wizard's default-model steps replace them, but a CLI-flag or
+        consumer launch with ``LLM_PROVIDER_SOURCE=none`` kept them, and
+        LiteLLM registers only active models: every default chat and every
+        embedding call failed with "invalid model". Only ``ollama/*`` values
+        with no Ollama source are touched, so a deliberately chosen model is
+        never overwritten.
+        """
+        env = self.config_parser.parse_env_file()
+        replacements = _ollama_default_replacements(env)
+        changed = {
+            key: value for key, value in replacements.items() if value != env.get(key)
+        }
+        for key, value in sorted(changed.items()):
+            print(f"Default model {key}: {env.get(key)} -> {value} (Ollama is not enabled)")
+        # The embedding pair goes through the normal path, unchanged half
+        # included, so its dimension contract (LANGMEM_EMBEDDING_DIM)
+        # follows the new model.
+        if changed.keys() & {"LITELLM_EMBEDDING_MODEL", "LANGMEM_EMBEDDING_MODEL"}:
+            for key in ("LITELLM_EMBEDDING_MODEL", "LANGMEM_EMBEDDING_MODEL"):
+                if key in replacements:
+                    changed[key] = replacements[key]
+        if not changed:
+            return True
+        try:
+            return self.apply_user_model_selections(changed)
+        except ValueError as exc:
+            # An embedding contract that was already inconsistent (e.g. a
+            # custom model with no declared dimension) must not abort a launch
+            # this best-effort repair was never needed for.
+            print(f"WARNING: default models left unchanged: {exc}")
+            return True
 
     def validate_source_configurations(self) -> bool:
         """Validate all SOURCE configurations and scale values against YAML.
@@ -7154,6 +7271,11 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     raise click.ClickException(
                         f"track '{track}' force-disable synthesis failed: {exc}"
                     ) from exc
+                # The track may have been picked just above; record it (and
+                # its overrides) for the Kong dashboard's track labels, which
+                # were captured before this prompt ran.
+                starter.active_track = track
+                starter.active_track_overrides = frozenset(overridden_services)
 
         # CLI-flag mode + TUI capable: skip the wizard but still use the
         # Textual launch screen, pre-loaded with the user's CLI args.

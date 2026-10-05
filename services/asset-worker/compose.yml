@@ -31,7 +31,7 @@ services:
       ASSET_WORKER_MINIO_SECRET_KEY: ${ASSET_WORKER_MINIO_SECRET_KEY:-${MINIO_ASSET_WORKER_SECRET_KEY}}
       MINIO_REGION: ${MINIO_REGION:-us-east-1}
     ports:
-      - "${HOST_BIND_IP:-}${ASSET_WORKER_PORT}:8095"
+      - "${HOST_BIND_IP-127.0.0.1:}${ASSET_WORKER_PORT}:8095"
     volumes:
       - asset-worker-data:/data
     healthcheck:

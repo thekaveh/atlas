@@ -163,7 +163,10 @@ ensure_login() {
   # not `-v password=...`, which exposed every scoped password in the argv.
   ATLAS_SCOPED_ROLE_PASSWORD=$role_password
   export ATLAS_SCOPED_ROLE_PASSWORD
+  # The image ships log_statement=ddl, which would write the ALTER ROLE ...
+  # PASSWORD statement (plaintext secret) to the server log on every change.
   printf '%s\n' \
+    "SET log_statement = 'none';" \
     '\getenv password ATLAS_SCOPED_ROLE_PASSWORD' \
     "SELECT format('CREATE ROLE %I LOGIN', :'role')" \
     "WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'role') \\gexec" \

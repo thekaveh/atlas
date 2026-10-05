@@ -13,7 +13,7 @@ services:
     deploy:
       replicas: ${ICEBERG_REST_SCALE:-0}
     ports:
-      - "${HOST_BIND_IP:-}${ICEBERG_REST_PORT}:8181"
+      - "${HOST_BIND_IP-127.0.0.1:}${ICEBERG_REST_PORT}:8181"
     environment:
       REST_PORT: 8181
       AWS_REGION: ${MINIO_REGION:-us-east-1}

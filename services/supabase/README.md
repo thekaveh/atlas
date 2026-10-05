@@ -187,6 +187,8 @@ execute privilege is revoked from public API roles despite its required
 - Subscription management
 - Integration with frontend applications
 
+Realtime creates and manages its own logical replication slots. Database initialization no longer creates a separate `supabase_realtime_slot` (Realtime never used it, so it only retained WAL) and drops that slot on startup when it is idle.
+
 ### 4.6. Studio Dashboard
 
 **Protected access**: `http://supabase-studio.localhost:${KONG_HTTP_PORT}`

@@ -79,11 +79,19 @@ if [ -n "${LIGHTRAG_NEO4J_URI:-}" ]; then
     | map(gsub("[[:space:]]+"; " ") | gsub("^ | $"; ""))
     | map(select(length > 0))
     | {statements: map({statement: .})}')
+  # The HTTP endpoint follows the Bolt URI's host: the container is
+  # neo4j-graph-db:7474; a host-run Neo4j uses NEO4J_LOCALHOST_HTTP_PORT.
+  neo4j_host=$(printf '%s' "$LIGHTRAG_NEO4J_URI" | sed -E 's#^[a-z0-9+]+://([^:/]+).*#\1#')
+  if [ "$neo4j_host" = "neo4j-graph-db" ]; then
+    neo4j_http="http://neo4j-graph-db:7474"
+  else
+    neo4j_http="http://${neo4j_host}:${NEO4J_LOCALHOST_HTTP_PORT:-7474}"
+  fi
   http_status=$(curl -fs --max-time 30 -o /tmp/neo4j-resp.json -w '%{http_code}' \
     -u "${LIGHTRAG_NEO4J_USERNAME}:${LIGHTRAG_NEO4J_PASSWORD}" \
     -H 'Content-Type: application/json' \
     --data "$cypher_payload" \
-    "http://neo4j-graph-db:7474/db/neo4j/tx/commit" 2>&1) || {
+    "${neo4j_http}/db/neo4j/tx/commit" 2>&1) || {
       echo "[lightrag-init] WARN: Neo4j migration HTTP call failed (curl exit $?)" >&2
       echo "[lightrag-init] response: $(cat /tmp/neo4j-resp.json 2>/dev/null)" >&2
     }

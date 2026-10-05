@@ -48,9 +48,9 @@ A Kong gate applies only through the `*.localhost` alias. The service's direct p
 | STT (Parakeet) | `stt.localhost` | Atlas-generated secret | `Authorization: Bearer ${PARAKEET_API_TOKEN}` except `/health`, when the engine is Parakeet. Speaches and whisper.cpp have no login. | `services/stt-provider/README.md` |
 | n8n | `n8n.localhost` | Service-native | The owner account you create on the first visit. | `services/n8n/README.md` |
 | JupyterHub | `jupyter.localhost` | Service-native | A Jupyter token (`?token=…`). With `JUPYTERHUB_TOKEN` empty, the default, Jupyter generates one and prints it in the container log on every start. | `services/jupyterhub/README.md` |
-| OpenClaw | `openclaw.localhost` | Service-native | `OPENCLAW_GATEWAY_TOKEN`, which you set yourself; it is empty by default. | `services/openclaw/README.md` |
+| OpenClaw | `openclaw.localhost` | Atlas-generated secret | `OPENCLAW_GATEWAY_TOKEN`, generated into `.env` on start when empty and kept once set. | `services/openclaw/README.md` |
 | Prometheus | `prometheus.localhost` | No login | The route adds no auth; the scrape paths stay internal. | `services/prometheus/README.md` |
-| Hermes dashboard | `hermes.localhost` | No login | Runs in upstream's unauthenticated dashboard mode. | `services/hermes/README.md` |
+| Hermes dashboard | `hermes.localhost` | Atlas-generated secret | Kong dashboard basic-auth. The dashboard itself runs in upstream's unauthenticated mode, so its direct host port has no login. | `services/hermes/README.md` |
 | Spark | `spark.localhost`, `spark-history.localhost` | No login | Master and History Server UIs are open. | `services/spark/README.md` |
 | Zeppelin | direct `localhost:${ZEPPELIN_PORT}` (no Kong alias) | No login | Loopback-bound. | `services/zeppelin/README.md` |
 | Weaviate | `weaviate.localhost` | No login | Anonymous access is enabled. | `services/weaviate/README.md` |
@@ -73,7 +73,7 @@ The surfaces a new user usually opens first, and what each needs:
 3. **LiteLLM UI**, `litellm.localhost/ui` — an Atlas-generated secret: `admin` with `LITELLM_MASTER_KEY`.
 4. **Supabase Studio**, `supabase-studio.localhost` — an Atlas-generated secret: the Kong dashboard pair, `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`.
 5. **n8n**, `n8n.localhost` — a service-native account: create the owner on first visit.
-6. **JupyterHub**, `jupyter.localhost` — a service-native token: `docker logs ${PROJECT_NAME}-jupyterhub 2>&1 | grep token`.
+6. **JupyterHub**, `jupyter.localhost` — a service-native token: `docker logs <PROJECT_NAME>-jupyterhub 2>&1 | grep token` (Atlas runs Compose under `-p <PROJECT_NAME>`, so a bare `docker compose logs` from another directory or an `infra/` submodule targets the wrong project).
 7. **Grafana**, `grafana.localhost` — an Atlas-generated secret: `admin` with `GRAFANA_ADMIN_PASSWORD`.
 8. **The Backend API**, `api.localhost` — Supabase identity for your own data (§4), or `BACKEND_INTERNAL_API_TOKEN` for operator routes.
 

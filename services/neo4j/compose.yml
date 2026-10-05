@@ -20,8 +20,8 @@ services:
       NEO4J_dbms_security_procedures_unrestricted: apoc.*
       NEO4J_browser_remote__content__hostname__whitelist: "*"
     ports:
-      - "${HOST_BIND_IP:-}${GRAPH_DB_PORT}:7687"
-      - "${HOST_BIND_IP:-}${GRAPH_DB_DASHBOARD_PORT}:7474"
+      - "${HOST_BIND_IP-127.0.0.1:}${GRAPH_DB_PORT}:7687"
+      - "${HOST_BIND_IP-127.0.0.1:}${GRAPH_DB_DASHBOARD_PORT}:7474"
     volumes:
       - ./build/scripts:/scripts
       - neo4j-backups:/snapshot

@@ -60,7 +60,7 @@ env:
     auto_managed: true
   - name: VERBA_WEAVIATE_URL
     auto_managed: true
-    description: "Resolved Weaviate URL passed to upstream WEAVIATE_URL_VERBA."
+    description: "Resolved Weaviate URL passed to upstream WEAVIATE_URL_VERBA, which Verba reads only for its Weaviate (cloud) deployment; the default Docker deployment always dials weaviate:8080. For WEAVIATE_SOURCE=localhost pick Custom on Verba's connect screen."
   - name: VERBA_OPENAI_MODEL
     default: ""
     description: "Optional Verba OpenAI generator model name. Empty lets Verba list LiteLLM models."

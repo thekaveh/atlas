@@ -47,7 +47,7 @@ one bucket.
 - **Root user:** `MINIO_ROOT_USER` (default `minioadmin`)
 - **Root password:** `MINIO_ROOT_PASSWORD` — auto-generated to `.env` on first `./start.sh`. Retrieve with `grep ^MINIO_ROOT_PASSWORD= .env`. Use these credentials to log into the admin console.
 
-Root credentials are NEVER surfaced to consumers — see Service accounts below.
+Root credentials are not surfaced to consumers, which use the scoped service accounts below (Spark's worker, connect and history containers included). The deliberate exception is Airflow: its containers and seeded `minio_default` connection carry the root pair, so DAG authors must be trusted, as the Airflow README's trusted-DAG boundary states.
 
 ## 4. Bucket layout
 

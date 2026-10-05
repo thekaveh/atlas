@@ -953,7 +953,7 @@ image, host ports, and environment, and joins the shared network
 (`networks: { backend-network: { name: ${PROJECT_NAME}-network, external: true } }`).
 It is intentionally NOT wired into the wizard, the topology port-allocator, or
 the generated `.env.example` — manage its image/ports/env directly in the
-fragment (use `${HOST_BIND_IP:-}` on published ports to inherit Atlas's
+fragment (use `${HOST_BIND_IP-127.0.0.1:}` on published ports to inherit Atlas's
 loopback binding default). The default manifest loader
 (`bootstrapper.services.manifests.load_manifests`) still skips `_`-prefixed
 directories, so a `_user/<name>/service.yml` remains invisible to the core

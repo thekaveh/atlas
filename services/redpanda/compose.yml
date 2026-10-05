@@ -30,7 +30,7 @@ services:
       - --advertise-rpc-addr
       - redpanda:33145
     ports:
-      - "${HOST_BIND_IP:-}${REDPANDA_KAFKA_PORT}:19092"
+      - "${HOST_BIND_IP-127.0.0.1:}${REDPANDA_KAFKA_PORT}:19092"
     volumes:
       - redpanda-data:/var/lib/redpanda/data
     healthcheck:
@@ -78,7 +78,7 @@ services:
     deploy:
       replicas: ${REDPANDA_CONSOLE_SCALE:-0}
     ports:
-      - "${HOST_BIND_IP:-}${REDPANDA_CONSOLE_PORT}:8080"
+      - "${HOST_BIND_IP-127.0.0.1:}${REDPANDA_CONSOLE_PORT}:8080"
     environment:
       KAFKA_BROKERS: redpanda:9092
     depends_on:

@@ -30,9 +30,13 @@ services:
     volumes:
       - redis-data:/data
     ports:
-      - "${HOST_BIND_IP:-}${REDIS_PORT}:6379"
+      - "${HOST_BIND_IP-127.0.0.1:}${REDIS_PORT}:6379"
+    # redis-cli reads REDISCLI_AUTH, so the password is not in the argv of
+    # every probe (visible to any local user through ps on Linux).
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -55,7 +59,7 @@ services:
       REDIS_ADDR: "redis://redis:6379"
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     ports:
-      - "${HOST_BIND_IP:-}${REDIS_EXPORTER_PORT}:9121"
+      - "${HOST_BIND_IP-127.0.0.1:}${REDIS_EXPORTER_PORT}:9121"
     depends_on:
       redis:
         condition: service_healthy

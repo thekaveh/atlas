@@ -826,6 +826,17 @@ def test_declining_the_summary_starts_nothing_and_says_so(monkeypatch, capsys):
     assert "start_docker_services" not in starter.calls
 
 
+def test_declining_after_a_cold_start_does_not_claim_data_was_kept(monkeypatch, capsys):
+    """The cold cleanup runs before the summary: volumes are already gone."""
+    starter = _Starter("success")
+    starter.show_pre_launch_summary = lambda **_kwargs: False
+    monkeypatch.setattr(linear_startup, "warn_if_submodule_pin_drifted", lambda *_: None)
+    assert linear_startup.run_linear_startup(starter, _options(cold=True)) == 0
+    out = capsys.readouterr().out
+    assert "no data deleted" not in out
+    assert "DELETED" in out
+
+
 def test_interrupting_the_headless_log_stream_is_a_detach(monkeypatch, capsys):
     import start as start_module
 

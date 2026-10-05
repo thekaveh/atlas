@@ -131,7 +131,7 @@ services:
       - --ServerApp.allow_remote_access=True
       - --ServerApp.disable_check_xsrf=False
     ports:
-      - "${HOST_BIND_IP:-}${JUPYTERHUB_PORT}:8888"
+      - "${HOST_BIND_IP-127.0.0.1:}${JUPYTERHUB_PORT}:8888"
     volumes:
       - jupyterhub-data:/home/jovyan/work
       - ./build/notebooks:/home/jovyan/notebooks:ro

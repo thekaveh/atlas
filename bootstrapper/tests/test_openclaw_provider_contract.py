@@ -37,8 +37,8 @@ def test_openclaw_direct_provider_keys_do_not_fall_back_to_stack_openai_key() ->
 def test_openclaw_container_ports_follow_topology_defaults() -> None:
     ports = _compose()["services"]["openclaw-gateway"]["ports"]
 
-    assert "${HOST_BIND_IP:-}${OPENCLAW_GATEWAY_PORT:-63076}:18789" in ports
-    assert "${HOST_BIND_IP:-}${OPENCLAW_BRIDGE_PORT:-63077}:18790" in ports
+    assert "${HOST_BIND_IP-127.0.0.1:}${OPENCLAW_GATEWAY_PORT:-63076}:18789" in ports
+    assert "${HOST_BIND_IP-127.0.0.1:}${OPENCLAW_BRIDGE_PORT:-63077}:18790" in ports
 
     readme = README.read_text(encoding="utf-8")
     assert "default 63076" in readme
@@ -66,3 +66,18 @@ def test_openclaw_env_example_documents_gateway_and_localhost_ports_separately()
     assert "OPENCLAW_BRIDGE_PORT=63077" in env_example
     assert "OPENCLAW_LOCALHOST_PORT=63065" in env_example
     assert "stack-wide OPENAI_API_KEY" not in env_example
+
+
+def test_key_generator_creates_and_keeps_the_openclaw_gateway_token(tmp_path: Path) -> None:
+    """Empty, the LAN-bound gateway minted a random per-start token nobody
+    could read back, locking the dashboard and API."""
+    from core.config_parser import ConfigParser
+    from utils.key_generator import KeyGenerator
+
+    (tmp_path / ".env").write_text("PROJECT_NAME=atlas-test\nOPENCLAW_GATEWAY_TOKEN=\n")
+    assert KeyGenerator(str(tmp_path)).generate_missing_keys()["OPENCLAW_GATEWAY_TOKEN"] is True
+    token = ConfigParser(str(tmp_path)).parse_env_file()["OPENCLAW_GATEWAY_TOKEN"]
+    assert len(token) >= 32
+
+    KeyGenerator(str(tmp_path)).generate_missing_keys()
+    assert ConfigParser(str(tmp_path)).parse_env_file()["OPENCLAW_GATEWAY_TOKEN"] == token

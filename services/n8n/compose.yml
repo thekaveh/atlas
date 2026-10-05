@@ -96,7 +96,7 @@ services:
       CRAWL4AI_ENDPOINT: ${CRAWL4AI_ENDPOINT:-}
       CRAWL4AI_API_TOKEN: ${CRAWL4AI_API_TOKEN:-}
     ports:
-      - "${HOST_BIND_IP:-}${N8N_PORT}:5678"
+      - "${HOST_BIND_IP-127.0.0.1:}${N8N_PORT}:5678"
     volumes:
       - n8n-data:/home/node/.n8n
     networks:

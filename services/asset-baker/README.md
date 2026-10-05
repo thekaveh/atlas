@@ -202,6 +202,7 @@ Outputs are SHA-256 content-addressed and written to MinIO (`bake/<sha256>.{glb,
 - `504` bake timeout: raise `ASSET_BAKER_TIMEOUT_SECONDS` or lower `tex_size`/`target_tris` for very heavy assets.
 - `401 Invalid Asset Baker bearer token`: pass `Authorization: Bearer ${ASSET_BAKER_API_TOKEN}`.
 - `403 Input bucket is not allowed`: add the intended bucket to `ASSET_BAKER_ALLOWED_INPUT_BUCKETS`; do not broaden the list to unrelated or private buckets.
+- Dependency check fails with "Asset Baker requires MinIO": the container waits on `minio` and `minio-init`, and the `gen-ai-creative` track leaves MinIO off. Add `--minio-source container` (for example `./start.sh --track gen-ai-creative --asset-baker-source container-cpu --minio-source container`), declare `MINIO_SOURCE: container` in a consumer manifest, or disable Asset Baker.
 - MinIO upload failure: confirm `MINIO_SOURCE=container`, `ASSET_BAKER_MINIO_BUCKET`, and the generated `MINIO_ASSET_BAKER_*` credentials.
 - Kong alias missing: confirm `ASSET_BAKER_SOURCE=container-cpu`, run `./start.sh --setup-hosts`, and regenerate routes through the normal startup flow.
 

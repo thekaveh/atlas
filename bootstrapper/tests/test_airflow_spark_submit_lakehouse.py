@@ -283,8 +283,10 @@ def test_spark_master_keeps_backend_only_rest_submission_api_enabled() -> None:
         "the SparkSubmitOperator's post-submit poll via the :7077 RPC connection is a benign "
         "false-negative once the submit has reported success."
     )
-    assert worker_env["AWS_ACCESS_KEY_ID"] == "${MINIO_ROOT_USER}"
-    assert worker_env["AWS_SECRET_ACCESS_KEY"] == "${MINIO_ROOT_PASSWORD}"
+    # The scoped Spark account (minio-init consumer `spark`) covers every
+    # bucket Spark touches; root never reaches code-executing workers.
+    assert worker_env["AWS_ACCESS_KEY_ID"] == "${MINIO_SPARK_ACCESS_KEY}"
+    assert worker_env["AWS_SECRET_ACCESS_KEY"] == "${MINIO_SPARK_SECRET_KEY}"
     assert worker_env["AWS_ENDPOINT_URL_S3"] == "http://minio:9000"
     assert "HADOOP_CONF_DIR=/tmp/atlas-spark-hadoop-conf" in worker_command
     assert "fs.s3a.path.style.access" in worker_command

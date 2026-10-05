@@ -904,16 +904,23 @@ class KongConfigGenerator:
                     # Kong DB-less config takes header values literally (no
                     # env interpolation) — resolve the port at generation
                     # time or n8n bakes the unexpanded token into webhook
-                    # and editor URLs served via this alias.
-                    'add': {'headers': [
-                        'X-Forwarded-Host: n8n.localhost:'
-                        + (self.get_env_value('KONG_HTTP_PORT')
-                           or str(DEFAULT_BASE_PORT))
-                    ]}
+                    # and editor URLs served via this alias. Kong replaces
+                    # X-Forwarded-Host with its own portless value, so the
+                    # RFC 7239 Forwarded header (which n8n's push origin
+                    # check reads first) carries the host:port that matches
+                    # the browser's Origin; without it the editor's live
+                    # connection is closed as "Invalid origin".
+                    'add': {'headers': self._n8n_forwarded_headers()}
                 }}
             ]
         }
     
+    def _n8n_forwarded_headers(self) -> List[str]:
+        host = 'n8n.localhost:' + (
+            self.get_env_value('KONG_HTTP_PORT') or str(DEFAULT_BASE_PORT)
+        )
+        return [f'X-Forwarded-Host: {host}', f'Forwarded: host={host};proto=http']
+
     def generate_searxng_service(self) -> Optional[Dict[str, Any]]:
         """Generate SearxNG service configuration based on SOURCE."""
         source = self.get_env_value('SEARXNG_SOURCE')
@@ -1084,7 +1091,14 @@ class KongConfigGenerator:
                     'hosts': ['hermes.localhost']
                 }
             ],
-            'plugins': [{'name': 'cors'}]
+            # The dashboard runs in upstream insecure mode (no login) and its
+            # Chat tab drives the agent's tools, so the route carries the same
+            # dashboard Basic auth + ACL as the other operator UIs.
+            'plugins': [
+                {'name': 'cors'},
+                {'name': 'basic-auth'},
+                {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
+            ]
         }
 
         if source == 'localhost':
@@ -1319,7 +1333,10 @@ class KongConfigGenerator:
             ],
             'plugins': [
                 {'name': 'cors'},
-                {'name': 'basic-auth'},
+                # Trino refuses any request carrying a password over plain
+                # HTTP ("Password not allowed for insecure authentication"),
+                # so the Kong credential must not be forwarded upstream.
+                {'name': 'basic-auth', 'config': {'hide_credentials': True}},
                 {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
             ],
         }
@@ -1693,7 +1710,19 @@ class KongConfigGenerator:
                         "strip_path": False,
                         "preserve_host": True,
                         "hosts": ["graphbuilder-api.localhost"],
-                    }
+                    },
+                    # Same-origin API path for the browser UI. Upstream axios
+                    # sends no credentials cross-origin, so calls to the
+                    # separate API host always met Kong's basic-auth as 401;
+                    # under the UI's own origin the browser reuses the Basic
+                    # credential it already holds.
+                    {
+                        "name": "llm-graph-builder-api-same-origin",
+                        "strip_path": True,
+                        "preserve_host": True,
+                        "hosts": ["graphbuilder.localhost"],
+                        "paths": ["/atlas-api"],
+                    },
                 ],
                 "plugins": plugins,
             },

@@ -148,8 +148,8 @@
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_build_steps_and_rows",
-        "cyclomatic_complexity": 75,
-        "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; discovery and parity tests exercise its service-specific branches. 76 -> 75 on #1050: the subtitle fallback moved into _support_subtitle."
+        "cyclomatic_complexity": 74,
+        "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; discovery and parity tests exercise its service-specific branches. 76 -> 75 on #1050: the subtitle fallback moved into _support_subtitle. 75 -> 74 on the 2026-10-05 maintenance run: the source-step fallback now reads the manifest's sources.default through services.manifests.manifest_source_default instead of an inline svc.options[0] conditional, and the profile-aware default lives in the module-level _make_profile_default_provider."
       },
       {
         "path": "bootstrapper/ui/textual/integration.py",
@@ -228,8 +228,8 @@
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_build_steps_and_rows",
-        "cyclomatic_complexity": 75,
-        "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; parity and discovery tests cover the branches. Revisit when prompt construction changes next."
+        "cyclomatic_complexity": 74,
+        "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; parity and discovery tests cover the branches. 75 -> 74 on the 2026-10-05 maintenance run (manifest default lookup moved to services.manifests.manifest_source_default). Revisit when prompt construction changes next."
       },
       {
         "path": "bootstrapper/ui/textual/integration.py",

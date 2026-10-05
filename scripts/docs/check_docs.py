@@ -41,7 +41,9 @@ class Finding:
 
 def check_self_containment(repo_root: Path, generated_root: Path) -> list[Finding]:
     findings: list[Finding] = []
-    repo_inputs = [repo_root / "README.md"]
+    # Root pages published to the site and wiki (security-policy and
+    # contributing) are repo-surface inputs too.
+    repo_inputs = [repo_root / name for name in ("README.md", "SECURITY.md", "CONTRIBUTING.md")]
     docs_root = repo_root / "docs"
     if docs_root.is_dir():
         repo_inputs.extend(

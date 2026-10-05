@@ -63,10 +63,12 @@ def test_atomic_write_falls_back_when_fchmod_is_unavailable(
     destination = tmp_path / ".env"
     monkeypatch.delattr(atomic_write.os, "fchmod")
 
-    atomic_write.atomic_write_text(destination, "ROUNDTRIP=new\n", mode=0o600)
+    # 0o640, not 0o600: mkstemp already creates 0600, which would pass even
+    # with the os.chmod fallback deleted.
+    atomic_write.atomic_write_text(destination, "ROUNDTRIP=new\n", mode=0o640)
 
     assert destination.read_text(encoding="utf-8") == "ROUNDTRIP=new\n"
-    assert os.stat(destination).st_mode & 0o777 == 0o600
+    assert os.stat(destination).st_mode & 0o777 == 0o640
 
 
 @pytest.mark.skipif(os.name != "posix", reason="directory fsync is POSIX-only")

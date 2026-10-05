@@ -19,13 +19,13 @@ The simplest repair is `./start.sh env backfill` — it preserves every value yo
 When `./start.sh` runs the Textual TUI, every line is tee'd to a timestamped file — both wizard-time diagnostic events (cloud `/v1/models` fetch failures, Ollama upstream discovery warnings, etc.) and the entire launch phase (build, port verification, `docker compose up`, per-service `logs --tail` on failure):
 
 ```
-/tmp/atlas-launch-<YYYYMMDDTHHMMSS>-<unique>.log
+${TMPDIR:-/tmp}/atlas-launch-<YYYYMMDDTHHMMSS>-<unique>.log
 ```
 
 The most recent log is always:
 
 ```bash
-ls -t /tmp/atlas-launch-*.log | head -1
+ls -t "${TMPDIR:-/tmp}"/atlas-launch-*.log | head -1   # macOS: TMPDIR is under /var/folders
 ```
 
 Inspect it after a failed launch — it captures everything the log pane showed, plus a few sources the pane filters out (e.g. cloud-fetch fallback warnings: `[warn/openai-fetch] live /v1/models returned 0 models — falling back to catalog (cause: HTTP 401)`). Session logs are bounded: 3 segments of 32 MiB per session (the first segment — session start and earliest diagnostics — is always kept; overflow rotates into numbered `.log.N` segments with truncation markers), and the 5 newest sessions are retained while older `atlas-launch-*` files are pruned at the next launch. Copy a log elsewhere if you need to keep it longer; exported copies are never touched by the pruning.
@@ -364,7 +364,7 @@ cat bootstrapper/utils/kong_config_generator.py | head -80
 grep -E '^KONG_' .env
 
 # Inspect the SOURCE values the stack was configured with
-grep -E "(OLLAMA|COMFYUI|N8N|WEAVIATE|CLOUD|MINIO)[A-Z_]*_SOURCE" .env
+grep -E "(LLM_PROVIDER|COMFYUI|N8N|WEAVIATE|CLOUD|MINIO)[A-Z_]*_SOURCE" .env
 ```
 
 ### 8.3. Network Testing
@@ -373,8 +373,8 @@ grep -E "(OLLAMA|COMFYUI|N8N|WEAVIATE|CLOUD|MINIO)[A-Z_]*_SOURCE" .env
 # Test internal service connectivity (LLM goes through LiteLLM, not Ollama
 # directly). Inside the Compose network, services resolve by service name:
 docker compose exec backend curl -sf http://litellm:4000/health/liveliness
-docker compose exec litellm curl -sf http://ollama:11434/api/tags
-docker compose exec kong-api-gateway curl -sf http://supabase-api:3000/health
+docker compose exec litellm python -c "import urllib.request; print(urllib.request.urlopen('http://ollama:11434/api/tags', timeout=5).status)"   # the LiteLLM image has no curl
+docker compose exec kong-api-gateway curl -sf http://supabase-api:3000/   # PostgREST answers its OpenAPI root; /health is not a route
 
 # Test external access
 curl http://localhost:63096

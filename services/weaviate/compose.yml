@@ -75,8 +75,8 @@ services:
       PROMETHEUS_MONITORING_ENABLED: 'true'
     entrypoint: ["/scripts/configure-weaviate.sh", "/bin/weaviate", "--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]
     ports:
-      - "${HOST_BIND_IP:-}${WEAVIATE_PORT}:8080"
-      - "${HOST_BIND_IP:-}${WEAVIATE_GRPC_PORT}:50051"
+      - "${HOST_BIND_IP-127.0.0.1:}${WEAVIATE_PORT}:8080"
+      - "${HOST_BIND_IP-127.0.0.1:}${WEAVIATE_GRPC_PORT}:50051"
     expose:
       # Prometheus metrics endpoint — PROMETHEUS_MONITORING_ENABLED=true
       # in runtime_sc surfaces /metrics on this port. Internal-only;

@@ -20,7 +20,7 @@ services:
       TEMPO_ENDPOINT: ${TEMPO_ENDPOINT:-http://tempo:3200}
       LOKI_ENDPOINT: ${LOKI_ENDPOINT:-http://loki:3100}
     ports:
-      - "${HOST_BIND_IP:-}${GRAFANA_PORT}:3000"
+      - "${HOST_BIND_IP-127.0.0.1:}${GRAFANA_PORT}:3000"
     volumes:
       - grafana-data:/var/lib/grafana
       - ./config/grafana.ini:/etc/grafana/grafana.ini:ro

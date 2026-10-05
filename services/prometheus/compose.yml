@@ -14,7 +14,7 @@ services:
       - --web.console.templates=/usr/share/prometheus/consoles
       - --web.enable-lifecycle
     ports:
-      - "${HOST_BIND_IP:-}${PROMETHEUS_PORT}:9090"
+      - "${HOST_BIND_IP-127.0.0.1:}${PROMETHEUS_PORT}:9090"
     volumes:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./config/rules:/etc/prometheus/rules:ro
@@ -49,7 +49,7 @@ services:
       - --path.rootfs=/rootfs
       - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
     ports:
-      - "${HOST_BIND_IP:-}${NODE_EXPORTER_PORT}:9100"
+      - "${HOST_BIND_IP-127.0.0.1:}${NODE_EXPORTER_PORT}:9100"
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
@@ -74,7 +74,7 @@ services:
       - --docker=unix:///var/run/atlas-docker-api-disabled.sock
       - --store_container_labels=false
     ports:
-      - "${HOST_BIND_IP:-}${CADVISOR_PORT}:8080"
+      - "${HOST_BIND_IP-127.0.0.1:}${CADVISOR_PORT}:8080"
     volumes:
       - /sys:/sys:ro
     read_only: true

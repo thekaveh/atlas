@@ -182,8 +182,6 @@ runtime_deps:
     - speaches
     - chatterbox
     - docling
-    info_message: Open WebUI enabled - will connect to available optional services
-      (weaviate, local-deep-researcher, parakeet, speaches, chatterbox, docling)
 
 data_flow:
   # Open WebUI reaches every plugged-in media + agent feature at request

@@ -96,6 +96,9 @@ def test_role_provisioner_rejects_collisions_before_any_database_call(
         timeout=10,
     )
     assert result.returncode != 0
+    # The collision check itself must be what refused: an early exit on a
+    # missing variable would also be non-zero with no psql call.
+    assert "invalid database role configuration" in result.stderr, result.stderr
     assert not log.exists(), "invalid configuration reached psql and could mutate state"
 
 

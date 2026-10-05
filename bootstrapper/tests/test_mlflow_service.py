@@ -163,7 +163,7 @@ def test_mlflow_compose_contract() -> None:
         "dockerfile": "build/Dockerfile",
         "args": {"BASE_IMAGE": "${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.16.1}"},
     }
-    assert service["ports"] == ["${HOST_BIND_IP:-}${MLFLOW_PORT}:5000"]
+    assert service["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${MLFLOW_PORT}:5000"]
     assert service["depends_on"]["mlflow-init"]["condition"] == "service_completed_successfully"
     assert service["environment"]["MLFLOW_S3_ENDPOINT_URL"] == "http://minio:9000"
     assert service["environment"]["AWS_ACCESS_KEY_ID"] == "${MINIO_MLFLOW_ACCESS_KEY}"
@@ -179,6 +179,10 @@ def test_mlflow_compose_contract() -> None:
     assert environment["_MLFLOW_SERVER_ARTIFACT_DESTINATION"] == "s3://${MINIO_BUCKET_MLFLOW:-mlflow}"
     assert environment["_MLFLOW_SERVER_SERVE_ARTIFACTS"] == "true"
     assert "localhost:5000" in environment["MLFLOW_SERVER_ALLOWED_HOSTS"].split(",")
+    # The Kong origin must be allowed or every UI write through Kong is a 403.
+    origins = environment["MLFLOW_SERVER_CORS_ALLOWED_ORIGINS"].split(",")
+    assert "http://mlflow.localhost:${KONG_HTTP_PORT}" in origins
+    assert "http://localhost:${MLFLOW_PORT}" in origins
 
 
 def test_minio_provisions_mlflow_bucket_and_scoped_credentials() -> None:

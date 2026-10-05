@@ -1944,7 +1944,13 @@ def _lock_path(repo: Path) -> Path:
     digest = hashlib.sha256(str(repo.resolve()).encode()).hexdigest()[:24]
     override = os.environ.get("ATLAS_DATABASE_LOCK_DIR")
     lock_dir = Path(override) if override else repo / "volumes" / "locks"
-    lock_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        lock_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    except OSError as exc:
+        raise ContractError(
+            f"cannot create the database lock directory {lock_dir} ({exc.strerror}); "
+            "set ATLAS_DATABASE_LOCK_DIR to a writable directory shared by every run"
+        ) from exc
     return lock_dir / f"atlas-database-boundary-{digest}.lock"
 
 

@@ -35,7 +35,7 @@ services:
           memory: ${SPARK_MASTER_MEMORY_LIMIT:-2g}
           cpus: "${SPARK_MASTER_CPU_LIMIT:-1.0}"
     ports:
-      - "${HOST_BIND_IP:-}${SPARK_MASTER_UI_PORT}:8080"
+      - "${HOST_BIND_IP-127.0.0.1:}${SPARK_MASTER_UI_PORT}:8080"
     environment:
       SPARK_MASTER_HOST: spark-master
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
@@ -92,8 +92,8 @@ services:
       # Standalone cluster mode downloads the application JAR on the worker
       # before the driver process exists. Keep S3A credentials available at
       # the daemon level so s3a://jars/... applications can cold-start.
-      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
-      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      AWS_ACCESS_KEY_ID: ${MINIO_SPARK_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_SPARK_SECRET_KEY}
       AWS_REGION: ${MINIO_REGION:-us-east-1}
       AWS_ENDPOINT_URL_S3: http://minio:9000
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
@@ -110,8 +110,8 @@ services:
           <property><name>fs.s3a.path.style.access</name><value>true</value></property>
           <property><name>fs.s3a.connection.ssl.enabled</name><value>false</value></property>
           <property><name>fs.s3a.aws.credentials.provider</name><value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value></property>
-          <property><name>fs.s3a.access.key</name><value>${MINIO_ROOT_USER}</value></property>
-          <property><name>fs.s3a.secret.key</name><value>${MINIO_ROOT_PASSWORD}</value></property>
+          <property><name>fs.s3a.access.key</name><value>${MINIO_SPARK_ACCESS_KEY}</value></property>
+          <property><name>fs.s3a.secret.key</name><value>${MINIO_SPARK_SECRET_KEY}</value></property>
         </configuration>
         EOF
         exec /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077 --webui-port 8081
@@ -176,9 +176,9 @@ services:
       - --conf
       - spark.hadoop.fs.s3a.endpoint=http://minio:9000
       - --conf
-      - spark.hadoop.fs.s3a.access.key=${MINIO_ROOT_USER}
+      - spark.hadoop.fs.s3a.access.key=${MINIO_SPARK_ACCESS_KEY}
       - --conf
-      - spark.hadoop.fs.s3a.secret.key=${MINIO_ROOT_PASSWORD}
+      - spark.hadoop.fs.s3a.secret.key=${MINIO_SPARK_SECRET_KEY}
       - --conf
       - spark.hadoop.fs.s3a.path.style.access=true
       # Lakehouse catalog defaults. These are inert at Spark startup when
@@ -251,7 +251,7 @@ services:
     deploy:
       replicas: ${SPARK_HISTORY_SCALE:-0}
     ports:
-      - "${HOST_BIND_IP:-}${SPARK_HISTORY_PORT}:18080"
+      - "${HOST_BIND_IP-127.0.0.1:}${SPARK_HISTORY_PORT}:18080"
     environment:
       # NOTE: dual-write per project_runtime_sc_vs_compose_env_dual_write.md.
       # Same SPARK_HISTORY_OPTS must appear in service.yml::runtime_sc.
@@ -259,8 +259,8 @@ services:
       SPARK_HISTORY_OPTS: >-
         -Dspark.history.fs.logDirectory=s3a://${MINIO_BUCKET_SPARK_HISTORY:-spark-history}/
         -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000
-        -Dspark.hadoop.fs.s3a.access.key=${MINIO_ROOT_USER}
-        -Dspark.hadoop.fs.s3a.secret.key=${MINIO_ROOT_PASSWORD}
+        -Dspark.hadoop.fs.s3a.access.key=${MINIO_SPARK_ACCESS_KEY}
+        -Dspark.hadoop.fs.s3a.secret.key=${MINIO_SPARK_SECRET_KEY}
         -Dspark.hadoop.fs.s3a.path.style.access=true
     command:
       - /opt/spark/bin/spark-class
@@ -295,7 +295,7 @@ services:
       - |
         set -e
         mc alias set minio http://minio:9000 "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}"
-        mc mb --ignore-existing minio/spark-history
+        mc mb --ignore-existing minio/${MINIO_BUCKET_SPARK_HISTORY:-spark-history}
         echo "spark-init: spark-history bucket ready"
     networks:
       - backend-network

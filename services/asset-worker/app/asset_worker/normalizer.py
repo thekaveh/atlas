@@ -37,7 +37,7 @@ def normalize_glb(input_path: Path, output_path: Path, params: PostprocessParams
         return
 
     doc, bin_chunk = parsed
-    accessors = _position_accessors(doc)
+    accessors = _position_accessors(doc, len(bin_chunk))
     if not accessors:
         shutil.copyfile(input_path, output_path)
         return
@@ -82,7 +82,7 @@ def _parse_glb(data: bytes) -> tuple[dict, bytearray] | None:
     return doc, bin_chunk
 
 
-def _position_accessors(doc: dict) -> list[PositionAccessor]:
+def _position_accessors(doc: dict, bin_len: int) -> list[PositionAccessor]:
     result: list[PositionAccessor] = []
     accessors = doc.get("accessors") or []
     buffer_views = doc.get("bufferViews") or []
@@ -94,28 +94,47 @@ def _position_accessors(doc: dict) -> list[PositionAccessor]:
             if isinstance(position_index, int):
                 used_indices.add(position_index)
     for index in sorted(used_indices):
-        accessor = accessors[index]
+        # Untrusted file: out-of-range or non-object entries are skipped
+        # (negative indices would silently wrap), so validate reports them.
+        accessor = accessors[index] if 0 <= index < len(accessors) else None
+        if not isinstance(accessor, dict):
+            continue
         if accessor.get("componentType") != FLOAT or accessor.get("type") != "VEC3":
             continue
         view_index = accessor.get("bufferView")
-        if not isinstance(view_index, int):
+        if not isinstance(view_index, int) or not 0 <= view_index < len(buffer_views):
             continue
         view = buffer_views[view_index]
-        if view.get("buffer", 0) != 0:
+        if not isinstance(view, dict) or view.get("buffer", 0) != 0:
             continue
-        view_offset = int(view.get("byteOffset", 0))
-        accessor_offset = int(accessor.get("byteOffset", 0))
-        stride = int(view.get("byteStride", 12))
+        try:
+            offset = int(view.get("byteOffset", 0)) + int(accessor.get("byteOffset", 0))
+            stride = int(view.get("byteStride", 12))
+            count = int(accessor.get("count", 0))
+        except (TypeError, ValueError):
+            continue
+        if offset < 0 or stride < 12:
+            continue
         result.append(
             PositionAccessor(
                 accessor_index=index,
                 buffer_view_index=view_index,
-                count=int(accessor.get("count", 0)),
-                offset=view_offset + accessor_offset,
+                # The declared count is bounded by the bytes actually present:
+                # a 1 KB file claiming count=1e12 used to spin the worker for
+                # hours outside every timeout while holding its only slot.
+                count=_bounded_count(count, offset, stride, bin_len),
+                offset=offset,
                 stride=stride,
             )
         )
     return result
+
+
+def _bounded_count(count: int, offset: int, stride: int, bin_len: int) -> int:
+    """Largest vertex count whose last 12-byte element fits in the buffer."""
+    if offset + 12 > bin_len:
+        return 0
+    return max(0, min(count, (bin_len - offset - 12) // stride + 1))
 
 
 def _read_positions(bin_chunk: bytearray, accessors: list[PositionAccessor]) -> list[tuple[float, float, float]]:

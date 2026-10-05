@@ -3373,6 +3373,39 @@ class WizardScreen(Screen):
         self._mark_launch_failed()
         return False
 
+    async def _warn_submodule_pin_drift(self, starter) -> None:
+        """Warn in the log pane when Atlas, vendored as a submodule, has
+        drifted from its recorded pin. Read-only; never blocks the launch."""
+        from utils.submodule_pin_guard import warn_if_submodule_pin_drifted
+
+        def _sink(msg: str) -> None:
+            self._safe_log(msg, source="pipeline", level="warn")
+
+        try:
+            await asyncio.to_thread(
+                warn_if_submodule_pin_drifted, starter.config_parser.root_dir, sink=_sink,
+            )
+        except Exception:  # noqa: BLE001 - an advisory probe must not fail a launch
+            pass
+
+    def _cold_cleanup_steps(self, starter, base_port: int, project_name) -> list:
+        """The wizard cold start's cleanup step, when one is pending.
+
+        It removes volumes and recreates .env BEFORE any step writes .env.
+        Only rotating keys (validate_supabase_keys / generate_encryption_keys
+        with cold_start) while the volumes survived left n8n and the
+        databases on mismatched secrets. The CLI --cold path cleans before
+        the launch screen, so it never sets ``cold_cleanup_pending``.
+        """
+        if not (self._stack_options or {}).get("cold_cleanup_pending"):
+            return []
+        return [(
+            "Cold start: remove volumes and recreate .env",
+            lambda: starter.prepare_environment(
+                cold_start=True, base_port=base_port, project_name=project_name or None,
+            ),
+        )]
+
     async def _run_pipeline_and_stream(self) -> None:
         starter = self._starter
         cold = bool((self._stack_options or {}).get("cold", False))
@@ -3537,6 +3570,8 @@ class WizardScreen(Screen):
                  # ./start.sh --flag <value> path while TUI is active.
                  **((self._stack_options or {}).get("user_env_writes", {}) or {}),
              })),
+            ("Reconcile default models",
+             starter.reconcile_default_models),
             ("Validate source configurations",
              starter.validate_source_configurations),
             # Always clear any port env vars left over from a previous
@@ -3592,6 +3627,7 @@ class WizardScreen(Screen):
             ("Backfill .env from .env.example",
              starter.backfill_missing_env_vars),
         ]
+        steps = self._cold_cleanup_steps(starter, base_port, _proj) + steps
 
         self._write_status("⚙ Running setup pipeline", style="bold cyan",
                            source="pipeline")
@@ -3713,6 +3749,8 @@ class WizardScreen(Screen):
             # doesn't stamp Logs-tab hints over the tab that's actually
             # showing.
             self._footer.update_hints(self._footer_hints())
+            # Same post-up check the --no-tui path runs (linear_startup).
+            await self._warn_submodule_pin_drift(starter)
 
             # Kick off port verification + ComfyUI model check in the
             # background so the live log stream starts IMMEDIATELY rather

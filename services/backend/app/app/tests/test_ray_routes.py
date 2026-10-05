@@ -253,3 +253,22 @@ def test_stop_timeout_maps_to_504_and_stays_reconcilable(
     assert resp.status_code == 504
     assert "raysubmit_amb" in resp.json()["detail"]
 
+
+
+@pytest.mark.parametrize("token", [None, "", "   "])
+def test_ray_job_token_fails_closed_when_unset(monkeypatch, token):
+    """Every other test sets RAY_JOB_API_TOKEN; a fail-open regression on the
+    unset path would leave arbitrary-command job submission unauthenticated."""
+    from fastapi import HTTPException
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    import ray_routes
+
+    if token is None:
+        monkeypatch.delenv("RAY_JOB_API_TOKEN", raising=False)
+    else:
+        monkeypatch.setenv("RAY_JOB_API_TOKEN", token)
+    for credentials in (None, HTTPAuthorizationCredentials(scheme="Bearer", credentials="")):
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(ray_routes._require_ray_job_token(credentials))
+        assert exc.value.status_code == 503

@@ -112,7 +112,7 @@ OPENCLAW_SOURCE=disabled
 | `OPENCLAW_IMAGE` | Docker image | `ghcr.io/openclaw/openclaw:2026.6.10` |
 | `OPENCLAW_GATEWAY_PORT` | Gateway HTTP port | `63076` |
 | `OPENCLAW_BRIDGE_PORT` | Bridge port | `63077` |
-| `OPENCLAW_GATEWAY_TOKEN` | Optional token for securing gateway API | `` |
+| `OPENCLAW_GATEWAY_TOKEN` | Bearer token for the gateway API and dashboard; generated into `.env` at startup when empty and kept afterwards | generated |
 | `OPENCLAW_SCALE` | Container replicas (set by bootstrapper) | `0` |
 
 ### 4.2. LLM Configuration
@@ -163,7 +163,7 @@ The dashboard provides:
 - Execution approvals
 - Channel status monitoring
 
-**Security**: The dashboard is an admin surface. If `OPENCLAW_GATEWAY_TOKEN` is set, you'll need to provide the token to access the dashboard.
+**Security**: The dashboard is an admin surface and requires `OPENCLAW_GATEWAY_TOKEN` (read it with `grep '^OPENCLAW_GATEWAY_TOKEN=' .env`). Atlas generates the token at startup when it is empty: the gateway binds to the LAN interface, which it refuses to do tokenless, so an empty value used to produce a random per-start token nobody could read back.
 
 ## 7. Interactive CLI Usage
 
@@ -355,7 +355,7 @@ Support tier: **experimental** — Capability contract declared (#967); no cited
 | LiteLLM-backed messaging agent gateway | partial | tested | Atlas injects the LiteLLM gateway URL and key, but the operator points OpenClaw's OpenAI provider at it during onboarding; messaging channels and approvals also require onboarding and are not exercised against live platforms. |
 | Container and operator-host sources | partial | tested | Atlas initializes and runs the container source, while localhost mode only resolves an existing operator-managed gateway and cannot guarantee its version, onboarding, or supervision. |
 | Direct cloud-provider overrides | partial | tested | Optional OpenClaw-specific Anthropic or OpenAI keys can bypass LiteLLM, which also bypasses Atlas gateway accounting and centralized provider routing. |
-| OpenClaw gateway authentication | partial | tested | OPENCLAW_GATEWAY_TOKEN can protect the gateway, but it defaults empty and the CORS-only Kong route adds no Atlas authentication. Direct gateway ports are loopback-only by default; an operator who deliberately publishes them remotely must secure that exposure separately. |
+| OpenClaw gateway authentication | partial | tested | OPENCLAW_GATEWAY_TOKEN, generated at startup, protects the gateway API and dashboard; the CORS-only Kong route adds no Atlas authentication of its own. Direct gateway ports are loopback-only by default; an operator who deliberately publishes them remotely must secure that exposure separately. |
 | Agent configuration and workspace persistence | partial | tested | Config and workspace data persist in local named volumes, with no MinIO sharing, backup workflow, replication, or tenant-isolated workspace topology. |
 | Hermes and n8n message bridges | stubbed | tested | Hermes endpoint variables are injected and OpenClaw webhooks are documented, but Atlas ships no live forwarding implementation between OpenClaw, Hermes, or n8n. |
 | Untrusted agent command isolation | not-supported | documented | OpenClaw can manage files and execute commands from messaging workflows, while Atlas configures no mandatory sandbox runner or per-channel authorization policy. |

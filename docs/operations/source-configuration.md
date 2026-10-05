@@ -17,8 +17,10 @@ Every `--<service>-source` flag (`--comfyui-source`, `--llm-provider-source`, `-
 To make that visible, the bootstrapper prints a warning whenever a CLI source flag would **change** an existing non-empty `.env` value — on the standard log stream in the `--no-tui` flow and in the TUI log pane alike:
 
 ```
-⚠ COMFYUI_SOURCE: managed-localhost-mps → container-cpu (overridden by --comfyui-source; persisted to .env)
+⚠ COMFYUI_SOURCE: managed-localhost-mps → container-cpu (overridden by --comfyui-source or the selected track; persisted to .env)
 ```
+
+The same line appears when `--track` disables an off-track service that `.env` had enabled; the message names the flag that would set that variable, since the track writes it through the same path.
 
 A flag equal to the value already in `.env` is silent (no noise), as is first-time assignment of an empty/unset variable. **Guidance for wrappers:** do not pass a source flag when `.env` already carries the intended value — omit the flag and let `.env` be the source of truth, or only pass it when you genuinely intend to change the persisted configuration.
 
@@ -138,6 +140,7 @@ LLM_PROVIDER_SOURCE=none
 - **Pros**: No Ollama resource usage; LiteLLM still provides one consumer endpoint
 - **Cons**: Requires another configured upstream
 - **Requirements**: Enable `VLLM_METAL_SOURCE=managed-localhost` and/or at least one `CLOUD_*_SOURCE`. The bootstrapper refuses to start only when `LLM_PROVIDER_SOURCE=none`, vLLM Metal is disabled, and every cloud source is disabled.
+- **Default models**: any `LITELLM_DEFAULT_MODEL`, `LITELLM_VISION_MODEL` or `LITELLM_EMBEDDING_MODEL` still naming an `ollama/*` model (the `.env.example` defaults) is repointed at start to the best active cloud model, and the embedding dimension follows; models you chose explicitly are left alone. An explicit non-Ollama `LANGMEM_EMBEDDING_MODEL` becomes the embedding model for the pair, and a stale `ollama/*` LangMem override follows the active one. When no active provider offers a replacement, the value is left as is; if that leaves the embedding model unresolved, a warning names the gap.
 
 The legacy values `LLM_PROVIDER_SOURCE=api` and `LLM_PROVIDER_SOURCE=disabled` have been removed — use `none` to mean “no Ollama upstream.”
 
@@ -535,9 +538,9 @@ SPARK_WORKER_COUNT=2     # number of spark-worker replicas; 1..8 — wizard prom
 ```
 - **Use case**: Local Spark cluster for batch / SQL / DataFrame jobs and Spark Connect clients
 - **Pros**: Master + N workers + history server, Kong-aliased UIs at `spark.localhost` + `spark-history.localhost`, Spark Connect on `:15002`, default `lakehouse` Iceberg REST catalog when `iceberg-rest` is enabled.
-- **Cons**: Each worker reserves CPU + RAM (defaults to 1 core / 1 GB); heavy on laptops above 2 workers
+- **Cons**: Each worker may use up to 2 CPUs / 4 GB (`SPARK_WORKER_CPU_LIMIT` / `SPARK_WORKER_MEMORY_LIMIT`); heavy on laptops above 2 workers
 - **Containers**: `spark-master`, `spark-worker-1..N`, `spark-history`, `spark-connect` (gRPC Connect sidecar), `spark-init` (one-shot — creates the spark-history MinIO bucket)
-- **Requirements**: ~3 GB image disk + ~1 GB RAM per worker
+- **Requirements**: ~3 GB image disk + up to 4 GB RAM per worker (the default limit)
 
 ### 4.12. TEI_RERANKER_SOURCE
 
@@ -956,10 +959,10 @@ lsof -i :63096
 
 **Kong routing not working**:
 ```bash
-# Kong config is dynamically generated at every startup — to debug routes,
-# inspect the generator + the KONG_* env vars it consumes:
-cat bootstrapper/utils/kong_config_generator.py
-env | grep ^KONG_
+# Kong config is regenerated from .env at every startup — inspect the output
+# and the SOURCE values that drive it:
+cat volumes/api/kong-dynamic.yml
+grep -E '^[A-Z_]+_SOURCE=' .env
 
 # Verify hosts file
 ./start.sh --setup-hosts
@@ -969,7 +972,7 @@ env | grep ^KONG_
 
 ```bash
 # Check active SOURCE values
-env | grep -E "(OLLAMA|COMFYUI|N8N|WEAVIATE)_SOURCE"
+grep -E '^(LLM_PROVIDER|COMFYUI|N8N|WEAVIATE)_SOURCE=' .env
 
 # Test service connectivity (LLM goes via LiteLLM, not Ollama directly)
 docker exec ${PROJECT_NAME}-backend curl http://${PROJECT_NAME}-litellm:4000/health/liveliness

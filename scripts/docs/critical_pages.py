@@ -15,15 +15,13 @@ from typing import Any
 
 import yaml
 
-from .links import REPO_URL, SITE_URL, WIKI_URL
+from .links import REPO_DOC_PATH_RE, SITE_URL, WIKI_URL
 from .manifest import Manifest, Page
 
 
 _SCHEME_RE = re.compile(r"^https?://")
-# Repository paths that render documentation: file views and the repo root.
-# Community destinations under the same host (issues, security advisories,
-# discussions) are not documentation surfaces.
-_REPO_DOC_PATH_RE = re.compile(rf"^{re.escape(REPO_URL)}(?:/?$|/(?:blob|tree|raw)(?:/|$))")
+# Repository paths that render documentation (shared with links.is_forbidden).
+_REPO_DOC_PATH_RE = REPO_DOC_PATH_RE
 _HEADING_RE = re.compile(r"^#{1,6}[ \t]+(?:\d+(?:\.\d+)*\.[ \t]+)?(?P<title>.+?)\s*$")
 
 

@@ -923,7 +923,12 @@ def test_n8n_forwarded_host_header_has_resolved_port():
     for plugin in n8n_services[0].get("plugins", []):
         if plugin.get("name") == "request-transformer":
             headers = plugin["config"]["add"]["headers"]
-    assert headers == ["X-Forwarded-Host: n8n.localhost:64000"], headers
+    # Kong overwrites X-Forwarded-Host (portless); n8n's origin check reads
+    # the Forwarded header first, so it must carry the Kong host:port.
+    assert headers == [
+        "X-Forwarded-Host: n8n.localhost:64000",
+        "Forwarded: host=n8n.localhost:64000;proto=http",
+    ], headers
     assert not any("${" in h for h in headers)
 
 

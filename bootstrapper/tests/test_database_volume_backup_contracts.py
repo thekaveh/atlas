@@ -615,8 +615,9 @@ def test_database_backup_and_restore_entrypoints_are_present() -> None:
     host_restore = (REPO / "services/backup/database_orchestrator.py").read_text(
         encoding="utf-8"
     )
-    assert "/v1/backups/filesystem" in host_restore
-    assert "/restore" in host_restore
+    # The exact restore endpoint: "/restore" alone also matches the volume
+    # mount and offline-restore paths elsewhere in the orchestrator.
+    assert 'f"/v1/backups/filesystem/{snapshot_id}/restore"' in host_restore
     assert "database_sha256" in restore_text
     assert "hmac_sha256" in restore_text
 

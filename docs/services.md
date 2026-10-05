@@ -59,15 +59,15 @@ The *Support* column is each family's declared support tier (`stable`, `experime
 
 | Service | Title | Support | Tracks | SOURCE | Default | Values | Dependencies |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| [backup](../services/backup/README.md) | Backup / restore (Postgres + consistent database snapshots -> S3) | experimental | all, data-eng, ml-eng, trading | BACKUP_SOURCE | disabled | container, disabled | supabase |
+| [backup](../services/backup/README.md) | Backup / restore (Postgres + consistent database snapshots -&gt; S3) | experimental | all, data-eng, ml-eng, trading | BACKUP_SOURCE | disabled | container, disabled | supabase |
 | [cloudflared](../services/cloudflared/README.md) | Cloudflare Tunnel (public edge) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | CLOUDFLARED_SOURCE | disabled | container, disabled | kong |
 | [globals](../services/globals/README.md) | Globals (project + branding) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | - | - | - | - |
-| [grafana](../services/grafana/README.md) | Grafana (observability UI + alerting) | experimental | all | GRAFANA_SOURCE | disabled | container, disabled | prometheus, supabase, kong, ray |
+| [grafana](../services/grafana/README.md) | Grafana (observability UI + alerting) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | GRAFANA_SOURCE | disabled | container, disabled | prometheus, supabase, kong, ray |
 | [kong](../services/kong/README.md) | Kong (API gateway) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | KONG_API_GATEWAY_SOURCE | container | container | supabase, redis |
 | [langfuse](../services/langfuse/README.md) | Langfuse (LLM traces + evals) | experimental | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | LANGFUSE_SOURCE | disabled | container, disabled | supabase, redis, minio, litellm, kong, ray |
 | [loki](../services/loki/README.md) | Loki (queryable log store) | experimental | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng | LOKI_SOURCE | disabled | container, disabled | kong, ray |
 | [otel-collector](../services/otel-collector/README.md) | OpenTelemetry Collector (telemetry ingest) | experimental | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng | OTEL_COLLECTOR_SOURCE | disabled | container, disabled | tempo, loki |
-| [prometheus](../services/prometheus/README.md) | Prometheus (metrics scraper + TSDB) | experimental | all | PROMETHEUS_SOURCE | disabled | container, disabled | supabase, redis, kong, ray |
+| [prometheus](../services/prometheus/README.md) | Prometheus (metrics scraper + TSDB) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | PROMETHEUS_SOURCE | disabled | container, disabled | supabase, redis, kong, ray |
 | [ray](../services/ray/README.md) | Ray (distributed compute substrate) | experimental | all, ml-eng | RAY_SOURCE | disabled | ray-container-cpu, ray-container-gpu, disabled | supabase, redis |
 | [tempo](../services/tempo/README.md) | Tempo (distributed trace store) | experimental | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng | TEMPO_SOURCE | disabled | container, disabled | kong, ray |
 
@@ -77,7 +77,7 @@ The *Support* column is each family's declared support tier (`stable`, `experime
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | [cloud-providers](../services/cloud-providers/README.md) | Cloud LLM providers (OpenAI, Anthropic, OpenRouter) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | CLOUD_OPENAI_SOURCE, CLOUD_ANTHROPIC_SOURCE, CLOUD_OPENROUTER_SOURCE | disabled | enabled, disabled | litellm |
 | [litellm](../services/litellm/README.md) | LiteLLM gateway (LLM router) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | LITELLM_SOURCE | container | container | supabase, redis |
-| [ollama](../services/ollama/README.md) | Ollama (local LLM engine) | experimental | all | LLM_PROVIDER_SOURCE | ollama-container-cpu | ollama-container-cpu, ollama-container-gpu, ollama-localhost, none | supabase, litellm |
+| [ollama](../services/ollama/README.md) | Ollama (local LLM engine) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | LLM_PROVIDER_SOURCE | ollama-container-cpu | ollama-container-cpu, ollama-container-gpu, ollama-localhost, none | supabase, litellm |
 | [tei-reranker](../services/tei-reranker/README.md) | TEI Reranker (mxbai-rerank-base-v1) | experimental | all, gen-ai-rag, ml-eng | TEI_RERANKER_SOURCE | disabled | container-cpu, container-gpu, localhost, disabled | - |
 | [vllm-metal](../services/vllm-metal/README.md) | vLLM (Metal) — managed Apple-silicon LLM server | experimental | all, gen-ai-eng | VLLM_METAL_SOURCE | disabled | managed-localhost, disabled | litellm |
 
@@ -88,14 +88,14 @@ The *Support* column is each family's declared support tier (`stable`, `experime
 | [asset-baker](../services/asset-baker/README.md) | Asset Baker (Blender HP→LP bake) | experimental | all, gen-ai-creative | ASSET_BAKER_SOURCE | disabled | container-cpu, disabled | minio |
 | [asset-worker](../services/asset-worker/README.md) | Asset Worker (glTF post-processing) | experimental | all, gen-ai-creative | ASSET_WORKER_SOURCE | disabled | container, disabled | minio |
 | [blender-mcp](../services/blender-mcp/README.md) | Blender MCP | experimental | all, gen-ai-creative | BLENDER_MCP_SOURCE | disabled | localhost, managed-localhost, disabled | - |
-| [chatterbox](../services/chatterbox/README.md) | Chatterbox (voice-cloning TTS, GPU) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | - | - | - | tts-provider |
+| [chatterbox](../services/chatterbox/README.md) | Chatterbox (voice-cloning TTS, GPU) | experimental | all, gen-ai-creative, gen-ai-eng | - | - | - | tts-provider |
 | [comfyui](../services/comfyui/README.md) | ComfyUI (image generation) | experimental | all, gen-ai-creative, gen-ai-eng | COMFYUI_SOURCE, COMFYUI_INIT_SOURCE | container-cpu, container | container-cpu, container-gpu, localhost, managed-localhost-mps, disabled, container | supabase, litellm, ollama |
 | [crawl4ai](../services/crawl4ai/README.md) | Crawl4AI (JS-capable web extraction) | experimental | all, gen-ai-rag | CRAWL4AI_SOURCE | disabled | container, disabled | - |
-| [docling](../services/docling/README.md) | Docling (document processor) | experimental | all | DOC_PROCESSOR_SOURCE | disabled | disabled, docling-localhost, docling-container-gpu | - |
+| [docling](../services/docling/README.md) | Docling (document processor) | experimental | all, gen-ai-creative, gen-ai-rag | DOC_PROCESSOR_SOURCE | disabled | disabled, docling-localhost, docling-container-gpu | - |
 | [docling-lightrag-adapter](../services/docling-lightrag-adapter/README.md) | Docling LightRAG adapter | experimental | all | - | - | - | - |
 | [fal](../services/fal/README.md) | FAL Cloud Media | experimental | all, gen-ai-creative | FAL_SOURCE | disabled | enabled, disabled | - |
-| [parakeet](../services/parakeet/README.md) | Parakeet (NVIDIA STT engine) | experimental | all | STT_PROVIDER_SOURCE | speaches-container-cpu | speaches-container-cpu, speaches-container-gpu, parakeet-container-gpu, parakeet-localhost, whisper-cpp-localhost, disabled | litellm |
+| [parakeet](../services/parakeet/README.md) | Parakeet (NVIDIA STT engine) | experimental | all, gen-ai-creative, gen-ai-eng | STT_PROVIDER_SOURCE | speaches-container-cpu | speaches-container-cpu, speaches-container-gpu, parakeet-container-gpu, parakeet-localhost, whisper-cpp-localhost, disabled | litellm |
 | [searxng](../services/searxng/README.md) | SearXNG (privacy metasearch) | experimental | all, gen-ai-eng, gen-ai-rag | SEARXNG_SOURCE | container | container, disabled | redis |
-| [speaches](../services/speaches/README.md) | Speaches (unified TTS + STT) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | - | - | - | parakeet, tts-provider |
+| [speaches](../services/speaches/README.md) | Speaches (unified TTS + STT) | experimental | all, gen-ai-creative, gen-ai-eng | - | - | - | parakeet, tts-provider |
 | [tika](../services/tika/README.md) | Apache Tika (fallback extractor) | experimental | all, gen-ai-eng, gen-ai-rag | TIKA_SOURCE | disabled | container, tika-localhost, disabled | - |
 | [tts-provider](../services/tts-provider/README.md) | TTS provider (text-to-speech engine selector) | experimental | all, gen-ai-creative, gen-ai-eng | TTS_PROVIDER_SOURCE | speaches-container-cpu | speaches-container-cpu, speaches-container-gpu, chatterbox-container-gpu, chatterbox-localhost, disabled | litellm |

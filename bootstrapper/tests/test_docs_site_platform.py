@@ -286,6 +286,8 @@ def test_data_rag_architecture_routes_graph_writes_through_lightrag() -> None:
     assert ("Doc Processing", "LightRAG", "documents") in edges
     assert ("LightRAG", "Neo4j", "graph") in edges
     assert ("Doc Processing", "Neo4j", "graph") not in edges
+    # Backend -> neo4j is planned, not current: no solid Neo4j -> Backend edge.
+    assert not any(src == "Neo4j" and dst == "Backend" for src, dst, _ in edges)
     layout = ARCHITECTURE_LAYOUTS["data-rag-flow"]
     assert layout["LightRAG"][1] == layout["Neo4j"][1]
     assert layout["Weaviate"][1] < layout["Backend"][1]

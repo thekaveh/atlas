@@ -1249,7 +1249,7 @@ def test_comfyui_ingress_contract_matches_compose_and_kong_boundaries():
         kong_service["plugins"],
         (capability.status, capability.verification),
     ) == (
-        ["${HOST_BIND_IP:-}${COMFYUI_PORT}:18188"],
+        ["${HOST_BIND_IP-127.0.0.1:}${COMFYUI_PORT}:18188"],
         True,
         ["comfyui.localhost"],
         [{"name": "cors"}],
@@ -1449,7 +1449,7 @@ def test_supabase_pg_meta_contract_matches_compose_and_kong_boundaries():
         "acl": acl["config"]["allow"],
         "capability": (capability.status, capability.verification),
     } == {
-        "ports": ["${HOST_BIND_IP:-}${SUPABASE_META_PORT}:8080"],
+        "ports": ["${HOST_BIND_IP-127.0.0.1:}${SUPABASE_META_PORT}:8080"],
         "db_user": "${SUPABASE_META_DB_USER:?SUPABASE_META_DB_USER is required}",
         "dashboard_env": set(),
         "route_paths": ["/pg/"],
@@ -1500,7 +1500,7 @@ def test_supabase_studio_contract_matches_compose_and_kong_boundaries():
         "acl": acl["config"]["allow"],
         "capability": (capability.status, capability.verification),
     } == {
-        "ports": ["${HOST_BIND_IP:-}${SUPABASE_STUDIO_PORT}:3000"],
+        "ports": ["${HOST_BIND_IP-127.0.0.1:}${SUPABASE_STUDIO_PORT}:3000"],
         "dashboard_env": set(),
         "route_hosts": ["supabase-studio.localhost"],
         "required_plugins": True,
@@ -1562,7 +1562,7 @@ def test_iceberg_rest_access_contract_matches_host_publish():
         (repo_root / "services/iceberg-rest/compose.yml").read_text(encoding="utf-8")
     )
     catalog = compose["services"]["iceberg-rest"]
-    assert catalog["ports"] == ["${HOST_BIND_IP:-}${ICEBERG_REST_PORT}:8181"]
+    assert catalog["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${ICEBERG_REST_PORT}:8181"]
     assert not any(
         "AUTH" in name or "TOKEN" in name for name in catalog["environment"]
     )
@@ -1634,8 +1634,8 @@ def test_redpanda_access_contract_matches_compose_and_kong_boundaries():
         "acl": acl["config"]["allow"],
         "capability": (capability.status, capability.verification),
     } == {
-        "broker_ports": ["${HOST_BIND_IP:-}${REDPANDA_KAFKA_PORT}:19092"],
-        "console_ports": ["${HOST_BIND_IP:-}${REDPANDA_CONSOLE_PORT}:8080"],
+        "broker_ports": ["${HOST_BIND_IP-127.0.0.1:}${REDPANDA_KAFKA_PORT}:19092"],
+        "console_ports": ["${HOST_BIND_IP-127.0.0.1:}${REDPANDA_CONSOLE_PORT}:8080"],
         "external_listener": True,
         "secure_listener_flags": (),
         "console_auth_env": (),
@@ -1735,9 +1735,9 @@ def test_prometheus_access_contract_matches_compose_and_kong_surfaces():
         "plugins": {plugin["name"] for plugin in kong_prometheus["plugins"]},
         "capability": (capability.status, capability.verification),
     } == {
-        "prometheus_ports": ["${HOST_BIND_IP:-}${PROMETHEUS_PORT}:9090"],
-        "node_exporter_ports": ["${HOST_BIND_IP:-}${NODE_EXPORTER_PORT}:9100"],
-        "cadvisor_ports": ["${HOST_BIND_IP:-}${CADVISOR_PORT}:8080"],
+        "prometheus_ports": ["${HOST_BIND_IP-127.0.0.1:}${PROMETHEUS_PORT}:9090"],
+        "node_exporter_ports": ["${HOST_BIND_IP-127.0.0.1:}${NODE_EXPORTER_PORT}:9100"],
+        "cadvisor_ports": ["${HOST_BIND_IP-127.0.0.1:}${CADVISOR_PORT}:8080"],
         "lifecycle_enabled": True,
         "host_bind_ip": "127.0.0.1:",
         "route_hosts": ["prometheus.localhost"],
@@ -1790,8 +1790,8 @@ def test_spark_web_access_contract_matches_compose_and_kong_surfaces():
         "history_plugins": {plugin["name"] for plugin in kong_history["plugins"]},
         "capability": (capability.status, capability.verification),
     } == {
-        "master_ports": ["${HOST_BIND_IP:-}${SPARK_MASTER_UI_PORT}:8080"],
-        "history_ports": ["${HOST_BIND_IP:-}${SPARK_HISTORY_PORT}:18080"],
+        "master_ports": ["${HOST_BIND_IP-127.0.0.1:}${SPARK_MASTER_UI_PORT}:8080"],
+        "history_ports": ["${HOST_BIND_IP-127.0.0.1:}${SPARK_HISTORY_PORT}:18080"],
         "host_bind_ip": "127.0.0.1:",
         "master_hosts": ["spark.localhost"],
         "history_hosts": ["spark-history.localhost"],

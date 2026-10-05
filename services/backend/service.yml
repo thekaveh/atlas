@@ -348,8 +348,6 @@ runtime_deps:
     - docling
     - tika
     - celery
-    info_message: Backend enabled - will connect to available optional services (neo4j,
-      searxng, n8n, weaviate, parakeet, speaches, chatterbox, docling, tika, celery, supavisor)
 
 data_flow:
   calls:

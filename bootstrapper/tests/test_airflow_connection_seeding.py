@@ -64,8 +64,8 @@ def test_airflow_contract_discloses_unsandboxed_privileged_dag_execution():
     scheduler = yaml.safe_load(COMPOSE.read_text())["services"]["airflow-scheduler"]
 
     _assert_contains(body, (
-        "${MINIO_ROOT_USER}",
-        "${MINIO_ROOT_PASSWORD}",
+        'os.environ["MINIO_ROOT_USER"]',
+        'os.environ["MINIO_ROOT_PASSWORD"]',
         "${LITELLM_MASTER_KEY}",
         "${AIRFLOW_ATLAS_DB_USER}",
         "${AIRFLOW_ATLAS_DB_PASSWORD}",

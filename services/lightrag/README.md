@@ -12,7 +12,7 @@ In this stack, LightRAG reuses existing infrastructure:
 
 - **LLM + embeddings** routed through LiteLLM (`LLM_BINDING_HOST=http://litellm:4000/v1`).
 - **Vector store** → Supabase pgvector (`PGVectorStorage`).
-- **Graph store** → Neo4j (`Neo4JStorage`).
+- **Graph store** → Neo4j (`Neo4JStorage`). `LIGHTRAG_NEO4J_URI` follows `NEO4J_GRAPH_DB_SOURCE`: `bolt://neo4j-graph-db:7687` for the container, `bolt://host.docker.internal:${NEO4J_LOCALHOST_BOLT_PORT}` for a host-run Neo4j.
 - **KV + doc-status** → Redis (`RedisKVStorage`).
 - **Document parsing** → the isolated Docling compatibility adapter, which authenticates to Docling without exposing its provider credential to LightRAG (when in-stack LightRAG and Docling are enabled).
 - **Reranking** defaults off. LightRAG's built-in Jina/Cohere rerank clients send a payload shape (`{query, documents}`) that TEI's `/rerank` endpoint (`{query, texts}`) does not accept, so Atlas never wires LightRAG directly to TEI. To enable reranking, route it through the backend rerank adapter (`POST /lightrag/rerank`, #415): set `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` with `TEI_RERANKER_SOURCE` enabled — see the [backend README §5.1](../backend/README.md#51-lightrag--tei-rerank-adapter-post-lightragrerank-415).
@@ -238,7 +238,7 @@ _No high-confidence opportunities identified._
 
 1. Runs after LiteLLM's Compose health gate and reads LiteLLM `/v1/models`.
 2. Resolves the base `LIGHTRAG_LLM_MODEL` / `LIGHTRAG_EMBEDDING_MODEL` / `LIGHTRAG_EMBEDDING_DIM` from explicit overrides, LiteLLM defaults, or LiteLLM's model list, then writes LightRAG's native `LLM_MODEL` / `EMBEDDING_MODEL` / `EMBEDDING_DIM` to `/app/data/.env`. If no chat model can be resolved, init exits non-zero instead of starting LightRAG with an empty `LLM_MODEL`. Role-specific `LIGHTRAG_EXTRACT_*`, `LIGHTRAG_KEYWORD_*`, and `LIGHTRAG_QUERY_*` variables are passed directly to the runtime container.
-3. Polls Postgres until it accepts connections (a readiness gate — `supabase-db` is SOURCE-replaceable, so `lightrag-init` intentionally has no hard compose `depends_on` on it), then runs the idempotent pgvector migration. The Neo4j migration runs separately and is non-fatal — it pre-creates the range index on `(:base).entity_id` that LightRAG otherwise creates on first write.
+3. Polls Postgres until it accepts connections (a readiness gate — `supabase-db` is SOURCE-replaceable, so `lightrag-init` intentionally has no hard compose `depends_on` on it), then runs the idempotent pgvector migration. The Neo4j migration runs separately and is non-fatal — it pre-creates the range index on `(:base).entity_id` that LightRAG otherwise creates on first write. It posts to the HTTP endpoint matching the Bolt URI's host: `neo4j-graph-db:7474`, or `NEO4J_LOCALHOST_HTTP_PORT` on the host for `NEO4J_GRAPH_DB_SOURCE=localhost`.
 
 ## 8. Troubleshooting
 

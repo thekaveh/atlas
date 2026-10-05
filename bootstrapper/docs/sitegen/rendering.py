@@ -1,6 +1,25 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
+
+_CODE_SPAN_RE = re.compile(r"(`+)(.+?)\1")
+
+
+def _escape_angle_brackets(cell: str) -> str:
+    """Escape ``<`` / ``>`` outside code spans.
+
+    A bare ``<value>`` placeholder in a manifest description is otherwise an
+    unknown HTML tag, which the browser swallows ("Authorization: Bearer .").
+    """
+    parts: list[str] = []
+    last = 0
+    for match in _CODE_SPAN_RE.finditer(cell):
+        parts.append(cell[last:match.start()].replace("<", "&lt;").replace(">", "&gt;"))
+        parts.append(match.group(0))
+        last = match.end()
+    parts.append(cell[last:].replace("<", "&lt;").replace(">", "&gt;"))
+    return "".join(parts)
 
 
 def csv_or_dash(values: Iterable[str]) -> str:
@@ -17,7 +36,10 @@ def table(headers: list[str], rows: Iterable[list[str]]) -> str:
         # Collapse embedded newlines so a multi-line manifest description cannot
         # split one logical row across physical lines (invalid GFM/MkDocs), and
         # escape pipes so cell content cannot introduce spurious columns.
-        cells = [" ".join(cell.split()).replace("|", "/") for cell in row]
+        cells = [
+            _escape_angle_brackets(" ".join(cell.split()).replace("|", "/"))
+            for cell in row
+        ]
         lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines)
 

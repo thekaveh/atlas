@@ -52,12 +52,25 @@ def _declares_dependencies(call: ast.Call) -> bool:
     return False
 
 
+def _is_auth_dependency(target: ast.AST) -> bool:
+    """`require_*` / `_require_*` are the backend's enforcing dependencies.
+
+    Anything else does not count: `Depends(_BEARER)` is an
+    `HTTPBearer(auto_error=False)` that enforces nothing, and `get_db`-style
+    dependencies are not access control.
+    """
+    name = getattr(target, "id", None) or getattr(target, "attr", None) or ""
+    return name.startswith(("require_", "_require_"))
+
+
 def _signature_uses_depends(func: ast.AST) -> bool:
-    """True when any parameter default is a `Depends(...)` call."""
+    """True when a parameter default is `Depends(<auth dependency>)`."""
     return any(
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id == "Depends"
+        and bool(node.args)
+        and _is_auth_dependency(node.args[0])
         for node in ast.walk(func.args)
     )
 
@@ -264,3 +277,13 @@ def test_each_declared_public_route_still_exists(public):
     """Otherwise the allowlist rots into a licence for a future route."""
     rows = {(r[0], r[1], r[2]) for r in _collect_routes()}
     assert public in rows, f"{public} is allowlisted as public but no longer exists"
+
+
+def test_a_non_enforcing_dependency_does_not_count_as_auth() -> None:
+    tree = ast.parse(
+        "async def a(c = Depends(_BEARER), db = Depends(get_db)): ...\n"
+        "async def b(p = Depends(require_service_principal)): ...\n"
+    )
+    a, b = tree.body
+    assert _signature_uses_depends(a) is False
+    assert _signature_uses_depends(b) is True

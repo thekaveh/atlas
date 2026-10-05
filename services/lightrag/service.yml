@@ -283,6 +283,9 @@ runtime_adaptive:
       LIGHTRAG_PG_URI: "postgresql://${LIGHTRAG_DB_USER_URI}:${LIGHTRAG_DB_PASSWORD_URI}@supabase-db:5432/${SUPABASE_DB_NAME_URI}"
       # Neo4j compose service id is `neo4j-graph-db`, not `neo4j` (memory:
       # reference_kong_compose_service_id documents the same pattern for Kong).
+      # Container value shown; service_config.py derives the same
+      # source-aware URI as NEO4J_URI (bolt://host.docker.internal:
+      # ${NEO4J_LOCALHOST_BOLT_PORT} when NEO4J_GRAPH_DB_SOURCE=localhost).
       LIGHTRAG_NEO4J_URI: "bolt://neo4j-graph-db:7687"
       LIGHTRAG_NEO4J_USERNAME: neo4j
       LIGHTRAG_NEO4J_PASSWORD: ${GRAPH_DB_PASSWORD}
@@ -306,7 +309,6 @@ runtime_deps:
       - neo4j
       - redis
       - docling
-    info_message: "LightRAG enabled — will wire optional storage and capability services when available."
 
 data_flow:
   calls:

@@ -105,10 +105,11 @@ services:
       # Allow the dashboard to bind to 0.0.0.0 without a Nous Portal OAuth
       # provider. The upstream image stopped implicitly inferring insecure
       # mode from a non-loopback bind host, so the dashboard now fails closed
-      # (s6 restart-loops it, spamming the log) unless this is set. Safe: the
-      # dashboard lives on the isolated backend-network, reached only via the
-      # mapped host port + Kong. Set false (+ HERMES_DASHBOARD_OAUTH_CLIENT_ID)
-      # to enforce the OAuth auth gate instead.
+      # (s6 restart-loops it, spamming the log) unless this is set. The
+      # dashboard then has no login: Kong's route adds dashboard Basic auth,
+      # but the direct host port and backend-network peers are unauthenticated.
+      # Set false (+ HERMES_DASHBOARD_OAUTH_CLIENT_ID) to enforce the OAuth
+      # auth gate instead.
       HERMES_DASHBOARD_INSECURE: ${HERMES_DASHBOARD_INSECURE:-true}
       # OpenAI-compatible API server (what LiteLLM and clients connect to)
       API_SERVER_ENABLED: "true"
@@ -124,8 +125,8 @@ services:
     volumes:
       - hermes-data:/opt/data
     ports:
-      - "${HOST_BIND_IP:-}${HERMES_API_PORT:-63072}:8642"
-      - "${HOST_BIND_IP:-}${HERMES_DASHBOARD_PORT:-63073}:9119"
+      - "${HOST_BIND_IP-127.0.0.1:}${HERMES_API_PORT:-63072}:8642"
+      - "${HOST_BIND_IP-127.0.0.1:}${HERMES_DASHBOARD_PORT:-63073}:9119"
     networks:
       - backend-network
     healthcheck:

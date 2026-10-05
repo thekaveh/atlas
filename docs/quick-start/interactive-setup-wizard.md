@@ -56,7 +56,9 @@ and inline-image behavior can vary between terminal emulators.
 The wizard's question order isn't fixed — service-source steps are sorted by each service's resolved port (so the wizard's order matches the stack-overview panel beside it), with the LLM cluster spliced in immediately after the LLM Engine step. The shape is roughly:
 
 ```
-first  Base port
+first  Track (skipped when --track is passed)
+       Profile: dev or production hardening (skipped when --profile is passed)
+       Base port
        Project name (Docker Compose namespace / container family → PROJECT_NAME)
 …      Service-source steps, sorted by resolved port
        (ComfyUI, LLM Engine, ollama-related, Weaviate, …)
@@ -154,7 +156,7 @@ Shown only for `ollama-container-*` sources. Free-text comma-separated list, e.g
 
 Each enabled cloud provider gets two consecutive steps:
 
-1. **API key** (`secret` kind). The widget is a masked password Input — no sentinel rows are rendered. Turning a provider on or off and storing or deleting its key are **separate actions** (#1183, see §4.4.2). The hint line below the input always tells you which action Enter will take.
+1. **API key** (`secret` kind). The widget is a masked password Input — no sentinel rows are rendered. Turning a provider on or off and storing or deleting its key are **separate actions** (#1183, see §4.4.1). The hint line below the input always tells you which action Enter will take.
 2. **Models** (`multiselect`). Live fetch from the provider's models endpoint:
    - **OpenAI** — `GET /v1/models` (filtered to the chat / o-series / `text-embedding-3-*` set).
    - **Anthropic** — `GET /v1/models` (Anthropic's documented endpoint).
@@ -348,11 +350,11 @@ Spark worker-count inputs are wired directly in the wizard code
 
 ## 7. Stack Options
 
-The wizard also collects these stack-level (non-service-source) options — **base port first**, before any service-source prompts; the cold-start and hosts-file options come last:
+The wizard also collects these stack-level (non-service-source) options. Track and profile come first, then **base port**, before any service-source prompt; the cold-start and hosts-file options come last:
 
-- **Base port** for all services (default: 63000) — collected at the very start of the wizard so all subsequent port displays reflect the chosen base.
+- **Base port** for all services (default: 63000) — collected before any service-source prompt so all subsequent port displays reflect the chosen base.
 - **Track** prompts are labelled "asked in every track", not "always-on". The LLM Engine, Prometheus, Grafana and cloud-provider keys are exempt from track filtering so every track asks about them — but Prometheus and Grafana ship **disabled**, and a blank cloud key leaves that provider off, so being asked is not the same as running (#1032). The genuinely always-running tier is Supabase + Kong + Redis + LiteLLM + Backend, which is never prompted.
-- **Profile** descriptions are checked against `bootstrapper/profiles.yml` by a test, so the copy cannot drift from the overlay. Both shipped profiles bind published ports to `127.0.0.1:`; `prod` adds log rotation, turns Prometheus and Grafana on, and hides localhost sources. Per-service resource limits are `.env` defaults independent of the profile — the profile step no longer claims otherwise.
+- **Profile** descriptions are checked against `bootstrapper/profiles.yml` by a test, so the copy cannot drift from the overlay. Both shipped profiles bind published ports to `127.0.0.1:`; `prod` adds log rotation, turns Prometheus and Grafana on, and hides localhost sources. With `prod` selected, the Prometheus and Grafana source steps default to `container` (the bundle's value), so pressing Enter keeps them on; choosing `disabled` there is an explicit answer and wins. Per-service resource limits are `.env` defaults independent of the profile — the profile step no longer claims otherwise.
 - Picking a track **interactively** now re-dims the service rows that track excludes, matching what the launch resolver will produce. Previously the dimming was computed only for a `--track` passed on the CLI.
 - **Cold start** is an explicit destructive choice, defaulting to **No**. Press **Ctrl+R** to read every consequence in full before answering (§7.1). It removes this project's containers and Compose-managed volumes, including database records, object files, workflow/chat history, models and caches stored in those volumes. It also re-creates `.env` and regenerates keys/passwords. Back up needed data and configuration first. Bind-mounted files and external volumes remain.
 - **Hosts file configuration** to enable friendly URLs like `chat.localhost` and `n8n.localhost`.
@@ -433,8 +435,8 @@ After confirmation, the wizard transitions in-place from prompts to the launch p
 - **Unseen-error marker:** if an error is logged while you're on the Setup tab, the Logs label picks up a red `!` — `[  Logs! ]`. The failure toast is transient; the marker is not. It clears the moment you visit the tab. Warnings never raise it (a normal launch emits enough of them that the marker would be permanently lit, which is the same as having no marker).
 - The **Logs** pane streams `docker compose` build / up / port-verify / `logs -f` output, line-by-line.
 - Per-service container names (e.g. `atlas-supabase-db`, `atlas-ollama-pull`) are **color-coded** based on `bootstrapper/ui/textual/palette.py::SOURCE_COLORS`. Unknown service names get a stable hue from a small md5-based palette so every service in the stack remains visually distinguishable.
-- The full launch-phase output is also tee'd to an owner-only `/tmp/atlas-launch-<timestamp>-<unique>.log` for post-mortem inspection. See [Troubleshooting](troubleshooting.md#2-session-log).
-- Press `Ctrl+Q` to detach cleanly from the wizard UI. `Ctrl+C` sends SIGINT — fine after services are up (already-detached compose containers keep running) but during the launch pipeline it may interrupt a compose step mid-flight, leaving the stack in a partial state. Either way, services that have finished starting keep running; resume log streaming with `docker compose logs -f <service>`.
+- The full launch-phase output is also tee'd to an owner-only `${TMPDIR:-/tmp}/atlas-launch-<timestamp>-<unique>.log` (Python's temporary directory; under `/var/folders` on macOS) for post-mortem inspection. See [Troubleshooting](troubleshooting.md#2-session-log).
+- Press `Ctrl+Q` to detach cleanly from the wizard UI once the stack is up; while startup is still running, `Ctrl+Q` only reminds you that `Ctrl+C` cancels. `Ctrl+C` sends SIGINT — fine after services are up (already-detached compose containers keep running) but during the launch pipeline it may interrupt a compose step mid-flight, leaving the stack in a partial state. Either way, services that have finished starting keep running; resume log streaming with `docker compose logs -f <service>`.
 - Each way out states its consequences (§9.2). Once the stack is up, the log pane lists `ctrl+q`, `ctrl+s` and `ctrl+x` with what each does to services, configuration and data. Cancelling with `Ctrl+C` prints, after the screen closes, that containers already started keep running, the configuration written so far is kept and no data was deleted.
 
 ### 9.1. Recovery without deleting data
@@ -485,7 +487,9 @@ The four ways out are distinct, and each states all three consequences (#1032):
 Only cold stop deletes data, and it needs an explicit confirmation: the second
 `Ctrl+X` press, or the `--cold` flag itself. Cancelling never deletes anything.
 Declining the `--no-tui` pre-launch summary starts nothing and keeps the
-configuration written up to that point.
+configuration written up to that point. Under `--cold` the cold cleanup has
+already run by then (volumes removed, `.env` recreated), so declining does not
+bring that data back; the cancel message says so.
 
 ## 10. Navigation
 
@@ -546,11 +550,11 @@ The prompt panel's top border shows the step title, a counter and a small progre
 
 ## 13. Relationship to .env and CLI Flags
 
-The wizard reads your current `.env` values as defaults and produces the same `--*-source` overrides that CLI flags would. After confirmation, these overrides are applied to `.env` and the stack launches normally.
+The wizard reads your current `.env` values as defaults (a source the selected profile declares defaults to the profile's value; a `.env` value the step does not offer falls back to the manifest's declared default) and produces the same `--*-source` overrides that CLI flags would. After confirmation, these overrides are applied to `.env` and the stack launches normally.
 
 - **Wizard selections are persistent** in `.env` and carry over to future runs
-- **Configuration flags skip the whole wizard** and apply directly: any `--*-source`, model-list, or API-key flag, and the stack flags `--base-port`, `--cold`, `--setup-hosts`, `--skip-hosts`, `--detach`, and `--json`
-- **Selection flags keep the wizard**: `--track` and `--profile` pre-answer (and hide) their own steps; `--project` and `--consumer` change no prompt
+- **Configuration flags skip the whole wizard** and apply directly: any `--*-source`, model-list, or API-key flag, the scalar setting flags `--ray-worker-count`, `--spark-workers`, `--prometheus-retention-days` and `--comfyui-custom-models-file`, and the stack flags `--base-port`, `--cold`, `--setup-hosts`, `--skip-hosts`, `--detach`, and `--json`
+- **Selection flags keep the wizard**: `--track` and `--profile` pre-answer (and hide) their own steps (a consumer manifest's `profile:` hides the profile step the same way); `--project` and `--consumer` change no prompt
 
 ## 14. Requirements
 
@@ -559,7 +563,7 @@ The TUI uses two Python libraries — both included in `bootstrapper/pyproject.t
 - **textual** — owns the wizard prompts and the post-confirm launch phase (pinned summary + log pane + filter chips), all hosted in a single Textual app.
 - **rich** — used for styled spans inside Textual widgets and for the `--no-tui` linear pre-launch summary table.
 
-Python ≥ 3.10 is required (see `bootstrapper/pyproject.toml`). The wizard automatically falls back to the linear stdout flow when `stdin` isn't a TTY, when the terminal is too small to host the Textual app, or when the user passes `--no-tui`. In that mode `./start.sh` prints a pre-launch summary table and streams docker compose output directly.
+Python ≥ 3.10 is required (see `bootstrapper/pyproject.toml`). The wizard automatically falls back to the linear stdout flow when `stdin` isn't a TTY, when the terminal is too small to host the Textual app, or when the user passes `--no-tui`. In that mode `./start.sh` prints a pre-launch summary table and streams docker compose output directly. Without `--track`, the linear flow first asks for a track on stdin and applies it like the wizard does: services outside the track are written to `.env` as `disabled`. When stdin is not a terminal (cron, systemd, CI, `ssh` without `-t`) it takes the default track (`gen-ai-rag`) without asking, so scripted runs against a configured stack should pass `--track all` (no filtering) or the intended `--track <key>`.
 
 ## 15. Brand Customization
 
@@ -633,7 +637,7 @@ New services added under `services/<name>/` with a `service.yml` manifest (and i
 
 ## 17. Dependency Validation
 
-The wizard validates service dependencies in real time. For example, if you enable n8n but disable Weaviate (which n8n requires), the wizard warns you and offers to either enable the dependency or disable the dependent service. The same machinery enforces the "LiteLLM must have an upstream" rule (LLM Engine != `none`, or at least one cloud provider is `enabled`).
+The wizard validates service dependencies in real time. For example, if you enable n8n but disable Weaviate (which n8n requires), the wizard warns you and offers to either enable the dependency or disable the dependent service. The same machinery enforces the "LiteLLM must have an upstream" rule (LLM Engine != `none`, at least one cloud provider `enabled`, or `VLLM_METAL_SOURCE=managed-localhost`).
 
 ## 18. Hosts File Setup
 
