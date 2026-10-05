@@ -141,11 +141,13 @@ uv run --project bootstrapper python -m scripts.release_notes --range A..B --ove
 
 **How promotions are counted.** Gitflow lands every change twice: a squash
 commit on `develop` and a promotion of `develop` into `main`. The generator
-walks `main` first-parent; a promotion *merge* is replaced by the `develop`
-commits it carries, a promotion *squash* (`release: …`) stays as a single
-*Promotions* entry, and every change is de-duplicated by its `(#PR)` suffix so
-nothing is counted twice. Subjects that are not Conventional Commits are kept
-verbatim under *Unclassified* rather than dropped.
+walks the range first-parent; a promotion *merge* is replaced by the `develop`
+commits it carries, and every entry is de-duplicated by its last `(#PR)`
+suffix. A promotion *squash* carries no `develop` commits, so it is folded into
+the `develop` entries it promoted when its pull-request identity is known (see
+the decision below) and otherwise stays a single *Promotions* entry. Subjects
+that are not Conventional Commits are kept verbatim under *Unclassified* rather
+than dropped.
 
 **Numbering.** Stand-alone output is numbered `## 1.`, `## 2.`, … contiguously,
 and the changelog block is always the first `### 1.1.` entry of the Unreleased
@@ -154,10 +156,61 @@ hand-written pages; keep the block first, because the numbering tool would
 otherwise rewrite its heading and the drift check would report it.
 
 **Corrections.** A maintainer fixes a misclassified change with an overrides
-file (`{pr: {bucket, subject}}`) passed on the command line. History is never
-rewritten, so the same range renders the same notes for anyone who applies the
-same overrides.
+file (`{pr: {bucket, subject}}`; a folded pair is keyed by its `develop` pull
+request) passed on the command line. History is never rewritten, so the same
+range renders the same notes for anyone who applies the same overrides.
 
-**Not done.** No `semantic-release`, no version derivation, and no published
-release; the tag procedure in §3 is unchanged and the generated block is refreshed
-by hand as part of step 1.
+**Decision: Atlas keeps its own generator (2026-10-04).** Atlas does not adopt
+`semantic-release` (commit-analyzer, release-notes-generator, changelog, git)
+and does not derive versions from commits, because of how Atlas releases:
+
+- Tags are cut on `main` (§1), but `main` does not carry the changes' own
+  commits: a release pull request squashes `develop` into one
+  `chore(release): merge develop into main for #A and #B (#R)` commit. The
+  commit-analyzer would read that `chore` and see neither the `feat`/`fix`
+  types nor the breaking markers of what it carries, so it would pick the wrong
+  version or none; on `develop`, where the typed squashes live, no tag is cut.
+- Its changelog and git plugins commit the notes and push the tag from CI.
+  `main` and `develop` accept changes only by pull request, tagging is a
+  maintainer step followed by recording the immutable object IDs (§3, §4), and
+  every Atlas workflow runs with a `contents: read` token, so publishing from
+  CI would first need a write credential.
+- About one subject in five since `v0.1.0` is not a Conventional Commits
+  subject (the *Unclassified* entries), and the analyzer would skip it silently.
+- What Atlas needed from it is already here: the generator is offline,
+  credential-free, reproducible from a recorded range, gated by the required
+  job, correctable by overrides, and its output meets the numbering contract.
+
+MAJOR, MINOR, or PATCH stays the maintainer's call under §1, read off the
+block's *Breaking changes* and *Features* lists. Nothing is published, the tag
+procedure in §3 is unchanged, and the block is refreshed as part of its step 1
+(finalize release notes).
+
+**One released change per `develop` pull request.** A change is identified by
+the pull request that squashed it into `develop`, the last `(#N)` of its
+subject. Its promotion to `main` is the same change, never a second entry:
+
+- A promotion merge is replaced by the `develop` commits it carries.
+- A release squash names its sources in its title (`… for #A and #B (#R)`), so
+  `#R` is folded into each of those entries and rendered as `(#A, #R)`.
+- The 22 earlier promotion squashes from #509 through #635 repeat the
+  `develop` subject under their own number only, such as
+  `feat(llm): … (#379) (#509)` for `feat(llm): … (#379) (#507)`.
+  `REVIEWED_PROMOTIONS` in the script maps each one to its `develop` pull
+  request. Every entry was checked against GitHub (the promotion's head commit
+  is that pull request's squash commit) and Git (both commits make the same
+  change to the same tree), and each pair renders as one entry, `(#507, #509)`.
+
+Subjects are never matched: #1085 and #1136 carry the same subject and are two
+different digest moves, so they stay two entries. A promotion whose sources are
+not in the range stays one *Promotions* entry. A release squash does not carry
+`develop`'s commits, so a range that ends on `main` shows those changes only as
+their promotion; the changelog block is therefore rendered from a `develop`
+range, where each change lands exactly once. A future promotion that cannot
+name its sources gets a reviewed `REVIEWED_PROMOTIONS` entry, not a subject
+rule.
+
+**History before `v0.1.0`.** The generator never reads before `v0.1.0`. The
+earlier entries, including the `1.0.0` through `3.0.0` milestone labels (§5),
+stay hand-written as they are, and the curated entries below the block remain
+the detailed history.
