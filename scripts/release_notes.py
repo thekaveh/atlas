@@ -2,9 +2,10 @@
 
 Reads a commit range from Git, classifies every first-parent commit by its
 Conventional Commits subject, expands develop-to-main promotion merges into
-the develop commits they carry, de-duplicates by pull-request number so a
-change counted on develop is not counted again by its promotion, and renders
-concise notes whose headings satisfy the documentation numbering contract.
+the develop commits they carry, de-duplicates by pull-request number, folds a
+squash promotion into the develop entries it carries when its pull-request
+identity is known (never by subject), and renders concise notes whose headings
+satisfy the documentation numbering contract.
 
 It never writes ``docs/CHANGELOG.md`` and needs no credentials: the input is
 the local repository, the output is stdout or a file the caller names.
@@ -22,7 +23,7 @@ import argparse
 import json
 import re
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,21 @@ _MERGE_RE = re.compile(r"^Merge pull request #(?P<pr>\d+) from (?P<head>\S+)")
 _BRANCH_MERGE_RE = re.compile(r"^Merge (?:remote-tracking )?(?:branch )?'?[^' ]+'? into \S+")
 # Squash promotions typed as fix/docs/chore still read "promote … to main".
 _PROMOTE_SUBJECT_RE = re.compile(r"^(?:promote|reconcile) .*\b(?:to|into) main\b")
+# Release titles name the develop pull requests they promote:
+# "chore(release): merge develop into main for #A, #B and #C (#R)".
+_RELEASE_SOURCES_RE = re.compile(r"\bmerge develop into main for (?P<prs>#\d+(?:(?:,|\s|and)+#\d+)*)\s*$")
+_NUMBER_REF_RE = re.compile(r"#(\d+)")
+# Reviewed identity for squash promotions that repeat a develop pull request's
+# subject but not its number (#968). Each maps a develop->main promotion PR to
+# the develop PR it promoted, checked against GitHub (the promotion's head
+# commit is that PR's develop squash commit) and Git (both commits make the same
+# change to the same tree). Release titles that name their sources need none.
+REVIEWED_PROMOTIONS: dict[int, tuple[int, ...]] = {
+    509: (507,), 512: (511,), 521: (520,), 527: (523,), 530: (529,), 537: (536,),
+    540: (539,), 543: (542,), 546: (545,), 549: (548,), 552: (551,), 555: (554,),
+    560: (557,), 563: (562,), 567: (566,), 571: (570,), 594: (593,), 622: (621,),
+    626: (625,), 629: (628,), 632: (631,), 635: (634,),
+}
 _EXPANSION_DEPTH = 4
 _RECORD_SEP = "\x1e"
 _FIELD_SEP = "\x1f"
@@ -104,6 +120,7 @@ class Note:
     bucket: str
     scope: str | None
     subject: str
+    promoted_in: tuple[int, ...] = ()  # main promotions folded into this develop entry
 
 
 def _git(repo_root: Path, *args: str) -> str:
@@ -192,6 +209,39 @@ def _leaf_commits(repo_root: Path, commit: Commit, depth: int) -> list[Commit]:
     return leaves
 
 
+def promotion_sources(note: Note) -> tuple[int, ...]:
+    """The develop pull requests a squash promotion carries, when its identity is known."""
+    if note.pr is None:
+        return ()
+    if note.pr in REVIEWED_PROMOTIONS:
+        return REVIEWED_PROMOTIONS[note.pr]
+    named = _RELEASE_SOURCES_RE.search(note.subject) if note.bucket == "Promotions" else None
+    return tuple(int(pr) for pr in _NUMBER_REF_RE.findall(named.group("prs"))) if named else ()
+
+
+def _foldable_sources(note: Note, position: dict[int, int]) -> tuple[int, ...]:
+    """A promotion's sources when every one of them is its own entry in the range."""
+    sources = promotion_sources(note)
+    return sources if note.pr not in sources and all(pr in position for pr in sources) else ()
+
+
+def fold_promotions(notes: list[Note]) -> list[Note]:
+    """Fold each squash promotion into the develop entries it carries (#968).
+
+    Identity is a pull-request number, never a subject. A promotion whose
+    develop entries are not all in the range stays as its own entry.
+    """
+    position = {note.pr: index for index, note in enumerate(notes) if note.pr is not None}
+    folded = list(notes)
+    dropped: set[int] = set()
+    for index, note in enumerate(notes):
+        for pr in _foldable_sources(note, position):
+            target = folded[position[pr]]
+            folded[position[pr]] = replace(target, promoted_in=(*target.promoted_in, note.pr))
+            dropped.add(index)
+    return [note for index, note in enumerate(folded) if index not in dropped]
+
+
 def collect_notes(repo_root: Path, rev_range: str) -> list[Note]:
     """Classify a range, expanding promotions and de-duplicating by PR number."""
     notes: list[Note] = []
@@ -204,7 +254,7 @@ def collect_notes(repo_root: Path, rev_range: str) -> list[Note]:
                 continue
             seen.add(key)
             notes.append(note)
-    return notes
+    return fold_promotions(notes)
 
 
 def load_overrides(path: Path | None) -> dict[int, dict[str, str]]:
@@ -232,19 +282,20 @@ def apply_overrides(notes: list[Note], overrides: dict[int, dict[str, str]]) -> 
             corrected.append(note)
             continue
         corrected.append(
-            Note(
-                note.sha,
-                note.pr,
-                change.get("bucket", note.bucket),
-                note.scope,
-                change.get("subject", note.subject),
+            replace(
+                note,
+                bucket=change.get("bucket", note.bucket),
+                subject=change.get("subject", note.subject),
             )
         )
     return corrected
 
 
 def _line(note: Note) -> str:
-    reference = f"#{note.pr}" if note.pr is not None else note.sha[:8]
+    if note.pr is None:
+        reference = note.sha[:8]
+    else:
+        reference = ", ".join(f"#{pr}" for pr in (note.pr, *note.promoted_in))
     scope = f"**{note.scope}:** " if note.scope else ""
     return f"- {scope}{note.subject} ({reference})"
 

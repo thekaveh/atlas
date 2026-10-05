@@ -1767,7 +1767,7 @@ def test_container_security_workflow_pins_scanner_and_failure_policy() -> None:
 def test_container_security_workflow_builds_every_supported_architecture() -> None:
     _, scheduled = _workflow_sources()
 
-    assert "docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a" in scheduled
+    assert "docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1" in scheduled
     assert "platforms=\"linux/amd64 linux/arm64\"" in scheduled
     assert "services/asset-baker/app|Dockerfile" in scheduled
     assert 'platforms="linux/amd64"' in scheduled
@@ -1777,7 +1777,7 @@ def test_container_security_workflow_builds_every_supported_architecture() -> No
 def test_required_build_validation_builds_every_supported_architecture() -> None:
     required, _ = _workflow_sources()
 
-    assert "docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a" in required
+    assert "docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1" in required
     assert 'platforms="linux/amd64 linux/arm64"' in required
     assert 'platforms="linux/amd64"' in required
     assert '--platform "$platform"' in required
