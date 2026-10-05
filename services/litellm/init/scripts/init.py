@@ -365,10 +365,10 @@ def render_model_list(active_rows: list[Any]) -> list[dict[str, Any]]:
 
     Per-provider routing rules:
       • ollama       → model: ollama/{name}, api_base: $LITELLM_OLLAMA_UPSTREAM
-      • openai       → model: {name}, api_key: os.environ/OPENAI_API_KEY
+      • openai       → model: openai/{name}, api_key: os.environ/OPENAI_API_KEY
       • anthropic    → model: anthropic/{name}, api_key: os.environ/ANTHROPIC_API_KEY
-      • openrouter   → model: {name}, api_key: os.environ/OPENROUTER_API_KEY
-                       (names are already prefixed ``openrouter/...`` in the catalog)
+      • openrouter   → model: openrouter/{name}, api_key: os.environ/OPENROUTER_API_KEY
+                       (each prefix is added only when the name lacks it)
     """
     out: list[dict[str, Any]] = []
     for row in active_rows:

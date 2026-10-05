@@ -962,3 +962,28 @@ def test_content_default_is_saved_value_on_rerun():
     assert content.default_value == "ollama/qwen3.8:latest"
     blank = build_default_model_steps({**env, "LITELLM_DEFAULT_MODEL": ""})
     assert next(s for s in blank if s.title == LLM_DEFAULT_CONTENT_TITLE).default_value is None
+
+
+def test_corrected_catalog_dimension_reaches_an_existing_env(tmp_path, capsys):
+    # qwen3-embedding:0.6b was catalogued as 1536 (it emits 1024); a launch
+    # without the wizard must follow the corrected value.
+    starter = _reconcile_starter(
+        tmp_path,
+        "LLM_PROVIDER_SOURCE=ollama-container-cpu\n"
+        "LITELLM_EMBEDDING_MODEL=ollama/qwen3-embedding:0.6b\n"
+        "LANGMEM_EMBEDDING_DIM=1536\n",
+    )
+    assert starter.reconcile_default_models() is True
+    assert starter.config_parser.parse_env_file()["LANGMEM_EMBEDDING_DIM"] == "1024"
+    assert "1536 -> 1024" in capsys.readouterr().out
+
+
+def test_custom_embedding_dimension_is_left_alone(tmp_path):
+    starter = _reconcile_starter(
+        tmp_path,
+        "LLM_PROVIDER_SOURCE=ollama-container-cpu\n"
+        "LITELLM_EMBEDDING_MODEL=custom/acme-embedder\n"
+        "LANGMEM_EMBEDDING_DIM=384\n",
+    )
+    assert starter.reconcile_default_models() is True
+    assert starter.config_parser.parse_env_file()["LANGMEM_EMBEDDING_DIM"] == "384"

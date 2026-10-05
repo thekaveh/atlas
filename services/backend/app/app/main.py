@@ -30,6 +30,7 @@ from comfyui_client import (
     ComfyUIResponseError,
     ComfyUIUpstreamError,
     ComfyUIUnavailableError,
+    ComfyUIWorkflowRejectedError,
 )
 from comfyui_media_client import ComfyUIMediaClient
 from fal_media_client import (
@@ -189,6 +190,11 @@ def _comfyui_gateway_error(exc: Exception) -> HTTPException:
         return HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="ComfyUI is unavailable",
+        )
+    if isinstance(exc, ComfyUIWorkflowRejectedError):
+        return HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ComfyUI rejected the workflow (check its node inputs and model names)",
         )
     return HTTPException(
         status_code=status.HTTP_502_BAD_GATEWAY,

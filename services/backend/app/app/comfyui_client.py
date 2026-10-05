@@ -26,6 +26,10 @@ class ComfyUIResponseError(ComfyUIUpstreamError):
     """Raised when ComfyUI returns a failed or malformed HTTP response."""
 
 
+class ComfyUIWorkflowRejectedError(ComfyUIResponseError):
+    """Raised when ComfyUI rejects a submitted workflow (HTTP 400)."""
+
+
 class ComfyUIHistoryUnavailableError(ComfyUIUnavailableError):
     """Raised when ComfyUI history cannot be read."""
 
@@ -178,13 +182,21 @@ class ComfyUIClient:
             "prompt": workflow,
             "client_id": client_id
         }
-        result = await _request_json(
-            self.client.post(
-                f"{self.base_url}/prompt",
-                json=prompt_data
-            ),
-            operation="Failed to queue ComfyUI prompt",
-        )
+        try:
+            result = await _request_json(
+                self.client.post(
+                    f"{self.base_url}/prompt",
+                    json=prompt_data
+                ),
+                operation="Failed to queue ComfyUI prompt",
+            )
+        except ComfyUIResponseError as exc:
+            cause = exc.__cause__
+            if isinstance(cause, httpx.HTTPStatusError) and cause.response.status_code == 400:
+                # /prompt's 400 is a bad node graph, not an outage: a 502
+                # invited n8n/Open WebUI retries and hid the cause.
+                raise ComfyUIWorkflowRejectedError("ComfyUI rejected the workflow") from exc
+            raise
         prompt_id = result.get("prompt_id") if isinstance(result, dict) else None
         if not isinstance(prompt_id, str) or not prompt_id.strip():
             raise ComfyUIResponseError("ComfyUI returned an invalid response")

@@ -36,6 +36,32 @@ async def test_queue_prompt_maps_transport_failure_to_typed_unavailable(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_rejected_workflow_is_a_client_error_without_upstream_detail():
+    # ComfyUI's 400 (bad node graph) was reported as a 502 outage.
+    import comfyui_client
+
+    client = comfyui_client.ComfyUIClient()
+    await client.client.aclose()
+    client.client = _response_client(
+        lambda _request: httpx.Response(400, json={"error": "SENTINEL_NODE_ERRORS"})
+    )
+    with pytest.raises(comfyui_client.ComfyUIWorkflowRejectedError):
+        await client.queue_prompt({"1": {"class_type": "SaveImage"}})
+    await client.client.aclose()
+
+
+def test_rejected_workflow_maps_to_400(fastapi_client):
+    import comfyui_client
+    import main
+
+    mapped = main._comfyui_gateway_error(
+        comfyui_client.ComfyUIWorkflowRejectedError("ComfyUI rejected the workflow")
+    )
+    assert mapped.status_code == 400
+    assert "SENTINEL" not in mapped.detail
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "response",
     [
@@ -1520,3 +1546,35 @@ def test_artifact_content_type_follows_the_extension(filename, expected):
     from comfyui_media_client import _content_type_for
 
     assert _content_type_for(filename) == expected
+
+
+def test_strength_and_size_inputs_are_validated_not_defaulted():
+    import comfyui_media_client as cmc
+
+    # "nope" used to become 0.75 and width=0 became 1024.
+    assert cmc._strength("0.4") == 0.4
+    assert cmc._strength(None) == 0.75
+    assert cmc._strength(1.5) == 1.5  # clamped to 1.0 when building the graph
+    for bad in ("nope", "nan"):
+        with pytest.raises(ValueError, match="strength"):
+            cmc._strength(bad)
+    assert cmc._first_given(0, 512, 1024) == 0
+    assert cmc._first_given(None, None, 1024) == 1024
+
+
+def test_init_image_larger_than_the_side_cap_is_refused():
+    # img2img encodes the init image at its own size; a 6000x6000 input
+    # bypassed the 4096 width/height cap.
+    import io
+
+    import comfyui_media_client as cmc
+    from PIL import Image
+
+    def png(width, height):
+        buffer = io.BytesIO()
+        Image.new("RGB", (width, height)).save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    cmc._reject_oversized_init_image(png(4096, 64))
+    with pytest.raises(ValueError, match="4097x64"):
+        cmc._reject_oversized_init_image(png(4097, 64))

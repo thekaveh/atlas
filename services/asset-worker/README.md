@@ -63,7 +63,7 @@ curl -H "Authorization: Bearer ${ASSET_WORKER_API_TOKEN}" \
 | `target_height_m` | no | Target height after normalization when `normalize_axis=height`. |
 | `target_width_m` | no | Target max horizontal width after normalization when `normalize_axis=width`. |
 | `normalize_axis` | no | `height` or `width`; default `height`. |
-| `up_axis` | no | Orientation policy (#524): `keep` (default — trust the incoming +Y-up orientation; scale/center/ground only), `auto` (minimum-AABB-volume search over small pitch/roll tilts; never rotates a model already within a few degrees of Y-up), or `x`/`y`/`z` (explicitly remap that axis to +Y). |
+| `up_axis` | no | Orientation policy (#524): `keep` (default — trust the incoming +Y-up orientation; scale/center/ground only), `auto` (minimum-AABB-volume search over small pitch/roll tilts; never rotates a model already within a few degrees of Y-up), or `x`/`y`/`z` (explicitly rotate that axis to +Y; a proper rotation, never a mirror). Only `POSITION` data is rewritten: stored normals and tangents are not rotated, and node transforms are not applied. |
 | `simplify_ratio` | no | glTF-Transform simplification ratio from `0` to `1`. |
 | `draco` | no | Enables Draco mesh compression. |
 | `meshopt` | no | Enables Meshopt mesh compression when Draco is not selected. |

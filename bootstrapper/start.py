@@ -371,6 +371,19 @@ def _profile_env_overrides(
     return overrides
 
 
+def _catalog_embedding_dim_repair(env: dict) -> dict[str, str]:
+    """LANGMEM_EMBEDDING_DIM when a catalog embedding model's declared dim
+    differs from .env; the contract rejects that pair, so it only arises from
+    a corrected catalog entry. Custom (uncatalogued) models are left alone."""
+    from utils.model_resolver import dim_for_model_id  # noqa: PLC0415
+
+    model = (env.get("LANGMEM_EMBEDDING_MODEL") or env.get("LITELLM_EMBEDDING_MODEL") or "").strip()
+    dim = dim_for_model_id(model)
+    if dim is None or str(dim) == (env.get("LANGMEM_EMBEDDING_DIM") or "").strip():
+        return {}
+    return {"LANGMEM_EMBEDDING_DIM": str(dim)}
+
+
 def _detect_env_image_drift(
     existing_env: dict, env_example_path,
 ) -> list[tuple[str, str, str]]:
@@ -858,7 +871,7 @@ class AtlasStarter:
                 if key in replacements:
                     changed[key] = replacements[key]
         if not changed:
-            return True
+            return self._repair_catalog_embedding_dim(env)
         try:
             return self.apply_user_model_selections(changed)
         except ValueError as exc:
@@ -867,6 +880,18 @@ class AtlasStarter:
             # this best-effort repair was never needed for.
             print(f"WARNING: default models left unchanged: {exc}")
             return True
+
+    def _repair_catalog_embedding_dim(self, env: dict) -> bool:
+        """Follow a corrected catalog dimension (qwen3-embedding:0.6b was
+        declared 1536 but emits 1024) without waiting for a wizard re-run."""
+        repair = _catalog_embedding_dim_repair(env)
+        if not repair:
+            return True
+        print(
+            f"Embedding dimension LANGMEM_EMBEDDING_DIM: {env.get('LANGMEM_EMBEDDING_DIM')} "
+            f"-> {repair['LANGMEM_EMBEDDING_DIM']} (catalog value for the embedding model)"
+        )
+        return self.source_override_manager.update_env_file(repair)
 
     def validate_source_configurations(self) -> bool:
         """Validate all SOURCE configurations and scale values against YAML.

@@ -57,9 +57,11 @@ To change which models are exposed, run the wizard (`./start.sh`) or edit the re
 `volumes/litellm/config.yaml` is rebuilt on every run, so direct edits there are overwritten. Per-provider routing rules baked into `litellm-init`:
 
 - **Ollama** rows: `model: ollama/<name>`, `api_base: $LITELLM_OLLAMA_UPSTREAM`. `render_model_list` actually registers **two** aliases per Ollama model — `ollama/<name>` and the bare `<name>` — and selects the `ollama_chat/` adapter for chat models (falling back to `ollama/` for embeddings); see §7 for the accurate per-endpoint detail.
-- **OpenAI** rows: `model: <name>`, `api_key: $OPENAI_API_KEY`.
+- **OpenAI** rows: `model: openai/<name>`, `api_key: $OPENAI_API_KEY`.
 - **Anthropic** rows: `model: anthropic/<name>`, `api_key: $ANTHROPIC_API_KEY`.
-- **OpenRouter** rows: `model: <name>` (catalog names already carry the `openrouter/` prefix), `api_key: $OPENROUTER_API_KEY`.
+- **OpenRouter** rows: `model: openrouter/<name>`, `api_key: $OPENROUTER_API_KEY`.
+
+Each cloud row's provider prefix is added once: a name that already carries it (the catalog's `openrouter/...` ids, a wizard-saved row) is kept as is, so a bare `vendor/model` OpenRouter id from a flag or manifest still routes through OpenRouter. The `model_name` clients use is always the configured name.
 
 ### 5.1. `*_USER_MODELS` env vars
 

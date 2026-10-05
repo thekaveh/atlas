@@ -112,11 +112,29 @@ def test_keep_leaves_tilt_alone(tmp_path):
 
 
 def test_explicit_axis_remap(tmp_path):
-    """`x`/`z` explicitly remap that axis to +Y (the historical swap, opt-in)."""
+    """`x`/`z` explicitly rotate that axis to +Y (opt-in)."""
     dims_x, _ = _roundtrip(tmp_path, _box_positions(5, 1, 2), up_axis="x")
     assert abs(dims_x[1] - 5.0) < 1e-4  # X became the height axis
     dims_z, _ = _roundtrip(tmp_path, _box_positions(2, 1, 5), up_axis="z")
     assert abs(dims_z[1] - 5.0) < 1e-4  # Z became the height axis
+
+
+def test_explicit_axis_remap_is_a_rotation_not_a_mirror():
+    # A coordinate swap has determinant -1: the asset came out mirrored with
+    # inside-out faces.
+    from asset_worker.normalizer import _orient_positions
+
+    for axis in ("x", "z"):
+        e1, e2, e3 = _orient_positions(
+            [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)],
+            PostprocessParams(up_axis=axis),
+        )
+        det = (
+            e1[0] * (e2[1] * e3[2] - e2[2] * e3[1])
+            - e1[1] * (e2[0] * e3[2] - e2[2] * e3[0])
+            + e1[2] * (e2[0] * e3[1] - e2[1] * e3[0])
+        )
+        assert det == 1.0, axis
 
 
 # ── golden fixtures: tall + squat assets round-trip under the default ──────

@@ -178,18 +178,19 @@ def _orient_positions(
 
     ``keep`` (default) and ``y`` perform NO reorientation — glTF is +Y-up by
     spec, so incoming orientation is trusted and only scale/center/ground
-    runs. ``x``/``z`` explicitly remap that axis to +Y (the historical swap,
-    now opt-in). ``auto`` runs a genuine minimum-AABB-volume search over
+    runs. ``x``/``z`` explicitly rotate that axis to +Y (opt-in). ``auto`` runs a genuine minimum-AABB-volume search over
     small pitch/roll tilts (what the metadata name promises) with a dead-band
     so a model already within a few degrees of Y-up is never touched — even
     when it is wider than tall (the extent-argmax bug this replaces).
     """
     if params.up_axis in ("keep", "y"):
         return positions
+    # Proper rotations (det +1): a coordinate swap is a mirror that flipped
+    # the model left-right and turned its faces inside out.
     if params.up_axis == "x":
-        return [(y, x, z) for x, y, z in positions]
+        return [(-y, x, z) for x, y, z in positions]  # +90 deg about Z
     if params.up_axis == "z":
-        return [(x, z, y) for x, y, z in positions]
+        return [(x, z, -y) for x, y, z in positions]  # -90 deg about X
     return _auto_upright(positions)
 
 

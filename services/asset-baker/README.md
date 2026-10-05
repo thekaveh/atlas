@@ -138,7 +138,7 @@ Failure statuses: `400` (empty / non-GLB), `413` (over `ASSET_BAKER_MAX_UPLOAD_M
 
 The worker spawns a headless Blender subprocess (`blender -b -P bake.py`) per request and enforces bounds (size, timeout, concurrency=1, temp-file cleanup) around it. The bake pipeline (`bake.py`, ported from DayDreams' battle-tested `spikes/one-cell/bake_lp.py`) runs per source:
 
-1. **Import → join → canonical-normalize.** All meshes are joined and scaled to `canonical_size` max-dimension **before** remeshing — raw GLBs aren't meter-scale and the relative voxel/ray heuristics explode without it (a 0.99 m "cottage" otherwise remeshes to 8.3 M faces). The base is rested at `z=0`.
+1. **Import → join → canonical-normalize.** Parent node transforms (root rotation/scale, multi-part placement) are first baked into each mesh, then all meshes are joined and scaled to `canonical_size` max-dimension **before** remeshing — raw GLBs aren't meter-scale and the relative voxel/ray heuristics explode without it (a 0.99 m "cottage" otherwise remeshes to 8.3 M faces). The base is rested at `z=0`.
 2. **Voxel-remesh** fuses the interpenetrating shells/flaps that cause tilt/floaters into one watertight surface.
 3. **Debris-shell drop** removes loose fragments below `MIN_SHELL_FACES`.
 4. **Decimate** to `target_tris` (skipped if already under).

@@ -2003,6 +2003,10 @@ def finalize_boundary_lock(
             # Manual recovery needs the rollback and validated stage copies:
             # after a failed copy-back they can be the only original data.
             retained = retained | _recovery_volumes(coordinator)
+        if getattr(coordinator, "boundary_state", None) == "committed":
+            # A signal during post-commit pruning must not delete this
+            # restore's rollback copies of the pre-restore data.
+            retained = retained | set(getattr(coordinator, "rollback", {}).values())
         if getattr(coordinator.runner, "process_group_cleanup_failed", False):
             reasons.append("owned process-group cleanup was not proven")
         try:
