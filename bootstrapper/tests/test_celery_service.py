@@ -284,3 +284,15 @@ def test_celery_docs_describe_retry_security_and_async_memory_scope() -> None:
         "Research start is deferred",
     ):
         assert expected in readme
+
+
+def test_n8n_kong_route_keeps_the_gateway_read_timeout() -> None:
+    # Bundled webhooks hold the response open (research, ComfyUI up to 300 s);
+    # the n8n service's own 60 s read/write timeout returned 504 mid-run.
+    from utils.kong_config_generator import KongConfigGenerator
+
+    gen = KongConfigGenerator(ConfigParser(str(REPO_ROOT)))
+    gen.load_environment_variables = lambda: setattr(gen, "env_vars", {"N8N_SOURCE": "container"})
+    services = gen.generate_kong_config()["services"]
+    n8n = next(service for service in services if service["name"] == "n8n-api")
+    assert n8n["read_timeout"] == n8n["write_timeout"] == 300000

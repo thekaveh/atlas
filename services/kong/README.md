@@ -105,7 +105,7 @@ else:  # container-cpu / container-gpu
 ### 4.2. Proxy timeouts
 
 Every generated service gets a 300-second `read_timeout` / `write_timeout`
-unless it declares its own (n8n keeps 60 s; backend plugins may set theirs).
+unless it declares its own (backend plugins may set theirs; n8n uses the default so long-running webhooks are not cut off).
 Kong 3.x has no global proxy-timeout setting, so these live per service in
 `kong-dynamic.yml`; Kong's own 60-second default otherwise cuts off slow
 non-streaming LLM calls and idle streams or WebSockets. Retries happen only on

@@ -915,9 +915,11 @@ class KongConfigGenerator:
         return {
             'name': 'n8n-api',
             'url': 'http://n8n:5678/',
+            # Bundled webhooks hold the response open (research polling, LLM
+            # summaries, ComfyUI wait_for_completion up to the backend's
+            # 300 s); a 60 s read/write timeout returned 504 while the run
+            # continued. Read/write follow the 300 s gateway default.
             'connect_timeout': 60000,
-            'write_timeout': 60000,
-            'read_timeout': 60000,
             'routes': [
                 {
                     'name': 'n8n-api-all',

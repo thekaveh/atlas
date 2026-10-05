@@ -592,3 +592,21 @@ def test_comfyui_generate_errors_reach_the_workflow_error_responder() -> None:
         if n["name"] == "Handle Service Error"
     )
     assert "$prevNode.name === 'Generate Image' ? 'Image generation failed'" in handler["parameters"]["jsCode"]
+
+
+def test_searxng_research_reads_options_from_the_webhook_body():
+    # Webhook fields nest under `body`; `$json.query` is the (always truthy)
+    # URL-query object, so a body without a query searched "[object Object]".
+    workflow = _load(ROOT / "services/n8n/init/config/searxng-research-workflow.json")
+    search = next(n for n in workflow["nodes"] if n["name"] == "Search SearxNG")
+    params = {p["name"]: p["value"] for p in search["parameters"]["queryParameters"]["parameters"]}
+    for name in ("categories", "engines", "time_range"):
+        assert "$json.body?." in params[name], name
+    assert "$json.query ||" not in params["q"]
+
+
+def test_langmem_consolidation_requires_a_healthy_memory_service():
+    workflow = _load(ROOT / "services/n8n/workflows-stage/workflows/langmem-consolidation.json")
+    gate = next(n for n in workflow["nodes"] if n["name"] == "Is Memory Enabled?")
+    conditions = gate["parameters"]["conditions"]["conditions"]
+    assert {c["leftValue"] for c in conditions} >= {"={{ $json.enabled }}", "={{ $json.status }}"}
