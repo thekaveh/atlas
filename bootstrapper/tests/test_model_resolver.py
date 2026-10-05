@@ -456,15 +456,15 @@ class TestEmbeddingDimensionSafety:
         assert embedding_dim_warning(None) is None
         assert embedding_dim_warning("some/unlisted-embedder") is None
 
-    def test_warning_flags_1536_dim_qwen(self):
+    def test_warning_flags_1024_dim_qwen(self):
         for name in ("qwen3-embedding:0.6b", "ollama/qwen3-embedding:0.6b"):
             msg = embedding_dim_warning(name)
             assert msg is not None
-            assert "1536" in msg
+            assert "1024" in msg
             assert str(MEMORY_FACTS_EMBEDDING_DIM) in msg
 
     def test_warning_accepts_wide_model_with_matching_contract(self):
-        assert embedding_dim_warning("ollama/qwen3-embedding:0.6b", 1536) is None
+        assert embedding_dim_warning("ollama/qwen3-embedding:0.6b", 1024) is None
         assert embedding_dim_warning("text-embedding-3-large", 3072) is None
 
     def test_warning_flags_3072_dim_openai(self):
@@ -478,7 +478,7 @@ class TestEmbeddingDimensionSafety:
         # The dims come from services/*/models.yaml `dim:` fields, not a Python
         # map — declaring dim on a new entry is all it takes to extend the guard.
         assert dim_for_model_id("ollama/nomic-embed-text") == MEMORY_FACTS_EMBEDDING_DIM
-        assert dim_for_model_id("ollama/qwen3-embedding:0.6b") == 1536
+        assert dim_for_model_id("ollama/qwen3-embedding:0.6b") == 1024
         assert dim_for_model_id("text-embedding-3-large") == 3072
         assert dim_for_model_id("text-embedding-3-small") == 1536
 
@@ -496,7 +496,7 @@ class TestEmbeddingDimensionSafety:
         ("model", "expected"),
         [
             ("ollama/nomic-embed-text", 768),
-            ("ollama/qwen3-embedding:0.6b", 1536),
+            ("ollama/qwen3-embedding:0.6b", 1024),
             ("text-embedding-3-large", 3072),
         ],
     )
@@ -518,7 +518,7 @@ class TestEmbeddingDimensionSafety:
     def test_embedding_dimension_contract_rejects_catalog_mismatch(self):
         from utils.model_resolver import embedding_dimension_contract
 
-        with pytest.raises(ValueError, match="produces 1536.*configured.*768"):
+        with pytest.raises(ValueError, match="produces 1024.*configured.*768"):
             embedding_dimension_contract("ollama/qwen3-embedding:0.6b", "768")
 
     def test_unknown_model_requires_explicit_dimension_declaration(self):

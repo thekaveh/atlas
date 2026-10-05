@@ -1291,10 +1291,10 @@ class DatabaseCoordinator:
 
     def _owned_run(self, role: str, command: list[str], *, timeout: int | None = None):
         name = self.runner.unique_name(role)
-        if timeout is None:
-            self.runner.register_container(name)
-        else:
-            self.runner.register_container(name, timeout=timeout)
+        # The registration window only bounds how long cleanup polls for a
+        # container Docker never created; a data-sized one deferred signals
+        # for up to 15 minutes while the databases were stopped.
+        self.runner.register_container(name)
         try:
             result = self.runner.run(
                 [
@@ -1913,7 +1913,7 @@ class DatabaseCoordinator:
             if initially_running:
                 self.compose("stop", "--timeout", str(self.timeout), service)
             name = self.runner.unique_name("neo-backup")
-            self.runner.register_container(name, timeout=self.data_timeout)
+            self.runner.register_container(name)
             try:
                 self.runner.run(
                     [
@@ -1971,11 +1971,20 @@ def _signal_as_exception(signum, _frame):
 
 
 def _recovery_volumes(coordinator: "DatabaseCoordinator") -> set[str]:
-    """Rollback + stage volumes kept (and named) for a poisoned boundary."""
+    """Rollback + stage volumes kept (and named) when an unproven cutover
+    already mutated live data; artifacts are re-extractable from S3."""
+    if getattr(coordinator, "boundary_state", None) != "cutover-mutated":
+        return set()
     kept = set(getattr(coordinator, "rollback", {}).values())
-    kept |= set(getattr(coordinator, "stage", {}).values())
+    kept |= {
+        name for key, name in getattr(coordinator, "stage", {}).items() if key != "artifacts"
+    }
     for name in sorted(kept):
-        print(f"database recovery: retained volume {name}", file=sys.stderr)
+        print(
+            f"database recovery: retained volume {name}; copy or rename it before "
+            "clearing the lock (the next restore prunes older rollback volumes)",
+            file=sys.stderr,
+        )
     return kept
 
 

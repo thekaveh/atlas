@@ -314,7 +314,7 @@ def test_embed_options_auto_match_768_dim_first():
 
     steps = build_default_model_steps(_default_env())
     embed_step = next(s for s in steps if s.title == LLM_DEFAULT_EMBED_TITLE)
-    # qwen3-embedding:0.6b (1536-dim) selected BEFORE nomic-embed-text (768-dim).
+    # qwen3-embedding:0.6b (1024-dim) selected BEFORE nomic-embed-text (768-dim).
     selections = _ollama_selections("qwen3-embedding:0.6b,nomic-embed-text")
     values = [o.value for o in embed_step.options_provider(selections)]
     assert "ollama/nomic-embed-text" in values

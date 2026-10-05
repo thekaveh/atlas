@@ -43,7 +43,7 @@ def test_apply_user_model_selections_persists_catalog_dimension_contract():
         source_override_manager = _SOM()
 
     stub = _Stub()
-    # qwen3-embedding:0.6b declares 1536 in services/ollama/models.yaml.
+    # qwen3-embedding:0.6b declares 1024 in services/ollama/models.yaml.
     selections = {
         "LITELLM_EMBEDDING_MODEL": "ollama/qwen3-embedding:0.6b",
         "OLLAMA_USER_MODELS": "qwen3.8:latest",
@@ -51,7 +51,7 @@ def test_apply_user_model_selections_persists_catalog_dimension_contract():
     result = AtlasStarter.apply_user_model_selections(stub, selections)
     assert result is True
     assert captured.get("OLLAMA_USER_MODELS") == "qwen3.8:latest"
-    assert captured.get("LANGMEM_EMBEDDING_DIM") == "1536"
+    assert captured.get("LANGMEM_EMBEDDING_DIM") == "1024"
 
 
 def test_apply_user_model_selections_accepts_custom_model_with_selected_dimension():

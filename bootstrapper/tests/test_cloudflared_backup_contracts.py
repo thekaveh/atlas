@@ -5412,12 +5412,20 @@ def test_poisoned_boundary_keeps_rollback_and_stage_volumes(tmp_path: Path):
     seen: dict[str, set] = {}
     coordinator = types.SimpleNamespace(
         poison_reason="copy-back failed",
+        boundary_state="cutover-mutated",
         rollback={"neo4j": "atlas-db-neo4j-rollback-x"},
-        stage={"neo4j": "atlas-db-neo-stage-x"},
+        stage={"neo4j": "atlas-db-neo-stage-x", "artifacts": "atlas-db-restore-artifacts-x"},
         runner=types.SimpleNamespace(cleanup=lambda **kw: seen.update(kw)),
     )
     module.finalize_boundary_lock(lock, coordinator, retained=set())
     assert seen["retain_volumes"] == {"atlas-db-neo4j-rollback-x", "atlas-db-neo-stage-x"}
+
+    # Poisoned before cutover touched live data: nothing extra is kept.
+    lock = module.OwnedFileLock(tmp_path / "pre.lock", token="b" * 32)
+    lock.acquire()
+    coordinator.boundary_state = "pre-cutover"
+    module.finalize_boundary_lock(lock, coordinator, retained=set())
+    assert seen["retain_volumes"] == set()
 
 
 def test_bulk_volume_steps_use_the_data_timeout():

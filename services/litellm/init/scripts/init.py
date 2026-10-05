@@ -355,6 +355,11 @@ def _resolved_metadata(row: Any) -> tuple[str, str, list[str]]:
     return kind, adapter, inferred_fields
 
 
+def _with_provider_prefix(provider: str, name: str) -> str:
+    """LiteLLM routes by the leading provider segment; add it once."""
+    return name if name.startswith(f"{provider}/") else f"{provider}/{name}"
+
+
 def render_model_list(active_rows: list[Any]) -> list[dict[str, Any]]:
     """Build LiteLLM's ``model_list`` from active model rows.
 
@@ -460,7 +465,7 @@ def render_model_list(active_rows: list[Any]) -> list[dict[str, Any]]:
             entry = {
                 "model_name": name,
                 "litellm_params": {
-                    "model": f"anthropic/{name}",
+                    "model": _with_provider_prefix("anthropic", name),
                     "api_key": "os.environ/ANTHROPIC_API_KEY",
                 },
             }
@@ -468,7 +473,10 @@ def render_model_list(active_rows: list[Any]) -> list[dict[str, Any]]:
             entry = {
                 "model_name": name,
                 "litellm_params": {
-                    "model": name,
+                    # Only the wizard adds the prefix; a bare "vendor/model"
+                    # from a flag or manifest went to that vendor's API with
+                    # the OpenRouter key.
+                    "model": _with_provider_prefix("openrouter", name),
                     "api_key": "os.environ/OPENROUTER_API_KEY",
                 },
             }

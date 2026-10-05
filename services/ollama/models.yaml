@@ -32,7 +32,7 @@ content:
 # embedding model whose dim matches the consumer's required dimension — the
 # backend memory_facts vector(768) column (model_resolver.MEMORY_FACTS_EMBEDDING_DIM).
 # So nomic-embed-text (dim 768) is the auto-matched default; list-order is only a
-# tiebreaker among same-dim models. qwen3-embedding:0.6b (dim 1536) stays available
+# tiebreaker among same-dim models. qwen3-embedding:0.6b (dim 1024) stays available
 # but selecting it triggers a warning unless that column is migrated. See
 # bootstrapper/utils/model_resolver.embedding_dim_warning.
 embeddings:
@@ -47,7 +47,7 @@ embeddings:
     capabilities: {embedding: true}
     recommended_roles: [embedding]
   - name: qwen3-embedding:0.6b
-    dim: 1536
+    dim: 1024  # the 0.6B model's hidden size; it cannot emit 1536
     default: true
     description: "Qwen3 embeddings, 0.6B — top of MTEB multilingual leaderboard"
     badges: [default, embeddings]

@@ -373,6 +373,23 @@ class TestCapabilityMetadataRendering:
         with pytest.raises(ValueError, match="provider openai requires adapter openai"):
             mod.render_model_list([contradictory])
 
+    def test_cloud_rows_carry_their_provider_prefix_once(self):
+        # A bare "vendor/model" OpenRouter id from a flag or manifest went to
+        # that vendor with the OpenRouter key; anthropic/ was doubled.
+        from utils.llm_catalog import CatalogEntry
+
+        mod = _load_init_module({"LLM_PROVIDER_SOURCE": "none"})
+        rows = [
+            CatalogEntry(provider="openrouter", name="anthropic/claude-sonnet-4.6",
+                         metadata_version=1, kind="chat", adapter="openrouter",
+                         capabilities={"chat": True}),
+            CatalogEntry(provider="anthropic", name="anthropic/claude-x",
+                         metadata_version=1, kind="chat", adapter="anthropic",
+                         capabilities={"chat": True}),
+        ]
+        models = [entry["litellm_params"]["model"] for entry in mod.render_model_list(rows)]
+        assert models == ["openrouter/anthropic/claude-sonnet-4.6", "anthropic/claude-x"]
+
     def test_request_defaults_are_per_model(self):
         from utils.llm_catalog import CatalogEntry
 

@@ -117,7 +117,7 @@ def test_embedding_entries_declare_dim():
 
     by_name = {e.name: e for e in c.all_catalog_entries()}
     assert by_name["nomic-embed-text"].dim == MEMORY_FACTS_EMBEDDING_DIM  # 768
-    assert by_name["qwen3-embedding:0.6b"].dim == 1536
+    assert by_name["qwen3-embedding:0.6b"].dim == 1024
     assert by_name["text-embedding-3-large"].dim == 3072
     assert by_name["text-embedding-3-small"].dim == 1536
 
