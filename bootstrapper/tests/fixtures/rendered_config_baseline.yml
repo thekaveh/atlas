@@ -537,7 +537,7 @@ services:
       N8N_API_KEY: ''
       N8N_BASE_URL: http://n8n:5678
       NEO4J_PASSWORD: neo4j_password
-      NEO4J_URI: bolt://neo4j-graph-db:7687
+      NEO4J_URI: ''
       NEO4J_USER: neo4j
       OTEL_EXPORTER_OTLP_ENDPOINT: ''
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
@@ -1524,7 +1524,7 @@ services:
       MLFLOW_TRACKING_URI: ''
       N8N_BASE_URL: http://n8n:5678
       NEO4J_PASSWORD: neo4j_password
-      NEO4J_URI: bolt://neo4j-graph-db:7687
+      NEO4J_URI: ''
       NEO4J_USER: neo4j
       PARAKEET_API_TOKEN: ''
       PYICEBERG_CATALOG__REST__S3__ACCESS_KEY_ID: ''
@@ -2586,7 +2586,7 @@ services:
       MCP_POSTGRES_MAX_ROWS: '50'
       MCP_SEARXNG_MAX_RESULTS: '5'
       MCP_TOOL_TIMEOUT_SECONDS: '15'
-      NEO4J_URI: bolt://neo4j-graph-db:7687
+      NEO4J_URI: ''
       SEARXNG_URL: http://searxng:8080
     image: atlas-mcp-servers:local
     logging:
@@ -4908,7 +4908,7 @@ services:
       BACKUP_FILESYSTEM_PATH: /var/lib/weaviate/backups
       CLIP_INFERENCE_API: http://multi2vec-clip:8080
       CLUSTER_HOSTNAME: weaviate
-      DEFAULT_VECTORIZER_MODULE: text2vec-openai
+      DEFAULT_VECTORIZER_MODULE: none
       ENABLE_MODULES: text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem
       OPENAI_APIKEY: ''
       PERSISTENCE_DATA_PATH: /var/lib/weaviate

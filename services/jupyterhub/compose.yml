@@ -50,7 +50,9 @@ services:
       # service that is not running and defeats the consumer's
       # not-configured branch. Matches STT/TTS/DOCLING_ENDPOINT alongside.
       WEAVIATE_URL: ${WEAVIATE_URL}
-      NEO4J_URI: ${NEO4J_URI:-bolt://neo4j-graph-db:7687}
+      # No :- default: the bootstrapper blanks it for a disabled Neo4j, and a
+      # default made the service look configured anyway.
+      NEO4J_URI: ${NEO4J_URI}
       NEO4J_USER: ${GRAPH_DB_USER}
       NEO4J_PASSWORD: ${GRAPH_DB_PASSWORD}
       COMFYUI_BASE_URL: ${COMFYUI_ENDPOINT:-http://comfyui:18188}

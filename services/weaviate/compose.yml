@@ -51,7 +51,11 @@ services:
       PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
       # Vectorizers/generators route through LiteLLM (text2vec-openai, generative-openai).
       # text2vec-ollama is left enabled for backward-compat with un-migrated collections.
-      DEFAULT_VECTORIZER_MODULE: 'text2vec-openai'
+      # none: a class created without an explicit vectorizer (or auto-created
+      # on first insert) defaulted to text2vec-openai at api.openai.com with the
+      # global OPENAI_APIKEY, i.e. the LiteLLM master key. Atlas classes set
+      # their vectorizer explicitly.
+      DEFAULT_VECTORIZER_MODULE: 'none'
       ENABLE_MODULES: ${WEAVIATE_ENABLE_MODULES:-text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem}
       BACKUP_FILESYSTEM_PATH: '/var/lib/weaviate/backups'
       CLUSTER_HOSTNAME: 'weaviate'

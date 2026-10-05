@@ -233,7 +233,7 @@ def _run_linear_startup(
         # starts, so say exactly that (#1032).
         starter.banner.console.print(
             "\n  [color(245)]"
-            f"{launch_cancelled_notice(options.cold, getattr(starter, 'stopped_previous_instance', False))}"
+            f"{launch_cancelled_notice(options.cold, starter.stopped_previous_instance)}"
             "[/color(245)]"
         )
         return 0

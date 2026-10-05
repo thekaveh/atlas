@@ -98,11 +98,9 @@ a log excerpt into one local `.tar.gz` you can attach to an issue. A relative
   - Under `--no-tui`, that is the startup steps; the log excerpt is what the run
     printed. Docker Compose output that goes straight to the terminal is not
     captured.
-  - Failures before the pipeline (Docker unavailable, an unsupported Compose
-    version, a failed `--setup-hosts`, a legacy `external` source) exit without
-    a bundle; run `./start.sh doctor --bundle PATH` for those.
-  - A failure before the pipeline starts (Docker missing, an invalid flag)
-    leaves no bundle; run `./start.sh doctor --bundle PATH` then.
+  - A failure before the pipeline starts (Docker unavailable, an unsupported
+    Compose version, a failed `--setup-hosts`, a legacy `external` source, an
+    invalid flag) leaves no bundle; run `./start.sh doctor --bundle PATH` then.
   - Stopping the log stream after a successful start (Ctrl+C) is not a failure
     and writes nothing.
 

@@ -255,7 +255,7 @@ def postgres_query(sql: str, limit: int | None = None) -> dict[str, Any]:
             # disagrees with PostgreSQL about where a literal ends, the result
             # is a syntax error, never hidden statements running.
             cur.execute(_without_comments(sql))
-            rows = cur.fetchmany(row_limit)
+            rows = _json_safe(cur.fetchmany(row_limit))
             cur.execute("ROLLBACK")
     return {"rows": rows, "returned": len(rows), "limit": row_limit}
 
@@ -263,6 +263,9 @@ def postgres_query(sql: str, limit: int | None = None) -> dict[str, Any]:
 def neo4j_read_cypher(cypher: str, limit: int | None = None) -> dict[str, Any]:
     if not is_safe_neo4j_read(cypher):
         raise ValueError("Only read-only Neo4j Cypher queries are allowed.")
+    uri = (os.getenv("NEO4J_URI") or "").strip()
+    if not uri:  # compose passes it blank when NEO4J_GRAPH_DB_SOURCE=disabled
+        raise ValueError("Neo4j is not configured (NEO4J_GRAPH_DB_SOURCE=disabled).")
 
     from neo4j import READ_ACCESS, GraphDatabase, Query
 
@@ -270,7 +273,7 @@ def neo4j_read_cypher(cypher: str, limit: int | None = None) -> dict[str, Any]:
     row_limit = clamp_limit(limit, default=max_rows, maximum=max_rows)
     timeout = _env_int("MCP_TOOL_TIMEOUT_SECONDS", 15)
     driver = GraphDatabase.driver(
-        os.getenv("NEO4J_URI", "bolt://neo4j-graph-db:7687"),
+        uri,
         auth=(
             os.getenv("GRAPH_DB_USER", "neo4j"),
             os.getenv("GRAPH_DB_PASSWORD", ""),
@@ -309,7 +312,27 @@ def neo4j_read_cypher(cypher: str, limit: int | None = None) -> dict[str, Any]:
 
 def _fetch_rows(session: Any, query: Any, row_limit: int) -> list[dict[str, Any]]:
     result = session.run(query, atlas_limit=row_limit)
-    return [record.data() for record in result.fetch(row_limit)]
+    return _json_safe([record.data() for record in result.fetch(row_limit)])
+
+
+def _json_safe(value: Any) -> Any:
+    """Make driver values JSON-serializable for the tool's structured output.
+
+    Neo4j temporal/spatial values and non-UTF-8 bytea failed the whole call
+    ("outputSchema defined but no structured output returned").
+    """
+    # neo4j checks first: Duration and spatial points subclass tuple.
+    if hasattr(value, "iso_format"):
+        return value.iso_format()  # neo4j.time Date/Time/DateTime/Duration
+    if type(value).__module__.startswith("neo4j"):
+        return str(value)  # e.g. neo4j.spatial points, keeping the SRID
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return "\\x" + bytes(value).hex()  # PostgreSQL's bytea hex form
+    return value
 
 
 def neo4j_schema() -> dict[str, Any]:

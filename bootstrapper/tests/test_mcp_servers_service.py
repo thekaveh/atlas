@@ -182,7 +182,7 @@ def test_mcp_servers_compose_contract() -> None:
     assert service["environment"]["MCP_POSTGRES_MAX_ROWS"] == "${MCP_POSTGRES_MAX_ROWS:-50}"
     assert service["environment"]["MCP_SEARXNG_MAX_RESULTS"] == "${MCP_SEARXNG_MAX_RESULTS:-5}"
     assert service["environment"]["SEARXNG_URL"] == "http://searxng:8080"
-    assert service["environment"]["NEO4J_URI"] == "${NEO4J_URI:-bolt://neo4j-graph-db:7687}"
+    assert service["environment"]["NEO4J_URI"] == "${NEO4J_URI}"
     assert service["depends_on"]["supabase-db-init"]["condition"] == "service_completed_successfully"
     assert service["depends_on"]["neo4j-graph-db"]["condition"] == "service_started"
     assert service["depends_on"]["searxng"]["condition"] == "service_started"
@@ -428,6 +428,8 @@ def test_neo4j_read_retries_unaliased_returns_without_the_limit_wrapper(monkeypa
     import sys
     import types
 
+    monkeypatch.setenv("NEO4J_URI", "bolt://neo4j-graph-db:7687")
+
     runs = []
 
     class Record:
@@ -462,3 +464,32 @@ def test_neo4j_read_retries_unaliased_returns_without_the_limit_wrapper(monkeypa
 
     assert out["rows"] == [{"n.name": "x"}, {"n.name": "x"}]
     assert runs[0].startswith("CALL {") and runs[1] == "MATCH (n) RETURN n.name"
+
+
+def test_query_rows_are_made_json_safe():
+    # neo4j.time values and non-UTF-8 bytea failed the whole tool call.
+    runtime = _runtime_module()
+
+    class DateTime:
+        def iso_format(self):
+            return "2026-10-05T12:00:00Z"
+
+    class Duration(tuple):  # neo4j Duration/Point subclass tuple
+        def iso_format(self):
+            return "P2DT5S"
+
+    rows = runtime._json_safe([{"d": DateTime(), "b": memoryview(b"\xff\xfe"), "n": [1, "x"],
+                                "p": Duration((0, 2, 5, 0))}])
+    assert rows == [{"d": "2026-10-05T12:00:00Z", "b": "\\xfffe", "n": [1, "x"], "p": "P2DT5S"}]
+
+
+
+def test_neo4j_tool_names_a_disabled_graph_database(monkeypatch):
+    # compose passes NEO4J_URI blank when Neo4j is disabled; the driver
+    # raised a cryptic "URI scheme '' is not supported".
+    runtime = _runtime_module()
+    monkeypatch.setenv("NEO4J_URI", "")
+    import pytest
+
+    with pytest.raises(ValueError, match="not configured"):
+        runtime.neo4j_read_cypher("MATCH (n) RETURN n LIMIT 1")

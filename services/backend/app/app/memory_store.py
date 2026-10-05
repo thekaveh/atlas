@@ -29,6 +29,19 @@ def _to_uuid(value: Union[str, UUID, None]) -> Optional[UUID]:
 logger = logging.getLogger("memory_store")
 
 WEAVIATE_COLLECTION_NAME = "Memory"
+
+
+# Filtered by exact value: word tokenization made `namespace == "default"`
+# also match "default-archive" and "Work Default", and those extra hits took
+# the search's limit slots (Postgres re-filters them, so results came short).
+_EXACT_MATCH_PROPERTIES = ("userId", "namespace", "factType", "pgFactId")
+
+
+def _needs_field_tokenization(schema: dict) -> bool:
+    return not {
+        prop.get("name") for prop in schema.get("properties") or []
+        if prop.get("tokenization") == "field"
+    }.issuperset(_EXACT_MATCH_PROPERTIES)
 MAX_PGVECTOR_DIMENSION = 4000
 MAX_FAILBACK_REBUILD_ATTEMPTS = 3
 
@@ -672,6 +685,7 @@ class MemoryStore:
                         or existing.get("vectorizer") != "text2vec-openai"
                         or actual_model != expected_model
                         or actual_base_url != expected_base_url
+                        or _needs_field_tokenization(existing)
                     )
                     if replace:
                         # The pinned Weaviate 1.38.17 class vectorizer config is
@@ -734,6 +748,7 @@ class MemoryStore:
                         "name": "userId",
                         "dataType": ["text"],
                         "description": "User ID who owns this memory",
+                        "tokenization": "field",
                         "moduleConfig": {
                             "text2vec-openai": {
                                 "skip": True,
@@ -745,6 +760,7 @@ class MemoryStore:
                         "name": "namespace",
                         "dataType": ["text"],
                         "description": "Memory namespace",
+                        "tokenization": "field",
                         "moduleConfig": {
                             "text2vec-openai": {
                                 "skip": True,
@@ -756,6 +772,7 @@ class MemoryStore:
                         "name": "factType",
                         "dataType": ["text"],
                         "description": "Type of fact",
+                        "tokenization": "field",
                         "moduleConfig": {
                             "text2vec-openai": {
                                 "skip": True,
@@ -778,6 +795,7 @@ class MemoryStore:
                         "name": "pgFactId",
                         "dataType": ["text"],
                         "description": "Reference to PostgreSQL memory_facts.id",
+                        "tokenization": "field",
                         "moduleConfig": {
                             "text2vec-openai": {
                                 "skip": True,

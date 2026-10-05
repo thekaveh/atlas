@@ -712,7 +712,9 @@ still counts as successful, so check it when completeness matters).
 `converged_after_grace` is
 `true` when the start converged only after re-polling still-`starting` rows
 through the grace window, so automation can tell a health race apart from a
-first-pass-healthy start. When startup stops earlier (invalid input, a failed
+first-pass-healthy start. If the final status poll itself fails, the payload
+keeps those keys with `"ok": false`, an `"error"` string and empty `services`.
+When startup stops earlier (invalid input, a failed
 setup step, or a failed `up`), the payload is only `{"ok": false,
 "exit_code": N}` and the offending services are named on stderr; check `ok`
 before reading the other keys.

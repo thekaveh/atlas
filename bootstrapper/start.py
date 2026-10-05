@@ -505,6 +505,9 @@ class AtlasStarter:
         # redacted bundle. Both the linear flow and the Textual launch screen
         # read it from here.
         self.support_bundle_path: Optional[Path] = None
+        # Set when the port check stopped this project's running stack, so a
+        # later decline/failure can say it is down (the stop is not undone).
+        self.stopped_previous_instance: bool = False
 
 
     def show_banner(self):
@@ -2257,6 +2260,11 @@ class AtlasStarter:
             # If conflicts remain, show the original error
             if conflicts:
                 self.banner.show_status_message("Port conflicts detected:", "warning")
+                if self.stopped_previous_instance:
+                    self.banner.show_status_message(
+                        "  (the previous instance was stopped above and stays down)",
+                        "warning",
+                    )
                 for port_var, port in conflicts.items():
                     self.banner.show_status_message(
                         f"  • {port_var}: Port {port} is already in use", "warning"
@@ -4100,6 +4108,7 @@ class AtlasStarter:
                 "error": error,
                 "services": [],
                 "converged_after_grace": False,
+                "not_started": list(self.skipped_builds),
             }
             if json_output:
                 print(json.dumps(payload, indent=2, sort_keys=True))
@@ -6830,8 +6839,8 @@ def _prompt_for_track(registry, *, max_attempts: int = 5) -> str:
                    'Does not bypass the wizard.')
 @click.option('--support-bundle', 'support_bundle',
               type=click.Path(dir_okay=False, path_type=Path), default=None,
-              help='If the start fails after its preflight (not on an '
-                   'unavailable Docker daemon or an earlier setup error), '
+              help='If the start fails after its preflight checks (Docker/'
+                   'Compose availability, --setup-hosts, legacy sources), '
                    'show and then write a redacted support '
                    'bundle (.tar.gz) to PATH: doctor checks, the configuration '
                    'with the file that set each key, and a log excerpt. Local '

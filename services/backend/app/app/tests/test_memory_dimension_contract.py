@@ -1333,6 +1333,10 @@ async def test_exact_collection_contract_is_left_intact(monkeypatch):
                         "baseURL": "http://litellm:4000/",
                     }
                 },
+                "properties": [
+                    {"name": name, "tokenization": "field"}
+                    for name in memory_store._EXACT_MATCH_PROPERTIES
+                ],
             }
 
     class Client:
@@ -2254,3 +2258,14 @@ def test_vectorizer_row_rejection_excludes_systematic_4xx(body, per_row):
         "x", request=request, response=httpx.Response(500, text="vectorize: " + body, request=request),
     )
     assert _weaviate_vectorizer_row_rejection(exc) is per_row
+
+
+
+def test_word_tokenized_filter_properties_force_a_rebuild():
+    # Word tokenization made namespace == "default" match "default-archive".
+    import memory_store
+
+    field = [{"name": n, "tokenization": "field"} for n in memory_store._EXACT_MATCH_PROPERTIES]
+    assert memory_store._needs_field_tokenization({"properties": field}) is False
+    field[1] = {"name": "namespace", "tokenization": "word"}
+    assert memory_store._needs_field_tokenization({"properties": field}) is True
