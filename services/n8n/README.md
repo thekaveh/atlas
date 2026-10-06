@@ -16,7 +16,7 @@ Track placement: n8n is available in `all`, `gen-ai-eng`, and `gen-ai-rag`. In t
 |---|---|---|
 | Direct | `http://localhost:${N8N_PORT}` (default `63075`) | UI + REST API. |
 | Kong | `http://n8n.localhost:${KONG_HTTP_PORT}` | Recommended for browser use; needs `./start.sh --setup-hosts`. Kong route uses `preserve_host: True`. |
-| Webhook | `${WEBHOOK_URL}webhook/<path>` | n8n's externally reachable webhook entry point; `WEBHOOK_URL` defaults to the complete Kong base URL, including scheme and port. |
+| Webhook | `${WEBHOOK_URL}webhook/<path>` | n8n's externally reachable webhook entry point; `WEBHOOK_URL` defaults to the complete Kong base URL, including scheme and port. The worker gets the same `WEBHOOK_URL` and `N8N_EDITOR_BASE_URL`, because queue-mode executions build `$execution.resumeUrl`, Wait-on-webhook, Form and approval links there. |
 
 Canonical port table: [Ports and Routes](../../docs/reference/ports-routes.md).
 
@@ -35,6 +35,8 @@ N8N_INIT_NODES=n8n-nodes-comfyui@0.0.9,@ksc1234/n8n-nodes-comfyui-image-to-image
 n8n 2.28.2 always uses the owner-account setup flow, and community nodes are
 loaded from the pinned packages installed by `n8n-init` — no auth-mode or
 community-package env vars are needed for the pinned image.
+
+Both containers run with `NODE_ENV=production` (the image default); development mode would add any-origin credentialed CORS, drop `X-Frame-Options` and return stack traces from the REST API.
 
 `N8N_BLOCK_ENV_ACCESS_IN_NODE` is set to `"false"` on `n8n` and `n8n-worker`.
 n8n 2.x otherwise rejects `$env` in expressions, and every bundled workflow

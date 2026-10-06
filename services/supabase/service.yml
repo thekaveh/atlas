@@ -15,7 +15,7 @@ capabilities:
   - name: "Integrated Postgres application platform"
     status: supported
     verification: tested
-    note: "Atlas runs PostgreSQL with Auth, PostgREST, Storage, Realtime, Meta, Studio, database initialization, and optional metrics export as one required family."
+    note: "Atlas runs PostgreSQL with Auth, PostgREST, Storage, Realtime, Meta, Studio, database initialization, and optional metrics export as one required family. Realtime runs but serves no tenant yet (§4.5)."
   - name: "Idempotent schema and RLS initialization"
     status: supported
     verification: tested

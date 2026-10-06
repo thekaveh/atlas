@@ -67,7 +67,10 @@ the stored value wins. A later STT/TTS source switch, a regenerated
 page is updated again (or the value is reset in Admin Settings).
 
 **Built-in image generation is not wired to a working workflow.** The compose
-fragment turns on `ENABLE_IMAGE_GENERATION` with the ComfyUI engine, but sets no
+fragment turns on `ENABLE_IMAGE_GENERATION` with the ComfyUI engine whenever
+ComfyUI is enabled (`OPEN_WEB_UI_ENABLE_IMAGE_GENERATION`, set by the
+bootstrapper; `false` when `COMFYUI_SOURCE=disabled`, unless an admin has already
+saved Images settings, which Open WebUI keeps in its database), but sets no
 `COMFYUI_WORKFLOW`, `COMFYUI_WORKFLOW_NODES` or `IMAGE_GENERATION_MODEL`, so
 Open WebUI submits its stock workflow (checkpoint `model.safetensors`, no prompt
 node mapping) and ComfyUI rejects it. Configure the workflow under Admin
@@ -113,7 +116,7 @@ Because upstream now marks Pipelines as legacy for new deployments and recommend
 
 ### 5.4. Future — Missing pair integrations
 
-- **open-webui ↔ searxng** — *Why:* Open WebUI consumes SearXNG as a first-class web-search provider for in-chat grounding, but the stack only wires SearXNG to local-deep-researcher today. *Mechanism:* `ENABLE_RAG_WEB_SEARCH=true` + `RAG_WEB_SEARCH_ENGINE=searxng` + `SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>&format=json`. *Effort:* small. *Confidence:* high.
+- **open-webui ↔ searxng** — *Why:* Open WebUI consumes SearXNG as a first-class web-search provider for in-chat grounding, but the stack only wires SearXNG to local-deep-researcher today. *Mechanism:* `ENABLE_WEB_SEARCH=true` + `WEB_SEARCH_ENGINE=searxng` + `SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>&format=json`. *Effort:* small. *Confidence:* high.
 - **open-webui ↔ jupyterhub** — *Why:* Open WebUI ships a Jupyter-backed code-execution engine that runs LLM-emitted Python in a real kernel with persistent state, instead of the in-browser Pyodide sandbox. *Mechanism:* `CODE_EXECUTION_ENGINE=jupyter` + `CODE_EXECUTION_JUPYTER_URL=http://jupyterhub:8888` + `CODE_EXECUTION_JUPYTER_AUTH=token` (mirror for `CODE_INTERPRETER_*`). *Effort:* medium. *Confidence:* high.
 - **open-webui ↔ minio** — *Why:* Chat uploads, generated images, and TTS audio currently live in a Docker volume and vanish on `--cold`; Open WebUI supports S3 storage natively and MinIO is already in the stack. *Mechanism:* `STORAGE_PROVIDER=s3` + `S3_ENDPOINT_URL=http://minio:9000` + `S3_BUCKET_NAME=openwebui` with MinIO credentials, plus an `mc mb` init step. *Effort:* small. *Confidence:* high.
 - **open-webui ↔ n8n** — *Why:* n8n workflows could be surfaced to chat as Open WebUI Tools, letting users trigger automations ("email this summary", "create a Jira ticket") without writing Python. *Mechanism:* register an OpenAPI tool server pointing at an n8n webhook that serves `openapi.json` (via a workflow-to-schema wrapper). *Effort:* medium. *Confidence:* medium.

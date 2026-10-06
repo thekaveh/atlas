@@ -35,7 +35,7 @@ Plain `python3 scripts/check-kong-routes.py` works too if `PyYAML` is on your sy
 - `/rest/v1/` → Supabase API (PostgREST)
 - `/graphql/v1` → Supabase GraphQL
 - `/realtime/v1/` → Supabase Realtime
-- `/storage/v1/` → Supabase Storage
+- `/storage/v1/` → Supabase Storage (key-auth). `/storage/v1/object/public/`, `/storage/v1/object/sign/` and `/storage/v1/object/upload/sign/` carry CORS only, so browsers and outside services can fetch public-bucket and signed URLs without an `apikey`; Storage itself enforces the bucket's public flag or the signed token
 - `/pg/` → Supabase Meta service
 - `supabase-studio.localhost` → Supabase Studio dashboard
 
@@ -144,7 +144,7 @@ Inside the Docker network, a client that calls `kong-api-gateway:8000` directly 
 
 ## 6. CORS Handling
 
-All services get a CORS plugin. A bare `{'name': 'cors'}` would answer `Access-Control-Allow-Origin: *`, so any website the operator visits could read responses from, and send preflighted requests to, the no-login services. The generator scopes every one to local browser origins (`_with_local_cors`): any `*.localhost`, `localhost` or `127.0.0.1` page on any port, plus the exact origins listed in `KONG_CORS_EXTRA_ORIGINS` (a LAN or tunnel front-end). Other origins get no `Access-Control-Allow-Origin`; simple cross-site requests (plain POSTs) still reach the upstream, so CORS is not an authentication boundary. Kong never adds `Access-Control-Allow-Credentials`, but an upstream's own header passes through for allowed origins. `[::1]` origins cannot be matched (Kong drops the brackets), so use `localhost` or `127.0.0.1`. Upstream CORS settings such as `BACKEND_CORS_ORIGINS` only apply within what Kong allows.
+All services get a CORS plugin. A bare `{'name': 'cors'}` would answer `Access-Control-Allow-Origin: *`, so any website the operator visits could read responses from, and send preflighted requests to, the no-login services. The generator scopes every one to local browser origins (`_with_local_cors`): any `*.localhost`, `localhost` or `127.0.0.1` page on any port, plus the exact origins listed in `KONG_CORS_EXTRA_ORIGINS` (a LAN or tunnel front-end; entries are normalised to the browser's form, lowercase without a trailing slash or default port, and a wildcard or path is ignored with a warning). Other origins get no `Access-Control-Allow-Origin`; simple cross-site requests (plain POSTs) still reach the upstream, so CORS is not an authentication boundary. Kong never adds `Access-Control-Allow-Credentials`, but an upstream's own header passes through for allowed origins. `[::1]` origins cannot be matched (Kong drops the brackets), so use `localhost` or `127.0.0.1`. Upstream CORS settings such as `BACKEND_CORS_ORIGINS` only apply within what Kong allows.
 
 ## 7. Rate Limiting
 

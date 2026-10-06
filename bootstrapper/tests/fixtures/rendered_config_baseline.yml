@@ -2892,7 +2892,7 @@ services:
       N8N_PROXY_HOPS: '1'
       N8N_PUSH_BACKEND: websocket
       N8N_SECURE_COOKIE: 'false'
-      NODE_ENV: development
+      NODE_ENV: production
       NODE_OPTIONS: --max_old_space_size=512
       OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS: 'true'
       PARAKEET_API_TOKEN: ''
@@ -3010,13 +3010,15 @@ services:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
       N8N_BLOCK_ENV_ACCESS_IN_NODE: 'false'
+      N8N_EDITOR_BASE_URL: http://n8n.localhost:63000
       N8N_ENCRYPTION_KEY: your-random-encryption-key
       N8N_METRICS: 'true'
       N8N_METRICS_INCLUDE_DEFAULT_METRICS: 'true'
       N8N_METRICS_INCLUDE_EXECUTION_DATA_METRICS: 'true'
       N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL: 'true'
       N8N_METRICS_PREFIX: n8n_
-      NODE_ENV: development
+      N8N_PROTOCOL: http
+      NODE_ENV: production
       PARAKEET_API_TOKEN: ''
       QUEUE_BULL_REDIS_DB: '0'
       QUEUE_BULL_REDIS_HOST: redis
@@ -3027,6 +3029,7 @@ services:
       TIKA_ENDPOINT: ''
       TTS_ENDPOINT: ''
       WEAVIATE_URL: ''
+      WEBHOOK_URL: http://n8n.localhost:63000/
     image: n8nio/n8n:2.28.2
     logging:
       driver: json-file
@@ -4403,6 +4406,7 @@ services:
       POSTGREST_URL: http://supabase-api:3000
       PROJECT_REF: default
       REGION: local
+      REQUEST_ALLOW_X_FORWARDED_PATH: 'true'
       SERVICE_KEY: ''
       STORAGE_BACKEND: file
       TENANT_ID: stub

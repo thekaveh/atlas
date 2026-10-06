@@ -59,6 +59,32 @@ def _bake_timeout_ms(raw: object) -> int:
         seconds = 600.0
     return min(int((seconds + 30) * 1000), 2**31 - 2)
 
+def _is_bare_origin(parsed) -> bool:
+    """scheme://host with no path, query, fragment or userinfo; browsers send
+    neither userinfo nor non-punycode hosts."""
+    if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+        return False
+    if parsed.path not in ('', '/') or parsed.query or parsed.fragment:
+        return False
+    return not (parsed.username or parsed.password) and parsed.hostname.isascii()
+
+
+def _canonical_origin(entry: str) -> Optional[str]:
+    """The browser's form of an origin (lowercase, no path or default port),
+    or None for anything that is not one exact scheme://host[:port]."""
+    parsed = urlparse(entry.lower())
+    if not _is_bare_origin(parsed) or '*' in entry:
+        return None
+    try:
+        port = parsed.port
+    except ValueError:  # out-of-range or non-numeric port
+        return None
+    host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    if port is None or (parsed.scheme, port) in (('http', 80), ('https', 443)):
+        return f"{parsed.scheme}://{host}"
+    return f"{parsed.scheme}://{host}:{port}"
+
+
 class KongConfigGenerator:
     """Generates dynamic Kong configuration based on SOURCE values."""
     
@@ -290,7 +316,15 @@ class KongConfigGenerator:
     def _cors_origins(self) -> List[str]:
         """Local origins plus any exact KONG_CORS_EXTRA_ORIGINS."""
         extra = (self.get_env_value('KONG_CORS_EXTRA_ORIGINS') or '').split(',')
-        return list(self._LOCAL_CORS_ORIGINS) + [re.escape(o.strip()) for o in extra if o.strip()]
+        origins = list(self._LOCAL_CORS_ORIGINS)
+        for entry in (item.strip() for item in extra):
+            origin = _canonical_origin(entry) if entry else None
+            if origin:
+                origins.append(re.escape(origin))
+            elif entry:
+                print(f"WARNING: ignoring KONG_CORS_EXTRA_ORIGINS entry {entry!r} "
+                      "(expected scheme://host[:port], no wildcard or path)")
+        return origins
 
     @classmethod
     def _with_local_cors(
@@ -843,6 +877,25 @@ class KongConfigGenerator:
                     {'name': 'key-auth', 'config': {'key_names': ['apikey']}}
                 ]
             },
+            # Public and signed object URLs are fetched by <img> tags, links and
+            # outside services that cannot send an apikey; Storage itself checks
+            # the bucket's public flag or the signed token (upstream Supabase
+            # puts no key-auth on storage at all).
+            *[
+                {
+                    'name': f"storage-v1-object-{kind.replace('/', '-')}",
+                    'url': f'http://supabase-storage:5000/object/{kind}/',
+                    'routes': [
+                        {
+                            'name': f"storage-v1-object-{kind.replace('/', '-')}",
+                            'strip_path': True,
+                            'paths': [f'/storage/v1/object/{kind}/'],
+                        }
+                    ],
+                    'plugins': [{'name': 'cors'}],
+                }
+                for kind in ('public', 'sign', 'upload/sign')
+            ],
             # Meta service
             {
                 'name': 'meta',

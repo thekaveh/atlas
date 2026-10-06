@@ -27,13 +27,17 @@ class Tools:
             description="Max wait time in seconds (15 minutes for research completion)",
         )
         search_api: str = Field(
-            default="searxng", description="Search API to use (searxng or duckduckgo)"
+            default="searxng",
+            description="Search API (ignored: LDR's LOCAL_DEEP_RESEARCHER_SEARCH_API env takes precedence)",
         )
         assistant_id: str = Field(
             default="ollama_deep_researcher",
             description="LangGraph assistant/graph id for Local Deep Researcher",
         )
-        max_loops: int = Field(default=3, description="Maximum research loops")
+        max_loops: int = Field(
+            default=3,
+            description="Research loops (ignored: LDR's LOCAL_DEEP_RESEARCHER_LOOPS env takes precedence)",
+        )
         enable_tool: bool = Field(default=True, description="Enable this research tool")
 
     def __init__(self):

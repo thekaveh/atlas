@@ -1807,6 +1807,9 @@ class ServiceConfig:
         webui_source = sources.get('OPEN_WEB_UI_SOURCE', 'container')
         env_vars['OPEN_WEB_UI_SCALE'] = '0' if webui_source == 'disabled' else '1'
         env_vars['OPEN_WEB_UI_INIT_SCALE'] = '0' if webui_source == 'disabled' else '1'
+        # No image toggle pointing at a ComfyUI host that does not exist.
+        env_vars['OPEN_WEB_UI_ENABLE_IMAGE_GENERATION'] = str(
+            sources.get('COMFYUI_SOURCE', 'container-cpu') != 'disabled').lower()
 
         # Open WebUI adaptive TTS/STT (set engine and API base URL when provider is enabled)
         # Read endpoints from already-generated env vars (STT/TTS configs run before adaptive).

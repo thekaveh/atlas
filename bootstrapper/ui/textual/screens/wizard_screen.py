@@ -4032,6 +4032,13 @@ class _NullSink:
 _NULL_SINK = _NullSink()
 
 
+def _foreground_words(style: str) -> list:
+    """Words of a Rich style before its background (`on X`) part."""
+    if style.startswith("on "):
+        return []
+    return style.split(" on ")[0].split()
+
+
 class _ConsoleSink:
     """``banner.console`` stand-in: ``print`` forwards the plain text (Rich
     markup stripped) to the log sink; anything else is a no-op."""
@@ -4039,7 +4046,7 @@ class _ConsoleSink:
     def __init__(self, sink) -> None:
         self._sink = sink
 
-    def print(self, *objects, **_kwargs) -> None:
+    def print(self, *objects, **kwargs) -> None:
         from rich.text import Text
 
         raw = " ".join(str(item) for item in objects)
@@ -4051,8 +4058,13 @@ class _ConsoleSink:
         # Errors/Warns filter chips still find these lines.
         import re
 
-        styles = " ".join(re.findall(r"\[([a-z_ ]+)\]", raw.lower()))
-        level = "error" if "red" in styles else ("warn" if "yellow" in styles else "info")
+        tags = re.findall(r"\[([a-z0-9_ ]+)\]", raw.lower()) + [str(kwargs.get("style") or "").lower()]
+        # Foreground colour tokens only (`on X` is the background).
+        colours = {word for tag in tags for word in _foreground_words(tag)}
+        level = (
+            "error" if colours & {"red", "bright_red", "dark_red"}
+            else "warn" if colours & {"yellow", "bright_yellow"} else "info"
+        )
         if text.strip():
             self._sink(text, level)
 

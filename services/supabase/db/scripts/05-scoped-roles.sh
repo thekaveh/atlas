@@ -548,6 +548,35 @@ ALTER DEFAULT PRIVILEGES FOR ROLE :"storage_role" IN SCHEMA storage
   GRANT SELECT ON TABLES TO
     :"airflow_reader", :"mcp_reader", :"jupyter_reader", :"zeppelin_reader";
 
+-- The bulk grant above also sweeps in tables Open WebUI and n8n create
+-- (none have RLS). Keep stored credentials away from the readers, which back
+-- the MCP Postgres tool and notebooks: whole credential tables are revoked,
+-- and account tables keep every column except the secret ones. Re-applied on
+-- each boot, right after the bulk grant re-adds table-level SELECT. n8n's
+-- default grant above still exposes tables n8n creates after this script
+-- (first boot, upgrades) until the next boot re-applies the revoke.
+SELECT format('REVOKE SELECT ON %s FROM %I, %I, %I, %I', c.oid::regclass,
+              :'airflow_reader', :'mcp_reader', :'jupyter_reader', :'zeppelin_reader')
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind IN ('r', 'p')
+  AND (n.nspname, c.relname) IN (
+    ('public', 'auth'), ('public', 'config'), ('public', 'oauth_session'),
+    ('public', 'api_key'), ('n8n', 'user_api_keys'), ('n8n', 'credentials_entity'),
+    ('n8n', 'oauth_access_tokens'), ('n8n', 'oauth_refresh_tokens'),
+    ('n8n', 'oauth_authorization_codes'), ('n8n', 'oauth_clients'),
+    ('n8n', 'secrets_provider_connection'), ('n8n', 'deployment_key'), ('n8n', 'settings'),
+    ('public', 'user'), ('n8n', 'user'), ('public', 'tool'), ('public', 'function')) \gexec
+SELECT format('GRANT SELECT (%s) ON %I.%I TO %I, %I, %I, %I',
+              string_agg(quote_ident(column_name), ', ' ORDER BY ordinal_position),
+              table_schema, table_name,
+              :'airflow_reader', :'mcp_reader', :'jupyter_reader', :'zeppelin_reader')
+FROM information_schema.columns
+WHERE (table_schema, table_name) IN
+    (('public', 'user'), ('n8n', 'user'), ('public', 'tool'), ('public', 'function'))
+  AND column_name NOT IN ('api_key', 'password', 'mfaSecret', 'mfaRecoveryCodes', 'valves')
+  AND NOT (table_schema = 'public' AND table_name = 'user' AND column_name = 'settings')
+GROUP BY table_schema, table_name \gexec
+
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO :"backend_role";
 

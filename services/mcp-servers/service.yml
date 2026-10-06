@@ -16,7 +16,7 @@ capabilities:
   - name: "Tenant-scoped Postgres reads"
     status: partial
     verification: tested
-    note: "MCP uses a dedicated read-only login without object ownership or BYPASSRLS and permits bounded SELECT/WITH/SHOW/EXPLAIN; it still has broad pg_read_all_data access with no schema, table, or column allowlist or redaction, so access remains operator-scoped rather than tenant-scoped."
+    note: "MCP uses a dedicated read-only login without object ownership or BYPASSRLS and permits bounded SELECT/WITH/SHOW/EXPLAIN; it reads the public, n8n and storage schemas minus a credential deny list, with no schema, table, or column allowlist or redaction, so access remains operator-scoped rather than tenant-scoped."
   - name: "MCP ingress authentication"
     status: partial
     verification: tested

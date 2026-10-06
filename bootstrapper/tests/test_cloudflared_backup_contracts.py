@@ -5453,3 +5453,25 @@ def test_open_webui_role_reads_only_auth_user_ids(disposable_postgres):  # noqa:
     role = dict(user=_ROLE_SECRETS["OPEN_WEBUI_DB_USER"], password=_ROLE_SECRETS["OPEN_WEBUI_DB_PASSWORD"])
     assert database.sql("SELECT count(id) FROM auth.users", **role).returncode == 0
     assert database.sql("SELECT encrypted_password FROM auth.users", check=False, **role).returncode != 0
+
+
+def test_reader_roles_cannot_read_app_credentials(disposable_postgres):  # noqa: F811
+    # The bulk reader grant sweeps in Open WebUI/n8n tables; their stored
+    # credentials must stay out of the MCP tool and notebooks on every boot.
+    database = disposable_postgres
+    database.sql(
+        'CREATE TABLE IF NOT EXISTS public.config (data text);'
+        'CREATE TABLE IF NOT EXISTS public."user" (id text, email text, api_key text);'
+        'CREATE SCHEMA IF NOT EXISTS n8n;'
+        'CREATE TABLE IF NOT EXISTS n8n.user_api_keys ("apiKey" text);'
+        'CREATE TABLE IF NOT EXISTS n8n.oauth_access_tokens (token text);'
+        'CREATE TABLE IF NOT EXISTS public.tool (id text, valves text);'
+    )
+    database.run_init()
+    role = dict(user=_ROLE_SECRETS["MCP_POSTGRES_DB_USER"], password=_ROLE_SECRETS["MCP_POSTGRES_DB_PASSWORD"])
+    assert database.sql('SELECT id, email FROM public."user"', **role).returncode == 0
+    assert database.sql("SELECT id FROM public.tool", **role).returncode == 0
+    for denied in ('SELECT api_key FROM public."user"', "SELECT * FROM public.config",
+                   "SELECT * FROM n8n.user_api_keys", "SELECT * FROM n8n.oauth_access_tokens",
+                   "SELECT valves FROM public.tool"):
+        assert database.sql(denied, check=False, **role).returncode != 0, denied

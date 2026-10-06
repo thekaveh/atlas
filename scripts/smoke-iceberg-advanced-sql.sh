@@ -37,14 +37,22 @@ require_container() {
   fi
 }
 
+env_value() {
+  # Read one key without sourcing .env: it holds unquoted values with spaces
+  # (BRAND_TAGLINE=...), which made `. ./.env` exit 127 under set -e.
+  sed -n "s/^$1=//p" .env | tail -n1 | sed -e 's/\r$//' -e 's/[[:space:]]\{1,\}#.*$//' \
+    -e 's/[[:space:]]*$//' -e "s/^\"\(.*\)\"$/\1/" -e "s/^'\(.*\)'$/\1/"
+}
+
 load_env_file() {
   if [[ -f .env ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    . ./.env
-    set +a
-    project="${PROJECT_NAME:-$project}"
-    zeppelin_url="${ZEPPELIN_URL:-http://localhost:${ZEPPELIN_PORT:-63099}}"
+    local env_project env_url env_port
+    env_project="$(env_value PROJECT_NAME)"
+    env_url="$(env_value ZEPPELIN_URL)"
+    env_port="$(env_value ZEPPELIN_PORT)"
+    project="${env_project:-$project}"
+    # A ZEPPELIN_URL exported in the shell still wins over the .env port.
+    zeppelin_url="${env_url:-${ZEPPELIN_URL:-http://localhost:${env_port:-63099}}}"
   fi
 }
 
@@ -236,7 +244,9 @@ try:
     while time.time() < deadline:
         status = request("GET", f"/api/notebook/job/{note_id}")
         body = status.get("body", [])
-        states = {item.get("status") for item in body}
+        # Zeppelin 0.12 returns {"paragraphs": [...]}; older builds a list.
+        paragraphs = body.get("paragraphs", []) if isinstance(body, dict) else body
+        states = {item.get("status") for item in paragraphs}
         if states and states <= {"FINISHED"}:
             break
         if states & {"ERROR", "ABORT", "CANCELED"}:

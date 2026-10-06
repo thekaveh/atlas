@@ -260,7 +260,7 @@ def test_mcp_postgres_capability_discloses_scoped_read_role_limits() -> None:
         "without object ownership or BYPASSRLS",
         "SELECT/WITH/SHOW/EXPLAIN",
         "no schema, table, or column allowlist or redaction",
-        "pg_read_all_data",
+        "minus a credential deny list",
         "operator-scoped rather than tenant-scoped",
     ))
 

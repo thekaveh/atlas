@@ -1024,3 +1024,28 @@ def test_extra_cors_origins_are_appended_as_exact_matches():
     origins = gen._cors_origins()
     assert origins[:2] == KongConfigGenerator._LOCAL_CORS_ORIGINS
     assert origins[2:] == [r"http://192\.168\.1\.5:3000", r"https://app\.example\.com"]
+
+
+
+def test_extra_cors_origins_are_normalised_or_refused(capsys):
+    from utils.kong_config_generator import _canonical_origin
+
+    assert _canonical_origin("HTTPS://App.Example.com/") == "https://app.example.com"
+    assert _canonical_origin("https://app.example.com:443") == "https://app.example.com"
+    assert _canonical_origin("http://192.168.1.5:3000") == "http://192.168.1.5:3000"
+    assert _canonical_origin("http://[FD00::1]:3000") == "http://[fd00::1]:3000"
+    for bad in ("*", "https://*.example.com", "app.example.com", "https://a.com/path",
+                "http://a.com:99999", "http://a.com:abc", "http://user:pw@a.com"):
+        assert _canonical_origin(bad) is None
+
+
+def test_public_and_signed_storage_urls_skip_key_auth():
+    # <img> tags and outside services cannot send an apikey; Storage checks
+    # the public flag / signed token itself. Everything else keeps key-auth.
+    services = {svc["name"]: svc for svc in _generate("")["services"]}
+    for kind in ("public", "sign", "upload/sign"):
+        svc = services[f"storage-v1-object-{kind.replace('/', '-')}"]
+        assert svc["url"] == f"http://supabase-storage:5000/object/{kind}/"
+        assert svc["routes"][0]["paths"] == [f"/storage/v1/object/{kind}/"]
+        assert [plugin["name"] for plugin in svc["plugins"]] == ["cors"]
+    assert "key-auth" in [plugin["name"] for plugin in services["storage-v1"]["plugins"]]

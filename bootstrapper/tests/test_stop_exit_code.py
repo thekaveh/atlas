@@ -426,7 +426,7 @@ def test_stop_wrapper_records_the_invoking_directory_like_start():
     for wrapper in ("start.sh", "stop.sh"):
         text = (root / wrapper).read_text(encoding="utf-8")
         assert 'ATLAS_INVOKER_CWD="${PWD}"' in text, wrapper
-        assert text.index("ATLAS_INVOKER_CWD") < text.index('cd "$(dirname "$0")"')
+        assert text.index("ATLAS_INVOKER_CWD") < text.index("CDPATH='' cd -- \"$(dirname -- \"$0\")\"")
 
 
 def test_cold_stop_that_dropped_consumer_overlays_is_not_reported_as_a_full_wipe(

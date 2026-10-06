@@ -35,6 +35,6 @@ if [ -z "${ATLAS_INVOKER_CWD:-}" ]; then
 fi
 
 # Change to the script directory
-cd "$(dirname "$0")" || { echo "stop.sh: failed to enter script directory" >&2; exit 1; }
+CDPATH='' cd -- "$(dirname -- "$0")" >/dev/null || { echo "stop.sh: failed to enter script directory" >&2; exit 1; }
 
 exec sh bootstrapper/_run.sh stop.py "$@"

@@ -380,7 +380,7 @@
 | KONG_API_GATEWAY_SOURCE | kong | container | Single-option (container only). |
 | KONG_HTTP_PORT | kong | 63000 | - |
 | KONG_HTTPS_PORT | kong | 63001 | - |
-| KONG_CORS_EXTRA_ORIGINS | kong |  | Comma-separated exact browser origins (scheme://host[:port]) allowed cross-origin through Kong in addition to *.localhost, localhost and 127.0.0.1, e.g. a LAN or tunnel front-end. Read when Kong's config is generated at start. |
+| KONG_CORS_EXTRA_ORIGINS | kong |  | Comma-separated exact browser origins (scheme://host[:port]) allowed cross-origin through Kong in addition to *.localhost, localhost and 127.0.0.1, e.g. a LAN or tunnel front-end. Normalised (lowercase, no trailing slash or default port); wildcards and paths are ignored with a warning. Read when Kong's config is generated at start. |
 | DASHBOARD_USERNAME | kong | kong_admin | - |
 | DASHBOARD_PASSWORD | kong | kong_password | Auto-generated on first ./start.sh when left at the placeholder (rotate-when-absent, like MINIO_ROOT_PASSWORD). Gates the Kong-routed Studio dashboard via basic-auth. |
 | KONG_API_GATEWAY_IMAGE | kong | kong:3.9.3 | Container image for `kong-api-gateway`. |
@@ -708,6 +708,7 @@
 | OPEN_WEB_UI_WEBSOCKET_SUPPORT | open-webui | true | - |
 | OPEN_WEB_UI_REDIS_DB | open-webui | 2 | - |
 | OPEN_WEB_UI_MODEL_CACHE_TTL | open-webui | 300 | - |
+| OPEN_WEB_UI_ENABLE_IMAGE_GENERATION | open-webui | true | Set by bootstrapper: true unless COMFYUI_SOURCE=disabled, so Open WebUI hides its ComfyUI image toggle when there is no ComfyUI. Open WebUI keeps the value saved in its database once an admin edits the Images settings. |
 | OPEN_WEB_UI_TTS_ENGINE | open-webui |  | Set by bootstrapper when speaches/chatterbox are enabled. |
 | OPEN_WEB_UI_STT_ENGINE | open-webui |  | - |
 | OPEN_WEB_UI_TTS_MODEL | open-webui |  | Model name Open WebUI sends to /v1/audio/speech. Empty = engine default. |

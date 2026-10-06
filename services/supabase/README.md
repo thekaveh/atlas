@@ -10,7 +10,7 @@ Atlas runs these Supabase services:
 - **Auth Service (GoTrue)** - User authentication and JWT management  
 - **Storage Service** - File storage and management
 - **API Service (PostgREST)** - Auto-generated REST API
-- **Realtime Service** - WebSocket connections for live updates
+- **Realtime Service** - WebSocket connections for live updates (not functional yet; see §4.5)
 - **Studio Dashboard** - Web-based database management interface
 
 ## 2. Database Setup Process
@@ -171,6 +171,9 @@ execute privilege is revoked from public API roles despite its required
 - Service-role access only: the hardened `storage` schema grants nothing to `anon`/`authenticated`
 - Integration with authentication system
 - Support for various file types
+- Through Kong, `/storage/v1/` needs the `apikey` header, but `/storage/v1/object/public/`, `/storage/v1/object/sign/` and `/storage/v1/object/upload/sign/` do not, so `<img>` tags and outside services can fetch public-bucket and signed URLs and PUT to signed upload URLs
+- Resumable (TUS) uploads work through Kong: `REQUEST_ALLOW_X_FORWARDED_PATH=true` keeps the `/storage/v1` prefix in the upload `Location` header, which Studio's file browser follows
+- The `default` bucket is private, so the `url` the backend's `/storage/upload` returns (a public-object URL on the internal Kong host) is not fetchable as-is; fetch through the backend or Studio, or create a signed URL
 
 ### 4.4. API Service (PostgREST)
 
@@ -365,7 +368,7 @@ Support tier: **experimental** — Capability contract declared (#967); no cited
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| Integrated Postgres application platform | supported | tested | Atlas runs PostgreSQL with Auth, PostgREST, Storage, Realtime, Meta, Studio, database initialization, and optional metrics export as one required family. |
+| Integrated Postgres application platform | supported | tested | Atlas runs PostgreSQL with Auth, PostgREST, Storage, Realtime, Meta, Studio, database initialization, and optional metrics export as one required family. Realtime runs but serves no tenant yet (§4.5). |
 | Idempotent schema and RLS initialization | supported | tested | Ordered Atlas and downstream SQL runners initialize extensions, service schemas, grants, identity synchronization, and row-level-security policies with failure gating. |
 | Least-privilege application database role | supported | tested | Atlas creates idempotent per-service logins and dedicated database/schema ownership or read grants; application containers do not receive the Supabase owner credential. |
 | Production email authentication | partial | documented | GoTrue issues and validates JWTs, but the stock local-development defaults auto-confirm email and point SMTP at localhost rather than a configured delivery service. |

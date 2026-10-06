@@ -153,6 +153,9 @@ services:
       ANON_KEY: ${SUPABASE_ANON_KEY}
       SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
       REGION: ${STORAGE_REGION}
+      # Keep Kong's X-Forwarded-Prefix in resumable-upload Location headers;
+      # without it Studio's browser uploads PATCH /upload/... and get a 404.
+      REQUEST_ALLOW_X_FORWARDED_PATH: "true"
       FILE_SIZE_LIMIT: ${STORAGE_FILE_SIZE_LIMIT}
       STORAGE_BACKEND: ${STORAGE_BACKEND}
       FILE_STORAGE_PATH: /var/lib/storage
