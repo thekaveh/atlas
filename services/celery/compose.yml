@@ -126,7 +126,8 @@ services:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}
       # Flower reads FLOWER_* options from the environment; as --basic-auth
       # the shared dashboard credential sat in the process argv for life.
-      FLOWER_BASIC_AUTH: ${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}
+      # :- matches Kong's fallback for an empty username (kong_admin).
+      FLOWER_BASIC_AUTH: ${DASHBOARD_USERNAME:-kong_admin}:${DASHBOARD_PASSWORD}
     command:
       - celery
       - --broker=${CELERY_BROKER_URL:-}

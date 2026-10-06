@@ -108,7 +108,7 @@ Every generated service gets a 300-second `read_timeout` / `write_timeout`
 unless it declares its own (backend plugins may set theirs; n8n uses the default so long-running webhooks are not cut off).
 Services whose single synchronous request can run longer get more: `docling-api`
 follows `DOCLING_INFERENCE_TIMEOUT_SECONDS` + 30 s (930 s by default), the backend
-`api.localhost` routes 3630 s (they wait on Docling or on a ComfyUI job's own
+`api.localhost` routes 3630 s, including per-plugin backend services for any field the plugin does not set (they wait on Docling or on a ComfyUI job's own
 timeout of up to 3600 s), and `litellm-gateway` / `ollama-api` 630 s for slow
 non-streaming completions. A shorter Kong limit answered 504 while the upstream
 kept working.

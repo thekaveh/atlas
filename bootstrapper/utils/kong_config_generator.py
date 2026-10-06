@@ -47,17 +47,21 @@ def _basic_auth_hosts(services: list[Dict[str, Any]]) -> frozenset[str]:
 
 
 
-def _bake_timeout_ms(raw: object) -> int:
+# Kong rejects the whole declarative config above this (2^31 - 2 ms).
+_KONG_MAX_TIMEOUT_MS = 2**31 - 2
+
+
+def _bake_timeout_ms(raw: object, default: str = "600") -> int:
     """Kong timeout for the asset-baker route: the worker's own
     float(ASSET_BAKER_TIMEOUT_SECONDS) + 30 s, capped below Kong's 2^31 ms
     limit (a larger value would stop the whole declarative config loading)."""
     try:
-        seconds = float(str(raw or "600").strip())
+        seconds = float(str(raw or default).strip())
     except ValueError:
-        seconds = 600.0
+        seconds = float(default)
     if not math.isfinite(seconds) or seconds <= 0:
-        seconds = 600.0
-    return min(int((seconds + 30) * 1000), 2**31 - 2)
+        seconds = float(default)
+    return min(int((seconds + 30) * 1000), _KONG_MAX_TIMEOUT_MS)
 
 def _is_bare_origin(parsed) -> bool:
     """scheme://host with no path, query, fragment or userinfo; browsers send
@@ -357,15 +361,21 @@ class KongConfigGenerator:
         up to 3600 s), and non-streaming LLM completions. Kong otherwise
         answered 504 while the upstream kept working (and, for Docling, held
         its only conversion slot)."""
-        docling_ms = _bake_timeout_ms(self.get_env_value("DOCLING_INFERENCE_TIMEOUT_SECONDS", "900"))
+        docling_ms = _bake_timeout_ms(
+            self.get_env_value("DOCLING_INFERENCE_TIMEOUT_SECONDS", "900"), default="900"
+        )
+        backend_ms = min(max(3630000, docling_ms + 30000), _KONG_MAX_TIMEOUT_MS)
         long_ms = {
             'docling-api': docling_ms,
-            'backend-api': max(3630000, docling_ms + 30000),
+            'backend-api': backend_ms,
             'litellm-gateway': 630000,
             'ollama-api': 630000,
         }
         for service in services:
-            timeout = long_ms.get(service.get('name'))
+            name = service.get('name') or ''
+            # Per-plugin backend services keep what the plugin declares and
+            # otherwise get the backend's long value, like the catch-all.
+            timeout = backend_ms if name.startswith('backend-api-plugin-') else long_ms.get(name)
             if timeout:
                 service.setdefault('read_timeout', timeout)
                 service.setdefault('write_timeout', timeout)

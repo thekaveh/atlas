@@ -100,7 +100,7 @@ def base_settings(env: Mapping[str, str] | None = None) -> Dict[str, Any]:
         "callbacks": ["prometheus"],
     }
     if source == "container":
-        litellm_settings["success_callback"] = ["langfuse"]
+        litellm_settings.update(success_callback=["langfuse"], failure_callback=["langfuse"])
     callback_settings = _otel_callback_settings(values, litellm_settings)
 
     return {

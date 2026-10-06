@@ -211,7 +211,7 @@ def test_celery_compose_contract() -> None:
     assert flower["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${FLOWER_PORT}:5555"]
     assert flower["depends_on"]["redis"]["condition"] == "service_healthy"
     assert flower["environment"]["CELERY_BROKER_URL"] == "${CELERY_BROKER_URL:-}"
-    assert flower["environment"]["FLOWER_BASIC_AUTH"] == "${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}"
+    assert flower["environment"]["FLOWER_BASIC_AUTH"] == "${DASHBOARD_USERNAME:-kong_admin}:${DASHBOARD_PASSWORD}"
     assert "--port=5555" in flower["command"]
     assert "http://localhost:5555/healthcheck" in "\n".join(flower["healthcheck"]["test"])
 

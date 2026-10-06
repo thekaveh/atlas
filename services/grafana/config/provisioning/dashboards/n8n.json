@@ -34,7 +34,7 @@
       "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
       "id": 3,
       "targets": [
-        { "expr": "n8n_active_workflow_count", "refId": "A" }
+        { "expr": "max(n8n_active_workflow_count)", "refId": "A" }
       ]
     },
     {

@@ -61,7 +61,7 @@ def test_long_lived_commands_and_probes_carry_no_password_flags():
         (REPO / "services/redis/compose.yml").read_text(encoding="utf-8")
     )["services"]["redis"]
     assert not any("--basic-auth" in part for part in flower["command"])
-    assert flower["environment"]["FLOWER_BASIC_AUTH"].startswith("${DASHBOARD_USERNAME}")
+    assert flower["environment"]["FLOWER_BASIC_AUTH"].startswith("${DASHBOARD_USERNAME:-kong_admin}")
     # Exact exec form: a CMD-SHELL string would make a "-a" membership check
     # pass vacuously while still carrying the password.
     # PONG required: redis-cli exits 0 on -LOADING/NOAUTH error replies.

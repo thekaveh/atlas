@@ -183,11 +183,13 @@ def test_litellm_settings_add_langfuse_success_callback_only_when_enabled() -> N
     disabled = base_settings({"LANGFUSE_SOURCE": "disabled"})
     assert disabled["litellm_settings"]["callbacks"] == ["prometheus"]
     assert "success_callback" not in disabled["litellm_settings"]
+    assert "failure_callback" not in disabled["litellm_settings"]
 
     enabled = base_settings({"LANGFUSE_SOURCE": "container"})
     litellm_settings = enabled["litellm_settings"]
     assert litellm_settings["callbacks"] == ["prometheus"]
     assert litellm_settings["success_callback"] == ["langfuse"]
+    assert litellm_settings["failure_callback"] == ["langfuse"]
 
 
 def test_langfuse_compose_contract() -> None:

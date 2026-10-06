@@ -310,8 +310,9 @@ def test_backend_timeout_partial_override_gets_dedicated_service():
     ]
     assert timed["read_timeout"] == 900_000
     assert "connect_timeout" not in timed
-    # Unset fields take the gateway's 300s default, not Kong's 60s.
-    assert timed["write_timeout"] == 300_000
+    # Unset fields take the backend's long timeout (like the catch-all
+    # backend-api service), not Kong's 60s.
+    assert timed["write_timeout"] == 3_630_000
     assert timed["url"] == "http://backend:8000/"
     assert [plugin["name"] for plugin in timed["plugins"]] == ["cors"]
     assert timed["routes"] == [
@@ -1051,3 +1052,27 @@ def test_public_and_signed_storage_urls_skip_key_auth():
         assert svc["routes"][0]["paths"] == [f"/storage/v1/object/{kind}/"]
         assert [plugin["name"] for plugin in svc["plugins"]] == ["cors"]
     assert "key-auth" in [plugin["name"] for plugin in services["storage-v1"]["plugins"]]
+
+
+def test_long_running_timeouts_track_docling_and_stay_under_kongs_limit():
+    from utils.kong_config_generator import KongConfigGenerator, _KONG_MAX_TIMEOUT_MS
+
+    def services(env):
+        gen = KongConfigGenerator.__new__(KongConfigGenerator)
+        gen.get_env_value = lambda name, default="": env.get(name, default)
+        names = ["docling-api", "backend-api", "backend-api-plugin-x"]
+        return {s["name"]: s["read_timeout"] for s in gen._with_long_running_timeouts([{"name": n} for n in names])}
+
+    assert services({"DOCLING_INFERENCE_TIMEOUT_SECONDS": "1200"})["docling-api"] == 1_230_000
+    assert services({"DOCLING_INFERENCE_TIMEOUT_SECONDS": "abc"})["docling-api"] == 930_000
+    huge = services({"DOCLING_INFERENCE_TIMEOUT_SECONDS": "9999999"})
+    assert max(huge.values()) <= _KONG_MAX_TIMEOUT_MS  # else Kong drops every route
+    assert huge["backend-api-plugin-x"] == huge["backend-api"]
+
+
+def test_empty_dashboard_username_falls_back_instead_of_breaking_kong():
+    config = _generate("DASHBOARD_USERNAME=\n")
+    usernames = [
+        cred["username"] for c in config["consumers"] for cred in c.get("basicauth_credentials", [])
+    ]
+    assert "kong_admin" in usernames and "" not in usernames
