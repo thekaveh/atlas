@@ -43,7 +43,7 @@ When enabled, the family starts:
 
 LiteLLM receives `LANGFUSE_HOST`, `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRET_KEY`. The generated LiteLLM config adds `success_callback: ["langfuse"]` and `failure_callback: ["langfuse"]` only while `LANGFUSE_SOURCE=container`; disabling Langfuse removes both callbacks on the next config render. Existing Prometheus callbacks stay in place.
 
-Media attachments are not browser-viewable: `LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT` is the in-network `http://minio:9000`, so the presigned upload/download URLs Langfuse hands to the browser point at a host it cannot resolve. Text traces (all LiteLLM traffic) are unaffected.
+Media attachments are not browser-viewable: `LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT` is the in-network `http://minio:9000`, so the presigned upload/download URLs Langfuse hands to the browser (and to host-side SDK media uploads) point at a host they cannot resolve. Text traces (all LiteLLM traffic) are unaffected.
 
 ### 4.1. Why two host variables
 

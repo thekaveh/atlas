@@ -32,7 +32,7 @@ KNOWN_DIMS = {
     "ollama/nomic-embed-text": 768,
     "bge-m3": 1024,
     "BAAI/bge-m3": 1024,
-    # Catalog default (services/ollama/models.yaml). Without it the dim came
+    # Catalog embedding model (services/ollama/models.yaml). Without it the dim came
     # from a live probe that, on first boot, runs before ollama-pull has
     # downloaded the model and silently fell back to 768.
     "qwen3-embedding:0.6b": 1024,  # exact tag: the 4b/8b variants are larger

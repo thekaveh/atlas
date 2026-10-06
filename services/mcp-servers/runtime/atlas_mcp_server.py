@@ -281,6 +281,10 @@ def neo4j_read_cypher(cypher: str, limit: int | None = None) -> dict[str, Any]:
             os.getenv("GRAPH_DB_USER", "neo4j"),
             os.getenv("GRAPH_DB_PASSWORD", ""),
         ),
+        # The driver's 30 s default outlasted the tool's own budget when a
+        # (host-run) Neo4j is unreachable; Postgres uses connect_timeout=10.
+        connection_timeout=10,
+        connection_acquisition_timeout=10,
     )
     try:
         with driver.session(

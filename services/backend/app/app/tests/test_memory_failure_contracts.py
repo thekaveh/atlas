@@ -991,3 +991,16 @@ async def test_a_per_row_http_400_does_not_halt_the_backlog(monkeypatch):
 
     assert attempted["n"] == 10, "a per-row 400 halted the pass"
     assert reconciled == 7
+
+
+def test_graphql_escape_covers_every_control_character():
+    # Raw \x0b / \x00 made Weaviate reject the query, which was classified
+    # as an embedding failure and silently fell back to pgvector.
+    import json as _json
+
+    from memory_store import MemoryStore
+
+    raw = 'a"b\\c\nd\x0be\x00 é😀'
+    escaped = MemoryStore._escape_graphql_string(raw)
+    assert "\x0b" not in escaped and "\x00" not in escaped
+    assert _json.loads(f'"{escaped}"') == raw

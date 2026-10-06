@@ -1057,17 +1057,11 @@ class MemoryStore:
 
     @staticmethod
     def _escape_graphql_string(value: str) -> str:
-        """Escape a string for safe inclusion in GraphQL string literals."""
-        return (
-            value
-            .replace("\\", "\\\\")
-            .replace('"', '\\"')
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-            .replace("\b", "\\b")
-            .replace("\f", "\\f")
-        )
+        # Escape a string for a GraphQL string literal: \uXXXX for quotes,
+        # backslashes and EVERY control character. GraphQL rejects raw ones
+        # (e.g. \x0b, \x00), which turned a search into a silent pgvector
+        # fallback.
+        return value.translate({c: f"\\u{c:04x}" for c in (*range(32), 34, 92)})
 
     async def _search_weaviate(
         self, query: str, user_id: str, namespace: str, limit: int

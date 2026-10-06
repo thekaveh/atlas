@@ -223,7 +223,7 @@ policies: `inherit` requires Backend identity, `key-auth` validates
 public. Timeout-bearing plugins receive dedicated Kong services so their
 strict millisecond `connect_timeout`, `write_timeout`, and `read_timeout`
 overrides do not affect other backend routes; an omitted `read_timeout`/
-`write_timeout` gets the backend's own 3,630,000 ms and an omitted
+`write_timeout` gets the backend's own long timeout (at least 3,630,000 ms) and an omitted
 `connect_timeout` keeps Kong's 60,000 ms default. See
 [reusing-atlas.md §6.3.1](https://github.com/thekaveh/atlas/blob/main/docs/operations/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml).
 
