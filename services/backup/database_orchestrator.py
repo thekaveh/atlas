@@ -2118,4 +2118,6 @@ if __name__ == "__main__":
     except (ContractError, SignalInterruption, subprocess.TimeoutExpired) as exc:
         # A step timeout used to escape as a raw traceback and exit 1.
         print(f"database orchestrator: {exc}", file=sys.stderr)
+        if isinstance(exc, subprocess.TimeoutExpired):
+            raise SystemExit(124)  # timeout(1) convention, distinct from config errors
         raise SystemExit(130 if isinstance(exc, SignalInterruption) else 64)

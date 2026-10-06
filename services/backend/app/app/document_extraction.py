@@ -99,8 +99,6 @@ class DocumentTooLargeError(DocumentExtractionError):
     """Raised before any network call when an upload exceeds the size cap."""
 
 
-
-
 def _retry_after_seconds(response: Any) -> float:
     """Docling's Retry-After (seconds), bounded to 0.5-10 s; 1 s if absent."""
     try:

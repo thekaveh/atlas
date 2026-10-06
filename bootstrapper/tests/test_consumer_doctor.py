@@ -2139,3 +2139,57 @@ def test_consumer_artifacts_cannot_alias_stack_names(tmp_path: Path) -> None:
         )
     with pytest.raises(ConsumerManifestError, match="reserved"):
         _host_service_name({"name": "litellm"}, origin="m", seen=set())
+
+
+def test_preflight_after_a_start_keeps_that_starts_cli_overrides(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A start with --base-port 64000 persisted 64000 over the manifest's
+    20000; doctor re-merged the manifest and pointed .env at another block."""
+    import start as start_module
+    from tests.test_consumer_manifest import _patch_starter_root, _write_consumer, _write_minimal_root
+
+    _write_minimal_root(tmp_path)
+    with (tmp_path / ".env").open("a", encoding="utf-8") as env:
+        env.write("BASE_PORT=64000\nATLAS_PROFILE_APPLIED=default\n")
+    manifest = _write_consumer(tmp_path, "started")
+    with (manifest.parent / "atlas.env.user").open("a", encoding="utf-8") as user_env:
+        user_env.write("BASE_PORT=20000\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_root(start_module, monkeypatch, tmp_path)
+
+    applied = start_module.AtlasStarter().materialize_consumer_env_for_preflight()
+
+    parsed = start_module.AtlasStarter().config_parser.parse_env_file()
+    assert parsed["BASE_PORT"] == "64000"
+    assert "BASE_PORT" not in applied
+    assert set(applied) <= start_module._PREFLIGHT_DERIVED_KEYS
+
+
+def test_env_values_conflicting_with_derived_sidecar_key_is_an_error(tmp_path: Path) -> None:
+    # env.values OLLAMA_CUSTOM_MODELS used to be overwritten by the
+    # model_sidecars-derived list without a word.
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    from tests.test_consumer_manifest import _write_consumer, _write_minimal_root
+
+    _write_minimal_root(tmp_path)
+    one = _write_consumer(tmp_path, "one", project_name="shared", include_brand=False)
+    one.write_text(
+        one.read_text(encoding="utf-8").replace(
+            "    EXTRA_CONSUMER_VALUE: enabled\n",
+            "    EXTRA_CONSUMER_VALUE: enabled\n    OLLAMA_CUSTOM_MODELS: qwen3:8b\n",
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ConsumerManifestError, match="OLLAMA_CUSTOM_MODELS"):
+        load_consumer_config(tmp_path, explicit_paths=[str(one)])
+
+
+def test_doctor_overlay_env_scan_skips_compose_dollar_escapes() -> None:
+    from start import _doctor_compose_var_refs
+
+    assert _doctor_compose_var_refs("curl localhost:$${PORT} ${A:-x} ${B}") == [
+        ("A", True), ("B", False),
+    ]

@@ -309,6 +309,38 @@ def _env_example_values(env_example_path) -> dict[str, str]:
     return values
 
 
+# Consumer-manifest keys derived from plugins/sidecars (#451): the only ones
+# preflight refreshes once a start has persisted the stack's own values.
+_PREFLIGHT_DERIVED_KEYS = frozenset({
+    "BACKEND_PLUGINS_DIR", "COMFYUI_CUSTOM_MODELS_FILE",
+    "COMFYUI_CUSTOM_NODES_FILE", "OLLAMA_CUSTOM_MODELS",
+})
+
+
+def _preflight_declared(consumer_config, env_vars: dict) -> dict:
+    """Manifest env a preflight may write. Once a start has persisted this
+    stack's values, including CLI overrides (--base-port, -p,
+    --<svc>-source) that must beat the manifest, re-merging the manifest
+    silently undid them (doctor then pointed .env, ports and PROJECT_NAME at
+    a different stack), so only the derived overlay paths (#451) remain."""
+    declared = dict(consumer_config.env_overrides or {})
+    if not _known_applied_profile(env_vars):
+        return declared
+    return {key: value for key, value in declared.items() if key in _PREFLIGHT_DERIVED_KEYS}
+
+
+def _validate_consumer_manifests_early(starter, from_cli: bool) -> None:
+    """Fail on a bad --consumer / ATLAS_CONSUMER_MANIFEST manifest as a usage
+    error before anything mutates the checkout (not a traceback mid-setup)."""
+    if not from_cli and not os.environ.get("ATLAS_CONSUMER_MANIFEST", "").strip():
+        return
+    try:
+        starter.config_parser.load_consumer_config()
+    except Exception as exc:  # ConsumerManifestError + I/O failures
+        source = "--consumer" if from_cli else "ATLAS_CONSUMER_MANIFEST"
+        raise click.UsageError(f"invalid {source} manifest: {exc}") from exc
+
+
 def _known_applied_profile(env_vars: dict) -> str:
     """``ATLAS_PROFILE_APPLIED`` canonicalized, or "" when blank/unknown."""
     from services.profiles import canonical_profile, is_known_profile
@@ -1180,10 +1212,9 @@ class AtlasStarter:
                 _known_applied_profile(self.config_parser.parse_env_file())
                 or getattr(consumer_config, "profile", None) or "default"
             )
+        declared = _preflight_declared(consumer_config, self.config_parser.parse_env_file())
         overrides = self._resolve_auto_source_overrides(
-            self._resolve_auto_base_port_override(
-                dict(consumer_config.env_overrides or {})
-            ),
+            self._resolve_auto_base_port_override(declared),
             quiet=True,
         )
         if overrides:
@@ -4914,8 +4945,10 @@ def _doctor_check_consumer_manifests(starter: "AtlasStarter") -> dict:
     )
 
 
+# `$$` is Compose's escape for a literal `$` (e.g. `$${PORT}` in a shell
+# healthcheck), so it is consumed first and never read as a reference.
 _COMPOSE_VAR_RE = re.compile(
-    r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?])([^}]*))?\}"
+    r"\$\$|\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?])([^}]*))?\}"
 )
 
 
@@ -4923,6 +4956,8 @@ def _doctor_compose_var_refs(text: str) -> list[tuple[str, bool]]:
     refs: list[tuple[str, bool]] = []
     for match in _COMPOSE_VAR_RE.finditer(text):
         var_name = match.group(1)
+        if var_name is None:  # escaped `$$`
+            continue
         operator = match.group(2) or ""
         has_default = "-" in operator
         refs.append((var_name, has_default))
@@ -7064,13 +7099,10 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
     starter.support_bundle_path = _invoker_path(support_bundle)
 
     try:
-        # Explicit consumer paths are command-line input. Validate them before
-        # cold cleanup, migrations, or any .env write can mutate the checkout.
-        if consumer_manifests:
-            try:
-                starter.config_parser.load_consumer_config()
-            except Exception as exc:  # ConsumerManifestError + I/O failures
-                raise click.UsageError(f"invalid --consumer manifest: {exc}") from exc
+        # Consumer manifests (--consumer or ATLAS_CONSUMER_MANIFEST) are user
+        # input. Validate them before cold cleanup, migrations, or any .env
+        # write can mutate the checkout.
+        _validate_consumer_manifests_early(starter, bool(consumer_manifests))
 
         # Resolve the deployment profile: explicit --profile wins; else the
         # consumer manifest's `profile:` default (#755); else "default".
@@ -7741,10 +7773,17 @@ def doctor_command(output_format: str, bundle_path, include_unlisted: bool) -> N
     starter = AtlasStarter()
     # Materialize the consumer manifest's derived env (#451) before the checks
     # (which validate the assembled compose) so ${BACKEND_PLUGINS_DIR}-style
-    # overlays resolve on a fresh checkout. Quiet — keeps --format json clean.
-    starter.materialize_consumer_env_for_preflight()
-    bundled = _bundled_doctor_checks(starter, bundle_path, include_unlisted)
-    results = bundled[1][0] if bundled else _run_consumer_doctor(starter)
+    # overlays resolve on a fresh checkout. With --format json, anything a
+    # step prints (e.g. a BASE_PORT: auto re-resolution warning) goes to
+    # stderr so stdout stays one JSON document.
+    from contextlib import nullcontext
+
+    from core.linear_startup import _pipeline_stdout_to_stderr
+
+    with _pipeline_stdout_to_stderr() if output_format == "json" else nullcontext():
+        starter.materialize_consumer_env_for_preflight()
+        bundled = _bundled_doctor_checks(starter, bundle_path, include_unlisted)
+        results = bundled[1][0] if bundled else _run_consumer_doctor(starter)
     ok = not any(result["status"] == "fail" for result in results)
     payload = {"ok": ok, "checks": results}
 
@@ -7859,7 +7898,10 @@ def endpoints_export_command(
 
     starter = AtlasStarter()
     env = starter.config_parser.parse_env_file()
-    consumer_config = starter.config_parser.load_consumer_config()
+    try:
+        consumer_config = starter.config_parser.load_consumer_config()
+    except ValueError as exc:  # ConsumerManifestError: a message, not a traceback
+        raise click.ClickException(f"invalid consumer manifest: {exc}") from exc
 
     # A manifest BASE_PORT: auto is allocated at bring-up, and a cold .env still
     # carries DEFAULT_BASE_PORT until then. Exporting in that state answers a

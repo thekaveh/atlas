@@ -3376,18 +3376,25 @@ def load_consumer_config(
             )
         )
 
-    if backend_plugins:
-        env_overrides["BACKEND_PLUGINS_DIR"] = os.pathsep.join(str(path) for path in backend_plugins)
-    if comfyui_sidecars:
-        env_overrides["COMFYUI_CUSTOM_MODELS_FILE"] = os.pathsep.join(
-            str(path) for path in comfyui_sidecars
-        )
-    if comfyui_custom_node_files:
-        env_overrides["COMFYUI_CUSTOM_NODES_FILE"] = os.pathsep.join(
+    derived = {
+        "BACKEND_PLUGINS_DIR": os.pathsep.join(str(path) for path in backend_plugins),
+        "COMFYUI_CUSTOM_MODELS_FILE": os.pathsep.join(str(path) for path in comfyui_sidecars),
+        "COMFYUI_CUSTOM_NODES_FILE": os.pathsep.join(
             str(path) for path in comfyui_custom_node_files
-        )
-    if ollama_models:
-        env_overrides["OLLAMA_CUSTOM_MODELS"] = ",".join(_ordered_union(ollama_models))
+        ),
+        "OLLAMA_CUSTOM_MODELS": ",".join(_ordered_union(ollama_models)),
+    }
+    for key, value in derived.items():
+        if not value:
+            continue
+        # An env.values entry for a key the manifest also derives used to be
+        # overwritten without a word (e.g. a pinned Ollama model dropped).
+        if key in env_overrides and env_overrides[key] != value:
+            raise ConsumerManifestError(
+                f"{key} is set in {env_origins.get(key, 'env.values')} and also "
+                "derived from the manifest's plugins/sidecars; declare it in one place"
+            )
+        env_overrides[key] = value
 
     if all_custom_nodes:
         # Reject a consumer node whose name collides with an Atlas-shipped node

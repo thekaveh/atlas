@@ -74,8 +74,8 @@ whisper-server \
 ```
 
 `--convert` (it needs `ffmpeg` on the `PATH`, for example `brew install ffmpeg`)
-lets the server accept formats beyond WAV, MP3 and FLAC, such as the OGG/Opus
-voice notes clients like Hermes send as recorded. Open WebUI already transcodes
+lets the server accept formats beyond WAV, MP3 and FLAC, such as OGG/Opus
+voice notes a client sends without transcoding. Open WebUI already transcodes
 browser microphone recordings to MP3 before sending them.
 
 The `/v1/audio/transcriptions` path makes the server drop-in compatible with

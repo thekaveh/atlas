@@ -204,6 +204,7 @@ def test_postgres_tool_runs_read_only_bounded_transaction(monkeypatch) -> None:
     assert connect_kwargs["user"] == "atlas_mcp_test"
     assert connect_kwargs["password"] == "fixture-password"
     assert connect_kwargs["host"] == "supabase-db"
+    assert connect_kwargs["connect_timeout"] == 10  # an unreachable DB must not hang the tool
     assert connect_kwargs["port"] == "5432"
     assert connect_kwargs["dbname"] == "postgres"
 

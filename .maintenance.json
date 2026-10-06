@@ -100,8 +100,8 @@
       {
         "path": "bootstrapper/start.py",
         "symbol": "main",
-        "cyclomatic_complexity": 126,
-        "rationale": "Click composition root declaring and forwarding the public CLI surface; option and startup tests cover the branches, while extraction would only relocate forwarding logic. Cyclomatic complexity fell 129 -> 126 on 2026-09-23 (#1184): the linear track prompt's inline read/validate/warn block moved into the module-level _prompt_for_track helper, removing three branches from main. No behaviour was removed \u2014 the helper is strictly stricter than the block it replaced."
+        "cyclomatic_complexity": 124,
+        "rationale": "Click composition root declaring and forwarding the public CLI surface; option and startup tests cover the branches, while extraction would only relocate forwarding logic. Cyclomatic complexity fell 129 -> 126 on 2026-09-23 (#1184): the linear track prompt's inline read/validate/warn block moved into the module-level _prompt_for_track helper, removing three branches from main. No behaviour was removed \u2014 the helper is strictly stricter than the block it replaced. Fell 126 -> 124 on 2026-10-06 when the early consumer-manifest validation moved into _validate_consumer_manifests_early (which now also covers ATLAS_CONSUMER_MANIFEST)."
       },
       {
         "path": "bootstrapper/tests/test_agents_guidance.py",
@@ -222,8 +222,8 @@
       {
         "path": "bootstrapper/start.py",
         "symbol": "main",
-        "cyclomatic_complexity": 126,
-        "rationale": "Click composition root that declares and forwards the public CLI surface; behavior is partitioned into tested AtlasStarter methods, and extracting option forwarding alone would add indirection without reducing runtime branching. Fell 129 -> 126 on 2026-09-23 (#1184) when the linear track prompt's inline read/validate/warn block moved into _prompt_for_track."
+        "cyclomatic_complexity": 124,
+        "rationale": "Click composition root that declares and forwards the public CLI surface; behavior is partitioned into tested AtlasStarter methods, and extracting option forwarding alone would add indirection without reducing runtime branching. Fell 129 -> 126 on 2026-09-23 (#1184) when the linear track prompt's inline read/validate/warn block moved into _prompt_for_track; 126 -> 124 on 2026-10-06 when early consumer-manifest validation moved into _validate_consumer_manifests_early."
       },
       {
         "path": "bootstrapper/ui/textual/integration.py",

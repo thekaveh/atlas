@@ -241,6 +241,16 @@ cd infra
 `env backfill` keeps `.env` complete across pin bumps; `compose validate` catches
 overlay/manifest errors before any container starts; `doctor` surfaces
 contract/port/provisioning problems; `--detach` exits after the health gates.
+Before a stack's first start, `doctor` and `compose validate` write the manifest's
+values into `.env` so the assembled compose resolves; after a start they refresh
+only the derived plugin/sidecar paths (`BACKEND_PLUGINS_DIR`,
+`COMFYUI_CUSTOM_MODELS_FILE`, `COMFYUI_CUSTOM_NODES_FILE`, `OLLAMA_CUSTOM_MODELS`),
+so a launch-time `--base-port`, `-p` or `--<svc>-source` keeps winning. With
+`--format json`, `doctor` writes everything except the JSON document to stderr.
+A manifest named by `ATLAS_CONSUMER_MANIFEST` is validated before any `.env` write,
+exactly like `--consumer`. Declaring one of those four derived keys in
+`env.values` as well as through plugins/sidecars is an error naming both places,
+instead of the sidecar list silently replacing your value.
 
 **5. Consuming endpoints.** Your host-side code (a devserver, a desktop app)
 reads the exported contract; in-container plugins use compose service DNS
