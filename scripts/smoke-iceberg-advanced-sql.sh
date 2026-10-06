@@ -72,8 +72,10 @@ namespace = "lakehouse.atlas_smoke"
 table = f"{namespace}.advanced_sql"
 stream_table = f"{namespace}.advanced_stream"
 run_id = uuid4().hex[:12]
-landing_path = f"s3a://landing/atlas-smoke-advanced-json/{run_id}"
-checkpoint_path = f"s3a://checkpoints/atlas-smoke-advanced-json/{run_id}"
+landing_bucket = os.environ.get("MINIO_BUCKET_ICEBERG_LANDING", "landing")
+checkpoint_bucket = os.environ.get("MINIO_BUCKET_ICEBERG_CHECKPOINTS", "checkpoints")
+landing_path = f"s3a://{landing_bucket}/atlas-smoke-advanced-json/{run_id}"
+checkpoint_path = f"s3a://{checkpoint_bucket}/atlas-smoke-advanced-json/{run_id}"
 
 spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {namespace}")
 spark.sql(f"DROP TABLE IF EXISTS {table}")

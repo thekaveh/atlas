@@ -146,7 +146,7 @@ printf '%s\n' "$consumer_entries" | while IFS= read -r entry; do
     },
     {
       "Effect": "Allow",
-      "Action": ["s3:ListBucket"],
+      "Action": ["s3:ListBucket", "s3:GetBucketLocation"],
       "Resource": ['"$read_only_bucket_resources"']
     }'
     fi

@@ -74,7 +74,7 @@ The image installs a **pinned, checksum-verified** headless Blender at build tim
 
 ### 4.1. Uploaded GLB
 
-Inputs (uploaded or MinIO-referenced) must be self-contained binary glTF 2.0 files: anything else (a `.gltf` JSON file, whatever its name, or a GLB whose JSON chunk does not parse) is rejected with `400`, as is a `buffers[].uri` or `images[].uri` that is not a `data:` URI is rejected with `400` before any converter runs, because the converters would resolve it against the container filesystem (or network) and embed what they read.
+Inputs (uploaded or MinIO-referenced) must be self-contained binary glTF 2.0 files: anything else (a `.gltf` JSON file, whatever its name, or a GLB whose JSON chunk does not parse) is rejected with `400`, as is a `buffers[].uri` or `images[].uri` that is not a `data:` URI. Both checks run before any converter, because the converters would resolve such a URI against the container filesystem (or network) and embed what they read.
 
 `POST /assets/bake` accepts `multipart/form-data`:
 

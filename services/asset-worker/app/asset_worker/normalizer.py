@@ -58,10 +58,19 @@ def external_resource_uris(data: bytes) -> list[str]:
     `data:` URIs. A GLB is self-contained, and the converters resolve any
     other URI against the filesystem (or network), so `../../proc/self/environ`
     would be read and embedded in a downloadable artifact."""
-    doc = _glb_json_chunk(data) or {}
-    entries = [*(doc.get("buffers") or []), *(doc.get("images") or [])]
+    entries = _resource_entries(_glb_json_chunk(data) or {})
+    if entries is None:
+        return ["<non-list buffers/images>"]  # malformed: reject, never 500
     uris = [entry.get("uri") for entry in entries if isinstance(entry, dict)]
     return [str(uri) for uri in uris if uri is not None and not str(uri).startswith("data:")]
+
+
+def _resource_entries(doc: dict) -> list | None:
+    """`buffers` + `images` entries, or None when either is not a list."""
+    groups = [doc.get("buffers") or [], doc.get("images") or []]
+    if not all(isinstance(group, list) for group in groups):
+        return None
+    return [*groups[0], *groups[1]]
 
 
 def _glb_json_chunk(data: bytes) -> dict | None:

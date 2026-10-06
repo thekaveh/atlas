@@ -16,9 +16,9 @@ Run `./start.sh` from the repository root. The setup wizard walks through track 
 ./start.sh --setup-hosts
 ```
 
-Any stack flag (such as `--base-port` or `--setup-hosts`) skips the wizard and,
-without `--track`, launches the full `.env` default set rather than a track's
-subset; combine it with `--track <key>` on a fresh clone.
+Flags such as `--base-port`, `--setup-hosts`, `--detach` or any `--*-source`
+skip the wizard and launch what `.env` holds (the `.env.example` defaults on a
+fresh clone), not a track's subset; add `--track <key>` to apply one.
 
 ## 3. First Services To Visit
 

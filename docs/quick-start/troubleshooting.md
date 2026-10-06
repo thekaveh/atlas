@@ -77,7 +77,7 @@ Truly starting over? `./stop.sh --cold && ./start.sh --cold` **deletes every nam
 ### 3.4. Platform Issues
 ```bash
 # Windows/WSL issues?
-./start.sh --help  # the wrapper provides the bootstrapper's Python dependencies
+uv run --project bootstrapper python bootstrapper/start.py --help  # bypasses the sh wrapper
 
 # Shell script permissions?
 chmod +x start.sh stop.sh
@@ -468,9 +468,10 @@ Do **not** copy a running database's data directory as a "backup" — a live Pos
 ```bash
 # One-time prerequisites: the backup runner and MinIO must be enabled, and
 # the manifest signing key and deployment id must be set in .env (Atlas does
-# not generate them; keep a copy outside the bucket, a restore needs them):
-#   BACKUP_MANIFEST_HMAC_KEY=$(openssl rand -hex 32)
-#   BACKUP_DEPLOYMENT_ID=<a stable name for this deployment>
+# not generate them; keep a copy outside the bucket, a restore needs them).
+# Run `openssl rand -hex 32` and paste its output into the existing
+# BACKUP_MANIFEST_HMAC_KEY= line (.env does not run commands), and set
+# BACKUP_DEPLOYMENT_ID= to a stable name (letters, digits, . _ -; max 128).
 ./start.sh --backup-source container --minio-source container --detach
 
 # Run a full consistency-safe backup (host entry point; quiesces Neo4j

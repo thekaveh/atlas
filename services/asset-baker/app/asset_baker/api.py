@@ -225,10 +225,19 @@ def _external_resource_uris(data: bytes) -> list[str]:
     """`buffers[].uri` / `images[].uri` in a GLB's JSON chunk that are not
     `data:` URIs. Blender's importer resolves them against the filesystem,
     so `../../proc/self/environ` would be read into a downloadable bake."""
-    doc = _glb_json_chunk(data) or {}
-    entries = [*(doc.get("buffers") or []), *(doc.get("images") or [])]
+    entries = _resource_entries(_glb_json_chunk(data) or {})
+    if entries is None:
+        return ["<non-list buffers/images>"]  # malformed: reject, never 500
     uris = [entry.get("uri") for entry in entries if isinstance(entry, dict)]
     return [str(uri) for uri in uris if uri is not None and not str(uri).startswith("data:")]
+
+
+def _resource_entries(doc: dict) -> list | None:
+    """`buffers` + `images` entries, or None when either is not a list."""
+    groups = [doc.get("buffers") or [], doc.get("images") or []]
+    if not all(isinstance(group, list) for group in groups):
+        return None
+    return [*groups[0], *groups[1]]
 
 
 def _glb_json_chunk(data: bytes) -> dict | None:
