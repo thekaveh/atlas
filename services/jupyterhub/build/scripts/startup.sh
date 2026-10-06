@@ -34,7 +34,8 @@ LITELLM_API_KEY=${LITELLM_API_KEY:-}
 # OpenAI-style clients) talk to LiteLLM out of the box.
 OPENAI_API_BASE=${LITELLM_BASE_URL:-http://litellm:4000}/v1
 OPENAI_API_KEY=${LITELLM_API_KEY:-}
-WEAVIATE_URL=${WEAVIATE_URL:-http://weaviate:8080}
+# No default: compose passes the auto-managed value, blank when disabled.
+WEAVIATE_URL=${WEAVIATE_URL:-}
 NEO4J_URI=${NEO4J_URI:-}
 NEO4J_USER=${NEO4J_USER:-neo4j}
 NEO4J_PASSWORD=${NEO4J_PASSWORD:-password}

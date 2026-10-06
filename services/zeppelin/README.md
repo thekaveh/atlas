@@ -22,7 +22,7 @@ It also replaces the server's Jackson and BouncyCastle jars with checksum-pinned
 Atlas should treat Zeppelin as a Spark-submit/standalone Spark notebook surface:
 
 - The selected backend is `spark.master=spark://spark-master:7077`.
-- The interpreter is capped at `spark.cores.max=1`: it is long-lived, and uncapped it would hold every free worker core, leaving Airflow's cluster-mode submits waiting forever.
+- The interpreter is capped at `spark.cores.max=${ZEPPELIN_SPARK_CORES_MAX}` (default 1): it is long-lived, and uncapped it would hold every free worker core, leaving Airflow's cluster-mode submits waiting forever. The value is re-seeded on each start, so raise it in `.env`, not in the interpreter UI.
 - Kafka Structured Streaming (`format("kafka")`) is not available from `%spark`: the driver runs in Zeppelin (client mode) and Zeppelin's Spark runtime does not bundle the Kafka connector jars the Spark workers have.
 - The implementation path for zero-touch lakehouse notebooks is a bundled or mounted `SPARK_HOME` plus seeded interpreter settings for MinIO S3A and the Iceberg REST `lakehouse` catalog.
 - JupyterHub remains the Spark Connect notebook path for Python and Scala clients that use `SPARK_REMOTE`, `SparkSession.builder.remote(...)`, or Spark Connect client libraries directly.

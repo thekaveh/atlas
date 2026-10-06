@@ -76,7 +76,7 @@ env:
     description: "Optional. Empty = generate on start."
   - name: JUPYTER_ALLOW_ORIGIN
     default: "*"
-    description: "Allowed browser origin for Jupyter Server websocket upgrades; keep '*' for local dev, narrow for shared deployments."
+    description: "Allowed browser origin for Jupyter Server websocket upgrades; keep '*' for local dev, or set one exact origin (a single value, not a list) for shared deployments."
   - name: SPARK_REMOTE
     default: "sc://spark-connect:15002"
     description: "Spark Connect endpoint used by bundled notebooks; override for a remote or managed Spark Connect server."

@@ -372,7 +372,7 @@
 | JUPYTERHUB_SOURCE | jupyterhub | container | - |
 | JUPYTERHUB_PORT | jupyterhub | 63094 | - |
 | JUPYTERHUB_TOKEN | jupyterhub |  | Optional. Empty = generate on start. |
-| JUPYTER_ALLOW_ORIGIN | jupyterhub | * | Allowed browser origin for Jupyter Server websocket upgrades; keep '*' for local dev, narrow for shared deployments. |
+| JUPYTER_ALLOW_ORIGIN | jupyterhub | * | Allowed browser origin for Jupyter Server websocket upgrades; keep '*' for local dev, or set one exact origin (a single value, not a list) for shared deployments. |
 | SPARK_REMOTE | jupyterhub | sc://spark-connect:15002 | Spark Connect endpoint used by bundled notebooks; override for a remote or managed Spark Connect server. |
 | MCP_SERVERS_URL | jupyterhub |  | Streamable HTTP URL for the Curated MCP Servers endpoint. The bootstrapper sets http://mcp-servers:8000/mcp only for MCP_SERVERS_SOURCE=container and clears it when disabled. |
 | JUPYTERHUB_SCALE | jupyterhub |  | - |
@@ -1008,6 +1008,7 @@
 | WEAVIATE_IMAGE | weaviate | cr.weaviate.io/semitechnologies/weaviate:1.38.17 | Container image for `weaviate`. |
 | WEAVIATE_INIT_IMAGE | weaviate | alpine:3.24.2 | Container image for `weaviate-init`. |
 | MULTI2VEC_CLIP_IMAGE | weaviate | semitechnologies/multi2vec-clip:sentence-transformers-clip-ViT-B-32-1.5.1 | Container image for `multi2vec-clip`. |
+| ZEPPELIN_SPARK_CORES_MAX | zeppelin | 1 | Maximum standalone-cluster cores the long-lived Zeppelin Spark interpreter may hold (spark.cores.max, re-seeded on each start). Uncapped it would take every free worker core and leave Airflow SparkSubmit drivers waiting; raise only when the worker pool has headroom beyond Spark Connect and Airflow. |
 | ZEPPELIN_DB_USER | zeppelin | atlas_zeppelin | Read-only PostgreSQL login exposed to Zeppelin's JDBC interpreter. |
 | ZEPPELIN_DB_PASSWORD | zeppelin | atlas-db-password | Auto-generated password for Zeppelin's read-only database role. |
 | ZEPPELIN_SOURCE | zeppelin | disabled | - |

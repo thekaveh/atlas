@@ -2749,8 +2749,10 @@ services:
       AWS_DEFAULT_REGION: us-east-1
       AWS_SECRET_ACCESS_KEY: ''
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
-      MLFLOW_SERVER_ALLOWED_HOSTS: mlflow,mlflow:5000,localhost,localhost:5000,localhost:63092,127.0.0.1:63092,mlflow.localhost,mlflow.localhost:63000
-      MLFLOW_SERVER_CORS_ALLOWED_ORIGINS: http://mlflow.localhost:63000,http://localhost:63092,http://127.0.0.1:63092
+      MLFLOW_SERVER_ALLOWED_HOSTS: mlflow,mlflow:5000,localhost,localhost:5000,localhost:63092,127.0.0.1:63092,mlflow.localhost,mlflow.localhost:63000,mlflow.localhost:63001
+      MLFLOW_SERVER_CORS_ALLOWED_ORIGINS: http://mlflow.localhost:63000,https://mlflow.localhost:63001,http://localhost:63092,http://127.0.0.1:63092
+      MLFLOW_SQLALCHEMYSTORE_MAX_OVERFLOW: '3'
+      MLFLOW_SQLALCHEMYSTORE_POOL_SIZE: '2'
     healthcheck:
       test:
       - CMD-SHELL
@@ -5140,6 +5142,7 @@ services:
       TRINO_JDBC_URL: jdbc:trino://trino:8080/lakehouse
       TRINO_JDBC_USER: atlas
       TRINO_SOURCE: disabled
+      ZEPPELIN_SPARK_CORES_MAX: '1'
       ZEPPELIN_URL: http://zeppelin:8080
     image: python:3.12.13-alpine
     networks:
