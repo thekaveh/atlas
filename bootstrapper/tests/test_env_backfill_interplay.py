@@ -182,3 +182,14 @@ def test_source_override_rewrites_export_lines_too(tmp_path):
     assert manager.update_env_file({"WEAVIATE_SOURCE": "disabled"})
     assert "export WEAVIATE_SOURCE=disabled" in env.read_text()
     assert parser.parse_env_file()["WEAVIATE_SOURCE"] == "disabled"
+
+
+def test_manifest_merge_rewrites_export_lines_and_tab_export_is_parsed(tmp_path):
+    """Consumer env.values / auto sources go through _merge_env_file_overrides;
+    it rewrote only `KEY=`, leaving a later `export KEY=` to win."""
+    env = tmp_path / ".env"
+    env.write_text("WEAVIATE_SOURCE=container\nexport\tWEAVIATE_SOURCE=container\n")
+    starter = _make_starter_against(tmp_path)
+    starter._merge_env_file_overrides({"WEAVIATE_SOURCE": "disabled"})
+    assert "export\tWEAVIATE_SOURCE=disabled" in env.read_text()
+    assert starter.config_parser.parse_env_file()["WEAVIATE_SOURCE"] == "disabled"

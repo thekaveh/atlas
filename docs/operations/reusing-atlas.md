@@ -238,7 +238,7 @@ cd infra
   --project myproject [--track <k>] [--detach]   # BASE_PORT + project come from the manifest
 ```
 
-`env backfill` keeps `.env` complete across pin bumps (a newly added `*_PORT` is seeded on your `BASE_PORT` block, not the default one, and an `export KEY=` line counts as present and is rewritten in place, keeping `export`, by source and profile overrides); `compose validate` catches
+`env backfill` keeps `.env` complete across pin bumps (a newly added `*_PORT` is seeded on your `BASE_PORT` block, not the default one, and an `export KEY=` line counts as present). Source, profile and consumer-manifest overrides rewrite an `export KEY=` line in place, keeping `export`; `compose validate` catches
 overlay/manifest errors before any container starts; `doctor` surfaces
 contract/port/provisioning problems; `--detach` exits after the health gates.
 Before a stack's first start, `doctor` and `compose validate` write the manifest's

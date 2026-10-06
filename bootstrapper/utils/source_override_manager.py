@@ -166,9 +166,9 @@ class SourceOverrideManager:
         actually assigned in `.env`; a missing file or an unset var is simply
         absent from the result (distinct from an empty ``VAR=`` assignment,
         which maps to ``""``). Values are stripped so a trailing newline or
-        stray whitespace doesn't read as a spurious change. Mirrors the
-        anchored ``^VAR=`` regex ``update_env_file`` uses, so the two agree
-        on exactly which line represents each variable.
+        stray whitespace doesn't read as a spurious change. Uses the same
+        optional-``export`` pattern as ``update_env_file`` and the LAST
+        assignment, which is the one Compose and parse_env_file resolve.
         """
         env_file_path = self.config_parser.env_file_path
         if not env_file_path.exists():
@@ -180,11 +180,11 @@ class SourceOverrideManager:
             return {}
         current: Dict[str, str] = {}
         for var_name in var_names:
-            match = re.search(
-                rf'^{re.escape(var_name)}=(.*)$', content, re.MULTILINE
+            matches = re.findall(
+                rf'^(?:export[ \t]+)?{re.escape(var_name)}=(.*)$', content, re.MULTILINE
             )
-            if match is not None:
-                current[var_name] = match.group(1).strip()
+            if matches:
+                current[var_name] = matches[-1].strip()
         return current
 
     def _warn_on_source_changes(self, overrides: Dict[str, str]) -> None:

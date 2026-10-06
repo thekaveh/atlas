@@ -1267,12 +1267,14 @@ class AtlasStarter:
             # run rewrites only the first line and leaves the remainder in
             # place permanently.
             var_value = render_env_assignment(var_name, raw_value)
-            pattern = rf"^{re.escape(var_name)}=.*$"
+            # `export KEY=` is KEY to Compose and parse_env_file: rewrite it
+            # in place too (keeping `export`) or it would win over this value.
+            pattern = rf"^(export[ \t]+)?{re.escape(var_name)}=.*$"
             replacement = f"{var_name}={var_value}"
             if re.search(pattern, updated_content, re.MULTILINE):
                 updated_content = re.sub(
                     pattern,
-                    lambda _m, r=replacement: r,
+                    lambda m, r=replacement: (m.group(1) or "") + r,
                     updated_content,
                     flags=re.MULTILINE,
                 )
@@ -6025,8 +6027,8 @@ def _scan_env_keys(env_text: str) -> tuple[set[str], set[str]]:
             continue
         key, _, raw_value = stripped.partition("=")
         key = key.strip()
-        if key.startswith("export "):
-            existing_keys.add(key[len("export "):].strip())
+        if re.match(r"export[ \t]+", key):
+            existing_keys.add(re.sub(r"^export[ \t]+", "", key))
             continue
         existing_keys.add(key)
         if not raw_value.split("#", 1)[0].strip():

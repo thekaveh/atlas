@@ -162,10 +162,10 @@ def _grant_and_seed_sql() -> str:
     for path in sorted(SCRIPTS_DIR.iterdir()):
         text = path.read_text(encoding="utf-8")
         if path.suffix == ".sh":
-            # Only whole-line `--` SQL comments: an inline `--` in shell is a
-            # flag (`psql --username ... -c "GRANT ..."`), not a comment.
+            # SQL comments (`-- note`) but not psql flags (`--username`):
+            # stripping the flag line would hide its `-c "GRANT ..."`.
             text = _SHELL_LINE_COMMENT.sub("", text)
-            parts.append(re.sub(r"(?m)^[ \t]*--[^\n]*", "", text))
+            parts.append(re.sub(r"(?<!\S)--(?!-?[A-Za-z])[^\n]*", "", text))
         elif path.suffix == ".sql":
             parts.append(_SQL_LINE_COMMENT.sub("", text))
     return "\n".join(parts)

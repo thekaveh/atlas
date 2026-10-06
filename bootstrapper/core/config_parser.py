@@ -230,8 +230,8 @@ class ConfigParser:
                 if '=' in line:
                     key, value = line.split('=', 1)
                     key = key.strip()
-                    if key.startswith('export '):
-                        key = key[len('export '):].strip()  # Compose reads it as KEY
+                    # Compose reads `export<space|tab>KEY` as KEY.
+                    key = re.sub(r'^export[ \t]+', '', key)
                     # ONE definition, shared with the writers' round-trip
                     # check — a second copy here is how the two drifted apart.
                     env_vars[key] = decode_env_value(value)
