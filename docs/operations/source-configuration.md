@@ -734,7 +734,7 @@ LANGFUSE_PUBLIC_KEY=...      # auto-generated on first bootstrap
 LANGFUSE_SECRET_KEY=...      # auto-generated on first bootstrap
 ```
 - **Use case**: Inspect LLM traces, prompt experiments, evals, latency, and spend for LiteLLM-routed calls from Open WebUI, Backend, Hermes, Airflow, notebooks, and other Atlas consumers.
-- **Pros**: Kong-aliased UI/API at `langfuse.localhost`, generated first-run credentials, dedicated ClickHouse analytics store, dedicated Supabase Postgres database, dedicated MinIO bucket and service account, automatic LiteLLM `success_callback` tracing.
+- **Pros**: Kong-aliased UI/API at `langfuse.localhost`, generated first-run credentials, dedicated ClickHouse analytics store, dedicated Supabase Postgres database, dedicated MinIO bucket and service account, automatic LiteLLM `success_callback`/`failure_callback` tracing.
 - **Cons**: Adds a stateful ClickHouse volume plus web/worker containers; only LiteLLM-routed calls are traced in the first slice.
 - **Containers**: `langfuse-init` (one-shot), `langfuse-web`, `langfuse-worker`, `langfuse-clickhouse`.
 - **Requirements**: Supabase Postgres and Redis are always-on; `MINIO_SOURCE=container` is required.

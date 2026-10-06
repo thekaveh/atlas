@@ -484,7 +484,7 @@ ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
     ),
     "observability-flow": (
         "Langfuse is deliberately outside the OTel path: LiteLLM emits "
-        "Langfuse traces via its own `success_callback`, not through the "
+        "Langfuse traces via its own `success_callback`/`failure_callback`, not through the "
         "Collector, because Langfuse is the LLM-behavior layer while "
         "Prometheus/Grafana stay the infrastructure-metrics layer. Backend, "
         "Celery workers, and LiteLLM OTLP traces reach Tempo through the "
@@ -782,7 +782,8 @@ prefix without weakening unrelated backend routes; base Atlas (no plugins) emits
 the historical single backend route unchanged. Timeout-bearing plugins receive
 dedicated Kong services so their strict millisecond `connect_timeout`,
 `write_timeout`, and `read_timeout` overrides do not affect other backend
-routes; omitted fields retain Kong's defaults. See
+routes; an omitted `read_timeout`/`write_timeout` gets the backend's own
+3,630,000 ms and an omitted `connect_timeout` keeps Kong's 60,000 ms default. See
 [reusing-atlas.md §6.3.1](https://github.com/thekaveh/atlas/blob/main/docs/operations/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml).
 
 ## 7. Health And Logs

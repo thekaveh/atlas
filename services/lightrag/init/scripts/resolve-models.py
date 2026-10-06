@@ -32,6 +32,11 @@ KNOWN_DIMS = {
     "ollama/nomic-embed-text": 768,
     "bge-m3": 1024,
     "BAAI/bge-m3": 1024,
+    # Catalog default (services/ollama/models.yaml). Without it the dim came
+    # from a live probe that, on first boot, runs before ollama-pull has
+    # downloaded the model and silently fell back to 768.
+    "qwen3-embedding:0.6b": 1024,  # exact tag: the 4b/8b variants are larger
+    "mxbai-embed-large": 1024,
     "text-embedding-3-small": 1536,
     "text-embedding-3-large": 3072,
     "text-embedding-ada-002": 1536,
@@ -74,7 +79,7 @@ def resolve_dim(model: str) -> int:
         with urllib.request.urlopen(req, timeout=15) as r:
             payload = json.loads(r.read().decode("utf-8"))
         return len(payload["data"][0]["embedding"])
-    except (urllib.error.URLError, json.JSONDecodeError, KeyError, IndexError) as e:
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError, IndexError) as e:
         # Narrow except so a genuinely unexpected error (bug in this script,
         # OOM, etc.) crashes lightrag-init loudly. Returning 768 when the
         # real model has dim 1024 silently writes a dim-768 PGVector index

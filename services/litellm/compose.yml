@@ -91,7 +91,7 @@ services:
       TEI_RERANKER_ENDPOINT: ${TEI_RERANKER_ENDPOINT:-}
       TEI_RERANKER_MODEL_ID: ${TEI_RERANKER_MODEL_ID:-}
       # Langfuse tracing toggle — init.py reads this when rendering
-      # litellm_settings.success_callback.
+      # litellm_settings.success_callback / failure_callback.
       LANGFUSE_SOURCE: ${LANGFUSE_SOURCE:-disabled}
       # OpenTelemetry toggle — adds the "otel" callback (content excluded).
       ATLAS_OTEL_ENABLED: ${ATLAS_OTEL_ENABLED:-false}
@@ -166,8 +166,8 @@ services:
       # which the proxy resolves at request time. Sourced from the operator's
       # FAL_API_KEY; harmless (unused) when fal is disabled.
       FAL_AI_API_KEY: ${FAL_API_KEY:-}
-      # Langfuse gateway tracing — litellm-init adds success_callback:
-      # ["langfuse"] only when LANGFUSE_SOURCE=container. These env vars are
+      # Langfuse gateway tracing — litellm-init adds success_callback and
+      # failure_callback: ["langfuse"] only when LANGFUSE_SOURCE=container. These env vars are
       # harmless when the callback is absent.
       # BOTH host vars are set on purpose — the name changed across SDK majors
       # and the failure mode is SILENT (#929):

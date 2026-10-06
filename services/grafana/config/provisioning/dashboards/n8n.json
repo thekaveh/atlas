@@ -44,7 +44,7 @@
       "gridPos": { "h": 4, "w": 6, "x": 6, "y": 8 },
       "id": 4,
       "targets": [
-        { "expr": "rate(n8n_execution_data_writes_total[5m])", "refId": "A" }
+        { "expr": "sum(rate(n8n_execution_data_writes_total[5m]))", "refId": "A" }
       ]
     },
     {
