@@ -979,7 +979,9 @@ def test_every_service_gets_the_gateway_timeout_unless_it_declares_one():
     config = _generate_with_plugin_auth("", [], [("tableau", "/tableau", {"read_timeout": 900_000})])
     for service in config["services"]:
         assert service["read_timeout"] >= 60_000 and service["write_timeout"] >= 60_000, service["name"]
-    assert _service(config, "backend-api")["read_timeout"] == 300_000
+    # The backend waits on Docling (930 s) and ComfyUI jobs (up to 3600 s).
+    assert _service(config, "backend-api")["read_timeout"] == 3_630_000
+    assert _service(config, "litellm-gateway")["read_timeout"] == 630_000
     assert _service(config, "backend-api-plugin-tableau")["read_timeout"] == 900_000
 
 

@@ -106,6 +106,12 @@ else:  # container-cpu / container-gpu
 
 Every generated service gets a 300-second `read_timeout` / `write_timeout`
 unless it declares its own (backend plugins may set theirs; n8n uses the default so long-running webhooks are not cut off).
+Services whose single synchronous request can run longer get more: `docling-api`
+follows `DOCLING_INFERENCE_TIMEOUT_SECONDS` + 30 s (930 s by default), the backend
+`api.localhost` routes 3630 s (they wait on Docling or on a ComfyUI job's own
+timeout of up to 3600 s), and `litellm-gateway` / `ollama-api` 630 s for slow
+non-streaming completions. A shorter Kong limit answered 504 while the upstream
+kept working.
 Kong 3.x has no global proxy-timeout setting, so these live per service in
 `kong-dynamic.yml`; Kong's own 60-second default otherwise cuts off slow
 non-streaming LLM calls and idle streams or WebSockets. Retries happen only on

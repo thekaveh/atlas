@@ -229,9 +229,12 @@ class ConfigParser:
                 # Split on first = only
                 if '=' in line:
                     key, value = line.split('=', 1)
+                    key = key.strip()
+                    if key.startswith('export '):
+                        key = key[len('export '):].strip()  # Compose reads it as KEY
                     # ONE definition, shared with the writers' round-trip
                     # check — a second copy here is how the two drifted apart.
-                    env_vars[key.strip()] = decode_env_value(value)
+                    env_vars[key] = decode_env_value(value)
 
         self._env_cache = {stamp: dict(env_vars)}  # single entry: only the current file
         return env_vars

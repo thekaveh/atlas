@@ -172,7 +172,8 @@ class KongConfigGenerator:
             '_transform': True,
             'consumers': self.get_consumers(),
             'services': self._with_local_cors(
-                self._with_default_timeouts(self.get_all_services()), self._cors_origins()
+                self._with_default_timeouts(self._with_long_running_timeouts(self.get_all_services())),
+                self._cors_origins()
             ),
             # Global Prometheus plugin — exposes /metrics on Kong's Status
             # API (port 8100). Prometheus's observability bundle scrapes it
@@ -215,7 +216,9 @@ class KongConfigGenerator:
         # Read from the already-parsed .env snapshot — these values
         # land in the YAML as literal strings; Kong reads them straight
         # into its basic-auth credentials table on startup.
-        dashboard_username = self.get_env_value('DASHBOARD_USERNAME', 'kong_admin')
+        # An empty username would make Kong reject the whole declarative
+        # config (every route down), so fall back to the default account name.
+        dashboard_username = self.get_env_value('DASHBOARD_USERNAME', 'kong_admin') or 'kong_admin'
         dashboard_password = self.get_env_value('DASHBOARD_PASSWORD', 'kong_password')
         consumers = [
             {
@@ -346,6 +349,27 @@ class KongConfigGenerator:
             if plugin.get('name') == 'cors' and 'origins' not in config:
                 # New dict: generators may share plugin literals.
                 plugins[index] = {**plugin, 'config': {**config, 'origins': list(origins)}}
+
+    def _with_long_running_timeouts(self, services: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Services whose single synchronous request can outlast the 300 s
+        default: a Docling conversion (up to DOCLING_INFERENCE_TIMEOUT_SECONDS),
+        the backend calls that wait on it or on ComfyUI (per-request timeout
+        up to 3600 s), and non-streaming LLM completions. Kong otherwise
+        answered 504 while the upstream kept working (and, for Docling, held
+        its only conversion slot)."""
+        docling_ms = _bake_timeout_ms(self.get_env_value("DOCLING_INFERENCE_TIMEOUT_SECONDS", "900"))
+        long_ms = {
+            'docling-api': docling_ms,
+            'backend-api': max(3630000, docling_ms + 30000),
+            'litellm-gateway': 630000,
+            'ollama-api': 630000,
+        }
+        for service in services:
+            timeout = long_ms.get(service.get('name'))
+            if timeout:
+                service.setdefault('read_timeout', timeout)
+                service.setdefault('write_timeout', timeout)
+        return services
 
     @staticmethod
     def _with_default_timeouts(services: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

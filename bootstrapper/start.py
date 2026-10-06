@@ -1801,7 +1801,7 @@ class AtlasStarter:
         )
         if not groups:
             return True
-        groups = self._rebase_backfilled_ports(groups, env_text)
+        groups = self._rebase_backfilled_ports(groups)
 
         # Insert each group AT THE END of its matching section in the
         # user's .env. If the section doesn't exist in .env (older
@@ -1963,16 +1963,12 @@ class AtlasStarter:
 
         return "".join(out_lines), total, in_place_names, trailer_names
 
-    def _rebase_backfilled_ports(self, groups, env_text: str):
+    def _rebase_backfilled_ports(self, groups):
         """Seed newly backfilled *_PORT keys on this stack's BASE_PORT block:
         .env.example carries the default 63000 layout, which a headless
         `env backfill` + compose/doctor/endpoints run would otherwise use."""
-        base_value = ""
-        for line in env_lines(env_text):
-            key, sep, value = line.strip().partition("=")
-            if sep and key.strip() == "BASE_PORT":
-                base_value = value.split("#", 1)[0].strip()
-        base_port = _parsed_base_port(base_value)
+        # Decoded like every reader (quotes, `export`, last assignment wins).
+        base_port = _parsed_base_port(self.config_parser.parse_env_file().get("BASE_PORT", "") or "")
         if base_port is None or not self.port_manager.validate_base_port(base_port):
             return groups
         assignments = self.port_manager.calculate_port_assignments(base_port)
