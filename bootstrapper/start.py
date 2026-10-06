@@ -785,8 +785,9 @@ class AtlasStarter:
             ),
         ))
 
-        # Write the marker only when this run actually changes something (or
-        # completes a switch) — a no-op run must leave .env byte-identical.
+        # Write the marker when this run changes something or completes a
+        # switch, and on the first start; a later no-op run leaves .env
+        # byte-identical.
         if _should_record_profile(overrides, auto_vars, switching, env_vars):
             overrides["ATLAS_PROFILE_APPLIED"] = active
         if overrides and not self.source_override_manager.update_env_file(overrides):
@@ -1718,18 +1719,7 @@ class AtlasStarter:
             )
             return True  # Non-fatal — surface compose's own error later.
 
-        existing_keys: set[str] = set()
-        blank_keys: set[str] = set()
-        for line in env_lines(env_text):
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            if "=" in stripped:
-                key, _, raw_value = stripped.partition("=")
-                key = key.strip()
-                existing_keys.add(key)
-                if not raw_value.split("#", 1)[0].strip():
-                    blank_keys.add(key)
+        existing_keys, blank_keys = _scan_env_keys(env_text)
 
         # Keys the migration chain (services/migrations) is about to
         # write: backfill must NOT seed them from .env.example, or
@@ -1811,6 +1801,7 @@ class AtlasStarter:
         )
         if not groups:
             return True
+        groups = self._rebase_backfilled_ports(groups, env_text)
 
         # Insert each group AT THE END of its matching section in the
         # user's .env. If the section doesn't exist in .env (older
@@ -1971,6 +1962,27 @@ class AtlasStarter:
             out_lines.extend(trailer)
 
         return "".join(out_lines), total, in_place_names, trailer_names
+
+    def _rebase_backfilled_ports(self, groups, env_text: str):
+        """Seed newly backfilled *_PORT keys on this stack's BASE_PORT block:
+        .env.example carries the default 63000 layout, which a headless
+        `env backfill` + compose/doctor/endpoints run would otherwise use."""
+        base_value = ""
+        for line in env_lines(env_text):
+            key, sep, value = line.strip().partition("=")
+            if sep and key.strip() == "BASE_PORT":
+                base_value = value.split("#", 1)[0].strip()
+        base_port = _parsed_base_port(base_value)
+        if base_port is None or not self.port_manager.validate_base_port(base_port):
+            return groups
+        assignments = self.port_manager.calculate_port_assignments(base_port)
+        return [
+            (section, [
+                (context, key, str(assignments[key]) if key in assignments else value)
+                for context, key, value in entries
+            ])
+            for section, entries in groups
+        ]
 
     @staticmethod
     def _parse_env_example_sections(
@@ -6003,6 +6015,27 @@ def _doctor_check_vllm_metal(starter: "AtlasStarter") -> dict:
         f"plugin vllm-metal=={manager.plugin_version}).",
         details={**pre.to_dict(), "running": status.running, "pid": status.pid},
     )
+
+
+def _scan_env_keys(env_text: str) -> tuple[set[str], set[str]]:
+    """Keys an .env assigns, and which of them are blank. Compose reads
+    `export KEY=` as KEY, so it counts as present (appending a bare `KEY=`
+    default would shadow it, last wins); it is never blank-filled."""
+    existing_keys: set[str] = set()
+    blank_keys: set[str] = set()
+    for line in env_lines(env_text):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, _, raw_value = stripped.partition("=")
+        key = key.strip()
+        if key.startswith("export "):
+            existing_keys.add(key[len("export "):].strip())
+            continue
+        existing_keys.add(key)
+        if not raw_value.split("#", 1)[0].strip():
+            blank_keys.add(key)
+    return existing_keys, blank_keys
 
 
 def _parsed_base_port(raw: str) -> Optional[int]:

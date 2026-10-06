@@ -88,8 +88,8 @@
       {
         "path": "bootstrapper/start.py",
         "symbol": "AtlasStarter.backfill_missing_env_vars",
-        "cyclomatic_complexity": 38,
-        "rationale": "Compatibility migration over the complete environment schema; branches correspond to independently tested legacy and missing-value cases."
+        "cyclomatic_complexity": 33,
+        "rationale": "Compatibility migration over the complete environment schema; branches correspond to independently tested legacy and missing-value cases. 38 -> 33 on 2026-10-06: the .env key scan moved into _scan_env_keys (which now treats `export KEY=` as present) and port rebasing into _rebase_backfilled_ports."
       },
       {
         "path": "bootstrapper/start.py",

@@ -315,4 +315,5 @@ def _carry_kept_values_into_cold_start(cold: bool, env_vars: dict | None, bags: 
     keep(bags["keys"], "FAL_API_KEY", "FAL_API_KEY")
     keep(bags["ollama"], "OLLAMA_CUSTOM_MODELS", "OLLAMA_CUSTOM_MODELS")
     keep(bags["ollama"], "OLLAMA_USER_MODELS", "OLLAMA_USER_MODELS")
+    keep(bags.get("comfyui", {}), "COMFYUI_USER_MODELS", "COMFYUI_USER_MODELS")
     return cold

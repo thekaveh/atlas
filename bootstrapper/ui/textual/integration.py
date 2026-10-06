@@ -1310,7 +1310,8 @@ def _selections_to_args(
             project_name_val = _pn
     cold = _carry_kept_values_into_cold_start(
         selections.get("Cold start  ·  rebuild") == "yes", env_vars,
-        {"source": source_args, "keys": cloud_api_keys, "cloud_models": cloud_user_models, "ollama": ollama_user_models},
+        {"source": source_args, "keys": cloud_api_keys, "cloud_models": cloud_user_models,
+         "ollama": ollama_user_models, "comfyui": comfyui_user_models},
     )
     hosts = selections.get("Hosts setup  ·  /etc/hosts", "default")
     launch = selections.get("Confirm  ·  launch the stack") == "yes"

@@ -258,17 +258,13 @@ class ConfigParser:
             'BACKEND_SOURCE': 'container',
         }
             
-        # Parse SOURCE variables from .env file using the same regex as start.sh
+        # Same parser as every other .env reader (and Compose): a stricter
+        # `^KEY=` regex missed `WEAVIATE_SOURCE = disabled`, so profile gates,
+        # source validation and scaling saw no source Compose then used.
         if self.env_file_path.exists():
-            with open(self.env_file_path, 'r', encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    # Use the same regex pattern as start.sh: ^([A-Z0-9_]+_SOURCE)=([^#]*)
-                    match = re.match(r'^([A-Z0-9_]+_SOURCE)=([^#]*)', line)
-                    if match:
-                        var_name = match.group(1)
-                        var_value = match.group(2).strip().strip('"').strip("'")
-                        source_mapping[var_name] = var_value
+            for var_name, var_value in self.parse_env_file().items():
+                if re.fullmatch(r'[A-Z0-9_]+_SOURCE', var_name):
+                    source_mapping[var_name] = (var_value or "").strip()
                         
         self.service_sources = source_mapping
         return source_mapping

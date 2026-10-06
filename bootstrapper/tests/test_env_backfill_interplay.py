@@ -133,3 +133,36 @@ BAR_VAR=b
     assert "BAR_VAR=b" in after
     # Auto-backfilled banner is present
     assert "Auto-backfilled" in after
+
+
+def test_backfilled_ports_follow_the_stack_base_port_and_export_lines_are_seen(tmp_path):
+    """A new *_PORT came in on the default 63000 block whatever BASE_PORT was,
+    and an `export KEY=` line was shadowed by an appended blank `KEY=`."""
+    (tmp_path / ".env.example").write_text(
+        "# ============================================\n"
+        "# Ports\n"
+        "# ============================================\n"
+        "BASE_PORT=63000\nLITELLM_PORT=63040\nOPENAI_API_KEY=\n"
+    )
+    (tmp_path / ".env").write_text("BASE_PORT=64000\nexport OPENAI_API_KEY=sk-user\n")
+
+    starter = _make_starter_against(tmp_path)
+    starter.backfill_missing_env_vars()
+
+    after = (tmp_path / ".env").read_text()
+    expected = starter.port_manager.calculate_port_assignments(64000)["LITELLM_PORT"]
+    assert f"LITELLM_PORT={expected}" in after and expected != 63040
+    assert "\nOPENAI_API_KEY=" not in after  # the exported value is not shadowed
+
+
+def test_service_sources_use_the_same_parser_as_compose(tmp_path):
+    """`WEAVIATE_SOURCE = disabled` is read by Compose and parse_env_file;
+    the stricter source regex used to miss it."""
+    from core.config_parser import ConfigParser
+
+    (tmp_path / ".env").write_text('WEAVIATE_SOURCE = disabled\nN8N_SOURCE="container"\n')
+    parser = ConfigParser(str(tmp_path))
+    parser.env_file_path = tmp_path / ".env"
+    sources = parser.parse_service_sources()
+    assert sources["WEAVIATE_SOURCE"] == "disabled"
+    assert sources["N8N_SOURCE"] == "container"
