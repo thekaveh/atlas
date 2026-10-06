@@ -391,6 +391,14 @@ def load_manifests(services_root: Path) -> list[Manifest]:
     return manifests
 
 
+def manifest_source_default(manifests: list["Manifest"], source_var: str) -> str | None:
+    """The declared ``sources.default`` of the manifest owning ``source_var``."""
+    for manifest in manifests:
+        if manifest.sources is not None and manifest.sources.var == source_var:
+            return manifest.sources.default
+    return None
+
+
 def option_in_profile(
     manifests: list[Manifest],
     service_key: str,

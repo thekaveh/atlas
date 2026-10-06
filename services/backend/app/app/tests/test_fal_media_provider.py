@@ -1214,3 +1214,27 @@ def test_fal_client_cancel_safe_noop_without_sdk_support(monkeypatch):
         client.cancel_media_operation(operation_id="fal-req-9", modality="image")
     )
     assert ok is False
+
+
+def test_submitted_handle_is_persistable_with_the_real_sdk_handle():
+    """fal-client 1.0's AsyncRequestHandle carries its httpx.AsyncClient; the
+    SimpleNamespace stub hid that, and the live client in `raw` made every
+    accepted submission fail to persist (deepcopy/json.dumps)."""
+    import copy
+    import json
+
+    import httpx
+    from fal_client.client import AsyncRequestHandle
+    from fal_media_client import FalClient
+
+    handle = AsyncRequestHandle(
+        request_id="fal-req-1",
+        response_url="https://queue.fal.run/x/requests/fal-req-1",
+        status_url="https://queue.fal.run/x/requests/fal-req-1/status",
+        cancel_url="https://queue.fal.run/x/requests/fal-req-1/cancel",
+        client=httpx.AsyncClient(),
+    )
+    raw = FalClient(api_key="k", model="fal-ai/flux/dev")._object_to_dict(handle)
+
+    assert raw["request_id"] == "fal-req-1" and "client" not in raw
+    json.dumps(copy.deepcopy(raw))

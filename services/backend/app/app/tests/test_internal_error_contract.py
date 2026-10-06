@@ -42,36 +42,69 @@ def test_unexpected_error_logs_exception_without_exposing_detail(
     assert "test_internal_error_contract.py" in caplog.text
 
 
-def test_generic_exception_handlers_never_interpolate_errors_into_http_detail() -> None:
-    source = (Path(__file__).parents[1] / "main.py").read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    leaks: list[int] = []
+_GENERIC_EXCEPTIONS = {"Exception", "BaseException"}
+_NOT_APP_CODE = ("tests", ".venv", ".ci-venv", "site-packages", "node_modules")
 
+
+def _is_generic_handler(handler: ast.ExceptHandler) -> bool:
+    types = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
+    return bool(handler.name) and any(
+        isinstance(t, ast.Name) and t.id in _GENERIC_EXCEPTIONS for t in types
+    )
+
+
+def _http_detail(call: ast.Call) -> ast.AST | None:
+    """`detail=` or the positional second argument of HTTPException(...)."""
+    keyword = next((k.value for k in call.keywords if k.arg == "detail"), None)
+    if keyword is not None:
+        return keyword
+    return call.args[1] if len(call.args) > 1 else None
+
+
+def _leaks_in(tree: ast.AST) -> list[int]:
+    leaks: list[int] = []
     for handler in (node for node in ast.walk(tree) if isinstance(node, ast.ExceptHandler)):
-        if not (
-            isinstance(handler.type, ast.Name)
-            and handler.type.id == "Exception"
-            and handler.name
-        ):
+        if not _is_generic_handler(handler):
             continue
         for node in ast.walk(ast.Module(body=handler.body, type_ignores=[])):
             if not (
                 isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id == "HTTPException"
+                and getattr(node.func, "id", getattr(node.func, "attr", None)) == "HTTPException"
             ):
                 continue
-            detail = next(
-                (keyword.value for keyword in node.keywords if keyword.arg == "detail"),
-                None,
-            )
+            detail = _http_detail(node)
             if detail is not None and any(
                 isinstance(value, ast.Name) and value.id == handler.name
                 for value in ast.walk(detail)
             ):
                 leaks.append(node.lineno)
+    return leaks
 
-    assert leaks == [], f"generic exception details reach clients at lines {leaks}"
+
+def test_generic_exception_handlers_never_interpolate_errors_into_http_detail() -> None:
+    # Every app module, not only main.py: ray_routes.py and the other routers
+    # raise HTTPException from their own handlers.
+    app_dir = Path(__file__).parents[1]
+    leaks: dict[str, list[int]] = {}
+    for path in sorted(app_dir.rglob("*.py")):
+        rel = path.relative_to(app_dir)
+        if any(part in _NOT_APP_CODE for part in rel.parts):
+            continue
+        found = _leaks_in(ast.parse(path.read_text(encoding="utf-8")))
+        if found:
+            leaks[str(rel)] = found
+
+    assert leaks == {}, f"generic exception details reach clients: {leaks}"
+
+
+def test_leak_scan_sees_positional_tuple_and_base_exception_forms() -> None:
+    tree = ast.parse(
+        "try:\n    pass\nexcept (ValueError, Exception) as e:\n"
+        "    raise HTTPException(500, str(e))\n"
+        "try:\n    pass\nexcept BaseException as err:\n"
+        "    raise fastapi.HTTPException(status_code=500, detail=f'{err}')\n"
+    )
+    assert _leaks_in(tree) == [4, 8]
 
 
 def test_memory_execution_recovery_atomically_fences_prior_owner(monkeypatch):

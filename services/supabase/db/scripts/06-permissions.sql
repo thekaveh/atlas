@@ -21,7 +21,24 @@ DO $$ BEGIN
     GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, service_role;
 
     -- Grant function permissions (public schema)
-    GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO authenticated, service_role;
+    GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO service_role;
+    -- authenticated gets every routine EXCEPT SECURITY DEFINER ones. A blanket
+    -- grant re-exposed definer functions created by later slices (10, 14) on
+    -- every re-run until those slices revoked them again, and kept them exposed
+    -- if a slice in between failed. A definer routine meant for clients is
+    -- granted explicitly by its own slice.
+    DECLARE
+      routine record;
+    BEGIN
+      FOR routine IN
+        SELECT p.oid::regprocedure AS signature
+        FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public' AND NOT p.prosecdef
+      LOOP
+        EXECUTE format('GRANT ALL ON ROUTINE %s TO authenticated', routine.signature);
+      END LOOP;
+    END;
 
     -- Set default privileges for future objects (public schema)
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO anon;

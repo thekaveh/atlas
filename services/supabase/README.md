@@ -10,7 +10,7 @@ Atlas runs these Supabase services:
 - **Auth Service (GoTrue)** - User authentication and JWT management  
 - **Storage Service** - File storage and management
 - **API Service (PostgREST)** - Auto-generated REST API
-- **Realtime Service** - WebSocket connections for live updates
+- **Realtime Service** - WebSocket connections for live updates (not functional yet; see §4.5)
 - **Studio Dashboard** - Web-based database management interface
 
 ## 2. Database Setup Process
@@ -30,7 +30,7 @@ The database initialization follows a staged process managed by Docker Compose d
 
 **IMPORTANT**: The `SUPABASE_DB_USER` in your `.env` file must be set to `supabase_admin`. This is required by the base image's internal scripts.
 
-Host connections require SCRAM passwords. On upgrade, the database startup wrapper rewrites legacy `trust`, `md5`, or `password` host rules to `scram-sha-256` before PostgreSQL starts; local socket rules and explicit rejects are preserved. Application containers use dedicated generated roles, while only database initialization and backup/restore retain `SUPABASE_DB_USER`.
+Host connections require SCRAM passwords. PostgreSQL runs with the image's own configuration (`-D /etc/postgresql`: listens on all container interfaces, logical WAL for Realtime, Supabase preload libraries) and its `/etc/postgresql/pg_hba.conf`, which requires `scram-sha-256` for every network range and trusts only in-container connections (loopback, plus the local socket for `supabase_admin` and peer-mapped users), as upstream Supabase does. The image's `/etc/postgresql-custom` lives on the `supabase-db-config` volume: it holds `pgsodium_root.key`, so Vault and pgsodium secrets stay decryptable across container recreation. A database restored into a cluster with a different key cannot decrypt them, so keep that volume with the data volume. The startup wrapper also rewrites legacy `trust`, `md5`, or `password` host rules in the data directory's `pg_hba.conf` to `scram-sha-256`, so that file is safe if it is ever used directly; local socket rules and explicit rejects are preserved. Application containers use dedicated generated roles, while only database initialization and backup/restore retain `SUPABASE_DB_USER`.
 
 **Password is baked at initdb (`password authentication failed for user "supabase_admin"`).** The `supabase_admin` role's password is set **once**, when the `supabase-db-data` volume is first created, and is never re-synced afterward. `SUPABASE_DB_PASSWORD` ships as the placeholder `password` and is auto-rotated to a random value on the first `./start.sh`. If the data volume later persists across a `.env` password change (e.g. `.env` regenerated from `.env.example` against a retained volume — `./stop.sh` without `--cold` keeps volumes), clients authenticate with the new value while the role still holds the old one → `password authentication failed`. The bootstrapper now **skips** rotation and warns when it detects an existing `<project>_supabase-db-data` volume, so it won't silently rotate `.env` out of sync. To recover a drifted stack, either set `SUPABASE_DB_PASSWORD` back to the volume's original value, or run `./stop.sh --cold` (removes volumes) then `./start.sh` to reinitialize the role and `.env` together.
 
@@ -101,6 +101,8 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 - Configured via `GOTRUE_*` environment variables
 - Sign-ups enabled by default (`GOTRUE_DISABLE_SIGNUP="false"`)
 - Emails auto-confirmed for local development (`GOTRUE_MAILER_AUTOCONFIRM="true"`)
+- Together these mean anyone who can reach the auth endpoint can mint an `authenticated` token, which the Backend accepts on `/media/generate` (including the paid FAL provider), `/media/spend`, research and memory routes. Kong binds to loopback by default. Media budgets do not contain this: they are off by default (`MEDIA_BUDGET_ENABLED=false`), and when on, caps apply per consumer and per `project` (a free-text request field), so every new account and every new project name starts with a fresh cap. Before widening `HOST_BIND_IP` or publishing the gateway, disable sign-up with a Compose override that sets `GOTRUE_DISABLE_SIGNUP: "true"` on `supabase-auth` (the fragment hard-codes `"false"`, so a `.env` entry has no effect).
+- Default privileges grant `anon` SELECT and `authenticated` ALL on future `public` tables; db-init revokes them from tables without row-level security, but a table created by a `db/_user/*.sql` script stays exposed through PostgREST until the next db-init run. Enable RLS (or revoke) in the same script.
 
 **supabase-api (PostgREST)**:
 - Expects valid JWT in `Authorization: Bearer <token>` header
@@ -108,7 +110,7 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 - Enforces database permissions based on JWT role claim via PostgreSQL RLS
 
 **supabase-storage**:
-- Uses JWTs passed via Kong to enforce storage access policies
+- Accepts JWTs passed via Kong, but Atlas hardens the `storage` schema (no `anon`/`authenticated` grants, row-level security off), so only the service-role key can read or write objects; user and anon tokens get "permission denied"
 
 **kong-api-gateway**:
 - Routes authenticated requests to backend services
@@ -157,15 +159,21 @@ execute privilege is revoked from public API roles despite its required
 **Access**: `http://localhost:${SUPABASE_AUTH_PORT}` (default: 63016)
 **Purpose**: User registration, login, password recovery, email confirmation
 **Features**: JWT authentication, user management, password policies
+**Port**: GoTrue listens on 9999 (`GOTRUE_API_PORT`; its own default is 8081), which is where Kong's `/auth/v1` routes, Storage's `GOTRUE_URL` and the published `SUPABASE_AUTH_PORT` point; the container's healthcheck probes `/health` there.
+
+**Limits**: GoTrue's `SITE_URL` (`http://supabase-studio:3000`) and `API_EXTERNAL_URL` (`http://supabase-auth:9999`) are container-internal and SMTP points at a local relay that does not exist, so email confirmation, recovery, magic-link and OAuth redirect links are not usable from a browser; the stock defaults auto-confirm sign-ups instead.
 
 ### 4.3. Storage Service
 
 **Access**: `http://localhost:${SUPABASE_STORAGE_PORT}` (default: 63015)
 **Features**:
 - Secure file storage and management
-- Access control via database policies
+- Service-role access only: the hardened `storage` schema grants nothing to `anon`/`authenticated`
 - Integration with authentication system
 - Support for various file types
+- Through Kong, `/storage/v1/` needs the `apikey` header, but `/storage/v1/object/public/`, `/storage/v1/object/sign/` and `/storage/v1/object/upload/sign/` do not, so `<img>` tags and outside services can fetch public-bucket and signed URLs and PUT to signed upload URLs
+- Resumable (TUS) uploads work through Kong: `REQUEST_ALLOW_X_FORWARDED_PATH=true` keeps the `/storage/v1` prefix in the upload `Location` header, which Studio's file browser follows
+- The `default` bucket is private, so the `url` the backend's `/storage/upload` returns (a public-object URL on the internal Kong host) is not fetchable as-is; fetch through the backend or Studio, or create a signed URL
 
 ### 4.4. API Service (PostgREST)
 
@@ -174,18 +182,15 @@ execute privilege is revoked from public API roles despite its required
 **Features**:
 - Automatic API generation from database schema
 - Row Level Security (RLS) enforcement
-- Real-time subscriptions support
-- GraphQL endpoint available
+- Not yet functional: Realtime subscriptions (see §4.5) and the `/graphql/v1` route, which returns 404 because the `pg_graphql` extension is not installed and `graphql_public` is not an exposed schema
 
 ### 4.5. Realtime Service
 
 **Access**: WebSocket at `http://localhost:${SUPABASE_REALTIME_PORT}` (default: 63018)
 **Purpose**: Live database change notifications
-**Features**:
-- Real-time database change notifications
-- WebSocket-based connections
-- Subscription management
-- Integration with frontend applications
+**Status**: not functional yet. Realtime v2.112 serves only tenants it has seeded, and Atlas does not seed one (`SEED_SELF_HOST`, `API_JWT_SECRET` and `DB_ENC_KEY` are not set, and the tenant is chosen from the request host's first label, which the Kong and direct URLs do not carry), so every connection is refused as an unknown tenant. Nothing in the stack subscribes today; enabling it is tracked as follow-up work.
+
+Realtime creates and manages its own logical replication slots. Database initialization no longer creates a separate `supabase_realtime_slot` (Realtime never used it, so it only retained WAL) and drops that slot on startup when it is idle.
 
 ### 4.6. Studio Dashboard
 
@@ -205,7 +210,7 @@ execute privilege is revoked from public API roles despite its required
 **Image**: `prometheuscommunity/postgres-exporter:v0.19.1`
 **Access**: `http://localhost:${POSTGRES_EXPORTER_PORT}/metrics` (in-container `9187`)
 **Purpose**: Prometheus exporter exposing `pg_stat_*` views as a `/metrics` endpoint for the observability bundle.
-**Configuration**: connects to `supabase-db:5432` using the dedicated `${POSTGRES_EXPORTER_DB_USER}`/`${POSTGRES_EXPORTER_DB_PASSWORD}` login with `pg_monitor`; it does not receive the database-owner credential.
+**Configuration**: connects to `supabase-db:5432` using the dedicated `${POSTGRES_EXPORTER_DB_USER}`/`${POSTGRES_EXPORTER_DB_PASSWORD}` login with `pg_monitor`; it does not receive the database-owner credential. It scrapes only the primary database: database auto-discovery is off because the per-service databases (`airflow`, `langfuse`, …) revoke `CONNECT` from it, which would pin `pg_exporter_last_scrape_error` at 1.
 **Lifecycle**: scales **1↔0 with `PROMETHEUS_SOURCE`** — the bootstrapper's `_generate_prometheus_config()` hook writes `POSTGRES_EXPORTER_SCALE` from this single switch, so the sidecar is dormant when Prometheus is off. The `Postgres + Redis` Grafana dashboard renders connections, query rate, and table sizes from its output.
 
 ## 5. Environment Variables
@@ -273,7 +278,7 @@ docker exec -it ${PROJECT_NAME}-supabase-db psql -U supabase_admin -d postgres
 docker exec ${PROJECT_NAME}-supabase-db pg_isready
 
 # Services
-curl http://localhost:${SUPABASE_API_PORT}/health
+curl -I http://localhost:${SUPABASE_API_PORT}/   # PostgREST serves its OpenAPI root; it has no /health on this port
 curl http://localhost:${SUPABASE_AUTH_PORT}/health
 ```
 
@@ -344,7 +349,7 @@ _No upstream calls._
 - **Database Webhooks** — *Why pursue:* lets row-level changes trigger LiteLLM calls or n8n flows without a polling worker; depends on `pg_net`. *Effort:* small.
 - **Row-Level Security policy coverage** — *Why pursue:* the `public.users`, backend research, memory, and media-spend-ledger tables now define RLS policies, but the ComfyUI workflow/generation tables still lack table-specific RLS (they hold shared, non-user app state). Finish the per-table policy model before exposing those tables through PostgREST broadly. *Effort:* medium.
 - **GoTrue OAuth providers (Google, GitHub)** — *Why pursue:* stack ships with email-only login; SSO is a near-zero-code add via `GOTRUE_EXTERNAL_*` envs. *Effort:* small.
-- **`pg_graphql` endpoint** — *Why pursue:* Kong already routes `/graphql/v1/` to PostgREST's `rpc/graphql`, but no consumer uses pg_graphql's typed schema; wiring n8n/backend to it would give a typed GraphQL surface. *Effort:* small.
+- **`pg_graphql` endpoint** — *Why pursue:* Kong already routes `/graphql/v1` to PostgREST's `rpc/graphql`, but no consumer uses pg_graphql's typed schema; wiring n8n/backend to it would give a typed GraphQL surface. *Effort:* small.
 - **Realtime broadcast + presence channels** — *Why pursue:* `supabase-realtime` runs but nothing subscribes; broadcast channels would let backend push job-status updates to open-webui without polling. *Effort:* medium.
 - **Storage image transformation** — *Why pursue:* prerequisite for the imgproxy candidate; lights up resize URLs once `IMGPROXY_URL` is set. *Effort:* small.
 
@@ -363,10 +368,10 @@ Support tier: **experimental** — Capability contract declared (#967); no cited
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| Integrated Postgres application platform | supported | tested | Atlas runs PostgreSQL with Auth, PostgREST, Storage, Realtime, Meta, Studio, database initialization, and optional metrics export as one required family. |
+| Integrated Postgres application platform | supported | tested | Atlas runs PostgreSQL with Auth, PostgREST, Storage, Realtime, Meta, Studio, database initialization, and optional metrics export as one required family. Realtime runs but serves no tenant yet (§4.5). |
 | Idempotent schema and RLS initialization | supported | tested | Ordered Atlas and downstream SQL runners initialize extensions, service schemas, grants, identity synchronization, and row-level-security policies with failure gating. |
 | Least-privilege application database role | supported | tested | Atlas creates idempotent per-service logins and dedicated database/schema ownership or read grants; application containers do not receive the Supabase owner credential. |
 | Production email authentication | partial | documented | GoTrue issues and validates JWTs, but the stock local-development defaults auto-confirm email and point SMTP at localhost rather than a configured delivery service. |
 | pg-meta administrative access control | partial | documented | The Kong /pg/ route uses Basic authentication and the dashboard_user ACL, while the direct host-published SUPABASE_META_PORT has no application authentication and executes as a dedicated dashboard_user member; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_META_PORT, or remove the supabase-meta ports: publish on shared networks. |
 | Supabase Studio access control | partial | documented | The Kong route uses Basic authentication and the dashboard_user ACL, but the host-published SUPABASE_STUDIO_PORT bypasses that gate because Studio has no application authentication; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_STUDIO_PORT, or remove its ports: publish. |
-| Authenticated remote PostgreSQL access | supported | tested | Host TCP uses SCRAM-SHA-256 with generated scoped passwords, including an upgrade-time HBA rewrite for legacy volumes; publication remains loopback by default and explicit remote exposure still requires firewall and TLS planning. |
+| Authenticated remote PostgreSQL access | supported | tested | Host TCP uses SCRAM-SHA-256 with generated scoped passwords under the image's own pg_hba.conf, plus an upgrade-time HBA rewrite for legacy volumes' data-directory rules; publication remains loopback by default and explicit remote exposure still requires firewall and TLS planning. |

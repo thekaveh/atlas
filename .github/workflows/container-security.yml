@@ -127,8 +127,8 @@ jobs:
   local-images:
     name: Build and scan local runtime images
     runs-on: ubuntu-24.04
-    # Match the required cold-QEMU build bound: this job builds the same
-    # platform set and additionally scans every resulting runtime image.
+    # Same cold-QEMU build bound as services-lint's final-image-scan job,
+    # which builds the same platform set; this job also scans the images.
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -273,6 +273,9 @@ for d in checkpoints vae loras controlnet ipadapter instantid \
   if [ ! -d "$model_subdir" ]; then
     mkdir "$model_subdir" 2>/dev/null || true
   fi
+  # umask 077 keeps temp/lock/status files private, but ComfyUI runs as an
+  # unprivileged user and must list these directories.
+  chmod 755 "$model_subdir" 2>/dev/null || true
   if [ -L "$model_subdir" ] || [ ! -d "$model_subdir" ]; then
     echo "✗ unsafe model path after directory creation"
     exit 1
@@ -516,6 +519,11 @@ download_one() {
   fi
 
   if [ -s "$dest" ]; then
+    # Heal models an earlier run published owner-only (0600); re-check the
+    # path in place because busybox chmod follows symlinks.
+    if [ ! -L "$dest" ] && [ -f "$dest" ]; then
+      chmod 644 "$dest" 2>/dev/null || true
+    fi
     if [ -n "$sha" ]; then
       if verify_file "$sha" "$dest"; then
         echo "= $name (cached, sha verified)"
@@ -552,6 +560,7 @@ download_one() {
   TRANSFER_PID=
   if [ "$transfer_rc" -ne 0 ]; then
     echo "✗ $name failed (bounded downloader exit $transfer_rc)"
+    tail -n 3 "$DOWNLOAD_LOG" 2>/dev/null | sed 's#https\{0,1\}://[^ ]*#<url>#g; s/^/    /' || true
     FAIL_COUNT=$((FAIL_COUNT + 1))
     cleanup_transfer
     return 0
@@ -577,6 +586,8 @@ download_one() {
   if [ -z "$sha" ]; then
     echo "! $name accepted as $source/unverified (no SHA-256 supplied)"
   fi
+  # Published models must be readable by ComfyUI's unprivileged user.
+  chmod 644 "$PARTIAL_PATH"
   mv -f "$PARTIAL_PATH" "$dest"
   PARTIAL_PATH=
   OK_COUNT=$((OK_COUNT + 1))

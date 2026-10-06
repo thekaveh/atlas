@@ -31,6 +31,8 @@ docker compose -p "$project" exec -T lightrag sh -lc \
   'env | sort | grep -E "^(LLM_MODEL|EXTRACT_LLM_MODEL|KEYWORD_LLM_MODEL|QUERY_LLM_MODEL|EXTRACT_MAX_ASYNC_LLM|QUERY_LLM_TIMEOUT)="'
 
 tmp_doc="$(mktemp)"
+upload_response="$(mktemp "${TMPDIR:-/tmp}/lightrag-upload-response.XXXXXX")"
+query_response="$(mktemp "${TMPDIR:-/tmp}/lightrag-query-response.XXXXXX")"
 trap 'rm -f "$tmp_doc"' EXIT
 cat > "$tmp_doc" <<'DOC'
 Atlas is a self-hosted engineering platform. LightRAG is the graph-augmented RAG service. Role-specific LLM configuration lets extraction use a fast model while answers use a stronger model.
@@ -39,7 +41,7 @@ DOC
 echo "[smoke] uploading one small document"
 curl -fsS -X POST "$lightrag_url/documents/upload" \
   -H "Authorization: Bearer $api_key" \
-  -F "file=@${tmp_doc};filename=atlas-lightrag-role-smoke.txt" >/tmp/lightrag-upload-response.json
+  -F "file=@${tmp_doc};filename=atlas-lightrag-role-smoke.txt" >"$upload_response"
 
 echo "[smoke] waiting 30 seconds for extraction calls to reach LiteLLM"
 sleep 30
@@ -49,7 +51,7 @@ curl -fsS -X POST "$lightrag_url/query" \
   -H "Authorization: Bearer $api_key" \
   -H "Content-Type: application/json" \
   -d '{"query": "/hybrid What does role-specific LightRAG configuration allow Atlas to do?"}' \
-  >/tmp/lightrag-query-response.json
+  >"$query_response"
 
 echo "[smoke] recent LiteLLM log lines mentioning expected models:"
 litellm_model_logs="$(
@@ -69,6 +71,6 @@ if ! printf '%s\n' "$litellm_model_logs" | grep -Fq "$query_model"; then
   exit 1
 fi
 
-echo "[smoke] upload response: /tmp/lightrag-upload-response.json"
-echo "[smoke] query response: /tmp/lightrag-query-response.json"
+echo "[smoke] upload response: $upload_response"
+echo "[smoke] query response: $query_response"
 echo "[smoke] passed: runtime env shows EXTRACT/QUERY values, and LiteLLM logs show requests for both expected models."

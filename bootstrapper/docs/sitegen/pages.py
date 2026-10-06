@@ -223,7 +223,9 @@ ARCHITECTURE_EDGES: dict[str, list[tuple[str, str, str]]] = {
         ("LightRAG", "Neo4j", "graph"),
         ("MinIO", "Backend", "artifacts"),
         ("Weaviate", "Backend", "retrieve"),
-        ("Neo4j", "Backend", "relationships"),
+        # Backend reaches the graph through LightRAG; its direct neo4j call
+        # is `status: planned` in services/backend/service.yml.
+        ("LightRAG", "Backend", "graph retrieval"),
         ("Backend", "Open WebUI", "API"),
     ],
     "llm-provider-flow": [
@@ -482,7 +484,7 @@ ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
     ),
     "observability-flow": (
         "Langfuse is deliberately outside the OTel path: LiteLLM emits "
-        "Langfuse traces via its own `success_callback`, not through the "
+        "Langfuse traces via its own `success_callback`/`failure_callback`, not through the "
         "Collector, because Langfuse is the LLM-behavior layer while "
         "Prometheus/Grafana stay the infrastructure-metrics layer. Backend, "
         "Celery workers, and LiteLLM OTLP traces reach Tempo through the "
@@ -780,7 +782,8 @@ prefix without weakening unrelated backend routes; base Atlas (no plugins) emits
 the historical single backend route unchanged. Timeout-bearing plugins receive
 dedicated Kong services so their strict millisecond `connect_timeout`,
 `write_timeout`, and `read_timeout` overrides do not affect other backend
-routes; omitted fields retain Kong's defaults. See
+routes; an omitted `read_timeout`/`write_timeout` gets the backend's own
+long timeout (at least 3,630,000 ms) and an omitted `connect_timeout` keeps Kong's 60,000 ms default. See
 [reusing-atlas.md §6.3.1](https://github.com/thekaveh/atlas/blob/main/docs/operations/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml).
 
 ## 7. Health And Logs
@@ -1119,7 +1122,10 @@ def reference_pages(model: DocsModel) -> dict[Path, str]:
             ports_rows,
         ),
         ref / "service-dependencies.md": "# Service Dependencies\n\n## 1. Generated Dependency Matrix\n\n"
-        + table(["Service", "Required", "Optional", "Runtime Calls"], deps_rows),
+        "The start-order column is each manifest's `depends_on.required`: it orders "
+        "startup and display (some entries only pin a port slot) and is not a list of "
+        "runtime requirements. Runtime edges are in the Runtime Calls column.\n\n"
+        + table(["Service", "Start order (depends_on.required)", "Optional", "Runtime Calls"], deps_rows),
         ref / "manifest-fields.md": "# Manifest Fields\n\n## 1. Manifest Schema Quick Reference\n\nGenerated manifest schema quick reference.\n\n"
         + table(
             ["Field", "Purpose"],

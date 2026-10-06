@@ -213,3 +213,25 @@ def test_lakehouse_dag_uses_rest_confirming_operator():
 
     assert "class AtlasSparkSubmitOperator(SparkSubmitOperator):" in dag_source
     assert "submit_lakehouse_job = AtlasSparkSubmitOperator(" in dag_source
+
+
+def test_log_lines_stream_to_the_provider_and_driver_id_is_recorded_early():
+    seen_by_provider = []
+    hook = _make_mock_hook(["a", "Driver successfully submitted as driver-20260730220946-0007", "b"])
+    hook._process_spark_submit_log = MagicMock(side_effect=lambda lines: seen_by_provider.extend(lines))
+    with patch("urllib.request.urlopen", return_value=_mock_response({"driverState": "FINISHED", "success": True})):
+        assert submit_and_confirm_via_rest(hook, "app.jar") == "driver-20260730220946-0007"
+    assert seen_by_provider[1].endswith("driver-20260730220946-0007")
+    assert hook.__dict__["_atlas_driver_id"] == "driver-20260730220946-0007"
+
+
+def test_on_kill_kills_the_cluster_driver_then_spark_submit():
+    inner = MagicMock()
+    inner.__dict__["_atlas_driver_id"] = "driver-1-2"
+    wrapped = RestConfirmingSparkHook(inner)
+    with patch("urllib.request.urlopen", return_value=_mock_response({})) as urlopen:
+        wrapped.on_kill()
+    request = urlopen.call_args.args[0]
+    assert request.full_url == "http://spark-master:6066/v1/submissions/kill/driver-1-2"
+    assert request.get_method() == "POST"
+    inner.on_kill.assert_called_once_with()

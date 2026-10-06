@@ -121,7 +121,7 @@ class FailingLightrag(FakeLightrag):
 class RaisingExtractor:
     """Stands in for a reachable-but-failing Docling/Tika endpoint."""
     async def extract(
-        self, *, content, filename=None, content_type=None, extractor=None
+        self, *, content, filename=None, content_type=None, extractor=None, chunking=True
     ):
         raise RuntimeError("docling exploded")
 
@@ -130,13 +130,14 @@ class KeywordOnlyExtractor:
     def __init__(self):
         self.calls = []
 
-    async def extract(self, *, content, filename, content_type, extractor=None):
+    async def extract(self, *, content, filename, content_type, extractor=None, chunking=True):
         self.calls.append(
             {
                 "content": content,
                 "filename": filename,
                 "content_type": content_type,
                 "extractor": extractor,
+                "chunking": chunking,
             }
         )
         return SimpleNamespace(content=f"parsed by {extractor}", extractor=extractor)
@@ -222,6 +223,7 @@ def test_parser_adapter_uses_keyword_contract_and_exact_parser_selection():
             "filename": "notes.txt",
             "content_type": "text/plain",
             "extractor": "tika",
+            "chunking": False,
         }
     ]
 
@@ -1600,8 +1602,13 @@ def test_weaviate_reconciliation_deletes_stale_profile_objects(monkeypatch):
                     "data": {
                         "Get": {
                             "Rag": [
-                                {"_additional": {"id": "keep"}},
-                                {"_additional": {"id": "stale"}},
+                                {"profile": "showcase-default",
+                                 "_additional": {"id": "keep"}},
+                                {"profile": "showcase-default",
+                                 "_additional": {"id": "stale"}},
+                                # Another profile's object is never stale here.
+                                {"profile": "other",
+                                 "_additional": {"id": "foreign"}},
                             ]
                         }
                     }
@@ -1622,6 +1629,45 @@ def test_weaviate_reconciliation_deletes_stale_profile_objects(monkeypatch):
 
     assert count == 1
     assert deleted == ["http://weaviate/v1/objects/Rag/stale"]
+
+
+def test_weaviate_reconciliation_pages_by_cursor_past_the_offset_cap(monkeypatch):
+    """Offset paging fails at QUERY_MAXIMUM_RESULTS (10k); the lookup must
+    walk the class with `after` cursors instead."""
+    queries = []
+    pages = [
+        [{"profile": "p", "_additional": {"id": f"id-{n:04d}"}} for n in range(1000)],
+        [{"profile": "p", "_additional": {"id": "id-last"}}],
+    ]
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, json):
+            queries.append(json["query"])
+            page = pages[len(queries) - 1]
+            return httpx.Response(
+                200, request=httpx.Request("POST", url),
+                json={"data": {"Get": {"Rag": page}}},
+            )
+
+        async def delete(self, url):
+            return httpx.Response(204, request=httpx.Request("DELETE", url))
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
+    keep = [f"id-{n:04d}" for n in range(1000)]
+    count = asyncio.run(
+        WeaviateClient("http://weaviate").reconcile_objects("Rag", "p", keep)
+    )
+
+    assert count == 1
+    assert len(queries) == 2
+    assert "offset" not in queries[0] and "after" not in queries[0]
+    assert 'after: "id-0999"' in queries[1]
 
 
 # ── #673: drain resilience to transient pipeline_status failures ────────────
@@ -1914,12 +1960,26 @@ def test_invalid_ingestion_ttl_cannot_crash_module_import():
     assert result.stdout.strip() == "imported"
 
 
-def test_chunk_phase_isolates_oversize_document(tmp_path, monkeypatch):
-    # A single document over ChunkRequest's 1M-char cap must not abort the whole
-    # job — it is recorded as a chunk-phase error and other documents still
-    # chunk (matching _phase_parse's per-file isolation).
-    big = "x " * 600_000  # 1,200,000 chars > 1,000,000 → ChunkRequest ValidationError
-    _corpus(tmp_path, monkeypatch, {"big.txt": big, "small.txt": "the quick brown fox"})
+def _poison_chunker(monkeypatch):
+    """Make chunking fail for any document containing POISON."""
+    import chunking_service
+
+    real = chunking_service.chunk_text
+
+    def chunk_text(request, **kwargs):
+        if "POISON" in request.text:
+            raise chunking_service.ChunkingError("poisoned document")
+        return real(request, **kwargs)
+
+    monkeypatch.setattr(chunking_service, "chunk_text", chunk_text)
+
+
+def test_chunk_phase_isolates_failing_document(tmp_path, monkeypatch):
+    # A single document the chunker rejects must not abort the whole job — it
+    # is recorded as a chunk-phase error and other documents still chunk
+    # (matching _phase_parse's per-file isolation).
+    _poison_chunker(monkeypatch)
+    _corpus(tmp_path, monkeypatch, {"big.txt": "POISON", "small.txt": "the quick brown fox"})
     pf = _profiles_file(tmp_path)
     svc = _service(
         tmp_path,
@@ -1944,6 +2004,24 @@ def test_chunk_phase_isolates_oversize_document(tmp_path, monkeypatch):
         str(_field(e, "file") or "").endswith("big.txt") for e in chunk_errors
     ), final.errors
     assert final.counts.get("chunks", 0) > 0  # small.txt still chunked
+
+
+def test_corpus_document_over_the_api_text_cap_is_chunked(tmp_path, monkeypatch):
+    # The HTTP /chunk body cap (1M chars) silently dropped larger corpus files.
+    big = "x " * 600_000
+    _corpus(tmp_path, monkeypatch, {"big.txt": big})
+    svc = _service(
+        tmp_path,
+        Deps(embedder=FakeEmbedder(), weaviate=FakeWeaviate(),
+             lightrag=FakeLightrag(), poll_interval=0.01),
+        _profiles_file(tmp_path),
+    )
+
+    _, _, final = _run(svc)
+
+    assert final.status == "completed"
+    assert not [e for e in final.errors if "chunk" in str(e)], final.errors
+    assert final.counts.get("chunks", 0) > 1
 
 
 def test_weaviate_class_name_sanitizes_profile_name():
@@ -2046,9 +2124,10 @@ def test_a_failed_document_keeps_its_previously_ingested_vectors(tmp_path, monke
     both = set(weaviate.object_ids)
     assert len(both) >= 2, "precondition: both files ingested"
 
-    # big.txt now exceeds ChunkRequest's 1M-char cap -> a recorded chunk-phase
-    # error, while a.txt is unchanged.
-    (root / "docs" / "big.txt").write_text("x " * 600_000, encoding="utf-8")
+    # big.txt now fails to chunk -> a recorded chunk-phase error, while a.txt
+    # is unchanged.
+    _poison_chunker(monkeypatch)
+    (root / "docs" / "big.txt").write_text("POISON", encoding="utf-8")
     second, _ = service.submit("showcase-default")
     final = asyncio.run(service.run(second.id))
 
@@ -2108,7 +2187,8 @@ def test_a_permanently_failing_document_does_not_block_stale_cleanup(tmp_path, m
     first, _ = service.submit("showcase-default")
     assert asyncio.run(service.run(first.id)).status == "completed"
 
-    (root / "docs" / "bad.txt").write_text("x " * 600_000, encoding="utf-8")  # always fails
+    _poison_chunker(monkeypatch)
+    (root / "docs" / "bad.txt").write_text("POISON", encoding="utf-8")  # always fails
     (root / "docs" / "gone.txt").unlink()                                     # operator deleted
 
     for _ in range(3):
@@ -2153,7 +2233,8 @@ def test_a_retry_does_not_inherit_the_previous_attempt_s_failures(tmp_path, monk
     # Celery retry path, not a fresh submission. A new `submit()` would create
     # a new record with an empty errors[], which is why the earlier version of
     # this test could not tell the two implementations apart.
-    (root / "docs" / "flaky.txt").write_text("x " * 600_000, encoding="utf-8")
+    _poison_chunker(monkeypatch)
+    (root / "docs" / "flaky.txt").write_text("POISON", encoding="utf-8")
     record, _ = service.submit("showcase-default")
 
     boom = {"raise": True}
@@ -2234,3 +2315,124 @@ def test_an_emptied_file_loses_its_vectors(tmp_path, monkeypatch):
         "an emptied file's stale vectors survived — they can never be cleaned up"
     )
     assert any("keep" in (s or "") for s in sources)
+
+
+def test_embedder_batches_requests_and_keeps_input_order(monkeypatch):
+    from rag_ingestion.clients import Embedder
+
+    posted = []
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, headers, json):
+            batch = json["input"]
+            posted.append(len(batch))
+            rows = [
+                {"index": i, "embedding": [float(text.split("-")[1])]}
+                for i, text in enumerate(batch)
+            ]
+            return httpx.Response(
+                200, request=httpx.Request("POST", url),
+                json={"data": list(reversed(rows))},  # any order on the wire
+            )
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
+    texts = [f"t-{n}" for n in range(300)]
+    vectors = asyncio.run(Embedder("http://litellm", model="m").embed(texts))
+
+    assert posted == [128, 128, 44]
+    assert vectors == [[float(n)] for n in range(300)]
+
+
+def test_embedder_rejects_a_short_response(monkeypatch):
+    from rag_ingestion.clients import Embedder
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, headers, json):
+            return httpx.Response(
+                200, request=httpx.Request("POST", url),
+                json={"data": [{"index": 0, "embedding": [0.0]}]},
+            )
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
+    with pytest.raises(RuntimeError, match="1 vectors for 2 inputs"):
+        asyncio.run(Embedder("http://litellm", model="m").embed(["a", "b"]))
+
+
+def test_plain_text_never_indexes_binary_bytes_after_a_parser_failure():
+    """plain_text closes every parser order; a failed Docling parse of a PDF
+    used to index the PDF's raw bytes as text and report success."""
+    from rag_ingestion.clients import ParserError
+
+    with pytest.raises(ParserError, match="not text"):
+        asyncio.run(
+            ParserAdapter(RaisingExtractor()).parse(
+                CorpusFile("report.pdf", b"%PDF-1.7\x00\x01\x02binary", "application/pdf"),
+                ["docling", "plain_text"],
+            )
+        )
+    png_like = b"\x89PNG\r\n\x1a\n" + bytes(range(1, 32)) * 20
+    with pytest.raises(ParserError, match="not text"):
+        asyncio.run(ParserAdapter().parse(CorpusFile("x.png", png_like, "image/png"), ["plain_text"]))
+
+    def _parse(raw: bytes) -> str:
+        return asyncio.run(
+            ParserAdapter().parse(CorpusFile("ok.txt", raw, "text/plain"), ["plain_text"])
+        ).text
+
+    # Text corpora that ingested before the binary check still do.
+    assert _parse("plain café".encode()) == "plain café"
+    assert _parse("“quoted” café".encode("cp1252")) == "“quoted” café"
+    assert _parse("helloé".encode("utf-16")) == "helloé"
+    assert _parse(b"\xef\xbb\xbfbom text") == "bom text"
+
+
+def test_missing_corpus_path_is_an_error_not_an_empty_corpus(tmp_path, monkeypatch):
+    """An empty discovery reconciles away every vector of the profile."""
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    with pytest.raises(CorpusPathError, match="does not exist"):
+        MountCorpusReader().discover({"source": "mount", "path": "docs-typo"})
+
+
+def test_interrupted_run_is_recorded_failed_not_left_running(tmp_path, monkeypatch):
+    """Celery's soft time limit cancels the coroutine via asyncio.run; a job
+    left "running" deduplicated every resubmit until its TTL expired."""
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    profile_path = _profiles_file(tmp_path)
+
+    class BlockingService(RagIngestionService):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.phase_started = asyncio.Event()
+
+        async def _run_phase(self, *args, **kwargs):
+            self.phase_started.set()
+            await asyncio.Event().wait()
+
+    store = InMemoryIngestionStore()
+    service = BlockingService(store=store, deps=Deps(), profiles_path=profile_path)
+    record, _ = service.submit("showcase-default")
+
+    async def scenario():
+        running = asyncio.create_task(service.run(record.id))
+        await service.phase_started.wait()
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running
+
+    asyncio.run(scenario())
+
+    final = store.get(record.id)
+    assert final.status == "failed"
+    assert any("interrupted" in error["message"] for error in final.errors)

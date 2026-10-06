@@ -859,8 +859,17 @@ def _env_file_values(repo: Path) -> dict[str, str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        values[key.strip()] = value.split("#", 1)[0].strip().strip('"').strip("'")
+        values[key.strip()] = _env_value(value.strip())
     return values
+
+
+def _env_value(value: str) -> str:
+    """Compose semantics: a quoted value is taken whole (a `#` inside it is
+    data, e.g. a password); an unquoted value ends at ` #`."""
+    if value[:1] in ("'", '"'):
+        end = value.find(value[0], 1)
+        return value[1:end] if end != -1 else value[1:]
+    return re.split(r"\s#", value, maxsplit=1)[0].strip()
 
 
 def _setting(values: dict[str, str], name: str, default: str) -> str:
@@ -914,6 +923,7 @@ class DatabaseCoordinator:
         self.token = token
         self.timeout = timeout
         values = _env_file_values(repo)
+        self.env_values = values
         self.project = _validate_docker_name(_setting(values, "PROJECT_NAME", "atlas"), "PROJECT_NAME")
         scope = hashlib.sha256(str(repo.resolve()).encode()).hexdigest()[:24]
         self.runner = CommandRunner(token=token, timeout=timeout, scope=scope)
@@ -967,8 +977,16 @@ class DatabaseCoordinator:
         self.boundary_state = "pre-cutover"
         self.poison_reason: str | None = None
 
+    @property
+    def data_timeout(self) -> int:
+        """Bulk copy/verify/load/dump steps scale with data size; the quiesce
+        timeout (stop/start/status, default 120 s) is far too short for them."""
+        return max(self.timeout, 900)
+
     def _bounded_count(self, name: str, default: str, maximum: int) -> int:
-        value = os.environ.get(name, default)
+        # README §3 documents these as .env settings; the host scripts never
+        # source .env, so read it like every other setting here.
+        value = _setting(getattr(self, "env_values", {}), name, default)
         if not value.isdecimal() or value.startswith("0") or not 1 <= int(value) <= maximum:
             raise ContractError(f"{name} must be a canonical integer from 1 to {maximum}")
         return int(value)
@@ -1273,10 +1291,10 @@ class DatabaseCoordinator:
 
     def _owned_run(self, role: str, command: list[str], *, timeout: int | None = None):
         name = self.runner.unique_name(role)
-        if timeout is None:
-            self.runner.register_container(name)
-        else:
-            self.runner.register_container(name, timeout=timeout)
+        # The registration window only bounds how long cleanup polls for a
+        # container Docker never created; a data-sized one deferred signals
+        # for up to 15 minutes while the databases were stopped.
+        self.runner.register_container(name)
         try:
             result = self.runner.run(
                 [
@@ -1307,6 +1325,7 @@ class DatabaseCoordinator:
                 "find /target -mindepth 1 -delete; "
                 "set -o pipefail; (cd /source && tar cpf - .) | (cd /target && tar xpf -); sync",
             ],
+            timeout=self.data_timeout,
         )
 
     def _verify_volume_copy(self, source: str, target: str, role: str) -> None:
@@ -1323,6 +1342,7 @@ class DatabaseCoordinator:
                 "manifest /source /compare/source; manifest /target /compare/target; "
                 "cmp /compare/source /compare/target",
             ],
+            timeout=self.data_timeout,
         )
 
     def _start_owned(
@@ -1388,7 +1408,9 @@ class DatabaseCoordinator:
                 container,
                 [
                     "sh", "-c",
-                    'exec cypher-shell -u "$NEO4J_USERNAME" -p "$NEO4J_PASSWORD" '
+                    # cypher-shell reads NEO4J_USERNAME/NEO4J_PASSWORD from its
+                    # environment; `-p` would put the password in its argv.
+                    "exec cypher-shell "
                     "-d system \"SHOW DATABASES YIELD name,currentStatus WHERE "
                     "name IN ['system','neo4j'] AND currentStatus='online' RETURN name ORDER BY name\"",
                 ],
@@ -1423,6 +1445,7 @@ class DatabaseCoordinator:
                 "--entrypoint", "bash", NEO4J_IMAGE,
                 "/scripts/offline-restore.sh", f"/restore/{artifact_stage}/neo4j",
             ],
+            timeout=self.data_timeout,
         )
         self._validate_neo4j_data_volume(stage_volume, "neo-validate")
         return stage_volume
@@ -1544,7 +1567,7 @@ class DatabaseCoordinator:
             status = response.get("status")
             if not isinstance(status, str):
                 raise ContractError("Weaviate restore start omitted status")
-            deadline = time.monotonic() + self.timeout
+            deadline = time.monotonic() + self.data_timeout  # scales with data, not quiesce
             while weaviate_status_kind(status) == "pending":
                 if time.monotonic() >= deadline:
                     self._weaviate_cancel(container, f"/v1/backups/filesystem/{snapshot_id}/restore")
@@ -1902,7 +1925,8 @@ class DatabaseCoordinator:
                         "-e", f"BACKUP_TIMESTAMP={timestamp}",
                         "-e", f"BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS={self.timeout}",
                         "--entrypoint", "bash", service, "/scripts/offline-backup.sh",
-                    ]
+                    ],
+                    timeout=self.data_timeout,
                 )
             except BaseException:
                 self._finish_compose_job(name, preserve_primary=True)
@@ -1919,14 +1943,49 @@ class DatabaseCoordinator:
 
 
 def _lock_path(repo: Path) -> Path:
+    # Not TMPDIR: it differs per session (macOS gives a terminal
+    # /var/folders/... but a cron/launchd job none), so a scheduled backup and
+    # an interactive restore would each take "the" lock in different places.
+    # Not /tmp either: there another local user could pre-create the
+    # predictable name in a poisoned state that the owner cannot delete.
+    # The checkout's own gitignored volumes/locks is shared by every run of
+    # this repository and writable only by its owner.
+    # ATLAS_DATABASE_LOCK_DIR is an explicit override every run must share.
     digest = hashlib.sha256(str(repo.resolve()).encode()).hexdigest()[:24]
-    return Path(os.environ.get("TMPDIR", "/tmp")) / f"atlas-database-boundary-{digest}.lock"
+    override = os.environ.get("ATLAS_DATABASE_LOCK_DIR")
+    lock_dir = Path(override) if override else repo / "volumes" / "locks"
+    try:
+        lock_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    except OSError as exc:
+        raise ContractError(
+            f"cannot create the database lock directory {lock_dir} ({exc.strerror}); "
+            "set ATLAS_DATABASE_LOCK_DIR to a writable directory shared by every run"
+        ) from exc
+    return lock_dir / f"atlas-database-boundary-{digest}.lock"
 
 
 def _signal_as_exception(signum, _frame):
     # Do not use InterruptedError: subprocess treats that OSError subtype as
     # retryable EINTR and can defer cleanup until the child command times out.
     raise SignalInterruption(f"received signal {signum}")
+
+
+def _recovery_volumes(coordinator: "DatabaseCoordinator") -> set[str]:
+    """Rollback + stage volumes kept (and named) when an unproven cutover
+    already mutated live data; artifacts are re-extractable from S3."""
+    if getattr(coordinator, "boundary_state", None) != "cutover-mutated":
+        return set()
+    kept = set(getattr(coordinator, "rollback", {}).values())
+    kept |= {
+        name for key, name in getattr(coordinator, "stage", {}).items() if key != "artifacts"
+    }
+    for name in sorted(kept):
+        print(
+            f"database recovery: retained volume {name}; copy or rename it before "
+            "clearing the lock (the next restore prunes older rollback volumes)",
+            file=sys.stderr,
+        )
+    return kept
 
 
 def finalize_boundary_lock(
@@ -1941,6 +2000,13 @@ def finalize_boundary_lock(
     if coordinator is not None:
         if coordinator.poison_reason:
             reasons.append(coordinator.poison_reason)
+            # Manual recovery needs the rollback and validated stage copies:
+            # after a failed copy-back they can be the only original data.
+            retained = retained | _recovery_volumes(coordinator)
+        if getattr(coordinator, "boundary_state", None) == "committed":
+            # A signal during post-commit pruning must not delete this
+            # restore's rollback copies of the pre-restore data.
+            retained = retained | set(getattr(coordinator, "rollback", {}).values())
         if getattr(coordinator.runner, "process_group_cleanup_failed", False):
             reasons.append("owned process-group cleanup was not proven")
         try:
@@ -1970,11 +2036,21 @@ def main(argv: list[str] | None = None) -> int:
         token = requested_test_token
     else:
         token = secrets.token_hex(16)
-    timeout_text = os.environ.get("BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS", "120")
+    values = _env_file_values(repo)
+    # Every `docker compose` call below is bare, so without these Compose names
+    # the project after the working directory: from cron, a worktree or a
+    # consumer submodule it saw no running databases, passed the stopped-service
+    # checks and copied over the live ${PROJECT_NAME}-* volumes. Explicit
+    # values (the live integration harness sets both) are honored.
+    project = _validate_docker_name(_setting(values, "PROJECT_NAME", "atlas"), "PROJECT_NAME")
+    # Compose project names are lowercase-only; the bootstrapper lowercases
+    # PROJECT_NAME the same way (volume names keep the literal value).
+    os.environ.setdefault("COMPOSE_PROJECT_NAME", project.lower())
+    os.environ.setdefault("COMPOSE_FILE", str(repo / "docker-compose.yml"))
+    timeout_text = _setting(values, "BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS", "120")
     if not timeout_text.isdecimal() or timeout_text.startswith("0") or not 1 <= int(timeout_text) <= 3600:
         raise ContractError("BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS must be a canonical integer from 1 to 3600")
     timeout = int(timeout_text)
-    values = _env_file_values(repo)
     plan = source_plan(
         _setting(values, "NEO4J_GRAPH_DB_SOURCE", "container"),
         _setting(values, "WEAVIATE_SOURCE", "container"),
@@ -2036,9 +2112,16 @@ def main(argv: list[str] | None = None) -> int:
         )
 
 
-if __name__ == "__main__":
+def _cli() -> None:
     try:
         raise SystemExit(main())
-    except (ContractError, SignalInterruption) as exc:
+    except (ContractError, SignalInterruption, subprocess.TimeoutExpired) as exc:
+        # A step timeout used to escape as a raw traceback and exit 1.
         print(f"database orchestrator: {exc}", file=sys.stderr)
-        raise SystemExit(64 if isinstance(exc, ContractError) else 130)
+        if isinstance(exc, subprocess.TimeoutExpired):
+            raise SystemExit(124)  # timeout(1) convention, distinct from config errors
+        raise SystemExit(130 if isinstance(exc, SignalInterruption) else 64)
+
+
+if __name__ == "__main__":
+    _cli()

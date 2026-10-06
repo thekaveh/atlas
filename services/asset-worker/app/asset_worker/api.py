@@ -24,6 +24,7 @@ from .models import (
     normalization_metadata,
     optimization_metadata,
 )
+from .normalizer import _glb_json_chunk, external_resource_uris
 from .runner import GltfTransformError, run_gltf_transform
 from .storage import ArtifactStorage, ArtifactTooLargeError, CONTENT_TYPE
 
@@ -46,6 +47,19 @@ async def _join_request_task(task: asyncio.Task):
             pass
         raise cancelled
     return task.result()
+
+
+def _storage_error_status(exc: Exception):
+    """404/403 for a missing or forbidden input object (botocore ClientError),
+    instead of a bare 500; None for anything else (same mapping as asset-baker)."""
+    response = getattr(exc, "response", None)
+    error = response.get("Error", {}) if isinstance(response, dict) else {}
+    code = str(error.get("Code", "")) if isinstance(error, dict) else ""
+    if code in ("NoSuchKey", "NoSuchBucket", "404", "NotFound"):
+        return 404
+    if code in ("AccessDenied", "403", "Forbidden"):
+        return 403
+    return None
 
 
 def create_app(*, api_token: str | None = None) -> FastAPI:
@@ -94,6 +108,12 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
                     content={"detail": "Asset worker is busy; retry later"},
                 )
             admitted = True
+            if _declared_body_too_large(request):
+                app.state.transform_semaphore.release()
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": f"GLB exceeds {_max_input_bytes()} byte limit"},
+                )
         work = asyncio.create_task(call_next(request))
         try:
             return await _join_request_task(work)
@@ -158,6 +178,15 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
             data = storage.fetch(payload.input.bucket, payload.input.key)
         except ArtifactTooLargeError as exc:
             raise HTTPException(status_code=413, detail=str(exc)) from exc
+        except Exception as exc:
+            status = _storage_error_status(exc)
+            if status is None:
+                raise
+            raise HTTPException(
+                status_code=status,
+                detail=f"Input object {payload.input.bucket}/{payload.input.key} "
+                + ("was not found" if status == 404 else "is not readable"),
+            ) from exc
         return _process_bytes(
             data,
             payload.params,
@@ -208,6 +237,19 @@ def _process_bytes(
         return _process_path(input_path, params, storage=storage)
 
 
+def _require_self_contained_glb(data: bytes) -> None:
+    """Fail closed: a .gltf JSON file, an undecodable GLB or one with external
+    URIs is rejected, because gltf-transform picks GLB vs JSON by content and
+    resolves non-data: URIs against the filesystem (or network)."""
+    if _glb_json_chunk(data) is None:
+        raise HTTPException(status_code=400, detail="Input must be a binary glTF 2.0 GLB")
+    if external_resource_uris(data):
+        raise HTTPException(
+            status_code=400,
+            detail="GLB must be self-contained: external buffer/image URIs are not allowed",
+        )
+
+
 def _process_path(
     input_path: Path,
     params: PostprocessParams,
@@ -215,6 +257,7 @@ def _process_path(
     storage: ArtifactStorage | None = None,
 ) -> PostprocessResponse:
     _enforce_input_size(input_path.stat().st_size)
+    _require_self_contained_glb(input_path.read_bytes())
     storage = storage or ArtifactStorage()
     started_at = time.monotonic()
     logger.info("asset_transform_started")
@@ -261,6 +304,24 @@ def _copy_upload_to_path(source, path: Path) -> None:
                 )
             stream.write(chunk)
     _enforce_input_size(total)
+
+
+# Multipart framing and form fields on top of the GLB itself.
+_MULTIPART_OVERHEAD_BYTES = 1024 * 1024
+
+
+def _declared_body_too_large(request: Request) -> bool:
+    """Reject an oversized declared body before Starlette spools it to disk.
+
+    The form parser buffers the whole multipart body before the handler's
+    chunked copy runs, so without this a huge upload fills the temp disk
+    first. Chunked bodies without Content-Length still meet the handler cap.
+    """
+    try:
+        declared = int(request.headers.get("content-length", ""))
+    except ValueError:
+        return False
+    return declared > _max_input_bytes() + _MULTIPART_OVERHEAD_BYTES
 
 
 def _max_input_bytes() -> int:

@@ -8,7 +8,7 @@ capabilities:
   - name: "Persistent semantic vector storage"
     status: supported
     verification: tested
-    note: "Atlas configures persistent Weaviate REST and gRPC storage and wires backend consumers through container or operator-run localhost sources."
+    note: "Atlas configures persistent Weaviate REST and gRPC storage and wires backend consumers through container or operator-run localhost sources; Backend memory vectorizes through the in-network LiteLLM, so a localhost Weaviate leaves memory on pgvector."
   - name: "LiteLLM and CLIP vectorization"
     status: partial
     verification: tested
@@ -140,7 +140,7 @@ runtime_sc:
         QUERY_DEFAULTS_LIMIT: 25
         AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
         PERSISTENCE_DATA_PATH: /var/lib/weaviate
-        DEFAULT_VECTORIZER_MODULE: text2vec-openai
+        DEFAULT_VECTORIZER_MODULE: none
         ENABLE_MODULES: text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem
         CLUSTER_HOSTNAME: weaviate
         OPENAI_APIKEY: ${LITELLM_MASTER_KEY:-}

@@ -207,7 +207,7 @@ def test_neo_backup_stop_compensation_uses_observed_state(
     coordinator.runner = types.SimpleNamespace(
         scope="scope",
         unique_name=lambda _role: "job",
-        register_container=lambda _name: None,
+        register_container=lambda _name, **_kw: None,
         run=lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, "", ""),
     )
     coordinator.containers_disappeared_after_compose_run = lambda _name: None
@@ -311,17 +311,33 @@ def test_exact_weaviate_138_status_enum(status: str, kind: str):
     assert _module().weaviate_status_kind(status) == kind
 
 
-def test_restore_rejects_unbounded_limits_and_unsafe_test_root(tmp_path: Path):
+_SAFE_RESTORE_ROOT = "/tmp/atlas-database-restore-test-" + "e" * 32
+
+
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ({"BACKUP_COMMAND_TIMEOUT_SECONDS": "86401"}, "timeout"),
+        ({"BACKUP_MAX_DATABASE_ARCHIVE_BYTES": "1099511627777"}, "archive"),
+        ({"DATABASE_RESTORE_ROOT": _SAFE_RESTORE_ROOT + "/../escape"}, "restore root"),
+    ],
+    ids=["timeout", "archive-cap", "restore-root-escape"],
+)
+def test_restore_rejects_unbounded_limits_and_unsafe_test_root(
+    tmp_path: Path, override: dict, message: str
+):
+    # One bad input per case: the script exits at the first failed check, so
+    # combining them only ever exercised the timeout check.
     env = {
         **os.environ,
         "BACKUP_TIMESTAMP": "20260830_010203", "BACKUP_RESTORE_TOKEN": "e" * 32,
         "BACKUP_MANIFEST_HMAC_KEY": "f" * 64, "BACKUP_DEPLOYMENT_ID": "test",
-        "BACKUP_COMMAND_TIMEOUT_SECONDS": "86401", "BACKUP_MAX_DATABASE_ARCHIVE_BYTES": "1099511627777",
-        "DATABASE_RESTORE_ROOT": "/tmp/atlas-database-restore-test-" + "e" * 32 + "/../escape",
+        "DATABASE_RESTORE_ROOT": _SAFE_RESTORE_ROOT,
+        **override,
     }
     result = subprocess.run(["sh", str(RESTORE_SCRIPT), "prepare"], env=env, text=True, capture_output=True)
-    assert result.returncode == 64
-    assert "timeout" in result.stderr or "archive" in result.stderr or "restore root" in result.stderr
+    assert result.returncode == 64, result.stderr
+    assert message in result.stderr, result.stderr
 
 
 def test_prepared_plan_parser_requires_exact_correlated_values():
@@ -441,7 +457,7 @@ def _fourth_prune_coordinator(module, *, both=False, run_error=None):
     )
     coordinator.runner = types.SimpleNamespace(
         scope="scope", unique_name=lambda _role: "prune-job",
-        register_container=lambda _name: None,
+        register_container=lambda _name, **_kw: None,
         run=lambda *_args, **_kwargs: (
             (_ for _ in ()).throw(run_error) if run_error else None
         ),
@@ -462,7 +478,7 @@ def test_successful_owned_command_cleanup_failure_poisons_and_raises():
     coordinator.poison_reason = None; coordinator.token = "1" * 32
     coordinator.runner = types.SimpleNamespace(
         scope="scope", unique_name=lambda _role: "owned-job",
-        register_container=lambda _name: None,
+        register_container=lambda _name, **_kw: None,
         run=lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, "", ""),
         remove_container=lambda _name: (_ for _ in ()).throw(
             module.ContractError("removal unproven")
@@ -481,7 +497,7 @@ def test_backup_job_cleanup_timeout_does_not_replace_body_signal(capsys):
     coordinator._service_state = lambda _service: module.DatabaseServiceState(True, True, True)
     coordinator._service_running = lambda _service: True
     coordinator.runner = types.SimpleNamespace(
-        scope="scope", unique_name=lambda _role: "job", register_container=lambda _name: None,
+        scope="scope", unique_name=lambda _role: "job", register_container=lambda _name, **_kw: None,
         run=lambda *_args, **_kwargs: (_ for _ in ()).throw(
             module.SignalInterruption("received signal 15")
         ),
@@ -603,7 +619,7 @@ def test_backup_unhealthy_restart_poisons_and_fails():
     coordinator._service_state = state
     coordinator._service_running = lambda _service: False
     coordinator.runner = types.SimpleNamespace(
-        scope="scope", unique_name=lambda _role: "job", register_container=lambda _name: None,
+        scope="scope", unique_name=lambda _role: "job", register_container=lambda _name, **_kw: None,
         run=lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, "", ""),
     )
     coordinator.containers_disappeared_after_compose_run = lambda _name: None

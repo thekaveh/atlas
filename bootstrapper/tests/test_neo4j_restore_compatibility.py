@@ -194,3 +194,156 @@ def test_previous_release_dump_restores_into_the_pinned_image(
         assert "previous-release" in query.stdout
     finally:
         owned.cleanup()
+
+
+def _orchestrator():
+    import importlib.util
+    import sys
+
+    spec = importlib.util.spec_from_file_location(
+        "atlas_database_orchestrator_boundary", ORCHESTRATOR
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_boundary_lock_location_ignores_per_session_tmpdir(tmp_path, monkeypatch) -> None:
+    """A cron backup (no TMPDIR) and a terminal restore (TMPDIR=/var/folders/…)
+    must contend for the same lock file."""
+    module = _orchestrator()
+    monkeypatch.delenv("ATLAS_DATABASE_LOCK_DIR", raising=False)
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "session-a"))
+    first = module._lock_path(tmp_path)
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "session-b"))
+    assert module._lock_path(tmp_path) == first
+    # Repo-local, not world-writable /tmp: no other user can pre-poison it.
+    assert first.parent == tmp_path / "volumes" / "locks"
+    monkeypatch.setenv("ATLAS_DATABASE_LOCK_DIR", str(tmp_path))
+    assert module._lock_path(tmp_path).parent == tmp_path
+
+
+def test_retention_counts_read_the_env_file_like_other_settings(tmp_path, monkeypatch) -> None:
+    """README §3 lists the retention counts as .env settings; they used to
+    be read from the process environment only, so `.env` was ignored."""
+    module = _orchestrator()
+    (tmp_path / ".env").write_text(
+        "BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT=10\n", encoding="utf-8"
+    )
+    monkeypatch.delenv("BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT", raising=False)
+    coordinator = object.__new__(module.DatabaseCoordinator)
+    coordinator.env_values = module._env_file_values(tmp_path)
+    assert coordinator._bounded_count("BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT", "3", 100) == 10
+
+
+def test_env_parser_keeps_hash_inside_quoted_values(tmp_path) -> None:
+    """GRAPH_DB_AUTH="neo4j/pa#ss" reached the orchestrator as neo4j/pa, so
+    every Neo4j restore's credential check failed."""
+    module = _orchestrator()
+    (tmp_path / ".env").write_text(
+        'GRAPH_DB_AUTH="neo4j/pa#ss"\n'
+        "SINGLE='a#b'\n"
+        "PLAIN=value # comment\n"
+        "TIGHT=a#b\n",
+        encoding="utf-8",
+    )
+    values = module._env_file_values(tmp_path)
+    assert values["GRAPH_DB_AUTH"] == "neo4j/pa#ss"
+    assert values["SINGLE"] == "a#b"
+    assert values["PLAIN"] == "value"
+    assert values["TIGHT"] == "a#b"
+
+
+def test_unwritable_lock_directory_names_the_override(tmp_path, monkeypatch) -> None:
+    module = _orchestrator()
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("", encoding="utf-8")
+    monkeypatch.setenv("ATLAS_DATABASE_LOCK_DIR", str(blocker / "locks"))
+    with pytest.raises(module.ContractError, match="ATLAS_DATABASE_LOCK_DIR"):
+        module._lock_path(tmp_path)
+
+
+def test_auto_restore_never_overwrites_a_populated_database(tmp_path: Path) -> None:
+    """Loading the newest backup on every boot rolled the live graph back,
+    discarding every write since the backup."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    called = tmp_path / "loaded"
+    fake_admin = bin_dir / "neo4j-admin"
+    fake_admin.write_text(f'#!/bin/sh\ntouch "{called}"\ncat >/dev/null\n', encoding="utf-8")
+    fake_admin.chmod(0o755)
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    (snapshot / "backup_20260101.dump").write_bytes(b"dump")
+    database = tmp_path / "databases" / "neo4j"
+    database.mkdir(parents=True)
+    (database / "neostore").write_bytes(b"live")
+
+    result = subprocess.run(
+        ["bash", str(SCRIPTS / "auto_restore.sh")],
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+            "NEO4J_SNAPSHOT_DIR": str(snapshot),
+            "NEO4J_DATABASE_DIR": str(database),
+        },
+        text=True, capture_output=True, check=False, timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "skipping automatic restore" in result.stdout
+    assert not called.exists(), "a populated database was overwritten"
+
+
+def test_auto_restore_retries_after_a_failed_load(tmp_path: Path) -> None:
+    """A failed load leaves partial files; the incomplete-restore marker must
+    keep the populated-database skip from booting that partial store."""
+    database = tmp_path / "databases" / "neo4j"
+    database.mkdir(parents=True)
+    (database / "partial").write_bytes(b"half")
+    marker = tmp_path / ".atlas-restore-incomplete"
+    marker.touch()
+
+    result = subprocess.run(
+        ["bash", str(SCRIPTS / "auto_restore.sh")],
+        env={
+            **os.environ,
+            "NEO4J_SNAPSHOT_DIR": str(tmp_path / "snapshot"),
+            "NEO4J_DATABASE_DIR": str(database),
+            "NEO4J_RESTORE_MARKER": str(marker),
+        },
+        text=True, capture_output=True, check=False, timeout=30,
+    )
+
+    assert "skipping automatic restore" not in result.stdout
+
+
+def test_auto_restore_refuses_a_partial_store_with_no_dump_left(tmp_path: Path) -> None:
+    database = tmp_path / "databases" / "neo4j"
+    database.mkdir(parents=True)
+    (database / "partial").write_bytes(b"half")
+    marker = tmp_path / ".atlas-restore-incomplete"
+    marker.touch()
+    (tmp_path / "snapshot").mkdir()
+
+    result = subprocess.run(
+        ["bash", str(SCRIPTS / "auto_restore.sh")],
+        env={
+            **os.environ,
+            "NEO4J_SNAPSHOT_DIR": str(tmp_path / "snapshot"),
+            "NEO4J_DATABASE_DIR": str(database),
+            "NEO4J_RESTORE_MARKER": str(marker),
+        },
+        text=True, capture_output=True, check=False, timeout=30,
+    )
+
+    assert result.returncode == 1
+    assert "unfinished restore" in result.stderr
+
+
+def test_manual_restore_marks_an_unfinished_load() -> None:
+    script = (SCRIPTS / "restore.sh").read_text(encoding="utf-8")
+    load = script.index("neo4j-admin database load")
+    assert script.index('touch "${RESTORE_MARKER}"') < load
+    assert 'rm -f "${RESTORE_MARKER}"' in script[load:]

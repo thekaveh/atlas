@@ -152,7 +152,6 @@ def test_pinned_realtime_runs_migrations_and_serves_health_as_scoped_owner(
         "-e", "DB_NAME=postgres",
         "-e", "DB_USER=atlas_realtime",
         "-e", f"DB_PASSWORD={TEST_SECRETS['SUPABASE_REALTIME_DB_PASSWORD']}",
-        "-e", "DB_SLOT=supabase_realtime_slot",
         "-e", "DB_CHANNEL_ENABLED=true",
         "-e", f"JWT_SECRET={'j' * 64}",
         "-e", "JWT_ROLE=service_role",

@@ -59,7 +59,8 @@ def test_idempotency(tmp_path):
     from services.migrations.migration_v1 import apply, stamp_version
     env_path = _write_env(tmp_path, "LITELLM_PORT=63012\n")
     new_defaults = {"LITELLM_PORT": 63030}
-    apply(env_path, new_defaults, base_port=63000)
+    first = apply(env_path, new_defaults, base_port=63000)
+    assert first.rewritten  # the first pass really rewrote, so the no-op below is meaningful
     stamp_version(env_path, 1)
     # Second pass with already-rewritten values: nothing matches the V0 expected_old.
     result2 = apply(env_path, new_defaults, base_port=63000)
@@ -294,7 +295,7 @@ def test_run_port_migration_honors_atlas_env_file(tmp_path, monkeypatch):
     from services.migrations.migration_v5 import needs_migration as needs_v5
 
     assert needs_v5(custom_env) is False
-    assert "WEAVIATE_ENABLE_MODULES=backup-filesystem" in text
+    assert "WEAVIATE_ENABLE_MODULES=text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem" in text
     # Real repo .env (if present) was not touched.
     repo_env = Path(__file__).resolve().parents[2] / ".env"
     if repo_env.is_file():

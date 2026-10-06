@@ -11,7 +11,9 @@ services:
       tempo:
         condition: service_healthy
       loki:
-        condition: service_healthy
+        # Loki has no usable healthcheck (see services/loki/compose.yml);
+        # the exporter's retrying queue covers its startup window.
+        condition: service_started
     volumes:
       - ./config/config.yaml:/etc/otelcol/config.yaml:ro
     # The upstream image is distroless, so it has no curl/wget shell client.

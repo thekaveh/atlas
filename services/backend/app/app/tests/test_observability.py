@@ -62,6 +62,14 @@ def test_configure_otel_marks_app_when_dependencies_available(monkeypatch):
 
     celery_module.CeleryInstrumentor = FakeCeleryInstrumentor
 
+    httpx_module = types.ModuleType("opentelemetry.instrumentation.httpx")
+
+    class FakeHttpxInstrumentor:
+        def instrument(self, *, tracer_provider):
+            calls["httpx_provider"] = tracer_provider
+
+    httpx_module.HTTPXClientInstrumentor = FakeHttpxInstrumentor
+
     resources_module = types.ModuleType("opentelemetry.sdk.resources")
 
     class FakeResource:
@@ -98,6 +106,7 @@ def test_configure_otel_marks_app_when_dependencies_available(monkeypatch):
     monkeypatch.setitem(sys.modules, "opentelemetry.exporter.otlp.proto.http.trace_exporter", exporter_module)
     monkeypatch.setitem(sys.modules, "opentelemetry.instrumentation.fastapi", fastapi_module)
     monkeypatch.setitem(sys.modules, "opentelemetry.instrumentation.celery", celery_module)
+    monkeypatch.setitem(sys.modules, "opentelemetry.instrumentation.httpx", httpx_module)
     monkeypatch.setitem(sys.modules, "opentelemetry.sdk.resources", resources_module)
     monkeypatch.setitem(sys.modules, "opentelemetry.sdk.trace", sdk_trace_module)
     monkeypatch.setitem(sys.modules, "opentelemetry.sdk.trace.export", export_module)
@@ -115,6 +124,8 @@ def test_configure_otel_marks_app_when_dependencies_available(monkeypatch):
     assert calls["resource"]["service.name"] == "backend"
     assert calls["excluded_urls"] == "/health,/metrics"
     assert calls["celery_provider"] is calls["provider"]
+    # Outbound httpx calls propagate traceparent to LiteLLM and the rest.
+    assert calls["httpx_provider"] is calls["provider"]
 
 
 def test_celery_worker_process_init_configures_tracing(monkeypatch):

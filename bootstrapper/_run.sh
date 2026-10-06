@@ -23,7 +23,8 @@ SCRIPT_REL="$1"
 shift
 
 # Resolve the bootstrapper directory (this script's parent).
-SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+# CDPATH= keeps cd from echoing a path into the captured value.
+SELF_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 
 if command -v uv >/dev/null 2>&1; then
     # Banner to stderr: stdout must stay clean so `<script> --format json`

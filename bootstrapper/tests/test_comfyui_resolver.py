@@ -577,3 +577,30 @@ class TestHostSidecarFallback:
             sidecar_path=str(tmp_path / "explicit-absent.yaml"),
         )
         assert "host-custom" not in _names(result)
+
+
+def test_written_manifest_is_readable_by_the_backend_user(tmp_path):
+    # mkstemp creates 0600; on Linux the backend's appuser could not read the
+    # bind-mounted manifest and /comfyui/db/models returned 500.
+    import stat
+    from utils.comfyui_resolver import write_manifest
+
+    target = tmp_path / "selected-models.yaml"
+    write_manifest([], str(target))
+    assert stat.S_IMODE(target.stat().st_mode) == 0o644
+
+
+def test_wizard_and_resolver_share_sidecar_resolution(tmp_path):
+    # The wizard read the raw default /custom-models.yaml (a dead container
+    # path), hiding sidecar models the resolver activates anyway.
+    import os
+    from utils.comfyui_resolver import resolve_sidecar_paths
+
+    default = resolve_sidecar_paths({}, warn=False)
+    assert default and default[0].endswith("services/comfyui/custom-models.yaml")
+    a, b = tmp_path / "a.yaml", tmp_path / "b.yaml"
+    a.write_text("models: []\n"); b.write_text("models: []\n")
+    env = {"COMFYUI_CUSTOM_MODELS_FILE": f"{a}{os.pathsep}{b}"}
+    assert resolve_sidecar_paths(env, warn=False) == [str(a), str(b)]
+    steps = (Path(__file__).resolve().parents[1] / "wizard" / "comfyui_steps.py").read_text()
+    assert "resolve_sidecar_paths(env_vars, warn=False)" in steps

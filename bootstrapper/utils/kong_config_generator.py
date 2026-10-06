@@ -5,13 +5,16 @@ Generates Kong API Gateway configuration based on SOURCE values from environment
 Replaces static kong.yml/kong-local.yml with dynamic service routing.
 """
 
+import math
 import yaml
 import socket
+import re
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from urllib.parse import urlparse
 
 from core.config_parser import DEFAULT_BASE_PORT
+from utils.atomic_write import atomic_replace_text
 
 
 def _lua_long_string(value: str) -> str:
@@ -41,6 +44,49 @@ def _basic_auth_hosts(services: list[Dict[str, Any]]) -> frozenset[str]:
             if _has_basic_auth(service) or _has_basic_auth(route):
                 hosts.update(route.get('hosts') or [])
     return frozenset(hosts)
+
+
+
+# Kong rejects the whole declarative config above this (2^31 - 2 ms).
+_KONG_MAX_TIMEOUT_MS = 2**31 - 2
+
+
+def _bake_timeout_ms(raw: object, default: str = "600") -> int:
+    """Kong timeout for the asset-baker route: the worker's own
+    float(ASSET_BAKER_TIMEOUT_SECONDS) + 30 s, capped below Kong's 2^31 ms
+    limit (a larger value would stop the whole declarative config loading)."""
+    try:
+        seconds = float(str(raw or default).strip())
+    except ValueError:
+        seconds = float(default)
+    if not math.isfinite(seconds) or seconds <= 0:
+        seconds = float(default)
+    return min(int((seconds + 30) * 1000), _KONG_MAX_TIMEOUT_MS)
+
+def _is_bare_origin(parsed) -> bool:
+    """scheme://host with no path, query, fragment or userinfo; browsers send
+    neither userinfo nor non-punycode hosts."""
+    if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+        return False
+    if parsed.path not in ('', '/') or parsed.query or parsed.fragment:
+        return False
+    return not (parsed.username or parsed.password) and parsed.hostname.isascii()
+
+
+def _canonical_origin(entry: str) -> Optional[str]:
+    """The browser's form of an origin (lowercase, no path or default port),
+    or None for anything that is not one exact scheme://host[:port]."""
+    parsed = urlparse(entry.lower())
+    if not _is_bare_origin(parsed) or '*' in entry:
+        return None
+    try:
+        port = parsed.port
+    except ValueError:  # out-of-range or non-numeric port
+        return None
+    host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    if port is None or (parsed.scheme, port) in (('http', 80), ('https', 443)):
+        return f"{parsed.scheme}://{host}"
+    return f"{parsed.scheme}://{host}:{port}"
 
 
 class KongConfigGenerator:
@@ -129,7 +175,10 @@ class KongConfigGenerator:
             '_format_version': '2.1',
             '_transform': True,
             'consumers': self.get_consumers(),
-            'services': self.get_all_services(),
+            'services': self._with_local_cors(
+                self._with_default_timeouts(self._with_long_running_timeouts(self.get_all_services())),
+                self._cors_origins()
+            ),
             # Global Prometheus plugin — exposes /metrics on Kong's Status
             # API (port 8100). Prometheus's observability bundle scrapes it
             # at `kong-api-gateway:8100/metrics`. The plugin is harmless when Prom isn't
@@ -171,7 +220,9 @@ class KongConfigGenerator:
         # Read from the already-parsed .env snapshot — these values
         # land in the YAML as literal strings; Kong reads them straight
         # into its basic-auth credentials table on startup.
-        dashboard_username = self.get_env_value('DASHBOARD_USERNAME', 'kong_admin')
+        # An empty username would make Kong reject the whole declarative
+        # config (every route down), so fall back to the default account name.
+        dashboard_username = self.get_env_value('DASHBOARD_USERNAME', 'kong_admin') or 'kong_admin'
         dashboard_password = self.get_env_value('DASHBOARD_PASSWORD', 'kong_password')
         consumers = [
             {
@@ -224,7 +275,7 @@ class KongConfigGenerator:
         `anonymous` fallthrough, and DB-less Kong has no admin API — so this
         declarative file is the ONLY place a credential can come from. With
         zero `keyauth_credentials`, every request to /rest/v1/, /auth/v1/,
-        /storage/v1/, /graphql/v1/ and /realtime/v1/api/ returned 401,
+        /storage/v1/, /graphql/v1 and /realtime/v1/api/ returned 401,
         including one carrying the correct `SUPABASE_ANON_KEY`.
 
         Verified against kong:3.9.3 — before: the correct key and a wrong key
@@ -259,6 +310,91 @@ class KongConfigGenerator:
             )
         return mode
     
+    # Browser origins allowed through Kong's CORS: any *.localhost /
+    # localhost / 127.0.0.1 page on any port (plus KONG_CORS_EXTRA_ORIGINS).
+    # A bare `cors` plugin answers `*`, so any website the operator visits
+    # could read responses from, and send preflighted requests to, the
+    # no-login services (Weaviate, LightRAG, ComfyUI, ...).
+    _LOCAL_CORS_ORIGINS = [
+        r"https?://([a-z0-9-]+\.)*localhost(:[0-9]+)?",
+        r"https?://127\.0\.0\.1(:[0-9]+)?",
+    ]
+
+    def _cors_origins(self) -> List[str]:
+        """Local origins plus any exact KONG_CORS_EXTRA_ORIGINS."""
+        extra = (self.get_env_value('KONG_CORS_EXTRA_ORIGINS') or '').split(',')
+        origins = list(self._LOCAL_CORS_ORIGINS)
+        for entry in (item.strip() for item in extra):
+            origin = _canonical_origin(entry) if entry else None
+            if origin:
+                origins.append(re.escape(origin))
+            elif entry:
+                print(f"WARNING: ignoring KONG_CORS_EXTRA_ORIGINS entry {entry!r} "
+                      "(expected scheme://host[:port], no wildcard or path)")
+        return origins
+
+    @classmethod
+    def _with_local_cors(
+        cls, services: List[Dict[str, Any]], origins: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Scope every `cors` plugin without explicit origins to ``origins``
+        (default: local browser origins)."""
+        origins = list(origins or cls._LOCAL_CORS_ORIGINS)
+        for service in services:
+            cls._scope_cors(service.get('plugins') or [], origins)
+            for route in service.get('routes') or []:
+                cls._scope_cors(route.get('plugins') or [], origins)
+        return services
+
+    @staticmethod
+    def _scope_cors(plugins: List[Dict[str, Any]], origins: List[str]) -> None:
+        for index, plugin in enumerate(plugins):
+            config = plugin.get('config') or {}
+            if plugin.get('name') == 'cors' and 'origins' not in config:
+                # New dict: generators may share plugin literals.
+                plugins[index] = {**plugin, 'config': {**config, 'origins': list(origins)}}
+
+    def _with_long_running_timeouts(self, services: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Services whose single synchronous request can outlast the 300 s
+        default: a Docling conversion (up to DOCLING_INFERENCE_TIMEOUT_SECONDS),
+        the backend calls that wait on it or on ComfyUI (per-request timeout
+        up to 3600 s), and non-streaming LLM completions. Kong otherwise
+        answered 504 while the upstream kept working (and, for Docling, held
+        its only conversion slot)."""
+        docling_ms = _bake_timeout_ms(
+            self.get_env_value("DOCLING_INFERENCE_TIMEOUT_SECONDS", "900"), default="900"
+        )
+        backend_ms = min(max(3630000, docling_ms + 30000), _KONG_MAX_TIMEOUT_MS)
+        long_ms = {
+            'docling-api': docling_ms,
+            'backend-api': backend_ms,
+            'litellm-gateway': 630000,
+            'ollama-api': 630000,
+        }
+        for service in services:
+            name = service.get('name') or ''
+            # Per-plugin backend services keep what the plugin declares and
+            # otherwise get the backend's long value, like the catch-all.
+            timeout = backend_ms if name.startswith('backend-api-plugin-') else long_ms.get(name)
+            if timeout:
+                service.setdefault('read_timeout', timeout)
+                service.setdefault('write_timeout', timeout)
+        return services
+
+    @staticmethod
+    def _with_default_timeouts(services: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Give every service the gateway's intended 300s read/write timeout.
+
+        Kong 3.x has no global proxy-timeout setting (KONG_PROXY_READ_TIMEOUT
+        was silently ignored), so its 60s per-service default cut off slow
+        non-streaming LLM calls and idle streams/WebSockets. A service that
+        declares its own timeouts keeps them.
+        """
+        for service in services:
+            service.setdefault('read_timeout', 300000)
+            service.setdefault('write_timeout', 300000)
+        return services
+
     def get_all_services(self) -> List[Dict[str, Any]]:
         """
         Get all Kong services based on current SOURCE configurations.
@@ -438,7 +574,7 @@ class KongConfigGenerator:
                     # host gives this route two matching criteria, which
                     # outranks the Supabase routes that match on path alone —
                     # regardless of how much longer their prefix is. Every
-                    # /rest/v1/, /auth/v1/, /storage/v1/, /graphql/v1/ and
+                    # /rest/v1/, /auth/v1/, /storage/v1/, /graphql/v1 and
                     # /pg/ request to host `localhost` was answered with 200
                     # and this dashboard's HTML instead of being proxied.
                     # Worse than a 404: clients saw a success status carrying
@@ -715,7 +851,7 @@ class KongConfigGenerator:
                     {
                         'name': 'graphql-v1-all',
                         'strip_path': True,
-                        'paths': ['/graphql/v1/']
+                        'paths': ['/graphql/v1']  # canonical pg_graphql URL has no slash
                     }
                 ],
                 'plugins': [
@@ -735,7 +871,13 @@ class KongConfigGenerator:
                         'paths': ['/realtime/v1/']
                     }
                 ],
-                'plugins': [{'name': 'cors'}]
+                # key-auth as on every other Supabase route (and upstream's
+                # kong.yml); supabase-js sends `apikey` as a query parameter
+                # on the WebSocket URL, which key-auth reads by default.
+                'plugins': [
+                    {'name': 'cors'},
+                    {'name': 'key-auth', 'config': {'key_names': ['apikey']}}
+                ]
             },
             {
                 'name': 'realtime-v1-rest',
@@ -769,6 +911,25 @@ class KongConfigGenerator:
                     {'name': 'key-auth', 'config': {'key_names': ['apikey']}}
                 ]
             },
+            # Public and signed object URLs are fetched by <img> tags, links and
+            # outside services that cannot send an apikey; Storage itself checks
+            # the bucket's public flag or the signed token (upstream Supabase
+            # puts no key-auth on storage at all).
+            *[
+                {
+                    'name': f"storage-v1-object-{kind.replace('/', '-')}",
+                    'url': f'http://supabase-storage:5000/object/{kind}/',
+                    'routes': [
+                        {
+                            'name': f"storage-v1-object-{kind.replace('/', '-')}",
+                            'strip_path': True,
+                            'paths': [f'/storage/v1/object/{kind}/'],
+                        }
+                    ],
+                    'plugins': [{'name': 'cors'}],
+                }
+                for kind in ('public', 'sign', 'upload/sign')
+            ],
             # Meta service
             {
                 'name': 'meta',
@@ -880,9 +1041,11 @@ class KongConfigGenerator:
         return {
             'name': 'n8n-api',
             'url': 'http://n8n:5678/',
+            # Bundled webhooks hold the response open (research polling, LLM
+            # summaries, ComfyUI wait_for_completion up to the backend's
+            # 300 s); a 60 s read/write timeout returned 504 while the run
+            # continued. Read/write follow the 300 s gateway default.
             'connect_timeout': 60000,
-            'write_timeout': 60000,
-            'read_timeout': 60000,
             'routes': [
                 {
                     'name': 'n8n-api-all',
@@ -897,16 +1060,23 @@ class KongConfigGenerator:
                     # Kong DB-less config takes header values literally (no
                     # env interpolation) — resolve the port at generation
                     # time or n8n bakes the unexpanded token into webhook
-                    # and editor URLs served via this alias.
-                    'add': {'headers': [
-                        'X-Forwarded-Host: n8n.localhost:'
-                        + (self.get_env_value('KONG_HTTP_PORT')
-                           or str(DEFAULT_BASE_PORT))
-                    ]}
+                    # and editor URLs served via this alias. Kong replaces
+                    # X-Forwarded-Host with its own portless value, so the
+                    # RFC 7239 Forwarded header (which n8n's push origin
+                    # check reads first) carries the host:port that matches
+                    # the browser's Origin; without it the editor's live
+                    # connection is closed as "Invalid origin".
+                    'add': {'headers': self._n8n_forwarded_headers()}
                 }}
             ]
         }
     
+    def _n8n_forwarded_headers(self) -> List[str]:
+        host = 'n8n.localhost:' + (
+            self.get_env_value('KONG_HTTP_PORT') or str(DEFAULT_BASE_PORT)
+        )
+        return [f'X-Forwarded-Host: {host}', f'Forwarded: host={host};proto=http']
+
     def generate_searxng_service(self) -> Optional[Dict[str, Any]]:
         """Generate SearxNG service configuration based on SOURCE."""
         source = self.get_env_value('SEARXNG_SOURCE')
@@ -1077,7 +1247,14 @@ class KongConfigGenerator:
                     'hosts': ['hermes.localhost']
                 }
             ],
-            'plugins': [{'name': 'cors'}]
+            # The dashboard runs in upstream insecure mode (no login) and its
+            # Chat tab drives the agent's tools, so the route carries the same
+            # dashboard Basic auth + ACL as the other operator UIs.
+            'plugins': [
+                {'name': 'cors'},
+                {'name': 'basic-auth'},
+                {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
+            ]
         }
 
         if source == 'localhost':
@@ -1169,9 +1346,14 @@ class KongConfigGenerator:
         """
         if self.get_env_value("ASSET_BAKER_SOURCE", "disabled") == "disabled":
             return None
+        # A bake may run ASSET_BAKER_TIMEOUT_SECONDS (600 s default); the
+        # gateway's 300 s default 504'd it while the worker kept the slot.
+        bake_ms = _bake_timeout_ms(self.get_env_value("ASSET_BAKER_TIMEOUT_SECONDS", "600"))
         return {
             "name": "asset-baker",
             "url": "http://asset-baker:8096/",
+            "read_timeout": bake_ms,
+            "write_timeout": bake_ms,
             "routes": [
                 {
                     "name": "asset-baker-all",
@@ -1312,7 +1494,10 @@ class KongConfigGenerator:
             ],
             'plugins': [
                 {'name': 'cors'},
-                {'name': 'basic-auth'},
+                # Trino refuses any request carrying a password over plain
+                # HTTP ("Password not allowed for insecure authentication"),
+                # so the Kong credential must not be forwarded upstream.
+                {'name': 'basic-auth', 'config': {'hide_credentials': True}},
                 {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
             ],
         }
@@ -1686,7 +1871,19 @@ class KongConfigGenerator:
                         "strip_path": False,
                         "preserve_host": True,
                         "hosts": ["graphbuilder-api.localhost"],
-                    }
+                    },
+                    # Same-origin API path for the browser UI. Upstream axios
+                    # sends no credentials cross-origin, so calls to the
+                    # separate API host always met Kong's basic-auth as 401;
+                    # under the UI's own origin the browser reuses the Basic
+                    # credential it already holds.
+                    {
+                        "name": "llm-graph-builder-api-same-origin",
+                        "strip_path": True,
+                        "preserve_host": True,
+                        "hosts": ["graphbuilder.localhost"],
+                        "paths": ["/atlas-api"],
+                    },
                 ],
                 "plugins": plugins,
             },
@@ -1748,6 +1945,10 @@ class KongConfigGenerator:
                 "BACKEND_KONG_AUTH=key-auth requires BACKEND_KONG_API_KEY"
             )
         return [
+            # No hide_credentials: plugins declaring `auth: key-auth` re-check
+            # the forwarded `apikey` inside the backend (require_plugin_gateway_key),
+            # including via this catch-all. The OTel Collector blanks `apikey`
+            # in span URLs and the access log redacts it instead.
             {'name': 'key-auth', 'config': {'key_names': ['apikey']}},
             {'name': 'acl', 'config': {'allow': ['backend_api']}},
         ]
@@ -2008,12 +2209,21 @@ class KongConfigGenerator:
             bool: True if successful
         """
         try:
-            # Ensure output directory exists
+            # The file carries the service-role JWT, the anon key and gateway
+            # credentials. It stays 0644 because Kong reads the bind mount as
+            # its own in-container uid, which need not match the host owner;
+            # the directory is owner-only instead, so other host users cannot
+            # reach it (dockerd sets up the bind mount as root, unaffected).
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            with open(output_path, 'w', encoding="utf-8") as f:
-                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-            
+            output_path.parent.chmod(0o700)
+            # The 0700 directory above protects this secret-bearing file;
+            # following a symlink would write it somewhere unprotected.
+            atomic_replace_text(
+                output_path,
+                yaml.dump(config, default_flow_style=False, sort_keys=False),
+                mode=0o644,
+            )
+
             return True
         except Exception as e:
             print(f"❌ Failed to write Kong configuration: {e}")

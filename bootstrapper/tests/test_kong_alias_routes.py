@@ -114,7 +114,7 @@ def test_backend_kong_auth_disabled_by_default():
     config = _generate("")
     backend = _service(config, "backend-api")
 
-    assert backend["plugins"] == [{"name": "cors"}]
+    assert [plugin["name"] for plugin in backend["plugins"]] == ["cors"]
     assert not [
         consumer
         for consumer in config["consumers"]
@@ -131,6 +131,7 @@ def test_backend_kong_auth_key_auth_adds_consumer_and_route_plugins():
     plugin_names = [plugin["name"] for plugin in backend["plugins"]]
 
     assert plugin_names == ["cors", "key-auth", "acl"]
+    # The apikey is forwarded: key-auth plugins re-check it in the backend.
     assert backend["plugins"][1]["config"] == {"key_names": ["apikey"]}
     assert backend["plugins"][2]["config"] == {"allow": ["backend_api"]}
 
@@ -194,7 +195,7 @@ def test_backend_route_auth_empty_is_historical_single_route():
     """No overrides → byte-identical to the pre-#402 shape (regression guard)."""
     config = _generate_with_plugin_auth("", [])
     backend = _service(config, "backend-api")
-    assert backend["plugins"] == [{"name": "cors"}]
+    assert [plugin["name"] for plugin in backend["plugins"]] == ["cors"]
     assert backend["routes"] == [
         {"name": "backend-api-all", "strip_path": False, "hosts": ["api.localhost"]}
     ]
@@ -209,7 +210,7 @@ def test_backend_route_auth_open_prefix_opts_out_of_key_auth_default():
     )
     backend = _service(config, "backend-api")
     # cors stays at the service level; auth composes per route.
-    assert backend["plugins"] == [{"name": "cors"}]
+    assert [plugin["name"] for plugin in backend["plugins"]] == ["cors"]
     routes = {r["name"]: r for r in backend["routes"]}
     assert _plugin_names(routes["backend-api-public"]) == []          # open → no auth
     assert routes["backend-api-public"]["paths"] == ["/public"]
@@ -309,9 +310,11 @@ def test_backend_timeout_partial_override_gets_dedicated_service():
     ]
     assert timed["read_timeout"] == 900_000
     assert "connect_timeout" not in timed
-    assert "write_timeout" not in timed
+    # Unset fields take the backend's long timeout (like the catch-all
+    # backend-api service), not Kong's 60s.
+    assert timed["write_timeout"] == 3_630_000
     assert timed["url"] == "http://backend:8000/"
-    assert timed["plugins"] == [{"name": "cors"}]
+    assert [plugin["name"] for plugin in timed["plugins"]] == ["cors"]
     assert timed["routes"] == [
         {
             "name": "backend-api-tableau",
@@ -923,7 +926,12 @@ def test_n8n_forwarded_host_header_has_resolved_port():
     for plugin in n8n_services[0].get("plugins", []):
         if plugin.get("name") == "request-transformer":
             headers = plugin["config"]["add"]["headers"]
-    assert headers == ["X-Forwarded-Host: n8n.localhost:64000"], headers
+    # Kong overwrites X-Forwarded-Host (portless); n8n's origin check reads
+    # the Forwarded header first, so it must carry the Kong host:port.
+    assert headers == [
+        "X-Forwarded-Host: n8n.localhost:64000",
+        "Forwarded: host=n8n.localhost:64000;proto=http",
+    ], headers
     assert not any("${" in h for h in headers)
 
 
@@ -939,3 +947,132 @@ def test_dashboard_route_is_basic_auth_gated():
     assert "basic-auth" in plugin_names
     acl = [p for p in dash[0]["plugins"] if p["name"] == "acl"]
     assert acl and acl[0]["config"]["allow"] == ["dashboard_user"]
+
+
+def test_chatterbox_container_listens_where_kong_and_tts_point():
+    """The pinned image defaults PORT=5123 and caches under MODEL_CACHE_DIR
+    (/cache) as user `app`; compose must pin 4123 and mount the cache there."""
+    from pathlib import Path
+
+    import yaml
+
+    compose = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / "services/chatterbox/compose.yml")
+        .read_text(encoding="utf-8")
+    )["services"]["chatterbox"]
+    assert compose["environment"]["PORT"] == "4123"
+    assert compose["ports"][0].endswith(":4123")
+    assert "http://localhost:4123/health" in compose["healthcheck"]["test"]
+    assert "chatterbox-cache:/cache" in compose["volumes"]
+
+
+def test_realtime_websocket_route_requires_the_apikey():
+    """docs/operations/access-and-credentials.md lists /realtime/v1 among the
+    key-auth paths (as upstream Supabase does); the WebSocket had only CORS."""
+    config = _generate("")
+    ws = next(svc for svc in config["services"] if svc["name"] == "realtime-v1-ws")
+    assert {"name": "key-auth", "config": {"key_names": ["apikey"]}} in ws["plugins"]
+
+
+def test_every_service_gets_the_gateway_timeout_unless_it_declares_one():
+    """KONG_PROXY_READ_TIMEOUT is not a Kong setting; without per-service
+    values the 60s default cut off slow LLM calls and idle streams."""
+    config = _generate_with_plugin_auth("", [], [("tableau", "/tableau", {"read_timeout": 900_000})])
+    for service in config["services"]:
+        assert service["read_timeout"] >= 60_000 and service["write_timeout"] >= 60_000, service["name"]
+    # The backend waits on Docling (930 s) and ComfyUI jobs (up to 3600 s).
+    assert _service(config, "backend-api")["read_timeout"] == 3_630_000
+    assert _service(config, "litellm-gateway")["read_timeout"] == 630_000
+    assert _service(config, "backend-api-plugin-tableau")["read_timeout"] == 900_000
+
+
+def test_asset_baker_route_outlasts_the_bake_timeout():
+    """Kong's 300 s default cut 300-600 s bakes (ASSET_BAKER_TIMEOUT_SECONDS=600)."""
+    from utils.kong_config_generator import KongConfigGenerator
+
+    gen = KongConfigGenerator.__new__(KongConfigGenerator)
+    gen.env_vars = {"ASSET_BAKER_SOURCE": "container-cpu", "ASSET_BAKER_TIMEOUT_SECONDS": "600"}
+    gen.get_env_value = lambda name, default=None: gen.env_vars.get(name, default)
+    service = gen.generate_asset_baker_service()
+    assert service["read_timeout"] == service["write_timeout"] == 630_000
+    from utils.kong_config_generator import _bake_timeout_ms
+
+    assert _bake_timeout_ms(" 900.0 ") == 930_000  # the worker reads it with float()
+    assert _bake_timeout_ms("1e9") == 2**31 - 2  # beyond Kong's limit breaks the config
+    assert _bake_timeout_ms("nan") == _bake_timeout_ms("junk") == 630_000
+
+
+def test_cors_is_scoped_to_local_browser_origins():
+    # A bare `cors` plugin answers Access-Control-Allow-Origin: *, so any
+    # website could read and write the no-login services cross-origin.
+    from utils.kong_config_generator import KongConfigGenerator
+
+    services = KongConfigGenerator._with_local_cors(
+        [{"name": "s", "plugins": [{"name": "cors"}], "routes": [{"plugins": [{"name": "cors"}]}]}]
+    )
+    for plugin in (services[0]["plugins"][0], services[0]["routes"][0]["plugins"][0]):
+        assert plugin["config"]["origins"] == KongConfigGenerator._LOCAL_CORS_ORIGINS
+        assert "*" not in plugin["config"]["origins"]
+
+
+def test_extra_cors_origins_are_appended_as_exact_matches():
+    from core.config_parser import ConfigParser
+    from utils.kong_config_generator import KongConfigGenerator
+
+    gen = KongConfigGenerator(ConfigParser(str(Path(__file__).resolve().parents[2])))
+    gen.load_environment_variables = lambda: setattr(
+        gen, "env_vars", {"KONG_CORS_EXTRA_ORIGINS": "http://192.168.1.5:3000, https://app.example.com"}
+    )
+    gen.load_environment_variables()
+    origins = gen._cors_origins()
+    assert origins[:2] == KongConfigGenerator._LOCAL_CORS_ORIGINS
+    assert origins[2:] == [r"http://192\.168\.1\.5:3000", r"https://app\.example\.com"]
+
+
+
+def test_extra_cors_origins_are_normalised_or_refused(capsys):
+    from utils.kong_config_generator import _canonical_origin
+
+    assert _canonical_origin("HTTPS://App.Example.com/") == "https://app.example.com"
+    assert _canonical_origin("https://app.example.com:443") == "https://app.example.com"
+    assert _canonical_origin("http://192.168.1.5:3000") == "http://192.168.1.5:3000"
+    assert _canonical_origin("http://[FD00::1]:3000") == "http://[fd00::1]:3000"
+    for bad in ("*", "https://*.example.com", "app.example.com", "https://a.com/path",
+                "http://a.com:99999", "http://a.com:abc", "http://user:pw@a.com"):
+        assert _canonical_origin(bad) is None
+
+
+def test_public_and_signed_storage_urls_skip_key_auth():
+    # <img> tags and outside services cannot send an apikey; Storage checks
+    # the public flag / signed token itself. Everything else keeps key-auth.
+    services = {svc["name"]: svc for svc in _generate("")["services"]}
+    for kind in ("public", "sign", "upload/sign"):
+        svc = services[f"storage-v1-object-{kind.replace('/', '-')}"]
+        assert svc["url"] == f"http://supabase-storage:5000/object/{kind}/"
+        assert svc["routes"][0]["paths"] == [f"/storage/v1/object/{kind}/"]
+        assert [plugin["name"] for plugin in svc["plugins"]] == ["cors"]
+    assert "key-auth" in [plugin["name"] for plugin in services["storage-v1"]["plugins"]]
+
+
+def test_long_running_timeouts_track_docling_and_stay_under_kongs_limit():
+    from utils.kong_config_generator import KongConfigGenerator, _KONG_MAX_TIMEOUT_MS
+
+    def services(env):
+        gen = KongConfigGenerator.__new__(KongConfigGenerator)
+        gen.get_env_value = lambda name, default="": env.get(name, default)
+        names = ["docling-api", "backend-api", "backend-api-plugin-x"]
+        return {s["name"]: s["read_timeout"] for s in gen._with_long_running_timeouts([{"name": n} for n in names])}
+
+    assert services({"DOCLING_INFERENCE_TIMEOUT_SECONDS": "1200"})["docling-api"] == 1_230_000
+    assert services({"DOCLING_INFERENCE_TIMEOUT_SECONDS": "abc"})["docling-api"] == 930_000
+    huge = services({"DOCLING_INFERENCE_TIMEOUT_SECONDS": "9999999"})
+    assert max(huge.values()) <= _KONG_MAX_TIMEOUT_MS  # else Kong drops every route
+    assert huge["backend-api-plugin-x"] == huge["backend-api"]
+
+
+def test_empty_dashboard_username_falls_back_instead_of_breaking_kong():
+    config = _generate("DASHBOARD_USERNAME=\n")
+    usernames = [
+        cred["username"] for c in config["consumers"] for cred in c.get("basicauth_credentials", [])
+    ]
+    assert "kong_admin" in usernames and "" not in usernames

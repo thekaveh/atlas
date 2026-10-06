@@ -18,8 +18,8 @@ After generating a report or output to a file, always display a summary or the f
 
 Use the three-surface documentation skills for Atlas docs work:
 
-- `three-surface-docs` (`/Users/kaveh/.agents/skills/three-surface-docs/SKILL.md`) — use when creating, fixing, or extending the synchronized in-repo docs, generated MkDocs `.io` site, and GitHub wiki pipeline. Load its `reference.md` before implementation work that changes the pipeline shape, generated surfaces, wiki publishing, MkDocs config, manifest behavior, diagram propagation, or cross-surface link rewriting.
-- `three-surface-docs-audit` (`/Users/kaveh/.agents/skills/three-surface-docs-audit/SKILL.md`) — use for read-only audits of documentation health, especially before releases, after docs changes, when docs CI is red, or when checking that README, repo docs, generated site, and wiki remain self-contained and in sync. Present findings before making fixes.
+- `three-surface-docs` — use when creating, fixing, or extending the synchronized in-repo docs, generated MkDocs `.io` site, and GitHub wiki pipeline. Load its `reference.md` before implementation work that changes the pipeline shape, generated surfaces, wiki publishing, MkDocs config, manifest behavior, diagram propagation, or cross-surface link rewriting.
+- `three-surface-docs-audit` — use for read-only audits of documentation health, especially before releases, after docs changes, when docs CI is red, or when checking that README, repo docs, generated site, and wiki remain self-contained and in sync. Present findings before making fixes.
 
 When docs architecture diagrams are created or materially changed, use the `architecture-diagram` skill for the diagram masters and keep generated diagram assets synchronized across all required surfaces.
 
@@ -64,7 +64,8 @@ Gitflow integration uses two PRs: branch (typically a dedicated git worktree) �
 # use the CLI flag — a shell-env prefix does not configure the bootstrapper)
 ./start.sh --llm-provider-source ollama-container-gpu
 
-# Equivalent CLI flag form (skips the wizard for the flags you set)
+# CLI flag form: any source, stack, model or key flag skips the whole wizard
+# (--track, --profile, --project and --consumer alone still open it)
 ./start.sh --llm-provider-source ollama-container-gpu --comfyui-source container-gpu
 
 # Switch base port to avoid conflicts (all service ports recompute from this)
@@ -149,22 +150,12 @@ Key modules:
 - `ui/term_caps.py` — `is_tui_capable(no_tui_flag)` helper used by `start.py` to decide between the Textual app and the linear flow
 - `wizard/model/` — Wizard Model layer: `state.py`, `state_builder.py`,
   `service_discovery.py`, plus the extracted domain rules (`cloud_rules.py`,
-  `llm_rules.py`). The track force-disable rule lives in `tracks.py`
-  (`synthesize_track_source_args`) — a former second copy of it,
-  `wizard/model/track_rules.py`, was deleted in the #535 followups review
-  (finding R1) once it was shown to have already drifted from the one
-  `--no-tui` uses; the wizard now calls `tracks.synthesize_track_source_args`
-  directly via a local, guarded import in `_selections_to_args`. No
-  module-scope `vmx` or `textual` imports — and, as of the #535 followups
-  review (finding R5), no deferred ones either: `llm_rules.selected_llm_source`
-  used to reach a ViewModel-owned `LLM_ENGINE_TITLE` constant via a
-  function-scope import of `wizard.llm_steps`, invisible to the static
-  layer check but real at runtime (calling it pulled ~139 `textual.*`
-  submodules into `sys.modules`); the constant moved into `llm_rules.py`
-  itself, which was its natural home all along. Consumed by BOTH the
-  Textual wizard and the `--no-tui` linear
-  flow. `state_builder.all_services()`
-  is the single source of truth for service definitions, consumed by both the
+  `llm_rules.py`). The track force-disable rule lives only in `tracks.py`
+  (`synthesize_track_source_args`), which the wizard calls from
+  `_selections_to_args`. No `vmx` or `textual` imports, at module scope or
+  deferred (`test_wizard_layer_boundaries.py`). Consumed by BOTH the Textual
+  wizard and the `--no-tui` linear flow. `state_builder.all_services()` is the
+  single source of truth for service definitions, consumed by both the
   Textual `ServiceTable` and the `--no-tui` `build_pre_launch_summary_table`;
   `service_discovery.py` supplies the metadata (display name, description,
   options) `ui/textual/integration.py` uses to build the wizard prompt steps.
@@ -183,7 +174,7 @@ Key modules:
   from `wizard.model.cloud_rules` instead of through
   `widgets/prompt_panel.py`'s re-export.)
 - `utils/kong_config_generator.py` — dynamic Kong route generation (the `kong-dynamic.yml` it emits is regenerated at every startup; do NOT edit by hand)
-- `generate_supabase_keys.py` (and `.sh` sibling) — auto-runs at startup, generates Supabase JWT keys into `.env`
+- `generate_supabase_keys.py` (and `.sh` sibling) — runs at startup only when all three Supabase keys are blank, generating JWT keys into `.env` (no `.env` snapshot is taken)
 
 The layer direction (`view -> viewmodel -> model`) is enforced by
 `bootstrapper/tests/test_wizard_layer_boundaries.py`, to the extent each layer
@@ -198,7 +189,7 @@ of silently going stale. The suite also asserts that `core/linear_startup.py`
 never imports `vmx` — that is what makes the `--no-tui` path structurally
 VMx-free rather than VMx-free by convention.
 
-`start.sh` and `stop.sh` are thin wrappers that prefer `uv run` and fall back to system Python. The bootstrapper can also be invoked directly: `python bootstrapper/start.py [flags]` or `python bootstrapper/stop.py`. `--no-tui` bypasses the Textual TUI and runs the linear stdout flow (used by CI, non-TTY shells, and very narrow terminals).
+`start.sh` and `stop.sh` are thin wrappers that prefer `uv run` and fall back to system Python. The bootstrapper can also be invoked directly with its dependencies available, e.g. `uv run --project bootstrapper python bootstrapper/start.py [flags]` (a bare system `python` lacks `click` and the other dependencies). `--no-tui` bypasses the Textual TUI and runs the linear stdout flow (used by CI, non-TTY shells, and very narrow terminals).
 
 Dependencies are managed via `uv` (with a pip fallback) and declared in `bootstrapper/pyproject.toml`, including the Python-version markers needed at the supported Python `>=3.10` floor. Treat that file and `bootstrapper/uv.lock` as the dependency source of truth rather than duplicating the inventory here.
 

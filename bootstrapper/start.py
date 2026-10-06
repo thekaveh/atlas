@@ -39,6 +39,7 @@ from services.migrations.migration_v4 import (
     stamp_version as _stamp_v4,
 )
 from services.migrations.migration_v5 import (
+    MigrationV5Error,
     apply as _apply_v5,
     needs_migration as _needs_v5,
     stamp_version as _stamp_v5,
@@ -100,12 +101,92 @@ def _profile_host_bind_overrides(
     return {}, prior_applied, switching
 
 
-def _run_privileged_hosts_setup() -> bool:
+def _ollama_is_engine(env: Dict[str, str]) -> bool:
+    return (env.get("LLM_PROVIDER_SOURCE") or "").strip().lower().startswith("ollama-")
+
+
+def _stale_ollama_default_keys(env: Dict[str, str]) -> set:
+    """Default-model keys naming ``ollama/*`` while Ollama is not the engine."""
+    if _ollama_is_engine(env):
+        return set()
+    return {
+        key for key in (
+            "LITELLM_DEFAULT_MODEL", "LITELLM_VISION_MODEL",
+            "LITELLM_EMBEDDING_MODEL", "LANGMEM_EMBEDDING_MODEL",
+        )
+        if (env.get(key) or "").strip().startswith("ollama/")
+    }
+
+
+def _embedding_replacement(env: Dict[str, str], stale: set) -> str:
+    """The embedding model the stale ``ollama/*`` embedding pair moves to.
+
+    A deliberate non-Ollama LangMem override wins, so the pair stays aligned
+    (``apply_user_model_selections`` refuses a misaligned pair); otherwise
+    the best active embedding model, or the already non-Ollama LiteLLM one.
+    """
+    from utils.model_resolver import best  # noqa: PLC0415
+
+    langmem = (env.get("LANGMEM_EMBEDDING_MODEL") or "").strip()
+    if langmem and "LANGMEM_EMBEDDING_MODEL" not in stale:
+        return langmem
+    if "LITELLM_EMBEDDING_MODEL" not in stale:
+        return (env.get("LITELLM_EMBEDDING_MODEL") or "").strip()
+    return best("embeddings", env) or ""
+
+
+def _ollama_default_replacements(env: Dict[str, str]) -> Dict[str, str]:
+    """Replacements for ``ollama/*`` default models when Ollama is not the
+    LLM engine (see ``AtlasStarter.reconcile_default_models``). Blank
+    resolutions are dropped: the end-of-run backfill would only restore the
+    template's ``ollama/*`` value in the same launch."""
+    from utils.cloud_providers import CLOUD_PROVIDERS  # noqa: PLC0415
+    from utils.model_resolver import resolved_defaults  # noqa: PLC0415
+
+    # The LITELLM_<PROVIDER>_ENABLED flags the resolver reads are written
+    # later (generate_service_configuration); derive them from this run's
+    # CLOUD_*_SOURCE values so a first launch, or a provider just toggled,
+    # is judged by what this launch will route.
+    env = {
+        **env,
+        **{
+            p.enabled_flag_var: "true" if env.get(p.source_var) == "enabled" else "false"
+            for p in CLOUD_PROVIDERS
+        },
+    }
+    stale = _stale_ollama_default_keys(env)
+    updates = {
+        key: value for key, value in resolved_defaults(env).items()
+        if key in stale and value
+    }
+    if not stale & {"LITELLM_EMBEDDING_MODEL", "LANGMEM_EMBEDDING_MODEL"}:
+        return updates
+    embedding = _embedding_replacement(env, stale)
+    if not embedding:
+        print(
+            "WARNING: the default embedding model names Ollama, which is not "
+            "enabled, and no active provider offers an embedding model; memory "
+            "and RAG embedding calls will fail until one is selected."
+        )
+        return updates
+    # Both keys are always passed so apply_user_model_selections recomputes
+    # LANGMEM_EMBEDDING_DIM for the pair.
+    updates["LITELLM_EMBEDDING_MODEL"] = embedding
+    if (env.get("LANGMEM_EMBEDDING_MODEL") or "").strip():
+        updates["LANGMEM_EMBEDDING_MODEL"] = embedding
+    return updates
+
+
+def _run_privileged_hosts_setup(non_interactive: bool = False) -> bool:
     """Run only the hosts-file mutation in a sudo child process.
 
     The shell wrapper intentionally refuses to run the whole startup flow as
     root because that creates root-owned repo artifacts. For `--setup-hosts`,
     ask for elevation only around the one operation that needs it.
+
+    ``non_interactive`` uses ``sudo -n`` with captured output, for callers
+    that cannot hand the terminal to a password prompt (the Textual wizard):
+    it succeeds only when sudo needs no password.
     """
     from utils.system import is_elevated
 
@@ -130,10 +211,12 @@ def _run_privileged_hosts_setup() -> bool:
         "from utils.hosts_manager import HostsManager; "
         "raise SystemExit(0 if HostsManager().setup_hosts_entries() else 1)"
     )
-    print("  • --setup-hosts needs to edit your hosts file; requesting sudo for that write only.")
+    if not non_interactive:
+        print("  • --setup-hosts needs to edit your hosts file; requesting sudo for that write only.")
     result = subprocess.run(
         [
             "sudo",
+            *(["-n"] if non_interactive else []),
             "env",
             f"PYTHONPATH={env['PYTHONPATH']}",
             "PYTHONDONTWRITEBYTECODE=1",
@@ -144,13 +227,16 @@ def _run_privileged_hosts_setup() -> bool:
         cwd=repo_root,
         env=env,
         check=False,
+        capture_output=non_interactive,
     )
     return result.returncode == 0
 
 # Add the current directory to the path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent))
 
-from utils.atomic_write import atomic_write_text, env_lines, render_env_assignment
+from utils.atomic_write import (
+    atomic_replace_text, atomic_write_text, create_private_backup, env_lines, render_env_assignment,
+)
 from utils.banner import BannerDisplay
 from utils.hosts_manager import HostsManager
 from utils.key_generator import KeyGenerator
@@ -172,7 +258,7 @@ from services.service_config import ServiceConfig
 from services.dependency_manager import DependencyManager
 from utils.source_override_manager import SourceOverrideManager
 
-#: Multi-select lists the wizard writes, where BLANK is a deliberate answer —
+#: Lists (mostly wizard multi-selects) where BLANK is a deliberate answer —
 #: "I selected none" — not a missing value. `.env.example` ships a non-empty
 #: default for each, so the blank-backfill in backfill_missing_env_vars would
 #: otherwise re-seed them on the very run that cleared them: deselecting every
@@ -197,7 +283,149 @@ _USER_OWNED_BLANKABLE: frozenset = frozenset({
     # is belt-and-braces: `services/n8n/compose.yml` substitutes its defaults
     # with `${N8N_INIT_NODES:-...}`, so a blank there is already harmless.
     "N8N_INIT_NODES",
+    # Blanked on purpose by ServiceConfig when MULTI2VEC_CLIP_SOURCE is
+    # disabled; refilling it here contradicted that decision every launch.
+    # ServiceConfig restores the URL itself when CLIP is enabled again (its
+    # `... or 'http://multi2vec-clip:8080'` treats a blank as unset).
+    "CLIP_INFERENCE_API",
+    # Documented as "blank = no Atlas-created demo topics"; refilling it from
+    # .env.example re-created atlas_stream_events on every launch.
+    "REDPANDA_DEMO_TOPICS",
 })
+
+
+def _env_example_values(env_example_path) -> dict[str, str]:
+    """Shipped ``.env.example`` scalar defaults (``KEY=value`` lines)."""
+    try:
+        text = env_example_path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    values: dict[str, str] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, val = line.partition("=")
+            values[key.strip()] = val.strip()
+    return values
+
+
+# Consumer-manifest keys derived from plugins/sidecars (#451): the only ones
+# preflight refreshes once a start has persisted the stack's own values.
+_PREFLIGHT_DERIVED_KEYS = frozenset({
+    "BACKEND_PLUGINS_DIR", "COMFYUI_CUSTOM_MODELS_FILE",
+    "COMFYUI_CUSTOM_NODES_FILE", "OLLAMA_CUSTOM_MODELS",
+})
+
+
+def _should_record_profile(overrides, auto_vars, switching: bool, env_vars: dict) -> bool:
+    """Record ATLAS_PROFILE_APPLIED when the profile changed anything, and
+    always on the first start (even a no-op default profile): the marker is
+    what tells doctor's preflight that this stack's values, including CLI
+    overrides, are persisted and must not be re-merged."""
+    return bool(overrides or auto_vars or switching) or not _known_applied_profile(env_vars)
+
+
+def _preflight_declared(consumer_config, env_vars: dict) -> dict:
+    """Manifest env a preflight may write. Once a start has persisted this
+    stack's values, including CLI overrides (--base-port, -p,
+    --<svc>-source) that must beat the manifest, re-merging the manifest
+    silently undid them (doctor then pointed .env, ports and PROJECT_NAME at
+    a different stack), so only the derived overlay paths (#451) and keys
+    .env does not hold yet (newly added to the manifest) remain."""
+    declared = dict(consumer_config.env_overrides or {})
+    if not _known_applied_profile(env_vars):
+        return declared
+    return {
+        key: value for key, value in declared.items()
+        if key in _PREFLIGHT_DERIVED_KEYS or key not in env_vars
+    }
+
+
+def _validate_consumer_manifests_early(starter, from_cli: bool) -> None:
+    """Fail on a bad --consumer / ATLAS_CONSUMER_MANIFEST manifest as a usage
+    error before anything mutates the checkout (not a traceback mid-setup)."""
+    if not from_cli and not os.environ.get("ATLAS_CONSUMER_MANIFEST", "").strip():
+        return
+    try:
+        starter.config_parser.load_consumer_config()
+    except Exception as exc:  # ConsumerManifestError + I/O failures
+        source = "--consumer" if from_cli else "ATLAS_CONSUMER_MANIFEST"
+        raise click.UsageError(f"invalid {source} manifest: {exc}") from exc
+
+
+def _known_applied_profile(env_vars: dict) -> str:
+    """``ATLAS_PROFILE_APPLIED`` canonicalized, or "" when blank/unknown."""
+    from services.profiles import canonical_profile, is_known_profile
+
+    applied = (env_vars.get("ATLAS_PROFILE_APPLIED") or "").strip()
+    return canonical_profile(applied) if applied and is_known_profile(applied) else ""
+
+
+def _manifest_source_vars(consumer_config) -> set[str]:
+    """Non-empty ``*_SOURCE`` keys a consumer manifest declares (env.values
+    or env.file)."""
+    declared = getattr(consumer_config, "env_overrides", None) or {}
+    return {var for var, value in declared.items() if var.endswith("_SOURCE") and value}
+
+
+def _operator_env_keys(starter, consumer_config) -> set[str]:
+    """Keys an operator pinned this run: ``.env.user`` overlay + manifest env."""
+    keys = set(getattr(starter, "_env_user_keys", None) or ())
+    return keys | set(getattr(consumer_config, "env_overrides", None) or {})
+
+
+def _replaceable_env(maps: list[dict], protected: set[str]) -> list[dict]:
+    """Drop operator-pinned keys so a profile never treats them as defaults."""
+    return [{k: v for k, v in m.items() if k not in protected} for m in maps]
+
+
+def _prior_profile_env(bundles: dict, prior_applied: str, switching: bool) -> dict:
+    """The env the prior profile wrote, when this run switches profiles."""
+    prior = bundles.get(prior_applied) if switching else None
+    return prior.env if prior is not None else {}
+
+
+def _profile_env_overrides(
+    active: str, declared: dict, env_vars: dict, replaceable: list[dict],
+) -> dict[str, str]:
+    """A profile's ``env`` values for .env, keeping operator-set ones.
+
+    A value is operator-set only when it differs from every ``replaceable``
+    map (the shipped ``.env.example`` defaults, the prior profile's env): every
+    profile-managed knob ships a non-empty default, so "unset or empty" alone
+    never let a profile (or a consumer ``profile_overrides`` env) apply.
+    """
+    overrides: dict[str, str] = {}
+    for env_key, declared_value in declared.items():
+        current = env_vars.get(env_key)
+        if current == declared_value:
+            continue
+        if not current or any(current == m.get(env_key) for m in replaceable):
+            overrides[env_key] = declared_value
+            if current:
+                print(
+                    f"profile={active}: set {env_key}={declared_value!r} "
+                    f"(was the shipped or prior-profile default {current!r})"
+                )
+        else:
+            print(
+                f"profile={active}: keeping operator-set {env_key}={current!r} "
+                f"(profile default is {declared_value!r})"
+            )
+    return overrides
+
+
+def _catalog_embedding_dim_repair(env: dict) -> dict[str, str]:
+    """LANGMEM_EMBEDDING_DIM when a catalog embedding model's declared dim
+    differs from .env; the contract rejects that pair, so it only arises from
+    a corrected catalog entry. Custom (uncatalogued) models are left alone."""
+    from utils.model_resolver import dim_for_model_id  # noqa: PLC0415
+
+    model = (env.get("LANGMEM_EMBEDDING_MODEL") or env.get("LITELLM_EMBEDDING_MODEL") or "").strip()
+    dim = dim_for_model_id(model)
+    if dim is None or str(dim) == (env.get("LANGMEM_EMBEDDING_DIM") or "").strip():
+        return {}
+    return {"LANGMEM_EMBEDDING_DIM": str(dim)}
 
 
 def _detect_env_image_drift(
@@ -321,6 +549,9 @@ class AtlasStarter:
         # redacted bundle. Both the linear flow and the Textual launch screen
         # read it from here.
         self.support_bundle_path: Optional[Path] = None
+        # Set when the port check stopped this project's running stack, so a
+        # later decline/failure can say it is down (the stop is not undone).
+        self.stopped_previous_instance: bool = False
 
 
     def show_banner(self):
@@ -399,10 +630,11 @@ class AtlasStarter:
         ``profile_overrides:`` merged on top. Field semantics (preserving the
         behaviors this method used to hard-code):
 
-        - ``host_bind_ip``: non-empty → asserted on every start of this
-          profile (the defining prod property). Empty/undeclared → cleared
-          only when the current value equals another profile's non-empty
-          bind (sentinel discipline; an operator's custom bind is kept).
+        - ``host_bind_ip``: non-empty → fills a blank ``HOST_BIND_IP`` and
+          replaces a bind the prior profile asserted during a profile switch;
+          an operator's non-empty bind (e.g. ``0.0.0.0:``) is kept, as
+          ``profiles.yml`` documents. Empty/undeclared → cleared only when
+          the current value equals another profile's non-empty bind.
         - ``sources``: asserted on every start of this profile, EXCEPT when
           that service's source was set by an explicit CLI flag this run
           (operator wins — tracked via ``_explicit_source_vars`` plus the
@@ -413,8 +645,12 @@ class AtlasStarter:
           default first, so transitions leave no residue; a same-profile
           restart never resets (a wizard/operator selection that happens to
           equal a bundle value is safe).
-        - ``env``: applied only when the var is unset/empty; an operator-set
-          value is kept with a one-line notice (the LOG_MAX_* discipline).
+        - ``env``: applied when the var is unset/empty, the shipped
+          ``.env.example`` default, or (on a switch) the prior profile's value
+          for the same key, unless ``.env.user`` or the consumer manifest pins
+          it; any other operator-set value is kept with a notice (LOG_MAX_*).
+          Consumer-manifest ``env.values`` ``*_SOURCE`` keys count as explicit
+          (CLI flag > manifest > profile).
 
         Called from both the linear (--no-tui) path and the TUI wizard
         pipeline so profile configuration applies regardless of how Atlas is
@@ -455,6 +691,9 @@ class AtlasStarter:
         )
 
         explicit_vars = set(getattr(self, "_explicit_source_vars", set()) or set())
+        # Consumer manifest env.values beat the profile, as they beat the
+        # track (#783): CLI flag > manifest > profile.
+        explicit_vars.update(_manifest_source_vars(consumer_config))
         for legacy_service, legacy_value in (
             ("prometheus", explicit_prometheus),
             ("grafana", explicit_grafana),
@@ -535,19 +774,21 @@ class AtlasStarter:
             overrides[var] = source_id
 
         # ── env: defaults unless operator-set ────────────────────────
-        for env_key, declared_value in bundle.env.items():
-            current = env_vars.get(env_key)
-            if not current:
-                overrides[env_key] = declared_value
-            elif current != declared_value:
-                print(
-                    f"profile={active}: keeping operator-set {env_key}={current!r} "
-                    f"(profile default is {declared_value!r})"
-                )
+        overrides.update(_profile_env_overrides(
+            active, bundle.env, env_vars,
+            _replaceable_env(
+                [
+                    _env_example_values(self.config_parser.env_example_path),
+                    _prior_profile_env(bundles, prior_applied, switching),
+                ],
+                _operator_env_keys(self, consumer_config),
+            ),
+        ))
 
-        # Write the marker only when this run actually changes something (or
-        # completes a switch) — a no-op run must leave .env byte-identical.
-        if overrides or auto_vars or switching:
+        # Write the marker when this run changes something or completes a
+        # switch, and on the first start; a later no-op run leaves .env
+        # byte-identical.
+        if _should_record_profile(overrides, auto_vars, switching, env_vars):
             overrides["ATLAS_PROFILE_APPLIED"] = active
         if overrides and not self.source_override_manager.update_env_file(overrides):
             return False
@@ -651,6 +892,54 @@ class AtlasStarter:
                 embedding_dimension_contract(effective_embed, configured_dimension)
             )
         return self.source_override_manager.update_env_file(selections)
+
+    def reconcile_default_models(self) -> bool:
+        """Repoint default models that name an inactive Ollama engine.
+
+        `.env.example` ships ``ollama/*`` chat, vision and embedding defaults.
+        The wizard's default-model steps replace them, but a CLI-flag or
+        consumer launch with ``LLM_PROVIDER_SOURCE=none`` kept them, and
+        LiteLLM registers only active models: every default chat and every
+        embedding call failed with "invalid model". Only ``ollama/*`` values
+        with no Ollama source are touched, so a deliberately chosen model is
+        never overwritten.
+        """
+        env = self.config_parser.parse_env_file()
+        replacements = _ollama_default_replacements(env)
+        changed = {
+            key: value for key, value in replacements.items() if value != env.get(key)
+        }
+        for key, value in sorted(changed.items()):
+            print(f"Default model {key}: {env.get(key)} -> {value} (Ollama is not enabled)")
+        # The embedding pair goes through the normal path, unchanged half
+        # included, so its dimension contract (LANGMEM_EMBEDDING_DIM)
+        # follows the new model.
+        if changed.keys() & {"LITELLM_EMBEDDING_MODEL", "LANGMEM_EMBEDDING_MODEL"}:
+            for key in ("LITELLM_EMBEDDING_MODEL", "LANGMEM_EMBEDDING_MODEL"):
+                if key in replacements:
+                    changed[key] = replacements[key]
+        if not changed:
+            return self._repair_catalog_embedding_dim(env)
+        try:
+            return self.apply_user_model_selections(changed)
+        except ValueError as exc:
+            # An embedding contract that was already inconsistent (e.g. a
+            # custom model with no declared dimension) must not abort a launch
+            # this best-effort repair was never needed for.
+            print(f"WARNING: default models left unchanged: {exc}")
+            return True
+
+    def _repair_catalog_embedding_dim(self, env: dict) -> bool:
+        """Follow a corrected catalog dimension (qwen3-embedding:0.6b was
+        declared 1536 but emits 1024) without waiting for a wizard re-run."""
+        repair = _catalog_embedding_dim_repair(env)
+        if not repair:
+            return True
+        print(
+            f"Embedding dimension LANGMEM_EMBEDDING_DIM: {env.get('LANGMEM_EMBEDDING_DIM')} "
+            f"-> {repair['LANGMEM_EMBEDDING_DIM']} (catalog value for the embedding model)"
+        )
+        return self.source_override_manager.update_env_file(repair)
 
     def validate_source_configurations(self) -> bool:
         """Validate all SOURCE configurations and scale values against YAML.
@@ -930,15 +1219,30 @@ class AtlasStarter:
             # Standalone doctor/endpoints runs never pass --profile; resolve
             # against the consumer manifest's declared default so `auto`
             # cannot poison a prod deployment's .env with dev-only sources.
-            self.profile = getattr(consumer_config, "profile", None) or "default"
+            # A running stack's applied profile (a launch-time --profile)
+            # outranks the manifest default.
+            self.profile = (
+                _known_applied_profile(self.config_parser.parse_env_file())
+                or getattr(consumer_config, "profile", None) or "default"
+            )
+        declared = _preflight_declared(consumer_config, self.config_parser.parse_env_file())
         overrides = self._resolve_auto_source_overrides(
-            self._resolve_auto_base_port_override(
-                dict(consumer_config.env_overrides or {})
-            ),
+            self._resolve_auto_base_port_override(declared),
             quiet=True,
         )
         if overrides:
             self._merge_env_file_overrides(overrides)
+            # Writing BASE_PORT alone left every *_PORT on the old block, so
+            # `endpoints export` after `doctor` passed its drift check while
+            # emitting ports from the wrong stack. Recompute them, as a start does.
+            base_port = _parsed_base_port(str(overrides.get("BASE_PORT", "")))
+            # Validate first: update_env_ports prints to stdout on a bad value,
+            # which would corrupt `doctor --format json`; the doctor base-port
+            # check fails on it instead.
+            if base_port is not None and self.port_manager.validate_base_port(base_port):
+                # Same env file as the merge above (ATLAS_ENV_FILE / test roots).
+                self.port_manager.config_parser = self.config_parser
+                self.port_manager.update_env_ports(base_port, create_backup=False)
         return overrides
 
     def _merge_env_file_overrides(self, overrides: Dict[str, str]) -> None:
@@ -963,12 +1267,14 @@ class AtlasStarter:
             # run rewrites only the first line and leaves the remainder in
             # place permanently.
             var_value = render_env_assignment(var_name, raw_value)
-            pattern = rf"^{re.escape(var_name)}=.*$"
+            # `export KEY=` is KEY to Compose and parse_env_file: rewrite it
+            # in place too (keeping `export`) or it would win over this value.
+            pattern = rf"^(export[ \t]+)?{re.escape(var_name)}=.*$"
             replacement = f"{var_name}={var_value}"
             if re.search(pattern, updated_content, re.MULTILINE):
                 updated_content = re.sub(
                     pattern,
-                    lambda _m, r=replacement: r,
+                    lambda m, r=replacement: (m.group(1) or "") + r,
                     updated_content,
                     flags=re.MULTILINE,
                 )
@@ -1296,6 +1602,22 @@ class AtlasStarter:
                 existing_project_name = self.config_parser.get_project_name()
             except ValueError:
                 existing_project_name = None
+            # A cold start replaces .env with .env.example; keep a private copy
+            # first. It holds generated secrets plus operator-only values such
+            # as BACKUP_MANIFEST_HMAC_KEY, without which backups cannot be
+            # restored.
+            # Versioned: routine start-up backups share the plain slot and
+            # would rotate this copy out within a couple of starts; the cold
+            # slot keeps its own five most recent copies.
+            try:
+                saved_env = create_private_backup(env_file_path, version="cold")
+            except OSError as exc:
+                self.banner.show_status_message(
+                    f"Could not back up {env_file_path} before the cold start: {exc}",
+                    "error",
+                )
+                return False
+            self.banner.show_status_message(f"Saved the previous env file to {saved_env}", "info")
 
         # Check if .env exists, if not or if cold start is requested, create from .env.example
         if not env_file_path.exists() or cold_start:
@@ -1327,6 +1649,7 @@ class AtlasStarter:
                 self.banner.show_status_message(f"  •     to {env_file_path}", "info")
 
                 overlay_overrides = self._apply_env_user_overlay()
+                self._env_user_keys = set(overlay_overrides)
 
                 # Unset potentially lingering port environment variables if cold start and custom base port are used
                 effective_base_port = base_port if base_port is not None else DEFAULT_BASE_PORT
@@ -1351,6 +1674,7 @@ class AtlasStarter:
 
         os.chmod(env_file_path, 0o600)
         overlay_overrides = self._apply_env_user_overlay()
+        self._env_user_keys = set(overlay_overrides)
         if not self._persist_project_name(project_name):  # .env already exists and not cold start
             return False
         if project_name is None and overlay_overrides:
@@ -1397,18 +1721,7 @@ class AtlasStarter:
             )
             return True  # Non-fatal — surface compose's own error later.
 
-        existing_keys: set[str] = set()
-        blank_keys: set[str] = set()
-        for line in env_lines(env_text):
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            if "=" in stripped:
-                key, _, raw_value = stripped.partition("=")
-                key = key.strip()
-                existing_keys.add(key)
-                if not raw_value.split("#", 1)[0].strip():
-                    blank_keys.add(key)
+        existing_keys, blank_keys = _scan_env_keys(env_text)
 
         # Keys the migration chain (services/migrations) is about to
         # write: backfill must NOT seed them from .env.example, or
@@ -1490,6 +1803,7 @@ class AtlasStarter:
         )
         if not groups:
             return True
+        groups = self._rebase_backfilled_ports(groups)
 
         # Insert each group AT THE END of its matching section in the
         # user's .env. If the section doesn't exist in .env (older
@@ -1650,6 +1964,23 @@ class AtlasStarter:
             out_lines.extend(trailer)
 
         return "".join(out_lines), total, in_place_names, trailer_names
+
+    def _rebase_backfilled_ports(self, groups):
+        """Seed newly backfilled *_PORT keys on this stack's BASE_PORT block:
+        .env.example carries the default 63000 layout, which a headless
+        `env backfill` + compose/doctor/endpoints run would otherwise use."""
+        # Decoded like every reader (quotes, `export`, last assignment wins).
+        base_port = _parsed_base_port(self.config_parser.parse_env_file().get("BASE_PORT", "") or "")
+        if base_port is None or not self.port_manager.validate_base_port(base_port):
+            return groups
+        assignments = self.port_manager.calculate_port_assignments(base_port)
+        return [
+            (section, [
+                (context, key, str(assignments[key]) if key in assignments else value)
+                for context, key, value in entries
+            ])
+            for section, entries in groups
+        ]
 
     @staticmethod
     def _parse_env_example_sections(
@@ -1974,6 +2305,7 @@ class AtlasStarter:
                 self.banner.show_status_message(
                     "Previous instance stopped successfully", "success"
                 )
+                self.stopped_previous_instance = True
 
                 # Re-check ports after cleanup
                 conflicts = self.port_manager.get_port_conflicts(base_port)
@@ -1981,6 +2313,11 @@ class AtlasStarter:
             # If conflicts remain, show the original error
             if conflicts:
                 self.banner.show_status_message("Port conflicts detected:", "warning")
+                if self.stopped_previous_instance:
+                    self.banner.show_status_message(
+                        "  (the previous instance was stopped above and stays down)",
+                        "warning",
+                    )
                 for port_var, port in conflicts.items():
                     self.banner.show_status_message(
                         f"  • {port_var}: Port {port} is already in use", "warning"
@@ -2166,16 +2503,38 @@ class AtlasStarter:
                     "(--no-port-migrate); will re-prompt next run.[/dim]"
                 )
             else:
-                _apply_v5(env_path)
-                _stamp_v5(env_path)
-                self.banner.show_status_message(
-                    "Weaviate backup-module migration complete (v5).",
-                    "success",
-                )
+                try:
+                    _apply_v5(env_path)
+                except MigrationV5Error as exc:
+                    # A hand-edited .env (duplicate or malformed
+                    # WEAVIATE_ENABLE_MODULES line) must not crash every start
+                    # with a traceback. Like v4: report, leave unstamped, retry.
+                    self.banner.show_status_message(
+                        f"Weaviate backup-module migration (v5) skipped: {exc} "
+                        f"in {env_path}. Fix the line; the migration retries on "
+                        "the next start.",
+                        "warning",
+                    )
+                else:
+                    _stamp_v5(env_path)
+                    self.banner.show_status_message(
+                        "Weaviate backup-module migration complete (v5).",
+                        "success",
+                    )
 
     def generate_service_configuration(self) -> bool:
         """Generate and update service configuration."""
-        if not self.service_config.generate_and_update_env():
+        try:
+            generated = self.service_config.generate_and_update_env()
+        except ValueError as exc:
+            # The per-service gates (e.g. Spark needs MinIO) raise ValueError
+            # with an actionable message; the --no-tui flow has no handler
+            # above this step, so report it instead of a raw traceback.
+            # print, not the banner: the TUI swaps in a no-op banner and
+            # captures stdout into its log pane.
+            print(f"ERROR: {exc}")
+            return False
+        if not generated:
             return False
         # Finalize consumer object-storage (#404) AFTER endpoints are resolved
         # into .env by generate_and_update_env, and before compose up. Covers
@@ -3126,14 +3485,40 @@ class AtlasStarter:
         return True
         
     def handle_hosts_configuration(self, setup_hosts: bool, skip_hosts: bool) -> bool:
-        """Handle hosts file configuration. Silent unless setting up or errors."""
+        """Handle hosts file configuration. Never fatal: missing entries only
+        break the friendly ``*.localhost`` URLs, not the stack.
+
+        skip: no check. setup: add missing entries (see below). default:
+        warn once when entries are missing, as the wizard option and
+        ``--skip-hosts`` help promise.
+        """
         if skip_hosts:
             return True
 
         if setup_hosts:
-            return self.hosts_manager.setup_hosts_entries()
+            # The wizard runs this inside the Textual app, which the
+            # non-root wrapper never elevates and where sudo cannot prompt.
+            # Nothing to write needs no privilege; a passwordless sudo is
+            # used; otherwise the missing entries are reported, not fatal.
+            if not self.hosts_manager.check_missing_hosts():
+                return True
+            if _run_privileged_hosts_setup(non_interactive=True):
+                return True
+            # print: the TUI's log pane captures stdout as well as its banner.
+            print(
+                "WARNING: hosts entries not added: sudo needs a password, which "
+                "the wizard cannot prompt for. Run ./start.sh --setup-hosts in a "
+                "terminal to add them."
+            )
+            return True
 
-        # Default: silent check, no warnings for missing entries
+        missing = self.hosts_manager.check_missing_hosts()
+        if missing:
+            print(
+                f"WARNING: {len(missing)} *.localhost hosts entries are missing; "
+                "friendly URLs need them. Run ./start.sh --setup-hosts to add "
+                "them, or --skip-hosts to silence this check."
+            )
         return True
             
     def perform_cold_start_cleanup(self, project_name: Optional[str] = None) -> bool:
@@ -3776,6 +4161,7 @@ class AtlasStarter:
                 "error": error,
                 "services": [],
                 "converged_after_grace": False,
+                "not_started": list(self.skipped_builds),
             }
             if json_output:
                 print(json.dumps(payload, indent=2, sort_keys=True))
@@ -3791,6 +4177,9 @@ class AtlasStarter:
             "ok": ok,
             "services": services,
             "converged_after_grace": converged_after_grace,
+            # Images that failed to build were left out of `up` (#989); the
+            # stack still counts as started, but automation must see the gap.
+            "not_started": list(self.skipped_builds),
         }
 
         if json_output:
@@ -4578,8 +4967,10 @@ def _doctor_check_consumer_manifests(starter: "AtlasStarter") -> dict:
     )
 
 
+# `$$` is Compose's escape for a literal `$` (e.g. `$${PORT}` in a shell
+# healthcheck), so it is consumed first and never read as a reference.
 _COMPOSE_VAR_RE = re.compile(
-    r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?])([^}]*))?\}"
+    r"\$\$|\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?])([^}]*))?\}"
 )
 
 
@@ -4587,6 +4978,8 @@ def _doctor_compose_var_refs(text: str) -> list[tuple[str, bool]]:
     refs: list[tuple[str, bool]] = []
     for match in _COMPOSE_VAR_RE.finditer(text):
         var_name = match.group(1)
+        if var_name is None:  # escaped `$$`
+            continue
         operator = match.group(2) or ""
         has_default = "-" in operator
         refs.append((var_name, has_default))
@@ -4888,6 +5281,10 @@ def _doctor_check_ollama_residency(starter: "AtlasStarter") -> dict:
     return _doctor_result("ollama-residency", "pass", explanation)
 
 
+def _missing_sidecar_status(sidecar: Path) -> str:
+    return "skipped" if str(sidecar) == "/custom-models.yaml" else "fail"
+
+
 def _doctor_check_model_sidecars(starter: "AtlasStarter") -> dict:
     env_values = starter.config_parser.parse_env_file()
     raw_path = env_values.get("COMFYUI_CUSTOM_MODELS_FILE", "").strip()
@@ -4912,9 +5309,11 @@ def _doctor_check_model_sidecars(starter: "AtlasStarter") -> dict:
     parsed = 0
     for sidecar in sidecars:
         if not sidecar.exists():
+            # The shipped default is a container path, absent on the host; a
+            # path the operator configured that is missing drops its models.
             return _doctor_result(
                 "model-sidecars",
-                "skipped",
+                _missing_sidecar_status(sidecar),
                 f"Model sidecar does not exist: {sidecar}",
             )
         try:
@@ -5616,6 +6015,59 @@ def _doctor_check_vllm_metal(starter: "AtlasStarter") -> dict:
     )
 
 
+def _scan_env_keys(env_text: str) -> tuple[set[str], set[str]]:
+    """Keys an .env assigns, and which of them are blank. Compose reads
+    `export KEY=` as KEY, so it counts as present (appending a bare `KEY=`
+    default would shadow it, last wins); it is never blank-filled."""
+    existing_keys: set[str] = set()
+    blank_keys: set[str] = set()
+    for line in env_lines(env_text):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, _, raw_value = stripped.partition("=")
+        key = key.strip()
+        if re.match(r"export[ \t]+", key):
+            existing_keys.add(re.sub(r"^export[ \t]+", "", key))
+            continue
+        existing_keys.add(key)
+        if not raw_value.split("#", 1)[0].strip():
+            blank_keys.add(key)
+    return existing_keys, blank_keys
+
+
+def _parsed_base_port(raw: str) -> Optional[int]:
+    """BASE_PORT as start parses it (strip + int(), so `+64000` / `64_000`
+    count); None for blank, `auto` or unparseable."""
+    try:
+        return int(raw.strip())
+    except ValueError:
+        return None
+
+
+def _base_port_problem(raw: str, starter: "AtlasStarter"):
+    """(status, message) for a BASE_PORT start cannot use as written, else None.
+
+    Mirrors start's own parse (int(), so `+64000` / `64_000` are fine): an
+    unparseable value falls back to the default, an out-of-range one is
+    rejected, and `auto` is resolved by start itself."""
+    if not raw or raw.lower() == "auto":
+        return None
+    value = _parsed_base_port(raw)
+    if value is None:
+        return (
+            "warn",
+            f"BASE_PORT {raw!r} is not a number or 'auto'; ./start.sh falls back to "
+            f"{DEFAULT_BASE_PORT}.",
+        )
+    if not starter.port_manager.validate_base_port(value):
+        return (
+            "fail",
+            f"BASE_PORT {raw} is outside the usable range; ./start.sh will reject it.",
+        )
+    return None
+
+
 def _doctor_check_base_port(starter: "AtlasStarter") -> dict:
     """Warn when a consumer stack squats the default BASE_PORT (63000).
 
@@ -5635,6 +6087,9 @@ def _doctor_check_base_port(starter: "AtlasStarter") -> dict:
         base_port = DEFAULT_BASE_PORT
     project = starter.config_parser.get_project_name()
     details = {"base_port": base_port, "project_name": project}
+    problem = _base_port_problem(raw, starter)
+    if problem:
+        return _doctor_result("base-port", problem[0], problem[1], details=details)
     if base_port == DEFAULT_BASE_PORT and project != DEFAULT_PROJECT_NAME:
         return _doctor_result(
             "base-port",
@@ -5890,6 +6345,34 @@ DOCTOR_CHECKS = [
 ]
 
 
+def _comfyui_models_source_note(source: str) -> Optional[str]:
+    """Why ``--comfyui-models`` will not download anything for ``source``.
+
+    container-* downloads via comfyui-init and managed-localhost-mps
+    provisions on the host (#754); only localhost and disabled need a note.
+    """
+    if source == "localhost":
+        return (
+            "⚠️  --comfyui-models was set with COMFYUI_SOURCE=localhost — the "
+            "selection is published to the backend manifest, but Atlas does not "
+            "download it: place the files in your host ComfyUI models directory."
+        )
+    if source == "disabled":
+        return (
+            "⚠️  --comfyui-models was set but COMFYUI_SOURCE=disabled — the "
+            "selection is saved but has no effect until ComfyUI is enabled."
+        )
+    return None
+
+
+def _invoker_path_list(value: str) -> str:
+    """``_invoker_path`` applied to each entry of an os.pathsep path list."""
+    return os.pathsep.join(
+        str(_invoker_path(Path(part.strip())))
+        for part in value.split(os.pathsep) if part.strip()
+    )
+
+
 def _invoker_path(path: Optional[Path]) -> Optional[Path]:
     """Resolve a user-supplied path against the directory ./start.sh was run
     from (ATLAS_INVOKER_CWD); the bootstrapper itself runs elsewhere."""
@@ -5959,7 +6442,19 @@ def _run_linear_with_support_bundle(starter: "AtlasStarter", options) -> int:
 
 
 def _run_consumer_doctor(starter: "AtlasStarter") -> list[dict]:
-    return [check(starter) for check in DOCTOR_CHECKS]
+    """Run every check; one that raises becomes a ``fail`` result, so
+    ``--format json`` always prints its JSON and exits non-zero (#1057
+    records the same exception as ``unavailable`` in a bundle)."""
+    results = []
+    for check in DOCTOR_CHECKS:
+        try:
+            results.append(check(starter))
+        except Exception as exc:  # noqa: BLE001 - reported, never a traceback
+            check_id = check.__name__.removeprefix("_doctor_check_").replace("_", "-")
+            results.append(_doctor_result(
+                check_id, "fail", f"check raised {type(exc).__name__}: {exc}",
+            ))
+    return results
 
 
 def _print_doctor_text(results: list[dict]) -> None:
@@ -6067,6 +6562,36 @@ def _track_suggestions(entered: str, registry) -> list[str]:
         if key not in ordered:
             ordered.append(key)
     return ordered[:3]
+
+
+#: Root options harmless before a subcommand: --consumer is exported as
+#: ATLAS_CONSUMER_MANIFEST before the subcommand runs, and the output/mode
+#: flags are what consumer scripts habitually pass on every invocation.
+_SUBCOMMAND_ROOT_OPTIONS = frozenset(
+    {"consumer_manifests", "no_tui", "json_output", "no_splash", "detach"}
+)
+
+
+def _reject_root_options_for_subcommand(ctx: click.Context) -> None:
+    """Warn about start options a subcommand silently ignores.
+
+    Every subcommand builds its own AtlasStarter from .env, so
+    ``./start.sh -p other doctor`` checks the .env project. A warning, not an
+    error: consumer scripts and CI already pass such flags before
+    subcommands, and failing them would break working invocations.
+    """
+    ignored = sorted(
+        max(param.opts, key=len)
+        for param in ctx.command.params
+        if param.name not in _SUBCOMMAND_ROOT_OPTIONS
+        and ctx.get_parameter_source(param.name) == click.core.ParameterSource.COMMANDLINE
+    )
+    if ignored:
+        click.echo(
+            f"Warning: {', '.join(ignored)} {'has' if len(ignored) == 1 else 'have'} no "
+            f"effect on '{ctx.invoked_subcommand}'; it reads the project and ports from .env.",
+            err=True,
+        )
 
 
 def _prompt_for_track(registry, *, max_attempts: int = 5) -> str:
@@ -6376,20 +6901,25 @@ def _prompt_for_track(registry, *, max_attempts: int = 5) -> str:
               help='Disable the opening splash animation in the wizard.')
 @click.option('--no-port-migrate', is_flag=True, default=False,
               help='Skip the chained .env migrations (port-layout v1, URL→PORT v2, '
-                   'model-set v3, catalog v4) for this run. Version sentinels are NOT stamped, '
-                   'so the migration re-prompts on the next run.')
+                   'model-set v3, catalog v4, Weaviate backup module v5) for this run. '
+                   'Version sentinels are NOT stamped, so the migrations run again on '
+                   'the next start.')
 @click.option('--profile',
               type=click.Choice(['default', 'dev', 'prod'], case_sensitive=False),
               help='Deployment profile (declarative bundles in '
                    'bootstrapper/profiles.yml; "dev" aliases "default"). '
-                   '"prod": bind all service ports to 127.0.0.1 (public edge '
-                   'fronts Kong), enable log rotation, default observability '
-                   'ON, and hide dev-only (localhost) sources. Unset: the '
+                   'Both profiles bind service ports to 127.0.0.1 unless HOST_BIND_IP '
+                   'already holds an operator bind. "prod" also enables log rotation, '
+                   're-applies observability ON on every start (a source flag '
+                   'overrides; a hand edit to .env does not stick), and hides '
+                   'dev-only (localhost) sources. Unset: the '
                    'consumer manifest may name its default via `profile:`. '
                    'Does not bypass the wizard.')
 @click.option('--support-bundle', 'support_bundle',
               type=click.Path(dir_okay=False, path_type=Path), default=None,
-              help='If the start fails, show and then write a redacted support '
+              help='If the start fails after its preflight checks (Docker/'
+                   'Compose availability, --setup-hosts, legacy sources), '
+                   'show and then write a redacted support '
                    'bundle (.tar.gz) to PATH: doctor checks, the configuration '
                    'with the file that set each key, and a log excerpt. Local '
                    'only, nothing is sent; redaction is best-effort.')
@@ -6444,6 +6974,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         ctx.call_on_close(_restore_consumer_manifest_env)
 
     if ctx.invoked_subcommand is not None:
+        _reject_root_options_for_subcommand(ctx)
         return
 
     # ─── Project name (-p / --project) ───────────────────────────────
@@ -6611,13 +7142,10 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
     starter.support_bundle_path = _invoker_path(support_bundle)
 
     try:
-        # Explicit consumer paths are command-line input. Validate them before
-        # cold cleanup, migrations, or any .env write can mutate the checkout.
-        if consumer_manifests:
-            try:
-                starter.config_parser.load_consumer_config()
-            except Exception as exc:  # ConsumerManifestError + I/O failures
-                raise click.UsageError(f"invalid --consumer manifest: {exc}") from exc
+        # Consumer manifests (--consumer or ATLAS_CONSUMER_MANIFEST) are user
+        # input. Validate them before cold cleanup, migrations, or any .env
+        # write can mutate the checkout.
+        _validate_consumer_manifests_early(starter, bool(consumer_manifests))
 
         # Resolve the deployment profile: explicit --profile wins; else the
         # consumer manifest's `profile:` default (#755); else "default".
@@ -6681,7 +7209,11 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         if comfyui_models is not None:
             user_model_selections['COMFYUI_USER_MODELS'] = comfyui_models
         if comfyui_custom_models_file is not None:
-            user_model_selections['COMFYUI_CUSTOM_MODELS_FILE'] = comfyui_custom_models_file
+            # Relative to where ./start.sh was run, like --consumer; stored
+            # absolute so the resolver never depends on the process cwd.
+            user_model_selections['COMFYUI_CUSTOM_MODELS_FILE'] = _invoker_path_list(
+                comfyui_custom_models_file
+            )
 
         # Warn on cloud --*-models flags passed WITHOUT enabling the
         # provider. model_resolver produces zero active entries for a disabled
@@ -6755,14 +7287,9 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                 or _existing_env.get('COMFYUI_SOURCE', 'disabled')
                 or ''
             ).strip().lower()
-            if not _comfyui_source.startswith('container-'):
-                print(
-                    f"⚠️  --comfyui-models was set but COMFYUI_SOURCE={_comfyui_source} — "
-                    f"comfyui-init won't run (COMFYUI_INIT_SCALE=0 for non-container sources), "
-                    f"so the selection won't take effect. Pass --comfyui-source=container-cpu "
-                    f"(or -gpu) first.",
-                    file=sys.stderr,
-                )
+            note = _comfyui_models_source_note(_comfyui_source)
+            if note:
+                print(note, file=sys.stderr)
 
         # Step 1.6: Apply SOURCE overrides from CLI arguments
         source_args = {
@@ -7069,6 +7596,11 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     raise click.ClickException(
                         f"track '{track}' force-disable synthesis failed: {exc}"
                     ) from exc
+                # The track may have been picked just above; record it (and
+                # its overrides) for the Kong dashboard's track labels, which
+                # were captured before this prompt ran.
+                starter.active_track = track
+                starter.active_track_overrides = frozenset(overridden_services)
 
         # CLI-flag mode + TUI capable: skip the wizard but still use the
         # Textual launch screen, pre-loaded with the user's CLI args.
@@ -7202,6 +7734,12 @@ def env_backfill_command() -> None:
     starter = AtlasStarter()
     env_path = starter.config_parser.env_file_path
     env_example_path = starter.config_parser.env_example_path
+    if not env_path.exists():
+        # backfill_missing_env_vars no-ops without a .env. Say so instead of
+        # "No env changes needed"; still exit 0, since documented headless
+        # recipes run this on fresh clones before ./start.sh creates .env.
+        click.echo(f"No env file at {env_path}; nothing to backfill (./start.sh creates it).", err=True)
+        return
     before = _parse_env_values(env_path)
     if not starter.backfill_missing_env_vars():
         raise click.exceptions.Exit(1)
@@ -7278,10 +7816,17 @@ def doctor_command(output_format: str, bundle_path, include_unlisted: bool) -> N
     starter = AtlasStarter()
     # Materialize the consumer manifest's derived env (#451) before the checks
     # (which validate the assembled compose) so ${BACKEND_PLUGINS_DIR}-style
-    # overlays resolve on a fresh checkout. Quiet — keeps --format json clean.
-    starter.materialize_consumer_env_for_preflight()
-    bundled = _bundled_doctor_checks(starter, bundle_path, include_unlisted)
-    results = bundled[1][0] if bundled else _run_consumer_doctor(starter)
+    # overlays resolve on a fresh checkout. With --format json, anything a
+    # step prints (e.g. a BASE_PORT: auto re-resolution warning) goes to
+    # stderr so stdout stays one JSON document.
+    from contextlib import nullcontext
+
+    from core.linear_startup import _pipeline_stdout_to_stderr
+
+    with _pipeline_stdout_to_stderr() if output_format == "json" else nullcontext():
+        starter.materialize_consumer_env_for_preflight()
+        bundled = _bundled_doctor_checks(starter, bundle_path, include_unlisted)
+        results = bundled[1][0] if bundled else _run_consumer_doctor(starter)
     ok = not any(result["status"] == "fail" for result in results)
     payload = {"ok": ok, "checks": results}
 
@@ -7396,7 +7941,10 @@ def endpoints_export_command(
 
     starter = AtlasStarter()
     env = starter.config_parser.parse_env_file()
-    consumer_config = starter.config_parser.load_consumer_config()
+    try:
+        consumer_config = starter.config_parser.load_consumer_config()
+    except (ValueError, OSError) as exc:  # ConsumerManifestError / unreadable file
+        raise click.ClickException(f"invalid consumer manifest: {exc}") from exc
 
     # A manifest BASE_PORT: auto is allocated at bring-up, and a cold .env still
     # carries DEFAULT_BASE_PORT until then. Exporting in that state answers a
@@ -7424,8 +7972,12 @@ def endpoints_export_command(
     text = render_json(fields) if output_format.lower() == "json" else render_env(fields)
 
     if output_path:
-        out = Path(output_path).expanduser()
-        _write_private_text(out, text)
+        # Relative to where ./start.sh was run, like doctor --bundle: the
+        # uv wrapper runs the bootstrapper from bootstrapper/.
+        out = _invoker_path(Path(output_path))
+        # Replace, never follow, a symlink at the destination: the export can
+        # carry secrets (--with-secrets) and must not land on a link target.
+        atomic_replace_text(out, text, mode=0o600)
         click.echo(f"Wrote {len(fields)} endpoint field(s) to {out}")
     else:
         click.echo(text, nl=False)
@@ -7764,6 +8316,7 @@ def blender_mcp_health() -> None:
 
 
 @blender_mcp_group.command("remove")
+@click.confirmation_option(prompt="Stop the process and delete the managed state directory?")
 def blender_mcp_remove() -> None:
     """Stop the bridge and delete the state dir (add-on, launcher, logs)."""
     _blender_mcp_manager().remove()

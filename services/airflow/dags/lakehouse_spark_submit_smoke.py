@@ -55,6 +55,9 @@ default_args = {
     "depends_on_past": False,
     "retries": 1,
     "retry_delay": timedelta(minutes=2),
+    # waitAppCompletion blocks until the driver finishes; bound it so a
+    # driver that never gets a core fails instead of hanging forever.
+    "execution_timeout": timedelta(minutes=30),
 }
 
 
@@ -112,7 +115,10 @@ spark_conf = {
     ),
     "spark.sql.catalog.lakehouse.client.region": REGION,
     "spark.eventLog.enabled": "true",
-    "spark.eventLog.dir": "s3a://spark-history/",
+    # Same bucket the Spark cluster and history server use (minio service.yml).
+    "spark.eventLog.dir": "s3a://"
+    + os.environ.get("MINIO_BUCKET_SPARK_HISTORY", "spark-history")
+    + "/",
 }
 
 

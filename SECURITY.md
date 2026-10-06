@@ -126,10 +126,11 @@ if it is exposed.
 Two container-image gates run in `services-lint.yml` on every pull request:
 
 - **`Build-validation (Dockerfile + requirements.txt installability)`** is a
-  required check. It builds every local Dockerfile context, verifies the two
-  commit-pinned remote build contexts against their reviewed base-image index
-  digests, and Trivy-scans the manifest-owned remote images whose declarations
-  changed in the pull request.
+  required check. Despite its name it builds no local Dockerfile: it verifies
+  the two commit-pinned remote build contexts against their reviewed
+  base-image index digests and Trivy-scans the manifest-owned remote images
+  whose declarations changed in the pull request. Local Dockerfile builds run
+  in the Final-image scan below.
 - **`Final-image scan (local Compose and init images)`** builds every local
   Compose and init image and fails on any HIGH or CRITICAL finding. A finding
   does not stop the run: every image is scanned, and the job fails at the end

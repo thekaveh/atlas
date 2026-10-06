@@ -293,10 +293,22 @@ def test_custom_quoted_primary_database_receives_scoped_connect_grants(
     disposable_postgres: DisposablePostgres,
 ) -> None:
     database = 'atlas primary "quoted"'
-    disposable_postgres.sql(
-        'CREATE DATABASE "atlas primary ""quoted""" TEMPLATE postgres',
-        password=disposable_postgres.admin_password,
-    )
+    # Under the image's own config, pg_cron and pg_net workers stay connected
+    # to `postgres`, and a database being accessed cannot be a template: close
+    # it to new connections, drop the workers, clone from a template1 session.
+    admin = {"password": disposable_postgres.admin_password, "database": "template1"}
+    disposable_postgres.sql("ALTER DATABASE postgres WITH ALLOW_CONNECTIONS false", **admin)
+    try:
+        disposable_postgres.sql(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            "WHERE datname = 'postgres' AND pid <> pg_backend_pid()",
+            **admin,
+        )
+        disposable_postgres.sql(
+            'CREATE DATABASE "atlas primary ""quoted""" TEMPLATE postgres', **admin,
+        )
+    finally:
+        disposable_postgres.sql("ALTER DATABASE postgres WITH ALLOW_CONNECTIONS true", **admin)
     disposable_postgres.sql(
         'REVOKE CONNECT ON DATABASE "atlas primary ""quoted""" FROM PUBLIC',
         password=disposable_postgres.admin_password,

@@ -202,9 +202,9 @@ storage:                                 # parent-owned MinIO buckets + scoped c
 ```
 
 **Reserved-namespace rules:** litellm aliases may not shadow a stack-owned model
-(runtime `hermes-agent`/`lightrag` + every catalog model name); n8n ids are
-namespaced `atlas-consumer-<id>`; a storage bucket may **not** be named `backend`
-(a built-in). Unknown top-level keys are rejected. See
+(runtime `hermes-agent`/`lightrag`/`fal-image`/`tei-rerank` + every catalog model name); n8n ids are
+namespaced `atlas-consumer-<id>`; a storage bucket may **not** reuse a built-in bucket name (`comfyui`, `backend`, `n8n`, `lakehouse`, `spark-history`, `raw-assets`, `asset-worker`, `asset-baker` and every other default `MINIO_BUCKET_*` / `ASSET_*_MINIO_BUCKET` in `.env.example`), and a store whose generated `MINIO_BUCKET_<KEY>` / `MINIO_<KEY>_ACCESS_KEY` / `MINIO_<KEY>_SECRET_KEY` name matches a stack variable or another store's (consumer `asset` + store `baker` would alias asset-baker's credentials) is rejected; the workflow id `plan` is reserved for the seed plan.
+Unknown top-level keys are rejected. See
 [§6.1](#61-registering-a-parent-project-with-atlasconsumeryml) for the full key
 reference.
 
@@ -238,9 +238,20 @@ cd infra
   --project myproject [--track <k>] [--detach]   # BASE_PORT + project come from the manifest
 ```
 
-`env backfill` keeps `.env` complete across pin bumps; `compose validate` catches
+`env backfill` keeps `.env` complete across pin bumps (a newly added `*_PORT` is seeded on your `BASE_PORT` block, not the default one, and an `export KEY=` line counts as present). Source, profile and consumer-manifest overrides rewrite an `export KEY=` line in place, keeping `export`; `compose validate` catches
 overlay/manifest errors before any container starts; `doctor` surfaces
 contract/port/provisioning problems; `--detach` exits after the health gates.
+Before a stack's first start, `doctor` and `compose validate` write the manifest's
+values into `.env` so the assembled compose resolves; after a start (which
+records `ATLAS_PROFILE_APPLIED`) they refresh only the derived plugin/sidecar
+paths (`BACKEND_PLUGINS_DIR`, `COMFYUI_CUSTOM_MODELS_FILE`,
+`COMFYUI_CUSTOM_NODES_FILE`, `OLLAMA_CUSTOM_MODELS`) and keys `.env` does not
+hold yet, so a launch-time `--base-port`, `-p` or `--<svc>-source` keeps winning. With
+`--format json`, `doctor` writes everything except the JSON document to stderr.
+A manifest named by `ATLAS_CONSUMER_MANIFEST` is validated before any `.env` write,
+exactly like `--consumer`. Declaring one of those four derived keys in
+`env.values` as well as through plugins/sidecars is an error naming both places,
+instead of the sidecar list silently replacing your value.
 
 **5. Consuming endpoints.** Your host-side code (a devserver, a desktop app)
 reads the exported contract; in-container plugins use compose service DNS
@@ -265,12 +276,17 @@ the **exported scoped vars** (`ATLAS_STORE_<store>_*`), never a hand-wired
 **7. Teardown.**
 
 ```bash
-./infra/stop.sh --project myproject          # stop this stack's containers
-./infra/stop.sh --project myproject --cold   # also remove this project's volumes (data loss)
+./infra/stop.sh --project myproject --consumer ./atlas.consumer.yml          # stop this stack's containers
+./infra/stop.sh --project myproject --consumer ./atlas.consumer.yml --cold   # also remove this project's volumes (data loss)
 ```
 
 `--cold` removes the project's named volumes (DB, MinIO, model caches) — a clean
-slate; omit it to preserve data across restarts.
+slate; omit it to preserve data across restarts. Pass the same `--consumer`
+manifest you started with (or set `ATLAS_CONSUMER_MANIFEST`): without it, volumes
+declared only in the manifest's `compose_overlays` are not removed. When a
+manifest's overlays cannot be loaded or fail validation, `./start.sh --cold` fails its cleanup
+step and does not rotate secrets (the surviving overlay volumes would keep the
+old credentials).
 
 **8. CI drift gates.** Wire these into your consumer CI so an Atlas pin bump can't
 break you silently:
@@ -387,7 +403,7 @@ whole integration.
 
 Full source/customization matrix: [source-configuration.md](source-configuration.md).
 
-User overlays use normal `.env` syntax (`KEY=value`, quoted values, and whitespace-prefixed inline comments). The merge order is deterministic: `.env.example` baseline → generated or existing `.env` → sibling `.env.user` → `ATLAS_ENV_USER_FILE` → `atlas.consumer.yml` env values → explicit CLI flags such as `--project` or `--<svc>-source`. Overlays and consumer manifests are merged on every start, including `--cold`, before missing keys are backfilled from `.env.example`.
+User overlays use normal `.env` syntax (`KEY=value`, quoted values, and whitespace-prefixed inline comments). When Atlas writes a value into `.env`, one containing a backslash or a `$` that is not a `${VAR}` reference is single-quoted (so a `$$` also stays literal, matching what Atlas itself reads), because Docker Compose expands `$name` and backslash escapes in unquoted and double-quoted values (`pa$word` would reach containers as `pa`); a value that also contains a single quote or ends in a backslash is refused. In a hand-edited `.env`, quote such values yourself the same way. The merge order is deterministic: `.env.example` baseline → generated or existing `.env` → sibling `.env.user` → `ATLAS_ENV_USER_FILE` → `atlas.consumer.yml` env values → explicit CLI flags such as `--project` or `--<svc>-source`. Overlays and consumer manifests are merged on every start, including `--cold`, before missing keys are backfilled from `.env.example`.
 
 For submodule consumers that need a repeatable parent-repo shape, use the
 reference layout in [submodule-usage.md §4.2](submodule-usage.md#42-parent-repo-consumer-reference-layout). It shows the parent-owned `atlas.consumer.yml` pattern, parent-owned Compose overlays, force-set source/branding wrappers, and the validation checklist used by RAG-showcase-style and DayDreams-style consumers. The older `services/_user/<name>/compose.yml` symlink slot remains supported for existing integrations, but new consumers should register through the manifest.
@@ -491,6 +507,11 @@ The gate reads `FAL_API_KEY` from the environment at `./start.sh` time (a blank
 value counts as absent). Malformed forms — a missing `else`, an unknown key, or a
 non-`^[A-Z][A-Z0-9_]*$` env-var name — fail validation up front.
 
+`env.values` are parsed as YAML 1.1, so unquoted `yes`, `no`, `on`, `off`,
+`true` and `false` are booleans; Atlas writes them to `.env` as `true` /
+`false`. Quote any value whose YAML type would change its text: `"0755"`
+(otherwise octal 493), `"1.10"` (otherwise 1.1), `"12:30"` (otherwise 750).
+
 A `<SVC>_SOURCE` entry may also be the **`auto` sentinel** — the source-selection
 analog of `BASE_PORT: auto` (#753). It resolves once, before source validation,
 to the best source for **this** host and is then durable:
@@ -542,9 +563,13 @@ log rotation, prod sources). Both shipped profiles keep newly configured and
 legacy-blank published ports loopback-bound; a non-empty `HOST_BIND_IP` is an
 explicit operator choice and is preserved. Semantics per field: a profile's
 `sources` are asserted on every start of that profile **except** when that
-service's source was set by an explicit CLI flag this run (operator wins);
-`env` values apply only when unset (an operator-set value is kept with a
-notice); switching profiles resets the prior profile's asserted sources to
+service's source was set by an explicit CLI flag this run or is declared in the
+manifest's `env` with a non-empty value (precedence: CLI flag > manifest > profile);
+a profile's `env` value replaces an unset value, the shipped `.env.example`
+default, or (on a switch) the prior profile's value for the same key, unless
+the key is pinned in `.env.user` / `ATLAS_ENV_USER_FILE` or the manifest's `env` (any other
+operator-set value is kept with a notice; `env` keys only the old profile
+declared are not reset on a switch); switching profiles resets the prior profile's asserted sources to
 their service defaults (no residue), while a same-profile restart never resets
 anything — tracked via the `ATLAS_PROFILE_APPLIED` marker in `.env`. The
 `profile` doctor check reports the effective bundle and the precedence tier
@@ -558,8 +583,10 @@ instead of silently dropping the block and surfacing later as mysterious runtime
 404s. The allowed top-level keys are exactly those shown above: `name`,
 `project_name`, `profile`, `profile_overrides`, `brand`, `env`,
 `compose_overlays`, `backend_plugins`, `model_sidecars`, `custom_nodes`, `storage`,
-`litellm_models`, `n8n_workflows`, `rag_ingestion_profiles`, and
-`lightrag_query_profiles`.
+`litellm_models`, `n8n_workflows`, `rag_ingestion_profiles`,
+`lightrag_query_profiles`, and `managed_host_services`. Unknown keys inside the
+`brand`, `env`, `model_sidecars`, `custom_nodes`, and `storage` blocks (and each
+`storage.buckets` entry) are rejected the same way.
 
 #### 6.1.1. Back-compatible `services/_user/` overlay slot
 
@@ -578,7 +605,7 @@ services:
       WEAVIATE_URL: "http://weaviate:8080"
       OPENAI_BASE_URL: "http://litellm:4000/v1"
     ports:
-      - "${HOST_BIND_IP:-}8090:8090"      # choose a free host port yourself
+      - "${HOST_BIND_IP-127.0.0.1:}8090:8090"      # choose a free host port yourself
     networks:
       - backend-network
 
@@ -588,7 +615,7 @@ networks:
     external: true
 ```
 
-**Scope note:** overlay services *launch*, but they are intentionally **not** wired into Atlas's wizard, topology port-allocator, or generated `.env.example` — you manage their image/ports/env directly in the fragment (use `${HOST_BIND_IP:-}` on published ports to inherit Atlas's loopback binding default). If you'd rather keep your service in its *own* repo entirely, use Method A instead (it joins the same network from outside).
+**Scope note:** overlay services *launch*, but they are intentionally **not** wired into Atlas's wizard, topology port-allocator, or generated `.env.example` — you manage their image/ports/env directly in the fragment (use `${HOST_BIND_IP-127.0.0.1:}` on published ports to inherit Atlas's loopback binding default). If you'd rather keep your service in its *own* repo entirely, use Method A instead (it joins the same network from outside).
 
 #### 6.1.2. Adding parent-owned MinIO buckets
 
@@ -689,10 +716,19 @@ status:
 ./start.sh --no-tui --detach --json
 ```
 
-The JSON payload includes a `converged_after_grace` boolean — `true` when the
-start converged only after re-polling still-`starting` rows through the grace
-window, so automation can tell a health race apart from a first-pass-healthy
-start.
+When startup reaches the service summary, the JSON payload is
+`{"ok", "services", "converged_after_grace", "not_started"}`. `not_started`
+lists services left out of `up` because their image failed to build (the start
+still counts as successful, so check it when completeness matters).
+`converged_after_grace` is
+`true` when the start converged only after re-polling still-`starting` rows
+through the grace window, so automation can tell a health race apart from a
+first-pass-healthy start. If the final status poll itself fails, the payload
+keeps those keys with `"ok": false`, an `"error"` string and empty `services`.
+When startup stops earlier (invalid input, a failed
+setup step, or a failed `up`), the payload is only `{"ok": false,
+"exit_code": N}` and the offending services are named on stderr; check `ok`
+before reading the other keys.
 
 **Shared managed-host runtimes and teardown.** Some sources run a **native
 host-global process** rather than a container: Apple-Silicon/Metal ComfyUI
@@ -758,7 +794,9 @@ its checks.
 Exit codes:
 
 - `env backfill` exits `0` when the env file is already current or was updated
-  successfully, and `1` if the backfill write fails.
+  successfully, and `1` if the backfill write fails. With no env file yet it
+  writes nothing, says so on stderr, and still exits `0` (`./start.sh` creates
+  the file).
 - `compose validate` exits `0` when Compose accepts the assembled stack, and
   otherwise exits with Compose's failing status code.
 
@@ -816,7 +854,7 @@ See `services/supabase/db/_user/README.md` and
 
 The FastAPI backend exposes a **generic plugin seam** so you can mount your own API routes *into* it without forking `services/backend/`. On startup the backend calls `load_plugins(app)`, which scans `$BACKEND_PLUGINS_DIR` (default `/app/plugins`). An optional shared `$BACKEND_PLUGINS_DIR/requirements.txt` is installed first; then, for each immediate subdirectory that is an importable Python package exposing a module-level `router` (a FastAPI `APIRouter`), that plugin package's own optional `requirements.txt` is installed before the package is imported and included into the running app. A plugin whose requirements fail to install is logged with the requirements path and pip output, then skipped before import; a shared requirements failure skips plugin loading for that startup. Requirements install into a **writable plugin site** (`pip --target $BACKEND_PLUGINS_SITE_DIR`, default `/tmp/atlas-plugins-site`) that the seam pre-creates and prepends to `sys.path` before any plugin import — the image runs as `appuser` with root-owned site-packages and no `$HOME`, so untargeted installs would fail with `EACCES` (#559); no consumer-side tmpfs/`PYTHONUSERBASE` workaround is needed. The seam is a **no-op when the directory doesn't exist** (so base Atlas is unaffected), and a plugin that fails to import is logged and skipped — one bad plugin never crashes the backend.
 
-Plugins are installed and imported **at backend startup**, so **apply plugin changes by recreating the backend** (`docker compose up -d --force-recreate backend`) — a restart, not a hot reload, is the correct pickup path. The backend's dev auto-reloader is off by default (#679): with your `backend_plugins` dir bind-mounted, host-side git churn in that tree (a checkout, branch switch, or rebase) must **not** restart the running backend — that would kill in-flight requests and, under rapid churn, crash-loop the container. Set `BACKEND_DEV_RELOAD=true` only when you are actively editing plugin source and want live reloads.
+Plugins are installed and imported **at backend startup**, so **apply plugin changes by recreating the backend** (re-run `./start.sh --consumer <manifest>`; a bare `docker compose up -d --force-recreate backend` targets the wrong Compose project and drops the consumer overlay that mounts the plugins) — a restart, not a hot reload, is the correct pickup path. The backend's dev auto-reloader is off by default (#679): with your `backend_plugins` dir bind-mounted, host-side git churn in that tree (a checkout, branch switch, or rebase) must **not** restart the running backend — that would kill in-flight requests and, under rapid churn, crash-loop the container. Set `BACKEND_DEV_RELOAD=true` only when you are actively editing plugin source and want live reloads.
 
 To use it, mount a plugins directory into the backend container and (optionally) point `BACKEND_PLUGINS_DIR` at it. With a submodule/overlay layout you extend Atlas's `backend` service from your parent Compose:
 
@@ -850,6 +888,8 @@ router = APIRouter(prefix="/rag", tags=["rag"])
 def health():
     return {"ok": True}
 ```
+
+The package directory name is imported as a top-level module, so it must be unique across every plugin root and must not match a module the backend already imports (for example `observability`, `rag_ingestion`, or `redis`). A plugin whose name matches a module already imported at load time is skipped and listed with status `skipped` in the plugin inventory; a name matching a library the backend imports later shadows that library, so avoid those names too. A plugin without a `plugin.yml` is also skipped when a route's first path segment is a reserved built-in name or a path parameter (e.g. `@router.get("/{slug}")`), because plugins mount ahead of the built-in routes and would otherwise answer `/health`; give its router a literal prefix.
 
 Your routes are then served by the same backend — reachable at `backend:8000` in-network, or via Kong at `api.localhost/...`. This is the recommended way to add backend endpoints (e.g. a `/rag` surface) for a downstream showcase without maintaining a fork. See [`services/backend/README.md` §4](https://github.com/thekaveh/atlas/blob/main/services/backend/README.md) for the backend-side description.
 
@@ -899,11 +939,11 @@ env:
 
 **What the contract buys you:**
 
-- **Inventory.** `GET /plugins` on the backend lists every mounted plugin — name, route prefix, health/docs, auth policy, explicitly declared timeouts, declared env (secret values masked as `***`), and load status (`loaded` / `skipped` / `error`). Secret *values* are never exposed, but env-var names/flags are; `/plugins` is served under the backend route, so it inherits `BACKEND_KONG_AUTH` (open in local-dev default, gated once you set `key-auth`).
+- **Inventory.** `GET /plugins` on the backend lists every mounted plugin — name, route prefix, health/docs, auth policy, explicitly declared timeouts, declared env (secret values masked as `***`), and load status (`loaded` / `skipped` / `error`). Secret *values* are never exposed, but env-var names/flags are; `/plugins` requires a Backend service token (for example `BACKEND_INTERNAL_API_TOKEN`), independent of `BACKEND_KONG_AUTH`.
 - **Startup + preflight validation.** The seam validates declared env at boot, and [`./start.sh doctor`](#615-consumer-doctor-for-ci-preflight) re-validates it before launch: required-but-missing and enum/type mismatches are reported by plugin + var name. Secret values are never echoed.
 - **Fail-fast, isolated.** A present-but-malformed `plugin.yml` does **not** degrade to manifest-less loading — that one plugin is **skipped** with a structured error and the others stay healthy. Duplicate plugin names, overlapping prefixes, and prefixes that shadow one of the backend's reserved built-in route names are rejected before mounting; the reserved-name list is defined in the schema linked below.
 - **Per-plugin gateway and application auth.** `auth: key-auth` puts Kong key-auth on that plugin's `route_prefix` and validates the same `BACKEND_KONG_API_KEY` inside FastAPI, preventing direct-port bypass. `auth: open` is an explicit public opt-out. `auth: inherit`, and plugins without a manifest, use the Backend application identity boundary. Atlas composes the matching Kong policy per prefix; distinct per-prefix credentials remain a future extension.
-- **Per-plugin Kong upstream timeouts.** `connect_timeout`, `write_timeout`, and `read_timeout` are optional strict integers in milliseconds from `1` through `2147483646`. Atlas copies only the fields you declare; omitted fields retain Kong's 60,000 ms service defaults. Because Kong stores timeouts on services rather than routes, Atlas emits one dedicated backend service for each timed plugin while leaving plugins without overrides on the shared `backend-api` service. Auth continues to compose per prefix on the dedicated route.
+- **Per-plugin Kong upstream timeouts.** `connect_timeout`, `write_timeout`, and `read_timeout` are optional strict integers in milliseconds from `1` through `2147483646`. Atlas copies only the fields you declare; an omitted `read_timeout`/`write_timeout` gets the backend's own long timeout, at least 3,630,000 ms (the same as the shared `backend-api` service), and an omitted `connect_timeout` keeps Kong's 60,000 ms default. Because Kong stores timeouts on services rather than routes, Atlas emits one dedicated backend service for each timed plugin while leaving plugins without overrides on the shared `backend-api` service. Auth continues to compose per prefix on the dedicated route.
 
 For `key-auth` HTTP requests, send the credential in the `apikey` header. The
 header is preferred and takes precedence if a query parameter is also present:
@@ -995,13 +1035,15 @@ rag_ingestion_profiles:
         source: mount                         # mount | minio — NEVER an arbitrary host path
         path: corpus/raw                       # mount: relative, under the backend corpus root
         # bucket / prefix                      # minio: the object prefix to ingest
-      parser_order: [docling, tika, plain_text]  # first parser that succeeds wins; plain_text is the always-available fallback
+      parser_order: [docling, tika, plain_text]  # first parser that succeeds wins; plain_text (appended last) decodes text files only
       chunker: { strategy: recursive, chunk_size: 700, overlap: 120 }  # Chonkie strategy
       vector_targets:
         - { backend: weaviate, collection_prefix: RagShowcase, on_unavailable: fail }
       graph_targets:
         - { backend: lightrag, mode: upload_documents, wait_for_extraction: true, timeout_seconds: 3600, on_unavailable: skip }
 ```
+
+With the Celery tier enabled, the whole job (parse, chunk, embed, write and the LightRAG drain) runs inside one Celery task, so it is bounded by `CELERY_TASK_SOFT_TIME_LIMIT_SECONDS` (default 840 s; past it the job is recorded `failed`). A `timeout_seconds` longer than that cannot be reached: for large corpora raise `CELERY_TASK_SOFT_TIME_LIMIT_SECONDS` / `CELERY_TASK_TIME_LIMIT_SECONDS` and keep `CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS` above the hard limit. Chunking also holds about 20–25 bytes of memory per character, so a document is chunked only up to 20,000,000 characters; a longer one is recorded as a per-file chunk error (and its earlier vectors are kept), well inside `RAG_INGESTION_MAX_FILE_BYTES`.
 
 On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it into a stable **`revision`**, writes the gitignored `volumes/backend/rag-ingestion-profiles.json`, and generates a compose overlay that bind-mounts that file into both Backend and Celery at a reserved internal contract path. Both services receive the same `RAG_INGESTION_PROFILES_FILE`, Redis state URL, upstream endpoints, and resource limits. For a MinIO corpus, the bucket must also be declared under the same consumer's `storage.buckets`; Atlas compiles that store's access/secret **variable names** into the profile and injects only those scoped credential references into both services. The backend exposes an async job API to submit ingestions headlessly:
 
@@ -1025,7 +1067,7 @@ services:
       - ./corpus:/app/corpus:ro
 ```
 
-**What the contract enforces.** A `mount` corpus must be a relative path under the shared execution root (`RAG_INGESTION_CORPUS_ROOT`, default `/app/corpus`) — an absolute path, a `~`, or a `..` segment is rejected; a MinIO corpus must reference a store the same consumer declared. Corpus discovery is bounded by manifest-owned limits (`RAG_INGESTION_MAX_FILE_BYTES`, default 100 MiB; `RAG_INGESTION_MAX_CORPUS_BYTES`, default 1 GiB; `RAG_INGESTION_MAX_FILES`, default 10,000) before content is retained in memory. `parser_order` is invoked exactly as declared — no silent fallback across parsers — and each job records observable phases (`discover → parse → chunk → embed → vector_write → lightrag_upload → drain → finalize`) with per-file errors isolated so one bad file doesn't fail the batch. Each `vector_target`/`graph_target` declares `on_unavailable: fail | skip` so a disabled backend fails or visibly skips rather than silently degrading. Ingestions are idempotent and leased: the job key is consumer + profile + revision + corpus fingerprint (so a resubmit of unchanged content returns the existing job, changed content creates a fresh one), and each execution holds an owner-fenced Redis lease (`RAG_INGESTION_EXECUTION_LEASE_SECONDS`, default 30) so duplicate deliveries and lost workers can't double-write. A `wait_for_extraction: true` graph target polls LightRAG until idle or `timeout_seconds`, then finalizes.
+**What the contract enforces.** A `mount` corpus must be a relative path under the shared execution root (`RAG_INGESTION_CORPUS_ROOT`, default `/app/corpus`) — an absolute path, a `~`, or a `..` segment is rejected; a MinIO corpus must reference a store the same consumer declared. Corpus discovery is bounded by manifest-owned limits (`RAG_INGESTION_MAX_FILE_BYTES`, default 100 MiB; `RAG_INGESTION_MAX_CORPUS_BYTES`, default 1 GiB; `RAG_INGESTION_MAX_FILES`, default 10,000) before content is retained in memory. `parser_order` is tried in the declared order; the `plain_text` entry Atlas appends last accepts only text (UTF-8, Windows-1252, or BOM-marked UTF-16/32), so a binary file that Docling/Tika failed on is recorded as a per-file error (and its prior vectors preserved) instead of being indexed as raw bytes. A missing corpus path is never treated as an empty corpus: submission rejects it with HTTP 400, and a worker that lacks the mount the backend had fails the job, and a profile may declare at most one `graph_target` (Atlas has one LightRAG endpoint). Each job records observable phases (`discover → parse → chunk → embed → vector_write → lightrag_upload → drain → finalize`) with per-file errors isolated so one bad file doesn't fail the batch. Each `vector_target`/`graph_target` declares `on_unavailable: fail | skip` so a disabled backend fails or visibly skips rather than silently degrading. Ingestions are idempotent and leased: the job key is consumer + profile + revision + corpus fingerprint (so a resubmit of unchanged content returns the existing job, changed content creates a fresh one), and each execution holds an owner-fenced Redis lease (`RAG_INGESTION_EXECUTION_LEASE_SECONDS`, default 30) so duplicate deliveries of one job and lost workers can't double-write. The lease is per ingestion, not per profile: two different jobs of the same profile (for example after the corpus changed) can still run at once, so let one finish before submitting the next. A job interrupted by the Celery soft time limit is recorded `failed`, so a resubmit starts a fresh job. A `wait_for_extraction: true` graph target polls LightRAG until idle or `timeout_seconds`, then finalizes.
 
 List ingestion state in bounded pages. `GET /api/rag/ingestions` keeps the historical JSON-list body, returns 100 records by default (maximum 200), and exposes the exclusive continuation token in `X-Atlas-Next-Cursor`; send that value as the next request's `cursor` query parameter. Stateful Backend routes use Redis by default and return a typed `state_store_unavailable` HTTP 503 during an outage. The only in-memory alternative is the explicit `BACKEND_STATE_STORE_MODE=memory` single-process, non-durable mode; it is not an automatic outage fallback, and RAG submissions run synchronously rather than crossing into a Celery worker-local store.
 
@@ -1285,7 +1327,7 @@ URL no HTTP client can use.
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `name` | yes | `[a-z0-9][a-z0-9-]*`. Becomes `~/.atlas/<name>` and `ATLAS_<NAME>_HOST_ENDPOINT`, so two consumers cannot share one. |
+| `name` | yes | `[a-z0-9][a-z0-9-]*`. Becomes `~/.atlas/<name>` and `ATLAS_<NAME>_HOST_ENDPOINT`, so two consumers loaded together cannot share one; `comfyui-mps`, `vllm-metal` and `blender-mcp` are reserved for the built-ins, and the stack service names the endpoints export already names (`backend`, `litellm`, `comfyui`, `asset-worker`, `ollama`, `minio`, `weaviate`, `neo4j`, `n8n`, `redis`, `supabase`) are reserved too. The state directory is per user, not per project, so separate consumer repos on one machine must also use distinct names. |
 | `command` | yes | String (POSIX-split) or list. Argv — **not** a shell line. |
 | `port` | yes | 1–65535. |
 | `workdir` | no | Defaults to the manifest's directory. Must resolve inside the consumer root. |
@@ -1293,7 +1335,7 @@ URL no HTTP client can use.
 | `env` | no | Extra environment for the process. |
 | `venv` | no | `python`, `metal`, `requirements`, `packages`. A leading `python`/`python3` in `command` is rewritten to the venv interpreter. |
 | `install` | no | Extra argv steps run after dependency install. |
-| `health` | no | `kind` (`tcp`/`http`), `path`, `expect_json`, `timeout`. Defaults to a TCP port knock. |
+| `health` | no | `kind` (`tcp`/`http`), `path`, `expect_json`, `timeout`. Defaults to a TCP port knock. `timeout` (default 5s) also bounds each readiness probe during `start`, capped by the time left in the start wait. |
 | `allow_remote` | no | Required to bind anything other than loopback. |
 
 > **Three deliberate constraints.** (1) A declared command is argv handed
@@ -1327,15 +1369,15 @@ rather than repeating them.
 2. **Pin identity** (`PROJECT_NAME` + a distinct `BASE_PORT`) durably in the manifest — §7.2 — never the default `63000`; `doctor` warns if a non-default project is left on it. Set **`BASE_PORT: auto`** in the manifest to have Atlas reserve a distinct free block per consumer and keep it stable across restarts (best for several consumers on one host, §7.4), or commit a fixed number. (`--base-port auto` at launch is the one-off, resolve-fresh form.)
 3. **Select sources** once (`container` / `localhost` / `managed-localhost-mps` / `ollama-localhost` / `none`) — §7.3, [source-configuration.md](source-configuration.md). Gate a paid provider on its key with the manifest's key-gated [`enabled_if_env`](#61-registering-a-parent-project-with-atlasconsumeryml) form instead of a wrapper script.
 4. **Validate** headlessly — `env backfill` + `compose validate` + `doctor` ([operations](index.md); [§6.1.4](#614-headless-submodule-upgrade-validation) / [§6.1.5](#615-consumer-doctor-for-ci-preflight)). `doctor` also lints the default-`63000` squat and **declared-but-unpullable** model provisioning (`model_sidecars.ollama` / `COMFYUI_USER_MODELS` under a `*-localhost` source).
-5. **Start** — `./start.sh --consumer … --base-port auto` (first run may pass source flags; see §7.3). Your consumer LiteLLM models are discoverable in `/v1/models` on start with **no `docker restart`**, and declared n8n workflows activate even **without an `N8N_API_KEY`** — Atlas performs any restart the webhook needs. Do **not** script an admin-API call or a container restart to "pick up" model/workflow changes.
+5. **Start** — `./start.sh --consumer …` (first run may pass source flags; see §7.3). Rely on the manifest's `BASE_PORT` from step 2; do not add `--base-port auto` to a routine start command, since the flag resolves fresh each time, skips the block this stack already holds, and moves the ports on every warm restart. Your consumer LiteLLM models are discoverable in `/v1/models` on start with **no `docker restart`**, and declared n8n workflows activate even **without an `N8N_API_KEY`** — Atlas performs any restart the webhook needs. Do **not** script an admin-API call or a container restart to "pick up" model/workflow changes.
 6. **Export + assert endpoints** for your app — [§6.5](#65-exporting-the-endpoint-contract-endpoints-export). Add **`endpoints assert --require …`** to your CI so an Atlas pin bump can't silently drop a field your code reads.
 7. **Operate day-2** — multi-instance isolation (§7.4), host-service coexistence (§7.5), upgrades (§7.6), verification (§7.7).
 
 ### 7.2. Pin instance identity in the manifest, not just `.env`
 
 `PROJECT_NAME` and `BASE_PORT` are your instance's identity. `.env` is
-**machine-local and disposable** — a cold start (`./stop.sh --cold` /
-`./start.sh --cold`) regenerates it from `.env.example`. `PROJECT_NAME` survives
+**machine-local and disposable** — a cold start (`./start.sh --cold`) regenerates it from `.env.example`
+(`./stop.sh --cold` removes volumes but keeps `.env`). `PROJECT_NAME` survives
 that regeneration (Atlas re-persists the previous value), but a non-default
 **`BASE_PORT` resets to the `63000` default** unless something re-supplies it —
 so an instance that carried its port block only in `.env` silently loses it on
@@ -1350,7 +1392,7 @@ ports are resolved:
 project_name: tableau          # top-level key → PROJECT_NAME
 env:
   values:
-    BASE_PORT: "63000"         # re-applied every start; survives cold .env regen
+    BASE_PORT: "63100"         # re-applied every start; survives cold .env regen
 ```
 
 **Inverse rule — do NOT put machine-specific *scalars* in `env.values`.** A
@@ -1367,7 +1409,9 @@ identity and branding that should be identical on every machine.
 ### 7.3. Select sources once; keep `.env` as the source of truth
 
 Every `--<svc>-source` CLI flag is **persisted into `.env` as an explicit
-override, silently** — there is no "you changed a previously-set value" warning.
+override**. When it replaces a different saved value the run prints one
+warning line naming the variable, the old and new values, and the flag, and the
+new value then applies to every later run.
 That turns an innocent wrapper script into a footgun: a launcher that runs
 
 ```bash
@@ -1499,14 +1543,6 @@ default-port / unpullable-model lints) and `endpoints assert --require <the
 fields you read>` are the standing drift gates: run them against your configured
 stack on every pin bump so an upstream change fails your build loudly instead of
 degrading the running consumer. See [§4.1 step 8](#41-stand-up-a-consumer-from-scratch-the-ordered-walkthrough).
-
-**Known cosmetic caveat.** A `--detach` / non-TTY start can print
-`[ERROR] <svc>: starting, exit code 0` and `Failed to start some services` while
-the containers report **healthy** seconds later — the launcher takes a single
-`compose ps` snapshot and treats `Health=starting` as failure. Until the
-classifier is fixed, verify with `docker ps` before trusting that banner; a
-genuine failure shows a non-zero exit code or a container that never reaches
-`healthy`.
 
 ---
 

@@ -125,7 +125,9 @@ def _transcribe_standard(file_path: str, response_format: str, language: Optiona
     transcribed_text = result_text(result)
     logger.info("Transcription complete (characters=%s)", len(transcribed_text))
     if response_format == "text":
-        return transcribed_text
+        from fastapi.responses import PlainTextResponse  # local: keeps the audited line refs
+
+        return PlainTextResponse(transcribed_text)  # OpenAI's text format is raw text
     if response_format == "verbose_json":
         payload = alignment_payload(result)
         payload.update({"task": "transcribe", "language": language or "unknown"})

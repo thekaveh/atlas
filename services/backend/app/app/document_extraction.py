@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
+import asyncio
 import logging
 import math
 import os
@@ -12,7 +13,14 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Formats Docling cannot convert go to Tika first. Atlas's Docling providers
+# turn every conversion failure into a 500 (never 415), so the
+# "unsupported format" fallback below never fires for these.
 LONG_TAIL_EXTENSIONS = {
+    ".doc",
+    ".xls",
+    ".ppt",
+    ".epub",
     ".eml",
     ".msg",
     ".rtf",
@@ -26,6 +34,9 @@ LONG_TAIL_EXTENSIONS = {
     ".bz2",
 }
 
+# Legacy Office/epub route by extension only: Windows browsers label .csv as
+# application/vnd.ms-excel (and some .docx as application/msword), which
+# would send Docling-capable files to Tika.
 LONG_TAIL_CONTENT_TYPES = {
     "message/rfc822",
     "application/vnd.ms-outlook",
@@ -50,18 +61,23 @@ UNSUPPORTED_MARKERS = (
 MAX_TIMEOUT_SECONDS = 3600.0
 
 
-def _timeout_from_env() -> float:
-    raw = os.getenv("TIKA_TIMEOUT_SECONDS", "30")
+def _timeout_from_env(name: str = "TIKA_TIMEOUT_SECONDS", default: str = "30") -> float:
+    raw = os.getenv(name, default)
     try:
         value = float(raw)
     except (TypeError, ValueError) as exc:
-        raise ValueError("TIKA_TIMEOUT_SECONDS must be a finite number") from exc
+        raise ValueError(f"{name} must be a finite number") from exc
     if not math.isfinite(value) or value <= 0 or value > MAX_TIMEOUT_SECONDS:
         raise ValueError(
-            "TIKA_TIMEOUT_SECONDS must be finite, greater than 0, and at most "
+            f"{name} must be finite, greater than 0, and at most "
             "3600 seconds"
         )
     return value
+
+
+# Margin over Docling's own inference deadline so the server's 504 (not a
+# client-side cut) reports a conversion that ran out of time.
+DOCLING_TIMEOUT_MARGIN_SECONDS = 30.0
 
 
 def _positive_int_from_env(name: str, default: int) -> int:
@@ -83,6 +99,15 @@ class DocumentTooLargeError(DocumentExtractionError):
     """Raised before any network call when an upload exceeds the size cap."""
 
 
+def _retry_after_seconds(response: Any) -> float:
+    """Docling's Retry-After (seconds), bounded to 0.5-10 s; 1 s if absent."""
+    try:
+        value = float(response.headers.get("Retry-After", 1))
+    except (AttributeError, TypeError, ValueError):
+        value = 1.0
+    return min(max(value, 0.5), 10.0) if math.isfinite(value) else 1.0
+
+
 class ExtractionUnavailableError(DocumentExtractionError):
     """Raised when the selected extractor path cannot run."""
 
@@ -94,6 +119,13 @@ class DocumentExtractorConfig:
     tika_endpoint: str = ""
     max_file_size: int = 50 * 1024 * 1024
     timeout_seconds: float = 30.0
+    # Docling has its own deadline (DOCLING_INFERENCE_TIMEOUT_SECONDS, 900 s):
+    # a cold GPU model load or a large accurate-table PDF outlasts Tika's 30 s.
+    docling_timeout_seconds: float = 930.0
+    # Docling answers busy with Retry-After: 1 and one conversion takes tens
+    # of seconds to minutes, so busy replies are retried on a time budget.
+    # Short for the HTTP route (Kong cuts it at 300 s); ingestion raises it.
+    docling_busy_wait_seconds: float = 30.0
 
     @classmethod
     def from_env(cls) -> "DocumentExtractorConfig":
@@ -105,6 +137,11 @@ class DocumentExtractorConfig:
                 "TIKA_MAX_FILE_SIZE", 50 * 1024 * 1024
             ),
             timeout_seconds=_timeout_from_env(),
+            docling_timeout_seconds=min(
+                _timeout_from_env("DOCLING_INFERENCE_TIMEOUT_SECONDS", "900")
+                + DOCLING_TIMEOUT_MARGIN_SECONDS,
+                MAX_TIMEOUT_SECONDS,
+            ),
         )
 
 
@@ -140,11 +177,11 @@ class DocumentExtractor:
         filename: str,
         content_type: str | None,
         extractor: str | None = None,
+        chunking: bool = True,
     ) -> DocumentExtractionResult:
         if len(content) > self.config.max_file_size:
             raise DocumentTooLargeError(
-                f"{filename} exceeds maximum extraction size of "
-                f"{self.config.max_file_size} bytes"
+                f"{filename} exceeds maximum extraction size of {self.config.max_file_size} bytes"
             )
 
         if extractor not in {None, "docling", "tika"}:
@@ -172,7 +209,8 @@ class DocumentExtractor:
                 "Docling provider credential is unavailable"
             )
 
-        response = await self._post_docling(content, filename, content_type)
+        upload = (filename, content, content_type or "application/octet-stream")
+        response = await self._post_docling(upload, chunking=chunking)
         if response.status_code == 200:
             return self._docling_result(response, filename, content_type, len(content))
 
@@ -193,23 +231,32 @@ class DocumentExtractor:
             f"Docling extraction failed with HTTP {response.status_code}"
         )
 
-    async def _post_docling(
-        self,
-        content: bytes,
-        filename: str,
-        content_type: str | None,
-    ) -> Any:
+    async def _post_docling(self, upload: tuple, *, chunking: bool = True) -> Any:
+        """POST to Docling, retrying its 429 busy reply: it converts one
+        document at a time by default while Celery runs two jobs.
+        ``chunking=False`` skips Docling's chunk list for callers that re-chunk
+        the content themselves (its 10,000-chunk cap rejects long books)."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.config.docling_busy_wait_seconds
+        attempt = 0
+        while True:
+            response = await self._post_docling_once(upload, chunking)
+            if response.status_code != 429:
+                return response
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise ExtractionUnavailableError("Docling is busy; retry the request")
+            # Growing backoff: each retry re-sends the whole upload.
+            backoff = max(_retry_after_seconds(response), min(2.0**attempt, 10.0))
+            await asyncio.sleep(min(backoff, remaining))
+            attempt += 1
+
+    async def _post_docling_once(self, upload: tuple, chunking: bool) -> Any:
         url = f"{self.config.docling_endpoint.rstrip('/')}/v1/document/convert"
-        files = {
-            "file": (
-                filename,
-                content,
-                content_type or "application/octet-stream",
-            )
-        }
+        files = {"file": upload}
         data = {
             "output_format": "markdown",
-            "enable_chunking": "true",
+            "enable_chunking": "true" if chunking else "false",
         }
         return await self._post(
             url,
@@ -280,7 +327,7 @@ class DocumentExtractor:
         )
 
     async def _post(self, url: str, **kwargs: Any) -> Any:
-        kwargs.setdefault("timeout", self.config.timeout_seconds)
+        kwargs.setdefault("timeout", self.config.docling_timeout_seconds)
         try:
             if self._http_client is not None:
                 return await self._http_client.post(url, **kwargs)
@@ -288,7 +335,7 @@ class DocumentExtractor:
                 return await client.post(url, **kwargs)
         except httpx.TimeoutException as exc:
             raise DocumentExtractionError(
-                f"Docling extraction request timed out after {self.config.timeout_seconds} seconds"
+                f"Docling extraction request timed out after {self.config.docling_timeout_seconds} seconds"
             ) from exc
         except httpx.RequestError as exc:
             logger.warning("Docling extraction request failed", exc_info=True)

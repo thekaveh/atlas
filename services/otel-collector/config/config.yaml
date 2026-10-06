@@ -23,10 +23,24 @@ processors:
     log_statements:
       - context: log
         statements:
-          - 'delete_matching_keys(log.attributes, "(?i)^(authorization|proxy-authorization|http[.]request[.]header[.](authorization|proxy-authorization|x-api-key)|x-api-key|api[_-]key|token|access[_-]token|refresh[_-]token|client[_-]secret|password|secret)$")'
-          - 'delete_matching_keys(resource.attributes, "(?i)^(authorization|proxy-authorization|http[.]request[.]header[.](authorization|proxy-authorization|x-api-key)|x-api-key|api[_-]key|token|access[_-]token|refresh[_-]token|client[_-]secret|password|secret)$")'
+          - 'delete_matching_keys(log.attributes, "(?i)^(.*[._-])?(authorization|proxy-authorization|x-api-key|api[_-]key|apikey|token|access[_-]token|refresh[_-]token|client[_-]secret|password|passwd|secret|cookie|set-cookie|master[_-]key)$")'
+          - 'delete_matching_keys(resource.attributes, "(?i)^(.*[._-])?(authorization|proxy-authorization|x-api-key|api[_-]key|apikey|token|access[_-]token|refresh[_-]token|client[_-]secret|password|passwd|secret|cookie|set-cookie|master[_-]key)$")'
           - 'replace_pattern(log.body, "(?i)(^|[\\s{\\[,?&;])([\\\"'']?(?:authorization|proxy-authorization)[\\\"'']?\\s*[:=]\\s*[\\\"'']?(?:bearer|basic)\\s+)[^\\s,;\\\"''}\\]&]+", "$$1$$2[REDACTED]") where IsString(log.body)'
-          - 'replace_pattern(log.body, "(?i)(^|[\\s{\\[,?&;])([\\\"'']?(?:api[_-]key|x-api-key|token|access[_-]token|refresh[_-]token|client[_-]secret|password|secret)[\\\"'']?\\s*[:=]\\s*[\\\"'']?)[^\\s,;\\\"''}\\]&]+", "$$1$$2[REDACTED]") where IsString(log.body)'
+          - 'replace_pattern(log.body, "(?i)(^|[\\s{\\[,?&;])([\\\"'']?(?:[a-z0-9_.-]*[_.-])?(?:api[_-]key|apikey|x-api-key|token|access[_-]token|refresh[_-]token|client[_-]secret|password|secret|master[_-]key)[\\\"'']?\\s*[:=]\\s*[\\\"'']?)[^\\s,;\\\"''}\\]&]+", "$$1$$2[REDACTED]") where IsString(log.body)'
+          # Connection-string passwords and OpenAI-style keys in free text.
+          - 'replace_pattern(log.body, "(://[^:/\\s@?#]*:)[^@\\s?#]+@", "$$1[REDACTED]@") where IsString(log.body)'
+          - 'replace_pattern(log.body, "\\bsk-[A-Za-z0-9_-]{16,}", "[REDACTED]") where IsString(log.body)'
+
+  # Span URLs carry query strings verbatim (`?apikey=`, `?token=`): blank the
+  # values of credential-named parameters before traces reach Tempo.
+  transform/traces:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - 'replace_pattern(span.attributes["url.query"], "(?i)((?:^|&)(?:apikey|api[_-]key|token|access[_-]token|key|password|secret|sig|x-amz-security-token|x-amz-signature|x-amz-credential)=)[^&#]*", "$$1[REDACTED]")'
+          - 'replace_pattern(span.attributes["url.full"], "(?i)([?&](?:apikey|api[_-]key|token|access[_-]token|key|password|secret|sig|x-amz-security-token|x-amz-signature|x-amz-credential)=)[^&#]*", "$$1[REDACTED]")'
+          - 'replace_pattern(span.attributes["http.url"], "(?i)([?&](?:apikey|api[_-]key|token|access[_-]token|key|password|secret|sig|x-amz-security-token|x-amz-signature|x-amz-credential)=)[^&#]*", "$$1[REDACTED]")'
 
 exporters:
   otlp_http/tempo:
@@ -54,7 +68,7 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, transform/traces, batch]
       exporters: [otlp_http/tempo]
     logs:
       receivers: [otlp]

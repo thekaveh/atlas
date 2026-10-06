@@ -41,7 +41,13 @@ env:
       public edge — Cloudflare Tunnel or Caddy — reaches Kong locally).
       Existing .env files with HOST_BIND_IP= are upgraded by ./start.sh's
       blank-value backfill. Set "0.0.0.0:" only for deliberate remote access.
-      Values must include the trailing colon.
+      Values must include the trailing colon. Compose fragments use
+      ${HOST_BIND_IP-127.0.0.1:}, so an UNSET variable (e.g. docker compose run
+      without this .env) still binds loopback; an explicitly empty value binds
+      all interfaces. Deliberate exceptions: Ray,
+      Zeppelin and mcp-servers always bind 127.0.0.1 (unauthenticated job,
+      notebook and database-tool APIs), and the Supabase DB, Docling and
+      Parakeet ports fall back to 127.0.0.1 when this value is empty.
   - name: HOST_GATEWAY_IP
     auto_managed: true
     default: host-gateway

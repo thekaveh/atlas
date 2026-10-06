@@ -142,7 +142,14 @@ if [[ -z "${HERMES_DEFAULT_MODEL}" ]]; then
       # just an embedding model pulled), a grep exits 1 and `set -o pipefail`
       # would abort the whole init container instead of falling through to the
       # graceful "set HERMES_DEFAULT_MODEL" warning below.
+      # Name patterns miss embedders like bge-m3 and rerank/image routes, so
+      # also drop every id whose LiteLLM model_info.mode is not "chat".
+      non_chat_ids=$(curl -fsS --max-time 15 \
+        -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" \
+        "${litellm_url}/model/info" 2>/dev/null \
+        | jq -r '.data[]? | select((.model_info.mode // "chat") != "chat") | .model_name' 2>/dev/null || true)
       HERMES_DEFAULT_MODEL=$(printf '%s\n' "${available_ids}" \
+        | NON_CHAT_IDS="${non_chat_ids}" awk 'BEGIN { n = split(ENVIRON["NON_CHAT_IDS"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") skip[a[i]] = 1 } !($0 in skip)' \
         | grep -vx "hermes-agent" | grep -vx "lightrag" | grep -ivE 'embed' | head -n1 || true)
       if [[ -n "${HERMES_DEFAULT_MODEL}" ]]; then
         log "  auto-selected ${HERMES_DEFAULT_MODEL} (first non-hermes chat model)"
@@ -175,8 +182,10 @@ if [[ -z "${HERMES_DEFAULT_MODEL}" ]]; then
   export HERMES_DEFAULT_MODEL
 fi
 export TTS_INTERNAL_URL="${TTS_INTERNAL_URL:-}"
+export TTS_INTERNAL_MODEL="${TTS_INTERNAL_MODEL:-tts-1-hd}"
+export TTS_INTERNAL_VOICE="${TTS_INTERNAL_VOICE:-alloy}"
 export STT_INTERNAL_URL="${STT_INTERNAL_URL:-}"
-export STT_INTERNAL_API_KEY="${STT_INTERNAL_API_KEY:-}"
+export STT_INTERNAL_API_KEY="${STT_INTERNAL_API_KEY:-not-required}"
 export COMFYUI_INTERNAL_URL="${COMFYUI_INTERNAL_URL:-}"
 export SEARXNG_INTERNAL_URL="${SEARXNG_INTERNAL_URL:-}"
 export LIGHTRAG_INTERNAL_URL="${LIGHTRAG_INTERNAL_URL:-}"
@@ -252,7 +261,8 @@ export LITELLM_MODELS_LIST
 # shellcheck disable=SC2016
 VARS='${HERMES_DEFAULT_MODEL} ${HERMES_CONTEXT_LENGTH} ${LITELLM_MASTER_KEY}
 ${LITELLM_MODELS_LIST}
-${TTS_INTERNAL_URL} ${STT_INTERNAL_URL} ${STT_INTERNAL_API_KEY} ${COMFYUI_INTERNAL_URL}
+${TTS_INTERNAL_URL} ${TTS_INTERNAL_MODEL} ${TTS_INTERNAL_VOICE}
+${STT_INTERNAL_URL} ${STT_INTERNAL_API_KEY} ${COMFYUI_INTERNAL_URL}
 ${SEARXNG_INTERNAL_URL}
 ${LIGHTRAG_INTERNAL_URL} ${LIGHTRAG_API_KEY}'
 
@@ -282,7 +292,6 @@ strip_block() {
 strip_block TTS    TTS_INTERNAL_URL
 strip_block STT    STT_INTERNAL_URL
 strip_block SEARCH SEARXNG_INTERNAL_URL
-strip_block RAG    LIGHTRAG_INTERNAL_URL
 
 # Atomic write so a crash mid-write doesn't leave a partial config.
 tmp="${CONFIG_OUT}.tmp"
@@ -291,16 +300,21 @@ mv "$tmp" "$CONFIG_OUT"
 log "wrote ${CONFIG_OUT}"
 
 # ─── ComfyUI host override ─────────────────────────────────────────
-# Drop a skill-override that pins comfyui-host to our internal URL,
-# bypassing the bundled skill's hardcoded 127.0.0.1:8188.
+# Install a companion skill naming our internal ComfyUI URL, since the
+# bundled comfyui skill hardcodes 127.0.0.1:8188. Hermes indexes only
+# <skills>/<category>/<name>/SKILL.md and has no `extends:`, so the old
+# loose override file was never loaded; remove it.
+rm -f "${SKILLS_DIR}/creative-comfyui-host-override.md"
 if [[ -n "${COMFYUI_INTERNAL_URL:-}" && -f "${TEMPLATE_DIR}/comfyui-host-override.md" ]]; then
-  out="${SKILLS_DIR}/creative-comfyui-host-override.md"
+  mkdir -p "${SKILLS_DIR}/creative/atlas-comfyui-host"
+  out="${SKILLS_DIR}/creative/atlas-comfyui-host/SKILL.md"
   # shellcheck disable=SC2016
   COMFYUI_INTERNAL_URL="${COMFYUI_INTERNAL_URL}" \
     envsubst '${COMFYUI_INTERNAL_URL}' < "${TEMPLATE_DIR}/comfyui-host-override.md" > "${out}.tmp"
   mv "${out}.tmp" "${out}"
   log "wrote ${out}"
 else
+  rm -rf "${SKILLS_DIR}/creative/atlas-comfyui-host"
   log "skipped ComfyUI host override (COMFYUI_INTERNAL_URL empty or template missing)"
 fi
 

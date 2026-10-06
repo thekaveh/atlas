@@ -65,13 +65,15 @@ services:
       - SUPABASE_STORAGE_BUCKET=${COMFYUI_STORAGE_BUCKET:-comfyui-images}
       - COMFYUI_UPLOAD_TO_SUPABASE=${COMFYUI_UPLOAD_TO_SUPABASE:-true}
     ports:
-      - "${HOST_BIND_IP:-}${COMFYUI_PORT}:18188"
+      - "${HOST_BIND_IP-127.0.0.1:}${COMFYUI_PORT}:18188"
     volumes:
       - comfyui-models:/opt/ComfyUI/models
       - comfyui-output:/opt/ComfyUI/output
       - comfyui-input:/opt/ComfyUI/input
       - comfyui-custom-nodes:/opt/ComfyUI/custom_nodes
-      - ${COMFYUI_LOCAL_MODELS_PATH:-./empty}:/host_models
+      # Read-only: nothing in the container reads /host_models, and a writable
+      # mount let the unauthenticated ComfyUI write into the host models dir.
+      - ${COMFYUI_LOCAL_MODELS_PATH:-./empty}:/host_models:ro
       - ../../volumes/comfyui:/comfyui-manifest:ro
       - ./provisioning/provision_custom_nodes.sh:/opt/ai-dock/bin/provisioning.sh:ro
       - ./provisioning/healthcheck.sh:/opt/ai-dock/bin/atlas-comfyui-healthcheck.sh:ro
@@ -88,7 +90,9 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 120s
+      # Cold start checks out COMFYUI_REF and pip-installs custom nodes
+      # (amd64-emulated on Apple Silicon) before the check can pass.
+      start_period: 600s
     logging:
       driver: json-file
       options:

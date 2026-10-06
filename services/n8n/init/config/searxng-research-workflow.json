@@ -28,7 +28,7 @@
           "parameters": [
             {
               "name": "q",
-              "value": "={{ $json.body?.query || $json.body?.search || $json.query || $json.search || 'artificial intelligence' }}"
+              "value": "={{ $json.body?.query || $json.body?.search || $json.query?.q || $json.query?.query || 'artificial intelligence' }}"
             },
             {
               "name": "format",
@@ -36,19 +36,19 @@
             },
             {
               "name": "categories",
-              "value": "={{ $json.categories || 'general' }}"
+              "value": "={{ $json.body?.categories || 'general' }}"
             },
             {
               "name": "engines",
-              "value": "={{ $json.engines || '' }}"
+              "value": "={{ $json.body?.engines || '' }}"
             },
             {
               "name": "pageno",
-              "value": "={{ $json.page || '1' }}"
+              "value": "={{ $json.body?.page || $json.body?.pageno || '1' }}"
             },
             {
               "name": "time_range",
-              "value": "={{ $json.time_range || '' }}"
+              "value": "={{ $json.body?.time_range || '' }}"
             }
           ]
         },
@@ -68,7 +68,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Extract and format search results for AI summarization\nconst searchData = $input.first().json;\nconst results = searchData.results || [];\n\n// Format results for AI processing\nconst formattedResults = results.slice(0, 5).map((result, index) => {\n  return `${index + 1}. **${result.title}**\\n   URL: ${result.url}\\n   Content: ${result.content || result.description || 'No description available'}\\n`;\n}).join('\\n');\n\nconst webhook = $('Research Webhook').first().json;\nconst searchQuery = webhook.body?.query || webhook.body?.search || webhook.query || webhook.search;\n\nconst promptText = `Please analyze and summarize these search results for the query: \"${searchQuery}\"\\n\\nSearch Results:\\n${formattedResults}\\n\\nPlease provide:\\n1. A concise summary of the key findings\\n2. The most relevant insights\\n3. Any notable trends or patterns\\n4. Credible sources mentioned`;\n\nreturn {\n  search_query: searchQuery,\n  total_results: searchData.number_of_results || results.length,\n  results_count: results.length,\n  raw_results: results,\n  formatted_prompt: promptText\n};"
+        "jsCode": "// Extract and format search results for AI summarization\nconst searchData = $input.first().json;\nconst results = searchData.results || [];\n\n// Format results for AI processing\nconst formattedResults = results.slice(0, 5).map((result, index) => {\n  return `${index + 1}. **${result.title}**\\n   URL: ${result.url}\\n   Content: ${result.content || result.description || 'No description available'}\\n`;\n}).join('\\n');\n\nconst webhook = $('Research Webhook').first().json;\nconst searchQuery = webhook.body?.query || webhook.body?.search || webhook.query?.q || webhook.query?.query || 'artificial intelligence';\n\nconst promptText = `Please analyze and summarize these search results for the query: \"${searchQuery}\"\\n\\nSearch Results:\\n${formattedResults}\\n\\nPlease provide:\\n1. A concise summary of the key findings\\n2. The most relevant insights\\n3. Any notable trends or patterns\\n4. Credible sources mentioned`;\n\nreturn {\n  search_query: searchQuery,\n  total_results: searchData.number_of_results || results.length,\n  results_count: results.length,\n  raw_results: results,\n  formatted_prompt: promptText\n};"
       },
       "id": "a1a1a1a1-4444-4444-4444-444444444444",
       "name": "Format Results for AI",
@@ -98,32 +98,8 @@
           ]
         },
         "sendBody": true,
-        "bodyContentType": "json",
-        "jsonParameters": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "model",
-              "value": "={{ $env.LITELLM_DEFAULT_MODEL }}"
-            },
-            {
-              "name": "messages",
-              "value": "=[{\"role\":\"user\",\"content\": {{ JSON.stringify($json.formatted_prompt) }} }]"
-            },
-            {
-              "name": "stream",
-              "value": false
-            },
-            {
-              "name": "temperature",
-              "value": 0.3
-            },
-            {
-              "name": "max_tokens",
-              "value": 1000
-            }
-          ]
-        },
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.LITELLM_DEFAULT_MODEL, messages: [{ role: 'user', content: $json.formatted_prompt }], stream: false, temperature: 0.3, max_tokens: 1000 }) }}",
         "options": {
           "timeout": 90000
         }

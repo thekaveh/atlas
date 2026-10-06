@@ -18,8 +18,8 @@ services:
       # (9000) — see services/prometheus/config/prometheus.yml.
       MINIO_PROMETHEUS_AUTH_TYPE: 'public'
     ports:
-      - "${HOST_BIND_IP:-}${MINIO_PORT}:9000"
-      - "${HOST_BIND_IP:-}${MINIO_CONSOLE_PORT}:9001"
+      - "${HOST_BIND_IP-127.0.0.1:}${MINIO_PORT}:9000"
+      - "${HOST_BIND_IP-127.0.0.1:}${MINIO_CONSOLE_PORT}:9001"
     volumes:
       - minio-data:/data
     healthcheck:

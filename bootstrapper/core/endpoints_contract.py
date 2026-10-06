@@ -439,8 +439,11 @@ def _storage_fields(
 
 
 def render_env(fields: list[ExportField]) -> str:
-    """Deterministic env-file rendering (KEY=value, one per line)."""
-    return "".join(f"{f.name}={f.value}\n" for f in fields)
+    """Deterministic env-file rendering (KEY=value, one per line), quoted with
+    the shared encoder so a value with ` #`, spaces or `$` survives a reader."""
+    from utils.atomic_write import render_env_value
+
+    return "".join(f"{f.name}={render_env_value(f.name, f.value)}\n" for f in fields)
 
 
 def render_json(fields: list[ExportField]) -> str:

@@ -190,6 +190,14 @@ class ResearchClient:
         """Get the final result of a completed research session"""
         return self._completed_results.pop(session_id, None)
 
+    async def delete_thread(self, session_id: str) -> None:
+        """Best-effort removal of a finished LangGraph thread (in-memory state)."""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.delete(f"{self.base_url}/threads/{session_id}")
+        except Exception as e:  # never fail a research session over cleanup
+            logger.debug("research thread cleanup failed (error_type=%s)", type(e).__name__)
+
     def discard_pending(self, session_id: str) -> None:
         """Forget a pending LangGraph thread after cancellation or early failure."""
         self._pending_requests.pop(session_id, None)

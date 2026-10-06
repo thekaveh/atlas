@@ -89,7 +89,7 @@ Atlas organizes 58 service families into 7 tracks. Each track pre-selects a work
 ./start.sh --llm-provider-source ollama-container-gpu
 ```
 
-Interactive wizard by default; CLI flags skip prompts for the values you set. Full flow, flags, and troubleshooting: [Quick Start](quick-start/index.md){: .atlas-home__quickstart-link}.
+Interactive wizard by default; any source, stack, model or key flag skips the wizard and launches directly. Full flow, flags, and troubleshooting: [Quick Start](quick-start/index.md){: .atlas-home__quickstart-link}.
 </div>
 
 ## 3. Platform Topology
@@ -117,7 +117,7 @@ Per-flow diagrams (data/RAG, LLM provider routing, observability, security bound
 
 <div class="atlas-card" markdown="1">
 <p class="atlas-card__title">Core Concepts</p>
-<p class="atlas-card__body">SOURCE values, tracks, adaptive services, Kong routing.</p>
+<p class="atlas-card__body">SOURCE values, tracks, manifests, Kong routing, overlays.</p>
 
 [Read concepts →](core-concepts.md){: .atlas-card__link}
 </div>

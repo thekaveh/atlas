@@ -27,6 +27,12 @@ from ray_client import (
 
 logger = logging.getLogger(__name__)
 
+
+def _raise_if_job_missing(exc: RuntimeError, job_id: str) -> None:
+    """Map the Ray SDK's 404 (a RuntimeError naming the status code) to 404."""
+    if str(exc).startswith("Request failed with status code 404:"):
+        raise HTTPException(status_code=404, detail=f"Ray job {job_id!r} not found") from exc
+
 _ray_bearer = HTTPBearer(auto_error=False)
 
 
@@ -169,6 +175,10 @@ async def get_job_status(job_id: str) -> dict:
         raise HTTPException(status_code=503, detail=str(e))
     except RayControlPlaneTimeoutError as exc:
         raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        _raise_if_job_missing(exc, job_id)
+        logger.exception("ray get_job_status failed")
+        raise HTTPException(status_code=500, detail="Ray job status fetch failed")
     except Exception:
         logger.exception("ray get_job_status failed")
         raise HTTPException(status_code=500, detail="Ray job status fetch failed")
@@ -184,6 +194,10 @@ async def stop_job(job_id: str) -> dict:
         raise HTTPException(status_code=503, detail=str(e))
     except RayControlPlaneTimeoutError as exc:
         raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        _raise_if_job_missing(exc, job_id)
+        logger.exception("ray stop_job failed")
+        raise HTTPException(status_code=500, detail="Ray job stop failed")
     except Exception:
         logger.exception("ray stop_job failed")
         raise HTTPException(status_code=500, detail="Ray job stop failed")

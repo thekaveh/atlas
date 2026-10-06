@@ -92,17 +92,26 @@ def test_trino_compose_catalog_contract() -> None:
 
     assert service["image"] == "${TRINO_IMAGE:-trinodb/trino:482}"
     assert service["container_name"] == "${PROJECT_NAME}-trino"
-    assert service["ports"] == ["${HOST_BIND_IP:-}${TRINO_PORT}:8080"]
+    assert service["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${TRINO_PORT}:8080"]
     assert service["deploy"]["replicas"] == "${TRINO_SCALE:-0}"
     assert service["depends_on"]["iceberg-rest"]["condition"] == "service_healthy"
     assert service["depends_on"]["minio-init"]["condition"] == "service_completed_successfully"
     assert "./catalog:/etc/trino/catalog:ro" in service["volumes"]
+    # Kong's X-Forwarded-* headers get a 406 without forwarded processing.
+    assert "-Dhttp-server.process-forwarded=true" in service["environment"]["JAVA_TOOL_OPTIONS"]
+    assert service["environment"]["MINIO_BUCKET_ICEBERG_LAKEHOUSE"] == (
+        "${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}"
+    )
 
     catalog = (SERVICE_DIR / "catalog" / "lakehouse.properties").read_text()
     assert "connector.name=iceberg" in catalog
     assert "iceberg.catalog.type=rest" in catalog
     assert "iceberg.rest-catalog.uri=http://iceberg-rest:8181" in catalog
-    assert "iceberg.rest-catalog.warehouse=s3://lakehouse/" in catalog
+    # Follows the bucket iceberg-rest/Spark/minio-init use, not a literal.
+    assert (
+        "iceberg.rest-catalog.warehouse=s3://${ENV:MINIO_BUCKET_ICEBERG_LAKEHOUSE}/"
+        in catalog
+    )
     assert "fs.native-s3.enabled=true" in catalog
     assert "s3.endpoint=http://minio:9000" in catalog
     assert "s3.region=${ENV:MINIO_REGION}" in catalog
@@ -190,6 +199,8 @@ def test_trino_kong_route_and_docs_contract() -> None:
     assert trino_service["routes"][0]["hosts"] == ["trino.localhost"]
     plugins = {plugin["name"]: plugin for plugin in trino_service["plugins"]}
     assert {"cors", "basic-auth", "acl"} <= set(plugins)
+    # Trino 401s any password sent over plain HTTP, so Kong must strip it.
+    assert plugins["basic-auth"]["config"]["hide_credentials"] is True
     assert plugins["acl"]["config"]["allow"] == ["dashboard_user"]
 
     readme = README.read_text()

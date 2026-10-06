@@ -25,12 +25,15 @@ model:
 # (Kokoro/Piper), Chatterbox (voice cloning), or any future engine that
 # exposes /v1/audio/speech.
 # BEGIN-TTS
+# Hermes reads the endpoint from tts.openai.* only (a flat tts.base_url is
+# ignored and audio went to api.openai.com); the key comes from
+# VOICE_TOOLS_OPENAI_KEY, which compose pins to a placeholder.
 tts:
   provider: openai
-  base_url: ${TTS_INTERNAL_URL}/v1
-  api_key: not-required
-  model: tts-1-hd
-  voice: alloy
+  openai:
+    base_url: ${TTS_INTERNAL_URL}/v1
+    model: ${TTS_INTERNAL_MODEL}
+    voice: ${TTS_INTERNAL_VOICE}
 # END-TTS
 
 # ─── STT — engine-neutral OpenAI-compatible endpoint ─────────────────
@@ -41,18 +44,22 @@ tts:
 # not explicitly documented and may need a fallback to a command-type
 # provider. See services/hermes/README.md "Known caveats".
 # BEGIN-STT
+# stt.openai.base_url is honored only with a non-empty stt.openai.api_key
+# (init defaults it to a placeholder); otherwise Hermes uses api.openai.com.
 stt:
   provider: openai
-  base_url: ${STT_INTERNAL_URL}/v1
-  api_key: ${STT_INTERNAL_API_KEY}
-  model: whisper-1
+  openai:
+    base_url: ${STT_INTERNAL_URL}/v1
+    api_key: ${STT_INTERNAL_API_KEY}
+    model: whisper-1
 # END-STT
 
 # ─── Web search — SearXNG ─────────────────────────────────────────────
 # BEGIN-SEARCH
-search:
-  provider: searxng
-  base_url: ${SEARXNG_INTERNAL_URL}
+# Hermes has no `search:` section: the backend is web.search_backend and the
+# endpoint is the SEARXNG_URL env var (set on the hermes container).
+web:
+  search_backend: searxng
 # END-SEARCH
 
 # ─── Providers (user-defined endpoints) ───────────────────────────────
@@ -98,13 +105,8 @@ providers:
 # duplicate it here or the picker shows two rows.
 custom_providers: []
 
-# ─── Tools (optional capability blocks) ───────────────────────────────
-# Each block is wrapped in BEGIN-X / END-X sentinels so init-hermes.sh
-# can strip blocks whose backing service is disabled (URL is empty).
-# BEGIN-RAG
-tools:
-  - name: rag_query
-    endpoint: ${LIGHTRAG_INTERNAL_URL}/query
-    api_key: ${LIGHTRAG_API_KEY}
-    description: "Graph-augmented RAG query (LightRAG)."
-# END-RAG
+# ─── LightRAG ─────────────────────────────────────────────────────────
+# Not wired: this Hermes release has no config-declared HTTP tool (its
+# `tools:` section is a dict of built-in tool settings), so a `rag_query`
+# entry was silently ignored. LightRAG is reachable through LiteLLM's
+# `lightrag` model alias instead.

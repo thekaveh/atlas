@@ -354,6 +354,12 @@ class PromptStep:
     # this flag the numeric coercion below silently replaces it with
     # ``default_value``. Every other number step stays strictly numeric.
     accepts_auto: bool = False
+    # Opt-in for ``kind="number"`` and ``kind="text"``: the entry must be an
+    # integer in number_min..number_max, and an empty entry is refused when
+    # there is no default to keep (the custom embedding dimension has no safe
+    # fallback; an empty answer used to crash the launch after .env was
+    # half-written). On a text step this also refuses the `clear` sentinel.
+    number_required: bool = False
     # Optional predicate the wizard screen calls before loading this
     # step. Receives the in-progress ``selections`` dict and returns
     # True if this step should be skipped. Used to skip cloud
@@ -474,6 +480,8 @@ def number_entry_error(raw: str, step: "PromptStep") -> str | None:
     """
     text = (raw or "").strip()
     if not text:
+        if step.number_required and not str(step.default_value or "").strip():
+            return f"a value is required \u2014 {_number_range_hint(step)}"
         return None
     if text.lower() == AUTO_PORT:
         if step.accepts_auto:
@@ -583,7 +591,30 @@ def _secret_input_hint(step: "PromptStep", *, include_restored: bool = True) -> 
     return "paste a key + Enter to enable  ·  Enter (empty) to leave disabled"
 
 
+def _live_text_hint(step: "PromptStep", value: str) -> str:
+    """Hint under a text input while the user types (``value`` stripped).
+
+    A ``number_required`` step shows its refusal (or range) instead of the
+    free-text skip/clear/char-count wording, which it does not accept.
+    """
+    if step.number_required:
+        error = number_entry_error(value, step)
+        if error or not value:
+            return error or _number_input_hint(step)
+        return f"✓ {value}  ·  Enter to confirm"
+    if not value:
+        return _text_input_hint(step, include_restored=False)
+    if value.lower() == "clear":
+        return "pending clear  ·  Enter to confirm clear  ·  edit to change"
+    n = len(value)
+    return f"✓ {n} char{'s' if n != 1 else ''} entered  ·  Enter to confirm"
+
+
 def _text_input_hint(step: "PromptStep", *, include_restored: bool = True) -> str:
+    if step.number_required:
+        # A validated text step (custom embedding dimension): no skip or
+        # `clear` sentinel, so never advertise them.
+        return _number_input_hint(step)
     default = (step.default_value or "").strip()
     restored = (step.restored_input_value or "").strip() if include_restored else ""
     if restored.lower() == "clear":
@@ -1744,7 +1775,10 @@ class PromptPanel(Container):
 
         None when the step isn't a number step or the entry is acceptable.
         """
-        if self._step is None or self._step.kind != "number":
+        if self._step is None:
+            return None
+        validated_text = self._step.kind == "text" and self._step.number_required
+        if self._step.kind != "number" and not validated_text:
             return None
         raw = self._number_input.value if self._number_input else ""
         return number_entry_error(raw, self._step)
@@ -1938,20 +1972,9 @@ class PromptPanel(Container):
             and self._number_hint is not None
             and event.input is self._number_input
         ):
-            value = (event.value or "").strip()
-            if not value:
-                self._number_hint.update(
-                    _text_input_hint(self._step, include_restored=False)
-                )
-            elif value.lower() == "clear":
-                self._number_hint.update(
-                    "pending clear  ·  Enter to confirm clear  ·  edit to change"
-                )
-            else:
-                n = len(value)
-                self._number_hint.update(
-                    f"✓ {n} char{'s' if n != 1 else ''} entered  ·  Enter to confirm"
-                )
+            self._number_hint.update(
+                _live_text_hint(self._step, (event.value or "").strip())
+            )
             return
         if (
             self._step.kind != "secret"

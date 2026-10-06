@@ -13,7 +13,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "id": 1,
       "targets": [
-        { "expr": "sum(rate(litellm_requests_metric[5m])) by (model)", "refId": "A" }
+        { "expr": "sum(rate(litellm_requests_metric_total[5m])) by (model)", "refId": "A" }
       ]
     },
     {
@@ -23,7 +23,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "id": 2,
       "targets": [
-        { "expr": "sum(rate(litellm_total_tokens_metric[5m])) by (model)", "refId": "A" }
+        { "expr": "sum(rate(litellm_total_tokens_metric_total[5m])) by (model)", "refId": "A" }
       ]
     },
     {
@@ -45,7 +45,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "id": 4,
       "targets": [
-        { "expr": "sum(rate(litellm_spend_metric[5m])) by (model)", "refId": "A" }
+        { "expr": "sum(rate(litellm_spend_metric_total[5m])) by (model)", "refId": "A" }
       ]
     },
     {
@@ -55,7 +55,7 @@
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
       "id": 5,
       "targets": [
-        { "expr": "sum(rate(litellm_proxy_failed_requests_metric[5m])) by (requested_model, exception_class)", "refId": "A" }
+        { "expr": "sum(rate(litellm_proxy_failed_requests_metric_total[5m])) by (requested_model, exception_class)", "refId": "A" }
       ]
     }
   ],

@@ -100,6 +100,17 @@ def test_http_request_and_webhook_method_fields_match_pinned_n8n_contract() -> N
                 assert parameters.get("httpMethod")
 
 
+def test_scheduled_trigger_uses_a_node_that_reads_cron_rules() -> None:
+    # The legacy cron v1 node reads only triggerTimes, so a rule.interval
+    # cron expression on it registered no job and the workflow never fired.
+    for path in WORKFLOWS:
+        for node in _load(path).get("nodes", []):
+            assert node.get("type") != "n8n-nodes-base.cron", f"{path.name}:{node['name']}"
+            if node.get("type") == "n8n-nodes-base.scheduleTrigger":
+                for rule in node["parameters"]["rule"]["interval"]:
+                    assert "value" not in rule and rule.get("expression"), rule
+
+
 def test_body_bearing_http_requests_do_not_fall_back_to_get() -> None:
     for path in WORKFLOWS:
         for node in _load(path).get("nodes", []):
@@ -120,7 +131,9 @@ def test_scheduled_report_upload_matches_backend_multipart_contract() -> None:
     parameters = node["parameters"]
 
     assert parameters["method"] == "POST"
-    assert parameters["url"].endswith("?bucket=research-reports")
+    # The backend only accepts BACKEND_STORAGE_ALLOWED_BUCKETS (default:
+    # `default`, the one bucket 04-storage.sql seeds).
+    assert parameters["url"].endswith("?bucket=default")
     assert parameters["contentType"] == "multipart-form-data"
     assert parameters["bodyParameters"] == {
         "parameters": [
@@ -534,3 +547,66 @@ def test_advanced_comfyui_workflow_accepts_only_ready_or_configured_fal_health()
             "operator": {"type": "boolean", "operation": "equals"},
         }
     ]
+
+
+def test_bundled_workflows_can_read_the_env_they_reference():
+    """n8n 2.x blocks `$env` unless N8N_BLOCK_ENV_ACCESS_IN_NODE == "false";
+    the bundled workflows authenticate with $env.BACKEND_N8N_API_TOKEN."""
+    referencing = [
+        path for path in (ROOT / "services" / "n8n").rglob("*.json")
+        if "$env." in path.read_text(encoding="utf-8")
+    ]
+    assert referencing, "expected bundled workflows that read $env"
+    services = yaml.safe_load(
+        (ROOT / "services" / "n8n" / "compose.yml").read_text(encoding="utf-8")
+    )["services"]
+    for name in ("n8n", "n8n-worker"):
+        assert services[name]["environment"]["N8N_BLOCK_ENV_ACCESS_IN_NODE"] == "false"
+
+
+def test_set_nodes_use_the_assignment_shape_their_version_reads() -> None:
+    # Set >= 3.3 reads only `assignments`; the v1/v2 `values.string` shape
+    # produced empty items, so the consolidation summary was lost.
+    for path in WORKFLOWS:
+        for node in _load(path).get("nodes", []):
+            if node.get("type") == "n8n-nodes-base.set" and node.get("typeVersion", 1) >= 3.3:
+                assert "values" not in node["parameters"], f"{path.name}:{node['name']}"
+                assert node["parameters"]["assignments"]["assignments"], f"{path.name}:{node['name']}"
+
+
+def test_comfyui_generate_errors_reach_the_workflow_error_responder() -> None:
+    # Without an error output the backend's 409/502/503/504 threw inside n8n
+    # and callers got n8n's generic 500 instead of the workflow's error body.
+    staged = ROOT / "services/n8n/workflows-stage/workflows"
+    for name, node, responder in (
+        ("comfyui-image-generation.json", "Generate Image", "Handle Service Error"),
+        ("comfyui-simple.json", "Generate Simple Image", "Format Response"),
+    ):
+        workflow = _load(staged / name)
+        generate = next(n for n in workflow["nodes"] if n["name"] == node)
+        assert generate["onError"] == "continueErrorOutput"
+        error_branch = workflow["connections"][node]["main"][1]
+        assert [link["node"] for link in error_branch] == [responder]
+    handler = next(
+        n for n in _load(staged / "comfyui-image-generation.json")["nodes"]
+        if n["name"] == "Handle Service Error"
+    )
+    assert "$prevNode.name === 'Generate Image' ? 'Image generation failed'" in handler["parameters"]["jsCode"]
+
+
+def test_searxng_research_reads_options_from_the_webhook_body():
+    # Webhook fields nest under `body`; `$json.query` is the (always truthy)
+    # URL-query object, so a body without a query searched "[object Object]".
+    workflow = _load(ROOT / "services/n8n/init/config/searxng-research-workflow.json")
+    search = next(n for n in workflow["nodes"] if n["name"] == "Search SearxNG")
+    params = {p["name"]: p["value"] for p in search["parameters"]["queryParameters"]["parameters"]}
+    for name in ("categories", "engines", "time_range"):
+        assert "$json.body?." in params[name], name
+    assert "$json.query ||" not in params["q"]
+
+
+def test_langmem_consolidation_requires_a_healthy_memory_service():
+    workflow = _load(ROOT / "services/n8n/workflows-stage/workflows/langmem-consolidation.json")
+    gate = next(n for n in workflow["nodes"] if n["name"] == "Is Memory Enabled?")
+    conditions = gate["parameters"]["conditions"]["conditions"]
+    assert {c["leftValue"] for c in conditions} >= {"={{ $json.enabled }}", "={{ $json.status }}"}

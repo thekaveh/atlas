@@ -9,14 +9,17 @@ services:
     networks:
       - backend-network
     ports:
-      - "${HOST_BIND_IP:-}${SEARXNG_PORT}:8080"
+      - "${HOST_BIND_IP-127.0.0.1:}${SEARXNG_PORT}:8080"
     volumes:
       - ./config:/etc/searxng:rw
       - searxng-data:/var/cache/searxng
     environment:
       - SEARXNG_BASE_URL=http://localhost:${SEARXNG_PORT}
       - SEARXNG_SECRET=${SEARXNG_SECRET}
-      - FORCE_OWNERSHIP=1
+      # The entrypoint chowns only when this is exactly "true"; "1" never
+      # did. Keep it off explicitly: true would recursively chown the
+      # repo's bind-mounted ./config to the image's searxng user on Linux.
+      - FORCE_OWNERSHIP=false
     healthcheck:
       # Pass an X-Forwarded-For header so searxng's botdetection trusted-proxy
       # check (searx/botdetection/trusted_proxies.py:141) doesn't fire its

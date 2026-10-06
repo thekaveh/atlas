@@ -454,3 +454,60 @@ def test_localhost_mode_few_entries_gets_notice_too(
 
     notices = [o for o in opts if o.value == ""]
     assert len(notices) == 1
+
+
+def test_port_typed_on_the_engine_step_wins_over_env(
+    monkeypatch, library_qwen3_custom_chat,
+):
+    """The LLM Engine step's inline port is only written to .env at launch;
+    the picker must query the port typed in this session."""
+    urls = []
+
+    def _recording(url, timeout=2.0):
+        urls.append(url)
+        return []
+
+    monkeypatch.setattr("wizard.llm_steps.list_pulled_models", _recording)
+    monkeypatch.setattr(
+        "wizard.llm_steps.list_library_entries",
+        lambda timeout=5.0: library_qwen3_custom_chat,
+    )
+    provider = _get_options_provider({
+        "LLM_PROVIDER_SOURCE": "ollama-localhost",
+        "OLLAMA_LOCALHOST_PORT": "11434",
+    })
+    provider({"__secondary__:OLLAMA_LOCALHOST_PORT": "11500"})
+    assert urls and all(url == "http://localhost:11500" for url in urls)
+
+
+def test_deliberately_blank_selection_is_not_pre_ticked_again():
+    # Deselecting everything writes OLLAMA_USER_MODELS=; re-ticking the
+    # baseline on the next visit would re-pull several GB on Enter.
+    def defaults(env_vars):
+        steps = build_ollama_steps(env_vars=env_vars, warn=lambda _msg: None)
+        return next(s for s in steps if s.title == OLLAMA_MODELS_TITLE).default_values
+
+    blank = {"LLM_PROVIDER_SOURCE": "ollama-container-cpu", "OLLAMA_USER_MODELS": ""}
+    assert defaults(blank) == []
+    assert defaults({"LLM_PROVIDER_SOURCE": "ollama-container-cpu"})  # unset: baseline
+
+
+def test_saved_models_outside_the_listed_families_are_kept():
+    # hf.co pulls and anything beyond the offline curated fallback were not
+    # rows, so Enter rewrote OLLAMA_USER_MODELS without them.
+    from wizard.llm_steps import _with_saved_ollama_rows
+    from wizard.llm_steps import PromptOption
+
+    rows = [PromptOption(value="qwen3", label="qwen3", hint="", badges=[])]
+    env = {"OLLAMA_USER_MODELS": "qwen3:8b,hf.co/bartowski/foo:Q4_K_M,llama3.3:70b,llama3.3:70b"}
+    kept = [r.value for r in _with_saved_ollama_rows(rows, env)]
+    assert kept == ["qwen3", "hf.co/bartowski/foo:Q4_K_M", "llama3.3:70b"]
+
+
+def test_saved_untagged_model_does_not_swallow_its_tagged_sibling():
+    # A kept bare name must not act as a family row for a later tagged entry.
+    from wizard.llm_steps import _with_saved_ollama_rows
+
+    env = {"OLLAMA_USER_MODELS": "hf.co/x/foo,hf.co/x/foo:Q8_0,mymodel,mymodel:13b"}
+    kept = [r.value for r in _with_saved_ollama_rows([], env)]
+    assert kept == ["hf.co/x/foo", "hf.co/x/foo:Q8_0", "mymodel", "mymodel:13b"]

@@ -114,7 +114,9 @@ def _stable_export(project_dir: Path, ref: str, lock_sha: str, cli: str) -> str:
         "export",
         "--project",
         str(project_dir),
-        "--frozen",
+        # --locked, not --frozen: fail when runtime.uv.lock no longer matches
+        # runtime-pyproject.toml (--frozen exported a stale lock cleanly).
+        "--locked",
         "--no-dev",
         "--no-emit-project",
         "--output-file",

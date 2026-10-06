@@ -19,6 +19,7 @@ clients, so a stalled client names the phase it stalled in (#1306).
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -104,6 +105,18 @@ SEED_QUERY = (
     "SELECT name, description, category, active "
     "FROM public.comfyui_workflows ORDER BY name;"
 )
+
+
+def docker_unavailable_locally() -> bool:
+    """Skip condition for the docker-gated seed tests: true only OUTSIDE CI.
+    Under CI a missing daemon must fail these data-migration tests, not turn
+    them silently green (the role/restore drills already do this)."""
+    return not docker_available() and not in_ci()
+
+
+def in_ci() -> bool:
+    """CI truthiness as the role/restore drills read it (`CI=false` is local)."""
+    return os.environ.get("CI", "").strip().lower() in {"1", "true", "yes"}
 
 
 def docker_available() -> bool:

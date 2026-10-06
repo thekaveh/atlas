@@ -4,7 +4,7 @@ Three settings that all exist for the same reason — memory is the scarce
 resource on this stack — but which fail in different ways if reverted.
 
 The Redis policy is the subtle one. Redis db 0 mixes LiteLLM's response
-cache with n8n's BullMQ queue, Kong's rate-limit counters, Langfuse's queue
+cache with n8n's BullMQ queue, Langfuse's queue
 and the backend's media store. Under ``noeviction`` a full instance rejects
 WRITES, so an oversized cache takes the queue down with it. ``volatile-lru``
 evicts only keys carrying a TTL — the cache — leaving TTL-less queue entries

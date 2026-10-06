@@ -10,6 +10,19 @@ import pytest
 from fastapi.testclient import TestClient
 
 
+def _minimal_glb() -> bytes:
+    """Smallest binary glTF 2.0 the services accept (JSON chunk only)."""
+    import json as _json
+    import struct as _struct
+
+    doc = _json.dumps({"asset": {"version": "2.0"}}).encode()
+    doc += b" " * (-len(doc) % 4)
+    return _struct.pack("<III", 0x46546C67, 2, 20 + len(doc)) + _struct.pack("<II", len(doc), 0x4E4F534A) + doc
+
+
+RAW_GLB = _minimal_glb()
+
+
 _TOKEN = "test-asset-worker-token"
 
 
@@ -139,7 +152,7 @@ def test_multipart_glb_postprocess_stores_content_addressed_local_artifact(
     client = _client(api)
     response = client.post(
         "/gltf/postprocess",
-        files={"file": ("scene.glb", b"raw-glb", "model/gltf-binary")},
+        files={"file": ("scene.glb", RAW_GLB, "model/gltf-binary")},
         data={
             "target_height_m": "1.8",
             "normalize_axis": "height",
@@ -199,7 +212,7 @@ def test_minio_reference_postprocess_round_trips_through_content_addressed_bucke
 
         def fetch(self, bucket: str, key: str) -> bytes:
             assert (bucket, key) == ("raw-assets", "incoming/mesh.glb")
-            return b"raw-from-minio"
+            return RAW_GLB
 
         def store(self, data: bytes, *, sha256: str) -> dict[str, str]:
             stored["data"] = data
@@ -213,7 +226,7 @@ def test_minio_reference_postprocess_round_trips_through_content_addressed_bucke
             }
 
     def fake_run(input_path, output_path, params) -> None:
-        assert input_path.read_bytes() == b"raw-from-minio"
+        assert input_path.read_bytes() == RAW_GLB
         output_path.write_bytes(output_bytes)
 
     monkeypatch.setattr(api, "ArtifactStorage", FakeStorage)
@@ -280,6 +293,39 @@ def test_postprocess_rejects_oversize_upload_before_transform(
 
     assert response.status_code == 413
     assert transformed is False
+
+
+def test_postprocess_rejects_declared_oversize_body_before_parsing(
+    monkeypatch, tmp_path
+) -> None:
+    """Starlette spools the whole multipart body before the handler's cap runs."""
+    from asset_worker import api
+
+    parsed = False
+
+    async def fake_form(self, **kwargs):
+        nonlocal parsed
+        parsed = True
+        raise AssertionError("body must not be parsed")
+
+    monkeypatch.setattr("starlette.requests.Request.form", fake_form)
+    monkeypatch.setenv("ASSET_WORKER_MAX_UPLOAD_MB", "0.5")
+    monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
+    app_client = _client(api)
+
+    response = app_client.post(
+        "/gltf/postprocess",
+        files={"file": ("large.glb", b"x" * (2 * 1024 * 1024), "model/gltf-binary")},
+    )
+
+    assert response.status_code == 413
+    assert parsed is False
+    # The admission slot is released, so the next request is not refused as busy.
+    retry = app_client.post(
+        "/gltf/postprocess",
+        files={"file": ("large.glb", b"x" * (2 * 1024 * 1024), "model/gltf-binary")},
+    )
+    assert retry.status_code == 413
 
 
 def test_mutating_routes_require_bearer_token() -> None:
@@ -350,7 +396,7 @@ def test_minio_reference_rejects_oversize_object_before_read(monkeypatch) -> Non
     [
         (
             "/gltf/postprocess",
-            {"files": {"file": ("scene.glb", b"raw-glb", "model/gltf-binary")}},
+            {"files": {"file": ("scene.glb", RAW_GLB, "model/gltf-binary")}},
         ),
         (
             "/gltf/postprocess/ref",
@@ -427,7 +473,7 @@ def test_cancelled_request_holds_slot_until_transform_thread_exits(
             first = asyncio.create_task(
                 client.post(
                     "/gltf/postprocess",
-                    files={"file": ("first.glb", b"raw", "model/gltf-binary")},
+                    files={"file": ("first.glb", RAW_GLB, "model/gltf-binary")},
                 )
             )
             assert await asyncio.to_thread(started.wait, 2)
@@ -438,7 +484,7 @@ def test_cancelled_request_holds_slot_until_transform_thread_exits(
 
             second = await client.post(
                 "/gltf/postprocess",
-                files={"file": ("second.glb", b"raw", "model/gltf-binary")},
+                files={"file": ("second.glb", RAW_GLB, "model/gltf-binary")},
             )
             release.set()
             with pytest.raises(asyncio.CancelledError):
@@ -456,7 +502,7 @@ def test_postprocess_invalid_form_param_returns_422() -> None:
     # not a 500 (the params model is built inside the handler).
     response = _client(api).post(
         "/gltf/postprocess",
-        files={"file": ("scene.glb", b"raw-glb", "model/gltf-binary")},
+        files={"file": ("scene.glb", RAW_GLB, "model/gltf-binary")},
         data={"up_axis": "sideways"},
     )
     assert response.status_code == 422
@@ -474,3 +520,74 @@ def test_non_ascii_bearer_token_is_401_not_500() -> None:
         json={"input": {"bucket": "raw-assets", "key": "mesh.glb"}, "params": {}},
     )
     assert response.status_code == 401
+
+
+def test_missing_reference_object_is_404_not_500(monkeypatch, tmp_path) -> None:
+    from asset_worker import api
+
+    class Missing(Exception):
+        response = {"Error": {"Code": "NoSuchKey"}}
+
+    class FakeStorage:
+        output_bucket = "asset-worker"
+
+        def fetch(self, bucket: str, key: str) -> bytes:
+            raise Missing()
+
+    monkeypatch.setattr(api, "ArtifactStorage", FakeStorage)
+    monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
+    monkeypatch.setenv("ASSET_WORKER_MINIO_ENABLED", "true")
+    response = _client(api).post(
+        "/gltf/postprocess/ref",
+        json={"input": {"bucket": "raw-assets", "key": "incoming/none.glb"}, "params": {}},
+    )
+    assert response.status_code == 404
+    assert "was not found" in response.json()["detail"]
+
+
+
+def test_glb_with_external_buffer_uri_is_rejected_before_any_converter_runs(monkeypatch, tmp_path) -> None:
+    # gltf-transform/Blender resolve non-data: URIs against the filesystem,
+    # so ../../proc/self/environ would end up in a downloadable artifact.
+    import json as _json
+    import struct as _struct
+
+    from asset_worker import api
+
+    doc = _json.dumps({"asset": {"version": "2.0"}, "buffers": [{"uri": "../../proc/self/environ", "byteLength": 8}]}).encode()
+    doc += b" " * (-len(doc) % 4)
+    glb = _struct.pack("<III", 0x46546C67, 2, 12 + 8 + len(doc)) + _struct.pack("<II", len(doc), 0x4E4F534A) + doc
+
+    monkeypatch.setattr(api, "run_gltf_transform", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ran")))
+    monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
+    response = _client(api).post("/gltf/postprocess", files={"file": ("scene.glb", glb, "model/gltf-binary")})
+    assert response.status_code == 400
+    assert "self-contained" in response.json()["detail"]
+
+
+def test_non_glb_input_is_rejected_instead_of_reaching_gltf_transform(monkeypatch, tmp_path) -> None:
+    # gltf-transform picks GLB vs .gltf JSON by content, so a JSON file named
+    # x.glb skipped the URI check and could still reference local files.
+    from asset_worker import api
+
+    gltf_json = b'{"asset":{"version":"2.0"},"buffers":[{"uri":"/proc/self/environ","byteLength":8}]}'
+    monkeypatch.setattr(api, "run_gltf_transform", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ran")))
+    monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
+    response = _client(api).post("/gltf/postprocess", files={"file": ("x.glb", gltf_json, "model/gltf-binary")})
+    assert response.status_code == 400
+    assert "binary glTF 2.0" in response.json()["detail"]
+
+
+def test_non_list_buffers_are_rejected_not_a_500(monkeypatch, tmp_path) -> None:
+    import json as _json
+    import struct as _struct
+
+    from asset_worker import api
+
+    doc = _json.dumps({"asset": {"version": "2.0"}, "buffers": {"a": {"uri": "../x"}}}).encode()
+    doc += b" " * (-len(doc) % 4)
+    glb = _struct.pack("<III", 0x46546C67, 2, 20 + len(doc)) + _struct.pack("<II", len(doc), 0x4E4F534A) + doc
+    monkeypatch.setattr(api, "run_gltf_transform", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ran")))
+    monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
+    response = _client(api).post("/gltf/postprocess", files={"file": ("x.glb", glb, "model/gltf-binary")})
+    assert response.status_code == 400

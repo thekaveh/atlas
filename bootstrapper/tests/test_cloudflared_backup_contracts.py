@@ -11,12 +11,14 @@ import hmac
 import importlib.util
 import json
 import os
+import re
 import shutil
 import signal
 import stat
 import subprocess
 import sys
 import time
+import types
 import uuid
 
 import pytest
@@ -612,7 +614,7 @@ def test_local_s3_mode_refuses_to_send_minio_root_credentials_to_remote_endpoint
         ("https://a..b", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
         (f"https://{'a' * 64}.example", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
         (f"https://{'a.' * 126}aa", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
-        ("https://2001:db8::1", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
+        ("https://[2001:db8::1", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
         ("https://s3.example.test:0443", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
         ("http://s3.example.test", "false", "us-east-1", "BACKUP_S3_TLS_VERIFY"),
         ("https://s3.example.test", "maybe", "us-east-1", "BACKUP_S3_TLS_VERIFY"),
@@ -4439,19 +4441,30 @@ def test_restore_rejects_oversized_manifest_before_parsing(tmp_path: Path) -> No
     timeout = tmp_path / "timeout"
     timeout.write_text('#!/bin/sh\nshift 5\nexec "$@"\n', encoding="utf-8")
     timeout.chmod(0o755)
-    oversized = tmp_path / "oversized"
-    oversized.write_bytes(b"x" * 5000)
-    (tmp_path / "postgres.complete").write_text("\n".join([
-        "completion_format=1", "backup_timestamp=20260829_120000", "backup_id=" + "1" * 32,
-        "manifest_sha256=" + "0" * 64, "manifest_bytes=5000", "dump_bytes=1",
-        "tables_bytes=1", "objects_bytes=1", "hmac_sha256=" + "0" * 64, "",
-    ]))
+    _write_fake_setsid(tmp_path)
+    key_hex = "a" * 64
+    backup_id = "1" * 32
+    publication = tmp_path / "20260829_120000"
+    (publication / backup_id).mkdir(parents=True)
+    oversized = b"x" * 5000
+    (publication / backup_id / "postgres.manifest").write_bytes(oversized)
+    # Correctly signed with the restore key, so only the size bound can reject it.
+    payload = "\n".join([
+        "completion_format=1", "backup_timestamp=20260829_120000", "backup_id=" + backup_id,
+        "manifest_sha256=" + hashlib.sha256(oversized).hexdigest(), "manifest_bytes=5000",
+        "dump_bytes=1", "tables_bytes=1", "objects_bytes=1", "",
+    ])
+    (publication / "postgres.complete").write_text(
+        payload + "hmac_sha256="
+        + hmac.new(bytes.fromhex(key_hex), payload.encode(), hashlib.sha256).hexdigest() + "\n"
+    )
+    trace = tmp_path / "mc.trace"
     mc = tmp_path / "mc"
     mc.write_text(
         """#!/bin/sh
 case "$1" in
   alias|ls) exit 0 ;;
-  cat) cat "$FIXTURE/$(basename "$2")" ;;
+  cat) printf '%s\\n' "$2" >>"$TRACE"; cat "$FIXTURE/${2#s3/*/}" ;;
 esac
 """,
         encoding="utf-8",
@@ -4463,9 +4476,10 @@ esac
         env={
             "PATH": f"{tmp_path}:/usr/bin:/bin",
             "FIXTURE": str(tmp_path),
+            "TRACE": str(trace),
             "BACKUP_TIMESTAMP": "20260829_120000",
             "BACKUP_RESTORE_MAINTENANCE_MODE": "confirmed",
-            "BACKUP_MANIFEST_HMAC_KEY": "a" * 64,
+            "BACKUP_MANIFEST_HMAC_KEY": key_hex,
             "BACKUP_DEPLOYMENT_ID": "atlas-test-deployment",
             "SUPABASE_DB_USER": "postgres",
             "SUPABASE_DB_PASSWORD": "secret",
@@ -4478,8 +4492,10 @@ esac
         check=False,
     )
 
-    assert result.returncode != 0
+    assert result.returncode == 1, result.stderr
     assert "incomplete or unauthenticated" in result.stderr
+    fetched = trace.read_text().splitlines()
+    assert fetched == ["s3/atlas-backups/20260829_120000/postgres.complete"], fetched
 
 
 def test_latest_skips_replay_and_incomplete_prefix_and_real_openssl_rejects_wrong_key(tmp_path: Path) -> None:
@@ -4499,7 +4515,7 @@ case "$1" in
   cat) rel=${2#s3/atlas-backups/}; cat "$FIXTURE/$rel" ;;
 esac
 """)
-    (bin_dir / "pg_restore").write_text('#!/bin/sh\nprintf "%s\\n" "$*" >>"$TRACE"\nexit 99\n')
+    (bin_dir / "pg_restore").write_text('#!/bin/sh\nprintf "pg_restore invoked\\n" >>"$TRACE"\nexit 99\n')
     openssl_path = shutil.which("openssl")
     assert openssl_path
     (bin_dir / "openssl").write_text(f'#!/bin/sh\nprintf "openssl invoked\\n" >>"$TRACE"\nexec "{openssl_path}" "$@"\n')
@@ -4516,14 +4532,16 @@ esac
     assert result.returncode != 0
     assert "using completed backup 20260827_120000" in result.stdout
     assert trace.read_text().count("openssl invoked") == 2
+    assert "pg_restore invoked" in trace.read_text()  # positive control for the half below
     trace.write_text("")
     wrong = subprocess.run(
         ["sh", str(REPO / "services/backup/init/scripts/restore-postgres.sh")],
         env={**base_env, "BACKUP_TIMESTAMP": "20260827_120000", "BACKUP_MANIFEST_HMAC_KEY": "4" * 64},
         text=True, capture_output=True, check=False,
     )
-    assert wrong.returncode != 0
-    assert "pg_restore" not in trace.read_text()
+    assert wrong.returncode == 1, wrong.stderr
+    assert "incomplete or unauthenticated: 20260827_120000" in wrong.stderr
+    assert trace.read_text().splitlines() == ["openssl invoked"]  # completion HMAC only
 
 
 def test_backup_writes_hmac_manifest_and_snapshot_owned_object_inventory(
@@ -5318,3 +5336,227 @@ def test_owned_helper_reconciles_certain_resource_after_interrupt(
         owned.cleanup()
 
     assert attempted == [name, name]
+
+
+def test_s3_client_config_is_never_inside_the_published_artifact_root() -> None:
+    """The mc config dir must not sit under $WORK.
+
+    `mc alias import` persists the S3 access key, secret key and session token
+    in plaintext under MC_CONFIG_DIR. The artifact upload is
+    `mc cp --recursive "$WORK/" ...`, so any path under $WORK is published into
+    the backup bucket, and the cleanup trap only removes it at exit -- after
+    the upload has already run. Keeping the config dir outside $WORK is what
+    stops every backup from shipping the credentials that can read it.
+    """
+    script = (REPO / "services/backup/init/scripts/backup-all.sh").read_text(encoding="utf-8")
+
+    config_args = re.findall(r"^configure_backup_s3 (.+)$", script, re.MULTILINE)
+    assert config_args, "backup-all.sh no longer configures the S3 client"
+    assignments = dict(
+        re.findall(r'^([A-Z_][A-Z0-9_]*)="([^"]*)"$', script, re.MULTILINE)
+    )
+
+    def resolve(value: str) -> str:
+        # Expand script-level $NAME / ${NAME} so an indirection such as
+        # S3_CONFIG_DIR="${WORK}/s3" cannot hide the path from this check.
+        for _ in range(5):
+            value = re.sub(
+                r"\$\{?([A-Z_][A-Z0-9_]*)\}?",
+                lambda m: assignments.get(m.group(1), m.group(0)),
+                value,
+            )
+        return value.strip('"')
+
+    work = resolve(assignments["WORK"]).rstrip("/")
+    for arg in config_args:
+        resolved = resolve(arg)
+        assert resolved != work and not resolved.startswith(work + "/"), (
+            f"S3 client config {arg} ({resolved}) is inside the published "
+            f"artifact root {work}; mc cp --recursive would upload the "
+            "credentials into the backup bucket"
+        )
+
+    # And the recursive publish still targets $WORK, so the constraint above is
+    # the thing actually keeping the credentials out of the bucket.
+    assert re.search(r'mc cp --recursive "\$WORK/"', script), (
+        "artifact upload no longer publishes $WORK recursively -- re-derive "
+        "which directories reach the bucket before relaxing this contract"
+    )
+
+
+def test_backup_orchestrator_scopes_compose_to_the_atlas_project(tmp_path: Path) -> None:
+    """Bare `docker compose` named the project after the working directory,
+    so from cron or a consumer submodule the running databases looked stopped."""
+    from tests.test_database_volume_backup_contracts import REPO, _fake_docker
+
+    _trace, env = _fake_docker(tmp_path)
+    Path(env["NEO4J_STATE"]).write_text("stopped", encoding="utf-8")
+    real = tmp_path / "bin" / "docker"
+    real.rename(tmp_path / "bin" / "docker.real")
+    scope = tmp_path / "scope.trace"
+    real.write_text(
+        "#!/bin/sh\n"
+        f"printf '%s|%s\\n' \"$COMPOSE_PROJECT_NAME\" \"$COMPOSE_FILE\" >>'{scope}'\n"
+        f"exec '{tmp_path / 'bin' / 'docker.real'}' \"$@\"\n",
+        encoding="utf-8",
+    )
+    real.chmod(0o755)
+    clean = {k: v for k, v in env.items() if k not in ("COMPOSE_PROJECT_NAME", "COMPOSE_FILE")}
+    result = subprocess.run(
+        ["sh", str(REPO / "services/backup/run-consistent-backup.sh")],
+        env={**clean, "NEO4J_INITIAL_STATE": "stopped"},
+        cwd=tmp_path, text=True, capture_output=True, check=False, timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    env_file = REPO / ".env"
+    project = "atlas"
+    if env_file.is_file():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            if line.startswith("PROJECT_NAME="):
+                project = (line.split("=", 1)[1].strip().strip("'\"") or "atlas").lower()
+    seen = set(scope.read_text(encoding="utf-8").split())
+    assert seen == {f"{project}|{REPO / 'docker-compose.yml'}"}, seen
+
+
+def test_poisoned_boundary_keeps_rollback_and_stage_volumes(tmp_path: Path):
+    # After a failed copy-back the rollback volume can be the only original
+    # data; cleanup deleted it with every other tracked volume.
+    from tests.test_database_backup_third_rereview import _coordinator, _module
+
+    module = _module(); lock = module.OwnedFileLock(tmp_path / "boundary.lock", token="a" * 32)
+    lock.acquire()
+    seen: dict[str, set] = {}
+    coordinator = types.SimpleNamespace(
+        poison_reason="copy-back failed",
+        boundary_state="cutover-mutated",
+        rollback={"neo4j": "atlas-db-neo4j-rollback-x"},
+        stage={"neo4j": "atlas-db-neo-stage-x", "artifacts": "atlas-db-restore-artifacts-x"},
+        runner=types.SimpleNamespace(cleanup=lambda **kw: seen.update(kw)),
+    )
+    module.finalize_boundary_lock(lock, coordinator, retained=set())
+    assert seen["retain_volumes"] == {"atlas-db-neo4j-rollback-x", "atlas-db-neo-stage-x"}
+
+    # Poisoned before cutover touched live data: nothing extra is kept.
+    lock = module.OwnedFileLock(tmp_path / "pre.lock", token="b" * 32)
+    lock.acquire()
+    coordinator.boundary_state = "pre-cutover"
+    module.finalize_boundary_lock(lock, coordinator, retained=set())
+    assert seen["retain_volumes"] == set()
+
+
+def test_bulk_volume_steps_use_the_data_timeout():
+    from tests.test_database_backup_third_rereview import _coordinator, _module
+
+    module = _module(); coordinator = _coordinator(module)
+    coordinator.timeout = 120
+    calls: list = []
+    coordinator._owned_run = lambda role, command, **kw: calls.append((role, kw))
+    coordinator._copy_volume("src", "dst", "copy")
+    coordinator._verify_volume_copy("src", "dst", "verify")
+    assert [kw.get("timeout") for _role, kw in calls] == [900, 900]
+
+
+from tests.test_database_role_boundaries import (  # noqa: E402
+    TEST_SECRETS as _ROLE_SECRETS,
+    disposable_postgres,  # noqa: F401 — shared live-database fixture
+)
+
+
+def test_open_webui_role_reads_only_auth_user_ids(disposable_postgres):  # noqa: F811
+    # Existence checks need auth.users.id only; password hashes and recovery
+    # tokens stay out of a role whose service runs admin-authored Python.
+    database = disposable_postgres
+    role = dict(user=_ROLE_SECRETS["OPEN_WEBUI_DB_USER"], password=_ROLE_SECRETS["OPEN_WEBUI_DB_PASSWORD"])
+    assert database.sql("SELECT count(id) FROM auth.users", **role).returncode == 0
+    assert database.sql("SELECT encrypted_password FROM auth.users", check=False, **role).returncode != 0
+
+
+def test_reader_roles_cannot_read_app_credentials(disposable_postgres):  # noqa: F811
+    # The bulk reader grant sweeps in Open WebUI/n8n tables; their stored
+    # credentials must stay out of the MCP tool and notebooks on every boot.
+    database = disposable_postgres
+    database.sql(
+        'CREATE TABLE IF NOT EXISTS public.config (data text);'
+        'CREATE TABLE IF NOT EXISTS public."user" (id text, email text, api_key text);'
+        'CREATE SCHEMA IF NOT EXISTS n8n;'
+        'CREATE TABLE IF NOT EXISTS n8n.user_api_keys ("apiKey" text);'
+        'CREATE TABLE IF NOT EXISTS n8n.oauth_access_tokens (token text);'
+        'CREATE TABLE IF NOT EXISTS public.tool (id text, valves text);'
+    )
+    database.run_init()
+    role = dict(user=_ROLE_SECRETS["MCP_POSTGRES_DB_USER"], password=_ROLE_SECRETS["MCP_POSTGRES_DB_PASSWORD"])
+    assert database.sql('SELECT id, email FROM public."user"', **role).returncode == 0
+    assert database.sql("SELECT id FROM public.tool", **role).returncode == 0
+    for denied in ('SELECT api_key FROM public."user"', "SELECT * FROM public.config",
+                   "SELECT * FROM n8n.user_api_keys", "SELECT * FROM n8n.oauth_access_tokens",
+                   "SELECT valves FROM public.tool"):
+        assert database.sql(denied, check=False, **role).returncode != 0, denied
+
+
+def test_orchestrator_step_timeout_exits_124_not_a_traceback(monkeypatch, capsys):
+    # A host step timeout escaped as a raw traceback (exit 1); 64 stays for
+    # configuration/contract errors.
+    import importlib.util
+    import subprocess as _subprocess
+    import sys as _sys
+
+    path = Path(__file__).resolve().parents[2] / "services/backup/database_orchestrator.py"
+    spec = importlib.util.spec_from_file_location("atlas_orchestrator_exit_codes", path)
+    module = importlib.util.module_from_spec(spec)
+    _sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    def timed_out():
+        raise _subprocess.TimeoutExpired(["docker", "exec"], 900)
+
+    monkeypatch.setattr(module, "main", timed_out)
+    with pytest.raises(SystemExit) as raised:
+        module._cli()
+    assert raised.value.code == 124
+    assert "database orchestrator:" in capsys.readouterr().err
+
+
+def _assert_neo4j_restarted_and_job_removed(calls: list[str], env: dict) -> None:
+    up = "compose up -d --no-deps --wait --wait-timeout 5 neo4j-graph-db"
+    stop = "compose stop --timeout 5 neo4j-graph-db"
+    assert calls.count(stop) == 1 and calls.count(up) == 1
+    offline = next(i for i, c in enumerate(calls) if c.endswith("/scripts/offline-backup.sh"))
+    assert calls.index(stop) < offline < calls.index(up)
+    assert Path(env["NEO4J_STATE"]).read_text(encoding="utf-8") == "running"
+    assert any(c.startswith("rm -f atlas-db-") for c in calls)
+    assert not any(Path(env["JOBS"]).iterdir())
+
+
+@pytest.mark.parametrize("failing_job", ["offline-backup.sh", "backup-all.sh"])
+def test_backup_orchestrator_restarts_running_neo4j_after_failure(
+    tmp_path: Path, failing_job: str
+) -> None:
+    from tests.test_database_volume_backup_contracts import REPO as _VOLUME_REPO, _fake_docker as _volume_fake_docker
+
+    trace, env = _volume_fake_docker(tmp_path)
+    Path(env["NEO4J_STATE"]).write_text("running", encoding="utf-8")
+    result = subprocess.run(
+        ["sh", str(_VOLUME_REPO / "services/backup/run-consistent-backup.sh")],
+        env={**env, "NEO4J_INITIAL_STATE": "running", "BACKUP_FAKE_FAIL": failing_job},
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=20,
+    )
+    assert result.returncode == 64, result.stderr
+    # The primary job failure is reported, not a restart-compensation failure.
+    assert "command failed (9)" in result.stderr and failing_job in result.stderr, result.stderr
+    assert "restart health was not proven" not in result.stderr, result.stderr
+    _assert_neo4j_restarted_and_job_removed(trace.read_text(encoding="utf-8").splitlines(), env)
+
+
+@pytest.mark.parametrize(("available", "ci", "skip"), [
+    (True, "", False), (True, "true", False), (False, "", True),
+    (False, "false", True), (False, "true", False), (False, "1", False),
+])
+def test_seed_docker_tests_skip_only_outside_ci(monkeypatch, available, ci, skip) -> None:
+    from tests import seed_harness
+
+    monkeypatch.setattr(seed_harness, "docker_available", lambda: available)
+    monkeypatch.setenv("CI", ci)
+    assert seed_harness.docker_unavailable_locally() is skip

@@ -170,12 +170,6 @@ def test_artifact_content_type_from_filename():
     assert cmc._content_type_for("a.webp") == "image/webp"
 
 
-def test_coerce_float():
-    assert cmc._coerce_float("0.4", default=0.75) == 0.4
-    assert cmc._coerce_float(None, default=0.75) == 0.75
-    assert cmc._coerce_float("nope", default=0.75) == 0.75
-
-
 def test_select_init_image_distinguishes_absent_from_invalid():
     assert cmc._select_init_image({}) is None
     assert cmc._select_init_image({"image": " data:image/png;base64,AA== "}) == (

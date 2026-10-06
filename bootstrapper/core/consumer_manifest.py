@@ -528,6 +528,17 @@ _BRAND_ENV_MAP = {
 }
 
 
+def _manifest_project_name(value: Any, manifest_path: Path) -> str:
+    """Validate ``project_name`` at load: an invalid name written to .env made
+    ./stop.sh refuse to run until .env was edited by hand."""
+    from core.config_parser import normalize_project_name  # noqa: PLC0415 - cycle
+
+    try:
+        return normalize_project_name(str(value))
+    except ValueError as exc:
+        raise ConsumerManifestError(f"project_name in {manifest_path}: {exc}") from exc
+
+
 def _invoker_relative_base(root_dir: Path) -> Path:
     invoker = os.environ.get("ATLAS_INVOKER_CWD", "").strip()
     if invoker:
@@ -543,6 +554,31 @@ def _split_manifest_env(raw: str) -> list[str]:
             if item:
                 pieces.append(item)
     return pieces
+
+
+def _list_items(value: str, separator: str) -> list[str]:
+    """A separated list as its stripped items, so `a, b` equals `a,b`."""
+    return [item.strip() for item in value.split(separator) if item.strip()]
+
+
+def _apply_derived_env(
+    env_overrides: dict[str, str], env_origins: dict[str, str], derived: dict[str, str]
+) -> None:
+    """Write plugin/sidecar-derived keys. An env.values entry for one of them
+    used to be overwritten without a word (e.g. a pinned Ollama model
+    dropped); a different value is now an error naming both places."""
+    for key, value in derived.items():
+        if not value:
+            continue
+        separator = "," if key == "OLLAMA_CUSTOM_MODELS" else os.pathsep
+        if key in env_overrides and (
+            _list_items(env_overrides[key], separator) != _list_items(value, separator)
+        ):
+            raise ConsumerManifestError(
+                f"{key} is set in {env_origins.get(key, 'env.values')} and also "
+                "derived from the manifest's plugins/sidecars; declare it in one place"
+            )
+        env_overrides[key] = value
 
 
 def discover_consumer_manifest_paths(
@@ -564,7 +600,9 @@ def discover_consumer_manifest_paths(
         if not path.is_absolute():
             path = base_dir / path
         resolved.append(path.resolve())
-    return resolved
+    # The same manifest named twice (./a.yml and a.yml, or via a symlink)
+    # would load as two consumers and collide with itself.
+    return list(dict.fromkeys(resolved))
 
 
 def _read_env_overlay(path: Path) -> dict[str, str]:
@@ -730,6 +768,16 @@ def _set_scalar(
 _CONDITIONAL_ENV_KEYS = frozenset({"enabled_if_env", "then", "else"})
 
 
+def _env_text(value: Any) -> Any:
+    """``.env`` spelling of a YAML scalar. YAML 1.1 reads ``yes``/``on``/``true``
+    as booleans, and ``str(True)`` wrote ``True``, which shell scripts checking
+    ``true|false`` (e.g. BACKUP_DATABASES) reject. Quote other values whose
+    YAML type would change their text (``0755``, ``1.10``, ``12:30``)."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return value
+
+
 def _resolve_env_value(key: str, value: Any, manifest_path: Path) -> Any:
     """Resolve a consumer ``env.values`` entry that may be a **key-gated
     conditional** form, so a consumer can enable a paid provider iff its key is
@@ -763,7 +811,9 @@ def _resolve_env_value(key: str, value: Any, manifest_path: Path) -> Any:
     then_value = value.get("then", "enabled")
     else_value = value["else"]
     present = bool((os.environ.get(var, "") or "").strip())
-    return then_value if present else else_value
+    resolved = then_value if present else else_value
+    # YAML `null` means empty here too, as for a plain env.values scalar.
+    return "" if resolved is None else resolved
 
 
 def _ordered_union(values: Iterable[str]) -> list[str]:
@@ -809,8 +859,36 @@ _BUILTIN_BUCKET_NAMES = frozenset(
     {
         "comfyui", "backend", "n8n", "jupyter", "docling", "langfuse",
         "mlflow", "label-studio", "lakehouse", "jars", "checkpoints", "landing",
+        "raw-assets", "spark-history", "asset-worker", "asset-baker",
     }
 )
+
+
+def _stack_minio_reservations() -> tuple[frozenset, frozenset]:
+    """(env var names, bucket defaults) the stack's own MinIO wiring uses.
+
+    A store's generated MINIO_BUCKET_<KEY> / MINIO_<KEY>_ACCESS_KEY must not
+    alias one (consumer "asset" + store "baker" took over asset-baker's
+    credentials and policy). Read from .env.example so new stack buckets are
+    covered; the static bucket list is the fallback.
+    """
+    import re
+
+    example = Path(__file__).resolve().parents[2] / ".env.example"
+    try:
+        text = example.read_text(encoding="utf-8")
+    except OSError:
+        return frozenset(), _BUILTIN_BUCKET_NAMES
+    pattern = re.compile(
+        r"^((?:MINIO_BUCKET_\w+|ASSET_\w+_MINIO_BUCKET|MINIO_\w+_(?:ACCESS|SECRET)_KEY))=(.*)$",
+        re.M,
+    )
+    names, buckets = set(), set(_BUILTIN_BUCKET_NAMES)
+    for name, value in pattern.findall(text):
+        names.add(name)
+        if "BUCKET" in name and value.strip():
+            buckets.add(value.strip())
+    return frozenset(names), frozenset(buckets)
 
 _STORE_NAME_RE = __import__("re").compile(r"^[a-z0-9][a-z0-9-]*$")
 _BUCKET_NAME_RE = __import__("re").compile(r"^[a-z0-9][a-z0-9.-]*[a-z0-9]$")
@@ -857,6 +935,9 @@ def _parse_storage_block(
         return []
     if not isinstance(raw_storage, Mapping):
         raise ConsumerManifestError(f"storage must be a mapping in {manifest_path}")
+    _host_mapping(
+        raw_storage, frozenset({"buckets"}), label="storage", origin=str(manifest_path)
+    )
     raw_buckets = raw_storage.get("buckets")
     if raw_buckets is None:
         return []
@@ -879,6 +960,10 @@ def _parse_storage_block(
             raise ConsumerManifestError(
                 f"storage.buckets entries must be mappings in {manifest_path}"
             )
+        _host_mapping(
+            raw, frozenset({"name", "bucket", "extra_buckets"}),
+            label="storage.buckets entry", origin=origin,
+        )
         name = str(raw.get("name") or "").strip()
         if not name:
             raise ConsumerManifestError(
@@ -919,11 +1004,27 @@ def _parse_storage_block(
     return stores
 
 
+def _claim_store_vars(store: StorageStore, claimed: set[str]) -> None:
+    """Reserve every env var a store generates, rejecting any already taken."""
+    store_vars = [store.bucket_var, store.access_var, store.secret_var] + [
+        store.extra_bucket_var(index) for index in range(len(store.extra_buckets))
+    ]
+    for var in store_vars:
+        if var in claimed:
+            raise ConsumerManifestError(
+                f"storage store {store.consumer}/{store.name} generates {var}, "
+                "which a stack service or another store already uses; rename the store"
+            )
+        claimed.add(var)
+
+
 def _validate_storage_collisions(stores: Iterable[StorageStore]) -> None:
     """Reject bucket-name, key, and consumer-id collisions across all stores."""
     bucket_owner: dict[str, str] = {}
     keys: set[str] = set()
     consumer_ids: set[str] = set()
+    stack_vars, stack_buckets = _stack_minio_reservations()
+    generated_vars: set[str] = set(stack_vars)
     for store in stores:
         if store.key in keys:
             raise ConsumerManifestError(
@@ -935,8 +1036,9 @@ def _validate_storage_collisions(stores: Iterable[StorageStore]) -> None:
                 f"storage consumer-id collision: {store.consumer_id}"
             )
         consumer_ids.add(store.consumer_id)
+        _claim_store_vars(store, generated_vars)
         for bucket in store.all_buckets:
-            if bucket in _BUILTIN_BUCKET_NAMES:
+            if bucket in stack_buckets:
                 raise ConsumerManifestError(
                     f"storage bucket {bucket!r} collides with a built-in Atlas bucket"
                 )
@@ -1072,7 +1174,7 @@ LITELLM_ENDPOINT_TEMPLATES: dict[str, str] = {
 # The two runtime-stitched stack rows (see init.py hermes/lightrag). The full
 # reserved set (``_reserved_litellm_aliases()``) unions these with every YAML
 # catalog model name so a consumer can't hijack a stack model alias.
-_RESERVED_LITELLM_ALIASES_BASE = frozenset({"hermes-agent", "lightrag"})
+_RESERVED_LITELLM_ALIASES_BASE = frozenset({"hermes-agent", "lightrag", "fal-image", "tei-rerank"})
 
 # Only these keys are accepted on a model entry; ``api_key`` (a literal secret)
 # is rejected with a dedicated message pointing at ``api_key_var``.
@@ -1524,6 +1626,12 @@ def _parse_n8n_workflows_block(
         if not _N8N_ID_RE.match(wid):
             raise ConsumerManifestError(
                 f"n8n_workflows id {wid!r} must match [a-z0-9][a-z0-9._-]* ({origin})"
+            )
+        if wid == N8N_CONSUMER_PLAN_PATH.stem:
+            # <id>.json shares the directory with plan.json, which overwrote
+            # the workflow and was then imported as one.
+            raise ConsumerManifestError(
+                f"n8n_workflows id {wid!r} is reserved for the seed plan ({origin})"
             )
         if wid in seen:
             raise ConsumerManifestError(
@@ -2045,12 +2153,33 @@ def _parse_host_port(raw: Any, *, name: str, origin: str) -> int:
     return port
 
 
+_BUILTIN_MANAGED_HOSTS = frozenset({"comfyui-mps", "vllm-metal", "blender-mcp"})
+
+
+def _stack_endpoint_names() -> frozenset[str]:
+    """Stack services the endpoints export names ATLAS_<NAME>_HOST_ENDPOINT;
+    a host service with one of these names overrode that export."""
+    try:
+        from core.endpoints_contract import CONSUMER_SERVICES
+    except ImportError:  # loose-import context
+        return frozenset()
+    return frozenset(svc.service.lower().replace("_", "-") for svc in CONSUMER_SERVICES)
+
+
 def _host_service_name(raw: Mapping[str, Any], *, origin: str, seen: set[str]) -> str:
     name = str(raw.get("name") or "").strip()
     if not _HOST_NAME_RE.match(name):
         raise ConsumerManifestError(
             f"managed_host_services name {name!r} must match [a-z0-9][a-z0-9-]* — it "
             f"becomes a state directory and an env-var name ({origin})"
+        )
+    if name in _BUILTIN_MANAGED_HOSTS or name in _stack_endpoint_names():
+        # Same ~/.atlas/<name>/<name>.pid as the built-in: a declared host
+        # with this name could stop the built-in's process or remove its
+        # checkout and venv.
+        raise ConsumerManifestError(
+            f"managed_host_services name {name!r} is reserved for Atlas's built-in "
+            f"managed host ({origin})"
         )
     if name in seen:
         raise ConsumerManifestError(
@@ -2132,24 +2261,29 @@ def _parse_host_service(
     )
 
 
-def _validate_host_service_collisions(specs: list[HostProcessSpec]) -> None:
-    """Two consumers cannot claim one host service.
+def _validate_host_service_collisions(
+    specs: list[HostProcessSpec],
+) -> list[HostProcessSpec]:
+    """Two declarations cannot claim one host service; returns ``specs``
+    with exact repeats (the same manifest loaded twice) collapsed.
 
     The name is the state directory (``~/.atlas/<name>``) AND the endpoint
     env var, so a collision is not a merge — it is two lifecycles writing one
-    pid file. Unlike a duplicated model alias this cannot dedupe benignly,
-    because the commands behind the same name differ.
+    pid file. Any differing declaration of a name is rejected, including two
+    manifests whose consumers share a ``name`` (and so an owner).
     """
-    by_name: dict[str, str] = {}
+    by_name: dict[str, HostProcessSpec] = {}
     for spec in specs:
         prior = by_name.get(spec.name)
-        if prior is not None and prior != spec.owner:
+        if prior is not None and prior != spec:
             raise ConsumerManifestError(
-                f"managed_host_services name {spec.name!r} is declared by both "
-                f"{prior!r} and {spec.owner!r}; the name owns ~/.atlas/{spec.name} "
-                f"and {spec.endpoint_var} and cannot be shared"
+                f"managed_host_services name {spec.name!r} is declared twice "
+                f"(by {prior.owner!r} and {spec.owner!r}) with different settings; "
+                f"the name owns ~/.atlas/{spec.name} and {spec.endpoint_var} "
+                f"and cannot be shared"
             )
-        by_name[spec.name] = spec.owner
+        by_name.setdefault(spec.name, spec)
+    return list(by_name.values())
 
 
 def _parse_managed_host_services_block(
@@ -2439,6 +2573,13 @@ def _parse_rag_ingestion_profiles_block(
             _parse_rag_graph_target(g, profile=name, origin=origin)
             for g in _as_list(raw.get("graph_targets"))
         )
+        if len(graph_targets) > 1:
+            # Every graph target uploads to the single LIGHTRAG_ENDPOINT, so a
+            # second one only doubled the uploads and the reported count.
+            raise ConsumerManifestError(
+                f"rag_ingestion_profiles[{name!r}] declares more than one graph_target; "
+                f"Atlas has one LightRAG endpoint ({origin})"
+            )
         if not vector_targets and not graph_targets:
             raise ConsumerManifestError(
                 f"rag_ingestion_profiles[{name!r}] must declare at least one vector_target or "
@@ -2687,6 +2828,40 @@ def _lightrag_optional_model_ref(
     return value
 
 
+def _rerank_adapter_required_error(name: str, origin: str) -> ConsumerManifestError:
+    return ConsumerManifestError(
+        f"lightrag_query_profiles[{name!r}] enable_rerank=true requires the LightRAG "
+        f"rerank adapter to be enabled: set LIGHTRAG_RERANK_ADAPTER_ENABLED=true (with "
+        f"TEI_RERANKER_SOURCE enabled) so LightRAG reranks through the backend adapter "
+        f"instead of directly at TEI (#415) ({origin})"
+    )
+
+
+def _rerank_profile_origins(
+    profiles: Iterable[LightragQueryProfile], origin: str
+) -> list[tuple[str, str]]:
+    return [(profile.name, origin) for profile in profiles if profile.enable_rerank]
+
+
+def _check_rerank_adapter_gate(
+    rerank_profile_origins: list[tuple[str, str]],
+    env_overrides: Mapping[str, Any],
+    host_enabled: bool,
+) -> None:
+    """Gate rerank profiles on the EFFECTIVE adapter flag (#654): a consumer
+    manifest env value overrides the base `.env`, merged across EVERY
+    manifest so the outcome does not depend on manifest order."""
+    if not rerank_profile_origins:
+        return
+    override = env_overrides.get("LIGHTRAG_RERANK_ADAPTER_ENABLED")
+    enabled = (
+        host_enabled if override is None
+        else str(override).strip().lower() == "true"
+    )
+    if not enabled:
+        raise _rerank_adapter_required_error(*rerank_profile_origins[0])
+
+
 def _parse_lightrag_query_profiles_block(
     data: Mapping[str, Any],
     consumer_name: str,
@@ -2780,12 +2955,7 @@ def _parse_lightrag_query_profiles_block(
             # it must be explicitly enabled. Reject rerank-on profiles when the
             # adapter is off rather than silently pointing them at TEI (which
             # would 4xx/5xx at query time).
-            raise ConsumerManifestError(
-                f"lightrag_query_profiles[{name!r}] enable_rerank=true requires the LightRAG "
-                f"rerank adapter to be enabled: set LIGHTRAG_RERANK_ADAPTER_ENABLED=true (with "
-                f"TEI_RERANKER_SOURCE enabled) so LightRAG reranks through the backend adapter "
-                f"instead of directly at TEI (#415) ({origin})"
-            )
+            raise _rerank_adapter_required_error(name, origin)
 
         query_llm_model = _lightrag_optional_model_ref(
             raw.get("query_llm_model"),
@@ -2974,6 +3144,7 @@ def load_consumer_config(
     all_n8n: list[N8nWorkflow] = []
     all_rag: list[RagIngestionProfile] = []
     all_lightrag_profiles: list[LightragQueryProfile] = []
+    rerank_profile_origins: list[tuple[str, str]] = []
     all_host_services: list[HostProcessSpec] = []
 
     for manifest_path in manifest_paths:
@@ -2984,7 +3155,8 @@ def load_consumer_config(
 
         # Reject unknown/typo'd top-level keys BEFORE consuming any block, so a
         # misspelling surfaces as a clear error instead of a silently-absent
-        # overlay/sidecar/model block (#649). Nested blocks already do this.
+        # overlay/sidecar/model block (#649). The nested brand/env/
+        # model_sidecars/custom_nodes/storage blocks are guarded where read.
         unknown_top = {str(k) for k in data.keys()} - _CONSUMER_ALLOWED_TOP_LEVEL_KEYS
         if unknown_top:
             raise ConsumerManifestError(
@@ -2993,6 +3165,7 @@ def load_consumer_config(
             )
 
         if project_name := data.get("project_name"):
+            project_name = _manifest_project_name(project_name, manifest_path)
             _set_scalar(env_overrides, env_origins, "PROJECT_NAME", project_name, origin)
 
         if raw_profile := data.get("profile"):
@@ -3042,6 +3215,7 @@ def load_consumer_config(
         if brand:
             if not isinstance(brand, Mapping):
                 raise ConsumerManifestError(f"brand must be a mapping in {manifest_path}")
+            _host_mapping(brand, frozenset(_BRAND_ENV_MAP), label="brand", origin=origin)
             for key, env_key in _BRAND_ENV_MAP.items():
                 if key in brand and brand[key] is not None:
                     value = brand[key]
@@ -3055,6 +3229,9 @@ def load_consumer_config(
         if env_block:
             if not isinstance(env_block, Mapping):
                 raise ConsumerManifestError(f"env must be a mapping in {manifest_path}")
+            _host_mapping(
+                env_block, frozenset({"file", "values"}), label="env", origin=origin
+            )
             for raw_file in _as_list(env_block.get("file")):
                 env_path = _resolve_existing_file(base_dir, str(raw_file), label="env.file")
                 for key, value in _read_env_overlay(env_path).items():
@@ -3071,7 +3248,9 @@ def load_consumer_config(
                         "" if value is None
                         else _resolve_env_value(str(key), value, manifest_path)
                     )
-                    _set_scalar(env_overrides, env_origins, str(key), resolved, origin)
+                    _set_scalar(
+                        env_overrides, env_origins, str(key), _env_text(resolved), origin
+                    )
 
         record_overlays: list[Path] = []
         for raw_overlay in _as_list(data.get("compose_overlays")):
@@ -3097,6 +3276,10 @@ def load_consumer_config(
         if model_sidecars:
             if not isinstance(model_sidecars, Mapping):
                 raise ConsumerManifestError(f"model_sidecars must be a mapping in {manifest_path}")
+            _host_mapping(
+                model_sidecars, frozenset({"comfyui", "ollama"}),
+                label="model_sidecars", origin=origin,
+            )
             for raw_sidecar in _as_list(model_sidecars.get("comfyui")):
                 sidecar = _resolve_existing_file(
                     base_dir, str(raw_sidecar), label="model_sidecars.comfyui entry"
@@ -3118,6 +3301,10 @@ def load_consumer_config(
                 f"custom_nodes must be a mapping in {manifest_path}"
             )
         if custom_nodes_block:
+            _host_mapping(
+                custom_nodes_block, frozenset({"comfyui"}),
+                label="custom_nodes", origin=origin,
+            )
             for raw_node_file in _as_list(custom_nodes_block.get("comfyui")):
                 node_file = _resolve_existing_file(
                     base_dir,
@@ -3165,17 +3352,18 @@ def load_consumer_config(
         # in one manifest without pre-editing the submodule's ignored `.env`.
         # A rerank profile still fails clearly when the merged flag is false or
         # absent.
-        effective_adapter_enabled = lightrag_rerank_adapter_enabled
-        adapter_override = env_overrides.get("LIGHTRAG_RERANK_ADAPTER_ENABLED")
-        if adapter_override is not None:
-            effective_adapter_enabled = str(adapter_override).strip().lower() == "true"
+        # The gate is checked after the loop against the env merged from
+        # EVERY manifest, so the result does not depend on manifest order.
         record_lightrag_profiles = _parse_lightrag_query_profiles_block(
             data,
             consumer_name,
             manifest_path,
-            adapter_enabled=effective_adapter_enabled,
+            adapter_enabled=True,
         )
         all_lightrag_profiles.extend(record_lightrag_profiles)
+        rerank_profile_origins.extend(
+            _rerank_profile_origins(record_lightrag_profiles, origin)
+        )
 
         record_host_services = _parse_managed_host_services_block(
             data, consumer_name, base_dir, manifest_path
@@ -3213,18 +3401,15 @@ def load_consumer_config(
             )
         )
 
-    if backend_plugins:
-        env_overrides["BACKEND_PLUGINS_DIR"] = os.pathsep.join(str(path) for path in backend_plugins)
-    if comfyui_sidecars:
-        env_overrides["COMFYUI_CUSTOM_MODELS_FILE"] = os.pathsep.join(
-            str(path) for path in comfyui_sidecars
-        )
-    if comfyui_custom_node_files:
-        env_overrides["COMFYUI_CUSTOM_NODES_FILE"] = os.pathsep.join(
+    derived = {
+        "BACKEND_PLUGINS_DIR": os.pathsep.join(str(path) for path in backend_plugins),
+        "COMFYUI_CUSTOM_MODELS_FILE": os.pathsep.join(str(path) for path in comfyui_sidecars),
+        "COMFYUI_CUSTOM_NODES_FILE": os.pathsep.join(
             str(path) for path in comfyui_custom_node_files
-        )
-    if ollama_models:
-        env_overrides["OLLAMA_CUSTOM_MODELS"] = ",".join(_ordered_union(ollama_models))
+        ),
+        "OLLAMA_CUSTOM_MODELS": ",".join(_ordered_union(ollama_models)),
+    }
+    _apply_derived_env(env_overrides, env_origins, derived)
 
     if all_custom_nodes:
         # Reject a consumer node whose name collides with an Atlas-shipped node
@@ -3292,7 +3477,11 @@ def load_consumer_config(
     lightrag_query_profiles_file: GeneratedArtifact | None = None
     lightrag_query_profiles_overlay: GeneratedArtifact | None = None
     if all_host_services:
-        _validate_host_service_collisions(all_host_services)
+        all_host_services = _validate_host_service_collisions(all_host_services)
+
+    _check_rerank_adapter_gate(
+        rerank_profile_origins, env_overrides, lightrag_rerank_adapter_enabled
+    )
 
     if all_lightrag_profiles:
         # Profile names are globally unique across consumers (single registry).

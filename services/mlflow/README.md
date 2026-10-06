@@ -10,8 +10,8 @@ This first slice is intentionally narrow: notebooks can log experiments and arti
 
 | Surface | URL | Notes |
 | --- | --- | --- |
-| Kong | `http://mlflow.localhost:${KONG_HTTP_PORT}` | Routed only when `MLFLOW_SOURCE=container`; guarded by the Kong dashboard basic-auth (`DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`). MLflow itself has no login. |
-| Direct | `http://localhost:${MLFLOW_PORT}` | Bound through `HOST_BIND_IP`; the default is loopback-only, while an explicit non-empty value enables deliberate remote access. |
+| Kong | `http://mlflow.localhost:${KONG_HTTP_PORT}` | Routed only when `MLFLOW_SOURCE=container`; guarded by the Kong dashboard basic-auth (`DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`). MLflow itself has no login. `MLFLOW_SERVER_CORS_ALLOWED_ORIGINS` admits this origin plus the direct-port `localhost` / `127.0.0.1` origins; without it MLflow answers 403 to every UI write made through Kong. |
+| Direct | `http://localhost:${MLFLOW_PORT}` | Bound through `HOST_BIND_IP`; the default is loopback-only. A non-empty value publishes the port, but MLflow's `MLFLOW_SERVER_ALLOWED_HOSTS` still admits only the listed `Host` values (`localhost`/`127.0.0.1` on `MLFLOW_PORT`, `mlflow.localhost` on the Kong HTTP and HTTPS ports), so a LAN address answers 403 "invalid host header" until it is added to that list in the compose fragment. |
 | In-network | `http://mlflow:5000` | Used by JupyterHub and future service consumers. |
 
 ## 3. Configuration
@@ -31,7 +31,7 @@ MINIO_BUCKET_MLFLOW=mlflow
 
 ## 4. Architecture & Wiring
 
-When enabled, `mlflow-init` creates the dedicated Postgres database and role after `minio-init` provisions the MLflow bucket and scoped service account. Atlas builds the exact reviewed MLflow base with pinned PostgreSQL and S3 drivers, then starts the guarded server with:
+When enabled, the dedicated Postgres database and role are created by `supabase-db-init` (`services/supabase/db/scripts/05-scoped-roles.sh`); `mlflow-init` only verifies it can log in to that database after `minio-init` provisions the MLflow bucket and scoped service account. Atlas builds the exact reviewed MLflow base with pinned PostgreSQL and S3 drivers, then starts the guarded server with:
 
 - a Postgres backend store at `supabase-db:5432/${MLFLOW_DB_NAME}`;
 - proxied artifacts under `s3://${MINIO_BUCKET_MLFLOW}`;
@@ -89,9 +89,11 @@ MLflow model serving, deployment plugins, and promotion workflows are intentiona
 
 ## 6. Troubleshooting
 
+- **Database connections:** Each of the 4 server workers opens separate tracking and registry SQLAlchemy engines; `MLFLOW_SQLALCHEMYSTORE_POOL_SIZE=2` and `MLFLOW_SQLALCHEMYSTORE_MAX_OVERFLOW=3` cap that at 40 connections to the shared `supabase-db` (SQLAlchemy's 5+10 default allowed 120); MLflow ignores `MAX_OVERFLOW=0`, so use at least 1.
+- **Job-backed MLflow features:** `atlas_server.py` starts uvicorn directly instead of `mlflow server`, so MLflow's background job runner is not started; MLflow 3.16 features that submit server-side jobs fail when invoked (HTTP 500, leaving a PENDING job row). Nothing Atlas ships uses them.
 - **No tracking URI in notebooks:** confirm `MLFLOW_SOURCE=container` and restart after the bootstrapper regenerates `.env`.
 - **Artifacts fail to upload:** keep `MINIO_SOURCE=container`; MLflow requires MinIO-backed artifact storage in this Atlas slice.
-- **Database errors on first boot:** check `mlflow-init` logs. It creates the `mlflow` database/role idempotently before the tracking server starts.
+- **Database errors on first boot:** `mlflow-init` only runs a login check; the `mlflow` database/role are created by `supabase-db-init` (`services/supabase/db/scripts/05-scoped-roles.sh`), so check `supabase-db-init` logs for the cause.
 - **`atlas-mlflow: upgrading the MLflow database schema` in the server log:** expected once after an MLflow image move. A database created by an earlier pin (3.15.1 is three migrations behind 3.16.1) is migrated with `mlflow db upgrade` before the server starts, the same way `airflow-init` runs `airflow db migrate`. Take a backup first if you need a rollback point; migrations do not run backwards.
 - **AI Gateway endpoints return 404:** this is intentional. MLflow 3.16.1 fixes CVE-2026-71211, but Atlas configures no gateway endpoints and keeps that secrets-holding surface closed. Atlas supports MLflow tracking, registry metadata, and artifact APIs; it disables the native, REST, and AJAX AI Gateway route families at the outer ASGI boundary, including when `_MLFLOW_STATIC_PREFIX` is configured.
 - **A custom `MLFLOW_IMAGE` exits at startup:** Atlas currently accepts exactly MLflow 3.16.1. Any version change must be reviewed with the route guard, private server environment, dependency image, and required multi-architecture smoke before the allowlist is updated.

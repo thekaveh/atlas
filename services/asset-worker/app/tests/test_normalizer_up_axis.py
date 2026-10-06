@@ -112,11 +112,29 @@ def test_keep_leaves_tilt_alone(tmp_path):
 
 
 def test_explicit_axis_remap(tmp_path):
-    """`x`/`z` explicitly remap that axis to +Y (the historical swap, opt-in)."""
+    """`x`/`z` explicitly rotate that axis to +Y (opt-in)."""
     dims_x, _ = _roundtrip(tmp_path, _box_positions(5, 1, 2), up_axis="x")
     assert abs(dims_x[1] - 5.0) < 1e-4  # X became the height axis
     dims_z, _ = _roundtrip(tmp_path, _box_positions(2, 1, 5), up_axis="z")
     assert abs(dims_z[1] - 5.0) < 1e-4  # Z became the height axis
+
+
+def test_explicit_axis_remap_is_a_rotation_not_a_mirror():
+    # A coordinate swap has determinant -1: the asset came out mirrored with
+    # inside-out faces.
+    from asset_worker.normalizer import _orient_positions
+
+    for axis in ("x", "z"):
+        e1, e2, e3 = _orient_positions(
+            [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)],
+            PostprocessParams(up_axis=axis),
+        )
+        det = (
+            e1[0] * (e2[1] * e3[2] - e2[2] * e3[1])
+            - e1[1] * (e2[0] * e3[2] - e2[2] * e3[0])
+            + e1[2] * (e2[0] * e3[1] - e2[1] * e3[0])
+        )
+        assert det == 1.0, axis
 
 
 # ── golden fixtures: tall + squat assets round-trip under the default ──────
@@ -154,3 +172,33 @@ def test_parse_glb_returns_none_on_corrupt_json_chunk() -> None:
     # Valid magic + version but a corrupt JSON chunk: must return None
     # (→ copy-through → gltf-transform authoritative 422), not raise.
     assert _parse_glb(data) is None
+
+
+def test_normalize_bounds_declared_count_to_the_buffer(tmp_path) -> None:
+    """A tiny file claiming a huge vertex count must not spin the worker."""
+    import time
+
+    positions = _box_positions(1.0, 2.0, 1.0)
+    glb = bytearray(_glb_from_positions(positions))
+    doc, bin_chunk = _parse_glb(bytes(glb))
+    doc["accessors"][0]["count"] = 10**12
+    src = tmp_path / "in.glb"
+    out = tmp_path / "out.glb"
+    src.write_bytes(_build_glb(doc, bin_chunk))
+
+    started = time.monotonic()
+    normalize_glb(src, out, PostprocessParams(target_height_m=1.0))
+    assert time.monotonic() - started < 5
+    assert out.exists()
+
+
+def test_normalize_copies_through_dangling_accessor_indices(tmp_path) -> None:
+    positions = _box_positions(1.0, 1.0, 1.0)
+    doc, bin_chunk = _parse_glb(_glb_from_positions(positions))
+    doc["meshes"][0]["primitives"][0]["attributes"]["POSITION"] = 7
+    src = tmp_path / "in.glb"
+    out = tmp_path / "out.glb"
+    src.write_bytes(_build_glb(doc, bin_chunk))
+
+    normalize_glb(src, out, PostprocessParams(target_height_m=1.0))
+    assert out.read_bytes() == src.read_bytes()

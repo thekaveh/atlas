@@ -46,7 +46,7 @@ env:
     description: "Grafana admin login. Override in .env if needed."
   - name: GRAFANA_ADMIN_PASSWORD
     default: ""
-    description: "Auto-generated on first bootstrap by generate_grafana_admin_password() (mirrors LiteLLM UI_PASSWORD pattern). Persisted to .env; users can rotate by editing .env and restarting."
+    description: "Auto-generated on first bootstrap by generate_grafana_admin_password() (mirrors LiteLLM UI_PASSWORD pattern). Persisted to .env. Grafana applies it only when it creates its database (first start on an empty grafana-data volume); to rotate later, run `grafana cli admin reset-admin-password` in the container and update .env to match."
   - name: GRAFANA_ENDPOINT
     auto_managed: true
   - name: GRAFANA_SCALE

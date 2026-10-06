@@ -6,7 +6,6 @@ per-consumer storage fields, with secret masking by default.
 """
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,7 +17,7 @@ from core.endpoints_contract import (
     render_env,
     render_json,
 )
-from start import _manifest_base_port_is_unallocated, endpoints_export_command
+from start import _manifest_base_port_is_unallocated
 
 
 def _base_env(base_port: int = 63000) -> dict[str, str]:
@@ -120,9 +119,11 @@ def test_comfyui_host_endpoint_managed_mps_uses_mps_localhost_port() -> None:
     for Symptom 1 (dead :BASE+54 exported)."""
     env = _base_env()
     env["COMFYUI_SOURCE"] = "managed-localhost-mps"
-    env["COMFYUI_MPS_LOCALHOST_PORT"] = "8188"
+    # Non-default value: a reader that ignores the variable and falls back to
+    # the 8188 default must fail.
+    env["COMFYUI_MPS_LOCALHOST_PORT"] = "18188"
     d = _as_dict(build_export(env))
-    assert d["ATLAS_COMFYUI_HOST_ENDPOINT"] == "http://localhost:8188"
+    assert d["ATLAS_COMFYUI_HOST_ENDPOINT"] == "http://localhost:18188"
     assert d["ATLAS_COMFYUI_HOST_ENDPOINT"] != f"http://localhost:{env['COMFYUI_PORT']}"
 
 
@@ -141,9 +142,9 @@ def test_comfyui_host_endpoint_localhost_uses_localhost_port() -> None:
     """The localhost source serves on COMFYUI_LOCALHOST_PORT (default 8000)."""
     env = _base_env()
     env["COMFYUI_SOURCE"] = "localhost"
-    env["COMFYUI_LOCALHOST_PORT"] = "8000"
+    env["COMFYUI_LOCALHOST_PORT"] = "18000"  # non-default, so the variable is read
     d = _as_dict(build_export(env))
-    assert d["ATLAS_COMFYUI_HOST_ENDPOINT"] == "http://localhost:8000"
+    assert d["ATLAS_COMFYUI_HOST_ENDPOINT"] == "http://localhost:18000"
 
 
 def test_ollama_host_endpoint_localhost_emitted() -> None:
@@ -152,10 +153,10 @@ def test_ollama_host_endpoint_localhost_emitted() -> None:
     OLLAMA_PORT is unset under this source)."""
     env = _base_env()
     env["LLM_PROVIDER_SOURCE"] = "ollama-localhost"
-    env["OLLAMA_LOCALHOST_PORT"] = "11434"
+    env["OLLAMA_LOCALHOST_PORT"] = "11435"  # non-default, so the variable is read
     d = _as_dict(build_export(env))
     assert d["ATLAS_OLLAMA_SOURCE"] == "ollama-localhost"
-    assert d["ATLAS_OLLAMA_HOST_ENDPOINT"] == "http://localhost:11434"
+    assert d["ATLAS_OLLAMA_HOST_ENDPOINT"] == "http://localhost:11435"
 
 
 def test_ollama_host_endpoint_localhost_default_when_port_unset() -> None:
@@ -390,6 +391,34 @@ def test_cli_export_json_to_output_file(tmp_path: Path, monkeypatch: pytest.Monk
     obj = json.loads(out.read_text(encoding="utf-8"))
     assert obj["ATLAS_LITELLM_CONTAINER_ENDPOINT"] == "http://litellm:4000"
     assert out.stat().st_mode & 0o777 == 0o600
+
+
+def test_cli_export_relative_output_lands_in_the_invoking_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """reusing-atlas §6.5: `(cd infra && ./start.sh endpoints export
+    --output ../atlas-consumer.env)` writes next to the parent app, whatever
+    directory the wrapper runs the bootstrapper from."""
+    from click.testing import CliRunner
+    import start as start_module
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("".join(f"{k}={v}\n" for k, v in _base_env().items()), encoding="utf-8")
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env_file))
+    infra = tmp_path / "parent" / "infra"
+    elsewhere = tmp_path / "bootstrapper-cwd"
+    infra.mkdir(parents=True)
+    elsewhere.mkdir()
+    monkeypatch.setenv("ATLAS_INVOKER_CWD", str(infra))
+    monkeypatch.chdir(elsewhere)
+
+    result = CliRunner().invoke(
+        start_module.main,
+        ["endpoints", "export", "--output", "../atlas-consumer.env"],
+    )
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "parent" / "atlas-consumer.env").is_file()
+    assert not (tmp_path / "atlas-consumer.env").exists()
 
 
 def test_cli_secret_export_replaces_existing_file_as_owner_only(
@@ -645,15 +674,36 @@ def test_manifest_auto_base_port_is_unallocated_until_bring_up(
     )
 
 
-def test_endpoints_export_refuses_unallocated_auto_base_port_by_default() -> None:
-    """The refusal is opt-out, so the ambiguity is chosen rather than stumbled into."""
-    signature = inspect.signature(endpoints_export_command.callback)
-    assert "allow_unresolved" in signature.parameters
-    source = inspect.getsource(endpoints_export_command.callback)
-    assert "allow_unresolved" in source
-    assert "Exit(3)" in source
-    assert "--allow-unresolved" in (endpoints_export_command.help or "") or any(
-        "--allow-unresolved" in (param.opts or [None])[0]
-        for param in endpoints_export_command.params
-        if getattr(param, "opts", None)
+@pytest.mark.parametrize(
+    ("args", "exit_code"),
+    ((["endpoints", "export"], 3), (["endpoints", "export", "--allow-unresolved"], 0)),
+)
+def test_endpoints_export_refuses_unallocated_auto_base_port_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, args: list[str], exit_code: int,
+) -> None:
+    """The refusal is opt-out, so the ambiguity is chosen rather than stumbled into.
+
+    Drives the real command: a manifest `BASE_PORT: auto` with a .env still at
+    DEFAULT_BASE_PORT must exit 3 and print no endpoints, and
+    `--allow-unresolved` must export anyway.
+    """
+    from click.testing import CliRunner
+    import start as start_module
+    from core.config_parser import ConfigParser
+
+    env_file = tmp_path / ".env"
+    env = {**_base_env(), "BASE_PORT": str(DEFAULT_BASE_PORT)}
+    env_file.write_text("".join(f"{k}={v}\n" for k, v in env.items()), encoding="utf-8")
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env_file))
+    monkeypatch.setattr(
+        ConfigParser, "load_consumer_config", lambda self: _consumer_config("auto")
     )
+
+    result = CliRunner().invoke(start_module.main, args)
+
+    assert result.exit_code == exit_code, result.output
+    if exit_code == 3:
+        assert "--allow-unresolved" in result.output
+        assert "ATLAS_KONG_GATEWAY" not in result.output
+    else:
+        assert "ATLAS_KONG_GATEWAY=http://localhost:63000" in result.output

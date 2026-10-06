@@ -327,7 +327,12 @@ def test_compose_uses_scram_and_withholds_owner_credentials_from_apps() -> None:
 def test_database_startup_rewrites_legacy_host_hba_before_postgres() -> None:
     supabase = yaml.safe_load((REPO / "services/supabase/compose.yml").read_text())
     database = supabase["services"]["supabase-db"]
-    assert database["command"] == ["sh", "/usr/local/bin/enforce-scram-host-auth.sh"]
+    # `-D /etc/postgresql` keeps the image's own config (listen on all
+    # interfaces, logical WAL, Supabase preloads); without it Postgres
+    # listened on localhost only and nothing else could connect.
+    assert database["command"] == [
+        "sh", "/usr/local/bin/enforce-scram-host-auth.sh", "-D", "/etc/postgresql",
+    ]
     assert any(
         "enforce-scram-host-auth.sh:/usr/local/bin/enforce-scram-host-auth.sh:ro"
         in volume
@@ -573,8 +578,9 @@ def _start_disposable_postgres(
         "-e", "POSTGRES_USER=supabase_admin", "-e", f"POSTGRES_PASSWORD={admin_password}",
         "-e", "POSTGRES_DB=postgres", "-e", f"POSTGRES_HOST_AUTH_METHOD={auth_method}",
         POSTGRES_IMAGE, "sh", "-c",
+        # The compose command's arguments, so this exercises the real config.
         "while true; do sh /usr/local/bin/enforce-scram-host-auth.sh "
-        "-c listen_addresses='*' -c wal_level=logical; rc=$?; "
+        "-D /etc/postgresql; rc=$?; "
         "[ -f /tmp/atlas-task3-stop ] && exit $rc; sleep 1; done",
         check=False, timeout=POSTGRES_CREATE_TIMEOUT,
     )
@@ -1284,9 +1290,11 @@ def test_role_provisioning_is_idempotent_and_restart_safe(
     assert all(":SCRAM-SHA-256$" in line for line in before.splitlines())
     _assert_all_scoped_roles_authenticate(disposable_postgres)
     _assert_role_settings_do_not_expose_raw_password_hashes(disposable_postgres)
-    # Model an upgraded volume whose HBA was initialized under the old trust
-    # setting.  Reload proves the legacy rule is active before the production
-    # startup wrapper contracts it on the supervised restart below.
+    # Model an upgraded volume whose data-directory HBA was initialized under
+    # the old trust setting. With the image's own config (`-D
+    # /etc/postgresql`), the server reads /etc/postgresql/pg_hba.conf, which
+    # requires SCRAM for every network range, so the legacy rule stays inert
+    # both before and after the supervised restart below.
     _run(
         "docker", "exec", disposable_postgres.container, "sh", "-c",
         "sed -i -E '/^[[:space:]]*host/ s/scram-sha-256/trust/' "
@@ -1295,13 +1303,37 @@ def test_role_provisioning_is_idempotent_and_restart_safe(
     disposable_postgres.sql(
         "SELECT pg_reload_conf()", password=disposable_postgres.admin_password
     )
-    assert disposable_postgres.network_sql(
-        "SELECT 1", password=None, check=False
-    ).returncode == 0
+    refused = disposable_postgres.network_sql("SELECT 1", password=None, check=False)
+    # An authentication refusal, not a network/DNS/deadline failure.
+    assert refused.returncode != 0 and "password" in refused.stderr, refused.stderr
     ready_count_before = _ready_log_count(disposable_postgres.container)
     _restart_postgres_and_wait(disposable_postgres, ready_count_before)
     after = _scoped_role_verifiers(disposable_postgres)
     assert before == after
-    assert disposable_postgres.network_sql(
-        "SELECT 1", password=None, check=False
-    ).returncode != 0
+    refused = disposable_postgres.network_sql("SELECT 1", password=None, check=False)
+    assert refused.returncode != 0 and "password" in refused.stderr, refused.stderr
+
+
+def test_open_webui_role_can_upsert_its_identity_rows(
+    disposable_postgres: DisposablePostgres,
+) -> None:
+    """open-webui-init's sync trigger writes public.users (RLS on) as the
+    direct Open WebUI role; without a policy every signup failed. GoTrue-backed
+    identities (memory/research cascade from them) stay out of its reach."""
+    role = dict(user=TEST_SECRETS["OPEN_WEBUI_DB_USER"], password=TEST_SECRETS["OPEN_WEBUI_DB_PASSWORD"])
+    for name in ("Open WebUI user", "renamed"):  # insert, then the conflict path
+        assert disposable_postgres.sql(
+            "INSERT INTO public.users (id, name) VALUES ('00000000-0000-4000-8000-0000000000ee', "
+            f"'{name}') ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name", check=False, **role,
+        ).returncode == 0
+    disposable_postgres.sql(
+        "INSERT INTO auth.users (id, email) VALUES ('00000000-0000-4000-8000-0000000000ef', "
+        "'gotrue@example.test') ON CONFLICT (id) DO NOTHING"
+    )
+    disposable_postgres.sql(
+        "DELETE FROM public.users WHERE id = '00000000-0000-4000-8000-0000000000ef'; "
+        "UPDATE public.users SET name = 'x' WHERE id = '00000000-0000-4000-8000-0000000000ef'", **role,
+    )
+    assert disposable_postgres.sql(
+        "SELECT name FROM public.users WHERE id = '00000000-0000-4000-8000-0000000000ef'"
+    ).stdout.strip() == "gotrue"

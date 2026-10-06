@@ -20,7 +20,7 @@ sources_consulted:
 
 - **open-webui ↔ searxng**
   - Why valuable: Open WebUI natively consumes SearXNG as a first-class web-search provider for in-chat grounding; the stack already runs SearXNG but only wires it to local-deep-researcher, so chat users have no web search.
-  - Mechanism sketch: set `ENABLE_RAG_WEB_SEARCH=true`, `RAG_WEB_SEARCH_ENGINE=searxng`, `SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>&format=json` (the same internal endpoint local-deep-researcher uses).
+  - Mechanism sketch: set `ENABLE_WEB_SEARCH=true`, `WEB_SEARCH_ENGINE=searxng`, `SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>&format=json` (the same internal endpoint local-deep-researcher uses).
   - Effort: small
   - Risks / open questions: SearXNG JSON output must be enabled in `searxng/settings.yml`; rate-limiting under bursty chat traffic.
   - Confidence: high (Open WebUI docs list SearXNG among 15+ built-in providers — https://github.com/open-webui/open-webui).

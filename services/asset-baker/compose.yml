@@ -36,7 +36,7 @@ services:
       ASSET_BAKER_MAX_UPLOAD_MB: ${ASSET_BAKER_MAX_UPLOAD_MB:-200}
       ASSET_BAKER_CONCURRENCY: ${ASSET_BAKER_CONCURRENCY:-1}
     ports:
-      - "${HOST_BIND_IP:-}${ASSET_BAKER_PORT}:8096"
+      - "${HOST_BIND_IP-127.0.0.1:}${ASSET_BAKER_PORT}:8096"
     volumes:
       - asset-baker-data:/data
     healthcheck:

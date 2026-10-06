@@ -7,15 +7,15 @@
           "interval": [
             {
               "field": "cronExpression",
-              "value": "0 9 * * MON"
+              "expression": "0 9 * * 1"
             }
           ]
         }
       },
       "id": "a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6",
       "name": "Weekly Schedule",
-      "type": "n8n-nodes-base.cron",
-      "typeVersion": 1,
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
       "position": [
         240,
         300
@@ -289,7 +289,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://backend:8000/storage/upload?bucket=research-reports",
+        "url": "http://backend:8000/storage/upload?bucket=default",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [{"name": "Authorization", "value": "={{ 'Bearer ' + $env.BACKEND_N8N_API_TOKEN }}"}]

@@ -26,7 +26,7 @@ services:
       MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
       MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
     ports:
-      - "${HOST_BIND_IP:-}${JENKINS_PORT}:8080"
+      - "${HOST_BIND_IP-127.0.0.1:}${JENKINS_PORT}:8080"
     volumes:
       - jenkins-home:/var/jenkins_home
       - ./casc:/var/jenkins_home/casc:ro

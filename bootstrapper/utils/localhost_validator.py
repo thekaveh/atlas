@@ -4,6 +4,7 @@ Localhost service validation utilities.
 Validates that localhost services are accessible when configured as SOURCE=localhost.
 """
 
+import http.client
 import socket
 import urllib.request
 import urllib.error
@@ -175,7 +176,14 @@ class LocalhostValidator:
             req = urllib.request.Request(url, method='GET')
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 return response.status < 400
-        except (urllib.error.URLError, urllib.error.HTTPError, socket.timeout):
+        except (
+            urllib.error.URLError,  # includes HTTPError
+            http.client.HTTPException,  # InvalidURL, BadStatusLine, RemoteDisconnected
+            OSError,  # socket.timeout, connection resets
+            ValueError,
+        ):
+            # A non-HTTP listener or a malformed port must report "not
+            # detected", not abort the remaining localhost checks.
             return False
             
     def check_tcp_port(self, host: str, port: int, timeout: int = 5) -> bool:

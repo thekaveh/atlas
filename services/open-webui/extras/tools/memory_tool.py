@@ -9,12 +9,20 @@ version: 1.0.0
 license: MIT
 """
 
+import asyncio
 import os
 import requests
 from pydantic import BaseModel, Field
 
 
-class Tools:
+# Module level, not a Tools method: Open WebUI 0.6.32 offers every Tools
+# method not prefixed `__` to the model, and this one returns the bearer token.
+def _backend_headers() -> dict[str, str]:
+    token = (os.getenv("BACKEND_OPEN_WEBUI_API_TOKEN") or "").strip()
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+class _Blocking:
     class Valves(BaseModel):
         backend_url: str = Field(
             default="http://backend:8000", description="Backend API URL"
@@ -27,11 +35,6 @@ class Tools:
 
     def __init__(self):
         self.valves = self.Valves()
-
-    @staticmethod
-    def _backend_headers() -> dict[str, str]:
-        token = (os.getenv("BACKEND_OPEN_WEBUI_API_TOKEN") or "").strip()
-        return {"Authorization": f"Bearer {token}"} if token else {}
 
     def remember(self, conversation: str, __user__: dict | None = None) -> str:
         """
@@ -57,7 +60,7 @@ class Tools:
 
             response = requests.post(
                 f"{self.valves.backend_url}/memory/extract",
-                headers=self._backend_headers(),
+                headers=_backend_headers(),
                 json={
                     "user_id": user_id,
                     "messages": messages,
@@ -112,7 +115,7 @@ class Tools:
         try:
             response = requests.post(
                 f"{self.valves.backend_url}/memory/recall",
-                headers=self._backend_headers(),
+                headers=_backend_headers(),
                 json={
                     "user_id": user_id,
                     "query": query,
@@ -136,7 +139,8 @@ class Tools:
                 output_lines.append(
                     f"- [{mem.get('fact_type', 'observation')}] "
                     f"{mem.get('content', '')} "
-                    f"(confidence: {mem.get('confidence', 0):.1%})"
+                    f"(id: {mem.get('id') or 'N/A'}, "
+                    f"confidence: {mem.get('confidence', 0):.1%})"
                 )
 
             if summary:
@@ -174,7 +178,7 @@ class Tools:
         try:
             response = requests.delete(
                 f"{self.valves.backend_url}/memory/{memory_id}",
-                headers=self._backend_headers(),
+                headers=_backend_headers(),
                 params={"user_id": user_id},
                 timeout=self.valves.timeout,
             )
@@ -212,7 +216,7 @@ class Tools:
         try:
             response = requests.get(
                 f"{self.valves.backend_url}/memory/user/{user_id}",
-                headers=self._backend_headers(),
+                headers=_backend_headers(),
                 params={"namespace": "default", "limit": 50},
                 timeout=self.valves.timeout,
             )
@@ -230,7 +234,8 @@ class Tools:
                 output_lines.append(
                     f"- [{mem.get('fact_type', 'observation')}] "
                     f"{mem.get('content', '')} "
-                    f"(id: {(mem.get('id') or 'N/A')[:8]}..., "
+                    # Full id: forget_memory's DELETE accepts only a whole UUID.
+                    f"(id: {mem.get('id') or 'N/A'}, "
                     f"confidence: {mem.get('confidence', 0):.1%})"
                 )
 
@@ -243,3 +248,53 @@ class Tools:
             )
         except Exception:
             return "Memory listing failed. Please try again later."
+
+
+class Tools:
+    # Open WebUI 0.6.32 runs a sync tool on its single event loop, so a
+    # blocking HTTP call stalled every user for its whole timeout. Each tool
+    # runs the blocking body (kept off this class, which Open WebUI exposes
+    # method-by-method to the model) in a worker thread.
+    Valves = _Blocking.Valves
+
+    def __init__(self):
+        self.valves = self.Valves()
+
+    async def remember(self, conversation: str, __user__: dict | None = None) -> str:
+        """
+        Extract and store memories from a conversation. Use this when the user
+        asks you to remember something or when important facts are shared.
+
+        :param conversation: The conversation text to extract memories from
+        :return: Extracted memory facts
+        """
+        return await asyncio.to_thread(_Blocking.remember, self, conversation, __user__)
+
+    async def recall(self, query: str, __user__: dict | None = None) -> str:
+        """
+        Recall relevant memories for a given topic or question. Use this when
+        the user asks what you remember about something.
+
+        :param query: The topic or question to recall memories about
+        :return: Relevant memory facts
+        """
+        return await asyncio.to_thread(_Blocking.recall, self, query, __user__)
+
+    async def forget(self, memory_id: str, __user__: dict | None = None) -> str:
+        """
+        Delete a specific memory by its ID. Use this when the user wants
+        to remove a stored memory.
+
+        :param memory_id: The UUID of the memory to delete
+        :return: Confirmation message
+        """
+        return await asyncio.to_thread(_Blocking.forget, self, memory_id, __user__)
+
+    async def list_memories(self, __user__: dict | None = None) -> str:
+        """
+        List all stored memories for the current user. Use this when the user
+        wants to see everything that has been remembered about them.
+
+        :return: List of all active memory facts
+        """
+        return await asyncio.to_thread(_Blocking.list_memories, self, __user__)

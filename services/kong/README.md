@@ -33,9 +33,9 @@ Plain `python3 scripts/check-kong-routes.py` works too if `PyYAML` is on your sy
 - `/` on bare `localhost` → Atlas service directory and health dashboard
 - `/auth/v1/` → Supabase Auth service
 - `/rest/v1/` → Supabase API (PostgREST)
-- `/graphql/v1/` → Supabase GraphQL
+- `/graphql/v1` → Supabase GraphQL
 - `/realtime/v1/` → Supabase Realtime
-- `/storage/v1/` → Supabase Storage
+- `/storage/v1/` → Supabase Storage (key-auth). `/storage/v1/object/public/`, `/storage/v1/object/sign/` and `/storage/v1/object/upload/sign/` carry CORS only, so browsers and outside services can fetch public-bucket and signed URLs without an `apikey`; Storage itself enforces the bucket's public flag or the signed token
 - `/pg/` → Supabase Meta service
 - `supabase-studio.localhost` → Supabase Studio dashboard
 
@@ -92,16 +92,34 @@ Each `*-localhost` source still gets a Kong route — Kong proxies through `host
 
 ### 4.1. ComfyUI Routes
 ```python
-# Generated based on COMFYUI_SOURCE
-if source == 'localhost':
-    port = os.environ.get('COMFYUI_LOCALHOST_PORT', '8000')
-    service['url'] = f'http://host.docker.internal:{port}/'
-elif source in ['container-cpu', 'container-gpu']:
+# Generated based on COMFYUI_SOURCE (simplified)
+if source == 'managed-localhost-mps':
+    service['url'] = localhost_url('COMFYUI_MPS_LOCALHOST_PORT', '8188')
+elif source == 'localhost':
+    service['url'] = localhost_url('COMFYUI_LOCALHOST_PORT', '8000')
+else:  # container-cpu / container-gpu
     service['url'] = 'http://comfyui:18188/'
 # No route created if source == 'disabled'
 ```
 
-### 4.2. Localhost Service Health Checks
+### 4.2. Proxy timeouts
+
+Every generated service gets a 300-second `read_timeout` / `write_timeout`
+unless it declares its own (backend plugins may set theirs; n8n uses the default so long-running webhooks are not cut off).
+Services whose single synchronous request can run longer get more: `docling-api`
+follows `DOCLING_INFERENCE_TIMEOUT_SECONDS` + 30 s (930 s by default), the backend
+`api.localhost` routes 3630 s, including per-plugin backend services for any field the plugin does not set (they wait on Docling or on a ComfyUI job's own
+timeout of up to 3600 s), and `litellm-gateway` / `ollama-api` 630 s for slow
+non-streaming completions. A shorter Kong limit answered 504 while the upstream
+kept working.
+Kong 3.x has no global proxy-timeout setting, so these live per service in
+`kong-dynamic.yml`; Kong's own 60-second default otherwise cuts off slow
+non-streaming LLM calls and idle streams or WebSockets. Retries happen only on
+connection errors (`KONG_NGINX_PROXY_PROXY_NEXT_UPSTREAM=error`), so a request
+that times out (connect, send or read) fails after one wait instead of being
+re-sent.
+
+### 4.3. Localhost Service Health Checks
 When routing to localhost services, Kong generator performs health checks:
 
 ```python
@@ -122,13 +140,17 @@ Kong handles multiple authentication schemes:
 - **Basic Authentication**: Used for protected admin interfaces
 - **Pass-through Authentication**: For services that handle their own auth
 
+On a Basic-auth route Kong reads the dashboard credential from `Authorization` or `Proxy-Authorization`. Clients that need `Authorization` for the service's own token (Crawl4AI's `Bearer`, Label Studio's `Token`, Langfuse's public-API `Basic pk:sk`) send the dashboard credential as `Proxy-Authorization: Basic …` alongside it. Trino's route strips the credential before forwarding (`hide_credentials`), because Trino rejects any password over plain HTTP.
+
+### 5.1. Forwarded headers
+
+Kong runs with `KONG_PORT_MAPS=${KONG_HTTP_PORT}:8000,${KONG_HTTPS_PORT}:8443`, so `X-Forwarded-Port` carries the published port and upstreams that build absolute URLs from it (Trino redirects and `nextUri`) point back at Kong. Kong sets `X-Forwarded-Host` itself, without a port, and overwrites any value a plugin adds; the n8n route therefore also adds an RFC 7239 `Forwarded: host=n8n.localhost:<port>;proto=http` header, which n8n's editor origin check reads first. That header names the HTTP port, so n8n's editor live connection works through Kong over HTTP only.
+
+Inside the Docker network, a client that calls `kong-api-gateway:8000` directly now sees the published port in `X-Forwarded-Port`. Supabase Storage builds S3 signatures and resumable-upload (TUS) URLs from it, so S3 or TUS calls made through Kong from another container would need `STORAGE_PUBLIC_URL`; Atlas's own containers use only the REST API there.
+
 ## 6. CORS Handling
 
-All services automatically get CORS plugin configuration for cross-origin requests:
-
-```python
-'plugins': [{'name': 'cors'}]
-```
+All services get a CORS plugin. A bare `{'name': 'cors'}` would answer `Access-Control-Allow-Origin: *`, so any website the operator visits could read responses from, and send preflighted requests to, the no-login services. The generator scopes every one to local browser origins (`_with_local_cors`): any `*.localhost`, `localhost` or `127.0.0.1` page on any port, plus the exact origins listed in `KONG_CORS_EXTRA_ORIGINS` (a LAN or tunnel front-end; entries are normalised to the browser's form, lowercase without a trailing slash or default port, and a wildcard or path is ignored with a warning). Other origins get no `Access-Control-Allow-Origin`; simple cross-site requests (plain POSTs) still reach the upstream, so CORS is not an authentication boundary. Kong never adds `Access-Control-Allow-Credentials`, but an upstream's own header passes through for allowed origins. `[::1]` origins cannot be matched (Kong drops the brackets), so use `localhost` or `127.0.0.1`. Upstream CORS settings such as `BACKEND_CORS_ORIGINS` only apply within what Kong allows.
 
 ## 7. Rate Limiting
 

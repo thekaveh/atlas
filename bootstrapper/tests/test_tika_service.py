@@ -149,7 +149,7 @@ def test_tika_compose_contract() -> None:
 
     assert service["image"] == "${TIKA_IMAGE:-apache/tika:3.3.1.0}"
     assert service["deploy"]["replicas"] == "${TIKA_SCALE:-0}"
-    assert service["ports"] == ["${HOST_BIND_IP:-}${TIKA_PORT}:9998"]
+    assert service["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${TIKA_PORT}:9998"]
     assert service["environment"]["JAVA_TOOL_OPTIONS"] == "${TIKA_JAVA_TOOL_OPTIONS:--Xmx768m}"
     assert service["cap_drop"] == ["ALL"]
     assert service["security_opt"] == ["no-new-privileges:true"]

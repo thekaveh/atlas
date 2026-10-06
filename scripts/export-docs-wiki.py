@@ -22,13 +22,12 @@ def main() -> int:
     mode.add_argument("--push", action="store_true")
     parser.add_argument("--remote", default=os.environ.get("WIKI_REMOTE", DEFAULT_REMOTE))
     args = parser.parse_args()
-    build(
-        ROOT / "docs" / "manifest.yaml",
-        ROOT,
-        site=False,
-        wiki=True,
-        check=args.check,
-    )
+    if args.check:
+        # Determinism and staleness checks (renders into a temp dir).
+        build(ROOT / "docs" / "manifest.yaml", ROOT, site=False, wiki=True, check=True)
+    # Always write generated/wiki: push_wiki validates/syncs that tree, which a
+    # check-only build never refreshed.
+    build(ROOT / "docs" / "manifest.yaml", ROOT, site=False, wiki=True, check=False)
     key_value = os.environ.get("WIKI_DEPLOY_KEY")
     push_wiki(
         ROOT / "generated" / "wiki",

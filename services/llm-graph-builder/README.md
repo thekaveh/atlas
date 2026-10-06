@@ -6,9 +6,10 @@ Neo4j LLM Graph Builder is a disabled-by-default Atlas `apps` service for turnin
 Atlas builds the upstream Neo4j Labs React/FastAPI pair from a pinned git ref because the current upstream deployment path documents source builds rather than stable public official images. The pin is `LLM_GRAPH_BUILDER_REF=4a412f4688cf4096976045c019edc0a7f6ddcb6b`.
 
 ## 2. Access
-- Direct frontend URL: `http://localhost:${LLM_GRAPH_BUILDER_PORT}`
+- Direct frontend URL: `http://localhost:${LLM_GRAPH_BUILDER_PORT}` (the page loads, but its API calls go to the Kong origin below, so use the Kong URL for a working UI)
 - Kong frontend URL: `http://graphbuilder.localhost:${KONG_HTTP_PORT}`
-- Kong backend API URL: `http://graphbuilder-api.localhost:${KONG_HTTP_PORT}`
+- Browser API path: `http://graphbuilder.localhost:${KONG_HTTP_PORT}/atlas-api` (Kong strips `/atlas-api` and forwards to the backend). The frontend is built with this same-origin URL because the browser resends the Kong Basic credential only to the origin that challenged it; upstream axios sends no credentials cross-origin. Rebuild the frontend image (`docker compose build llm-graph-builder-frontend`) after upgrading so the new URL is baked in.
+- Kong backend API URL for scripts: `http://graphbuilder-api.localhost:${KONG_HTTP_PORT}`
 - Internal frontend URL: `http://llm-graph-builder-frontend:8080`
 - Internal backend URL: `http://llm-graph-builder-backend:8000`
 
@@ -17,8 +18,8 @@ Kong creates both Graph Builder routes only when `LLM_GRAPH_BUILDER_SOURCE=conta
 ## 3. Configuration
 - `LLM_GRAPH_BUILDER_SOURCE=disabled|container` controls whether the service runs. The default is `disabled`.
 - `LLM_GRAPH_BUILDER_PORT` is assigned by the apps-category port allocator.
-- `LLM_GRAPH_BUILDER_MODEL_ID=atlas_litellm` is the model name shown in the Graph Builder UI.
-- `LLM_GRAPH_BUILDER_LLM_MODEL` selects the underlying LiteLLM model alias. Empty means Atlas uses `LITELLM_DEFAULT_MODEL`.
+- `LLM_GRAPH_BUILDER_MODEL_ID=atlas_litellm` is the model name shown in the Graph Builder UI. Keep it: the compose fragment only exports `LLM_MODEL_CONFIG_ATLAS_LITELLM`, and Graph Builder looks up `LLM_MODEL_CONFIG_<ID>`, so any other id fails every extraction and chat.
+- `LLM_GRAPH_BUILDER_LLM_MODEL` selects the underlying LiteLLM model alias. Empty means Atlas uses `LITELLM_DEFAULT_MODEL`; if that is empty too, it falls back to `gpt-4o-mini` (LiteLLM's OpenAI route, which needs an OpenAI key), so a local-only stack must keep one of the two set.
 - `LLM_GRAPH_BUILDER_NEO4J_DATABASE=neo4j` controls the database name passed to the upstream backend. Use a dedicated database on Neo4j editions that support multiple databases.
 - `LLM_GRAPH_BUILDER_REACT_APP_SOURCES=local,wiki,web` keeps the first Atlas slice local and web oriented. S3 can be added later once endpoint configuration is proven against MinIO.
 - `LLM_GRAPH_BUILDER_DIFFBOT_API_KEY` optionally enables upstream Diffbot-backed features; the default Atlas LiteLLM model path leaves it blank.
@@ -34,7 +35,7 @@ The first slice offers only `container` and `disabled` source values. A localhos
 ## 5. Architecture & Wiring
 Graph Builder depends on in-stack Neo4j and LiteLLM. Atlas fails before compose if the service is enabled while `NEO4J_GRAPH_DB_SOURCE` is `disabled` or `localhost`; this keeps the first implementation aligned with the compose dependency graph and the `bolt://neo4j-graph-db:7687` internal URI.
 
-Upstream requires Neo4j 5.23 or later with APOC installed. Atlas pins Neo4j 5.26.x, but APOC is **not** preinstalled (the image is plain `neo4j:5.26.31`; see [services/neo4j/README.md](../neo4j/README.md)). APOC procedures must be enabled before Graph Builder's APOC-dependent operations will work.
+Upstream requires Neo4j 5.23 or later with APOC installed. Atlas pins Neo4j 5.26.x and loads APOC core (`NEO4J_PLUGINS=["apoc"]`, installed from the jar the image ships in `labs/`), which Graph Builder's extraction (`apoc.merge.node`), auto-connect, duplicate merging and neighbour views need. APOC extended is not installed.
 
 LiteLLM is exposed to Graph Builder as an OpenAI-compatible model named `atlas_litellm`. The upstream backend reads `LLM_MODEL_CONFIG_ATLAS_LITELLM`, which Atlas auto-manages as:
 
@@ -82,7 +83,7 @@ This rollback leaves existing graph data untouched by design.
 
 ## 9. Troubleshooting
 - Kong route missing: confirm `LLM_GRAPH_BUILDER_SOURCE=container`, rerun `./start.sh`, and ensure `--setup-hosts` has added the aliases.
-- API calls fail in the browser: the frontend must use `graphbuilder-api.localhost`, not the internal Docker hostname.
+- API calls fail in the browser (401 or CORS): open the UI at `http://graphbuilder.localhost:${KONG_HTTP_PORT}`; the frontend calls the same-origin `/atlas-api` path, and an image built before that change still targets `graphbuilder-api.localhost`, so rebuild it with `docker compose build llm-graph-builder-frontend`.
 - Model selector errors: confirm `LLM_GRAPH_BUILDER_LITELLM_MODEL_CONFIG` is generated and that the selected LiteLLM model exists.
 - Neo4j connection fails: use in-stack `NEO4J_GRAPH_DB_SOURCE=container` for this first slice.
 - Poor graph quality: choose a stronger structured-extraction model via `LLM_GRAPH_BUILDER_LLM_MODEL`.
@@ -127,7 +128,7 @@ Support tier: **experimental** — Capability contract declared (#967); no cited
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| Document-to-Neo4j graph workflow | partial | tested | Atlas builds the pinned upstream UI/backend and wires Neo4j plus LiteLLM, but APOC is not bundled and APOC-dependent operations require operator installation. |
+| Document-to-Neo4j graph workflow | partial | tested | Atlas builds the pinned upstream UI/backend and wires Neo4j (with APOC core) plus LiteLLM; APOC extended procedures are not installed. |
 | LiteLLM extraction and graph chat | partial | tested | Atlas exposes one OpenAI-compatible model alias, while graph quality and structured extraction remain dependent on the operator-selected model. |
 | Graph Builder access control | partial | tested | Kong protects both browser and backend aliases with Basic Auth and ACL, but the host-published frontend skips app auth and the internal backend sets authentication off. |
 | Optional Google Cloud features | partial | tested | Atlas validates complete logging or GCS-cache configuration and mounts ADC read-only, but the disabled default uses a placeholder and no live cloud operation is certified. |

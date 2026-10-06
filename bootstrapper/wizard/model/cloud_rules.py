@@ -288,3 +288,32 @@ def _is_zero_models_override(selected_models: Sequence[str] | None) -> bool:
     if selected_models is None:
         return False
     return not list(selected_models)
+
+
+def _carry_kept_values_into_cold_start(cold: bool, env_vars: dict | None, bags: dict) -> bool:
+    """A wizard cold start rebuilds .env from .env.example before the wizard's
+    writes are applied, so a "keep" answer (no write) silently reverted a
+    saved cloud/FAL key, its enabled source and model lists to the defaults.
+    Write the pre-wizard values explicitly for anything the wizard left alone.
+    Returns ``cold`` so the caller can assign it in the same statement."""
+    from utils.cloud_providers import CLOUD_PROVIDERS
+
+    if not cold:
+        return cold
+    env_vars = env_vars or {}
+
+    def keep(bag: dict, key: str, var: str) -> None:
+        value = (env_vars.get(var) or "").strip()
+        if value and key not in bag:
+            bag[key] = value
+
+    for provider in CLOUD_PROVIDERS:
+        keep(bags["source"], provider.source_var.lower(), provider.source_var)
+        keep(bags["keys"], provider.api_key_var, provider.api_key_var)
+        keep(bags["cloud_models"], provider.user_models_var, provider.user_models_var)
+    keep(bags["source"], "fal_source", "FAL_SOURCE")
+    keep(bags["keys"], "FAL_API_KEY", "FAL_API_KEY")
+    keep(bags["ollama"], "OLLAMA_CUSTOM_MODELS", "OLLAMA_CUSTOM_MODELS")
+    keep(bags["ollama"], "OLLAMA_USER_MODELS", "OLLAMA_USER_MODELS")
+    keep(bags.get("comfyui", {}), "COMFYUI_USER_MODELS", "COMFYUI_USER_MODELS")
+    return cold

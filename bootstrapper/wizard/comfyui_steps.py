@@ -412,8 +412,13 @@ def build_comfyui_steps(
         if s.strip()
     }
 
-    # ── Resolve sidecar path ─────────────────────────────────────────
-    sidecar_path = (env_vars.get("COMFYUI_CUSTOM_MODELS_FILE", "") or "").strip()
+    # ── Resolve sidecar paths ────────────────────────────────────────
+    # Same resolution as comfyui_resolver (pathsep list, repo fallback): the
+    # raw default /custom-models.yaml is a dead container path, so reading it
+    # verbatim hid every sidecar model the resolver activates anyway.
+    from utils.comfyui_resolver import resolve_sidecar_paths
+
+    sidecar_paths = resolve_sidecar_paths(env_vars, warn=False)
 
     # ── options_provider closure ─────────────────────────────────────
     def _comfyui_options_provider(selections: dict) -> list[PromptOption]:
@@ -434,8 +439,8 @@ def build_comfyui_steps(
             )]
 
         sidecar: list[ComfyUILibraryEntry] = []
-        if sidecar_path:
-            sidecar = load_custom_models(sidecar_path)
+        for sidecar_path in sidecar_paths:
+            sidecar.extend(load_custom_models(sidecar_path))
 
         # Filesystem scan for already-downloaded models (best-effort —
         # see _resolve_models_volume_root for when this yields nothing).

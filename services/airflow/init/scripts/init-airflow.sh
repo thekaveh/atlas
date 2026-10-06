@@ -42,8 +42,19 @@ if create_output=$(airflow users create \
   --role=Admin \
   --email=admin@localhost \
   --password="${AIRFLOW_ADMIN_PASSWORD}" 2>&1); then
-  if echo "$create_output" | grep -qE "already exists|already a user"; then
-    echo "(admin user already exists — skipping)"
+  # FAB releases word this "already exists" or "already exist in the db".
+  if echo "$create_output" | grep -qiE "already exist|already a user"; then
+    # `users create` never touches an existing user, so re-apply the .env
+    # password: a rotated AIRFLOW_ADMIN_PASSWORD reaches the DB on the next
+    # start (README troubleshooting relies on this).
+    if ! reset_output=$(airflow users reset-password \
+      --username=admin \
+      --password="${AIRFLOW_ADMIN_PASSWORD}" 2>&1); then
+      echo "airflow-init: ERROR re-syncing the existing admin password:" >&2
+      echo "$reset_output" >&2
+      exit 1
+    fi
+    echo "(admin user already exists — password re-synced from .env)"
   else
     echo "$create_output"
   fi
@@ -102,9 +113,19 @@ if [ "${MINIO_SOURCE}" = "container" ]; then
   # bucket-level S3 op. region_name avoids NoRegionError on newer
   # boto3. Mirrors the spark.hadoop.fs.s3a.path.style.access=true
   # already set on Spark's compose.
+  # json.dumps, not shell interpolation: a quote or backslash in the
+  # credentials made the extra invalid JSON, failing airflow-init (and so
+  # every Airflow container gated on it).
+  minio_extra=$(python3 -c 'import json, os; print(json.dumps({
+      "endpoint_url": "http://minio:9000",
+      "aws_access_key_id": os.environ["MINIO_ROOT_USER"],
+      "aws_secret_access_key": os.environ["MINIO_ROOT_PASSWORD"],
+      "region_name": os.environ.get("MINIO_REGION") or "us-east-1",
+      "config_kwargs": {"s3": {"addressing_style": "path"}},
+  }))')
   add_conn minio_default \
     --conn-type aws \
-    --conn-extra "{\"endpoint_url\": \"http://minio:9000\", \"aws_access_key_id\": \"${MINIO_ROOT_USER}\", \"aws_secret_access_key\": \"${MINIO_ROOT_PASSWORD}\", \"region_name\": \"us-east-1\", \"config_kwargs\": {\"s3\": {\"addressing_style\": \"path\"}}}"
+    --conn-extra "$minio_extra"
 fi
 
 # OpenAIHook.get_conn() does:

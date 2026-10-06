@@ -39,7 +39,7 @@ services:
       CRAWL4AI_TIMEOUT_SECONDS: ${CRAWL4AI_TIMEOUT_SECONDS:-30}
       CRAWL4AI_MAX_CHARS: ${CRAWL4AI_MAX_CHARS:-60000}
     ports:
-      - "${HOST_BIND_IP:-}${LOCAL_DEEP_RESEARCHER_PORT}:2024"
+      - "${HOST_BIND_IP-127.0.0.1:}${LOCAL_DEEP_RESEARCHER_PORT}:2024"
     volumes:
       - local-deep-researcher-data:/app/data
       - local-deep-researcher-repo:/app/repo

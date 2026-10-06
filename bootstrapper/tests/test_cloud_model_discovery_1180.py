@@ -31,6 +31,8 @@ from wizard.llm_steps import (
     build_cloud_steps,
     cloud_models_title,
 )
+from wizard.model.cloud_rules import SECRET_DISABLE, SECRET_ENABLE
+from wizard.llm_steps import cloud_secret_title
 
 _KEY = "sk-test-DO-NOT-LEAK-0123456789"
 
@@ -479,3 +481,37 @@ def test_a_step_without_a_provider_keeps_its_static_subtitle():
                       heading="h", subtitle="static")
     assert _resolved_subtitle(step, [], False) == "static"
     assert _resolved_subtitle(step, [], True) == "static"
+
+
+
+@pytest.mark.parametrize("verdict", [SECRET_ENABLE, SECRET_DISABLE])
+def test_enable_and_disable_verdicts_fetch_with_the_stored_key(monkeypatch, verdict):
+    """#1183 verdicts are sentinels, not keys: the fetch uses the saved key."""
+    seen = []
+    discover = llm_steps._discover_cloud_models
+
+    def _recording(provider_key, api_key, warn):
+        seen.append(api_key)
+        return discover(provider_key, api_key, warn)
+
+    monkeypatch.setattr(urllib.request, "urlopen", _raises(_http_error(401)))
+    monkeypatch.setattr(llm_steps, "_discover_cloud_models", _recording)
+    step = _cloud_step(_openai_env())
+    step.options_provider({cloud_secret_title(_OPENAI.name): verdict})
+    assert seen == [_KEY]
+
+
+def test_anthropic_listing_requests_the_full_page(monkeypatch):
+    """The endpoint returns 20 models by default; a live list must not
+    silently stop at the newest 20."""
+    urls = []
+
+    def _recording(request, timeout=None):
+        urls.append(request.full_url)
+        return _serves('{"data": [{"id": "claude-opus-5-5", "type": "model"}]}')(
+            request, timeout=timeout
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", _recording)
+    cm.discover_anthropic_models("sk-ant-test")
+    assert urls == ["https://api.anthropic.com/v1/models?limit=1000"]

@@ -61,7 +61,7 @@ git clone https://github.com/thekaveh/atlas && cd atlas
 ./start.sh
 ```
 
-`./start.sh` with no arguments launches an interactive setup wizard covering track selection, per-service SOURCE choices, base-port selection, host aliases, and a launch summary; the default configuration runs a CPU starter stack (chat UI, workflow automation, vector database, privacy search). See [docs/quick-start/index.md](docs/quick-start/index.md) for the first-run walkthrough and [docs/quick-start/interactive-setup-wizard.md](docs/quick-start/interactive-setup-wizard.md) for what the wizard does step by step.
+`./start.sh` with no arguments launches an interactive setup wizard covering track and profile selection, base port and project name, per-service SOURCE choices, host aliases, and a launch summary; the wizard preselects the `gen-ai-rag` track (chat UI, workflow automation, vector and graph databases, privacy search, deep research on a CPU Ollama engine), and the `all` track (the `.env.example` defaults) adds ComfyUI, JupyterHub, Hermes, MinIO, speech-to-text/text-to-speech and CLIP, so plan memory and disk for the track you pick. See [docs/quick-start/index.md](docs/quick-start/index.md) for the first-run walkthrough and [docs/quick-start/interactive-setup-wizard.md](docs/quick-start/interactive-setup-wizard.md) for what the wizard does step by step.
 
 ## 2. Service topology
 

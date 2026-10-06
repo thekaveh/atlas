@@ -39,7 +39,7 @@ services:
       label-studio-init:
         condition: service_completed_successfully
     ports:
-      - "${HOST_BIND_IP:-}${LABEL_STUDIO_PORT}:8080"
+      - "${HOST_BIND_IP-127.0.0.1:}${LABEL_STUDIO_PORT}:8080"
     environment:
       DJANGO_DB: default
       POSTGRE_NAME: ${LABEL_STUDIO_DB_NAME:-label_studio}

@@ -13,7 +13,7 @@ capabilities:
   - name: "On-demand Postgres and consistency-safe snapshot export"
     status: supported
     verification: documented
-    note: "The orchestrated runner creates a snapshot-consistent PostgreSQL custom-format dump, an offline Neo4j Community dump, and a native online Weaviate snapshot with deployment-key-authenticated manifests, plus a read-only Supabase Storage archive, then uploads them to constrained on-stack MinIO or external S3."
+    note: "The orchestrated runner creates a snapshot-consistent PostgreSQL custom-format dump, an offline Neo4j Community dump, and a native online Weaviate snapshot with deployment-key-authenticated manifests, plus a Supabase Storage archive (not in the signed manifest; no restore procedure yet), then uploads them to constrained on-stack MinIO or external S3."
   - name: "Postgres restore workflow"
     status: partial
     verification: tested

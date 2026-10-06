@@ -28,7 +28,7 @@ Track: `ml-eng`. Category: `apps`. The service is not included in `data-eng`; th
 
 ## 4. Architecture & Wiring
 
-When enabled, `label-studio-init` creates the dedicated Postgres database and role after `minio-init` provisions the `label-studio` bucket and scoped service account. The app container receives:
+When enabled, the dedicated Postgres database and role are created by `supabase-db-init` (`services/supabase/db/scripts/05-scoped-roles.sh`); `label-studio-init` verifies the login after `minio-init` provisions the `label-studio` bucket and scoped service account. The app container receives:
 
 - Postgres metadata settings via `DJANGO_DB=default` and `POSTGRE_*`.
 - S3-compatible storage settings via `STORAGE_TYPE=s3`, `STORAGE_AWS_ENDPOINT_URL=http://minio:9000`, and the scoped `MINIO_LABEL_STUDIO_*` credentials.

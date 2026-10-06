@@ -23,7 +23,8 @@ For the Zeppelin surface also enable:
 This opt-in smoke covers Iceberg MERGE INTO, VERSION AS OF, rollback_to_snapshot,
 CREATE BRANCH / spark.wap.branch, schema evolution, nested JSON/explode,
 Structured Streaming from s3a://landing/ into Iceberg with checkpoints under
-s3a://checkpoints/, and maintenance procedures rewrite_data_files,
+s3a://checkpoints/ (default bucket names; MINIO_BUCKET_ICEBERG_LANDING /
+_CHECKPOINTS override them), and maintenance procedures rewrite_data_files,
 expire_snapshots, and remove_orphan_files.
 USAGE
 }
@@ -37,14 +38,22 @@ require_container() {
   fi
 }
 
+env_value() {
+  # Read one key without sourcing .env: it holds unquoted values with spaces
+  # (BRAND_TAGLINE=...), which made `. ./.env` exit 127 under set -e.
+  sed -n "s/^$1=//p" .env | tail -n1 | sed -e 's/\r$//' -e 's/[[:space:]]\{1,\}#.*$//' \
+    -e 's/[[:space:]]*$//' -e "s/^\"\(.*\)\"$/\1/" -e "s/^'\(.*\)'$/\1/"
+}
+
 load_env_file() {
   if [[ -f .env ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    . ./.env
-    set +a
-    project="${PROJECT_NAME:-$project}"
-    zeppelin_url="${ZEPPELIN_URL:-http://localhost:${ZEPPELIN_PORT:-63099}}"
+    local env_project env_url env_port
+    env_project="$(env_value PROJECT_NAME)"
+    env_url="$(env_value ZEPPELIN_URL)"
+    env_port="$(env_value ZEPPELIN_PORT)"
+    project="${env_project:-$project}"
+    # A ZEPPELIN_URL exported in the shell still wins over the .env port.
+    zeppelin_url="${env_url:-${ZEPPELIN_URL:-http://localhost:${env_port:-63099}}}"
   fi
 }
 
@@ -64,8 +73,10 @@ namespace = "lakehouse.atlas_smoke"
 table = f"{namespace}.advanced_sql"
 stream_table = f"{namespace}.advanced_stream"
 run_id = uuid4().hex[:12]
-landing_path = f"s3a://landing/atlas-smoke-advanced-json/{run_id}"
-checkpoint_path = f"s3a://checkpoints/atlas-smoke-advanced-json/{run_id}"
+landing_bucket = os.environ.get("MINIO_BUCKET_ICEBERG_LANDING", "landing")
+checkpoint_bucket = os.environ.get("MINIO_BUCKET_ICEBERG_CHECKPOINTS", "checkpoints")
+landing_path = f"s3a://{landing_bucket}/atlas-smoke-advanced-json/{run_id}"
+checkpoint_path = f"s3a://{checkpoint_bucket}/atlas-smoke-advanced-json/{run_id}"
 
 spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {namespace}")
 spark.sql(f"DROP TABLE IF EXISTS {table}")
@@ -182,7 +193,7 @@ spark.sql(
     "CALL lakehouse.system.expire_snapshots(table => 'atlas_smoke.advanced_sql', retain_last => 1)"
 ).collect()
 spark.sql(
-    "CALL lakehouse.system.remove_orphan_files(table => 'atlas_smoke.advanced_sql', dry_run => true)"
+    "CALL lakehouse.system.remove_orphan_files(table => 'atlas_smoke.advanced_sql', dry_run => true, prefix_listing => true)"
 ).collect()
 
 print("[smoke] Spark Connect advanced Iceberg SQL passed via", spark_remote)
@@ -236,7 +247,9 @@ try:
     while time.time() < deadline:
         status = request("GET", f"/api/notebook/job/{note_id}")
         body = status.get("body", [])
-        states = {item.get("status") for item in body}
+        # Zeppelin 0.12 returns {"paragraphs": [...]}; older builds a list.
+        paragraphs = body.get("paragraphs", []) if isinstance(body, dict) else body
+        states = {item.get("status") for item in paragraphs}
         if states and states <= {"FINISHED"}:
             break
         if states & {"ERROR", "ABORT", "CANCELED"}:

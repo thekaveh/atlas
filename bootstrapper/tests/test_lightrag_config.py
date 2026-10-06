@@ -90,3 +90,18 @@ def test_resolve_models_fails_when_chat_model_cannot_be_resolved(monkeypatch, ca
 
     assert exc.value.code == 1
     assert "could not resolve a chat model" in capsys.readouterr().err
+
+
+def test_lightrag_knows_the_catalog_default_embedding_dimension(monkeypatch):
+    """qwen3-embedding:0.6b fell through to a first-boot probe that ran before
+    the model was pulled and silently created a 768-dim store."""
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "services/lightrag/init/scripts/resolve-models.py"
+    spec = importlib.util.spec_from_file_location("lightrag_resolve_models_dims", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module.urllib.request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(AssertionError("probed")))
+    assert module.resolve_dim("ollama/qwen3-embedding:0.6b") == 1024
+    assert module.resolve_dim("ollama/nomic-embed-text") == 768

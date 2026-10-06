@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import codecs
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -135,6 +136,17 @@ def _read_bounded(
     return bytes(content)
 
 
+def _bounded_walk(target: Path, max_files: int) -> List[Path]:
+    """Sorted files under ``target``; stops at the first file past the limit
+    instead of listing (and later resolving) an arbitrarily large tree."""
+    found: List[Path] = []
+    for path in target.rglob("*"):
+        if path.is_file():
+            found.append(path)
+            _check_file_count(len(found), max_files)
+    return sorted(found)
+
+
 class MountCorpusReader:
     """Reads a consumer-mounted read-only directory. The resolved path MUST stay
     within the corpus root — the security boundary against arbitrary host paths."""
@@ -153,10 +165,14 @@ class MountCorpusReader:
         if root != target and root not in target.parents:
             raise CorpusPathError(f"corpus path {rel!r} escapes the corpus root {root}")
         if not target.exists():
-            return root, []
-        paths = [target] if target.is_file() else sorted(
-            p for p in target.rglob("*") if p.is_file()
-        )
+            # Not an empty corpus: reconciling against zero files deletes
+            # every vector of the profile. A typo'd override or a corpus
+            # mounted into backend but not celery-worker lands here.
+            raise CorpusPathError(
+                f"corpus path {rel!r} does not exist under {root} "
+                "(is the corpus mounted into this container?)"
+            )
+        paths = [target] if target.is_file() else _bounded_walk(target, _corpus_limits()[2])
         for path in paths:
             # Re-verify containment on the RESOLVED real path of every discovered
             # file: rglob + read_bytes follow symlinks, so a symlink planted inside
@@ -382,6 +398,51 @@ class ParserError(RuntimeError):
         self.body = body
 
 
+# Byte-order marks of the encodings decoded as text despite their NUL bytes.
+_TEXT_BOMS = (
+    (codecs.BOM_UTF32_LE, "utf-32"), (codecs.BOM_UTF32_BE, "utf-32"),
+    (codecs.BOM_UTF8, "utf-8-sig"),
+    (codecs.BOM_UTF16_LE, "utf-16"), (codecs.BOM_UTF16_BE, "utf-16"),
+)
+# Above this share of control characters (other than whitespace) the decoded
+# bytes are not text.
+_MAX_CONTROL_RATIO = 0.01
+
+
+def _decode_text(content: bytes) -> Optional[str]:
+    for bom, encoding in _TEXT_BOMS:
+        if content.startswith(bom):
+            try:
+                return content.decode(encoding)
+            except UnicodeDecodeError:
+                return None
+    if b"\x00" in content:
+        return None
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError:
+        # Windows-1252 text (curly quotes, accented letters) is common in
+        # exported corpora; it ingested before the binary check existed.
+        return content.decode("cp1252", errors="replace")
+
+
+def _plain_text(file: CorpusFile) -> str:
+    """Decode a text file; refuse binary content.
+
+    ``plain_text`` is the last entry of every parser order. Decoding any
+    bytes with ``errors="replace"`` meant a Docling/Tika failure on a PDF
+    silently indexed the PDF's raw bytes as text and reported success,
+    instead of preserving the source for the next run.
+    """
+    text = _decode_text(file.content)
+    controls = sum(1 for ch in text or "" if ord(ch) < 32 and ch not in "\t\n\r\f\v")
+    if text is None or (text and controls / len(text) > _MAX_CONTROL_RATIO):
+        raise ParserError(
+            f"{file.name!r} is not text; plain_text cannot extract it", service="plain_text"
+        )
+    return text
+
+
 class ParserAdapter:
     """Selects the first parser in ``parser_order`` that succeeds. ``plain_text``
     is always available (decode bytes); ``docling``/``tika`` route through the
@@ -392,9 +453,14 @@ class ParserAdapter:
 
     def _get_extractor(self) -> Any:
         if self._extractor is None:
-            from document_extraction import DocumentExtractor
+            from dataclasses import replace
 
-            self._extractor = DocumentExtractor()
+            from document_extraction import DocumentExtractor, DocumentExtractorConfig
+
+            # Background ingestion can wait longer for a busy Docling than the
+            # HTTP route before falling back to the next parser.
+            config = replace(DocumentExtractorConfig.from_env(), docling_busy_wait_seconds=120.0)
+            self._extractor = DocumentExtractor(config)
         return self._extractor
 
     async def parse(self, file: CorpusFile, parser_order: List[str]) -> ParsedDocument:
@@ -403,9 +469,7 @@ class ParserAdapter:
             try:
                 if parser == "plain_text":
                     return ParsedDocument(
-                        name=file.name,
-                        text=file.content.decode("utf-8", errors="replace"),
-                        parser="plain_text",
+                        name=file.name, text=_plain_text(file), parser="plain_text",
                     )
                 if parser in ("docling", "tika"):
                     extractor = self._get_extractor()
@@ -414,6 +478,7 @@ class ParserAdapter:
                         filename=file.name,
                         content_type=file.content_type,
                         extractor=parser,
+                        chunking=False,  # re-chunked by Chonkie below
                     )
                     text = getattr(result, "content", None)
                     if text is None and isinstance(result, dict):
@@ -445,21 +510,37 @@ class Embedder:
     def available(self) -> bool:
         return bool(self._base_url.strip())
 
+    # One request per batch: a whole corpus in one call outran the 60s
+    # timeout on CPU embedders and was retried in full each time.
+    _BATCH_SIZE = 128
+
     async def embed(self, texts: List[str]) -> List[List[float]]:
         import httpx
 
         headers = {"Content-Type": "application/json"}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
+        vectors: List[List[float]] = []
         async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                f"{self._base_url}/embeddings",
-                headers=headers,
-                json={"model": self._model, "input": texts},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        return [row["embedding"] for row in data.get("data", [])]
+            for start in range(0, len(texts), self._BATCH_SIZE):
+                batch = texts[start:start + self._BATCH_SIZE]
+                resp = await client.post(
+                    f"{self._base_url}/embeddings",
+                    headers=headers,
+                    json={"model": self._model, "input": batch},
+                )
+                resp.raise_for_status()
+                rows = resp.json().get("data", [])
+                if len(rows) != len(batch):
+                    # zip() downstream would silently drop the missing chunks.
+                    raise RuntimeError(
+                        f"embedding endpoint returned {len(rows)} vectors "
+                        f"for {len(batch)} inputs"
+                    )
+                # OpenAI-compatible rows carry their input position.
+                rows = sorted(rows, key=lambda row: row.get("index", 0))
+                vectors.extend(row["embedding"] for row in rows)
+        return vectors
 
 
 # ─── vector store (Weaviate) ─────────────────────────────────────────
@@ -547,28 +628,31 @@ class WeaviateClient:
         return written
 
     async def _fetch_reconcilable_ids(
-        self, client, class_name: str, safe_profile: str, keep_sources: set
+        self, client, class_name: str, profile_name: str, keep_sources: set
     ) -> set:
         """Object ids for this profile, EXCLUDING preserved sources.
 
         A preserved source is one this run could not process; its objects are
         absent from `desired_ids` for a reason that is not staleness.
+
+        Pages with Weaviate's `after` cursor: `offset` paging fails once
+        offset + limit passes QUERY_MAXIMUM_RESULTS (default 10,000), which
+        failed every ingestion of a profile past 10k chunks. The cursor API
+        rejects `where`, so the profile filter runs here.
         """
         existing_ids = set()
         page_size = 1000
-        offset = 0
+        after = None
         while True:
+            cursor = f', after: "{after}"' if after else ""
             response = await client.post(
                 f"{self._url}/v1/graphql",
                 json={
                     "query": f"""{{
                         Get {{
-                            {class_name}(
-                                where: {{path: [\"profile\"], operator: Equal,
-                                        valueText: \"{safe_profile}\"}}
-                                limit: {page_size}
-                                offset: {offset}
-                            ) {{ source _additional {{ id }} }}
+                            {class_name}(limit: {page_size}{cursor}) {{
+                                profile source _additional {{ id }}
+                            }}
                         }}
                     }}"""
                 },
@@ -588,12 +672,14 @@ class WeaviateClient:
                 object_id = obj.get("_additional", {}).get("id")
                 if object_id is None:
                     continue
+                after = object_id
+                if obj.get("profile") != profile_name:
+                    continue
                 if obj.get("source") in keep_sources:
                     continue  # this run could not produce it; not stale
                 existing_ids.add(object_id)
             if len(page) < page_size:
                 break
-            offset += page_size
         return existing_ids
 
     async def reconcile_objects(
@@ -612,13 +698,10 @@ class WeaviateClient:
         """
         import httpx
 
-        safe_profile = (
-            profile_name.replace("\\", "\\\\").replace('"', '\\"')
-        )
         keep_sources = set(preserve_sources or ())
         async with httpx.AsyncClient(timeout=60.0) as client:
             existing_ids = await self._fetch_reconcilable_ids(
-                client, class_name, safe_profile, keep_sources
+                client, class_name, profile_name, keep_sources
             )
             stale_ids = existing_ids - set(desired_ids) - {None}
             for object_id in sorted(stale_ids):

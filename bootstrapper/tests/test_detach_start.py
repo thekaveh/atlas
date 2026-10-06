@@ -421,3 +421,23 @@ def test_detached_json_summary_first_pass_healthy_is_not_after_grace(capsys) -> 
     assert ok is True
     payload = json.loads(capsys.readouterr().out)
     assert payload["converged_after_grace"] is False
+
+
+def test_detached_json_summary_lists_services_left_out_by_failed_builds(capsys) -> None:
+    # A failed image build drops that service from `up` (#989); the JSON said
+    # ok with no trace of the gap.
+    starter = _starter()
+    starter.skipped_builds = ["jupyterhub"]
+    starter.show_detached_status_summary(
+        json_output=True,
+        poll_rows=_sequence_poll((_ALL_HEALTHY_2, None)),
+        sleep=lambda *_a: None, monotonic=lambda: 0.0,
+    )
+    assert json.loads(capsys.readouterr().out)["not_started"] == ["jupyterhub"]
+
+
+def test_declined_launch_says_the_running_stack_was_stopped() -> None:
+    from core.launch_outcome import launch_cancelled_notice
+
+    assert "stopped to free its ports" in launch_cancelled_notice(stopped_previous=True)
+    assert "stopped" not in launch_cancelled_notice()

@@ -56,7 +56,13 @@ class DoclingUpstream:
 
     async def _convert_with_retry(self, upload_path: Path, upload_name: str) -> Path:
         headers = {"Authorization": f"Bearer {self.token}"}
-        async with httpx.AsyncClient(transport=self.transport) as client:
+        # The upstream sends nothing until conversion and zipping finish, so
+        # the client's default 5s read timeout failed every real conversion.
+        # `convert`'s asyncio.wait_for(timeout_seconds) bounds the whole call;
+        # only the connect phase keeps its own short bound.
+        async with httpx.AsyncClient(
+            transport=self.transport, timeout=httpx.Timeout(None, connect=10.0)
+        ) as client:
             for attempt in range(self.max_capacity_retries + 1):
                 with upload_path.open("rb") as stream:
                     async with client.stream(

@@ -37,8 +37,8 @@ def test_openclaw_direct_provider_keys_do_not_fall_back_to_stack_openai_key() ->
 def test_openclaw_container_ports_follow_topology_defaults() -> None:
     ports = _compose()["services"]["openclaw-gateway"]["ports"]
 
-    assert "${HOST_BIND_IP:-}${OPENCLAW_GATEWAY_PORT:-63076}:18789" in ports
-    assert "${HOST_BIND_IP:-}${OPENCLAW_BRIDGE_PORT:-63077}:18790" in ports
+    assert "${HOST_BIND_IP-127.0.0.1:}${OPENCLAW_GATEWAY_PORT:-63076}:18789" in ports
+    assert "${HOST_BIND_IP-127.0.0.1:}${OPENCLAW_BRIDGE_PORT:-63077}:18790" in ports
 
     readme = README.read_text(encoding="utf-8")
     assert "default 63076" in readme
@@ -66,3 +66,53 @@ def test_openclaw_env_example_documents_gateway_and_localhost_ports_separately()
     assert "OPENCLAW_BRIDGE_PORT=63077" in env_example
     assert "OPENCLAW_LOCALHOST_PORT=63065" in env_example
     assert "stack-wide OPENAI_API_KEY" not in env_example
+
+
+def test_key_generator_creates_and_keeps_the_openclaw_gateway_token(tmp_path: Path) -> None:
+    """Empty, the LAN-bound gateway minted a random per-start token nobody
+    could read back, locking the dashboard and API."""
+    from core.config_parser import ConfigParser
+    from utils.key_generator import KeyGenerator
+
+    (tmp_path / ".env").write_text("PROJECT_NAME=atlas-test\nOPENCLAW_GATEWAY_TOKEN=\n")
+    assert KeyGenerator(str(tmp_path)).generate_missing_keys()["OPENCLAW_GATEWAY_TOKEN"] is True
+    token = ConfigParser(str(tmp_path)).parse_env_file()["OPENCLAW_GATEWAY_TOKEN"]
+    assert len(token) >= 32
+
+    KeyGenerator(str(tmp_path)).generate_missing_keys()
+    assert ConfigParser(str(tmp_path)).parse_env_file()["OPENCLAW_GATEWAY_TOKEN"] == token
+
+
+def test_key_generator_creates_the_shared_meta_crypto_key(tmp_path: Path) -> None:
+    """Unset, Studio and Postgres Meta fall back to the public "SAMPLE_KEY"."""
+    from core.config_parser import ConfigParser
+    from utils.key_generator import KeyGenerator
+
+    (tmp_path / ".env").write_text("PROJECT_NAME=atlas-test\nSUPABASE_META_CRYPTO_KEY=\n")
+    assert KeyGenerator(str(tmp_path)).generate_missing_keys()["SUPABASE_META_CRYPTO_KEY"] is True
+    key = ConfigParser(str(tmp_path)).parse_env_file()["SUPABASE_META_CRYPTO_KEY"]
+    assert len(key) >= 32
+    compose = yaml.safe_load((Path(__file__).resolve().parents[2] / "services/supabase/compose.yml").read_text())
+    for service in ("supabase-meta", "supabase-studio"):
+        assert compose["services"][service]["environment"]["PG_META_CRYPTO_KEY"] == "${SUPABASE_META_CRYPTO_KEY:-}"
+
+
+def test_openclaw_init_points_the_bundled_litellm_provider_at_the_gateway() -> None:
+    # The bundled litellm plugin reads LITELLM_API_KEY but defaults its base
+    # URL to localhost:4000 (unreachable in-container); set it only if unset.
+    import json
+    import shutil
+    import subprocess
+
+    init = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]["openclaw-init"]
+    script = init["entrypoint"][-1]
+    filter_line = next(line for line in script.splitlines() if ".models.providers.litellm.baseUrl" in line)
+    program = filter_line.split("jq '", 1)[1].split("'", 1)[0]
+    assert program == (
+        '.models.providers.litellm.baseUrl //= "http://litellm:4000" '
+        "| .models.providers.litellm.models //= []"
+    )
+    if shutil.which("jq"):
+        kept = '{"models":{"providers":{"litellm":{"baseUrl":"http://x","models":[{"id":"a"}]}}}}'
+        out = subprocess.run(["jq", "-c", program], input=kept, capture_output=True, text=True, check=True)
+        assert json.loads(out.stdout) == json.loads(kept)

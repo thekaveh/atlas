@@ -599,7 +599,7 @@ a pull request cancels that pull request's superseded run; runs on `main` and
 | **Manifest lint + unit tests** | An aggregate gate over four parallel jobs, and green only when all four are: **Bootstrapper and Backend suites (with containers)** runs `validate_fragments`, ShellCheck, the pull-request title and changelog checks, the 6,000+ bootstrapper tests including the container-backed backup/restore integration tests (with the coverage floor), and the backend's own suite (`services/backend/app/app/tests/`); **Bootstrapper suite without Docker (fast)** runs the whole suite with no Docker daemon, so a failing unit test turns red first; **Bootstrapper suite on Python 3.10** runs the full suite on the supported floor; **MCP and asset API tests** runs those isolated suites. Catches: manifest schema violations, dependency cycles, env-example drift, category overflow, backend route regressions. |
 | **Compose merge + byte-equivalence + source-permutation matrix** | Renders `docker compose config` for the merged fragment list + verifies it matches the golden baseline + tests every source variant of every service. Catches: compose-syntax errors, source-permutation regressions. |
 | **Docs drift + audit scripts** | `regen --all --check` + `make docs-check` + the remaining audits (`check_doc_links` — including `#anchor` fragment validation, `check-compose-source-deps`, `check-docs-drift`, `check-kong-routes`, `validate_research_schema`, `check-track-membership`) + lock verification for the Docling localhost provider, Local Deep Researcher, and compiled service runtimes + a vulnerability audit of compiled runtime locks. Catches: stale per-service docs, three-surface drift, cross-surface links, missing local assets, missing `REQUIRED_DEPENDS_ON` entries, Kong route default drift, broken links/anchors, research-schema violations, stale or unreproducible runtime locks, vulnerable runtime dependency closures, and track-membership omissions. |
-| **Build-validation** | `docker buildx build` for every local non-GPU Compose build context plus every `services/*/init/Dockerfile` context; GPU provider builds are intentionally excluded for runner size/time. Catches: unsatisfiable pip pins, broken Dockerfiles, and init-image drift. Runs on every workflow execution and is required. |
+| **Build-validation** | Required. Verifies the commit-pinned remote build contexts against their reviewed base-image digests and Trivy-scans manifest-owned remote images whose declarations changed. It builds no local Dockerfile: the `docker buildx build` loop over every local Compose and init context runs in the non-required **Final-image scan** job (#991), which is where unsatisfiable pip pins and broken Dockerfiles surface. |
 
 Run this representative local subset before pushing (from the repository root
 unless a subshell changes directory). The authoritative command list is
@@ -644,10 +644,10 @@ uv run --project bootstrapper python -m scripts.bounded_subprocess \
   --label "pip-audit tool installation" -- \
   uv tool install pip-audit==2.10.0                                                # job 3 pinned vulnerability-audit tool
 uv run --project bootstrapper python -m scripts.audit_runtime_locks               # job 3 runtime vulnerability audit
-# job 4 (required Build-validation): docker buildx build over every local non-GPU
-# build context plus every services/*/init/Dockerfile. The full, current list
-# lives in the build matrix in .github/workflows/services-lint.yml — treat that
-# workflow file as the source of truth, not this doc. Build contexts validated
+# Final-image scan (not required): docker buildx build over every local Compose
+# and init build context. The full, current list lives in that job's build loop
+# in .github/workflows/services-lint.yml — treat that workflow file as the
+# source of truth, not this doc. Build contexts validated
 # in CI include services/asset-worker/app, services/asset-baker/app,
 # services/backend/app, and others — representative example:
 docker buildx build --load -f services/backend/app/Dockerfile services/backend/app/
@@ -953,7 +953,7 @@ image, host ports, and environment, and joins the shared network
 (`networks: { backend-network: { name: ${PROJECT_NAME}-network, external: true } }`).
 It is intentionally NOT wired into the wizard, the topology port-allocator, or
 the generated `.env.example` — manage its image/ports/env directly in the
-fragment (use `${HOST_BIND_IP:-}` on published ports to inherit Atlas's
+fragment (use `${HOST_BIND_IP-127.0.0.1:}` on published ports to inherit Atlas's
 loopback binding default). The default manifest loader
 (`bootstrapper.services.manifests.load_manifests`) still skips `_`-prefixed
 directories, so a `_user/<name>/service.yml` remains invisible to the core

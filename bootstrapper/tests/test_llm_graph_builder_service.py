@@ -212,9 +212,11 @@ def test_llm_graph_builder_compose_contract() -> None:
     assert backend["deploy"]["replicas"] == "${LLM_GRAPH_BUILDER_BACKEND_SCALE:-0}"
     assert frontend["deploy"]["replicas"] == "${LLM_GRAPH_BUILDER_FRONTEND_SCALE:-0}"
     assert "ports" not in backend
-    assert frontend["ports"] == ["${HOST_BIND_IP:-}${LLM_GRAPH_BUILDER_PORT}:8080"]
+    assert frontend["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${LLM_GRAPH_BUILDER_PORT}:8080"]
+    # Same origin as the UI: a cross-origin API host never receives the
+    # browser's Kong Basic credential (upstream axios sets no withCredentials).
     assert frontend["build"]["args"]["VITE_BACKEND_API_URL"] == (
-        "http://graphbuilder-api.localhost:${KONG_HTTP_PORT:-63000}"
+        "http://graphbuilder.localhost:${KONG_HTTP_PORT:-63000}/atlas-api"
     )
     assert frontend["build"]["args"]["VITE_LLM_MODELS"] == "${LLM_GRAPH_BUILDER_MODEL_ID:-atlas_litellm}"
     assert backend["environment"]["NEO4J_URI"] == "${NEO4J_URI}"
@@ -399,6 +401,7 @@ def test_llm_graph_builder_kong_routes_only_when_container(tmp_path: Path) -> No
             host: service
             for service in config["services"]
             for route in service.get("routes", [])
+            if not route.get("paths")  # host-only routes; see the same-origin test
             for host in route.get("hosts") or []
         }
 
@@ -419,6 +422,23 @@ def test_llm_graph_builder_kong_routes_only_when_container(tmp_path: Path) -> No
         }
     assert "graphbuilder.localhost" not in disabled_hosts
     assert "graphbuilder-api.localhost" not in disabled_hosts
+
+
+def test_llm_graph_builder_api_is_reachable_under_the_ui_origin(tmp_path: Path) -> None:
+    """Upstream axios sends no credentials cross-origin, so the browser UI
+    reaches the API through /atlas-api on its own (Kong-authenticated) origin."""
+    (tmp_path / ".env").write_text(
+        "LLM_GRAPH_BUILDER_SOURCE=container\nDASHBOARD_USERNAME=u\n"
+        "DASHBOARD_PASSWORD=p\nKONG_HTTP_PORT=64000\n",
+        encoding="utf-8",
+    )
+    config = KongConfigGenerator(ConfigParser(str(tmp_path))).generate_kong_config()
+    api = next(svc for svc in config["services"] if svc["name"] == "llm-graph-builder-api")
+    route = next(r for r in api["routes"] if r.get("paths"))
+
+    assert route["paths"] == ["/atlas-api"]
+    assert route["hosts"] == ["graphbuilder.localhost"]
+    assert route["strip_path"] is True
 
 
 def test_llm_graph_builder_docs_describe_setup_and_guardrails() -> None:

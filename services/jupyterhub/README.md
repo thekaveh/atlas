@@ -107,11 +107,11 @@ requirements. Service-dependent execution remains an explicit live smoke test.
 
 ## 6. Service Integration Examples
 
-Every notebook talks to LiteLLM via the OpenAI-compatible API — never to Ollama directly. `startup.sh` writes `OPENAI_API_BASE` / `OPENAI_API_KEY` into the work-dir `/home/jovyan/work/.env`; since they aren't in the container's process env, load them with `load_dotenv()` before reading via `os.getenv`. Weaviate, Neo4j, and the Postgres/Supabase clients connect directly using the equivalent auto-injected `WEAVIATE_URL` / `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` env vars. Spark Connect (`SPARK_REMOTE`, default `sc://spark-connect:15002`, requires `SPARK_SOURCE != disabled`) and the MinIO/Iceberg lakehouse clients (`boto3`, `pyiceberg`, `duckdb` against `AWS_ENDPOINT_URL_S3` / `ICEBERG_REST_URI` / `ICEBERG_WAREHOUSE`) work the same way — connection details are pre-wired, no credentials to hand-assemble.
+Every notebook talks to LiteLLM via the OpenAI-compatible API — never to Ollama directly. `startup.sh` writes `OPENAI_API_BASE` / `OPENAI_API_KEY` into the work-dir `/home/jovyan/work/.env`; since they aren't in the container's process env, load them with `load_dotenv()` before reading via `os.getenv`. Weaviate, Neo4j, and the Postgres/Supabase clients connect directly using the equivalent auto-injected `WEAVIATE_URL` / `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` env vars. Spark Connect (`SPARK_REMOTE`, default `sc://spark-connect:15002`, requires `SPARK_SOURCE != disabled`) and the MinIO/Iceberg lakehouse clients (`boto3`, `pyiceberg`, `duckdb` against `AWS_ENDPOINT_URL_S3` / `ICEBERG_REST_URI` / `ICEBERG_WAREHOUSE`) work the same way — connection details are pre-wired, no credentials to hand-assemble. Two limits: DuckDB reads the key and region from the environment but not the endpoint, so run `CREATE SECRET (TYPE s3, ENDPOINT 'minio:9000', URL_STYLE 'path', USE_SSL false)` (key and secret from the environment) before `read_parquet('s3://…')`, or it targets AWS; and the JupyterHub MinIO account is read-only on the `lakehouse` bucket by design, so table writes go through Spark Connect, not direct PyIceberg/boto3 writes.
 
 Docling and Parakeet are the exception to anonymous direct HTTP: their endpoint and token pairs are injected together so trusted notebooks can authenticate without hard-coding secrets. Use placeholder names in shared notebook prose and keep token reads out of rendered output.
 
-Working, runnable examples for each of these live in the sample notebooks (§5): `01_litellm_basics.ipynb`, `02_langchain_rag.ipynb`, `03_neo4j_graphs.ipynb`, and `09_spark_connect.ipynb`. For the advanced Iceberg/Spark lakehouse validation flow (`MERGE INTO`, `VERSION AS OF`, Structured Streaming, table maintenance), see `12_iceberg_advanced_sql.ipynb` or run it directly from the repository root with `scripts/smoke-iceberg-advanced-sql.sh spark-connect` — see [`docs/operations/iceberg-advanced-smoke.md`](../../docs/operations/iceberg-advanced-smoke.md) for the full smoke-test contract.
+Working, runnable examples for each of these live in the sample notebooks (§5), copied into `work/examples/` on each start when missing (an existing copy is never overwritten, so delete one to pick up an updated version): `01_litellm_basics.ipynb`, `02_langchain_rag.ipynb`, `03_neo4j_graphs.ipynb`, and `09_spark_connect.ipynb`. For the advanced Iceberg/Spark lakehouse validation flow (`MERGE INTO`, `VERSION AS OF`, Structured Streaming, table maintenance), see `12_iceberg_advanced_sql.ipynb` or run it directly from the repository root with `scripts/smoke-iceberg-advanced-sql.sh spark-connect` — see [`docs/operations/iceberg-advanced-smoke.md`](../../docs/operations/iceberg-advanced-smoke.md) for the full smoke-test contract.
 
 ### 6.1. Connecting to the lakehouse from Python
 
@@ -163,13 +163,9 @@ JupyterHub itself is configured through `.env` and the stack startup flow. Prefe
 
 Avoid direct `docker-compose.yml` edits for normal operation; local compose edits are unsupported experiments and can be overwritten or invalidated by future stack changes.
 
-### 9.2. Multi-user Setup
+### 9.2. Multi-user access
 
-For authentication, create `jupyterhub_config.py`:
-
-```python
-c.JupyterHub.authenticator_class = 'firstuseauthenticator.FirstUseAuthenticator'
-```
+Not supported. Despite the service name, the container runs a single `start-notebook.sh` JupyterLab server, not a JupyterHub spawner, so there is no authenticator to configure and no `jupyterhub_config.py` is read. The only access control is the `JUPYTERHUB_TOKEN` token (passed to the server as `JUPYTER_TOKEN`); everyone who has it shares one server and one home directory. See §17 (Capabilities & limitations) for the full limitation.
 
 ## 10. Connecting from VS Code (run local notebooks on this container)
 
@@ -204,7 +200,7 @@ VS Code's Jupyter extension can use this container as the **remote kernel** for 
 
 ### 10.3. What's pre-configured on the stack side
 
-The container's `ENTRYPOINT` (`services/jupyterhub/build/Dockerfile`) wraps the upstream `start-notebook.sh` boot script, and the compose `command:` override (`services/jupyterhub/compose.yml`) appends three `--ServerApp.*` flags so the upstream server accepts VS Code's remote-kernel workflow across the Docker network: `allow_origin` opens the CORS/WebSocket origin check (VS Code's webview origin would otherwise be rejected), `allow_remote_access` lets the non-loopback, container-bridge connection through the pre-auth IP check, and `disable_check_xsrf=False` keeps CSRF protection on (already Jupyter's default; listed explicitly as a visible knob). None of this loosens authentication — the `JUPYTERHUB_TOKEN` remains the actual auth gate on every request. To tighten the origin allowlist beyond `*`, set `JUPYTER_ALLOW_ORIGIN` to a comma-separated list in `.env` and restart. See the `ENTRYPOINT` / `command:` directives in the Dockerfile and compose fragment for the exact dispatch chain.
+The container's `ENTRYPOINT` (`services/jupyterhub/build/Dockerfile`) wraps the upstream `start-notebook.sh` boot script, and the compose `command:` override (`services/jupyterhub/compose.yml`) appends three `--ServerApp.*` flags so the upstream server accepts VS Code's remote-kernel workflow across the Docker network: `allow_origin` opens the CORS/WebSocket origin check (VS Code's webview origin would otherwise be rejected), `allow_remote_access` lets the non-loopback, container-bridge connection through the pre-auth IP check, and `disable_check_xsrf=False` keeps CSRF protection on (already Jupyter's default; listed explicitly as a visible knob). None of this loosens authentication — the `JUPYTERHUB_TOKEN` remains the actual auth gate on every request. To tighten the origin check beyond `*`, set `JUPYTER_ALLOW_ORIGIN` to one exact origin in `.env` and restart; Jupyter Server compares it by string equality, so a comma-separated list matches nothing and rejects every browser or webview cross-origin request. See the `ENTRYPOINT` / `command:` directives in the Dockerfile and compose fragment for the exact dispatch chain.
 
 ### 10.4. Notebook layout: where files live
 
@@ -394,7 +390,7 @@ Support tier: **experimental** — Capability contract declared (#967); no cited
 | Integrated data and AI notebooks | supported | tested | Atlas ships a synchronized Python and Scala notebook inventory with clients and environment seams for LLM, RAG, lakehouse, ML, and media experimentation. |
 | Spark Connect and lakehouse clients | partial | tested | Bundled notebooks configure Spark Connect, MinIO, and Iceberg clients, but service-dependent cells are static contracts until an operator runs the corresponding live smoke. |
 | Token-authenticated notebook access | partial | tested | The direct and CORS-only jupyter.localhost paths require one Jupyter token, while wildcard browser origins remain the local default and must be narrowed for shared deployments. |
-| Operator-trusted credential environment | partial | documented | The server receives high-privilege database and service credentials and grants sudo inside its container, so it is an engineering workspace rather than a hostile multi-tenant sandbox. |
+| Operator-trusted credential environment | partial | documented | The server receives high-privilege database and service credentials and runs arbitrary user code, so it is an engineering workspace rather than a hostile multi-tenant sandbox (GRANT_SUDO is set but inert: the container does not start as root). |
 | Notebook workspace persistence | supported | tested | User work persists in jupyterhub-data and bundled notebooks mount read-only, but cold volume removal still deletes the writable workspace. |
 | Curated MCP notebook endpoint | supported | tested | The bootstrapper injects MCP_SERVERS_URL only when MCP_SERVERS_SOURCE=container and leaves it empty when disabled; the bundled notebook exercises discovery, invocation, and error handling against that endpoint. The direct backend-network URL bypasses Kong authentication and is appropriate only for this operator-trusted notebook environment. |
 | Multi-user JupyterHub isolation and HA | not-supported | documented | Despite the service name, Atlas runs one start-notebook JupyterLab process with one token, not a Hub spawner, per-user servers, replicated state, or an HA control plane. |

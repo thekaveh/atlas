@@ -49,12 +49,12 @@ small — single docker image (`itzcrazykns1337/vane:latest`), one new manifest 
 
 ## 6. Risks & open questions
 - Project was recently renamed Perplexica → Vane; upstream image tag and config keys may shift. Pin to a known-good tag.
-- Duplicates some Open WebUI functionality once `ENABLE_RAG_WEB_SEARCH` is wired (see searxng row, missing-pair #1). Worth keeping both only if the UX really diverges.
+- Duplicates some Open WebUI functionality once `ENABLE_WEB_SEARCH` is wired (see searxng row, missing-pair #1). Worth keeping both only if the UX really diverges.
 - Requires SearXNG `formats: [..., json]` to be enabled (already true in `services/searxng/config/settings.yml`).
 - No native auth; sits behind Kong but Kong does not currently enforce auth on alias routes.
 
 ## 7. Why now (and why not sooner)
-SearXNG + LiteLLM + Ollama are all in place, and an `ENABLE_RAG_WEB_SEARCH` wiring for Open WebUI (the higher-priority gap) covers most of the use case. Perplexica becomes interesting once users want a UI tuned specifically for cited web answers rather than a general chat with a toggle.
+SearXNG + LiteLLM + Ollama are all in place, and an `ENABLE_WEB_SEARCH` wiring for Open WebUI (the higher-priority gap) covers most of the use case. Perplexica becomes interesting once users want a UI tuned specifically for cited web answers rather than a general chat with a toggle.
 
 ## 8. Upstream evidence
 - https://github.com/ItzCrazyKns/Vane

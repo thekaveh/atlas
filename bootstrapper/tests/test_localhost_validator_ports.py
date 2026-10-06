@@ -128,3 +128,30 @@ def test_per_source_service_name_only_via_resolver(tmp_path, source_var, source_
     # The resolver (what the fixed loop uses) returns the per-source config.
     cfg = v._resolve_source_config(source_var, source_value) or {}
     assert cfg.get("service_name"), (source_var, source_value)
+
+
+def test_http_probe_reports_non_http_listener_and_bad_port_as_down():
+    """A gRPC/Bolt port or a typo'd port used to raise out of the probe and
+    skip every remaining localhost check."""
+    import socket
+    import threading
+
+    from utils.localhost_validator import LocalhostValidator
+
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+
+    def speak_garbage():
+        conn, _ = server.accept()
+        conn.sendall(b"\x00\x01not-http\r\n\r\n")
+        conn.close()
+
+    threading.Thread(target=speak_garbage, daemon=True).start()
+    validator = LocalhostValidator.__new__(LocalhostValidator)
+    port = server.getsockname()[1]
+    try:
+        assert validator.check_http_endpoint(f"http://127.0.0.1:{port}/health", 2) is False
+        assert validator.check_http_endpoint("http://localhost:80OO/health", 2) is False
+    finally:
+        server.close()

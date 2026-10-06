@@ -171,6 +171,8 @@ def _run_linear_startup(
         return 1
     if not starter.apply_user_model_selections(options.user_model_selections):
         return 1
+    if not starter.reconcile_default_models():
+        return 1
 
     starter.run_port_migration(options.no_port_migrate)
 
@@ -230,7 +232,9 @@ def _run_linear_startup(
         # Declining happens after .env was written and before anything
         # starts, so say exactly that (#1032).
         starter.banner.console.print(
-            f"\n  [color(245)]{launch_cancelled_notice()}[/color(245)]"
+            "\n  [color(245)]"
+            f"{launch_cancelled_notice(options.cold, starter.stopped_previous_instance)}"
+            "[/color(245)]"
         )
         return 0
     if not starter.start_managed_host_processes():

@@ -1333,6 +1333,10 @@ async def test_exact_collection_contract_is_left_intact(monkeypatch):
                         "baseURL": "http://litellm:4000/",
                     }
                 },
+                "properties": [
+                    {"name": name, "tokenization": "field"}
+                    for name in memory_store._EXACT_MATCH_PROPERTIES
+                ],
             }
 
     class Client:
@@ -2027,3 +2031,241 @@ async def test_startup_probes_effective_model_dimension_before_ready_schema(
         await store.initialize()
 
     connect.assert_not_awaited()
+
+
+# Weaviate vectorizer-failure contracts (a LiteLLM embedding error inside a
+# healthy Weaviate). Helpers are shared with test_memory_failure_contracts.
+from tests.test_memory_failure_contracts import _also_route_acquire, _pending_rows  # noqa: E402
+
+
+@pytest.mark.parametrize("body,unavailable", [
+    ('{"error":[{"message":"vectorize target vector default: update vector: '
+     'connection to: OpenAI API failed with status: 500"}]}', False),
+    ("internal server error", True),
+])
+def test_weaviate_vectorizer_failure_does_not_latch_pgvector(body, unavailable):
+    """A LiteLLM embedding error surfaces as a Weaviate 5xx; Weaviate itself is up."""
+    import httpx
+
+    from memory_store import _weaviate_target_unavailable
+
+    request = httpx.Request("POST", "http://weaviate/v1/objects")
+    exc = httpx.HTTPStatusError(
+        "x", request=request, response=httpx.Response(500, text=body, request=request)
+    )
+    assert _weaviate_target_unavailable(exc) is unavailable
+
+
+@pytest.mark.asyncio
+async def test_recall_graphql_vectorizer_error_serves_pgvector_without_latching(monkeypatch):
+    import memory_store
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, _url, json=None, **_kwargs):
+            return SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: {
+                    "data": {"Get": {"Memory": None}},
+                    "errors": [{"message": "vectorize params: remote client failed"}],
+                },
+            )
+
+    store = memory_store.MemoryStore("postgresql://atlas", weaviate_url="http://weaviate")
+    store.backend = "weaviate"
+    store._initialized = True
+    store._clean_weaviate_generation = AsyncMock(return_value=1)
+    store._search_pgvector = AsyncMock(return_value=[{"pg_fact_id": "f"}])
+    store._latch_pgvector_after_runtime_failure = AsyncMock()
+    monkeypatch.setattr(memory_store.httpx, "AsyncClient", lambda **_kwargs: Client())
+
+    assert await store.search_similar("q", "u") == [{"pg_fact_id": "f"}]
+    store._latch_pgvector_after_runtime_failure.assert_not_awaited()
+    assert store.backend == "weaviate"
+
+
+def test_vectorizer_failure_is_a_per_row_deferral_in_reconcile():
+    import httpx
+
+    from memory_service import _is_target_health_signal
+
+    request = httpx.Request("POST", "http://weaviate/v1/objects")
+    exc = httpx.HTTPStatusError(
+        "x", request=request,
+        response=httpx.Response(500, text="vectorize target vector: update vector failed", request=request),
+    )
+    assert _is_target_health_signal(exc) is False
+
+
+@pytest.mark.asyncio
+async def test_vectorizer_write_failure_keeps_a_pgvector_shadow_then_raises():
+    import httpx
+    import memory_store
+
+    request = httpx.Request("POST", "http://weaviate/v1/objects")
+    failure = httpx.HTTPStatusError(
+        "x", request=request,
+        response=httpx.Response(500, text="update vector: remote client failed", request=request),
+    )
+    store = memory_store.MemoryStore("postgresql://atlas", weaviate_url="http://weaviate")
+    store._store_pgvector = AsyncMock()
+    store._latch_pgvector_after_runtime_failure = AsyncMock()
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await store._after_weaviate_write_failure(failure, "f", "content")
+    store._store_pgvector.assert_awaited_once_with("f", "content", mark_dirty=False)
+    store._latch_pgvector_after_runtime_failure.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_systematic_vectorizer_failures_halt_reconcile_without_raising(monkeypatch):
+    """Recall runs reconcile: a vectorizer failing every row must not retry 100 rows."""
+    import httpx
+    import memory_service as mod
+
+    calls = {"n": 0}
+    request = httpx.Request("POST", "http://weaviate/v1/objects")
+
+    class VectorizerFailingStore:
+        async def update_embedding(self, **_kwargs):
+            calls["n"] += 1
+            raise httpx.HTTPStatusError(
+                "x", request=request,
+                response=httpx.Response(500, text="update vector: remote client failed", request=request),
+            )
+
+    class FakeConn:
+        async def fetch(self, *_a, **_k):
+            return _pending_rows(100)
+
+        async def execute(self, *_a, **_k):
+            return "UPDATE 1"
+
+        async def close(self):
+            return None
+
+    svc = mod.MemoryService.__new__(mod.MemoryService)
+    svc.store = VectorizerFailingStore()
+    svc.database_url = "postgresql://x"
+    monkeypatch.setattr(mod, "connect_postgres", AsyncMock(return_value=FakeConn()))
+    _also_route_acquire(monkeypatch, mod, FakeConn)
+
+    assert await svc._reconcile_pending_vectors(retry_transient=True) == 0
+    assert calls["n"] == mod._RECONCILE_TRANSIENT_STREAK
+
+
+@pytest.mark.asyncio
+async def test_failed_shadow_write_still_raises_the_weaviate_error():
+    import httpx
+    import memory_store
+
+    request = httpx.Request("POST", "http://weaviate/v1/objects")
+    failure = httpx.HTTPStatusError(
+        "x", request=request,
+        response=httpx.Response(500, text="vectorize failed", request=request),
+    )
+    store = memory_store.MemoryStore("postgresql://atlas", weaviate_url="http://weaviate")
+    # A per-row shadow failure (LiteLLM rejects the content) is not a target
+    # outage, so the Weaviate vectorizer error is the one surfaced.
+    store._store_pgvector = AsyncMock(side_effect=httpx.HTTPStatusError(
+        "x", request=request, response=httpx.Response(400, request=request),
+    ))
+
+    with pytest.raises(httpx.HTTPStatusError) as raised:
+        await store._after_weaviate_write_failure(failure, "f", "content")
+    assert raised.value is failure
+
+
+@pytest.mark.asyncio
+async def test_per_row_vectorizer_rejections_do_not_stall_reconcile(monkeypatch):
+    """A LiteLLM 400 for one oversize fact, wrapped in Weaviate's 500, is per
+    row: three of them at the head of the queue must not block later rows."""
+    import httpx
+    import memory_service as mod
+
+    request = httpx.Request("POST", "http://weaviate/v1/objects")
+    seen = []
+
+    class Store:
+        async def update_embedding(self, **kwargs):
+            seen.append(kwargs["fact_id"])
+            if len(seen) <= 3:
+                raise httpx.HTTPStatusError(
+                    "x", request=request,
+                    response=httpx.Response(
+                        500, request=request,
+                        text="vectorize: connection to: OpenAI API failed with status: 400 error: context length",
+                    ),
+                )
+            return None
+
+    class FakeConn:
+        async def fetch(self, *_a, **_k):
+            return _pending_rows(6)
+
+        async def execute(self, *_a, **_k):
+            return "UPDATE 1"
+
+        async def close(self):
+            return None
+
+    svc = mod.MemoryService.__new__(mod.MemoryService)
+    svc.store = Store()
+    svc.database_url = "postgresql://x"
+    monkeypatch.setattr(mod, "connect_postgres", AsyncMock(return_value=FakeConn()))
+    _also_route_acquire(monkeypatch, mod, FakeConn)
+
+    assert await svc._reconcile_pending_vectors() == 3
+    assert len(seen) == 6
+
+
+@pytest.mark.asyncio
+async def test_unreachable_provider_during_shadow_write_is_raised_as_target_failure():
+    import httpx
+    import memory_store
+
+    request = httpx.Request("POST", "http://weaviate/v1/objects")
+    failure = httpx.HTTPStatusError(
+        "x", request=request, response=httpx.Response(500, text="update vector failed", request=request),
+    )
+    store = memory_store.MemoryStore("postgresql://atlas", weaviate_url="http://weaviate")
+    store._store_pgvector = AsyncMock(side_effect=httpx.ConnectError("litellm down"))
+
+    with pytest.raises(httpx.ConnectError):
+        await store._after_weaviate_write_failure(failure, "f", "content")
+
+
+@pytest.mark.parametrize("body,per_row", [
+    ("connection to: OpenAI API failed with status: 400 error: context length exceeded", True),
+    ("connection to: OpenAI API failed with status: 401 error: invalid api key", False),
+    ("connection to: OpenAI API failed with status: 400 error: Invalid model name passed", False),
+    ("connection to: OpenAI API failed with status: 404 error: model not found", False),
+    ("connection to: OpenAI API failed with status: 4000 error", False),
+    ("connection to: OpenAI API failed with status: 400 error: Budget has been exceeded", False),
+])
+def test_vectorizer_row_rejection_excludes_systematic_4xx(body, per_row):
+    import httpx
+
+    from memory_store import _weaviate_vectorizer_row_rejection
+
+    request = httpx.Request("POST", "http://weaviate/v1/objects")
+    exc = httpx.HTTPStatusError(
+        "x", request=request, response=httpx.Response(500, text="vectorize: " + body, request=request),
+    )
+    assert _weaviate_vectorizer_row_rejection(exc) is per_row
+
+
+
+def test_word_tokenized_filter_properties_force_a_rebuild():
+    # Word tokenization made namespace == "default" match "default-archive".
+    import memory_store
+
+    field = [{"name": n, "tokenization": "field"} for n in memory_store._EXACT_MATCH_PROPERTIES]
+    assert memory_store._needs_field_tokenization({"properties": field}) is False
+    field[1] = {"name": "namespace", "tokenization": "word"}
+    assert memory_store._needs_field_tokenization({"properties": field}) is True

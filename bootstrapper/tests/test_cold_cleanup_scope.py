@@ -81,6 +81,19 @@ def test_cold_start_cleanup_propagates_compose_failure(tmp_path, monkeypatch):
     assert manager.perform_cold_start_cleanup() is False
 
 
+def test_cold_start_cleanup_fails_when_consumer_overlays_were_dropped(tmp_path, monkeypatch):
+    # Overlay-only volumes survive a base-file teardown; rotating secrets
+    # after "success" would strand them with the old credentials.
+    manager = DockerManager(str(tmp_path))
+
+    def down(_args, **_kwargs):
+        manager.teardown_overlays_dropped = True
+        return 0
+
+    monkeypatch.setattr(manager, "stream_compose", down)
+    assert manager.perform_cold_start_cleanup() is False
+
+
 def test_streamed_compose_down_survives_malformed_consumer_manifest(
     tmp_path, monkeypatch
 ):

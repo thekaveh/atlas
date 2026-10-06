@@ -332,8 +332,8 @@ def active_custom_nodes(
     Atlas-shipped nodes are model-gated (installed only when an active model
     declares ``requires_custom_node``). Consumer-declared nodes
     (``from_consumer``) are active unconditionally — they are workflow nodes the
-    consumer wires directly, not model metadata (e.g. comfyui-krea2edit is not
-    referenced by any catalog model, so model-gating would silently drop it).
+    consumer wires directly, not model metadata, so model-gating would drop a
+    node the consumer's own workflows need.
     """
     env = env or {}
     allowlist = load_custom_nodes(env)
