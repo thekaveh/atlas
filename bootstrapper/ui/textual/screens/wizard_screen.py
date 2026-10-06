@@ -3429,7 +3429,9 @@ class WizardScreen(Screen):
         skip_hosts = bool((self._stack_options or {}).get("skip_hosts", False))
 
         original_banner = getattr(starter, "banner", None)
-        starter.banner = _NullBanner()
+        starter.banner = _NullBanner(
+            sink=lambda message, level: self._safe_log(message, source="pipeline", level=level)
+        )
 
         # Persist the wizard's chosen PROJECT_NAME (from the project-name step)
         # BEFORE anything reads get_project_name() or runs compose, so the whole
@@ -4029,10 +4031,17 @@ _NULL_SINK = _NullSink()
 
 
 class _NullBanner:
-    """Drop-in for ``starter.banner`` that swallows pipeline status messages
-    so they don't print to stdout while we're inside the Textual app."""
+    """Drop-in for ``starter.banner`` that keeps pipeline output off stdout
+    while we're inside the Textual app. Status messages go to ``sink`` (the
+    launch log pane) when one is given: many steps report WHY they failed
+    only through the banner, so swallowing them left a bare "<step> failed"."""
 
-    def show_status_message(self, *args, **kwargs) -> None: ...
+    def __init__(self, sink=None) -> None:
+        self._sink = sink
+
+    def show_status_message(self, message="", level="info", *_extra) -> None:
+        if self._sink is not None and str(message).strip():
+            self._sink(str(message), str(level or "info"))
     def show_section_header(self, *args, **kwargs) -> None: ...
     def show_subsection_header(self, *args, **kwargs) -> None: ...
     def log(self, *args, **kwargs) -> None: ...

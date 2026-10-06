@@ -203,7 +203,7 @@ storage:                                 # parent-owned MinIO buckets + scoped c
 
 **Reserved-namespace rules:** litellm aliases may not shadow a stack-owned model
 (runtime `hermes-agent`/`lightrag`/`fal-image`/`tei-rerank` + every catalog model name); n8n ids are
-namespaced `atlas-consumer-<id>`; a storage bucket may **not** reuse a built-in bucket name (`comfyui`, `backend`, `n8n`, `lakehouse`, `spark-history`, `raw-assets` and every other default `MINIO_BUCKET_*` in `.env.example`), and a store whose generated `MINIO_BUCKET_<KEY>` / `MINIO_<KEY>_ACCESS_KEY` / `MINIO_<KEY>_SECRET_KEY` name matches a stack variable or another store's (consumer `asset` + store `baker` would alias asset-baker's credentials) is rejected; the workflow id `plan` is reserved for the seed plan.
+namespaced `atlas-consumer-<id>`; a storage bucket may **not** reuse a built-in bucket name (`comfyui`, `backend`, `n8n`, `lakehouse`, `spark-history`, `raw-assets`, `asset-worker`, `asset-baker` and every other default `MINIO_BUCKET_*` / `ASSET_*_MINIO_BUCKET` in `.env.example`), and a store whose generated `MINIO_BUCKET_<KEY>` / `MINIO_<KEY>_ACCESS_KEY` / `MINIO_<KEY>_SECRET_KEY` name matches a stack variable or another store's (consumer `asset` + store `baker` would alias asset-baker's credentials) is rejected; the workflow id `plan` is reserved for the seed plan.
 Unknown top-level keys are rejected. See
 [§6.1](#61-registering-a-parent-project-with-atlasconsumeryml) for the full key
 reference.
@@ -392,7 +392,7 @@ whole integration.
 
 Full source/customization matrix: [source-configuration.md](source-configuration.md).
 
-User overlays use normal `.env` syntax (`KEY=value`, quoted values, and whitespace-prefixed inline comments). The merge order is deterministic: `.env.example` baseline → generated or existing `.env` → sibling `.env.user` → `ATLAS_ENV_USER_FILE` → `atlas.consumer.yml` env values → explicit CLI flags such as `--project` or `--<svc>-source`. Overlays and consumer manifests are merged on every start, including `--cold`, before missing keys are backfilled from `.env.example`.
+User overlays use normal `.env` syntax (`KEY=value`, quoted values, and whitespace-prefixed inline comments). When Atlas writes a value into `.env`, one containing a backslash or a `$` that is not a `${VAR}` reference is single-quoted, because Docker Compose expands `$name` and backslash escapes in unquoted and double-quoted values (`pa$word` would reach containers as `pa`); a value that also contains a single quote or ends in a backslash is refused. In a hand-edited `.env`, quote such values yourself the same way. The merge order is deterministic: `.env.example` baseline → generated or existing `.env` → sibling `.env.user` → `ATLAS_ENV_USER_FILE` → `atlas.consumer.yml` env values → explicit CLI flags such as `--project` or `--<svc>-source`. Overlays and consumer manifests are merged on every start, including `--cold`, before missing keys are backfilled from `.env.example`.
 
 For submodule consumers that need a repeatable parent-repo shape, use the
 reference layout in [submodule-usage.md §4.2](submodule-usage.md#42-parent-repo-consumer-reference-layout). It shows the parent-owned `atlas.consumer.yml` pattern, parent-owned Compose overlays, force-set source/branding wrappers, and the validation checklist used by RAG-showcase-style and DayDreams-style consumers. The older `services/_user/<name>/compose.yml` symlink slot remains supported for existing integrations, but new consumers should register through the manifest.

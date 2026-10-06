@@ -1001,7 +1001,6 @@ def _validate_storage_collisions(stores: Iterable[StorageStore]) -> None:
     stack_vars, stack_buckets = _stack_minio_reservations()
     generated_vars: set[str] = set(stack_vars)
     for store in stores:
-        _claim_store_vars(store, generated_vars)
         if store.key in keys:
             raise ConsumerManifestError(
                 f"storage key collision: {store.key} declared by two stores"
@@ -1012,6 +1011,7 @@ def _validate_storage_collisions(stores: Iterable[StorageStore]) -> None:
                 f"storage consumer-id collision: {store.consumer_id}"
             )
         consumer_ids.add(store.consumer_id)
+        _claim_store_vars(store, generated_vars)
         for bucket in store.all_buckets:
             if bucket in stack_buckets:
                 raise ConsumerManifestError(

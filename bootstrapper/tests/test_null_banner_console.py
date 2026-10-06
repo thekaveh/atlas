@@ -220,3 +220,15 @@ def test_apply_user_model_selections_accepts_explicitly_aligned_langmem_override
     )
     assert captured["LANGMEM_EMBEDDING_MODEL"] == "custom/provider-b"
     assert captured["LANGMEM_EMBEDDING_DIM"] == "1024"
+
+
+def test_launch_banner_forwards_status_messages_to_the_log_sink():
+    # Many pipeline steps report WHY they failed only through the banner
+    # (port conflicts, dependency auto-disables, key errors); swallowing them
+    # left the TUI with a bare "<step> failed".
+    seen = []
+    banner = _NullBanner(sink=lambda message, level: seen.append((message, level)))
+    banner.show_status_message("Port 63000 is already in use", "warning")
+    banner.show_status_message("")
+    banner.show_section_header("ignored")
+    assert seen == [("Port 63000 is already in use", "warning")]

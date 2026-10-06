@@ -34,7 +34,7 @@ The most recent log is always:
 ls -t "${TMPDIR:-/tmp}"/atlas-launch-*.log | head -1   # macOS: TMPDIR is under /var/folders
 ```
 
-Inspect it after a failed launch — it captures everything the log pane showed, plus a few sources the pane filters out (e.g. cloud-fetch fallback warnings: `[warn/openai-fetch] live /v1/models returned 0 models — falling back to catalog (cause: HTTP 401)`). Session logs are bounded: 3 segments of 32 MiB per session (the first segment — session start and earliest diagnostics — is always kept; overflow rotates into numbered `.log.N` segments with truncation markers), and the 5 newest sessions are retained while older `atlas-launch-*` files are pruned at the next launch. Copy a log elsewhere if you need to keep it longer; exported copies are never touched by the pruning.
+Inspect it after a failed launch — it captures everything the log pane showed, plus a few sources the pane filters out (e.g. cloud-fetch fallback warnings: `[warn/openai-fetch] live /v1/models returned 0 models — falling back to catalog (cause: HTTP 401)`). Session logs are bounded: 3 segments of 32 MiB per session (the first segment — session start and earliest diagnostics — is always kept; overflow rotates into numbered `.log.N` segments with truncation markers), and the 5 newest sessions are retained while older `atlas-launch-*` files are pruned at the next launch. Copy a log elsewhere if you need to keep it longer; exported copies are never touched by the pruning. Every segment is created owner-only (`0600`) and never through an existing file or symlink. A failed launch step's reason (port conflicts, auto-disabled dependencies, key or config errors) is written to the log pane and this file, not only the generic `<step> failed` line.
 
 ## 3. Quick Fixes
 
@@ -316,6 +316,8 @@ cat .env | head -20
 ```
 
 If `.env` is corrupted beyond repair, rebuilding it from scratch is a **destructive** path: regenerated secrets no longer match the passwords baked into your existing database volumes (see §4.4), so a from-scratch `.env` only works together with a full project reset that deletes those volumes. Back up first (§10.3), then follow §10.1.
+
+**A service rejects its password or encryption key after an upgrade.** Atlas now writes a value from `.env.user`, `ATLAS_ENV_USER_FILE`, a consumer manifest's `env.values` or a wizard API key in single quotes when it contains a backslash or a bare `$`, because Docker Compose expands those in unquoted values. Older releases wrote such a value unquoted, so Compose passed a truncated secret (`ab$cd` reached containers as `ab`), and a service that stored it at first boot (an n8n encryption key, a database password, `LITELLM_SALT_KEY`) still holds the truncated form. Either set the value to what the service actually stored, or rotate it in the service. Generated secrets never contain `$` or a backslash and are unaffected.
 
 ### 7.3. An image fails to build
 

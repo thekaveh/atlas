@@ -1197,3 +1197,36 @@ def test_hosts_writer_falls_back_to_the_link_for_a_read_only_target(tmp_path):
         store.chmod(0o755)
     assert link.read_text(encoding="utf-8") == "127.0.0.1 n8n.localhost\n"
     assert target.read_text(encoding="utf-8") == "127.0.0.1 localhost\n"
+
+
+def test_values_compose_would_rewrite_are_single_quoted():
+    # Compose expands `$name` and backslash escapes in unquoted and
+    # double-quoted .env values: `pa$word` reached the role provisioner as
+    # `pa` while its URI twin carried `pa%24word`.
+    import pytest
+
+    from utils.atomic_write import decode_env_value, render_env_value
+
+    assert render_env_value("K", "pa$word") == "'pa$word'"
+    assert render_env_value("K", "ab\\c") == "'ab\\c'"
+    # ${VAR} references are written on purpose for compose to interpolate.
+    assert render_env_value("K", "http://h:${PORT:-1}") == "http://h:${PORT:-1}"
+    for value in ("pa$word", "ab\\c", "a$$b"):
+        assert decode_env_value(render_env_value("K", value)) == value
+    for bad in ("it's $5", "ends\\"):
+        with pytest.raises(ValueError, match="cannot read it literally"):
+            render_env_value("K", bad)
+
+
+def test_legacy_world_readable_env_backups_are_restricted(tmp_path):
+    # Older releases wrote `.env.backup.YYYYMMDDHHMMSS` at 0644; no retention
+    # pattern matches them, so they stayed world-readable forever.
+    from utils.atomic_write import create_private_backup
+
+    env = tmp_path / ".env"
+    env.write_text("SECRET=x\n", encoding="utf-8")
+    legacy = tmp_path / ".env.backup.20260621120000"
+    legacy.write_text("SECRET=old\n", encoding="utf-8")
+    legacy.chmod(0o644)
+    create_private_backup(env)
+    assert legacy.exists() and legacy.stat().st_mode & 0o777 == 0o600
