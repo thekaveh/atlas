@@ -53,6 +53,32 @@ def normalize_glb(input_path: Path, output_path: Path, params: PostprocessParams
     output_path.write_bytes(_build_glb(doc, bytes(bin_chunk)))
 
 
+def external_resource_uris(data: bytes) -> list[str]:
+    """`buffers[].uri` / `images[].uri` in a GLB's JSON chunk that are not
+    `data:` URIs. A GLB is self-contained, and the converters resolve any
+    other URI against the filesystem (or network), so `../../proc/self/environ`
+    would be read and embedded in a downloadable artifact."""
+    doc = _glb_json_chunk(data) or {}
+    entries = [*(doc.get("buffers") or []), *(doc.get("images") or [])]
+    uris = [entry.get("uri") for entry in entries if isinstance(entry, dict)]
+    return [str(uri) for uri in uris if uri is not None and not str(uri).startswith("data:")]
+
+
+def _glb_json_chunk(data: bytes) -> dict | None:
+    """The JSON chunk of a GLB v2 file, or None (malformed input is left for
+    the converter to report)."""
+    if len(data) < 20 or struct.unpack_from("<I", data, 0)[0] != 0x46546C67:
+        return None
+    try:
+        chunk_length, chunk_type = struct.unpack_from("<II", data, 12)
+        if chunk_type != JSON_CHUNK:
+            return None
+        doc = json.loads(data[20: 20 + chunk_length].rstrip(b" \x00").decode("utf-8"))
+    except (ValueError, struct.error):
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
 def _parse_glb(data: bytes) -> tuple[dict, bytearray] | None:
     if len(data) < 20:
         return None

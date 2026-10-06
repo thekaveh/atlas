@@ -49,6 +49,8 @@ The default `ASSET_WORKER_SOURCE=disabled` keeps the worker out of normal starts
 
 ### 4.1. Uploaded GLB
 
+Inputs (uploaded or MinIO-referenced) must be self-contained GLBs: a `buffers[].uri` or `images[].uri` that is not a `data:` URI is rejected with `400` before any converter runs, because the converters would resolve it against the container filesystem (or network) and embed what they read.
+
 `POST /gltf/postprocess` accepts `multipart/form-data`:
 
 ```bash

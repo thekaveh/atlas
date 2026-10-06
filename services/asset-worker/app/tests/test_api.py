@@ -530,3 +530,23 @@ def test_missing_reference_object_is_404_not_500(monkeypatch, tmp_path) -> None:
     )
     assert response.status_code == 404
     assert "was not found" in response.json()["detail"]
+
+
+
+def test_glb_with_external_buffer_uri_is_rejected_before_any_converter_runs(monkeypatch, tmp_path) -> None:
+    # gltf-transform/Blender resolve non-data: URIs against the filesystem,
+    # so ../../proc/self/environ would end up in a downloadable artifact.
+    import json as _json
+    import struct as _struct
+
+    from asset_worker import api
+
+    doc = _json.dumps({"asset": {"version": "2.0"}, "buffers": [{"uri": "../../proc/self/environ", "byteLength": 8}]}).encode()
+    doc += b" " * (-len(doc) % 4)
+    glb = _struct.pack("<III", 0x46546C67, 2, 12 + 8 + len(doc)) + _struct.pack("<II", len(doc), 0x4E4F534A) + doc
+
+    monkeypatch.setattr(api, "run_gltf_transform", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ran")))
+    monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
+    response = _client(api).post("/gltf/postprocess", files={"file": ("scene.glb", glb, "model/gltf-binary")})
+    assert response.status_code == 400
+    assert "self-contained" in response.json()["detail"]

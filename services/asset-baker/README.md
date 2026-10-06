@@ -74,6 +74,8 @@ The image installs a **pinned, checksum-verified** headless Blender at build tim
 
 ### 4.1. Uploaded GLB
 
+Inputs (uploaded or MinIO-referenced) must be self-contained GLBs: a `buffers[].uri` or `images[].uri` that is not a `data:` URI is rejected with `400` before any converter runs, because the converters would resolve it against the container filesystem (or network) and embed what they read.
+
 `POST /assets/bake` accepts `multipart/form-data`:
 
 ```bash

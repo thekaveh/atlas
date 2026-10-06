@@ -539,3 +539,25 @@ def test_bake_ref_maps_missing_or_forbidden_input_objects(monkeypatch, code, sta
         json={"input": {"bucket": "raw-assets", "key": "incoming/missing.glb"}, "params": {}},
     )
     assert response.status_code == status, response.text
+
+
+def test_glb_with_external_image_uri_is_rejected_before_blender_runs(monkeypatch, tmp_path):
+    # Blender's importer resolves non-data: URIs against the filesystem, so a
+    # crafted GLB could read container files into a downloadable bake.
+    import json as _json
+    import struct as _struct
+
+    from asset_baker import api
+
+    doc = _json.dumps({"asset": {"version": "2.0"}, "images": [{"uri": "/proc/self/environ"}]}).encode()
+    doc += b" " * (-len(doc) % 4)
+    glb = _struct.pack("<III", 0x46546C67, 2, 12 + 8 + len(doc)) + _struct.pack("<II", len(doc), 0x4E4F534A) + doc
+
+    monkeypatch.setattr(api, "run_bake", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ran")))
+    monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
+    monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
+    response = _client(api).post(
+        "/assets/bake", files={"file": ("x.glb", glb, "model/gltf-binary")}, data={"mode": "skip"},
+    )
+    assert response.status_code == 400
+    assert "self-contained" in response.json()["detail"]

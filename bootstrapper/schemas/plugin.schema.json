@@ -46,13 +46,13 @@
       "type": "integer",
       "minimum": 1,
       "maximum": 2147483646,
-      "description": "Optional Kong upstream write-idle timeout in milliseconds. Omitted means the backend's own long timeout (3,630,000 ms, as on the shared backend-api service) applies."
+      "description": "Optional Kong upstream write-idle timeout in milliseconds. Omitted means the backend's own long timeout (at least 3,630,000 ms, as on the shared backend-api service) applies."
     },
     "read_timeout": {
       "type": "integer",
       "minimum": 1,
       "maximum": 2147483646,
-      "description": "Optional Kong upstream read-idle timeout in milliseconds. Omitted means the backend's own long timeout (3,630,000 ms, as on the shared backend-api service) applies."
+      "description": "Optional Kong upstream read-idle timeout in milliseconds. Omitted means the backend's own long timeout (at least 3,630,000 ms, as on the shared backend-api service) applies."
     },
     "env": {
       "type": "array",

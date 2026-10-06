@@ -24,6 +24,7 @@ from .models import (
     normalization_metadata,
     optimization_metadata,
 )
+from .normalizer import external_resource_uris
 from .runner import GltfTransformError, run_gltf_transform
 from .storage import ArtifactStorage, ArtifactTooLargeError, CONTENT_TYPE
 
@@ -243,6 +244,12 @@ def _process_path(
     storage: ArtifactStorage | None = None,
 ) -> PostprocessResponse:
     _enforce_input_size(input_path.stat().st_size)
+    external = external_resource_uris(input_path.read_bytes())
+    if external:
+        raise HTTPException(
+            status_code=400,
+            detail="GLB must be self-contained: external buffer/image URIs are not allowed",
+        )
     storage = storage or ArtifactStorage()
     started_at = time.monotonic()
     logger.info("asset_transform_started")
