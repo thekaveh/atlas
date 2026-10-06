@@ -5,8 +5,8 @@ services:
     image: ${KONG_API_GATEWAY_IMAGE}
     restart: unless-stopped
     ports:
-      - "${HOST_BIND_IP:-}${KONG_HTTP_PORT}:8000/tcp"
-      - "${HOST_BIND_IP:-}${KONG_HTTPS_PORT}:8443/tcp"
+      - "${HOST_BIND_IP-127.0.0.1:}${KONG_HTTP_PORT}:8000/tcp"
+      - "${HOST_BIND_IP-127.0.0.1:}${KONG_HTTPS_PORT}:8443/tcp"
     expose:
       # Kong Status API + /metrics endpoint (Prometheus plugin). Not
       # mapped to a host port — only the in-network Prometheus container
@@ -29,6 +29,10 @@ services:
         condition: service_started
     environment:
       KONG_DATABASE: "off"
+      # Host->container port map, so X-Forwarded-Port (and every upstream
+      # that builds absolute URLs from it, e.g. Trino's redirects and query
+      # nextUri) carries the published port instead of 8000.
+      KONG_PORT_MAPS: "${KONG_HTTP_PORT:-63000}:8000,${KONG_HTTPS_PORT:-63001}:8443"
       KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
       KONG_DNS_ORDER: LAST,A,CNAME
       # Tight DNS retry/TTL settings so Kong recovers fast when a
@@ -59,9 +63,13 @@ services:
       # Browser WebSocket clients may pass plugin credentials in the query
       # string. Use the path-only $uri in a named format so Kong never writes
       # query credentials (or any other query parameters) to proxy access logs.
+      # nginx's error log still records the full request line (query string
+      # included) when an upstream fails, e.g. during restarts.
+      # One quoted string: nginx concatenates split format strings with no
+      # separator, which fused protocol, status and size into one token.
       KONG_NGINX_HTTP_LOG_FORMAT: >-
-        atlas '$$request_method $$uri $$server_protocol' $$status
-        $$body_bytes_sent '"$$http_user_agent"' $$kong_request_id
+        atlas '$$request_method $$uri $$server_protocol $$status
+        $$body_bytes_sent "$$http_user_agent" $$kong_request_id'
       KONG_PROXY_ACCESS_LOG: /dev/stdout atlas
       # SSE-compatible settings
       KONG_NGINX_PROXY_PROXY_BUFFERING: "off"
@@ -70,20 +78,16 @@ services:
       KONG_NGINX_PROXY_TCP_NOPUSH: "on"
       KONG_NGINX_PROXY_TCP_NODELAY: "on"
       KONG_NGINX_PROXY_KEEPALIVE_TIMEOUT: "300"
-      # WebSocket support
-      KONG_NGINX_HTTP_UPSTREAM_KEEPALIVE: "16"
-      KONG_NGINX_HTTP_UPSTREAM_KEEPALIVE_REQUESTS: "100"
-      KONG_NGINX_HTTP_UPSTREAM_KEEPALIVE_TIMEOUT: "60s"
-      # Proxy timeouts (in seconds)
-      KONG_PROXY_READ_TIMEOUT: "300"
-      KONG_PROXY_SEND_TIMEOUT: "300"
-      KONG_REDIS_HOST: redis
-      KONG_REDIS_PORT: 6379
-      KONG_REDIS_PASSWORD: ${REDIS_PASSWORD}
-      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
-      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
-      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
-      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+      # Proxy read/write timeouts are per service in the generated
+      # kong-dynamic.yml (300s default, KongConfigGenerator); Kong 3.x has no
+      # global KONG_PROXY_*_TIMEOUT setting. Retry only on connection errors
+      # (restarts), not on timeouts (connect/send/read): with Kong's 5 retries a wedged
+      # single-container upstream otherwise held an idempotent request for
+      # 6 x 300s = 30 minutes.
+      KONG_NGINX_PROXY_PROXY_NEXT_UPSTREAM: error
+      # No Redis or Supabase/dashboard secrets here: kong_config_generator
+      # writes the real credentials into kong-dynamic.yml, Kong reads none of
+      # these from its environment, and the rate limiter uses policy: local.
     extra_hosts:
       # Kong proxies several aliases (comfyui.localhost, ollama.localhost,
       # graph.localhost, etc.) to host-installed services via

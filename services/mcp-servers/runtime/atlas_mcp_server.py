@@ -37,10 +37,120 @@ _CYPHER_FORBIDDEN = re.compile(
 )
 
 
-def _without_comments(text: str) -> str:
-    text = re.sub(r"/\*.*?\*/", " ", text, flags=re.DOTALL)
-    text = re.sub(r"--[^\n\r]*", " ", text)
-    return text.strip()
+# APOC core is loaded (Neo4j compose NEO4J_PLUGINS): apoc.load.* sends HTTP to
+# any backend-network service and apoc.meta.*.of / apoc.cypher.* run Cypher
+# strings, all from a "read-only" session. Name-pattern filters were bypassed
+# (unicode escapes, string concatenation inside .of), so APOC is allowed only
+# as one of these exact argument-free schema calls; any other mention of
+# "apoc" (even in a string literal) is rejected.
+_APOC_SCHEMA_CALL = re.compile(
+    r"\s*call\s+apoc\.meta\.(?:schema|stats|data)\s*\(\s*\)"
+    r"(?:\s+yield\s+[a-z_][a-z0-9_]*(?:\s*,\s*[a-z_][a-z0-9_]*)*"
+    r"(?:\s+return\s+[a-z_][a-z0-9_]*(?:\s*,\s*[a-z_][a-z0-9_]*)*)?)?\s*",
+    re.IGNORECASE,
+)
+
+
+def _normalize_cypher_names(statement: str) -> str:
+    """Replace backticks with spaces (deleting them glued `y`SET into one word
+    and hid the keyword) and drop spaces around dots (checking only)."""
+    return re.sub(r"\s*\.\s*", ".", statement.replace("`", " "))
+
+
+_DOLLAR_TAG = re.compile(r"\$[A-Za-z_]?[A-Za-z0-9_]*\$")
+
+
+def _in_word(text: str, i: int) -> bool:
+    """True when position ``i`` continues an identifier (`$` included)."""
+    return i >= 0 and (text[i].isalnum() or text[i] in "_$")
+
+
+def _honors_backslash(text: str, start: int, dialect: str) -> bool:
+    """Cypher strings and PostgreSQL E'...' strings honor backslash escapes."""
+    if dialect == "cypher":
+        return True
+    return (
+        text[start] == "'" and start > 0 and text[start - 1] in "eE"
+        and not _in_word(text, start - 2)
+    )
+
+
+def _quoted_end(text: str, start: int, dialect: str) -> int:
+    """Index just past the quoted run opening at ``start``."""
+    quote, j, n = text[start], start + 1, len(text)
+    backslash = _honors_backslash(text, start, dialect)
+    while j < n:
+        if backslash and text[j] == "\\":
+            j += 2
+        elif text[j] != quote:
+            j += 1
+        elif dialect == "sql" and text.startswith(quote * 2, j):
+            j += 2  # SQL doubles a quote to escape it
+        else:
+            return j + 1
+    return n
+
+
+def _comment_end(text: str, start: int, line_comment: str) -> int | None:
+    """Index just past a comment opening at ``start``, or None."""
+    if text.startswith(line_comment, start):
+        # PostgreSQL ends a line comment at CR as well as LF.
+        ends = [i for i in (text.find("\n", start), text.find("\r", start)) if i != -1]
+        return min(ends) if ends else len(text)
+    if text.startswith("/*", start):
+        return _block_comment_end(text, start, nested=line_comment == "--")
+    return None
+
+
+def _block_comment_end(text: str, start: int, *, nested: bool) -> int:
+    """End of the block comment at ``start``; SQL comments nest, Cypher's don't."""
+    depth, j, n = 1, start + 2, len(text)
+    while j < n and depth:
+        if nested and text.startswith("/*", j):
+            depth, j = depth + 1, j + 2
+        elif text.startswith("*/", j):
+            depth, j = depth - 1, j + 2
+        else:
+            j += 1
+    return j
+
+
+def _without_comments(text: str, *, dialect: str = "sql") -> str:
+    """Drop comments, keeping quoted text verbatim.
+
+    Literal-aware on purpose: a regex that treats ``--`` inside ``'--'`` as a
+    comment hid everything after it from the guards while the database still
+    ran the original text (``SELECT '--'; COMMIT; …``). Quoted text is kept,
+    so a ``;`` or keyword inside a literal still fails the guard closed.
+    ``dialect`` selects the comment syntax: ``sql`` (``--``, ``/* */``,
+    ``$tag$`` quoting) or ``cypher`` (``//``, ``/* */``, backslash escapes).
+    """
+    line_comment = "--" if dialect == "sql" else "//"
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        comment_end = _comment_end(text, i, line_comment)
+        # `$` continues an identifier (a$b$), so a tag never opens mid-word.
+        tag = (
+            _DOLLAR_TAG.match(text, i)
+            if dialect == "sql" and not _in_word(text, i - 1) else None
+        )
+        if comment_end is not None:
+            out.append(" ")
+            i = comment_end
+        elif text[i] in "'\"`":
+            end = _quoted_end(text, i, dialect)
+            out.append(text[i:end])
+            i = end
+        elif tag:
+            close = text.find(tag.group(0), tag.end())
+            end = n if close == -1 else close + len(tag.group(0))
+            out.append(text[i:end])
+            i = end
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out).strip()
 
 
 def clamp_limit(value: Any, *, default: int, maximum: int) -> int:
@@ -64,17 +174,24 @@ def is_safe_postgres_read(sql: str) -> bool:
 
 
 def is_safe_neo4j_read(cypher: str) -> bool:
-    statement = _without_comments(cypher)
+    statement = _without_comments(cypher, dialect="cypher")
     if not statement or ";" in statement:
         return False
-    lowered = statement.lower().lstrip()
+    # Neo4j decodes \uXXXX in names (and in place of the dot), which hid
+    # `\u0061poc.load.json`; reject backslashes outright (fail closed).
+    if "\\" in statement:
+        return False
+    normalized = _normalize_cypher_names(statement)
+    lowered = normalized.lower().lstrip()
     if not lowered.startswith(("match", "return", "with", "call db.", "call apoc.meta")):
         return False
-    return _CYPHER_FORBIDDEN.search(statement) is None
+    if "apoc" in lowered and not _APOC_SCHEMA_CALL.fullmatch(normalized):
+        return False
+    return _CYPHER_FORBIDDEN.search(normalized) is None
 
 
 def bounded_neo4j_cypher(cypher: str) -> str:
-    statement = _without_comments(cypher)
+    statement = _without_comments(cypher, dialect="cypher")
     # A standalone procedure call (`CALL db.*` / `CALL apoc.meta.*`, allowed by
     # is_safe_neo4j_read for the schema tools) CANNOT be wrapped in a
     # `CALL { … } RETURN *` subquery: inside a subquery a procedure needs an
@@ -122,8 +239,11 @@ def postgres_query(sql: str, limit: int | None = None) -> dict[str, Any]:
     # READ WRITE, defeating the read-only guard (e.g. SELECT nextval() would
     # advance a sequence). With autocommit=True our explicit BEGIN opens the
     # transaction and its READ ONLY characteristic actually applies.
+    # connect_timeout: an unreachable database must not hang the tool call
+    # past its own 15 s budget.
     with psycopg.connect(
-        **_postgres_connection_kwargs(), autocommit=True, row_factory=dict_row
+        **_postgres_connection_kwargs(), autocommit=True, row_factory=dict_row,
+        connect_timeout=10,
     ) as conn:
         with conn.cursor() as cur:
             cur.execute("BEGIN READ ONLY")
@@ -134,8 +254,11 @@ def postgres_query(sql: str, limit: int | None = None) -> dict[str, Any]:
             cur.execute(
                 "SELECT set_config('statement_timeout', %s, true)", (str(timeout_ms),)
             )
-            cur.execute(sql)
-            rows = cur.fetchmany(row_limit)
+            # Execute exactly the text the guard approved: if the scanner ever
+            # disagrees with PostgreSQL about where a literal ends, the result
+            # is a syntax error, never hidden statements running.
+            cur.execute(_without_comments(sql))
+            rows = _json_safe(cur.fetchmany(row_limit))
             cur.execute("ROLLBACK")
     return {"rows": rows, "returned": len(rows), "limit": row_limit}
 
@@ -143,6 +266,9 @@ def postgres_query(sql: str, limit: int | None = None) -> dict[str, Any]:
 def neo4j_read_cypher(cypher: str, limit: int | None = None) -> dict[str, Any]:
     if not is_safe_neo4j_read(cypher):
         raise ValueError("Only read-only Neo4j Cypher queries are allowed.")
+    uri = (os.getenv("NEO4J_URI") or "").strip()
+    if not uri:  # compose passes it blank when NEO4J_GRAPH_DB_SOURCE=disabled
+        raise ValueError("Neo4j is not configured (NEO4J_GRAPH_DB_SOURCE=disabled).")
 
     from neo4j import READ_ACCESS, GraphDatabase, Query
 
@@ -150,11 +276,15 @@ def neo4j_read_cypher(cypher: str, limit: int | None = None) -> dict[str, Any]:
     row_limit = clamp_limit(limit, default=max_rows, maximum=max_rows)
     timeout = _env_int("MCP_TOOL_TIMEOUT_SECONDS", 15)
     driver = GraphDatabase.driver(
-        os.getenv("NEO4J_URI", "bolt://neo4j-graph-db:7687"),
+        uri,
         auth=(
             os.getenv("GRAPH_DB_USER", "neo4j"),
             os.getenv("GRAPH_DB_PASSWORD", ""),
         ),
+        # The driver's 30 s default outlasted the tool's own budget when a
+        # (host-run) Neo4j is unreachable; Postgres uses connect_timeout=10.
+        connection_timeout=10,
+        connection_acquisition_timeout=10,
     )
     try:
         with driver.session(
@@ -171,14 +301,45 @@ def neo4j_read_cypher(cypher: str, limit: int | None = None) -> dict[str, Any]:
             # *parameters* (and silently ignored), not applied as a transaction
             # timeout. Query(..., timeout=) is the driver's per-transaction
             # timeout; atlas_limit remains the query parameter.
-            result = session.run(
-                Query(bounded_neo4j_cypher(cypher), timeout=timeout),
-                atlas_limit=row_limit,
-            )
-            rows = [record.data() for record in result.fetch(row_limit)]
+            try:
+                rows = _fetch_rows(session, Query(bounded_neo4j_cypher(cypher), timeout=timeout), row_limit)
+            except Exception as exc:  # noqa: BLE001 - only the alias rejection is retried
+                # The server-side LIMIT wrapper (CALL { ... } RETURN *) rejects
+                # any unaliased RETURN expression (`RETURN n.name`,
+                # `count(*)`), which is what models usually write. Re-run it
+                # unwrapped; result.fetch(row_limit) still caps the rows.
+                if "must be aliased" not in str(exc):
+                    raise
+                statement = _without_comments(cypher, dialect="cypher")
+                rows = _fetch_rows(session, Query(statement, timeout=timeout), row_limit)
     finally:
         driver.close()
     return {"rows": rows, "returned": len(rows), "limit": row_limit}
+
+
+def _fetch_rows(session: Any, query: Any, row_limit: int) -> list[dict[str, Any]]:
+    result = session.run(query, atlas_limit=row_limit)
+    return _json_safe([record.data() for record in result.fetch(row_limit)])
+
+
+def _json_safe(value: Any) -> Any:
+    """Make driver values JSON-serializable for the tool's structured output.
+
+    Neo4j temporal/spatial values and non-UTF-8 bytea failed the whole call
+    ("outputSchema defined but no structured output returned").
+    """
+    # neo4j checks first: Duration and spatial points subclass tuple.
+    if hasattr(value, "iso_format"):
+        return value.iso_format()  # neo4j.time Date/Time/DateTime/Duration
+    if type(value).__module__.startswith("neo4j"):
+        return str(value)  # e.g. neo4j.spatial points, keeping the SRID
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return "\\x" + bytes(value).hex()  # PostgreSQL's bytea hex form
+    return value
 
 
 def neo4j_schema() -> dict[str, Any]:

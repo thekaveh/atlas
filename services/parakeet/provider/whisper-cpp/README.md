@@ -69,8 +69,14 @@ whisper-server \
   --host 0.0.0.0 \
   --port 63042 \
   --model ~/path/to/ggml-large-v3.bin \
-  --inference-path /v1/audio/transcriptions
+  --inference-path /v1/audio/transcriptions \
+  --convert
 ```
+
+`--convert` (it needs `ffmpeg` on the `PATH`, for example `brew install ffmpeg`)
+lets the server accept formats beyond WAV, MP3 and FLAC, such as OGG/Opus
+voice notes a client sends without transcoding. Open WebUI already transcodes
+browser microphone recordings to MP3 before sending them.
 
 The `/v1/audio/transcriptions` path makes the server drop-in compatible with
 the OpenAI Whisper API surface (which is what Open WebUI / Speaches /
@@ -86,7 +92,7 @@ If you used a port other than 63042, update `.env` (URL is derived inline
 as `http://host.docker.internal:${WHISPER_CPP_LOCALHOST_PORT:-63042}`):
 
 ```bash
-WHISPER_CPP_LOCALHOST_PORT=63099
+WHISPER_CPP_LOCALHOST_PORT=18143
 ```
 
 ## 7. Verify

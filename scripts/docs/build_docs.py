@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import shutil
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -168,6 +171,9 @@ def render_mkdocs_yml(manifest: Manifest) -> str:
         "docs_dir": "generated/site",
         "site_dir": "site",
         "strict": True,
+        # MkDocs leaves anchor checks at "info", which --strict ignores; a
+        # GitHub-style "--" slug with no hand-added id would ship broken.
+        "validation": {"anchors": "warn"},
         "theme": {
             "name": "material",
             "language": "en",
@@ -236,6 +242,56 @@ def _file_hashes(path: Path) -> dict[str, str]:
     }
 
 
+def _render_tree(
+    manifest_path: Path, repo_root: Path, destination: Path, surfaces: tuple[bool, bool]
+) -> None:
+    """Render the (site, wiki) surfaces selected in ``surfaces``."""
+    site, wiki = surfaces
+    manifest = load_manifest(manifest_path, repo_root)
+    if site:
+        render_site(manifest, repo_root, destination / "site")
+    if wiki:
+        render_wiki(manifest, repo_root, destination / "wiki")
+    if manifest.diagrams:
+        render_all(
+            manifest,
+            repo_root,
+            destination / "site" / "assets" / "img",
+            repo_root / "docs" / "diagrams" / "img",
+            destination / "wiki" / "img" if wiki else None,
+            check_png=True,
+        )
+
+
+def _render_tree_in_subprocess(
+    manifest_path: Path, repo_root: Path, destination: Path, surfaces: tuple[bool, bool]
+) -> None:
+    seed = "2" if os.environ.get("PYTHONHASHSEED") == "1" else "1"
+    code = (
+        "import sys; from pathlib import Path; "
+        "from scripts.docs.build_docs import _render_tree; "
+        "_render_tree(Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), "
+        "(sys.argv[4] == '1', sys.argv[5] == '1'))"
+    )
+    subprocess.run(
+        [
+            sys.executable, "-c", code, str(manifest_path), str(repo_root),
+            str(destination), *("1" if flag else "0" for flag in surfaces),
+        ],
+        cwd=repo_root,
+        # repo_root may be a test fixture tree; import this package from the
+        # checkout that owns it (scripts/ is a namespace package).
+        env={
+            **os.environ,
+            "PYTHONHASHSEED": seed,
+            "PYTHONPATH": os.pathsep.join(
+                filter(None, (str(Path(__file__).resolve().parents[2]), os.environ.get("PYTHONPATH")))
+            ),
+        },
+        check=True,
+    )
+
+
 def _assert_dirs_equal(actual: Path, rerendered: Path) -> None:
     if _file_hashes(actual) != _file_hashes(rerendered):
         raise RuntimeError(f"Documentation rendering is not deterministic: {actual}")
@@ -255,20 +311,12 @@ def build(
     if check:
         with tempfile.TemporaryDirectory(prefix="atlas-docs-check-") as temp:
             root = Path(temp)
-            for destination in (root / "first", root / "second"):
-                if site:
-                    render_site(manifest, repo_root, destination / "site")
-                if wiki:
-                    render_wiki(manifest, repo_root, destination / "wiki")
-                if manifest.diagrams:
-                    render_all(
-                        manifest,
-                        repo_root,
-                        destination / "site" / "assets" / "img",
-                        repo_root / "docs" / "diagrams" / "img",
-                        destination / "wiki" / "img" if wiki else None,
-                        check_png=True,
-                    )
+            surfaces = (site, wiki)
+            _render_tree(manifest_path, repo_root, root / "first", surfaces)
+            # The second render runs in a fresh interpreter under a different
+            # hash seed, so output ordered by set/dict hashing cannot pass as
+            # deterministic the way two in-process renders would.
+            _render_tree_in_subprocess(manifest_path, repo_root, root / "second", surfaces)
             if site:
                 _assert_dirs_equal(root / "first" / "site", root / "second" / "site")
             if wiki:

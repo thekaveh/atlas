@@ -38,12 +38,13 @@ def test_atomic_write_preserves_mode_and_replaces_complete_content(
 ) -> None:
     destination = tmp_path / ".env"
     destination.write_text("ROUNDTRIP=old\n", encoding="utf-8")
-    os.chmod(destination, 0o600)
+    # 0640, not the 0600 fallback, so a writer that ignores the existing mode fails.
+    os.chmod(destination, 0o640)
 
     atomic_write.atomic_write_text(destination, "ROUNDTRIP=new\n")
 
     assert destination.read_text(encoding="utf-8") == "ROUNDTRIP=new\n"
-    assert os.stat(destination).st_mode & 0o777 == 0o600
+    assert os.stat(destination).st_mode & 0o777 == 0o640
 
 
 def test_atomic_write_can_enforce_a_private_mode(tmp_path: Path) -> None:
@@ -63,10 +64,12 @@ def test_atomic_write_falls_back_when_fchmod_is_unavailable(
     destination = tmp_path / ".env"
     monkeypatch.delattr(atomic_write.os, "fchmod")
 
-    atomic_write.atomic_write_text(destination, "ROUNDTRIP=new\n", mode=0o600)
+    # 0o640, not 0o600: mkstemp already creates 0600, which would pass even
+    # with the os.chmod fallback deleted.
+    atomic_write.atomic_write_text(destination, "ROUNDTRIP=new\n", mode=0o640)
 
     assert destination.read_text(encoding="utf-8") == "ROUNDTRIP=new\n"
-    assert os.stat(destination).st_mode & 0o777 == 0o600
+    assert os.stat(destination).st_mode & 0o777 == 0o640
 
 
 @pytest.mark.skipif(os.name != "posix", reason="directory fsync is POSIX-only")
@@ -1124,3 +1127,109 @@ def test_the_reader_and_the_writer_share_one_decoder():
     assert "decode_env_value" in source
     # ...and no re-implementation of the quote/comment rules alongside it
     assert "find(quote" not in source
+
+
+def test_atomic_write_keeps_a_symlinked_destination_linked(tmp_path: Path) -> None:
+    real = tmp_path / "real.env"
+    real.write_text("A=1\n", encoding="utf-8")
+    link = tmp_path / ".env"
+    link.symlink_to(real)
+
+    atomic_write.atomic_write_text(link, "A=2\n")
+
+    assert link.is_symlink()
+    assert real.read_text(encoding="utf-8") == "A=2\n"
+
+
+def test_atomic_write_can_replace_a_symlink_instead_of_following_it(tmp_path: Path) -> None:
+    """PID files and the owner-only Kong config replace the link itself."""
+    elsewhere = tmp_path / "elsewhere.pid"
+    elsewhere.write_text("1\n", encoding="utf-8")
+    link = tmp_path / "service.pid"
+    link.symlink_to(elsewhere)
+
+    atomic_write.atomic_replace_text(link, "2\n")
+
+    assert not link.is_symlink() and link.read_text(encoding="utf-8") == "2\n"
+    assert elsewhere.read_text(encoding="utf-8") == "1\n"
+
+
+def test_hosts_writer_survives_a_platform_without_chown(tmp_path, monkeypatch):
+    # Windows has no os.chown; the AttributeError aborted --setup/--clean-hosts.
+    import os
+
+    from utils.hosts_manager import HostsManager
+
+    hosts = tmp_path / "hosts"
+    hosts.write_text("127.0.0.1 localhost\n", encoding="utf-8")
+    monkeypatch.delattr(os, "chown")
+    HostsManager._atomic_write_hosts(str(hosts), "127.0.0.1 n8n.localhost\n")
+    assert hosts.read_text(encoding="utf-8") == "127.0.0.1 n8n.localhost\n"
+
+
+def test_hosts_writer_updates_a_symlinked_hosts_target(tmp_path):
+    # os.replace on the link swapped it for a regular file (NixOS, MDM tools).
+    from utils.hosts_manager import HostsManager
+
+    target = tmp_path / "real-hosts"
+    target.write_text("127.0.0.1 localhost\n", encoding="utf-8")
+    link = tmp_path / "hosts"
+    link.symlink_to(target)
+    HostsManager._atomic_write_hosts(str(link), "127.0.0.1 n8n.localhost\n")
+    assert link.is_symlink()
+    assert target.read_text(encoding="utf-8") == "127.0.0.1 n8n.localhost\n"
+
+
+def test_hosts_writer_falls_back_to_the_link_for_a_read_only_target(tmp_path):
+    # NixOS: /etc/hosts -> read-only /nix/store; writing beside the target
+    # failed outright, so keep replacing the link (a rebuild reverts it).
+    from utils.hosts_manager import HostsManager
+
+    store = tmp_path / "store"
+    store.mkdir()
+    target = store / "hosts"
+    target.write_text("127.0.0.1 localhost\n", encoding="utf-8")
+    store.chmod(0o555)
+    link = tmp_path / "hosts"
+    link.symlink_to(target)
+    try:
+        HostsManager._atomic_write_hosts(str(link), "127.0.0.1 n8n.localhost\n")
+    finally:
+        store.chmod(0o755)
+    assert link.read_text(encoding="utf-8") == "127.0.0.1 n8n.localhost\n"
+    assert target.read_text(encoding="utf-8") == "127.0.0.1 localhost\n"
+
+
+def test_values_compose_would_rewrite_are_single_quoted():
+    # Compose expands `$name` and backslash escapes in unquoted and
+    # double-quoted .env values: `pa$word` reached the role provisioner as
+    # `pa` while its URI twin carried `pa%24word`.
+    import pytest
+
+    from utils.atomic_write import decode_env_value, render_env_value
+
+    assert render_env_value("K", "pa$word") == "'pa$word'"
+    assert render_env_value("K", "ab\\c") == "'ab\\c'"
+    # ${VAR} references are written on purpose for compose to interpolate.
+    assert render_env_value("K", "http://h:${PORT:-1}") == "http://h:${PORT:-1}"
+    # `$$` stays literal in containers too, matching what Atlas itself reads.
+    assert render_env_value("K", "pa$$word") == "'pa$$word'"
+    for value in ("pa$word", "ab\\c", "a$$b"):
+        assert decode_env_value(render_env_value("K", value)) == value
+    for bad in ("it's $5", "ends\\"):
+        with pytest.raises(ValueError, match="cannot read it literally"):
+            render_env_value("K", bad)
+
+
+def test_legacy_world_readable_env_backups_are_restricted(tmp_path):
+    # Older releases wrote `.env.backup.YYYYMMDDHHMMSS` at 0644; no retention
+    # pattern matches them, so they stayed world-readable forever.
+    from utils.atomic_write import create_private_backup
+
+    env = tmp_path / ".env"
+    env.write_text("SECRET=x\n", encoding="utf-8")
+    legacy = tmp_path / ".env.backup.20260621120000"
+    legacy.write_text("SECRET=old\n", encoding="utf-8")
+    legacy.chmod(0o644)
+    create_private_backup(env)
+    assert legacy.exists() and legacy.stat().st_mode & 0o777 == 0o600

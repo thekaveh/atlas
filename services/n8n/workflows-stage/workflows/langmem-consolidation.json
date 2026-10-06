@@ -53,6 +53,15 @@
                 "type": "boolean",
                 "operation": "equals"
               }
+            },
+            {
+              "id": "condition-healthy",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "healthy",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
             }
           ],
           "combinator": "and"
@@ -87,11 +96,13 @@
     },
     {
       "parameters": {
-        "values": {
-          "string": [
+        "assignments": {
+          "assignments": [
             {
+              "id": "langmem-log-result-value",
               "name": "result",
-              "value": "=Consolidation completed: reviewed={{ $json.facts_reviewed }}, merged={{ $json.facts_merged }}, superseded={{ $json.facts_superseded }}, expired={{ $json.facts_expired }}"
+              "value": "=Consolidation completed: reviewed={{ $json.facts_reviewed }}, merged={{ $json.facts_merged }}, superseded={{ $json.facts_superseded }}, expired={{ $json.facts_expired }}",
+              "type": "string"
             }
           ]
         },
@@ -105,11 +116,13 @@
     },
     {
       "parameters": {
-        "values": {
-          "string": [
+        "assignments": {
+          "assignments": [
             {
+              "id": "langmem-skip-value",
               "name": "result",
-              "value": "Memory service is disabled, skipping consolidation"
+              "value": "Memory service is disabled or unhealthy, skipping consolidation",
+              "type": "string"
             }
           ]
         },

@@ -11,18 +11,31 @@ services:
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
     volumes:
       - supabase-db-data:/var/lib/postgresql/data
+      # The image's /etc/postgresql-custom holds pgsodium_root.key, which
+      # pgsodium and Vault generate on first start. Unpersisted, every
+      # container recreate (each ./start.sh) minted a new key and existing
+      # Vault secrets became undecryptable. A new named volume is seeded
+      # from the image's directory, so its shipped .conf files are kept.
+      - supabase-db-config:/etc/postgresql-custom
       - ./db/snapshot:/snapshot
       - ./db/scripts/enforce-scram-host-auth.sh:/usr/local/bin/enforce-scram-host-auth.sh:ro
-    command: ["sh", "/usr/local/bin/enforce-scram-host-auth.sh"]
+    # The script execs the image entrypoint with these arguments. They must
+    # keep the image's own `-D /etc/postgresql`: without it Postgres reads the
+    # data directory's minimal postgresql.conf, listening on localhost only
+    # (nothing else can connect) with no logical WAL or Supabase preloads.
+    command: ["sh", "/usr/local/bin/enforce-scram-host-auth.sh", "-D", "/etc/postgresql"]
     ports:
       - "${HOST_BIND_IP:-127.0.0.1:}${SUPABASE_DB_PORT}:5432"
     networks:
       - backend-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${SUPABASE_DB_USER} -d ${SUPABASE_DB_NAME}"]
+      # -h localhost: the unix socket already answers during initdb's
+      # temporary server; start_period covers crash recovery.
+      test: ["CMD-SHELL", "pg_isready -h localhost -U ${SUPABASE_DB_USER} -d ${SUPABASE_DB_NAME}"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 60s
     logging:
       driver: json-file
       options:
@@ -115,8 +128,10 @@ services:
       PG_META_DB_NAME: ${SUPABASE_DB_NAME}
       PG_META_DB_USER: ${SUPABASE_META_DB_USER:?SUPABASE_META_DB_USER is required}
       PG_META_DB_PASSWORD: ${SUPABASE_META_DB_PASSWORD:?SUPABASE_META_DB_PASSWORD is required}
+      # Decrypts Studio's x-connection-encrypted header; must match Studio's.
+      PG_META_CRYPTO_KEY: ${SUPABASE_META_CRYPTO_KEY:-}
     ports:
-      - "${HOST_BIND_IP:-}${SUPABASE_META_PORT}:8080"
+      - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_META_PORT}:8080"
     logging:
       driver: json-file
       options:
@@ -138,6 +153,9 @@ services:
       ANON_KEY: ${SUPABASE_ANON_KEY}
       SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
       REGION: ${STORAGE_REGION}
+      # Keep Kong's X-Forwarded-Prefix in resumable-upload Location headers;
+      # without it Studio's browser uploads PATCH /upload/... and get a 404.
+      REQUEST_ALLOW_X_FORWARDED_PATH: "true"
       FILE_SIZE_LIMIT: ${STORAGE_FILE_SIZE_LIMIT}
       STORAGE_BACKEND: ${STORAGE_BACKEND}
       FILE_STORAGE_PATH: /var/lib/storage
@@ -148,7 +166,7 @@ services:
       POSTGREST_URL: http://supabase-api:3000
       GOTRUE_URL: http://supabase-auth:9999
     ports:
-      - "${HOST_BIND_IP:-}${SUPABASE_STORAGE_PORT}:5000"
+      - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_STORAGE_PORT}:5000"
     volumes:
       - supabase-storage-data:/var/lib/storage
     logging:
@@ -169,6 +187,10 @@ services:
     environment:
       GOTRUE_SITE_URL: http://supabase-studio:3000
       API_EXTERNAL_URL: http://supabase-auth:9999
+      # GoTrue's built-in default is 8081; Kong, Storage (GOTRUE_URL) and the
+      # published port all target 9999, so without these auth was unreachable.
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: "9999"
       GOTRUE_DB_DRIVER: postgres
       DB_NAMESPACE: auth
       GOTRUE_DB_DATABASE_URL: postgres://${SUPABASE_AUTH_DB_USER_URI:?SUPABASE_AUTH_DB_USER_URI is required}:${SUPABASE_AUTH_DB_PASSWORD_URI:?SUPABASE_AUTH_DB_PASSWORD_URI is required}@supabase-db:5432/${SUPABASE_DB_NAME_URI:?SUPABASE_DB_NAME_URI is required}
@@ -188,8 +210,14 @@ services:
       GOTRUE_SMTP_ADMIN_EMAIL: "admin@example.com"
       GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
       GOTRUE_SITE_NAME: "Local Supabase"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9999/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     ports:
-      - "${HOST_BIND_IP:-}${SUPABASE_AUTH_PORT}:9999"
+      - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_AUTH_PORT}:9999"
     logging:
       driver: json-file
       options:
@@ -210,9 +238,8 @@ services:
       PGRST_DB_SCHEMA: "public,storage"
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: ${SUPABASE_JWT_SECRET}
-      PGRST_DB_USE_LEGACY_GUCS: "false"
     ports:
-      - "${HOST_BIND_IP:-}${SUPABASE_API_PORT}:3000"
+      - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_API_PORT}:3000"
     logging:
       driver: json-file
       options:
@@ -238,7 +265,6 @@ services:
       DB_NAME: ${SUPABASE_DB_NAME}
       DB_USER: ${SUPABASE_REALTIME_DB_USER:?SUPABASE_REALTIME_DB_USER is required}
       DB_PASSWORD: ${SUPABASE_REALTIME_DB_PASSWORD:?SUPABASE_REALTIME_DB_PASSWORD is required}
-      DB_SLOT: supabase_realtime_slot
       DB_CHANNEL_ENABLED: "true"
       JWT_SECRET: ${SUPABASE_JWT_SECRET}
       JWT_ROLE: service_role
@@ -273,7 +299,7 @@ services:
       DNS_NODES: supabase-realtime-noop.invalid
       APP_NAME: realtime
     ports:
-      - "${HOST_BIND_IP:-}${SUPABASE_REALTIME_PORT}:4000"
+      - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_REALTIME_PORT}:4000"
     logging:
       driver: json-file
       options:
@@ -308,8 +334,10 @@ services:
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
       SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
       DEFAULT_ORGANIZATION_NAME: ${PROJECT_NAME}
-      DATABASE_URL: postgresql://${SUPABASE_META_DB_USER_URI:?SUPABASE_META_DB_USER_URI is required}:${SUPABASE_META_DB_PASSWORD_URI:?SUPABASE_META_DB_PASSWORD_URI is required}@supabase-db:5432/${SUPABASE_DB_NAME_URI:?SUPABASE_DB_NAME_URI is required}
       AUTH_JWT_SECRET: ${SUPABASE_JWT_SECRET}
+      # Shared with Postgres Meta: encrypts the connection header Studio sends
+      # it. Unset, both fall back to the public constant "SAMPLE_KEY".
+      PG_META_CRYPTO_KEY: ${SUPABASE_META_CRYPTO_KEY:-}
       # Studio constructs its SQL-editor connection URI from this tuple. The
       # user/password fields therefore use bootstrapper-synchronized encoded
       # components; Postgres Meta above keeps the raw discrete credentials.
@@ -321,7 +349,7 @@ services:
       POSTGRES_PASSWORD: ${SUPABASE_META_DB_PASSWORD_URI:?SUPABASE_META_DB_PASSWORD_URI is required}
       HOSTNAME: 0.0.0.0
     ports:
-      - "${HOST_BIND_IP:-}${SUPABASE_STUDIO_PORT}:3000"
+      - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_STUDIO_PORT}:3000"
     healthcheck:
       test: ["CMD-SHELL", "node -e 'require(\"net\").createConnection({port:3000,host:\"localhost\"},()=>process.exit(0)).on(\"error\",()=>process.exit(1))'"]
       interval: 30s
@@ -344,7 +372,9 @@ services:
       replicas: ${POSTGRES_EXPORTER_SCALE:-0}
     environment:
       DATA_SOURCE_NAME: "postgresql://${POSTGRES_EXPORTER_DB_USER_URI:?POSTGRES_EXPORTER_DB_USER_URI is required}:${POSTGRES_EXPORTER_DB_PASSWORD_URI:?POSTGRES_EXPORTER_DB_PASSWORD_URI is required}@supabase-db:5432/${SUPABASE_DB_NAME_URI:?SUPABASE_DB_NAME_URI is required}?sslmode=disable"
-      PG_EXPORTER_AUTO_DISCOVER_DATABASES: "true"
+      # No PG_EXPORTER_AUTO_DISCOVER_DATABASES: per-service databases revoke
+      # CONNECT from the metrics role (05-scoped-roles.sh), so discovery only
+      # pinned pg_exporter_last_scrape_error at 1 and added no metrics.
       # Disable the built-in pg_settings collector. On supabase/postgres 17.6 a
       # GUC row has a NULL short_desc, and the exporter's settings scrape can't
       # map NULL→string → it logs `error scraping dsn … converting NULL to
@@ -353,7 +383,7 @@ services:
       # turning it off removes the recurring error without losing useful series.
       PG_EXPORTER_DISABLE_SETTINGS_METRICS: "true"
     ports:
-      - "${HOST_BIND_IP:-}${POSTGRES_EXPORTER_PORT}:9187"
+      - "${HOST_BIND_IP-127.0.0.1:}${POSTGRES_EXPORTER_PORT}:9187"
     depends_on:
       supabase-db:
         condition: service_healthy
@@ -374,6 +404,9 @@ services:
 volumes:
   supabase-db-data:
     name: ${PROJECT_NAME}-supabase-db-data
+    driver: local
+  supabase-db-config:
+    name: ${PROJECT_NAME}-supabase-db-config
     driver: local
   supabase-storage-data:
     name: ${PROJECT_NAME}-supabase-storage-data

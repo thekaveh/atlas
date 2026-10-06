@@ -1,6 +1,6 @@
 # 5.2.1. Apache Airflow (DAG orchestrator)
 
-Airflow runs as a 4-container family in the stack's `agents` band: `airflow-webserver` (Web UI + REST API; runs `airflow api-server`), `airflow-scheduler` (LocalExecutor task runner), `airflow-dag-processor` (parses DAG files into the metadata DB — required as a standalone service in Airflow 3.x; the scheduler no longer parses in-process), and `airflow-init` (one-shot bootstrap: DB migrate + admin user + Connection seeding).
+Airflow runs as a 4-container family in the stack's `agents` band: `airflow-webserver` (Web UI + REST API; runs `airflow api-server`), `airflow-scheduler` (LocalExecutor task runner; starts after `airflow-webserver` is healthy, because its tasks call the api-server's execution API), `airflow-dag-processor` (parses DAG files into the metadata DB — required as a standalone service in Airflow 3.x; the scheduler no longer parses in-process), and `airflow-init` (one-shot bootstrap: DB migrate + admin user + Connection seeding).
 
 ## 1. Overview
 
@@ -50,7 +50,7 @@ Auto-managed (resolved by the bootstrapper from `AIRFLOW_SOURCE`; do not hand-ed
 
 Connection seeding is idempotent — `airflow-init` deletes-then-adds each Connection on every run, so changes to credentials propagate on the next `./start.sh`.
 
-**Trusted DAG boundary.** LocalExecutor does not sandbox DAG code: operator-authored DAGs execute in Airflow's scheduler process pool and can read seeded Connections containing MinIO root, LiteLLM master, Supabase and Neo4j administrator, and Redis credentials. Only trusted authors may supply DAGs. Atlas does not provide tenant isolation for untrusted DAG code.
+**Trusted DAG boundary.** LocalExecutor does not sandbox DAG code: operator-authored DAGs execute in Airflow's scheduler process pool and can read seeded Connections containing MinIO root, LiteLLM master, Neo4j administrator, the scoped Supabase reader role (`AIRFLOW_ATLAS_DB_USER`), and Redis credentials. Only trusted authors may supply DAGs. Atlas does not provide tenant isolation for untrusted DAG code.
 
 **Resolving seeded Connections outside a task.** Airflow 3's Task-SDK
 connection lookup is task-context-sensitive. DAG tasks should keep using
@@ -93,7 +93,7 @@ Use it as a template. Drop your own DAGs into `services/airflow/dags/` — they'
 
 Cluster deploy mode is the Atlas default for this path because the Spark driver runs on a Spark worker that already carries the S3A and Iceberg runtime jars. Airflow still carries Java, `spark-submit`, `hadoop-aws`, the AWS SDK v2 bundle, and Iceberg jars so the submit client can resolve S3A resources and so client-mode experiments do not immediately fail on missing classes.
 
-**Post-submit driver status — the `:7077`/`:6066` one-connection limitation (#792).** Atlas enables the standalone master's backend-network-only REST endpoint at `spark-master:6066` (no host port or Kong route). The provider's normal cluster-mode hook tries to poll driver status through the `spark_default` RPC connection on `:7077`, but the supported standalone status API is REST on `:6066`. The shipped DAG therefore uses `AtlasSparkSubmitOperator`: inherited operator execution still owns configuration and OpenLineage injection, while its hook adapter disables the incompatible poll, captures the submitted driver ID, and requires `FINISHED + success` from `:6066`. This post-submit driver status check keeps genuine submit or terminal driver failures as task failures.
+**Post-submit driver status — the `:7077`/`:6066` one-connection limitation (#792).** Atlas enables the standalone master's backend-network-only REST endpoint at `spark-master:6066` (no host port or Kong route). The provider's normal cluster-mode hook tries to poll driver status through the `spark_default` RPC connection on `:7077`, but the supported standalone status API is REST on `:6066`. The shipped DAG therefore uses `AtlasSparkSubmitOperator`: inherited operator execution still owns configuration and OpenLineage injection, while its hook adapter disables the incompatible poll, captures the submitted driver ID, and requires `FINISHED + success` from `:6066`. This post-submit driver status check keeps genuine submit or terminal driver failures as task failures. The adapter streams spark-submit output into the task log line by line and records the driver ID as soon as it appears, so a task that is killed, marked failed or times out (the smoke DAG sets a 30-minute `execution_timeout`) also asks `:6066` to kill its cluster driver instead of leaving it holding cores beside the retry.
 
 The smoke DAG passes explicit S3A, Iceberg REST, and Spark event-log config:
 
@@ -209,6 +209,8 @@ _No high-confidence opportunities identified._
 
 - **`airflow-init` fails with "database does not exist"** — Supabase Postgres might not be running yet. `airflow-init` depends_on `supabase-db: service_healthy` so this shouldn't happen, but if it does, `docker logs ${PROJECT_NAME}-airflow-init` shows the psql error.
 - **Web UI login rejected** — `AIRFLOW_ADMIN_PASSWORD` in `.env` may have rotated. Check the value; if rotated, `airflow-init` re-runs and re-syncs the admin user on next `./start.sh`.
+- **Deferrable operators never resume** — Atlas runs no `airflow-triggerer` service, so a task using `deferrable=True` or an async sensor defers and stays deferred. Use the non-deferrable form of the operator.
+- **Spark submit stays SUBMITTED / waiting for cores** — the standalone pool is 2 workers × 2 cores by default; Spark Connect holds `SPARK_CONNECT_CORES_MAX` (1) and Zeppelin's interpreter `ZEPPELIN_SPARK_CORES_MAX` (1). A cluster-mode submit needs one core for its driver plus one for an executor, so with `SPARK_WORKER_COUNT=1` it cannot start until another app releases cores.
 - **DAG appears in UI but won't run** — Scheduler may be lagging. `docker logs ${PROJECT_NAME}-airflow-scheduler` for parse errors. The scheduler poll interval defaults to 30s.
 - **`summarize_via_litellm` (OpenAIHook) fails with `auth required`** — `litellm_default` Connection has the wrong `LITELLM_MASTER_KEY`. Re-run `./start.sh` to re-sync the Connection; alternatively edit it in the Web UI under Admin → Connections.
 - **Spark `spark_smoke` task can't reach `sc://spark-connect:15002` (or `spark://spark-master:7077` from user `SparkSubmitOperator` DAGs)** — Either (a) Spark isn't running (`SPARK_SOURCE=disabled` in `.env`; enable it via `--spark-source container` or remove the Spark-dependent steps from your DAG), or (b) it's the first DAG run after stack-up and spark-connect's JVM hasn't finished binding 15002 yet (20-60s cold-start lag). Airflow's `retries: 1` + `retry_delay: 2m` in default_args usually masks (b); if it doesn't, re-trigger the DAG once spark-connect is up.
@@ -221,7 +223,7 @@ Support tier: **experimental** — Capability contract declared (#967); no cited
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Code-defined DAG orchestration | supported | tested | Atlas runs Airflow 3 with a separate API server, scheduler, DAG processor, and init path, using LocalExecutor for operator-authored DAGs. |
-| Untrusted DAG code isolation | not-supported | tested | LocalExecutor operator-authored DAGs execute unsandboxed with Airflow Connections holding MinIO root, LiteLLM master, Supabase and Neo4j administrator, and Redis password credentials; admit only trusted DAG authors. |
+| Untrusted DAG code isolation | not-supported | tested | LocalExecutor operator-authored DAGs execute unsandboxed with Airflow Connections holding MinIO root, LiteLLM master, Neo4j administrator, scoped Supabase reader, and Redis password credentials; admit only trusted DAG authors. |
 | Seeded stack service connections | partial | tested | Init seeds LiteLLM, Redis, Supabase, and enabled container-only lakehouse or graph connections; localhost variants are deliberately not mapped to unusable Compose DNS names. |
 | Spark lakehouse job execution | partial | tested | Bundled DAGs and jars exercise SparkSubmit and lakehouse configuration, but live Spark, MinIO, Iceberg, and Redpanda execution remains an operator-run smoke path. |
 | Airflow UI and API authentication | supported | tested | Direct and CORS-only Kong surfaces rely on Airflow FAB login for the UI and JWT exchange for /api/v2; Kong adds routing but no second authentication gate. |

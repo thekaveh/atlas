@@ -91,3 +91,47 @@ def test_project_name_persistence_failure_restores_launch_state() -> None:
         assert screen._launch_succeeded is False
     finally:
         _close_test_screen(screen)
+
+
+def test_wizard_cold_start_removes_volumes_before_any_env_write() -> None:
+    """A wizard "Cold start: yes" used to only rotate keys, leaving volumes
+    (and n8n's encryption key) behind; the CLI --cold path cleaned up."""
+    from types import SimpleNamespace
+
+    calls: list[tuple] = []
+
+    class Starter:
+        banner = object()
+        config_parser = SimpleNamespace(get_project_name=lambda: "atlas")
+        docker_manager = SimpleNamespace(execute_compose_command=lambda *a, **k: 0)
+
+        def prepare_environment(self, **kwargs):
+            calls.append(("prepare_environment", kwargs))
+            return False  # stop the pipeline right after the cold step
+
+        def __getattr__(self, name):
+            # Every later pipeline step is bound eagerly; any call is a bug.
+            def _step(*_args, **_kwargs):
+                calls.append((name,))
+                return True
+            return _step
+
+    exit_codes: list[int] = []
+    screen = WizardScreen(
+        steps=[],
+        services=[],
+        starter=Starter(),
+        prefilled_stack_options={"cold": True, "cold_cleanup_pending": True, "base_port": 63000},
+        on_launch_result=exit_codes.append,
+    )
+    screen._phase = "launch"
+    try:
+        asyncio.run(screen._run_pipeline_and_stream())
+
+        assert calls == [(
+            "prepare_environment",
+            {"cold_start": True, "base_port": 63000, "project_name": None},
+        )]
+        assert exit_codes and set(exit_codes) == {1}
+    finally:
+        _close_test_screen(screen)

@@ -128,8 +128,8 @@ env:
     description: "Resolved per STT_PROVIDER_SOURCE. Consumed by n8n, backend, jupyterhub, open-webui, hermes-init (the latter as STT_INTERNAL_URL — owned by services/hermes/)."
 
 depends_on:
-  # Parakeet is a leaf STT engine — LiteLLM calls IT, not the other way
-  # around — so this is NOT a runtime call edge. The `litellm` entry is
+  # Parakeet is a leaf STT engine — consumers (Open WebUI, Hermes) call it
+  # directly; LiteLLM has no audio route — so this is NOT a runtime call edge. The `litellm` entry is
   # retained because the bootstrapper uses `depends_on.required` as the
   # canonical-order backbone for the wizard / overview display (see
   # services/ollama/service.yml for the same convention). When a separate

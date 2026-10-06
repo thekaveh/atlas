@@ -347,8 +347,10 @@ def discover_anthropic_models(api_key: str, timeout: float = 5.0,
     """
     if not api_key:
         return _fallback(on_warn, "anthropic", NO_KEY, "")
+    # The list pages at 20 by default (newest first); 1000 is the API's
+    # maximum page, so one request covers every model a key can see.
     rows, state, detail = _fetch_rows(
-        "https://api.anthropic.com/v1/models",
+        "https://api.anthropic.com/v1/models?limit=1000",
         {
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",

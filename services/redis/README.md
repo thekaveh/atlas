@@ -1,8 +1,8 @@
 # 5.2.44. Redis
 
-Shared cache, queue, and pub/sub broker for the stack. The manifest comment is blunt: Redis is "consumed by half the stack." It has one container, one source variant (`container`), no GPU paths, and no init container. Despite being infrastructure rather than a feature, Redis is the single most cross-cutting service in the project — n8n's queue mode, Kong's rate-limit cache, Open WebUI's WebSocket store, LightRAG's KV layer, and JupyterHub notebooks all share this one instance.
+Shared cache, queue, and pub/sub broker for the stack. The manifest comment is blunt: Redis is "consumed by half the stack." It has one container, one source variant (`container`), no GPU paths, and no init container. Despite being infrastructure rather than a feature, Redis is the single most cross-cutting service in the project — n8n's queue mode, LiteLLM's cache, Open WebUI's WebSocket store, LightRAG's KV layer, and JupyterHub notebooks all share this one instance.
 
-The stack convention partitions Redis by **database index**, not by service. As wired today: `/0` carries the n8n queue (`QUEUE_BULL_REDIS_DB: 0`), and Kong's rate-limit cache (no `KONG_REDIS_DATABASE` set → library default 0); `/2` is shared by Open WebUI's WebSocket store (`OPEN_WEB_UI_REDIS_DB`) and LightRAG's KV/doc-status store (`LIGHTRAG_REDIS_URI`) — different key shapes, no collision in practice, but isolate one of them if you repurpose the db; `/3` is JupyterHub's `REDIS_URL`; `/4` is Celery's broker + result backend (`CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND`). Consumers that need an isolated namespace build their own connection string off `${REDIS_PASSWORD}` and `redis:6379/<db>`.
+The stack convention partitions Redis by **database index**, not by service. As wired today: `/0` carries the n8n queue (`QUEUE_BULL_REDIS_DB: 0`); `/2` is shared by Open WebUI's WebSocket store (`OPEN_WEB_UI_REDIS_DB`) and LightRAG's KV/doc-status store (`LIGHTRAG_REDIS_URI`) — different key shapes, no collision in practice, but isolate one of them if you repurpose the db; `/3` is JupyterHub's `REDIS_URL`; `/4` is Celery's broker + result backend (`CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND`). Consumers that need an isolated namespace build their own connection string off `${REDIS_PASSWORD}` and `redis:6379/<db>`.
 
 ## 1. Overview
 
@@ -35,7 +35,7 @@ Database-index convention (consumer-built URLs):
 
 | DB | Consumer | Notes |
 |---|---|---|
-| 0 | n8n, kong, litellm, langfuse, backend | n8n queue (`QUEUE_BULL_REDIS_DB: 0`); Kong rate-limit cache (no `KONG_REDIS_DATABASE` set → library default 0); LiteLLM cache and Langfuse BullMQ (no db index → library default 0); backend media-operation store + readiness probe via `REDIS_URL` |
+| 0 | n8n, litellm, langfuse, backend | n8n queue (`QUEUE_BULL_REDIS_DB: 0`); LiteLLM cache and Langfuse BullMQ (no db index → library default 0); backend media-operation store + readiness probe via `REDIS_URL` |
 | 2 | open-webui, lightrag | WebSocket store (`OPEN_WEB_UI_REDIS_DB`) + LightRAG KV/doc-status — disjoint key shapes |
 | 3 | jupyterhub | notebook `REDIS_URL` |
 | 4 | celery | broker + result backend (`CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND`) |
@@ -44,7 +44,7 @@ Database-index convention (consumer-built URLs):
 
 **Startup ordering.** The manifest's `depends_on.required: supabase` is **ordering / slot-pinning only** — the topology port allocator derives slot positions from `depends_on`, so removing it would renumber later services' ports. Redis has no functional Postgres dependency, and `compose.yml` no longer gates redis startup on supabase-db-init (PR #11 dropped that); the only compose-level `depends_on` is `redis-exporter` waiting on `redis` being healthy.
 
-**Consumers.** From the data-flow graph (§6.2): `litellm` (cache + budget tracking), `lightrag` (KV/doc-status), `open-webui` (WebSocket store), `n8n` (BullMQ queue, `QUEUE_BULL_REDIS_*`), `jupyterhub` (notebook `REDIS_URL` on db `/3`), `airflow`, and `prometheus` (redis-exporter scrape) reach Redis at runtime. Kong consumes it via compose env wiring (`KONG_REDIS_HOST`) — modeled as compose-level wiring only. The backend reads `REDIS_URL` for its media-operation store (`media_operation_store.py`) and readiness probe (`readiness.py`), on db 0; Local Deep Researcher is unwired (future pair, §6.4).
+**Consumers.** From the data-flow graph (§6.2): `litellm` (cache + budget tracking), `lightrag` (KV/doc-status), `open-webui` (WebSocket store), `n8n` (BullMQ queue, `QUEUE_BULL_REDIS_*`), `jupyterhub` (notebook `REDIS_URL` on db `/3`), `airflow`, and `prometheus` (redis-exporter scrape) reach Redis at runtime. Kong does not use Redis: its only rate limiter runs with `policy: local`, and Kong's compose `depends_on: redis` is start ordering only. The backend reads `REDIS_URL` for its media-operation store (`media_operation_store.py`) and readiness probe (`readiness.py`), on db 0; Local Deep Researcher is unwired (future pair, §6.4).
 
 **Failure mode.** Every consumer treats Redis as fatal: a Redis outage kills n8n queue execution, drops Open WebUI live updates, breaks LiteLLM caching, and stalls LightRAG's KV layer. There is no fallback in the stack.
 
@@ -101,7 +101,7 @@ _No upstream calls._
 
 - **Redis Streams (`XADD`/`XREAD`/consumer groups)** — *Why pursue:* replace ad-hoc HTTP fan-out between backend, n8n, ComfyUI, and doc-processor with a single durable event bus already present in the image. *Effort:* medium.
 - **Pub/Sub channels** — *Why pursue:* live progress streaming for ComfyUI and LDR to the Open WebUI chat surface without polling. *Effort:* small.
-- **Redis ACL users** — *Why pursue:* replace the single shared `REDIS_PASSWORD` with per-service users so a compromised n8n container cannot read the Kong rate-limit cache. *Effort:* small.
+- **Redis ACL users** — *Why pursue:* replace the single shared `REDIS_PASSWORD` with per-service users so a compromised n8n container cannot read LiteLLM's budget counters. *Effort:* small.
 - **Workload-specific memory classes** — *Why pursue:* the shared instance defaults to `volatile-lru`, but dedicated cache and durable-queue instances could use different caps and policies without competing for one memory budget. *Effort:* medium.
 - **RDB snapshots alongside AOF** — *Why pursue:* faster cold-start restore; current `--appendonly yes` is durable but slow to replay on large datasets. *Effort:* small.
 
@@ -125,7 +125,7 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 
 ## 8. Operations
 
-**Inspect keys by namespace.** Consumers use unstructured key names today; useful prefixes to scan are `bull:` (n8n queue), `litellm:` (caching/budget), `kong:` (rate-limit counters), and LightRAG's `{workspace}_{namespace}:` keys on db `/2`. Scan with `redis-cli --scan --pattern 'bull:*'` — never `KEYS` on a busy instance.
+**Inspect keys by namespace.** Consumers use unstructured key names today; useful prefixes to scan are `bull:` (n8n queue), `litellm:` (caching/budget), and LightRAG's `{workspace}_{namespace}:` keys on db `/2`. Scan with `redis-cli --scan --pattern 'bull:*'` — never `KEYS` on a busy instance.
 
 **Watch traffic live.** `redis-cli MONITOR` dumps every command server-side. Useful when verifying a new consumer is connecting to the right db index. Verbose — turn off as soon as you're done.
 
@@ -135,7 +135,7 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 
 **Capacity rule of thumb.** `REDIS_MAXMEMORY` defaults to `0` (unlimited), so with AOF and no cap the container still OOMs at the Docker memory limit — which loses in-flight queue state rather than shedding anything. Set it (e.g. `REDIS_MAXMEMORY=512mb`) to ~75% of the container's memory budget and Redis will evict instead.
 
-**What gets evicted, and why it is safe.** `REDIS_MAXMEMORY_POLICY` defaults to `volatile-lru`, which evicts **only keys carrying a TTL**. On this stack that means LiteLLM's response cache (`litellm.cache:*`, TTL from `LITELLM_CACHE_TTL`). The things that must not vanish — n8n's BullMQ queue, Kong's rate-limit counters, Langfuse's queue, the backend's media store — are written without a TTL and are therefore never eviction candidates. The previous `noeviction` did the opposite: a full instance rejected *writes*, so an oversized cache would take the queue down with it. If nothing volatile remains, `volatile-lru` returns the same OOM error `noeviction` would, so the worst case is unchanged. The stack default is whatever Docker Desktop allocates (~2 GB). For production deployments, set `maxmemory` explicitly to ~75% of the container's memory budget and pick an eviction policy per workload.
+**What gets evicted, and why it is safe.** `REDIS_MAXMEMORY_POLICY` defaults to `volatile-lru`, which evicts **only keys carrying a TTL**. On this stack that means LiteLLM's response cache (`litellm.cache:*`, TTL from `LITELLM_CACHE_TTL`). The things that must not vanish — n8n's BullMQ queue, Langfuse's queue, the backend's media store — are written without a TTL and are therefore never eviction candidates. The previous `noeviction` did the opposite: a full instance rejected *writes*, so an oversized cache would take the queue down with it. If nothing volatile remains, `volatile-lru` returns the same OOM error `noeviction` would, so the worst case is unchanged. The stack default is whatever Docker Desktop allocates (~2 GB). For production deployments, set `maxmemory` explicitly to ~75% of the container's memory budget and pick an eviction policy per workload.
 
 ## 9. Tuning
 
@@ -152,7 +152,7 @@ Set `REDIS_MAXMEMORY` and `REDIS_MAXMEMORY_POLICY` in `.env`. The remaining low-
 
 ## 10. Security
 
-- **Shared password.** Every consumer uses the same `REDIS_PASSWORD`. A compromised n8n container can read Kong's rate-limit cache, LiteLLM's budget counters, and backend sessions. Redis 7 ACLs would fix this — see Future — Unused features.
+- **Shared password.** Every consumer uses the same `REDIS_PASSWORD`. A compromised n8n container can read LiteLLM's budget counters and backend sessions. Redis 7 ACLs would fix this — see Future — Unused features.
 - **No TLS in-cluster.** Traffic on `backend-network` is unencrypted. Acceptable for the single-host stack; not for multi-host deployments. Wrap with `stunnel` or upgrade to a Redis variant with native TLS if you cross trust boundaries.
 - **Host port exposed.** `REDIS_PORT` (default 63025) is published on the host. With the default password this is a soft target if anyone has LAN access. Either rotate `REDIS_PASSWORD` aggressively or remove the host-port publish from `services/redis/compose.yml` and use `docker exec` for debugging.
 - **AOF includes commands, not just data.** `appendonly.aof` is a literal command log; anyone with read access to the volume can reconstruct every key. Treat the volume as confidential.

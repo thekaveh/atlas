@@ -51,7 +51,7 @@ The provisioned datasource reads `${PROMETHEUS_ENDPOINT}`. When Prometheus is `d
 | `litellm.json` | LiteLLM | Per-model requests, tokens, spend, latency p50/p95/p99, errors |
 | `kong.json` | Kong API Gateway | Per-route req rate, status codes, p95 latency, bandwidth |
 | `postgres-redis.json` | Postgres + Redis | Connections, query rate, table sizes, memory, ops/sec, hit ratio |
-| `containers-and-host.json` | Containers + Host | cAdvisor per-container CPU/mem/IO, node-exporter host load/disk |
+| `containers-and-host.json` | Containers + Host | cAdvisor per-container CPU/mem/IO, node-exporter host load/disk. cAdvisor runs without Docker discovery (see the Prometheus README), so series carry no container name; panels group by the first 12 characters of the container ID (match them with `docker ps`). |
 | `n8n.json` | n8n | Workflow executions, status, active count |
 | `app-tier.json` | App tier (Weaviate + MinIO) | Vector queries, S3 traffic, bucket sizes |
 
@@ -98,7 +98,8 @@ _No high-confidence opportunities identified._
 ## 6. Troubleshooting
 
 - **"Datasource unreachable" on every panel** — Prometheus is `disabled`. Set `PROMETHEUS_SOURCE=container` in `.env` and re-run `./start.sh`. The datasource URL is interpolated at provisioning time, so a Grafana restart is required after changing `PROMETHEUS_ENDPOINT`.
-- **Admin login rejected** — check `GRAFANA_ADMIN_PASSWORD` in `.env`. The bootstrapper only auto-generates it on FIRST run (empty value); a wrong value persists. Wipe and re-run to regenerate, or edit `.env` directly.
+- **Admin login rejected** — check `GRAFANA_ADMIN_PASSWORD` in `.env`. The bootstrapper only auto-generates it on FIRST run (empty value). Grafana reads the value only when it first creates its database in the `grafana-data` volume, so editing `.env` afterwards does not change the stored password. Apply a new one with `docker exec ${PROJECT_NAME}-grafana grafana cli admin reset-admin-password "$GRAFANA_ADMIN_PASSWORD"` after updating `.env`, or remove the `grafana-data` volume to start over.
+- **Stack Overview "Targets DOWN" is never 0** — Prometheus scrapes a static target list, so services that are disabled on this stack (by default `asset-worker` and `asset-baker`; on narrower tracks also n8n, Weaviate, MinIO …) count as down. Check which jobs are down in Prometheus' Targets page before treating the number as an outage.
 - **Dashboards missing** — Grafana's provisioner watches the directory every 30s (`updateIntervalSeconds: 30`). If a dashboard JSON has a syntax error, Grafana logs it under "Provisioning errors" and skips the file.
 - **Redirect URL contains internal `grafana` hostname instead of `grafana.localhost`** — Kong's `preserve_host: True` flag must be set on the Grafana route. The route generator handles this; verify with `curl -I http://grafana.localhost`.
 

@@ -641,9 +641,15 @@ _TEARDOWN_HINTS = [
 _TAB_HINT = (("1", "2"), "tabs")
 
 
-def prune_skip_hidden_selections(steps, selections: dict) -> dict:
+def prune_skip_hidden_selections(
+    steps, selections: dict, pinned: "dict | frozenset | None" = None
+) -> dict:
     """Return a copy of ``selections`` without commits from steps whose
     skip-predicate is true.
+
+    ``pinned`` names step titles whose answer came from the CLI (``--track``,
+    ``--profile``). Those steps are skipped *because* they are answered, so
+    their answer is kept.
 
     A user can visit a step (e.g. the ComfyUI picker), commit, then go
     Back and disable the owning service — the stale commit would
@@ -662,7 +668,7 @@ def prune_skip_hidden_selections(steps, selections: dict) -> dict:
             hidden = bool(skip(pruned))
         except Exception:  # noqa: BLE001 — buggy predicate must not crash launch
             hidden = False
-        if hidden:
+        if hidden and step.title not in (pinned or ()):
             pruned.pop(step.title, None)
             for key in _step_secondary_keys(step):
                 pruned.pop(key, None)
@@ -776,6 +782,21 @@ def replace_step_secondary_selections(
         selections.pop(key, None)
     for env_var, value in values:
         selections[f"__secondary__:{env_var}"] = value
+
+
+def _reruns_default_provider(step: PromptStep, selections: dict) -> bool:
+    """Whether to recompute ``step``'s default when it is (re)rendered.
+
+    A "keep" answer restores no input, so on a revisit the provider must
+    supply the shown default again; otherwise a required step (the custom
+    embedding dimension) refused Enter on the value it had kept.
+    """
+    from wizard.model.cloud_rules import SECRET_KEEP
+
+    return (
+        step.default_value_provider is not None
+        and selections.get(step.title) in (None, SECRET_KEEP)
+    )
 
 
 def _restored_primary_defaults(original, selections: dict):
@@ -1210,6 +1231,8 @@ class WizardScreen(Screen):
 
         self._step_index = 0
         self._selections: dict[str, str] = dict(prefilled_selections or {})
+        # CLI-pinned answers (--track/--profile) survive skip-pruning.
+        self._pinned_selections = frozenset(prefilled_selections or ())
         # Frozen defaults snapshot — used to compute "N changed from
         # defaults" correctly (only count selections that DIFFER from
         # their step's default_value).
@@ -1797,10 +1820,7 @@ class WizardScreen(Screen):
         ) = _restored_primary_defaults(
             original, self._selections
         )
-        if (
-            original.title not in self._selections
-            and original.default_value_provider is not None
-        ):
+        if _reruns_default_provider(original, self._selections):
             live_default_value = original.default_value_provider(
                 dict(self._selections)
             )
@@ -2310,7 +2330,9 @@ class WizardScreen(Screen):
         return bool(offered) and self._selections[step.title] not in offered
 
     def _prune_hidden_selections(self) -> None:
-        pruned = prune_skip_hidden_selections(self._steps, self._selections)
+        pruned = prune_skip_hidden_selections(
+            self._steps, self._selections, self._pinned_selections
+        )
         self._selections.clear()
         self._selections.update(pruned)
 
@@ -2417,7 +2439,11 @@ class WizardScreen(Screen):
         known target set, nothing is built here and ``up`` keeps its
         ``--build`` decision exactly as before.
         """
-        build_args = self._starter.docker_manager.prepare_build_args(cold, targets)
+        # Off the UI loop: this runs `docker compose config` (60s deadline)
+        # and `git rev-parse`; inline it froze the log pane and Ctrl+C.
+        build_args = await asyncio.to_thread(
+            self._starter.docker_manager.prepare_build_args, cold, targets
+        )
         if not cold and not (build_args and targets):
             return True, targets, (), build_args
         if not cold:
@@ -2861,7 +2887,7 @@ class WizardScreen(Screen):
                 # Drop commits from steps whose skip-predicate is true at
                 # LAUNCH time (see prune_skip_hidden_selections).
                 _launch_selections = prune_skip_hidden_selections(
-                    self._steps, self._selections
+                    self._steps, self._selections, self._pinned_selections
                 )
                 self._source_args, self._stack_options = self._stack_options_resolver(
                     _launch_selections
@@ -3136,7 +3162,9 @@ class WizardScreen(Screen):
         committing, so ``ctrl+s`` followed by ``ctrl+x`` cannot delete
         volumes without a cold confirmation of its own.
         """
-        if self._phase != "launch":
+        # Only after a successful launch, as the footer hint and #912 say:
+        # during setup/build/`up` a `down` would race the in-flight launch.
+        if self._phase != "launch" or not self._launch_succeeded:
             return
         now = _teardown_clock()
         if self._pending_teardown == cold and now < self._pending_teardown_deadline:
@@ -3183,7 +3211,9 @@ class WizardScreen(Screen):
             # The stopper prints through a Rich banner, which would tear
             # the Textual chrome apart — same substitution the pipeline
             # makes for the starter.
-            stopper.banner = _NullBanner()
+            stopper.banner = _NullBanner(
+                sink=lambda message, level: self._safe_log(message, source="teardown", level=level)
+            )
             project = self._resolve_project_name()
             ok = await asyncio.to_thread(stopper.stop_services, cold, project)
             # Managed ComfyUI-MPS, vLLM-Metal, and Blender MCP runtimes are host-global
@@ -3357,6 +3387,39 @@ class WizardScreen(Screen):
         self._mark_launch_failed()
         return False
 
+    async def _warn_submodule_pin_drift(self, starter) -> None:
+        """Warn in the log pane when Atlas, vendored as a submodule, has
+        drifted from its recorded pin. Read-only; never blocks the launch."""
+        from utils.submodule_pin_guard import warn_if_submodule_pin_drifted
+
+        def _sink(msg: str) -> None:
+            self._safe_log(msg, source="pipeline", level="warn")
+
+        try:
+            await asyncio.to_thread(
+                warn_if_submodule_pin_drifted, starter.config_parser.root_dir, sink=_sink,
+            )
+        except Exception:  # noqa: BLE001 - an advisory probe must not fail a launch
+            pass
+
+    def _cold_cleanup_steps(self, starter, base_port: int, project_name) -> list:
+        """The wizard cold start's cleanup step, when one is pending.
+
+        It removes volumes and recreates .env BEFORE any step writes .env.
+        Only rotating keys (validate_supabase_keys / generate_encryption_keys
+        with cold_start) while the volumes survived left n8n and the
+        databases on mismatched secrets. The CLI --cold path cleans before
+        the launch screen, so it never sets ``cold_cleanup_pending``.
+        """
+        if not (self._stack_options or {}).get("cold_cleanup_pending"):
+            return []
+        return [(
+            "Cold start: remove volumes and recreate .env",
+            lambda: starter.prepare_environment(
+                cold_start=True, base_port=base_port, project_name=project_name or None,
+            ),
+        )]
+
     async def _run_pipeline_and_stream(self) -> None:
         starter = self._starter
         cold = bool((self._stack_options or {}).get("cold", False))
@@ -3368,13 +3431,15 @@ class WizardScreen(Screen):
         skip_hosts = bool((self._stack_options or {}).get("skip_hosts", False))
 
         original_banner = getattr(starter, "banner", None)
-        starter.banner = _NullBanner()
+        starter.banner = _NullBanner(
+            sink=lambda message, level: self._safe_log(message, source="pipeline", level=level)
+        )
 
         # Persist the wizard's chosen PROJECT_NAME (from the project-name step)
         # BEFORE anything reads get_project_name() or runs compose, so the whole
         # launch — and a later bare ./stop.sh — target this container family.
-        # (Banner is the NullBanner here, so the persist's status line is
-        # suppressed and doesn't corrupt the Textual chrome.)
+        # (Banner is the NullBanner here, so the persist's status line goes to
+        # the log pane instead of corrupting the Textual chrome.)
         _proj = (self._stack_options or {}).get("project_name")
         if _proj:
             if not starter._persist_project_name(_proj):
@@ -3521,6 +3586,8 @@ class WizardScreen(Screen):
                  # ./start.sh --flag <value> path while TUI is active.
                  **((self._stack_options or {}).get("user_env_writes", {}) or {}),
              })),
+            ("Reconcile default models",
+             starter.reconcile_default_models),
             ("Validate source configurations",
              starter.validate_source_configurations),
             # Always clear any port env vars left over from a previous
@@ -3576,6 +3643,7 @@ class WizardScreen(Screen):
             ("Backfill .env from .env.example",
              starter.backfill_missing_env_vars),
         ]
+        steps = self._cold_cleanup_steps(starter, base_port, _proj) + steps
 
         self._write_status("⚙ Running setup pipeline", style="bold cyan",
                            source="pipeline")
@@ -3697,6 +3765,8 @@ class WizardScreen(Screen):
             # doesn't stamp Logs-tab hints over the tab that's actually
             # showing.
             self._footer.update_hints(self._footer_hints())
+            # Same post-up check the --no-tui path runs (linear_startup).
+            await self._warn_submodule_pin_drift(starter)
 
             # Kick off port verification + ComfyUI model check in the
             # background so the live log stream starts IMMEDIATELY rather
@@ -3962,11 +4032,63 @@ class _NullSink:
 _NULL_SINK = _NullSink()
 
 
-class _NullBanner:
-    """Drop-in for ``starter.banner`` that swallows pipeline status messages
-    so they don't print to stdout while we're inside the Textual app."""
+def _foreground_words(style: str) -> list:
+    """Words of a Rich style before its background (`on X`) part."""
+    if style.startswith("on "):
+        return []
+    return style.split(" on ")[0].split()
 
-    def show_status_message(self, *args, **kwargs) -> None: ...
+
+class _ConsoleSink:
+    """``banner.console`` stand-in: ``print`` forwards the plain text (Rich
+    markup stripped) to the log sink; anything else is a no-op."""
+
+    def __init__(self, sink) -> None:
+        self._sink = sink
+
+    def print(self, *objects, **kwargs) -> None:
+        from rich.text import Text
+
+        raw = " ".join(str(item) for item in objects)
+        try:
+            text = Text.from_markup(raw).plain
+        except Exception:  # noqa: BLE001 — unbalanced markup: keep raw text
+            text = raw
+        # The colour carries the severity (red errors, yellow warnings), so the
+        # Errors/Warns filter chips still find these lines.
+        import re
+
+        tags = re.findall(r"\[([a-z0-9_ ]+)\]", raw.lower()) + [str(kwargs.get("style") or "").lower()]
+        # Foreground colour tokens only (`on X` is the background).
+        colours = {word for tag in tags for word in _foreground_words(tag)}
+        level = (
+            "error" if colours & {"red", "bright_red", "dark_red"}
+            else "warn" if colours & {"yellow", "bright_yellow"} else "info"
+        )
+        if text.strip():
+            self._sink(text, level)
+
+    def __getattr__(self, name):
+        return _NULL_SINK
+
+
+class _NullBanner:
+    """Drop-in for ``starter.banner`` that keeps pipeline output off stdout
+    while we're inside the Textual app. Status messages go to ``sink`` (the
+    launch log pane) when one is given: many steps report WHY they failed
+    only through the banner, so swallowing them left a bare "<step> failed"."""
+
+    def __init__(self, sink=None) -> None:
+        self._sink = sink
+        # Some steps print the failure DETAIL via banner.console.print (Kong
+        # validation errors, dependency violations, scale errors).
+        self.console = _ConsoleSink(sink) if sink is not None else _NULL_SINK
+
+    def show_status_message(self, message="", level="info", *_extra) -> None:
+        if self._sink is not None and str(message).strip():
+            # The log pane and its filter chips use warn/ok, not warning/success.
+            level = {"warning": "warn", "success": "ok"}.get(level, level)
+            self._sink(str(message), str(level or "info"))
     def show_section_header(self, *args, **kwargs) -> None: ...
     def show_subsection_header(self, *args, **kwargs) -> None: ...
     def log(self, *args, **kwargs) -> None: ...

@@ -8,7 +8,7 @@ capabilities:
   - name: "LiteLLM-backed messaging agent gateway"
     status: partial
     verification: tested
-    note: "Atlas configures OpenClaw to use LiteLLM by default, but messaging channels and approvals require operator onboarding and are not exercised against live platforms."
+    note: "Atlas injects the LiteLLM gateway URL and key, but the operator points OpenClaw's OpenAI provider at it during onboarding; messaging channels and approvals also require onboarding and are not exercised against live platforms."
   - name: "Container and operator-host sources"
     status: partial
     verification: tested
@@ -20,7 +20,7 @@ capabilities:
   - name: "OpenClaw gateway authentication"
     status: partial
     verification: tested
-    note: "OPENCLAW_GATEWAY_TOKEN can protect the gateway, but it defaults empty and the CORS-only Kong route adds no Atlas authentication. Direct gateway ports are loopback-only by default; an operator who deliberately publishes them remotely must secure that exposure separately."
+    note: "OPENCLAW_GATEWAY_TOKEN, generated at startup, protects the gateway API and dashboard; the CORS-only Kong route adds no Atlas authentication of its own. Direct gateway ports are loopback-only by default; an operator who deliberately publishes them remotely must secure that exposure separately."
   - name: "Agent configuration and workspace persistence"
     status: partial
     verification: tested
@@ -68,10 +68,10 @@ env:
   - name: OPENCLAW_GATEWAY_TOKEN
     default: ""
     secret: true
-    description: "Optional bearer token for securing the OpenClaw gateway and dashboard."
+    description: "Auto-generated bearer token for the OpenClaw gateway API and dashboard (kept once set). The gateway binds to the LAN interface, which it refuses to do tokenless; left empty, it would mint a random per-start token nobody can read back."
   - name: OPENCLAW_LOCALHOST_PORT
     default: "63065"
-    description: "Host port for the localhost source variant (defaults to the freed OPENCLAW_GATEWAY_PORT slot). URL is derived at compose-render time as http://host.docker.internal:63065."
+    description: "Host port for the localhost source variant (its own slot, separate from OPENCLAW_GATEWAY_PORT). URL is derived at compose-render time as http://host.docker.internal:63065."
   - name: OPENCLAW_INIT_SOURCE
     default: container
   - name: OPENCLAW_ANTHROPIC_API_KEY
@@ -148,9 +148,6 @@ runtime_sc:
 runtime_deps:
   openclaw-gateway:
     optional: []
-    info_message: OpenClaw enabled - reasons over the LiteLLM gateway (every active
-      provider — Ollama / OpenAI / Anthropic / OpenRouter — appears in the routing
-      table; OpenClaw never calls those upstreams directly).
 
 data_flow:
   calls:

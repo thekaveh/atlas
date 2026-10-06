@@ -200,7 +200,7 @@ def test_crawl4ai_compose_contract() -> None:
     service = _compose()["services"]["crawl4ai"]
 
     assert service["image"] == "${CRAWL4AI_IMAGE:-unclecode/crawl4ai:0.9.0}"
-    assert service["ports"] == ["${HOST_BIND_IP:-}${CRAWL4AI_PORT}:11235"]
+    assert service["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${CRAWL4AI_PORT}:11235"]
     assert service["deploy"]["replicas"] == "${CRAWL4AI_SCALE:-0}"
     assert service["environment"]["CRAWL4AI_API_TOKEN"] == "${CRAWL4AI_API_TOKEN}"
     assert service["environment"]["CRAWL4AI_ALLOW_INTERNAL_URLS"] == "${CRAWL4AI_ALLOW_INTERNAL_URLS:-false}"

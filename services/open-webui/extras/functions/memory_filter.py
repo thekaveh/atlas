@@ -19,6 +19,27 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 
+# Backend MemoryMessage.content is a string of at most 20,000 characters.
+_MAX_CONTENT_CHARS = 20000
+
+
+def _message_text(content) -> str:
+    """Reduce Open WebUI message content to the string the backend accepts.
+
+    Messages with attachments carry a list of parts; forwarding the list (or
+    an over-long paste) got a 422 that skipped extraction for the whole turn.
+    """
+    if isinstance(content, list):
+        content = "\n".join(
+            part.get("text", "")
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    if not isinstance(content, str):
+        return ""
+    return content.strip()[:_MAX_CONTENT_CHARS]
+
+
 class _BoundedDaemonExecutor:
     """Small fire-and-forget pool with a bounded waiting queue."""
 
@@ -117,9 +138,9 @@ class Filter:
         try:
             recent_messages = messages[-self.valves.min_messages :]
             formatted = [
-                {"role": msg.get("role", "user"), "content": msg.get("content", "")}
+                {"role": msg.get("role") or "user", "content": text}
                 for msg in recent_messages
-                if msg.get("content")
+                if (text := _message_text(msg.get("content")))
             ]
             if not formatted:
                 return

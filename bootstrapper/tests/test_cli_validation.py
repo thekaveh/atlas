@@ -26,7 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
     ("args", "factory_name", "error_type"),
     [
         (("managed-host", "remove", "example", "--yes"), "_managed_host_manager", "generic"),
-        (("blender-mcp", "remove"), "_blender_mcp_manager", "blender"),
+        (("blender-mcp", "remove", "--yes"), "_blender_mcp_manager", "blender"),
     ],
 )
 def test_remove_cli_exits_nonzero_when_state_deletion_fails(
@@ -65,7 +65,7 @@ def test_remove_cli_is_idempotent_for_absent_state(tmp_path, monkeypatch, manage
         args, factory = ("managed-host", "remove", "example", "--yes"), "_managed_host_manager"
     else:
         manager = BlenderMcpManager(tmp_path / manager_kind)
-        args, factory = ("blender-mcp", "remove"), "_blender_mcp_manager"
+        args, factory = ("blender-mcp", "remove", "--yes"), "_blender_mcp_manager"
     monkeypatch.setattr(start_module, factory, lambda *_args: manager)
 
     first = CliRunner().invoke(main, list(args))
@@ -96,7 +96,7 @@ def test_remove_cli_rejects_descendant_not_found_with_existing_root(
     else:
         manager = BlenderMcpManager(tmp_path / manager_kind)
         args, factory, error_type = (
-            ("blender-mcp", "remove"), "_blender_mcp_manager", BlenderMcpError,
+            ("blender-mcp", "remove", "--yes"), "_blender_mcp_manager", BlenderMcpError,
         )
     manager.state_dir.mkdir(parents=True)
     monkeypatch.setattr(start_module, factory, lambda *_args: manager)
@@ -336,3 +336,18 @@ def test_privileged_hosts_helper_uses_bytecode_free_python_child(monkeypatch):
     assert "start.sh" not in args
     assert kwargs["env"]["PYTHONDONTWRITEBYTECODE"] == "1"
     assert "bootstrapper" in kwargs["env"]["PYTHONPATH"]
+
+
+def test_blender_mcp_remove_asks_for_confirmation_like_its_siblings(monkeypatch):
+    """docs/operations/index.md: the managed-host families share one
+    lifecycle; comfyui-mps/vllm-metal/managed-host remove all confirm."""
+    from types import SimpleNamespace
+    import start as start_module
+
+    removed = []
+    monkeypatch.setattr(
+        start_module, "_blender_mcp_manager",
+        lambda: SimpleNamespace(remove=lambda: removed.append(True)),
+    )
+    result = CliRunner().invoke(main, ["blender-mcp", "remove"], input="n\n")
+    assert result.exit_code == 1 and removed == []

@@ -1060,9 +1060,12 @@ def test_doctor_base_port_warns_on_default_squat():
         def get_project_name(self):
             return self._project
 
+    from core.port_manager import PortManager
+
     class _Starter:
         def __init__(self, env, project):
             self.config_parser = _CP(env, project)
+            self.port_manager = PortManager()
 
     # consumer squatting the default port -> warn
     r = start_module._doctor_check_base_port(_Starter({"BASE_PORT": "63000"}, "tableau"))
@@ -1422,6 +1425,12 @@ _LEAKS = [
     (_COLOURED_PASSWORD_LINE, "-".join(["abc", "123", "def", "456"])),
     (f"export key {_GOOGLE_SHAPED_KEY}", _GOOGLE_SHAPED_KEY),
     (f"shell-exported {_SHELL_KEY}", _SHELL_KEY),
+    # CLI flags, redis-cli -a, *_AUTH user/password, prose, escaped JSON quotes.
+    ("psql --password Xy9!kLm2pq", "Xy9!kLm2pq"),
+    ("redis-cli -h redis -a abc12 ping", "abc12"),
+    ("NEO4J_AUTH=neo4j/wordlikepass", "wordlikepass"),
+    ('connecting with secret "Xy9!kLm2pq"', "Xy9!kLm2pq"),
+    ('{"password":"a\\"b tail-leak"}', "tail-leak"),
 ]
 _KEPT = [
     # (text, content redaction must not destroy)
@@ -1432,6 +1441,10 @@ _KEPT = [
     ("?access_token=x&model=llama3.2&port=11434", "&model=llama3.2&port=11434"),
     ("COMFYUI_SOURCE is disabled; check not required.", "is disabled; check not required."),
     ("token rotation happened", "token rotation happened"),
+    # Auth-mode toggles are diagnostics, not credentials.
+    ("BACKEND_KONG_AUTH=disabled", "BACKEND_KONG_AUTH=disabled"),
+    ("BACKEND_IDENTITY_AUTH: required", "BACKEND_IDENTITY_AUTH: required"),
+    ("Unexpected token '<'", "Unexpected token '<'"),
 ]
 
 
@@ -1465,6 +1478,15 @@ def test_support_bundle_redactor_scrubs_keys_and_secret_named_values() -> None:
         "DB_PASSWORD": "short", "PORT": "5432",
         "postgres://atlas:hunter22@db/x": "seen",
     }) == {"DB_PASSWORD": "[REDACTED]", "PORT": "5432", "postgres://[REDACTED]@db/x": "seen"}
+    # *_PASS / *_AUTH are secret-named too, and a lowercase passphrase is
+    # scrubbed by value from free text.
+    assert redactor.value({"SMTP_PASS": "Xy9!kLm2pq", "GRAPH_DB_AUTH": "neo4j/pw"}) == {
+        "SMTP_PASS": "[REDACTED]", "GRAPH_DB_AUTH": "[REDACTED]",
+    }
+    sb = _bundle_module()
+    assert "correcthorsebattery" not in sb.Redactor(
+        {"GRAPH_DB_PASSWORD": "correcthorsebattery"}
+    ).text("login correcthorsebattery")
 
 
 def test_support_bundle_redaction_stays_linear_on_long_lines() -> None:
@@ -1940,3 +1962,235 @@ def test_textual_quit_waits_for_a_running_bundle_export(tmp_path, monkeypatch) -
 
     assert (lines[0].startswith("📦 Launch failed; collecting the support bundle"),
             notices) == (True, ["Writing the support bundle; Ctrl+Q works again when it is done."])
+
+
+def test_a_raising_check_fails_the_json_report_instead_of_crashing(tmp_path, monkeypatch):
+    """`doctor --format json` promises pure JSON and a non-zero exit on fail;
+    a check that raised printed a traceback and no JSON at all."""
+    from click.testing import CliRunner
+    import start as start_module
+
+    _write_base_env(tmp_path, extra="COMFYUI_SOURCE=disabled\n")
+    _patch_starter_paths(monkeypatch, tmp_path)
+
+    def broken(_starter):
+        raise ValueError("invalid literal for int() with base 10: '8188x'")
+
+    broken.__name__ = "_doctor_check_broken_probe"
+    monkeypatch.setattr(start_module, "DOCTOR_CHECKS", [broken])
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+
+    payload = json.loads(result.stdout)
+    assert result.exit_code == 1
+    assert payload["ok"] is False
+    assert payload["checks"][0]["id"] == "broken-probe"
+    assert payload["checks"][0]["status"] == "fail"
+    assert "ValueError" in payload["checks"][0]["message"]
+
+
+@pytest.mark.parametrize(
+    ("configured", "status"),
+    [("/custom-models.yaml", "skipped"), ("/nonexistent/atlas-models.yaml", "fail")],
+)
+def test_doctor_fails_a_missing_operator_configured_model_sidecar(configured, status) -> None:
+    """Only the shipped container-path default is expected to be missing; an
+    operator path that is missing silently dropped its models."""
+    from types import SimpleNamespace
+
+    import start as start_module
+
+    starter = SimpleNamespace(config_parser=SimpleNamespace(
+        parse_env_file=lambda: {"COMFYUI_CUSTOM_MODELS_FILE": configured},
+        root_dir=REPO_ROOT,
+    ))
+    assert start_module._doctor_check_model_sidecars(starter)["status"] == status
+
+
+def test_custom_models_flag_resolves_against_the_invoking_directory(tmp_path, monkeypatch) -> None:
+    import os
+
+    import start as start_module
+
+    monkeypatch.setenv("ATLAS_INVOKER_CWD", str(tmp_path))
+    resolved = start_module._invoker_path_list(f"./a.yaml{os.pathsep}/abs/b.yaml")
+    assert resolved.split(os.pathsep) == [str((tmp_path / "a.yaml").resolve()), "/abs/b.yaml"]
+
+
+def test_preflight_base_port_override_recomputes_service_ports(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """doctor's preflight wrote BASE_PORT alone, leaving *_PORT on the old
+    block, so `endpoints export` emitted another stack's ports."""
+    import start as start_module
+    from tests.test_consumer_manifest import _patch_starter_root, _write_consumer, _write_minimal_root
+
+    _write_minimal_root(tmp_path)
+    with (tmp_path / ".env").open("a", encoding="utf-8") as env:
+        env.write("BASE_PORT=63000\nLITELLM_PORT=63040\n")
+    manifest = _write_consumer(tmp_path, "ports")
+    with (manifest.parent / "atlas.env.user").open("a", encoding="utf-8") as user_env:
+        user_env.write("BASE_PORT=20000\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_root(start_module, monkeypatch, tmp_path)
+
+    starter = start_module.AtlasStarter()
+    starter.materialize_consumer_env_for_preflight()
+
+    expected = starter.port_manager.calculate_port_assignments(20000)["LITELLM_PORT"]
+    parsed = starter.config_parser.parse_env_file()
+    assert parsed["BASE_PORT"] == "20000"
+    assert parsed["LITELLM_PORT"] == str(expected) != "63040"
+
+
+def test_preflight_resolves_auto_under_the_applied_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stack launched with --profile prod (no manifest `profile:`) must not
+    have `auto` sources re-resolved under "default" by doctor."""
+    import start as start_module
+    from tests.test_consumer_manifest import _patch_starter_root, _write_consumer, _write_minimal_root
+
+    _write_minimal_root(tmp_path)
+    with (tmp_path / ".env").open("a", encoding="utf-8") as env:
+        env.write("ATLAS_PROFILE_APPLIED=prod\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(_write_consumer(tmp_path, "applied")))
+    _patch_starter_root(start_module, monkeypatch, tmp_path)
+
+    starter = start_module.AtlasStarter()
+    starter.materialize_consumer_env_for_preflight()
+    assert starter.profile == "prod"
+    assert start_module._known_applied_profile({"ATLAS_PROFILE_APPLIED": "dev"}) == "default"
+    assert start_module._known_applied_profile({"ATLAS_PROFILE_APPLIED": "staging"}) == ""
+    assert start_module._known_applied_profile({}) == ""
+
+
+def test_preflight_invalid_base_port_keeps_stdout_clean(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """update_env_ports prints on a bad base port; doctor --format json must
+    not get that line ahead of its JSON."""
+    import start as start_module
+    from tests.test_consumer_manifest import _patch_starter_root, _write_consumer, _write_minimal_root
+
+    _write_minimal_root(tmp_path)
+    manifest = _write_consumer(tmp_path, "badport")
+    with (manifest.parent / "atlas.env.user").open("a", encoding="utf-8") as user_env:
+        user_env.write("BASE_PORT=80\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_root(start_module, monkeypatch, tmp_path)
+
+    start_module.AtlasStarter().materialize_consumer_env_for_preflight()
+
+    assert "Invalid base port" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("raw, status", [
+    ("80", "fail"), ("70000", "fail"), ("-1", "fail"),  # start rejects them
+    ("+64000", "pass"), ("64_000", "pass"),             # int() accepts these
+    ("abc", "warn"),                    # start falls back to the default block
+    ("auto", "pass"),                   # start resolves it itself
+])
+def test_doctor_base_port_matches_what_start_does(raw, status):
+    from types import SimpleNamespace
+
+    import start as start_module
+    from core.port_manager import PortManager
+
+    starter = SimpleNamespace(
+        config_parser=SimpleNamespace(
+            parse_env_file=lambda: {"BASE_PORT": raw}, get_project_name=lambda: "atlas",
+        ),
+        port_manager=PortManager(),
+    )
+    assert start_module._doctor_check_base_port(starter)["status"] == status
+
+
+def test_consumer_artifacts_cannot_alias_stack_names(tmp_path: Path) -> None:
+    """Consumer "asset" + store "baker" took over asset-baker's MinIO
+    credentials; spark-history passed the bucket check; workflow id "plan"
+    was overwritten by plan.json; a host service "litellm" overrode
+    ATLAS_LITELLM_HOST_ENDPOINT."""
+    from core.consumer_manifest import (
+        ConsumerManifestError,
+        StorageStore,
+        _host_service_name,
+        _parse_n8n_workflows_block,
+        _validate_storage_collisions,
+    )
+
+    def store(consumer: str, name: str, bucket: str) -> StorageStore:
+        key = f"{consumer}_{name}".upper().replace("-", "_")
+        return StorageStore(consumer, name, key, f"{consumer}-{name}", bucket)
+
+    with pytest.raises(ConsumerManifestError, match="MINIO_ASSET_BAKER_ACCESS_KEY"):
+        _validate_storage_collisions([store("asset", "baker", "my-bucket")])
+    with pytest.raises(ConsumerManifestError, match="built-in"):
+        _validate_storage_collisions([store("demo", "logs", "spark-history")])
+    _validate_storage_collisions([store("demo", "media", "demo-media")])  # fine
+    with pytest.raises(ConsumerManifestError, match="reserved"):
+        _parse_n8n_workflows_block(
+            {"n8n_workflows": {"version": 1, "workflows": [{"id": "plan", "path": "w.json"}]}},
+            "demo", tmp_path, tmp_path / "atlas.consumer.yml",
+        )
+    with pytest.raises(ConsumerManifestError, match="reserved"):
+        _host_service_name({"name": "litellm"}, origin="m", seen=set())
+
+
+def test_preflight_after_a_start_keeps_that_starts_cli_overrides(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A start with --base-port 64000 persisted 64000 over the manifest's
+    20000; doctor re-merged the manifest and pointed .env at another block."""
+    import start as start_module
+    from tests.test_consumer_manifest import _patch_starter_root, _write_consumer, _write_minimal_root
+
+    _write_minimal_root(tmp_path)
+    with (tmp_path / ".env").open("a", encoding="utf-8") as env:
+        env.write("BASE_PORT=64000\nATLAS_PROFILE_APPLIED=default\n")
+    manifest = _write_consumer(tmp_path, "started")
+    with (manifest.parent / "atlas.env.user").open("a", encoding="utf-8") as user_env:
+        user_env.write("BASE_PORT=20000\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_root(start_module, monkeypatch, tmp_path)
+
+    applied = start_module.AtlasStarter().materialize_consumer_env_for_preflight()
+
+    parsed = start_module.AtlasStarter().config_parser.parse_env_file()
+    assert parsed["BASE_PORT"] == "64000"
+    assert "BASE_PORT" not in applied
+    # Derived overlay paths and keys .env lacks still materialize.
+    assert "EXTRA_CONSUMER_VALUE" in applied
+
+
+def test_env_values_conflicting_with_derived_sidecar_key_is_an_error(tmp_path: Path) -> None:
+    # env.values OLLAMA_CUSTOM_MODELS used to be overwritten by the
+    # model_sidecars-derived list without a word.
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    from tests.test_consumer_manifest import _write_consumer, _write_minimal_root
+
+    _write_minimal_root(tmp_path)
+    one = _write_consumer(tmp_path, "one", project_name="shared", include_brand=False)
+    one.write_text(
+        one.read_text(encoding="utf-8").replace(
+            "    EXTRA_CONSUMER_VALUE: enabled\n",
+            "    EXTRA_CONSUMER_VALUE: enabled\n    OLLAMA_CUSTOM_MODELS: qwen3:8b\n",
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ConsumerManifestError, match="OLLAMA_CUSTOM_MODELS"):
+        load_consumer_config(tmp_path, explicit_paths=[str(one)])
+
+
+def test_doctor_overlay_env_scan_skips_compose_dollar_escapes() -> None:
+    from start import _doctor_compose_var_refs
+
+    assert _doctor_compose_var_refs("curl localhost:$${PORT} ${A:-x} ${B}") == [
+        ("A", True), ("B", False),
+    ]

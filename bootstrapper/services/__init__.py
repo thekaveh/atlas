@@ -13,9 +13,9 @@ import subprocess
 import sys
 
 if __package__ == "bootstrapper.services":
-    from ..utils.atomic_write import atomic_write_text
+    from ..utils.atomic_write import atomic_replace_text
 else:
-    from utils.atomic_write import atomic_write_text
+    from utils.atomic_write import atomic_replace_text
 
 
 _LIFECYCLE_LOCK_TIMEOUT_SECONDS = 30.0
@@ -135,13 +135,26 @@ def refuse_occupied_port(status, port_probe, error_details) -> None:
         raise error_type(message)
 
 
+def _readiness_probe_timeout(manager, remaining: float) -> float:
+    """Per-attempt health timeout: the declared probe timeout, capped by the
+    time left. A fixed 0.5s cap failed every endpoint slower than that, so the
+    start killed a healthy process at the deadline."""
+    health = getattr(getattr(manager, "spec", None), "health", None)
+    declared = getattr(health, "timeout", None)
+    if declared is None:
+        declared = getattr(manager, "readiness_probe_timeout", None)
+    limit = declared if isinstance(declared, (int, float)) and declared > 0 else 0.5
+    return max(0.05, min(limit, remaining))
+
+
 def await_owned_process_readiness(manager, status, wait_timeout, error_details):
     """Wait for a health proof while repeatedly retaining ownership proof."""
     label, bind, port, error_type, clock = error_details
     deadline = clock.monotonic() + wait_timeout
+    remaining = wait_timeout
     while True:
         try:
-            health = manager.health(timeout=min(0.5, max(0.05, wait_timeout)))
+            health = manager.health(timeout=_readiness_probe_timeout(manager, remaining))
         except Exception as exc:
             raise error_type(
                 f"owned {label} readiness probe failed: {exc}",
@@ -155,12 +168,14 @@ def await_owned_process_readiness(manager, status, wait_timeout, error_details):
         ):
             current.port_open = True
             return current
-        if clock.monotonic() >= deadline:
+        now = clock.monotonic()
+        if now >= deadline:
             raise error_type(
                 f"owned {label} process did not become ready on "
                 f"{bind}:{port} within {wait_timeout:.0f}s",
                 surviving_process=False,
             )
+        remaining = deadline - now
         clock.sleep(0.5)
 
 
@@ -177,10 +192,10 @@ def await_spawned_process_readiness(manager, process, wait_timeout, context) -> 
 
 def _poll_spawned_process_readiness(manager, process, wait_timeout, clock) -> bool:
     deadline = clock.monotonic() + wait_timeout
-    while clock.monotonic() < deadline:
+    while (now := clock.monotonic()) < deadline:
         if process.poll() is not None:
             return False
-        health = manager.health(timeout=min(0.5, max(0.05, wait_timeout)))
+        health = manager.health(timeout=_readiness_probe_timeout(manager, deadline - now))
         if process.poll() is not None:
             return False
         ownership_probe = getattr(manager, "_spawned_endpoint_owned", None)
@@ -532,7 +547,7 @@ def _retain_pid_evidence(pid_file: Path, pid: int) -> tuple[str, tuple[str, ...]
     if _same_pid_has_identity(pid_file, pid):
         return "identity", ()
     try:
-        atomic_write_text(pid_file, f"{pid}\n")
+        atomic_replace_text(pid_file, f"{pid}\n")
     except BaseException as exc:
         return "none", (_cleanup_error(exc),)
     return "pid", ()

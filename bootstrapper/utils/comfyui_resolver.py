@@ -135,6 +135,18 @@ _DEFAULT_SIDECAR_PATH = "/custom-models.yaml"
 # Private helpers
 # ---------------------------------------------------------------------------
 
+def _warn_missing_sidecars(configured: list[str], existing: list[str]) -> None:
+    """Name operator-configured sidecars that do not exist; only the shipped
+    container-path default is expected to be absent on the host."""
+    for path in configured:
+        if path != _DEFAULT_SIDECAR_PATH and path not in existing:
+            print(
+                f"WARNING: COMFYUI_CUSTOM_MODELS_FILE entry {path!r} does not exist; "
+                "its models are not included.",
+                file=sys.stderr,
+            )
+
+
 def _path_list(val: str | None) -> list[str]:
     """Split an os.pathsep-separated path list into non-empty paths."""
     if not val:
@@ -246,6 +258,25 @@ def _host_repo_sidecar() -> Path | None:
 # Public API
 # ---------------------------------------------------------------------------
 
+def resolve_sidecar_paths(env: Mapping[str, str], *, warn: bool = True) -> list[str]:
+    """Sidecar YAML paths for ``COMFYUI_CUSTOM_MODELS_FILE`` on this host.
+
+    The value is an ``os.pathsep`` list; entries absent on disk are dropped
+    (warned unless ``warn`` is false). When none exist (the shipped default
+    ``/custom-models.yaml`` is a dead container path) the repo sidecar is used.
+    """
+    configured_paths = _path_list(env.get("COMFYUI_CUSTOM_MODELS_FILE", "").strip())
+    if not configured_paths:
+        configured_paths = [_DEFAULT_SIDECAR_PATH]
+    existing_paths = [path for path in configured_paths if os.path.isfile(path)]
+    if warn:
+        _warn_missing_sidecars(configured_paths, existing_paths)
+    if existing_paths:
+        return existing_paths
+    host_sidecar = _host_repo_sidecar()
+    return [str(host_sidecar)] if host_sidecar is not None else configured_paths
+
+
 def active_comfyui_models(
     env: Mapping[str, str],
     *,
@@ -296,19 +327,9 @@ def active_comfyui_models(
     # on the host (the shipped default /custom-models.yaml is a dead container
     # path — see _DEFAULT_SIDECAR_PATH), fall back to the repo sidecar so
     # services/comfyui/custom-models.yaml is honored.
-    sidecar_paths: list[str]
-    if sidecar_path is None:
-        configured_paths = _path_list(env.get("COMFYUI_CUSTOM_MODELS_FILE", "").strip())
-        if not configured_paths:
-            configured_paths = [_DEFAULT_SIDECAR_PATH]
-        existing_paths = [path for path in configured_paths if os.path.isfile(path)]
-        if existing_paths:
-            sidecar_paths = existing_paths
-        else:
-            host_sidecar = _host_repo_sidecar()
-            sidecar_paths = [str(host_sidecar)] if host_sidecar is not None else configured_paths
-    else:
-        sidecar_paths = [sidecar_path]
+    sidecar_paths = (
+        resolve_sidecar_paths(env) if sidecar_path is None else [sidecar_path]
+    )
 
     # ── 2. Load sidecar (always active) ─────────────────────────────────
     sidecar_entries: list[ComfyUILibraryEntry] = []
@@ -432,6 +453,8 @@ def write_manifest(entries: list[ComfyUILibraryEntry], path: str) -> None:
     yaml_content = yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
     fd, tmp = tempfile.mkstemp(dir=str(out_path.parent), prefix=out_path.name + ".", suffix=".tmp")
+    # mkstemp is 0600; the backend (appuser) reads these via a bind mount.
+    os.fchmod(fd, 0o644)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(yaml_content)

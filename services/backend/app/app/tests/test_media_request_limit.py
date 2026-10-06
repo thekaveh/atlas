@@ -94,6 +94,13 @@ def _fresh_main_app(monkeypatch, *, otel_enabled: bool):
             "instrument",
             lambda self, **_kwargs: None,
         )
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
+        monkeypatch.setattr(
+            HTTPXClientInstrumentor,
+            "instrument",
+            lambda self, **_kwargs: None,
+        )
     else:
         monkeypatch.setenv("ATLAS_OTEL_ENABLED", "false")
 

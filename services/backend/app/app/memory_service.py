@@ -16,7 +16,12 @@ from uuid import UUID, uuid4
 import httpx
 
 from db_connection import acquire_conn, connect_postgres
-from memory_store import MemoryStore, _to_uuid
+from memory_store import (
+    MemoryStore,
+    _to_uuid,
+    _weaviate_vectorizer_failure,
+    _weaviate_vectorizer_row_rejection,
+)
 
 logger = logging.getLogger("memory_service")
 
@@ -40,6 +45,16 @@ _TARGET_TRANSIENT = (
 _TARGET_HEALTH_STATUSES = frozenset({401, 408, 429})
 
 
+def _counts_toward_reconcile_halt(exc: BaseException, target_signal: bool) -> bool:
+    """Target failures halt the pass; so do systematic vectorizer failures
+    (Weaviate up, embedding provider failing every row), which never raise.
+    A vectorizer 4xx that rejects one fact's content is per-row: counting it
+    let three such rows at the head of the queue stall every later pass."""
+    if target_signal:
+        return True
+    return _weaviate_vectorizer_failure(exc) and not _weaviate_vectorizer_row_rejection(exc)
+
+
 def _is_target_health_signal(exc: BaseException) -> bool:
     """True when `exc` says the TARGET is unhealthy, not that a row is bad.
 
@@ -54,6 +69,11 @@ def _is_target_health_signal(exc: BaseException) -> bool:
     """
     if isinstance(exc, _TARGET_TRANSIENT):
         return True
+    if _weaviate_vectorizer_failure(exc):
+        # Weaviate is up; its LiteLLM embedding call failed. Defer the row
+        # (it stays pending with a pgvector shadow) instead of halting or, in
+        # the Celery path, raising a non-retryable error.
+        return False
     if isinstance(exc, httpx.HTTPStatusError):
         # `getattr`, not `exc.response`: this runs INSIDE the loop's
         # `except Exception` handler, so an AttributeError here would escape
@@ -369,7 +389,8 @@ Extract the facts as JSON:"""
                 async with conn.transaction():
                     await conn.execute(
                         "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
-                        user_uuid,
+                        # asyncpg's text codec accepts only str, not UUID.
+                        str(user_uuid),
                     )
                     current_count = await conn.fetchval(
                         """
@@ -749,7 +770,7 @@ Extract the facts as JSON:"""
                         "Memory vector reconciliation deferred (error_type=%s)",
                         type(exc).__name__,
                     )
-                    if not target_signal:
+                    if not _counts_toward_reconcile_halt(exc, target_signal):
                         # A row-specific failure says nothing about the
                         # target's health, so it must not COUNT toward the
                         # streak — and it must not RESET it either. Resetting

@@ -7,11 +7,16 @@ services:
     deploy:
       replicas: ${TEMPO_SCALE:-0}
     command: ["-config.file=/etc/tempo/tempo.yaml", "-config.expand-env=true"]
+    environment:
+      # Read by config/tempo.yaml through -config.expand-env.
+      TEMPO_RETENTION_PERIOD: ${TEMPO_RETENTION_PERIOD:-336h}
     volumes:
       - ./config/tempo.yaml:/etc/tempo/tempo.yaml:ro
       - tempo-data:/var/tempo
+    # The image is distroless (no shell, no wget); the binary's own -health
+    # flag probes /ready and exits nonzero when it is not ready.
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3200/ready"]
+      test: ["CMD", "/tempo", "-health"]
       interval: 30s
       timeout: 10s
       retries: 5

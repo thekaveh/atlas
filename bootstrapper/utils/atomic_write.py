@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from contextlib import suppress
 import errno
 import glob as _glob
 import re
@@ -203,6 +204,30 @@ def decode_env_value(raw: str) -> str:
     return value.strip()
 
 
+def _compose_would_rewrite(value: str) -> bool:
+    """A backslash, or a `$` that is not a `${...}` reference. `$$` is quoted
+    too: Atlas's own readers take it literally, so containers must as well."""
+    return "\\" in value or re.search(r"\$(?!\{)", value) is not None
+
+
+def _compose_literal(key: str, value: str) -> str:
+    """Single-quote a value Docker Compose would otherwise rewrite.
+
+    Compose expands `$name` and backslash escapes in unquoted and
+    double-quoted values (`pa$word` was read as `pa`; a trailing backslash
+    inside quotes broke the whole file). Single quotes are literal to both
+    parsers, except that Compose reads a closing backslash-quote as escaped.
+    `${VAR}` is left as written: Atlas writes those on purpose.
+    """
+    if "'" not in value and not value.endswith("\\"):
+        return f"'{value}'"
+    raise ValueError(
+        f"refusing to write {key}: the value contains a backslash or a bare "
+        f"`$` together with a single quote or a trailing backslash, so Docker "
+        f"Compose cannot read it literally"
+    )
+
+
 def render_env_value(key: str, value: str) -> str:
     """Render `value` so the reader decodes it back to exactly `value`.
 
@@ -216,6 +241,8 @@ def render_env_value(key: str, value: str) -> str:
     Quoting is preferred over rejection: the value is legitimate, only its
     encoding was wrong.
     """
+    if _compose_would_rewrite(value):
+        return _compose_literal(key, value)
     for candidate in (value, f'"{value}"', f"'{value}'"):
         if decode_env_value(candidate) == value:
             return candidate
@@ -235,8 +262,24 @@ def atomic_write_text(
     encoding: str = "utf-8",
     mode: int | None = None,
 ) -> None:
-    """Replace destination only after a complete, flushed temporary write."""
-    path = Path(destination)
+    """Replace destination only after a complete, flushed temporary write.
+
+    A symlinked destination is written through to its target: replacing the
+    link itself turned a parent-owned, symlinked ``.env`` into a detached
+    regular file that the parent's copy silently stopped receiving. Use
+    ``atomic_replace_text`` where replacing the link is the safe choice.
+    """
+    _atomic_write(Path(os.path.realpath(destination)), content, encoding, mode)
+
+
+def atomic_replace_text(destination: str | Path, content: str, *, mode: int | None = None) -> None:
+    """``atomic_write_text`` that replaces a symlinked destination instead of
+    following it: PID files, and generated config whose protection is the
+    owner-only directory it sits in."""
+    _atomic_write(Path(destination), content, "utf-8", mode)
+
+
+def _atomic_write(path: Path, content: str, encoding: str, mode: int | None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     target_mode = (
         mode
@@ -279,6 +322,20 @@ def atomic_write_text(
 #: Keeping the most recent few preserves the rollback the backups exist for while
 #: bounding how long a *rotated* secret stays readable on disk.
 BACKUP_RETENTION = 5
+
+
+def _restrict_backup_modes(source_path: Path, prefix: str) -> None:
+    """Make every snapshot of this env file owner-only, including legacy
+    `.env.backup.YYYYMMDDHHMMSS` copies that older releases wrote 0644 and
+    that no current retention pattern matches (they are kept, not pruned)."""
+    try:
+        snapshots = list(source_path.parent.glob(_glob.escape(prefix) + "*"))
+    except OSError:
+        return
+    for snapshot in snapshots:
+        with suppress(OSError):
+            if snapshot.is_file() and not snapshot.is_symlink() and snapshot.stat().st_mode & 0o077:
+                os.chmod(snapshot, 0o600)
 
 
 def _prune_old_backups(
@@ -384,6 +441,7 @@ def create_private_backup(
         # Prune only after the new snapshot is durable, so a crash mid-write can
         # never leave the caller with fewer backups than it started with.
         _prune_old_backups(source_path, prefix, keep=keep, protect=backup)
+        _restrict_backup_modes(source_path, prefix)
         return backup
     except BaseException:
         backup.unlink(missing_ok=True)

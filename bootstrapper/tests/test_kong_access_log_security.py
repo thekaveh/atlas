@@ -15,9 +15,10 @@ def test_kong_proxy_access_log_format_omits_query_bearing_variables() -> None:
 
     log_format = environment["KONG_NGINX_HTTP_LOG_FORMAT"]
     assert environment["KONG_PROXY_ACCESS_LOG"] == "/dev/stdout atlas"
+    # One quoted string: nginx joins split format strings with no separator.
     assert log_format == (
-        "atlas '$$request_method $$uri $$server_protocol' $$status "
-        "$$body_bytes_sent '\"$$http_user_agent\"' $$kong_request_id"
+        "atlas '$$request_method $$uri $$server_protocol $$status "
+        "$$body_bytes_sent \"$$http_user_agent\" $$kong_request_id'"
     )
     assert re.search(r"(?<!\$)\$(?!\$)", log_format) is None
 

@@ -18,7 +18,10 @@ user-facing description, source-variant table, and configuration reference.
 - **Host port:** `${STT_PROVIDER_PORT}` (computed from `BASE_PORT` by the
   bootstrapper)
 - **Readiness:** Uvicorn starts while a deadline-bounded background task loads
-  the configured model. `GET /health` returns `503` until loading completes.
+  the configured model. `GET /health` returns `503` until loading completes;
+  the Docker healthcheck allows an 810 s start period (plus retries, covering
+  the 900 s load deadline) because a cold first boot downloads the ~2.4 GB
+  checkpoint.
 
 This manifest also owns the broader `STT_PROVIDER_SOURCE` enum (every STT
 option across engines), which is why it lives here historically rather than

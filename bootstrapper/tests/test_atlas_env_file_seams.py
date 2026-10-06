@@ -119,7 +119,9 @@ def test_update_env_file_preserves_backslashes_in_values(tmp_path, monkeypatch):
     mgr = SourceOverrideManager(ConfigParser())
     tricky = r"abc\1def\g<name>\\end"
     assert mgr.update_env_file({"SOME_SECRET": tricky}) is True
-    assert f"SOME_SECRET={tricky}\n" in env.read_text(encoding="utf-8")
+    # Verbatim inside single quotes: Docker Compose expands backslash
+    # escapes in unquoted and double-quoted values.
+    assert f"SOME_SECRET='{tricky}'\n" in env.read_text(encoding="utf-8")
 
 
 def test_service_config_update_preserves_backslashes_in_values(tmp_path, monkeypatch):
@@ -136,7 +138,9 @@ def test_service_config_update_preserves_backslashes_in_values(tmp_path, monkeyp
     sc = ServiceConfig()
     tricky = r"abc\1def\g<name>\\end"
     assert sc.update_env_file({"SOME_SECRET": tricky}, create_backup=False) is True
-    assert f"SOME_SECRET={tricky}\n" in env.read_text(encoding="utf-8")
+    # Verbatim inside single quotes: Docker Compose expands backslash
+    # escapes in unquoted and double-quoted values.
+    assert f"SOME_SECRET='{tricky}'\n" in env.read_text(encoding="utf-8")
 
 
 def test_service_config_update_preserves_file_mode(tmp_path, monkeypatch):

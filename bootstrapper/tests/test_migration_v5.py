@@ -33,12 +33,18 @@ def test_existing_backup_module_is_not_duplicated(tmp_path: Path):
     assert env.read_text().count("backup-filesystem") == 1
 
 
-def test_blank_modules_gain_minimum_safe_module(tmp_path: Path):
+def test_blank_modules_become_the_shipped_default_list(tmp_path: Path):
+    # Blank meant compose's :- default (every vectorizer); a bare
+    # backup-filesystem started Weaviate with no vectorizer modules.
+    from services.migrations.migration_v5 import WEAVIATE_DEFAULT_MODULES
+    from services.service_config import _DEFAULT_WEAVIATE_MODULES
+
+    assert WEAVIATE_DEFAULT_MODULES == _DEFAULT_WEAVIATE_MODULES
     env = tmp_path / ".env"
     env.write_text("BOOTSTRAPPER_PORT_LAYOUT_VERSION=4\nWEAVIATE_ENABLE_MODULES=\n")
     assert apply(env)
     stamp_version(env)
-    assert "WEAVIATE_ENABLE_MODULES=backup-filesystem\n" in env.read_text()
+    assert f"WEAVIATE_ENABLE_MODULES={WEAVIATE_DEFAULT_MODULES}\n" in env.read_text()
 
 
 def test_v5_is_idempotent(tmp_path: Path):
@@ -101,3 +107,35 @@ def test_malformed_module_assignment_fails_closed(tmp_path: Path, assignment: st
     )
     with pytest.raises(MigrationV5Error, match="malformed"):
         apply(env)
+
+
+def test_malformed_env_warns_instead_of_crashing_start(tmp_path: Path, monkeypatch):
+    """A hand-edited duplicate line must not traceback every ./start.sh."""
+    import start
+
+    (tmp_path / ".env").write_text(
+        "WEAVIATE_ENABLE_MODULES=a\nWEAVIATE_ENABLE_MODULES=b\n", encoding="utf-8"
+    )
+    (tmp_path / ".env.example").write_text("BASE_PORT=63000\n", encoding="utf-8")
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    for name in ("_needs_v1", "_needs_v2", "_needs_v3", "_needs_v4"):
+        monkeypatch.setattr(start, name, lambda _path: False)
+    monkeypatch.setattr(start, "_needs_v5", lambda _path: True)
+    stamped = []
+    monkeypatch.setattr(start, "_stamp_v5", stamped.append)
+
+    starter = start.AtlasStarter()
+    starter.config_parser.root_dir = tmp_path
+    starter.config_parser.env_file_path = tmp_path / ".env"
+    starter.config_parser.env_example_path = tmp_path / ".env.example"
+    messages = []
+    monkeypatch.setattr(
+        starter.banner, "show_status_message",
+        lambda text, kind="info": messages.append((kind, text)),
+    )
+
+    starter.run_port_migration(no_port_migrate=False)
+
+    assert stamped == []
+    assert [kind for kind, _ in messages] == ["warning"]
+    assert "duplicate WEAVIATE_ENABLE_MODULES" in messages[0][1]

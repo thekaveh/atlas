@@ -42,8 +42,8 @@ if [ -n "${LIGHTRAG_PG_URI:-}" ]; then
   # Postgres (supabase-db) is SOURCE-replaceable — it can be container,
   # localhost, or external — so lightrag-init deliberately does NOT hard
   # depend_on it in compose (scripts/check-compose-source-deps.py FORBIDS
-  # the ('lightrag','supabase-db') edge; LightRAG falls back to in-process
-  # NanoVectorDB when the source is disabled). The transitive litellm:
+  # the ('lightrag','supabase-db') edge so a local LIGHTRAG_*_STORAGE class can
+  # run without it; there is no automatic fallback). The transitive litellm:
   # service_healthy gate makes supabase-db *usually* ready by now, but that
   # isn't guaranteed across source modes — so poll the endpoint here before
   # migrating: the SOURCE-safe equivalent of a compose readiness gate.
@@ -79,11 +79,19 @@ if [ -n "${LIGHTRAG_NEO4J_URI:-}" ]; then
     | map(gsub("[[:space:]]+"; " ") | gsub("^ | $"; ""))
     | map(select(length > 0))
     | {statements: map({statement: .})}')
+  # The HTTP endpoint follows the Bolt URI's host: the container is
+  # neo4j-graph-db:7474; a host-run Neo4j uses NEO4J_LOCALHOST_HTTP_PORT.
+  neo4j_host=$(printf '%s' "$LIGHTRAG_NEO4J_URI" | sed -E 's#^[a-z0-9+]+://([^:/]+).*#\1#')
+  if [ "$neo4j_host" = "neo4j-graph-db" ]; then
+    neo4j_http="http://neo4j-graph-db:7474"
+  else
+    neo4j_http="http://${neo4j_host}:${NEO4J_LOCALHOST_HTTP_PORT:-7474}"
+  fi
   http_status=$(curl -fs --max-time 30 -o /tmp/neo4j-resp.json -w '%{http_code}' \
     -u "${LIGHTRAG_NEO4J_USERNAME}:${LIGHTRAG_NEO4J_PASSWORD}" \
     -H 'Content-Type: application/json' \
     --data "$cypher_payload" \
-    "http://neo4j-graph-db:7474/db/neo4j/tx/commit" 2>&1) || {
+    "${neo4j_http}/db/neo4j/tx/commit" 2>&1) || {
       echo "[lightrag-init] WARN: Neo4j migration HTTP call failed (curl exit $?)" >&2
       echo "[lightrag-init] response: $(cat /tmp/neo4j-resp.json 2>/dev/null)" >&2
     }
@@ -94,8 +102,8 @@ if [ -n "${LIGHTRAG_NEO4J_URI:-}" ]; then
     echo "[lightrag-init] response: $(cat /tmp/neo4j-resp.json 2>/dev/null)" >&2
     # Non-fatal — this only pre-creates an index. With the default
     # Neo4JStorage, LightRAG creates the same range index itself on first write
-    # (CREATE INDEX ... IF NOT EXISTS); if Neo4j is disabled it falls back to
-    # in-memory NetworkXStorage. Either way a skipped migration costs nothing.
+    # (CREATE INDEX ... IF NOT EXISTS). With Neo4j disabled LightRAG needs
+    # LIGHTRAG_GRAPH_STORAGE set to a local class. A skipped migration costs nothing.
   fi
 fi
 

@@ -123,7 +123,12 @@ def render_all(
             expected = diagram_source_fingerprint(svg)
             if png_source_fingerprint(committed_png) != expected:
                 relative = committed_png.relative_to(repo_root)
-                raise RuntimeError(f"Committed diagram PNG is stale: {relative}")
+                # Committed PNGs are checked, not rewritten, because rendering
+                # is not byte-deterministic; the remedy is an explicit re-render.
+                raise RuntimeError(
+                    f"Committed diagram PNG is stale: {relative}; delete it and "
+                    "run `make docs-build` to re-render it"
+                )
         else:
             svg_to_png(svg, committed_png)
         if wiki_img_dir:

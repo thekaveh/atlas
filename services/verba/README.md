@@ -25,7 +25,7 @@ Upstream has discontinued and archived Verba. It is not a strategic maintained A
 | `VERBA_SOURCE` | `disabled` | `container` starts Verba; `disabled` scales it to zero and removes its Kong route. |
 | `VERBA_IMAGE` | `semitechnologies/verba@sha256:0947d289ebff2c9814941c8d4282ee994dc79598e76162ae82e6efda4682b0b7` | Digest-pinned Docker Hub image. Upstream publishes `latest` but no matching `v2.1.3` tag. |
 | `VERBA_PORT` | topology allocated | Host port for the direct UI. |
-| `VERBA_WEAVIATE_URL` | auto-managed | Passed to upstream `WEAVIATE_URL_VERBA`. |
+| `VERBA_WEAVIATE_URL` | auto-managed | Passed as upstream `WEAVIATE_URL_VERBA`, which Verba 2.1.3 reads only for its `Weaviate` (cloud cluster) deployment. With the default `Docker` deployment Verba always dials `weaviate:8080`, so with `WEAVIATE_SOURCE=localhost` choose `Custom` on Verba's connect screen and enter the host Weaviate address (`host.docker.internal` and `WEAVIATE_LOCALHOST_PORT`; `host.docker.internal` resolves on Docker Desktop, not by default on Linux Engine). |
 | `VERBA_OPENAI_MODEL` | empty | Optional LiteLLM model name for Verba's OpenAI generator. |
 | `VERBA_OPENAI_EMBED_MODEL` | empty | Optional LiteLLM embedding model name. |
 | `VERBA_DEFAULT_DEPLOYMENT` | `Docker` | Forces Verba toward external Weaviate instead of embedded local Weaviate. |

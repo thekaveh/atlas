@@ -68,6 +68,9 @@ def _target_exists(site_dir: Path, source: Path, link: str) -> bool:
 
 
 def validate_built_site_links(site_dir: Path) -> list[str]:
+    # An absent or empty site has no links to break, so it used to pass.
+    if not (site_dir / "index.html").is_file():
+        return [f"{site_dir}/index.html (site not built)"]
     missing: list[str] = []
     for html_file in sorted(site_dir.rglob("*.html")):
         parser = LinkParser()

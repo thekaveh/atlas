@@ -27,15 +27,25 @@ validate_exact_spec() {
 }
 
 if [ "$REQUESTED_SPECS" = "$LOCKED_SPECS" ] || [ "$REQUESTED_SPECS" = "$LEGACY_DEFAULT_SPECS" ]; then
-  echo "n8n-init: Installing Atlas' lockfile-backed community package set."
-  cp /config/package.json "$NODES_DIR/package.json"
-  cp /config/package-lock.json "$NODES_DIR/package-lock.json"
-  npm ci \
-    --prefix "$NODES_DIR" \
-    --omit=dev \
-    --ignore-scripts \
-    --no-audit \
-    --no-fund
+  # npm writes node_modules/.package-lock.json only after a completed
+  # install. When it and the manifests already match, skip `npm ci`: it
+  # deletes and refetches node_modules on every start, so a registry outage
+  # or offline host would fail n8n-init and keep n8n from starting.
+  if cmp -s /config/package.json "$NODES_DIR/package.json" \
+    && cmp -s /config/package-lock.json "$NODES_DIR/package-lock.json" \
+    && [ -f "$NODES_DIR/node_modules/.package-lock.json" ]; then
+    echo "n8n-init: Atlas' locked community package set is already installed."
+  else
+    echo "n8n-init: Installing Atlas' lockfile-backed community package set."
+    cp /config/package.json "$NODES_DIR/package.json"
+    cp /config/package-lock.json "$NODES_DIR/package-lock.json"
+    npm ci \
+      --prefix "$NODES_DIR" \
+      --omit=dev \
+      --ignore-scripts \
+      --no-audit \
+      --no-fund
+  fi
 else
   old_ifs=$IFS
   IFS=','

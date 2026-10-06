@@ -72,7 +72,7 @@ Set before running server:
 
 ```bash
 export DOCLING_LOCALHOST_PORT=18159      # Server port (default: 18159)
-export DOCLING_LOCALHOST_BIND_HOST=127.0.0.1
+export DOCLING_LOCALHOST_BIND_HOST=127.0.0.1  # Linux: containers reach the host via the docker bridge, not loopback; bind the bridge IP (or 0.0.0.0 with DOCLING_AUTH_MODE=required)
 export DOCLING_API_TOKEN="$(sed -n 's/^DOCLING_API_TOKEN=//p' ../../../../.env)"
 export DOCLING_AUTH_MODE=required
 export DOCLING_MAX_FILE_SIZE=52428800
@@ -242,7 +242,7 @@ uv run server.py
 
 ```bash
 # Use different port
-export DOCLING_LOCALHOST_PORT=63090
+export DOCLING_LOCALHOST_PORT=18160
 uv run server.py
 ```
 

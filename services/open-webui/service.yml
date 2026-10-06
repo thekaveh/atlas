@@ -12,7 +12,7 @@ capabilities:
   - name: "Source-aware speech and image features"
     status: partial
     verification: tested
-    note: "Open WebUI receives selected speech endpoints and ComfyUI settings, while model readiness, disabled providers, and source-specific credentials can leave individual features unavailable."
+    note: "Open WebUI receives selected speech endpoints and ComfyUI settings, while model readiness, disabled providers, source-specific credentials, saved admin settings, and the unconfigured built-in ComfyUI workflow can leave individual features unavailable."
   - name: "Backend memory and research tools"
     status: partial
     verification: tested
@@ -100,6 +100,9 @@ env:
     default: 2
   - name: OPEN_WEB_UI_MODEL_CACHE_TTL
     default: 300
+  - name: OPEN_WEB_UI_ENABLE_IMAGE_GENERATION
+    default: "true"
+    description: "Set by bootstrapper: true unless COMFYUI_SOURCE=disabled, so Open WebUI hides its ComfyUI image toggle when there is no ComfyUI. Open WebUI keeps the value saved in its database once an admin edits the Images settings."
   - name: OPEN_WEB_UI_TTS_ENGINE
     default: ""
     description: "Set by bootstrapper when speaches/chatterbox are enabled."
@@ -182,8 +185,6 @@ runtime_deps:
     - speaches
     - chatterbox
     - docling
-    info_message: Open WebUI enabled - will connect to available optional services
-      (weaviate, local-deep-researcher, parakeet, speaches, chatterbox, docling)
 
 data_flow:
   # Open WebUI reaches every plugged-in media + agent feature at request

@@ -122,6 +122,8 @@ _No high-confidence opportunities identified._
 
 ## 6. Troubleshooting
 
+**`container-gpu` leaves Weaviate not-ready.** The compose fragment sets `ENABLE_CUDA=1` for `container-gpu` but does not request a GPU (no `runtime: nvidia` or device reservation), so the CLIP container exits at startup (`Torch not compiled with CUDA enabled` / no visible CUDA device) and Weaviate, with `multi2vec-clip` enabled, waits for it indefinitely. Use `container-cpu` (or `disabled`) until GPU wiring lands.
+
 **Container OOMs on CPU.** ViT-B-32 needs ~1.5 GB RSS at idle, more under load. Docker Desktop's default 2 GB host limit will kill it. Raise the Docker memory budget or switch to `container-gpu` if a GPU is available.
 
 **Weaviate ingest fails with `connection refused to multi2vec-clip:8080`.** Either `MULTI2VEC_CLIP_SOURCE=disabled` or the container is unhealthy. `docker compose ps multi2vec-clip` and `curl http://localhost:<host-port-if-published>/meta` from the host (note: no host port by default — `docker exec` into Weaviate and curl from there).

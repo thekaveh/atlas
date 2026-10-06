@@ -214,3 +214,20 @@ def test_env_vars_the_scala_kernel_hard_requires_are_injected():
         "these are required by a Scala notebook cell but never injected into "
         f"the jupyterhub container, so the cell always aborts: {missing}"
     )
+
+
+def test_advanced_sql_notebook_follows_the_configured_iceberg_buckets():
+    notebook = json.loads(
+        (NOTEBOOK_DIR / "12_iceberg_advanced_sql.ipynb").read_text(encoding="utf-8")
+    )
+    code = "\n".join(
+        "".join(cell["source"]) for cell in notebook["cells"]
+        if cell["cell_type"] == "code"
+    )
+    environment = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))[
+        "services"
+    ]["jupyterhub"]["environment"]
+    for var in ("MINIO_BUCKET_ICEBERG_LANDING", "MINIO_BUCKET_ICEBERG_CHECKPOINTS"):
+        assert f'os.environ.get("{var}"' in code
+        assert var in environment
+    assert "s3a://landing/" not in code and "s3a://checkpoints/" not in code

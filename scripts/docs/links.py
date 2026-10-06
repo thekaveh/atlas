@@ -11,6 +11,10 @@ from markdown_it.token import Token
 REPO_URL = "https://github.com/thekaveh/atlas"
 WIKI_URL = "https://github.com/thekaveh/atlas/wiki"
 SITE_URL = "https://thekaveh.github.io/atlas"
+# The repository counts as a documentation surface only at its root and
+# under blob/tree/raw; issues, pulls and releases are ordinary references
+# (docs/critical-pages.yaml lists the issues URL as one).
+REPO_DOC_PATH_RE = re.compile(rf"^{re.escape(REPO_URL)}(?:/?$|/(?:blob|tree|raw)(?:/|$))")
 
 _LINK_RE = re.compile(r"(?P<image>!)?\[[^\]]*\]\((?P<target><[^>]+>|[^)\s]+)(?:\s+[^)]*)?\)")
 _HTML_LINK_RE = re.compile(
@@ -121,10 +125,7 @@ def navigable_link_targets(markdown: str) -> list[str]:
 def is_forbidden(target: str, surface: str) -> bool:
     normalized = target.rstrip("/")
     is_wiki = normalized == WIKI_URL or normalized.startswith(f"{WIKI_URL}/")
-    is_repo = (
-        normalized == REPO_URL
-        or normalized.startswith(f"{REPO_URL}/")
-    ) and not is_wiki
+    is_repo = bool(REPO_DOC_PATH_RE.match(target)) and not is_wiki
     is_site = normalized == SITE_URL or normalized.startswith(f"{SITE_URL}/")
     if surface == "repo":
         return is_site or is_wiki

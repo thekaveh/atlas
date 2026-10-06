@@ -1,6 +1,7 @@
 """Tests for _generate_vllm_metal_config() (#379)."""
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from services.service_config import ServiceConfig
@@ -45,3 +46,79 @@ def test_managed_localhost_uses_localhost_host_seam():
     # localhost host must be honoured (mirrors _generate_lightrag_config).
     env = _make("managed-localhost", host="localhost")._generate_vllm_metal_config()
     assert env["VLLM_METAL_ENDPOINT"] == "http://localhost:8000"
+
+
+def test_ollama_localhost_upstream_resolves_the_configured_port():
+    # Compose's .env parser falls back to the :-11434 default when
+    # OLLAMA_LOCALHOST_PORT sits after LITELLM_OLLAMA_UPSTREAM (it does in
+    # .env.example), so the port must be resolved before it reaches .env.
+    sc = ServiceConfig(config_parser=MagicMock())
+    sc.localhost_host = "host.docker.internal"
+    sc.service_sources = {"LLM_PROVIDER_SOURCE": "ollama-localhost"}
+    sc.config_parser.parse_env_file.return_value = {"OLLAMA_LOCALHOST_PORT": "11500"}
+    sc.get_service_config = MagicMock(return_value={
+        "environment": {"OLLAMA_ENDPOINT": "http://host.docker.internal:${OLLAMA_LOCALHOST_PORT:-11434}"},
+    })
+    env = sc._generate_llm_provider_config()
+    assert env["LITELLM_OLLAMA_UPSTREAM"] == "http://host.docker.internal:11500"
+
+
+def test_lightrag_follows_graph_db_user_and_warns_on_missing_backends(capsys):
+    from services.service_config import _lightrag_neo4j_username, _warn_lightrag_storage_gaps
+
+    assert _lightrag_neo4j_username({"GRAPH_DB_USER": "graphops"}) == "graphops"
+    assert _lightrag_neo4j_username({}) == "neo4j"
+    # Neo4j disabled -> blank URI with the default Neo4JStorage selector.
+    _warn_lightrag_storage_gaps(
+        {"LIGHTRAG_NEO4J_URI": "", "LIGHTRAG_PG_URI": "postgresql://x", "LIGHTRAG_REDIS_URI": "redis://x"},
+        {},
+    )
+    err = capsys.readouterr().err
+    assert "LIGHTRAG_GRAPH_STORAGE=Neo4JStorage" in err and "Redis" not in err
+    _warn_lightrag_storage_gaps({"LIGHTRAG_NEO4J_URI": ""}, {
+        "LIGHTRAG_GRAPH_STORAGE": "NetworkXStorage", "LIGHTRAG_VECTOR_STORAGE": "NanoVectorDBStorage",
+        "LIGHTRAG_KV_STORAGE": "JsonKVStorage", "LIGHTRAG_DOC_STATUS_STORAGE": "JsonDocStatusStorage",
+    })
+    assert capsys.readouterr().err == ""
+
+
+def test_localhost_stt_endpoint_resolves_the_configured_port():
+    # Derived .env lines sit above WHISPER_CPP_LOCALHOST_PORT, where compose
+    # substituted the :-default, so Open WebUI/Hermes called the wrong port.
+    sc = ServiceConfig(config_parser=MagicMock())
+    sc.localhost_host = "host.docker.internal"
+    sc.service_sources = {"STT_PROVIDER_SOURCE": "whisper-cpp-localhost"}
+    sc.config_parser.parse_env_file.return_value = {"WHISPER_CPP_LOCALHOST_PORT": "63099"}
+    sc.get_service_config = MagicMock(return_value={
+        "environment": {"STT_ENDPOINT": "http://host.docker.internal:${WHISPER_CPP_LOCALHOST_PORT:-63042}"},
+    })
+    env = sc._generate_stt_provider_config()
+    assert env["STT_ENDPOINT"] == "http://host.docker.internal:63099"
+
+
+def test_localhost_tts_endpoint_resolves_the_configured_port():
+    sc = ServiceConfig(config_parser=MagicMock())
+    sc.localhost_host = "host.docker.internal"
+    sc.service_sources = {"TTS_PROVIDER_SOURCE": "chatterbox-localhost"}
+    sc.config_parser.parse_env_file.return_value = {"CHATTERBOX_LOCALHOST_PORT": "63099"}
+    sc.get_service_config = MagicMock(return_value={
+        "environment": {"TTS_ENDPOINT": "http://host.docker.internal:${CHATTERBOX_LOCALHOST_PORT:-63044}"},
+    })
+    env = sc._generate_tts_provider_config()
+    assert env["TTS_ENDPOINT"] == "http://host.docker.internal:63099"
+
+
+def test_blank_weaviate_modules_fallback_matches_env_example():
+    # The fallback is written back durably; without backup-filesystem the
+    # backup contract refuses to run.
+    from services.service_config import _DEFAULT_WEAVIATE_MODULES
+
+    example = (Path(__file__).resolve().parents[2] / ".env.example").read_text(encoding="utf-8")
+    assert f"WEAVIATE_ENABLE_MODULES={_DEFAULT_WEAVIATE_MODULES}\n" in example
+
+
+def test_blank_speaches_tts_model_falls_back_to_kokoro():
+    from services.service_config import _speaches_tts_model
+
+    assert _speaches_tts_model({"SPEACHES_TTS_MODEL": ""}) == "speaches-ai/Kokoro-82M-v1.0-ONNX"
+    assert _speaches_tts_model({"SPEACHES_TTS_MODEL": "x/y"}) == "x/y"

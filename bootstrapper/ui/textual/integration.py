@@ -28,11 +28,12 @@ _THEME_PATH = Path(__file__).parent / "theme.css"
 # truth lives in wizard/comfyui_steps.py; imported here to keep the drain
 # loop (selections.get(COMFYUI_MODELS_TITLE)) aligned with what the step
 # registers without duplicating the string literal.
-from tracks import remark_off_track_rows as _remark_off_track_rows
+from tracks import consumer_declared_track_keys, remark_off_track_rows as _remark_off_track_rows
 from wizard.comfyui_steps import COMFYUI_MODELS_TITLE
 from wizard.model.cloud_rules import (
     SECRET_CLEAR,
     SECRET_KEEP,
+    _carry_kept_values_into_cold_start,
     resolve_cloud_provider,
     resolve_secret_verdict,
 )
@@ -307,6 +308,18 @@ def recompute_ports_for_base(
     return new_rows
 
 
+def _make_profile_default_provider(profile_sources, mname, cli_profile, fallback):
+    """Source-step default that follows the selected profile's bundle: prod
+    enables Prometheus/Grafana, but the step defaulted to the .env value, and
+    pressing Enter on it counted as an explicit "disabled" answer."""
+    from services.profiles import profile_source_default  # noqa: PLC0415
+
+    return lambda selections: profile_source_default(
+        profile_sources, mname,
+        cli_profile or selections.get(PROFILE_STEP_TITLE) or "default", fallback,
+    )
+
+
 def _build_steps_and_rows(
     config_parser,
     hosts_manager,
@@ -322,6 +335,8 @@ def _build_steps_and_rows(
     from .widgets.prompt_panel import PromptOption, PromptStep
     from .widgets.service_table import ServiceRow
     from services.manifests import load_manifests as _load_manifests, option_in_profile as _option_in_profile
+    from services.manifests import manifest_source_default
+    from services.profiles import profile_source_map
     try:
         _manifests = _load_manifests(Path(config_parser.root_dir) / "services")
     except Exception:  # noqa: BLE001
@@ -335,6 +350,7 @@ def _build_steps_and_rows(
         for mf in _manifests
         if mf.sources is not None
     }
+    _profile_sources = profile_source_map()
     _secondary_by_source_var = {
         row.source_var: row.secondary_number
         for manifest in _manifests
@@ -718,14 +734,15 @@ def _build_steps_and_rows(
         opts = _visible_source_options({})
         visible_opts = [opt.value for opt in opts]
         # If the current .env value was filtered out, fall back to the
-        # manifest default (svc.options[0]) if available in visible_opts,
+        # manifest's declared default if available in visible_opts,
         # else the first visible option.
         _raw_current = svc.current_value
         if _raw_current in visible_opts:
             default = _raw_current
         else:
-            # svc.options[0] is the manifest default for this service.
-            _manifest_default = svc.options[0] if svc.options else None
+            # The manifest's declared sources.default (svc.options[0] is only
+            # the first listed option, usually an enabling variant).
+            _manifest_default = manifest_source_default(_manifests, getattr(svc, "env_var_name", ""))
             if _manifest_default in visible_opts:
                 default = _manifest_default
             else:
@@ -737,6 +754,9 @@ def _build_steps_and_rows(
             subtitle=_support_subtitle(svc),
             options=opts, default_value=default, service_name=svc.display_name,
             options_provider=_visible_source_options,
+            default_value_provider=_make_profile_default_provider(
+                _profile_sources, _mname, profile, default,
+            ),
             service_key=svc.key,
             # secondary_number REMOVED from PromptStep — config is now
             # on individual PromptOption entries above.
@@ -1056,9 +1076,7 @@ def _selections_to_args(
         )
         for svc in services_info
     }
-    _consumer_declared_keys = frozenset(
-        k for k in consumer_declared if k in _track_view
-    )
+    _consumer_declared_keys = consumer_declared_track_keys(consumer_declared, services_info)
     try:
         from tracks import load_tracks as _load_tracks_for_synth
         from tracks import synthesize_track_source_args as _synth_track_args
@@ -1290,7 +1308,11 @@ def _selections_to_args(
         _current_pn = ((env_vars or {}).get("PROJECT_NAME") or "").strip().lower()
         if _pn and _pn != _current_pn:
             project_name_val = _pn
-    cold = selections.get("Cold start  ·  rebuild") == "yes"
+    cold = _carry_kept_values_into_cold_start(
+        selections.get("Cold start  ·  rebuild") == "yes", env_vars,
+        {"source": source_args, "keys": cloud_api_keys, "cloud_models": cloud_user_models,
+         "ollama": ollama_user_models, "comfyui": comfyui_user_models},
+    )
     hosts = selections.get("Hosts setup  ·  /etc/hosts", "default")
     launch = selections.get("Confirm  ·  launch the stack") == "yes"
     # Resolve the deployment profile from the wizard's profile-step selection.
@@ -1299,6 +1321,10 @@ def _selections_to_args(
     return source_args, {
         "base_port": base_port_val, "base_port_auto": base_port_auto,
         "project_name": project_name_val, "cold": cold,
+        # A wizard "Cold start: yes" has not cleaned anything yet (the CLI
+        # --cold path cleans before the launch screen), so the pipeline
+        # must remove volumes and recreate .env itself.
+        "cold_cleanup_pending": cold,
         "setup_hosts": (hosts == "setup"), "skip_hosts": (hosts == "skip"),
         "launch_confirmed": launch,
         "cloud_api_keys": cloud_api_keys,

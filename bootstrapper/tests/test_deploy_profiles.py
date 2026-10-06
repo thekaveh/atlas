@@ -284,6 +284,83 @@ def test_consumer_profile_overrides_reach_the_applier(tmp_path, monkeypatch):
     assert _env(tmp_path)["WEAVIATE_MEMORY_LIMIT"] == "4g"
 
 
+def _starter_with_shipped_limit(tmp_path: Path, current: str):
+    """A starter whose .env.example ships WEAVIATE_MEMORY_LIMIT=2g."""
+    s = _make_starter(tmp_path, f"HOST_BIND_IP=\nWEAVIATE_MEMORY_LIMIT={current}\n")
+    (tmp_path / ".env.example").write_text(
+        "HOST_BIND_IP=127.0.0.1:\nWEAVIATE_MEMORY_LIMIT=2g\n", encoding="utf-8"
+    )
+    return s
+
+
+def test_profile_env_replaces_shipped_default_but_keeps_operator_value(
+    tmp_path, monkeypatch
+):
+    # .env.example ships WEAVIATE_MEMORY_LIMIT=2g, so the profile env never
+    # applied when only "unset or empty" counted as not operator-set.
+    s = _starter_with_shipped_limit(tmp_path, "2g")
+    overrides = {"dev": {"env": {"WEAVIATE_MEMORY_LIMIT": "4g"}}}
+    monkeypatch.setattr(
+        s.config_parser, "load_consumer_config",
+        lambda: NS(profile="dev", profile_overrides=overrides),
+    )
+    assert s.apply_profile_overrides("dev") is True
+    assert _env(tmp_path)["WEAVIATE_MEMORY_LIMIT"] == "4g"
+
+    s = _starter_with_shipped_limit(tmp_path, "6g")
+    monkeypatch.setattr(
+        s.config_parser, "load_consumer_config",
+        lambda: NS(profile="dev", profile_overrides=overrides),
+    )
+    assert s.apply_profile_overrides("dev") is True
+    assert _env(tmp_path)["WEAVIATE_MEMORY_LIMIT"] == "6g"
+
+    # A .env.user pin that equals the shipped default is still the operator's.
+    s = _starter_with_shipped_limit(tmp_path, "2g")
+    (tmp_path / ".env.user").write_text("WEAVIATE_MEMORY_LIMIT=2g\n", encoding="utf-8")
+    monkeypatch.setattr(
+        s.config_parser, "load_consumer_config",
+        lambda: NS(profile="dev", profile_overrides=overrides, env_overrides={}),
+    )
+    assert s.setup_env_file(cold_start=False) is True
+    assert s.apply_profile_overrides("dev") is True
+    assert _env(tmp_path)["WEAVIATE_MEMORY_LIMIT"] == "2g"
+    (tmp_path / ".env.user").unlink()
+
+    # ...and so is a consumer manifest env value.
+    s = _starter_with_shipped_limit(tmp_path, "2g")
+    monkeypatch.setattr(
+        s.config_parser, "load_consumer_config",
+        lambda: NS(profile="dev", profile_overrides=overrides,
+                   env_overrides={"WEAVIATE_MEMORY_LIMIT": "2g"}),
+    )
+    assert s.apply_profile_overrides("dev") is True
+    assert _env(tmp_path)["WEAVIATE_MEMORY_LIMIT"] == "2g"
+
+
+def test_manifest_declared_source_beats_profile_assert_and_reset(
+    tmp_path, monkeypatch
+):
+    body = (
+        "HOST_BIND_IP=\nPROMETHEUS_SOURCE=disabled\nGRAFANA_SOURCE=container\n"
+        "ATLAS_PROFILE_APPLIED=prod\n"
+    )
+    s = _make_starter(tmp_path, body)
+    monkeypatch.setattr(
+        s.config_parser, "load_consumer_config",
+        lambda: NS(
+            profile="prod", profile_overrides={},
+            env_overrides={
+                "PROMETHEUS_SOURCE": "disabled", "GRAFANA_SOURCE": "container",
+            },
+        ),
+    )
+    assert s.apply_profile_overrides("prod") is True
+    assert _env(tmp_path)["PROMETHEUS_SOURCE"] == "disabled"  # no prod assert
+    assert s.apply_profile_overrides("default") is True
+    assert _env(tmp_path)["GRAFANA_SOURCE"] == "container"  # no switch reset
+
+
 def test_profile_auto_source_delegates_to_753_resolver(tmp_path, monkeypatch):
     import services.host_capabilities as hc
 
@@ -411,3 +488,12 @@ def test_doctor_profile_reports_bundle_and_tiers():
 
 def test_doctor_profile_registered():
     assert start._doctor_check_profile in start.DOCTOR_CHECKS
+
+
+def test_first_noop_default_start_still_records_the_applied_marker(tmp_path):
+    """A default-profile first start with nothing to change wrote no marker,
+    so doctor's preflight treated the stack as never started and re-merged
+    the manifest over that start's CLI overrides."""
+    s = _make_starter(tmp_path, "HOST_BIND_IP=127.0.0.1:\n")
+    assert s.apply_profile_overrides("default") is True
+    assert _env(tmp_path)["ATLAS_PROFILE_APPLIED"] == "default"

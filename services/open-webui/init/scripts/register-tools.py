@@ -148,6 +148,11 @@ def backend_user_sync_sql():
               );
             RETURN OLD;
         END IF;
+        -- A GoTrue identity owns its row; skip before INSERT, because RLS
+        -- checks the insert before ON CONFLICT ... WHERE could skip it.
+        IF EXISTS (SELECT 1 FROM auth.users WHERE id = candidate_id::uuid) THEN
+            RETURN NEW;
+        END IF;
         INSERT INTO public.users (id, name)
         VALUES (
             candidate_id::uuid,
@@ -174,6 +179,9 @@ def backend_user_sync_sql():
         COALESCE(NULLIF(BTRIM(name), ''), 'Open WebUI user')
     FROM public."user"
     WHERE id ~* '{UUID_PATTERN}'
+      -- text comparison: Postgres may evaluate this before the UUID regex,
+      -- and casting a non-UUID id would abort the whole backfill.
+      AND NOT EXISTS (SELECT 1 FROM auth.users a WHERE a.id::text = lower("user".id))
     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
     WHERE NOT EXISTS (
         SELECT 1 FROM auth.users WHERE id = public.users.id

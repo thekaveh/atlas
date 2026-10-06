@@ -442,6 +442,10 @@ class RagIngestionService:
 
         try:
             record.status = STATUS_RUNNING
+            # Every attempt re-runs all phases from fresh state, so errors
+            # persisted by a superseded attempt (before a Celery retry) are
+            # stale duplicates, not findings of this run.
+            record.errors = []
             await self._persist(record, owner)
 
             state: Dict[str, Any] = {
@@ -500,6 +504,20 @@ class RagIngestionService:
             # recorded, actionable job failure — never a crashed worker.
             await self._record_unexpected_failure(record, exc, owner)
             return record
+        except asyncio.CancelledError:
+            # Celery's soft time limit (or a worker shutdown) escapes the event
+            # loop and asyncio.run cancels this coroutine. Without a terminal
+            # record the job stayed "running", and as a dedup status it
+            # answered every resubmit with the dead job until its TTL expired.
+            try:
+                await self._record_unexpected_failure(
+                    record,
+                    RuntimeError("ingestion interrupted before completion (Celery time limit)"),
+                    owner,
+                )
+            except Exception:  # noqa: BLE001 - never replace the cancellation
+                logger.exception("could not record interrupted RAG ingestion %s", record.id)
+            raise
         else:
             record.status = (
                 STATUS_FAILED
@@ -656,7 +674,7 @@ class RagIngestionService:
         from chunking_service import (
             ChunkingDependencyError,
             ChunkingError,
-            ChunkRequest,
+            CorpusChunkRequest,
             chunk_text,
         )
 
@@ -673,7 +691,7 @@ class RagIngestionService:
             try:
                 resp = await asyncio.to_thread(
                     chunk_text,
-                    ChunkRequest(
+                    CorpusChunkRequest(
                         text=doc.text,
                         strategy=strategy,
                         chunk_size=chunk_size,
@@ -685,8 +703,8 @@ class RagIngestionService:
                 # job rather than silently isolating it to a zero-chunk success.
                 raise
             except (ValidationError, ChunkingError) as exc:
-                # Per-document failure — e.g. doc.text over ChunkRequest's length
-                # cap, or a chonkie chunking error. Isolate it and continue like
+                # Per-document failure — e.g. a chonkie chunking error or an
+                # invalid chunker setting. Isolate it and continue like
                 # _phase_parse does, instead of aborting the whole corpus.
                 state.setdefault("failed_sources", set()).add(doc.name)
                 record.add_error(

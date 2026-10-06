@@ -22,6 +22,8 @@ Every line below is a complete, safe-to-run command:
 ./stop.sh
 ```
 
+Before a subcommand (`doctor`, `endpoints`, `env`, `compose`, `managed-host`, …) only `--consumer` applies; it is exported for the subcommand. Output-mode flags (`--no-tui`, `--json`, `--no-splash`, `--detach`) are accepted there and ignored. Any other start option placed there, such as `-p` or `--base-port`, has no effect, and Atlas prints a warning naming it: subcommands read the project and ports from `.env`.
+
 The managed-host families share one lifecycle synopsis. This is **syntax, not
 shell** — the bars separate alternative actions, so pick exactly one per
 invocation (in a shell, a literal `|` would be parsed as a pipeline):
@@ -96,8 +98,9 @@ a log excerpt into one local `.tar.gz` you can attach to an issue. A relative
   - Under `--no-tui`, that is the startup steps; the log excerpt is what the run
     printed. Docker Compose output that goes straight to the terminal is not
     captured.
-  - A failure before the pipeline starts (Docker missing, an invalid flag)
-    leaves no bundle; run `./start.sh doctor --bundle PATH` then.
+  - A failure before the pipeline starts (Docker unavailable, an unsupported
+    Compose version, a failed `--setup-hosts`, a legacy `external` source, an
+    invalid flag) leaves no bundle; run `./start.sh doctor --bundle PATH` then.
   - Stopping the log stream after a successful start (Ctrl+C) is not a failure
     and writes nothing.
 
@@ -219,8 +222,9 @@ policies: `inherit` requires Backend identity, `key-auth` validates
 `BACKEND_KONG_API_KEY` at both layers, and only explicit `open` routes are
 public. Timeout-bearing plugins receive dedicated Kong services so their
 strict millisecond `connect_timeout`, `write_timeout`, and `read_timeout`
-overrides do not affect other backend routes; omitted fields retain Kong's
-defaults. See
+overrides do not affect other backend routes; an omitted `read_timeout`/
+`write_timeout` gets the backend's own long timeout (at least 3,630,000 ms) and an omitted
+`connect_timeout` keeps Kong's 60,000 ms default. See
 [reusing-atlas.md §6.3.1](https://github.com/thekaveh/atlas/blob/main/docs/operations/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml).
 
 ## 7. Health And Logs

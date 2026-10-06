@@ -9,6 +9,7 @@ explicit readiness probe.
 import os
 import asyncio
 import logging
+import re
 from typing import Optional, List, Dict, Any, Union
 from uuid import UUID
 
@@ -28,6 +29,19 @@ def _to_uuid(value: Union[str, UUID, None]) -> Optional[UUID]:
 logger = logging.getLogger("memory_store")
 
 WEAVIATE_COLLECTION_NAME = "Memory"
+
+
+# Filtered by exact value: word tokenization made `namespace == "default"`
+# also match "default-archive" and "Work Default", and those extra hits took
+# the search's limit slots (Postgres re-filters them, so results came short).
+_EXACT_MATCH_PROPERTIES = ("userId", "namespace", "factType", "pgFactId")
+
+
+def _needs_field_tokenization(schema: dict) -> bool:
+    return not {
+        prop.get("name") for prop in schema.get("properties") or []
+        if prop.get("tokenization") == "field"
+    }.issuperset(_EXACT_MATCH_PROPERTIES)
 MAX_PGVECTOR_DIMENSION = 4000
 MAX_FAILBACK_REBUILD_ATTEMPTS = 3
 
@@ -59,7 +73,60 @@ def _parse_embedding_dimension(value: Union[str, int, None]) -> int:
     return dimension
 
 
+# Writes and nearText queries make Weaviate call LiteLLM for an embedding; a
+# cold Ollama model load can exceed 10s (the direct pgvector embed allows 30s).
+_WEAVIATE_VECTORIZE_TIMEOUT = 30.0
+
+
+class WeaviateQueryError(RuntimeError):
+    """Weaviate answered, but the query failed (GraphQL ``errors``)."""
+
+
+def _weaviate_vectorizer_failure(exc: BaseException) -> bool:
+    """Weaviate is reachable but its embedding call (via LiteLLM) failed.
+
+    Weaviate reports a vectorizer error as a 5xx on writes and as GraphQL
+    ``errors`` on nearText queries. Neither means Weaviate is down, so they
+    must not latch pgvector (which then holds until restart or a probe).
+    """
+    if isinstance(exc, WeaviateQueryError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        response = getattr(exc, "response", None)
+        if response is None or response.status_code < 500:
+            return False
+        try:
+            body = response.text.lower()
+        except Exception:  # noqa: BLE001 - unreadable body: not classifiable
+            return False
+        return "vectoriz" in body or "update vector" in body
+    return False
+
+
+# Weaviate wraps the embedding provider's status in its error text ("failed
+# with status: 400 ..."). A 4xx rejects that one fact (too long, filtered),
+# except auth/timeouts/rate limits and model-configuration errors, which hit
+# every row; anything else (5xx, connection, DNS) is systematic too.
+_VECTORIZER_ROW_REJECTION = re.compile(r"status:?\s*4(?!01|03|04|08|29)\d\d\b")
+_VECTORIZER_SYSTEMATIC_TEXT = re.compile(
+    r"invalid model|model not found|no such model|authentication|api key|budget", re.IGNORECASE
+)
+
+
+def _weaviate_vectorizer_row_rejection(exc: BaseException) -> bool:
+    """A vectorizer failure caused by this row's content, not the provider."""
+    if not _weaviate_vectorizer_failure(exc) or isinstance(exc, WeaviateQueryError):
+        return False
+    try:
+        body = exc.response.text
+    except Exception:  # noqa: BLE001 - unreadable body: not classifiable
+        return False
+    return bool(_VECTORIZER_ROW_REJECTION.search(body)) and not _VECTORIZER_SYSTEMATIC_TEXT.search(body)
+
+
 def _weaviate_target_unavailable(exc: BaseException) -> bool:
+    if _weaviate_vectorizer_failure(exc):
+        return False
     if isinstance(
         exc,
         (TimeoutError, ConnectionError, httpx.TimeoutException, httpx.NetworkError),
@@ -618,6 +685,7 @@ class MemoryStore:
                         or existing.get("vectorizer") != "text2vec-openai"
                         or actual_model != expected_model
                         or actual_base_url != expected_base_url
+                        or _needs_field_tokenization(existing)
                     )
                     if replace:
                         # The pinned Weaviate 1.38.17 class vectorizer config is
@@ -680,6 +748,7 @@ class MemoryStore:
                         "name": "userId",
                         "dataType": ["text"],
                         "description": "User ID who owns this memory",
+                        "tokenization": "field",
                         "moduleConfig": {
                             "text2vec-openai": {
                                 "skip": True,
@@ -691,6 +760,7 @@ class MemoryStore:
                         "name": "namespace",
                         "dataType": ["text"],
                         "description": "Memory namespace",
+                        "tokenization": "field",
                         "moduleConfig": {
                             "text2vec-openai": {
                                 "skip": True,
@@ -702,6 +772,7 @@ class MemoryStore:
                         "name": "factType",
                         "dataType": ["text"],
                         "description": "Type of fact",
+                        "tokenization": "field",
                         "moduleConfig": {
                             "text2vec-openai": {
                                 "skip": True,
@@ -724,6 +795,7 @@ class MemoryStore:
                         "name": "pgFactId",
                         "dataType": ["text"],
                         "description": "Reference to PostgreSQL memory_facts.id",
+                        "tokenization": "field",
                         "moduleConfig": {
                             "text2vec-openai": {
                                 "skip": True,
@@ -801,10 +873,7 @@ class MemoryStore:
                 fact_id, content, user_id, namespace, fact_type, confidence
             )
         except Exception as exc:
-            if not _weaviate_target_unavailable(exc):
-                raise
-            await self._latch_pgvector_after_runtime_failure(exc)
-            await self._store_pgvector(fact_id, content)
+            await self._after_weaviate_write_failure(exc, fact_id, content)
             return None
         # Weaviate is the serving backend, but pgvector must remain a current
         # shadow so a later outage can latch it without missing facts from the
@@ -817,6 +886,34 @@ class MemoryStore:
             await self._latch_pgvector_for_generation_change()
             return None
         return weaviate_id
+
+    async def _after_weaviate_write_failure(
+        self, exc: Exception, fact_id: str, content: str
+    ) -> None:
+        """Resolve a failed Weaviate store/update write.
+
+        A vectorizer failure keeps the fact recallable from the pgvector
+        shadow and re-raises so the row stays ``vector_sync_pending``; any
+        other non-outage error propagates; an outage latches pgvector.
+        """
+        if _weaviate_vectorizer_failure(exc):
+            try:
+                await self._store_pgvector(fact_id, content, mark_dirty=False)
+            except Exception as shadow_exc:  # noqa: BLE001 - classified below
+                logger.warning(
+                    "pgvector shadow write after vectorizer failure failed (error_type=%s)",
+                    type(shadow_exc).__name__,
+                )
+                # An unreachable embedding provider is a target failure: raise
+                # it so reconcile halts and Celery retries; otherwise keep the
+                # Weaviate error so the row is classified as a vectorizer one.
+                if _weaviate_target_unavailable(shadow_exc):
+                    raise shadow_exc from exc
+            raise exc
+        if not _weaviate_target_unavailable(exc):
+            raise exc
+        await self._latch_pgvector_after_runtime_failure(exc)
+        await self._store_pgvector(fact_id, content)
 
     async def _store_weaviate(
         self,
@@ -841,7 +938,7 @@ class MemoryStore:
                 "isActive": True,
             },
         }
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=_WEAVIATE_VECTORIZE_TIMEOUT) as client:
             resp = await client.post(
                 f"{self.weaviate_url}/v1/objects", json=obj
             )
@@ -901,6 +998,18 @@ class MemoryStore:
                         "before embedding write"
                     )
 
+    async def _search_after_weaviate_failure(
+        self, exc: Exception, search_args: tuple
+    ) -> List[Dict[str, Any]]:
+        """pgvector recall after a Weaviate search error, latching only outages."""
+        if not _weaviate_vectorizer_failure(exc):
+            # A vectorizer failure serves this query from the pgvector shadow
+            # without latching; anything else must be a real outage to latch.
+            if not _weaviate_target_unavailable(exc):
+                raise exc
+            await self._latch_pgvector_after_runtime_failure(exc)
+        return await self._search_pgvector(*search_args)
+
     async def search_similar(
         self,
         query: str,
@@ -921,11 +1030,8 @@ class MemoryStore:
                     query, user_id, namespace, limit
                 )
             except Exception as exc:
-                if not _weaviate_target_unavailable(exc):
-                    raise
-                await self._latch_pgvector_after_runtime_failure(exc)
-                return await self._search_pgvector(
-                    query, user_id, namespace, limit
+                return await self._search_after_weaviate_failure(
+                    exc, (query, user_id, namespace, limit)
                 )
             if self.manage_schema:
                 rebuild_required, generation = await self._get_weaviate_sync_state(
@@ -951,17 +1057,11 @@ class MemoryStore:
 
     @staticmethod
     def _escape_graphql_string(value: str) -> str:
-        """Escape a string for safe inclusion in GraphQL string literals."""
-        return (
-            value
-            .replace("\\", "\\\\")
-            .replace('"', '\\"')
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-            .replace("\b", "\\b")
-            .replace("\f", "\\f")
-        )
+        # Escape a string for a GraphQL string literal: \uXXXX for quotes,
+        # backslashes and EVERY control character. GraphQL rejects raw ones
+        # (e.g. \x0b, \x00), which turned a search into a silent pgvector
+        # fallback.
+        return value.translate({c: f"\\u{c:04x}" for c in (*range(32), 34, 92)})
 
     async def _search_weaviate(
         self, query: str, user_id: str, namespace: str, limit: int
@@ -999,19 +1099,23 @@ class MemoryStore:
                 }}
             }}"""
         }
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=_WEAVIATE_VECTORIZE_TIMEOUT) as client:
             resp = await client.post(
                 f"{self.weaviate_url}/v1/graphql", json=graphql
             )
             resp.raise_for_status()
             data = resp.json()
+        if data.get("errors"):
+            raise WeaviateQueryError(
+                f"Weaviate memory query failed: {data['errors'][0].get('message', 'unknown error')}"
+            )
 
         results = []
         objects = (
-            data.get("data", {})
+            (data.get("data") or {})
             .get("Get", {})
-            .get(WEAVIATE_COLLECTION_NAME, [])
-        )
+            .get(WEAVIATE_COLLECTION_NAME)
+        ) or []
         for obj in objects:
             results.append(
                 {
@@ -1229,10 +1333,7 @@ class MemoryStore:
                 confidence, weaviate_id,
             )
         except Exception as exc:
-            if not _weaviate_target_unavailable(exc):
-                raise
-            await self._latch_pgvector_after_runtime_failure(exc)
-            await self._store_pgvector(fact_id, content)
+            await self._after_weaviate_write_failure(exc, fact_id, content)
             return None
         await self._store_pgvector(fact_id, content, mark_dirty=False)
         if await self._weaviate_mutation_crossed_generation(clean_generation):

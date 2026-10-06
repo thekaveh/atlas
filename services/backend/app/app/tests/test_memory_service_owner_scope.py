@@ -762,18 +762,18 @@ def test_delete_memory_keeps_pending_marker_when_vector_sync_fails(monkeypatch):
         async def close(self):
             return None
 
-    async def fail_deactivate(*_args):
-        raise ConnectionError("weaviate unavailable")
-
+    deactivate = AsyncMock(side_effect=ConnectionError("weaviate unavailable"))
     monkeypatch.setattr(
         memory_service, "connect_postgres", AsyncMock(return_value=Conn())
     )
     _also_route_acquire(monkeypatch, memory_service, Conn)
     svc = _service()
-    svc.store = SimpleNamespace(deactivate_embedding=fail_deactivate)
+    svc.store = SimpleNamespace(deactivate_embedding=deactivate)
 
     assert asyncio.run(svc.delete_memory(memory_id, user_id)) is True
-    assert events == []
+    # The reconcile ran (deactivate attempted) and, failing, left the pending
+    # flag set: no "clear". events == [] alone also passed with no reconcile.
+    assert events == [] and deactivate.await_count == 1
 
 
 def test_consolidation_skips_fact_edited_during_llm_round_trip(monkeypatch):
@@ -1011,8 +1011,12 @@ def test_extract_releases_db_during_llm_and_locks_quota_transaction(monkeypatch)
 
     assert result["status"] == "completed"
     assert len(connections) >= 2
-    transaction_sql = "\n".join(query for query, _ in connections[1].execute_calls)
-    assert "pg_advisory_xact_lock" in transaction_sql
+    lock_params = [
+        params for query, params in connections[1].execute_calls
+        if "pg_advisory_xact_lock" in query
+    ]
+    # `$1::text` makes asyncpg encode the argument as text, which rejects UUID.
+    assert lock_params and all(isinstance(p, str) for p in lock_params[0])
 
 
 def test_extract_marks_session_failed_for_malformed_fact_shape(monkeypatch):

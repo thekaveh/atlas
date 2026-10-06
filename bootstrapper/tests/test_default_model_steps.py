@@ -314,7 +314,7 @@ def test_embed_options_auto_match_768_dim_first():
 
     steps = build_default_model_steps(_default_env())
     embed_step = next(s for s in steps if s.title == LLM_DEFAULT_EMBED_TITLE)
-    # qwen3-embedding:0.6b (1536-dim) selected BEFORE nomic-embed-text (768-dim).
+    # qwen3-embedding:0.6b (1024-dim) selected BEFORE nomic-embed-text (768-dim).
     selections = _ollama_selections("qwen3-embedding:0.6b,nomic-embed-text")
     values = [o.value for o in embed_step.options_provider(selections)]
     assert "ollama/nomic-embed-text" in values
@@ -768,3 +768,222 @@ def test_vision_default_empty_on_fresh_setup():
     assert vision_step.default_value == "", (
         f"fresh setup must default to none/skip, got {vision_step.default_value!r}"
     )
+
+
+@pytest.mark.parametrize(
+    "verdict, saved_source, routed",
+    [
+        ("<KEEP>", "disabled", False),   # #1183: a saved key no longer promotes
+        ("<DISABLE>", "enabled", False),
+        ("<ENABLE>", "disabled", True),
+        ("<KEEP>", "enabled", True),
+        (None, "disabled", False),
+    ],
+)
+def test_only_routed_cloud_providers_count_as_active(verdict, saved_source, routed):
+    """The default-model pickers offer a cloud provider only if the launch
+    will route it — the same verdict ``resolve_secret_verdict`` writes."""
+    from wizard.llm_steps import (
+        build_default_model_steps,
+        LLM_DEFAULT_CONTENT_TITLE,
+        cloud_secret_title,
+    )
+
+    env = {
+        **_default_env(),
+        "LLM_PROVIDER_SOURCE": "none",
+        "OLLAMA_USER_MODELS": "",
+        "CLOUD_OPENAI_SOURCE": saved_source,
+        "OPENAI_API_KEY": "sk-saved",
+        "OPENAI_USER_MODELS": "gpt-5",
+    }
+    content = next(
+        s for s in build_default_model_steps(env)
+        if s.title == LLM_DEFAULT_CONTENT_TITLE
+    )
+    selections = {"LLM Engine  ·  source": "none"}
+    if verdict is not None:
+        selections[cloud_secret_title("OpenAI")] = verdict
+
+    assert content.skip_if_prev(selections) is (not routed)
+
+
+def test_cloud_only_cli_launch_repoints_inactive_ollama_defaults(tmp_path, capsys):
+    """`.env.example` ships ollama/* defaults; a --llm-provider-source none
+    launch (no wizard) kept them, so every default chat and embedding call
+    named a model LiteLLM never registered."""
+    from start import AtlasStarter
+
+    (tmp_path / ".env").write_text(
+        "LLM_PROVIDER_SOURCE=none\n"
+        "CLOUD_OPENAI_SOURCE=enabled\nOPENAI_API_KEY=sk-test\nOPENAI_USER_MODELS=\n"
+        "LITELLM_DEFAULT_MODEL=ollama/qwen3.8:latest\n"
+        "LITELLM_VISION_MODEL=ollama/qwen3.8:latest\n"
+        "LITELLM_EMBEDDING_MODEL=ollama/nomic-embed-text\n"
+        "LANGMEM_EMBEDDING_MODEL=\nLANGMEM_EMBEDDING_DIM=768\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".env.example").write_text("BASE_PORT=63000\n", encoding="utf-8")
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    starter = AtlasStarter()
+    starter.config_parser.root_dir = tmp_path
+    starter.config_parser.env_file_path = tmp_path / ".env"
+    starter.source_override_manager.config_parser = starter.config_parser
+
+    assert starter.reconcile_default_models() is True
+
+    env = starter.config_parser.parse_env_file()
+    assert not env["LITELLM_DEFAULT_MODEL"].startswith("ollama/")
+    assert not env["LITELLM_EMBEDDING_MODEL"].startswith("ollama/")
+    from utils.model_resolver import dim_for_model_id
+    assert env["LANGMEM_EMBEDDING_DIM"] == str(dim_for_model_id(env["LITELLM_EMBEDDING_MODEL"]))
+    assert "Ollama is not enabled" in capsys.readouterr().out
+
+
+def test_ollama_engine_keeps_its_default_models(tmp_path):
+    from start import AtlasStarter
+
+    (tmp_path / ".env").write_text(
+        "LLM_PROVIDER_SOURCE=ollama-container-cpu\n"
+        "LITELLM_DEFAULT_MODEL=ollama/qwen3.8:latest\n", encoding="utf-8",
+    )
+    starter = AtlasStarter()
+    starter.config_parser.env_file_path = tmp_path / ".env"
+    assert starter.reconcile_default_models() is True
+    assert starter.config_parser.parse_env_file()["LITELLM_DEFAULT_MODEL"] == "ollama/qwen3.8:latest"
+
+
+def _reconcile_starter(tmp_path, env_text: str):
+    from start import AtlasStarter
+
+    (tmp_path / ".env").write_text(env_text, encoding="utf-8")
+    (tmp_path / ".env.example").write_text("BASE_PORT=63000\n", encoding="utf-8")
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    starter = AtlasStarter()
+    starter.config_parser.root_dir = tmp_path
+    starter.config_parser.env_file_path = tmp_path / ".env"
+    starter.source_override_manager.config_parser = starter.config_parser
+    return starter
+
+
+def test_reconcile_aligns_to_a_deliberate_langmem_override(tmp_path):
+    """A pinned non-Ollama LANGMEM override used to make the reconcile
+    raise "must be explicitly aligned" and abort the launch."""
+    starter = _reconcile_starter(
+        tmp_path,
+        "LLM_PROVIDER_SOURCE=none\n"
+        "CLOUD_OPENAI_SOURCE=enabled\nOPENAI_API_KEY=sk-test\nOPENAI_USER_MODELS=\n"
+        "LITELLM_DEFAULT_MODEL=ollama/qwen3.8:latest\n"
+        "LITELLM_EMBEDDING_MODEL=ollama/nomic-embed-text\n"
+        "LANGMEM_EMBEDDING_MODEL=text-embedding-3-small\nLANGMEM_EMBEDDING_DIM=768\n",
+    )
+
+    assert starter.reconcile_default_models() is True
+
+    env = starter.config_parser.parse_env_file()
+    assert env["LITELLM_EMBEDDING_MODEL"] == "text-embedding-3-small"
+    assert env["LANGMEM_EMBEDDING_MODEL"] == "text-embedding-3-small"
+
+
+def test_reconcile_repoints_a_stale_langmem_override_to_the_active_pair(tmp_path):
+    starter = _reconcile_starter(
+        tmp_path,
+        "LLM_PROVIDER_SOURCE=none\n"
+        "CLOUD_OPENAI_SOURCE=enabled\nOPENAI_API_KEY=sk-test\nOPENAI_USER_MODELS=\n"
+        "LITELLM_EMBEDDING_MODEL=text-embedding-3-small\n"
+        "LANGMEM_EMBEDDING_MODEL=ollama/nomic-embed-text\nLANGMEM_EMBEDDING_DIM=768\n",
+    )
+
+    assert starter.reconcile_default_models() is True
+
+    env = starter.config_parser.parse_env_file()
+    assert env["LANGMEM_EMBEDDING_MODEL"] == "text-embedding-3-small"
+    from utils.model_resolver import dim_for_model_id
+    assert env["LANGMEM_EMBEDDING_DIM"] == str(dim_for_model_id("text-embedding-3-small"))
+
+
+def test_reconcile_writes_no_blank_models_without_a_capable_provider(tmp_path, capsys):
+    """Blanks were refilled from .env.example by the end-of-run backfill in
+    the same launch, so writing them only produced noise."""
+    starter = _reconcile_starter(
+        tmp_path,
+        "LLM_PROVIDER_SOURCE=none\n"
+        "LITELLM_DEFAULT_MODEL=ollama/qwen3.8:latest\n"
+        "LITELLM_VISION_MODEL=ollama/qwen3.8:latest\n",
+    )
+
+    assert starter.reconcile_default_models() is True
+
+    env = starter.config_parser.parse_env_file()
+    assert env["LITELLM_DEFAULT_MODEL"] == "ollama/qwen3.8:latest"
+    assert "(none)" not in capsys.readouterr().out
+
+
+def test_reconcile_judges_providers_by_this_runs_sources(tmp_path):
+    """A stale LITELLM_*_ENABLED from a previous run must not decide: the
+    flags are rewritten only after the reconcile step."""
+    starter = _reconcile_starter(
+        tmp_path,
+        "LLM_PROVIDER_SOURCE=none\n"
+        "CLOUD_OPENAI_SOURCE=disabled\nLITELLM_OPENAI_ENABLED=true\n"
+        "OPENAI_API_KEY=sk-test\nOPENAI_USER_MODELS=\n"
+        "LITELLM_DEFAULT_MODEL=ollama/qwen3.8:latest\n",
+    )
+
+    assert starter.reconcile_default_models() is True
+    assert starter.config_parser.parse_env_file()["LITELLM_DEFAULT_MODEL"] == "ollama/qwen3.8:latest"
+
+
+def test_reconcile_never_aborts_on_an_inconsistent_embedding_contract(tmp_path, capsys):
+    starter = _reconcile_starter(
+        tmp_path,
+        "LLM_PROVIDER_SOURCE=none\n"
+        "LITELLM_EMBEDDING_MODEL=custom/embedder-x\n"
+        "LANGMEM_EMBEDDING_MODEL=ollama/nomic-embed-text\nLANGMEM_EMBEDDING_DIM=1024\n",
+    )
+
+    assert starter.reconcile_default_models() is True
+    assert "WARNING: default models left unchanged" in capsys.readouterr().out
+
+
+def test_content_default_is_saved_value_on_rerun():
+    """Same as vision: default_value=None selected option 0, so Enter on a
+    re-run replaced a saved LITELLM_DEFAULT_MODEL with the top-ranked model."""
+    from wizard.llm_steps import build_default_model_steps, LLM_DEFAULT_CONTENT_TITLE
+
+    env = {
+        "LLM_PROVIDER_SOURCE": "ollama-container-cpu",
+        "OLLAMA_USER_MODELS": "qwen3.8:latest",
+        "LITELLM_DEFAULT_MODEL": "ollama/qwen3.8:latest",
+    }
+    steps = build_default_model_steps(env)
+    content = next(s for s in steps if s.title == LLM_DEFAULT_CONTENT_TITLE)
+    # A value the picker really offers (cloud ids are bare, e.g. gpt-4o).
+    assert content.default_value == "ollama/qwen3.8:latest"
+    blank = build_default_model_steps({**env, "LITELLM_DEFAULT_MODEL": ""})
+    assert next(s for s in blank if s.title == LLM_DEFAULT_CONTENT_TITLE).default_value is None
+
+
+def test_corrected_catalog_dimension_reaches_an_existing_env(tmp_path, capsys):
+    # qwen3-embedding:0.6b was catalogued as 1536 (it emits 1024); a launch
+    # without the wizard must follow the corrected value.
+    starter = _reconcile_starter(
+        tmp_path,
+        "LLM_PROVIDER_SOURCE=ollama-container-cpu\n"
+        "LITELLM_EMBEDDING_MODEL=ollama/qwen3-embedding:0.6b\n"
+        "LANGMEM_EMBEDDING_DIM=1536\n",
+    )
+    assert starter.reconcile_default_models() is True
+    assert starter.config_parser.parse_env_file()["LANGMEM_EMBEDDING_DIM"] == "1024"
+    assert "1536 -> 1024" in capsys.readouterr().out
+
+
+def test_custom_embedding_dimension_is_left_alone(tmp_path):
+    starter = _reconcile_starter(
+        tmp_path,
+        "LLM_PROVIDER_SOURCE=ollama-container-cpu\n"
+        "LITELLM_EMBEDDING_MODEL=custom/acme-embedder\n"
+        "LANGMEM_EMBEDDING_DIM=384\n",
+    )
+    assert starter.reconcile_default_models() is True
+    assert starter.config_parser.parse_env_file()["LANGMEM_EMBEDDING_DIM"] == "384"

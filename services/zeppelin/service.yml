@@ -51,6 +51,9 @@ sources:
       label: "Disabled"
 
 env:
+  - name: ZEPPELIN_SPARK_CORES_MAX
+    default: "1"
+    description: "Maximum standalone-cluster cores the long-lived Zeppelin Spark interpreter may hold (spark.cores.max, re-seeded on each start). Uncapped it would take every free worker core and leave Airflow SparkSubmit drivers waiting; raise only when the worker pool has headroom beyond Spark Connect and Airflow."
   - name: ZEPPELIN_DB_USER
     default: atlas_zeppelin
     description: "Read-only PostgreSQL login exposed to Zeppelin's JDBC interpreter."
@@ -128,6 +131,7 @@ runtime_sc:
           --conf spark.submit.deployMode=client
           --conf spark.driver.bindAddress=0.0.0.0
           --conf spark.driver.host=zeppelin
+          --conf spark.cores.max=${ZEPPELIN_SPARK_CORES_MAX:-1}
           --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000
           --conf spark.hadoop.fs.s3a.access.key=${MINIO_SPARK_ACCESS_KEY}
           --conf spark.hadoop.fs.s3a.secret.key=${MINIO_SPARK_SECRET_KEY}
@@ -168,6 +172,7 @@ runtime_sc:
         MINIO_ENDPOINT: http://minio:9000
         MINIO_REGION: ${MINIO_REGION:-us-east-1}
         MINIO_BUCKET_SPARK_HISTORY: ${MINIO_BUCKET_SPARK_HISTORY:-spark-history}
+        ZEPPELIN_SPARK_CORES_MAX: ${ZEPPELIN_SPARK_CORES_MAX:-1}
         MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY}
         MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY}
         MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}

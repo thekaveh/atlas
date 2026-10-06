@@ -17,11 +17,13 @@ Scope (see issue context): image generation only — text2img + img2img.
 """
 from __future__ import annotations
 
+import io
+import math
 import os
 import re
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import SplitResult, quote, urlsplit
+from urllib.parse import SplitResult, quote, urlencode, urlsplit
 
 import httpx
 
@@ -458,12 +460,13 @@ class ComfyUIMediaClient:
         nested_size = input_payload.get("image_size")
         if not isinstance(nested_size, dict):
             nested_size = {}
+        # `or` defaults turned an explicit 0 into 1024 instead of a 400.
         width = _bounded_int(
-            input_payload.get("width") or nested_size.get("width") or 1024,
+            _first_given(input_payload.get("width"), nested_size.get("width"), 1024),
             field="width", minimum=_DIMENSION_MIN, maximum=_DIMENSION_MAX,
         )
         height = _bounded_int(
-            input_payload.get("height") or nested_size.get("height") or 1024,
+            _first_given(input_payload.get("height"), nested_size.get("height"), 1024),
             field="height", minimum=_DIMENSION_MIN, maximum=_DIMENSION_MAX,
         )
         steps = _bounded_int(
@@ -482,8 +485,8 @@ class ComfyUIMediaClient:
         # img2img (#453 parity): an init image under any of the accepted keys.
         init_image_name: Optional[str] = None
         init_source = _select_init_image(input_payload)
-        strength = _coerce_float(input_payload.get("strength"), default=0.75)
         if init_source:
+            strength = _strength(input_payload.get("strength"))
             init_image_name = await self._upload_init_image(init_source)
             # strength=1.0 means "ignore the init image" (full denoise); the
             # graph still loads it but the result is effectively text2img.
@@ -548,17 +551,32 @@ class ComfyUIMediaClient:
             },
         )
 
+    async def _history_entry(self, operation_id: str) -> Optional[Dict[str, Any]]:
+        history = await self._get_history(operation_id)
+        return history.get(operation_id) if isinstance(history, dict) else None
+
+    async def _history_or_queue(self, operation_id: str):
+        """(history entry, queue, queue status). Not yet in history means
+        queued or running, so probe the live queue for an honest status."""
+        entry = await self._history_entry(operation_id)
+        if entry is not None:
+            return entry, None, None
+        queue = await self._get_queue()
+        status = self._queue_status(operation_id, queue)
+        if status == "failed":
+            # ComfyUI moves a finished job from the queue into history in one
+            # step, so a job that finished between the two reads is in neither.
+            # Read history again before calling it lost: a terminal "failed" is
+            # never re-polled.
+            entry = await self._history_entry(operation_id)
+        return entry, queue, status
+
     async def get_media_operation(self, *, operation_id: str, modality: str) -> Dict[str, Any]:
         if modality not in self.SUPPORTED_MODALITIES:
             raise ValueError(f"Unsupported ComfyUI media modality: {modality}")
 
-        history = await self._get_history(operation_id)
-        entry = history.get(operation_id) if isinstance(history, dict) else None
+        entry, queue, status = await self._history_or_queue(operation_id)
         if entry is None:
-            # Not yet in history → queued or running. Probe the live queue so
-            # the consumer sees an honest in-progress status (not "failed").
-            queue = await self._get_queue()
-            status = self._queue_status(operation_id, queue)
             return self._operation_payload(
                 operation_id=operation_id,
                 status=status,
@@ -654,6 +672,7 @@ class ComfyUIMediaClient:
         """Fetch init-image bytes (URL or data URI) and push them into
         ComfyUI's process-cleaned temp dir via ``POST /upload/image``."""
         content, content_type, ext = await self._fetch_image_bytes(source)
+        _reject_oversized_init_image(content)
         # Derive a collision-free filename so concurrent img2img requests
         # never clobber each other (overwrite=true would race; a uuid name
         # sidesteps it). The verified decoder, never the URL suffix, owns ext.
@@ -790,8 +809,10 @@ class ComfyUIMediaClient:
                 # same GET /comfyui/image/{filename} open-webui/n8n use) — NOT
                 # a fal-style absolute hosted URL. Local consumers are in-network.
                 params = {"subfolder": subfolder, "folder_type": folder_type}
-                query = "&".join(f"{k}={v}" for k, v in params.items() if v)
-                url = f"/comfyui/image/{filename}"
+                # Encoded: a subfolder or filename with `&`, `#`, `?` or a
+                # space otherwise produced a URL that names a different file.
+                query = urlencode({k: v for k, v in params.items() if v})
+                url = f"/comfyui/image/{quote(filename, safe='')}"
                 if query:
                     url = f"{url}?{query}"
                 artifacts.append(
@@ -918,19 +939,55 @@ def _require_trusted_image_url(
         raise ValueError(error)
 
 
-def _coerce_float(value: Any, *, default: float) -> float:
+def _first_given(*values: Any) -> Any:
+    """First value that is not None (0 is a given value, unlike `or`)."""
+    return next((value for value in values if value is not None), None)
+
+
+def _strength(value: Any) -> float:
+    """img2img strength; a non-number (or NaN) is a client error, not 0.75.
+    Out-of-range numbers are clamped to 0..1 by the caller."""
+    if value is None:
+        return 0.75
     try:
-        if value is None:
-            return default
-        return float(value)
+        strength = float(value)
     except (TypeError, ValueError):
-        return default
+        strength = math.nan
+    if math.isnan(strength):
+        raise ValueError("strength must be a number from 0 to 1")
+    return strength
+
+
+def _reject_oversized_init_image(content: bytes) -> None:
+    """The init image is encoded at its own size: bound each side like the
+    text2img width/height so a 6000x6000 input cannot bypass the cap."""
+    from PIL import Image
+
+    with Image.open(io.BytesIO(content)) as image:
+        width, height = image.size
+    if max(width, height) > _DIMENSION_MAX:
+        raise ValueError(
+            f"init image is {width}x{height}; each side must be at most {_DIMENSION_MAX}px"
+        )
+
+
+# Output types served inline. Anything else (HTML, SVG, scripts) is served as
+# an opaque download: an inline text/html or image/svg+xml from an uploaded
+# input would run script on the backend/Kong origin.
+_INLINE_MEDIA_TYPES = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".webp": "image/webp", ".gif": "image/gif", ".apng": "image/apng",
+    ".mp4": "video/mp4", ".webm": "video/webm",
+    ".wav": "audio/wav", ".flac": "audio/flac", ".mp3": "audio/mpeg",
+    ".glb": "model/gltf-binary",
+}
 
 
 def _content_type_for(filename: str) -> str:
-    lower = (filename or "").lower()
-    if lower.endswith((".jpg", ".jpeg")):
-        return "image/jpeg"
-    if lower.endswith(".webp"):
-        return "image/webp"
-    return "image/png"
+    """Media type from the extension: custom workflows also emit GIF, video
+    and audio, which were all labelled image/png."""
+    import os.path  # noqa: PLC0415
+
+    return _INLINE_MEDIA_TYPES.get(
+        os.path.splitext(filename or "")[1].lower(), "application/octet-stream"
+    )

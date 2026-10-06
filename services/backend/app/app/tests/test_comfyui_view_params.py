@@ -69,7 +69,6 @@ def route_client():
         ("KONG_URL", "http://kong-api-gateway:8000"),
         ("SUPABASE_SERVICE_KEY", "dummy-key"),
         ("DATABASE_URL", "postgresql://x:x@localhost/x"),
-        ("BACKEND_IDENTITY_AUTH", "disabled"),
     ):
         os.environ.setdefault(var, default)
     from fastapi.testclient import TestClient
@@ -86,3 +85,17 @@ def test_route_returns_400_for_bad_folder_type(route_client):
 def test_route_returns_400_for_traversal_subfolder(route_client):
     r = route_client.get("/comfyui/image/test.png", params={"subfolder": "../etc"})
     assert r.status_code == 400
+
+
+def test_extract_artifacts_encodes_filename_and_query():
+    from urllib.parse import parse_qs, unquote, urlsplit
+
+    from comfyui_media_client import ComfyUIMediaClient
+
+    entry = {"outputs": {"9": {"images": [
+        {"filename": "a b#1.png", "subfolder": "x&y", "type": "output"},
+    ]}}}
+    url = ComfyUIMediaClient._extract_artifacts(entry)[0]["url"]
+    parts = urlsplit(url)
+    assert unquote(parts.path) == "/comfyui/image/a b#1.png"
+    assert parse_qs(parts.query) == {"subfolder": ["x&y"], "folder_type": ["output"]}

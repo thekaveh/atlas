@@ -51,6 +51,16 @@ def _ttl_seconds() -> int:
     return _DEFAULT_TTL_SECONDS
 
 
+_DISPATCH_FIELDS = ("dispatch_state", "dispatch_job_id", "dispatch_owner", "dispatch_claimed_at")
+
+
+def _carry_dispatch_fields(record: "IngestionRecord", current: "IngestionRecord") -> None:
+    """Keep the stored dispatch fields: only the dispatch transitions own them,
+    and a worker saving its stale copy must not undo a later acceptance."""
+    for field in _DISPATCH_FIELDS:
+        setattr(record, field, getattr(current, field))
+
+
 @dataclass(frozen=True)
 class ExecutionClaim:
     owner: str
@@ -177,6 +187,7 @@ class InMemoryIngestionStore(IngestionStore):
                     return
                 if current.cancel_requested:
                     record.cancel_requested = True
+                _carry_dispatch_fields(record, current)
             self._save_locked(record)
 
     def create_if_absent(self, record: IngestionRecord) -> tuple[IngestionRecord, bool]:
@@ -362,6 +373,7 @@ class InMemoryIngestionStore(IngestionStore):
                     return False
                 if current.cancel_requested:
                     record.cancel_requested = True
+                _carry_dispatch_fields(record, current)
             self._save_locked(record)
             return True
 
@@ -387,6 +399,8 @@ class RedisIngestionStore(IngestionStore):
         self._ttl_seconds = _ttl_seconds()
 
     _SCORE_RESERVATION_SCRIPT = """
+local DISPATCH_FIELDS = {"dispatch_state", "dispatch_job_id", "dispatch_owner", "dispatch_claimed_at"}
+
 local function reserve_score(legacy_key, index_key, sequence_key, member)
     local legacy_type = redis.call('TYPE', legacy_key).ok
     local index_type = redis.call('TYPE', index_key).ok
@@ -455,6 +469,11 @@ if current_blob then
     end
     if current.cancel_requested == true then
         incoming.cancel_requested = true
+    end
+    -- Dispatch fields belong to the dispatch scripts; a worker's stale copy
+    -- must not undo an acceptance recorded after it read the record.
+    for _, field in ipairs(DISPATCH_FIELDS) do
+        incoming[field] = current[field]
     end
 end
 local blob = cjson.encode(incoming)
@@ -586,6 +605,9 @@ if current.status == 'completed' or current.status == 'failed'
 end
 if current.cancel_requested == true then
     incoming.cancel_requested = true
+end
+for _, field in ipairs(DISPATCH_FIELDS) do
+    incoming[field] = current[field]
 end
 local blob = cjson.encode(incoming)
 local score, score_error = reserve_score(KEYS[3], KEYS[5], KEYS[6], incoming.id)

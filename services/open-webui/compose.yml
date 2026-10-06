@@ -38,7 +38,7 @@ services:
       # /api/v1/auths/signup API using OPEN_WEB_UI_ADMIN_*.)
       COMFYUI_BASE_URL: ${COMFYUI_ENDPOINT:-http://comfyui:18188}
       COMFYUI_COMPLETION_TIMEOUT_SECONDS: ${COMFYUI_COMPLETION_TIMEOUT_SECONDS:-300}
-      ENABLE_IMAGE_GENERATION: true
+      ENABLE_IMAGE_GENERATION: ${OPEN_WEB_UI_ENABLE_IMAGE_GENERATION:-true}
       IMAGE_GENERATION_ENGINE: comfyui
       # TTS integration (openai-compatible via openedai-speech)
       AUDIO_TTS_ENGINE: ${OPEN_WEB_UI_TTS_ENGINE:-}
@@ -70,10 +70,10 @@ services:
       BACKEND_OPEN_WEBUI_API_TOKEN: ${BACKEND_OPEN_WEBUI_API_TOKEN}
     volumes:
       - open-web-ui-data:/app/backend/data
-      - ./extras/tools:/app/backend/data/tools
-      - ./extras/functions:/app/backend/data/functions
+      - ./extras/tools:/app/backend/data/tools:ro
+      - ./extras/functions:/app/backend/data/functions:ro
     ports:
-      - "${HOST_BIND_IP:-}${OPEN_WEB_UI_PORT}:8080"
+      - "${HOST_BIND_IP-127.0.0.1:}${OPEN_WEB_UI_PORT}:8080"
     logging:
       driver: json-file
       options:

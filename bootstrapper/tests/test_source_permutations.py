@@ -190,12 +190,9 @@ def test_spark_renders_at_every_supported_worker_count(worker_count: str, tmp_pa
 _KNOWN_ENDPOINT_DEFAULTS = {
     "services/asset-baker/compose.yml: ASSET_BAKER_MINIO_ENDPOINT",
     "services/asset-worker/compose.yml: ASSET_WORKER_MINIO_ENDPOINT",
-    "services/backend/compose.yml: NEO4J_URI",
     "services/grafana/compose.yml: PROMETHEUS_ENDPOINT",
     "services/grafana/compose.yml: TEMPO_ENDPOINT",
     "services/grafana/compose.yml: LOKI_ENDPOINT",
-    "services/jupyterhub/compose.yml: NEO4J_URI",
-    "services/mcp-servers/compose.yml: NEO4J_URI",
 }
 
 

@@ -8,7 +8,7 @@ capabilities:
   - name: "Mechanical glTF conditioning"
     status: supported
     verification: tested
-    note: "Atlas normalizes scale and grounding, validates GLB input, and applies glTF-Transform simplification plus Draco or Meshopt and WebP or KTX2 optimization."
+    note: "Atlas normalizes scale and grounding, validates GLB input, and applies opt-in glTF-Transform simplification, Draco or Meshopt compression, and WebP texture compression (KTX2 needs KTX-Software, which the image does not ship)."
   - name: "Bounded authenticated post-processing API"
     status: supported
     verification: tested
@@ -129,6 +129,18 @@ runtime_sc:
         ASSET_WORKER_MINIO_ENDPOINT: ''
       deploy: {}
       extra_hosts: []
+
+# Compose gates the container on minio/minio-init, so a launch with MinIO
+# off (e.g. the gen-ai-creative track) would hang instead of failing.
+runtime_deps:
+  asset-worker:
+    conditional_requires:
+      - when:
+          ASSET_WORKER_SOURCE: container
+        requires:
+          - minio
+        auto_resolve: false
+        error_message: "Asset Worker requires MinIO (its container waits on minio and minio-init); enable MINIO_SOURCE (gen-ai-creative leaves it off: pass --minio-source container) or disable Asset Worker."
 
 data_flow:
   calls:

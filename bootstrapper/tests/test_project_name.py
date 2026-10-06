@@ -184,6 +184,11 @@ def test_cold_start_applies_env_user_overlay_and_preserves_project_name(tmp_path
     assert parsed["DOWNSTREAM_ONLY"] == "kept-value"
     assert parsed["QUOTED_HASH"] == "a#b"
     assert parsed["INLINE_COMMENT"] == "kept"
+    # The replaced .env survives as a private backup (backup HMAC key etc.).
+    backups = list(tmp_path.glob(".env.backup.cold.*"))  # separate retention slot
+    assert len(backups) == 1
+    assert "PROJECT_NAME=myshowcase" in backups[0].read_text(encoding="utf-8")
+    assert backups[0].stat().st_mode & 0o077 == 0
 
 
 def test_fresh_env_file_is_owner_only(tmp_path, monkeypatch):
@@ -492,3 +497,20 @@ def test_wizard_project_name_step_and_mapping(tmp_path, monkeypatch):
     # An invalid entry → no-op (None) rather than corrupting PROJECT_NAME.
     _, opts_bad = _selections_to_args({title: "bad name!"}, info, cbp, env_vars=env_vars)
     assert opts_bad.get("project_name") is None
+
+
+def test_root_start_options_before_a_subcommand_are_flagged_not_fatal() -> None:
+    """Every subcommand builds its own starter from .env, so `-p other doctor`
+    silently checked the .env project. It must say so, without failing the
+    invocations consumer scripts already make (`--no-tui ... doctor`)."""
+    from click.testing import CliRunner
+
+    import start as start_module
+
+    flagged = CliRunner().invoke(start_module.main, ["-p", "other", "doctor", "--help"])
+    assert flagged.exit_code == 0
+    assert "--project" in flagged.output and "no effect on 'doctor'" in flagged.output
+
+    quiet = CliRunner().invoke(start_module.main, ["--no-tui", "--json", "doctor", "--help"])
+    assert quiet.exit_code == 0
+    assert "no effect" not in quiet.output

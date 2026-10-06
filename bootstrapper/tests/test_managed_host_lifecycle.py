@@ -71,7 +71,7 @@ def test_failed_identity_and_evidence_write_retains_pid_in_memory(
     )
     monkeypatch.setattr(
         services_package,
-        "atomic_write_text",
+        "atomic_replace_text",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
     )
     monkeypatch.setattr(manager, "_pid_alive", lambda _pid: True)
@@ -110,7 +110,7 @@ def test_blender_failed_identity_and_evidence_write_retains_pid_in_memory(
     )
     monkeypatch.setattr(
         services_package,
-        "atomic_write_text",
+        "atomic_replace_text",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
     )
     monkeypatch.setattr(managed_host.time, "sleep", lambda _seconds: None)

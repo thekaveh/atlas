@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import math
+import json
 import os
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
@@ -805,8 +806,20 @@ class FalClient:
             return {}
         data = getattr(payload, "__dict__", None)
         if isinstance(data, dict):
-            return dict(data)
+            # SDK objects carry live state (fal-client 1.0's AsyncRequestHandle
+            # holds its httpx.AsyncClient); copying it made the operation
+            # record unpicklable/unserializable, so every accepted submission
+            # failed to persist. Keep only JSON-safe fields.
+            return {key: value for key, value in data.items() if _json_safe(value)}
         return {"value": str(payload)}
+
+
+def _json_safe(value: Any) -> bool:
+    try:
+        json.dumps(value)
+    except (TypeError, ValueError):
+        return False
+    return True
 
 
 def preflight_media_operation(

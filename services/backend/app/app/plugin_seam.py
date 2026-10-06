@@ -236,6 +236,10 @@ def _router_path_error(router, manifest: PluginManifest | None) -> str | None:
         if path in {"", "/"}:
             return "manifest-less router cannot shadow the built-in root route"
         head = path.strip("/").split("/", 1)[0]
+        if "{" in head:
+            # Plugins mount before the built-ins, so "/{slug}" would answer
+            # /health, /ready, /plugins, ... in registration order.
+            return f"manifest-less router path {path!r} has a path parameter in its first segment"
         if head in RESERVED_ROUTE_PREFIXES:
             return f"manifest-less router path {path!r} shadows built-in prefix {head!r}"
     return None
@@ -291,6 +295,21 @@ def _load_plugins_from_dir(
             name = manifest.name if manifest else entry.name
             PLUGIN_INVENTORY.append(
                 _inventory_entry(name, "error", manifest=manifest, error="requirements install failed")
+            )
+            continue
+        loaded = sys.modules.get(entry.name)
+        loaded_file = getattr(loaded, "__file__", None) if loaded else None
+        if loaded is not None and (
+            loaded_file is None
+            or not Path(loaded_file).resolve().is_relative_to(entry.resolve())
+        ):
+            # A bare-name import would return the cached backend module (or a
+            # same-named plugin from another root) and report it "loaded".
+            collision = f"module name {entry.name!r} is already loaded from another location"
+            _log.error("plugin seam: %s; skipping plugin %r", collision, entry.name)
+            name = manifest.name if manifest else entry.name
+            PLUGIN_INVENTORY.append(
+                _inventory_entry(name, "skipped", manifest=manifest, error=collision)
             )
             continue
         try:

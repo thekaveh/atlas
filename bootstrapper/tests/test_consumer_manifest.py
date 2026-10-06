@@ -1282,7 +1282,7 @@ def test_a_yaml_null_env_value_is_empty_not_the_string_None(tmp_path):
 
     config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
     assert config.env_overrides["NULLED"] == ""
-    assert config.env_overrides["TRUTHY"] == "True"
+    assert config.env_overrides["TRUTHY"] == "true"  # shell-style, not Python's "True"
 
 
 def test_a_null_profile_override_leaf_is_empty_not_the_string_None(tmp_path):

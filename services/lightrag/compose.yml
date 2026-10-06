@@ -13,7 +13,7 @@ services:
           memory: ${LIGHTRAG_MEMORY_LIMIT:-6g}
           cpus: '${LIGHTRAG_CPU_LIMIT:-2.0}'
     ports:
-      - "${HOST_BIND_IP:-}${LIGHTRAG_API_PORT}:9621"
+      - "${HOST_BIND_IP-127.0.0.1:}${LIGHTRAG_API_PORT}:9621"
     # Override the image's bare `python -m lightrag.api.lightrag_server`
     # entrypoint with a shell wrapper that exports the resolved values
     # lightrag-init wrote to /app/data/.env BEFORE python starts. Without
@@ -183,7 +183,12 @@ services:
       LIGHTRAG_NEO4J_URI: ${LIGHTRAG_NEO4J_URI}
       LIGHTRAG_NEO4J_USERNAME: ${LIGHTRAG_NEO4J_USERNAME}
       LIGHTRAG_NEO4J_PASSWORD: ${LIGHTRAG_NEO4J_PASSWORD}
+      # HTTP port of a host-run Neo4j (NEO4J_GRAPH_DB_SOURCE=localhost) for
+      # the index migration; the container is always reached on 7474.
+      NEO4J_LOCALHOST_HTTP_PORT: ${NEO4J_LOCALHOST_HTTP_PORT:-7474}
       LIGHTRAG_REDIS_URI: ${LIGHTRAG_REDIS_URI}
+    extra_hosts:
+      - "host.docker.internal:${HOST_GATEWAY_IP}"
     volumes:
       - ./init/scripts:/scripts:ro
       - lightrag-data:/app/data

@@ -24,10 +24,15 @@ services:
     environment:
       HF_TOKEN: ${HUGGING_FACE_HUB_TOKEN}
       NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+      # The pinned image sets PORT=5123; every caller (tts-provider endpoint,
+      # Kong, this port map and healthcheck) uses 4123.
+      PORT: "4123"
     volumes:
-      - chatterbox-cache:/root/.cache/huggingface
+      # The image runs as `app` with MODEL_CACHE_DIR=/cache; a mount under
+      # /root was never written, so models re-downloaded on every recreate.
+      - chatterbox-cache:/cache
     ports:
-      - "${HOST_BIND_IP:-}${CHATTERBOX_PORT:-63059}:4123"
+      - "${HOST_BIND_IP-127.0.0.1:}${CHATTERBOX_PORT:-63059}:4123"
     networks:
       - backend-network
     # Chatterbox's docker/Dockerfile installs curl and exposes /health.

@@ -18,6 +18,8 @@ Loki is internal-only, has no Kong route, and should be queried through Grafana.
 
 The service reads `./config/loki.yaml`, mounted to `/etc/loki/loki.yaml`. `LOKI_RETENTION_PERIOD` defaults to `24h`; compactor retention is enabled, runs every 10 minutes, and deletes expired chunks after the configured two-hour delay. TSDB schema v13 and structured metadata are enabled. Only `service.name` becomes the normalized `service_name` index label; remaining OTLP resource attributes and trace/span identifiers stay structured metadata to avoid high-cardinality indexes.
 
+The pinned image is distroless (no shell, no `wget`) and the `loki` binary has no probe flag, so the container defines no health check; Docker observes main-process liveness only. The Collector therefore waits for Loki to start, not to be ready, and its retrying export queue absorbs Loki's startup window. Check readiness from another container on the network with `GET http://loki:3100/ready`.
+
 ## 4. Architecture & Wiring
 
 OpenTelemetry Collector redacts and exports application-provided OTLP logs to Loki. Grafana queries Loki directly, and its provisioned datasource links trace identifiers to Tempo. The Collector is required when using this Atlas-managed ingestion path; direct internal Loki writes remain possible but bypass Collector redaction.

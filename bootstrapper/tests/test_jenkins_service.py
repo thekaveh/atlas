@@ -152,7 +152,7 @@ def test_jenkins_compose_contract() -> None:
     assert service["build"]["context"] == "./build"
     assert service["build"]["args"]["BASE_IMAGE"] == "${JENKINS_IMAGE:-jenkins/jenkins:lts-jdk21@sha256:c1e4c349365f6d16d88595b2c5f7e8ff39b8ae1d061f62420bac193b4b9616d0}"
     assert service["image"] == "${PROJECT_NAME}-jenkins:local"
-    assert service["ports"] == ["${HOST_BIND_IP:-}${JENKINS_PORT}:8080"]
+    assert service["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${JENKINS_PORT}:8080"]
     assert service["volumes"] == [
         "jenkins-home:/var/jenkins_home",
         "./casc:/var/jenkins_home/casc:ro",

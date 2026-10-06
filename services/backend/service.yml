@@ -148,7 +148,7 @@ env:
     description: "Default per-consumer/project spend cap in USD. Empty = no default cap (ledger records without hard-stop). Per-consumer overrides go in MEDIA_BUDGET_CONSUMER_CAPS."
   - name: MEDIA_BUDGET_CONSUMER_CAPS
     default: ""
-    description: "Optional JSON map of per-scope caps, keyed by 'consumer' or 'consumer:project', e.g. {\"rag-showcase\":25,\"rag-showcase:demo\":5}. Overrides MEDIA_BUDGET_DEFAULT_USD for matching scopes."
+    description: "Optional JSON map of per-scope caps, keyed by 'consumer' or 'consumer:project', e.g. {\"rag-showcase\":25,\"rag-showcase:demo\":5}. Overrides MEDIA_BUDGET_DEFAULT_USD for matching scopes. A 'consumer' key still caps each project separately, and user callers choose the project name, so it is not a per-user total."
   - name: MEDIA_DISABLED_PROVIDERS
     default: ""
     description: "Comma-separated media providers to kill-switch off (e.g. 'fal'). A disabled provider hard-stops its own submissions without downing the gateway or other providers."
@@ -169,7 +169,7 @@ env:
     description: "Maximum bounded media ledger pages processed per 30-second recovery poll. Must be an integer from 1 through 50; the cursor resumes on the next poll."
   - name: BACKEND_CORS_ORIGINS
     default: "*"
-    description: "Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness."
+    description: "Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness. Requests through Kong are also limited to local origins plus KONG_CORS_EXTRA_ORIGINS."
   - name: BACKEND_CORS_ALLOW_ORIGIN_REGEX
     default: ""
     description: "Optional regex accepted by the backend CORS middleware for wildcard subdomain policies."
@@ -178,7 +178,7 @@ env:
     description: "Opt-in uvicorn --reload for live development (#679). Disabled by default so the production/consumer image runs a stable process: with backend_plugins bind-mounted, host-side git churn in the plugin tree would otherwise restart or crash-loop the backend. The plugin seam installs at boot, so recreate the backend to apply plugin changes."
   - name: BACKEND_KONG_AUTH
     default: disabled
-    description: "Default gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header). A backend plugin's plugin.yml `auth: open|key-auth` overrides this per route prefix (#402)."
+    description: "Default gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header). A backend plugin's plugin.yml `auth:` setting (`open` or `key-auth`) overrides this per route prefix (#402)."
   - name: BACKEND_KONG_API_KEY
     default: ""
     secret: true
@@ -348,8 +348,6 @@ runtime_deps:
     - docling
     - tika
     - celery
-    info_message: Backend enabled - will connect to available optional services (neo4j,
-      searxng, n8n, weaviate, parakeet, speaches, chatterbox, docling, tika, celery, supavisor)
 
 data_flow:
   calls:

@@ -36,7 +36,9 @@ services:
       GENERIC_TIMEZONE: ${TZ:-UTC}
       N8N_EDITOR_BASE_URL: http://n8n.localhost:${KONG_HTTP_PORT}
       WEBHOOK_URL: http://n8n.localhost:${KONG_HTTP_PORT}/
-      NODE_ENV: development
+      # production (the image default): development mode adds any-origin
+      # credentialed CORS, drops X-Frame-Options and returns stack traces.
+      NODE_ENV: production
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
       N8N_SECURE_COOKIE: false
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: true
@@ -55,6 +57,11 @@ services:
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
       LITELLM_DEFAULT_MODEL: ${LITELLM_DEFAULT_MODEL:-ollama/qwen3.8:latest}
       BACKEND_N8N_API_TOKEN: ${BACKEND_N8N_API_TOKEN}
+      # n8n 2.x blocks $env in expressions unless this is exactly "false";
+      # every bundled workflow authenticates with $env.BACKEND_N8N_API_TOKEN
+      # and the research workflow reads $env.LITELLM_*. Workflow authors can
+      # read this container's environment, so keep editor access admin-only.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
       # STT/TTS/DOC endpoints (available for workflows)
       STT_ENDPOINT: ${STT_ENDPOINT}
       TTS_ENDPOINT: ${TTS_ENDPOINT}
@@ -91,7 +98,7 @@ services:
       CRAWL4AI_ENDPOINT: ${CRAWL4AI_ENDPOINT:-}
       CRAWL4AI_API_TOKEN: ${CRAWL4AI_API_TOKEN:-}
     ports:
-      - "${HOST_BIND_IP:-}${N8N_PORT}:5678"
+      - "${HOST_BIND_IP-127.0.0.1:}${N8N_PORT}:5678"
     volumes:
       - n8n-data:/home/node/.n8n
     networks:
@@ -149,7 +156,12 @@ services:
       DB_POSTGRESDB_PASSWORD: ${N8N_DB_PASSWORD:?N8N_DB_PASSWORD is required}
       DB_POSTGRESDB_SCHEMA: n8n
       DB_SCHEMA: n8n
-      NODE_ENV: development
+      NODE_ENV: production
+      # Queue-mode executions run here; resume/form/approval links are built
+      # from these (n8n falls back to an unreachable http://localhost:5678/).
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      N8N_EDITOR_BASE_URL: http://n8n.localhost:${KONG_HTTP_PORT}
+      WEBHOOK_URL: http://n8n.localhost:${KONG_HTTP_PORT}/
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
       EXECUTIONS_MODE: ${N8N_EXECUTIONS_MODE:-queue}
       QUEUE_BULL_REDIS_HOST: redis
@@ -158,6 +170,11 @@ services:
       QUEUE_BULL_REDIS_DB: 0
       QUEUE_HEALTH_CHECK_ACTIVE: true
       BACKEND_N8N_API_TOKEN: ${BACKEND_N8N_API_TOKEN}
+      # n8n 2.x blocks $env in expressions unless this is exactly "false";
+      # every bundled workflow authenticates with $env.BACKEND_N8N_API_TOKEN
+      # and the research workflow reads $env.LITELLM_*. Workflow authors can
+      # read this container's environment, so keep editor access admin-only.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
       # Queue mode means execution-data writes happen HERE, not on the
       # main container — the worker-server serves /metrics when these are
       # set (scraped as the n8n-worker prometheus job).

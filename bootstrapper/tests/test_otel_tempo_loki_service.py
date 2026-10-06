@@ -214,7 +214,7 @@ def test_observability_tracing_compose_contract() -> None:
     assert otel["volumes"] == ["./config/config.yaml:/etc/otelcol/config.yaml:ro"]
     assert otel["command"] == ["--config=/etc/otelcol/config.yaml"]
     assert otel["depends_on"]["tempo"]["condition"] == "service_healthy"
-    assert otel["depends_on"]["loki"]["condition"] == "service_healthy"
+    assert otel["depends_on"]["loki"]["condition"] == "service_started"
     healthcheck = otel["healthcheck"]
     assert healthcheck["test"] == [
         "CMD",
@@ -228,6 +228,9 @@ def test_observability_tracing_compose_contract() -> None:
     assert "ports" not in tempo
     assert tempo["command"] == ["-config.file=/etc/tempo/tempo.yaml", "-config.expand-env=true"]
     assert "tempo-data:/var/tempo" in tempo["volumes"]
+    # Distroless images: probes must use the service binary, never wget/sh.
+    assert tempo["healthcheck"]["test"] == ["CMD", "/tempo", "-health"]
+    assert "healthcheck" not in loki
 
     assert loki["image"] == "${LOKI_IMAGE:-grafana/loki:3.7.0}"
     assert loki["deploy"]["replicas"] == "${LOKI_SCALE:-0}"
@@ -239,7 +242,11 @@ def test_observability_tracing_compose_contract() -> None:
 def test_litellm_and_backend_receive_otel_env_only_from_atlas_vars() -> None:
     litellm = yaml.safe_load((SERVICES / "litellm" / "compose.yml").read_text())
     litellm_env = litellm["services"]["litellm"]["environment"]
-    assert litellm_env["LITELLM_OTEL_V2"] == "${ATLAS_OTEL_ENABLED:-false}"
+    # LiteLLM only traces through its "otel" callback, which litellm-init
+    # adds when ATLAS_OTEL_ENABLED; the old LITELLM_OTEL_V2 flag was inert.
+    assert "LITELLM_OTEL_V2" not in litellm_env
+    init_env = litellm["services"]["litellm-init"]["environment"]
+    assert init_env["ATLAS_OTEL_ENABLED"] == "${ATLAS_OTEL_ENABLED:-false}"
     assert litellm_env["OTEL_EXPORTER"] == "otlp_http"
     assert litellm_env["OTEL_ENDPOINT"] == "${OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT:-}"
     assert litellm_env["OTEL_SERVICE_NAME"] == "litellm"
@@ -315,3 +322,15 @@ def test_observability_tracing_docs_state_internal_only_and_grafana_surface() ->
             "local development",
         ):
             assert expected in readme
+
+
+def test_litellm_otel_callback_excludes_message_content() -> None:
+    from utils.litellm_settings import base_settings
+
+    off = base_settings({"ATLAS_OTEL_ENABLED": "false"})
+    assert "otel" not in off["litellm_settings"]["callbacks"]
+    assert "callback_settings" not in off
+
+    on = base_settings({"ATLAS_OTEL_ENABLED": "true"})
+    assert on["litellm_settings"]["callbacks"] == ["prometheus", "otel"]
+    assert on["callback_settings"] == {"otel": {"message_logging": False}}

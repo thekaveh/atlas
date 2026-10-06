@@ -133,6 +133,7 @@ Usage: ./stop.sh [options]   (or: python bootstrapper/stop.py)
 
 Options:
   --project, -p         Compose project to tear down (defaults to PROJECT_NAME / "atlas")
+  --consumer PATH       atlas.consumer.yml the stack was started with (loads its overlays)
   --cold                Remove volumes (data will be lost)
   --clean-hosts         Remove Atlas hosts file entries (requires sudo/admin)
   --stop-managed-hosts  Also stop HOST-GLOBAL managed runtimes (ComfyUI-MPS / vLLM-Metal / Blender MCP)
@@ -219,6 +220,12 @@ Examples:
                     self.banner.show_status_message("Cold stop completed successfully - all containers stopped and data removed", "success")
                 else:
                     self.banner.show_status_message("Some issues occurred during cold stop", "warning")
+                    if getattr(self.docker_manager, "teardown_overlays_dropped", False):
+                        self.banner.show_status_message(
+                            "Consumer overlays were not applied: volumes they declare "
+                            "were NOT removed. Fix the overlay and rerun ./stop.sh --cold.",
+                            "warning",
+                        )
 
                 return success
 
@@ -467,8 +474,10 @@ Examples:
         self.banner.console.print("   ./start.sh                    # Start with default settings")
         self.banner.console.print("   ./start.sh --base-port 64567  # Start with custom base port")
         
-        if cold_stop:
-            self.banner.console.print("   ./start.sh --cold             # Recommended after cold stop")
+        # No `./start.sh --cold` advice after a cold stop: the stop kept
+        # .env, and a cold start would rebuild it from .env.example
+        # (BASE_PORT, sources and typed keys reset). A plain start
+        # re-initialises the removed volumes with the kept credentials.
             
         print()
         self.banner.console.print("📚 For more information, check the README.md file", style="bright_white")
@@ -497,6 +506,12 @@ def _persist_project_override(stopper: AtlasStopper, project_name: str) -> None:
                    './stop.sh tears down exactly what ./start.sh launched. Pass '
                    'this (or set PROJECT_NAME in .env) to stop a specific stack '
                    'when running Atlas as a submodule; it persists to .env.')
+@click.option('--consumer', 'consumer_manifests', multiple=True,
+              type=click.Path(exists=False, dir_okay=False),
+              help='atlas.consumer.yml the stack was started with (repeatable). '
+                   'Its compose overlays are loaded so --cold also removes the '
+                   'volumes they declare. Relative paths resolve from the '
+                   'directory that invoked stop.sh, as in start.sh.')
 @click.option('--cold', is_flag=True, help='Remove volumes (data will be lost)')
 @click.option('--clean-hosts', is_flag=True, help='Remove Atlas hosts file entries (requires sudo/admin)')
 @click.option('--stop-managed-hosts', is_flag=True,
@@ -506,8 +521,13 @@ def _persist_project_override(stopper: AtlasStopper, project_name: str) -> None:
                    'stop leaves them running by default; pass this to tear them '
                    'down explicitly (affects ALL consumers using them).')
 @click.option('--help-usage', is_flag=True, help='Show detailed usage information')
-def main(project_name, cold, clean_hosts, stop_managed_hosts, help_usage):
+def main(project_name, consumer_manifests, cold, clean_hosts, stop_managed_hosts, help_usage):
     """Stop Atlas — the self-hosted engineering platform."""
+
+    if consumer_manifests:
+        # Same channel start.py uses: the compose seam reads the manifests
+        # (and their overlays) from ATLAS_CONSUMER_MANIFEST.
+        os.environ["ATLAS_CONSUMER_MANIFEST"] = os.pathsep.join(consumer_manifests)
 
     stopper = AtlasStopper()
 

@@ -40,7 +40,7 @@ def test_cancel_research_waits_through_commit_cancellation_before_stopping_work(
     async def scenario():
         service = object.__new__(ResearchService)
 
-        async def get_conn():
+        async def get_conn(**_kwargs):
             return Conn()
 
         async def work():

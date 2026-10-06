@@ -179,7 +179,7 @@ def test_iceberg_rest_compose_contract() -> None:
         "${ICEBERG_REST_POSTGRES_JDBC_SHA512:-3759e7160591863e5100361298943df9"
     )
     assert rest["image"] == "${PROJECT_NAME}-iceberg-rest:local"
-    assert rest["ports"] == ["${HOST_BIND_IP:-}${ICEBERG_REST_PORT}:8181"]
+    assert rest["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${ICEBERG_REST_PORT}:8181"]
     assert rest["depends_on"]["iceberg-rest-init"]["condition"] == "service_completed_successfully"
     assert rest["depends_on"]["minio-init"]["condition"] == "service_completed_successfully"
 

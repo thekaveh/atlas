@@ -23,6 +23,7 @@ It is documented under both aggregators:
   - `STT_PROVIDER_SOURCE=speaches-container-gpu`
   - `TTS_PROVIDER_SOURCE=speaches-container-cpu`
   - `TTS_PROVIDER_SOURCE=speaches-container-gpu`
+- **GPU mode caveat:** `speaches-container-gpu` switches to the CUDA image and the `speaches-gpu` profile, but the `speaches` service requests no NVIDIA runtime or device reservation (unlike Parakeet and Chatterbox), so the container gets no GPU and runs on CPU or fails CUDA init. GPU wiring is not done yet.
 - **In-container port:** 8000
 - **Host port:** `${SPEACHES_PORT}` (computed from `BASE_PORT`)
 

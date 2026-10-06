@@ -9,6 +9,11 @@ from utils.atomic_write import atomic_write_text, create_private_backup, env_lin
 
 
 _SENTINEL = "BOOTSTRAPPER_PORT_LAYOUT_VERSION"
+# The shipped .env.example module list (pinned equal by a test).
+WEAVIATE_DEFAULT_MODULES = (
+    "text2vec-openai,text2vec-ollama,multi2vec-clip,"
+    "generative-openai,generative-ollama,backup-filesystem"
+)
 _SENTINEL_RE = re.compile(
     r'^(?P<prefix>[ \t]*BOOTSTRAPPER_PORT_LAYOUT_VERSION[ \t]*=[ \t]*)'
     r'(?P<quote>["\']?)(?P<version>\d*)(?P=quote)'
@@ -62,9 +67,13 @@ def _add_module(text: str) -> tuple[str, bool]:
             value, quote = match.group("single"), "'"
         else:
             value, quote = match.group("plain"), ""
-        modules = [item.strip() for item in value.split(",") if item.strip()]
+        original = [item.strip() for item in value.split(",") if item.strip()]
+        # Blank meant "the defaults" (compose :- fallback); a bare
+        # backup-filesystem would start Weaviate with no vectorizers.
+        modules = list(original) or WEAVIATE_DEFAULT_MODULES.split(",")
         if "backup-filesystem" not in modules:
             modules.append("backup-filesystem")
+        if modules != original:
             changed = True
             lines[index] = (
                 f"{match.group('prefix')}{quote}{','.join(modules)}{quote}"
@@ -73,7 +82,7 @@ def _add_module(text: str) -> tuple[str, bool]:
     if not found:
         if lines and not lines[-1].endswith("\n"):
             lines[-1] += "\n"
-        lines.append("WEAVIATE_ENABLE_MODULES=backup-filesystem\n")
+        lines.append(f"WEAVIATE_ENABLE_MODULES={WEAVIATE_DEFAULT_MODULES}\n")
         changed = True
     return "".join(lines), changed
 

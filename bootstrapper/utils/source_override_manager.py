@@ -166,9 +166,9 @@ class SourceOverrideManager:
         actually assigned in `.env`; a missing file or an unset var is simply
         absent from the result (distinct from an empty ``VAR=`` assignment,
         which maps to ``""``). Values are stripped so a trailing newline or
-        stray whitespace doesn't read as a spurious change. Mirrors the
-        anchored ``^VAR=`` regex ``update_env_file`` uses, so the two agree
-        on exactly which line represents each variable.
+        stray whitespace doesn't read as a spurious change. Uses the same
+        optional-``export`` pattern as ``update_env_file`` and the LAST
+        assignment, which is the one Compose and parse_env_file resolve.
         """
         env_file_path = self.config_parser.env_file_path
         if not env_file_path.exists():
@@ -180,11 +180,11 @@ class SourceOverrideManager:
             return {}
         current: Dict[str, str] = {}
         for var_name in var_names:
-            match = re.search(
-                rf'^{re.escape(var_name)}=(.*)$', content, re.MULTILINE
+            matches = re.findall(
+                rf'^(?:export[ \t]+)?{re.escape(var_name)}=(.*)$', content, re.MULTILINE
             )
-            if match is not None:
-                current[var_name] = match.group(1).strip()
+            if matches:
+                current[var_name] = matches[-1].strip()
         return current
 
     def _warn_on_source_changes(self, overrides: Dict[str, str]) -> None:
@@ -206,9 +206,11 @@ class SourceOverrideManager:
             old_value = current.get(var_name, "")
             if old_value and old_value != new_value:
                 flag = '--' + var_name.lower().replace('_', '-')
+                # A --track run also disables off-track services through this
+                # same path, so the flag alone would name one never passed.
                 print(
                     f"⚠ {var_name}: {old_value} → {new_value} "
-                    f"(overridden by {flag}; persisted to .env)"
+                    f"(overridden by {flag} or the selected track; persisted to .env)"
                 )
 
     def update_env_file(self, overrides: Dict[str, str]) -> bool:
@@ -241,7 +243,10 @@ class SourceOverrideManager:
                 # so a consumer-supplied key or value reaches `.env` through
                 # here without ever passing the consumer parser.
                 var_value = render_env_assignment(var_name, raw_value)
-                pattern = rf'^{re.escape(var_name)}=.*$'
+                # `export KEY=` is KEY to Compose and to parse_env_file, so it
+                # is rewritten too (keeping the prefix); otherwise a later
+                # export line would silently win over this override.
+                pattern = rf'^(export[ \t]+)?{re.escape(var_name)}=.*$'
                 replacement = f'{var_name}={var_value}'
 
                 if re.search(pattern, updated_content, re.MULTILINE):
@@ -252,7 +257,8 @@ class SourceOverrideManager:
                     # base64-encoded keys, etc.) would otherwise corrupt
                     # silently.
                     updated_content = re.sub(
-                        pattern, lambda _m, r=replacement: r, updated_content, flags=re.MULTILINE
+                        pattern, lambda m, r=replacement: (m.group(1) or "") + r,
+                        updated_content, flags=re.MULTILINE,
                     )
                 else:
                     # Variable doesn't exist, append it (shouldn't happen with SOURCE vars)

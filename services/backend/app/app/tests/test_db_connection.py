@@ -419,3 +419,87 @@ def test_saturation_maps_to_503_with_retry_after(monkeypatch):
     assert response.status_code == 503
     assert response.headers["retry-after"] == "1"
 
+
+
+def test_research_connection_is_bounded_by_the_saturation_deadline(monkeypatch):
+    """Research shares the pool, so it shares the #1171 acquisition bound."""
+    _reset_pools()
+    import asyncio as _asyncio
+    import db_connection
+    from db_connection import PoolSaturatedError, acquire_conn
+    from research_service import ResearchService
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@db:5432/atlas")
+
+    async def _drive():
+        service = ResearchService()
+        async with acquire_conn(service.db_url):
+            try:
+                await _asyncio.wait_for(service._get_db_connection(), 5)
+            except PoolSaturatedError:
+                return True
+        return False
+
+    created = []
+    with patch("db_connection._POOL_MAX", 1), patch(
+        "db_connection._POOL_MIN", 0
+    ), patch.object(
+        db_connection, "_POOL_ACQUIRE_TIMEOUT_SECONDS", 0.05
+    ), _patch_create_pool(created):
+        assert _run(_drive()) is True
+    _reset_pools()
+
+
+def test_unexpected_error_keeps_saturation_retry_contract(monkeypatch):
+    import os
+
+    for _var, _default in (
+        ("KONG_URL", "http://kong-api-gateway:8000"),
+        ("SUPABASE_SERVICE_KEY", "dummy-key"),
+        ("DATABASE_URL", "postgresql://x:x@localhost/x"),
+    ):
+        if not os.environ.get(_var):
+            monkeypatch.setenv(_var, _default)
+
+    from db_connection import PoolSaturatedError
+    import main
+
+    saturated = main._unexpected_error(
+        "List research sessions",
+        PoolSaturatedError(deadline=5.0, size=10, free=0),
+    )
+    assert saturated.status_code == 503
+    assert saturated.headers == {"Retry-After": "1"}
+    assert main._unexpected_error("List", ValueError("x")).status_code == 500
+
+
+def test_research_background_writers_wait_instead_of_dropping(monkeypatch):
+    """A finished run's result write has no client to retry a 503."""
+    _reset_pools()
+    import asyncio as _asyncio
+    import db_connection
+    from db_connection import acquire_conn
+    from research_service import ResearchService
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@db:5432/atlas")
+
+    async def _drive():
+        service = ResearchService()
+        holder = acquire_conn(service.db_url)
+        await holder.__aenter__()
+        waiter = _asyncio.create_task(service._get_db_connection(bounded=False))
+        await _asyncio.sleep(0.2)  # well past the patched 0.05s deadline
+        assert not waiter.done()
+        await holder.__aexit__(None, None, None)
+        conn = await _asyncio.wait_for(waiter, 5)
+        await service._release_db_connection(conn)
+        return True
+
+    created = []
+    with patch("db_connection._POOL_MAX", 1), patch(
+        "db_connection._POOL_MIN", 0
+    ), patch.object(
+        db_connection, "_POOL_ACQUIRE_TIMEOUT_SECONDS", 0.05
+    ), _patch_create_pool(created):
+        assert _run(_drive()) is True
+    _reset_pools()

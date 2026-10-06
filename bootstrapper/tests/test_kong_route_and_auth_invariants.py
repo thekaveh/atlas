@@ -149,7 +149,7 @@ def test_the_root_dashboard_route_does_not_shadow_any_api_route(kong_config):
     Match weight, not prefix length, decides: `paths: ['/'] + hosts:
     ['localhost']` is two criteria and beat every Supabase route's single
     path criterion no matter how much longer its prefix. Every /rest/v1/,
-    /auth/v1/, /storage/v1/, /graphql/v1/ and /pg/ request to host
+    /auth/v1/, /storage/v1/, /graphql/v1 and /pg/ request to host
     `localhost` was answered `200` with the dashboard's HTML instead of being
     proxied — worse than a 404, because clients saw a success status.
     """

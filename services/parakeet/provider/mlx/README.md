@@ -157,11 +157,11 @@ python -m mlx.api_server
 ### 7.3. Port already in use
 ```bash
 # Use different port (if 63042 is in use)
-PARAKEET_LOCALHOST_PORT=63099 python -m mlx.api_server
+PARAKEET_LOCALHOST_PORT=18142 python -m mlx.api_server
 
 # Update .env to match (URL is derived inline as
 # http://host.docker.internal:${PARAKEET_LOCALHOST_PORT:-63042})
-PARAKEET_LOCALHOST_PORT=63099
+PARAKEET_LOCALHOST_PORT=18142
 ```
 
 ## 8. References

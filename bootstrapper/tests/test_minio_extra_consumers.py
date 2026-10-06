@@ -119,7 +119,7 @@ def test_asset_processor_input_policy_is_read_only() -> None:
     script = MINIO_INIT.read_text(encoding="utf-8")
     assert 'read_only_statements=' in script
     assert '"Action": ["s3:GetObject"]' in script
-    assert '"Action": ["s3:ListBucket"]' in script
+    assert '"Action": ["s3:ListBucket", "s3:GetBucketLocation"]' in script  # still read-only
     assert 'writable_buckets="$bucket"' in script
 
 

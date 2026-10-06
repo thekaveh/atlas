@@ -296,6 +296,9 @@ class TestCloudEnabled:
         gpt5_entries = [e for e in model_list if e["model_name"] == "gpt-5"]
         assert gpt5_entries, "Expected gpt-5 entry in model_list"
         assert gpt5_entries[0]["litellm_params"]["api_key"] == "os.environ/OPENAI_API_KEY"
+        # Explicit provider: LiteLLM cannot infer one for a bare id its model
+        # map does not know yet (e.g. a newly released gpt-*).
+        assert gpt5_entries[0]["litellm_params"]["model"] == "openai/gpt-5"
 
     def test_disabled_cloud_provider_not_included(self):
         """Without LITELLM_OPENAI_ENABLED=true, no openai rows appear."""
@@ -369,6 +372,23 @@ class TestCapabilityMetadataRendering:
         )
         with pytest.raises(ValueError, match="provider openai requires adapter openai"):
             mod.render_model_list([contradictory])
+
+    def test_cloud_rows_carry_their_provider_prefix_once(self):
+        # A bare "vendor/model" OpenRouter id from a flag or manifest went to
+        # that vendor with the OpenRouter key; anthropic/ was doubled.
+        from utils.llm_catalog import CatalogEntry
+
+        mod = _load_init_module({"LLM_PROVIDER_SOURCE": "none"})
+        rows = [
+            CatalogEntry(provider="openrouter", name="anthropic/claude-sonnet-4.6",
+                         metadata_version=1, kind="chat", adapter="openrouter",
+                         capabilities={"chat": True}),
+            CatalogEntry(provider="anthropic", name="anthropic/claude-x",
+                         metadata_version=1, kind="chat", adapter="anthropic",
+                         capabilities={"chat": True}),
+        ]
+        models = [entry["litellm_params"]["model"] for entry in mod.render_model_list(rows)]
+        assert models == ["openrouter/anthropic/claude-sonnet-4.6", "anthropic/claude-x"]
 
     def test_request_defaults_are_per_model(self):
         from utils.llm_catalog import CatalogEntry

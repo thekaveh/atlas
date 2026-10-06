@@ -165,7 +165,8 @@ def test_warm_up_sites_thread_source_build_args():
     assert "self.mark_source_built(targets)" in dm_src
     assert "capture_build_state(targets)" in start_src
     # TUI warm launch consults the drift gate + records.
-    assert "prepare_build_args(cold, targets)" in wizard_src
+    # Called through asyncio.to_thread so the Compose probe stays off the UI loop.
+    assert "prepare_build_args, cold, targets" in wizard_src
     assert "mark_source_built(targets)" in wizard_src
     assert "def prepare_build_args" in dm_src
 

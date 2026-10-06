@@ -9,8 +9,8 @@ launcher "warns, it does not act", and AC #2 it never stages anything.
 Drift is detected when EITHER:
   - the submodule's working HEAD != the gitlink the superproject records
     (``git submodule status`` prefixes the entry with ``+``), OR
-  - the superproject has a staged/unstaged change to the submodule pointer
-    (``git status --porcelain -- <sub>`` is non-empty).
+  - the superproject has staged a change to the submodule pointer
+    (``git diff --cached -- <sub>`` is non-empty).
 
 Both signals are produced by read-only ``git`` probes. The guard is a
 no-op when Atlas is not a submodule checkout (standalone clone / tarball).
@@ -45,7 +45,7 @@ def _run_git(args: list[str], cwd: Path, timeout: int = 10) -> Optional[str]:
     """Run a read-only git probe. Returns stripped stdout on success, else None.
 
     Only ever invoked with read-only subcommands (rev-parse / submodule status /
-    status --porcelain); this module performs NO git mutation.
+    diff --cached); this module performs NO git mutation.
     """
     try:
         result = subprocess.run(
@@ -67,7 +67,7 @@ def detect_submodule_pin_drift(atlas_root: Path) -> SubmodulePinStatus:
     """Probe whether ``atlas_root`` is a consumer submodule whose pin drifted.
 
     Pure read: issues ``git rev-parse`` / ``git submodule status`` /
-    ``git status --porcelain`` only. Never mutates the working tree, the
+    ``git diff --cached`` only. Never mutates the working tree, the
     index, or the superproject.
     """
     atlas_root = Path(atlas_root)
@@ -126,19 +126,18 @@ def detect_submodule_pin_drift(atlas_root: Path) -> SubmodulePinStatus:
         and recorded_gitlink != working_head
     )
 
-    # Informational: has the superproject STAGED a pointer change? `git status
-    # --porcelain` is "XY <path>" — X is the index (staged) column. Only the
-    # explicit `git add infra` half of the bug sets X; a bare HEAD drift shows
-    # up only in Y (working tree), already covered by head_drifted above.
+    # Informational: has the superproject STAGED a pointer change? Only the
+    # explicit `git add infra` half of the bug stages it; a bare HEAD drift is
+    # already covered by head_drifted above.
     staged_in_superproject = False
     if submodule_path:
-        porcelain = _run_git(
-            ["status", "--porcelain", "--", submodule_path], superproject
+        # `diff --cached`, not the porcelain X column: _run_git strips stdout,
+        # which ate the leading space of " M infra" and read bare HEAD drift
+        # as staged.
+        staged = _run_git(
+            ["diff", "--cached", "--name-only", "--", submodule_path], superproject
         )
-        staged_in_superproject = bool(
-            porcelain
-            and any(line[:1] not in ("", " ", "?") for line in porcelain.splitlines())
-        )
+        staged_in_superproject = bool(staged)
 
     return SubmodulePinStatus(
         is_submodule=True,

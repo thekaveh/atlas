@@ -135,6 +135,17 @@ class RequestBodyLimitMiddleware:
         await response(scope, receive, send)
 
 
+def _safe_suffix(suffix: str) -> str:
+    """Keep a short alphanumeric extension from the client filename; a long
+    one made mkstemp fail with ENAMETOOLONG (HTTP 500)."""
+    ext = suffix[1:] if suffix.startswith(".") else suffix
+    if not ext:
+        return ""
+    if len(ext) <= 8 and ext.isascii() and ext.isalnum():
+        return "." + ext
+    return ".bin"
+
+
 async def spool_upload(
     upload: Any,
     *,
@@ -146,7 +157,7 @@ async def spool_upload(
         raise ValueError("max_bytes must be positive")
 
     fd, raw_path = tempfile.mkstemp(
-        suffix=suffix,
+        suffix=_safe_suffix(suffix),
         dir=str(directory) if directory is not None else None,
     )
     path = Path(raw_path)

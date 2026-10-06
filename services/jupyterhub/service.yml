@@ -20,7 +20,7 @@ capabilities:
   - name: "Operator-trusted credential environment"
     status: partial
     verification: documented
-    note: "The server receives high-privilege database and service credentials and grants sudo inside its container, so it is an engineering workspace rather than a hostile multi-tenant sandbox."
+    note: "The server receives high-privilege database and service credentials and runs arbitrary user code, so it is an engineering workspace rather than a hostile multi-tenant sandbox (GRANT_SUDO is set but inert: the container does not start as root)."
   - name: "Notebook workspace persistence"
     status: supported
     verification: tested
@@ -76,7 +76,7 @@ env:
     description: "Optional. Empty = generate on start."
   - name: JUPYTER_ALLOW_ORIGIN
     default: "*"
-    description: "Allowed browser origin for Jupyter Server websocket upgrades; keep '*' for local dev, narrow for shared deployments."
+    description: "Allowed browser origin for Jupyter Server websocket upgrades; keep '*' for local dev, or set one exact origin (a single value, not a list) for shared deployments."
   - name: SPARK_REMOTE
     default: "sc://spark-connect:15002"
     description: "Spark Connect endpoint used by bundled notebooks; override for a remote or managed Spark Connect server."
@@ -144,6 +144,7 @@ runtime_adaptive:
       # sys.env only -- it has no dotenv fallback like the Python
       # notebooks -- and aborts on an empty value.
       LITELLM_DEFAULT_MODEL: ${LITELLM_DEFAULT_MODEL}
+      LITELLM_EMBEDDING_MODEL: ${LITELLM_EMBEDDING_MODEL}
       WEAVIATE_URL: http://weaviate:8080
       NEO4J_URI: bolt://neo4j-graph-db:7687
       COMFYUI_BASE_URL: ${COMFYUI_ENDPOINT}
@@ -180,9 +181,6 @@ runtime_deps:
     - redpanda
     - mlflow
     - label-studio
-    info_message: JupyterHub enabled - will connect to available optional services
-      (neo4j, searxng, n8n, weaviate, comfyui, parakeet, speaches, chatterbox, docling,
-      minio, iceberg-rest, spark, redpanda, mlflow, label-studio)
 
 data_flow:
   # Mirrors the compose-injected env surface the bundled notebooks use:

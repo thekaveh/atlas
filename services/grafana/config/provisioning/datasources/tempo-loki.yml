@@ -9,8 +9,8 @@ datasources:
     editable: false
     jsonData:
       httpMethod: GET
-      serviceMap:
-        datasourceUid: Prometheus
+      # No serviceMap: Tempo's metrics generator is disabled (tempo.yaml), so
+      # no service-graph series exist and the map would always be empty.
   - name: Loki
     uid: Loki
     type: loki

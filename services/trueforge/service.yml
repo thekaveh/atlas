@@ -25,7 +25,7 @@ capabilities:
   - name: "Authenticated multi-user access"
     status: not-supported
     verification: documented
-    note: "The OIDC triple is deliberately unset, so TrueForge runs with its fixed local admin identity — anyone who can reach the server or the Kong route is admin, the same network-trusted posture as the other Atlas UIs. Model-provider credentials are still scoped: the seeded provider carries a dedicated LiteLLM virtual key, not the master key."
+    note: "The OIDC triple is deliberately unset, so TrueForge runs with its fixed local admin identity — anyone who can reach the server or the Kong route is admin, the same network-trusted posture as the other Atlas UIs. Model-provider credentials are normally scoped: the seeded provider carries a dedicated LiteLLM virtual key. If minting that key fails at init (for example LiteLLM's database is not ready on a cold start), init falls back to the LiteLLM master key until the next start, and anyone reaching TrueForge then has LiteLLM admin rights."
 
 containers:
   - trueforge

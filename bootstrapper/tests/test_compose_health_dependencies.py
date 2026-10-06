@@ -48,3 +48,23 @@ def test_backend_weaviate_init_dependency_is_optional():
     dependency = compose["services"]["backend"]["depends_on"]["weaviate-init"]
     assert dependency["condition"] == "service_completed_successfully"
     assert dependency["required"] is False
+
+
+def test_long_lived_commands_and_probes_carry_no_password_flags():
+    """Container processes are visible to every local user through ps on
+    Linux; Flower's --basic-auth and redis-cli -a put the shared dashboard
+    and Redis passwords there for the container's whole life."""
+    flower = yaml.safe_load(
+        (REPO / "services/celery/compose.yml").read_text(encoding="utf-8")
+    )["services"]["flower"]
+    redis = yaml.safe_load(
+        (REPO / "services/redis/compose.yml").read_text(encoding="utf-8")
+    )["services"]["redis"]
+    assert not any("--basic-auth" in part for part in flower["command"])
+    assert flower["environment"]["FLOWER_BASIC_AUTH"].startswith("${DASHBOARD_USERNAME:-kong_admin}")
+    # Exact exec form: a CMD-SHELL string would make a "-a" membership check
+    # pass vacuously while still carrying the password.
+    # PONG required: redis-cli exits 0 on -LOADING/NOAUTH error replies.
+    assert redis["healthcheck"]["test"] == ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+    assert " -a " not in redis["healthcheck"]["test"][1]
+    assert redis["environment"]["REDISCLI_AUTH"] == "${REDIS_PASSWORD}"

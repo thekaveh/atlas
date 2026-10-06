@@ -207,7 +207,6 @@ runtime_deps:
     error_message: 'n8n disabled: requires weaviate for vector operations and AI workflow
       nodes. Enable weaviate (WEAVIATE_SOURCE=container) to use n8n workflows with
       vector capabilities'
-    info_message: n8n enabled - will connect to available optional services (parakeet)
   n8n-worker:
     requires:
     - weaviate

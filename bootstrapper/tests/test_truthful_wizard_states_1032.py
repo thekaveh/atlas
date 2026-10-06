@@ -511,3 +511,23 @@ def test_the_rendered_border_title_counts_reachable_steps(size):
     caption = _progress_title(replace(longest, step_index=69, step_total=69))
     counter = caption[: caption.index(" / 69") + len(" / 69")]
     assert len(counter) <= panel_width - 2, (counter, panel_width)
+
+
+def test_source_step_defaults_follow_the_selected_profile_bundle() -> None:
+    """Prod enables Prometheus/Grafana, but the steps defaulted to the .env
+    value: Enter answered "disabled", which counted as explicit, so a wizard
+    prod launch never turned them on (the --no-tui prod path did)."""
+    step = _step_titled("Prometheus")
+    provider = step.default_value_provider
+    assert provider is not None
+    assert provider({I.PROFILE_STEP_TITLE: "prod"}) == PROFILES["prod"]["sources"]["prometheus"]
+    assert provider({I.PROFILE_STEP_TITLE: "default"}) == step.default_value
+
+
+def test_filtered_source_value_falls_back_to_the_manifest_default() -> None:
+    from services.manifests import load_manifests, manifest_source_default
+
+    manifests = load_manifests(REPO_ROOT / "services")
+    # svc.options[0] is "container" for TIKA, but the declared default is not.
+    assert manifest_source_default(manifests, "TIKA_SOURCE") == "disabled"
+    assert manifest_source_default(manifests, "NO_SUCH_SOURCE") is None

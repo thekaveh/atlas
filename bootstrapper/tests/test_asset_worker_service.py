@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 
+import pytest
 import yaml
 
 from core.config_parser import ConfigParser
@@ -223,3 +224,26 @@ def test_asset_worker_gltf_version_pins_agree_with_package_json() -> None:
     assert f"ARG GLTF_TRANSFORM_VERSION={version}" in dockerfile
     assert f"${{ASSET_WORKER_GLTF_TRANSFORM_VERSION:-{version}}}" in compose
     assert env["ASSET_WORKER_GLTF_TRANSFORM_VERSION"]["default"] == version
+
+
+@pytest.mark.parametrize(
+    ("service", "source"),
+    [("asset-worker", "ASSET_WORKER_SOURCE=container"),
+     ("asset-baker", "ASSET_BAKER_SOURCE=container-cpu")],
+)
+def test_asset_processors_fail_dependency_check_without_minio(env_with_overrides, service, source):
+    """Compose gates both on minio + minio-init; with MinIO off (the
+    gen-ai-creative track default) the launch used to hang, not fail."""
+    from start import AtlasStarter
+
+    key, value = source.split("=")
+    starter = AtlasStarter()
+    starter.config_parser.env_file_path = env_with_overrides({
+        key: value, "MINIO_SOURCE": "disabled", "MINIO_SCALE": "0", "MINIO_INIT_SCALE": "0",
+    })
+
+    assert starter.check_service_dependencies() is False
+    assert any(
+        v["service"] == service and v["required_service"] == "minio"
+        for v in starter.dependency_manager.get_dependency_violations()
+    )

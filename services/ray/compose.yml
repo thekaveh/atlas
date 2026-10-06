@@ -13,8 +13,9 @@ services:
           cpus: "${RAY_HEAD_CPU_LIMIT:-2.0}"
     # Ray's object store uses /dev/shm. Default Docker Desktop allocates 64MB;
     # 4GB triggered Ray's "/dev/shm too small, falling back to /tmp/ray" warning
-    # on every launch. 8GB satisfies Ray's recommended >30% RAM threshold for
-    # most workloads without hard-reserving excessive shared memory.
+    # on every launch. /dev/shm is tmpfs and counts against the container's
+    # memory limit, so the usable object store is bounded by that limit (Ray
+    # sizes it at ~30% of it by default), not by this 8GB ceiling.
     shm_size: 8gb
     command:
       - bash
@@ -70,8 +71,9 @@ services:
           cpus: "${RAY_WORKER_CPU_LIMIT:-2.0}"
     # Ray's object store uses /dev/shm. Default Docker Desktop allocates 64MB;
     # 4GB triggered Ray's "/dev/shm too small, falling back to /tmp/ray" warning
-    # on every launch. 8GB satisfies Ray's recommended >30% RAM threshold for
-    # most workloads without hard-reserving excessive shared memory.
+    # on every launch. /dev/shm is tmpfs and counts against the container's
+    # memory limit, so the usable object store is bounded by that limit (Ray
+    # sizes it at ~30% of it by default), not by this 8GB ceiling.
     shm_size: 8gb
     command:
       - bash

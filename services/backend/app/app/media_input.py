@@ -20,11 +20,14 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import os
 import re
 import warnings
 from dataclasses import dataclass
 from typing import Callable, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 # Neutral studio background + padding applied when compositing transparent
 # inputs. fal Hunyuan3D v2 raises IndexError on tight transparent crops
@@ -32,6 +35,7 @@ from typing import Callable, Optional, Tuple
 # neutral field before submission. ~35% padding per side, per triage.
 NEUTRAL_BACKGROUND: Tuple[int, int, int] = (240, 240, 240)
 DEFAULT_PADDING_RATIO: float = 0.35
+
 DEFAULT_MEDIA_INPUT_MAX_BYTES = 25 * 1024 * 1024
 DEFAULT_MEDIA_INPUT_MAX_PIXELS = 40_000_000
 
@@ -404,6 +408,18 @@ def prepare_image_input(
                 "provider requires a hosted image URL but no storage uploader "
                 "is configured"
             )
+        if not conditioned:
+            # Hosted objects are served with this MIME type, so the declared
+            # type must match the decoded raster (no text/html polyglots).
+            declared = content_type.split(";", 1)[0].strip().lower()
+            content_type, _ = validate_raster_image(
+                data,
+                # `image/jpg` is a common non-standard alias clients send.
+                "image/jpeg" if declared == "image/jpg" else content_type,
+                _positive_env_int(
+                    "MEDIA_INPUT_MAX_BYTES", DEFAULT_MEDIA_INPUT_MAX_BYTES
+                ),
+            )
         digest = hashlib.sha256(data).hexdigest()[:16]
         key = f"{key_prefix}/{digest}.{_content_ext(content_type)}"
         try:
@@ -411,8 +427,11 @@ def prepare_image_input(
         except ImageHostingError:
             raise
         except Exception as exc:
+            # Detail (storage URLs, bucket names, server text) goes to the log,
+            # not to the API caller.
+            logger.warning("Hosting a media image input failed: %s", exc)
             raise ImageHostingError(
-                f"failed to host image input in Atlas storage: {exc}"
+                "failed to host image input in Atlas storage"
             ) from exc
         if not hosted_url:
             raise ImageHostingError("storage uploader returned an empty URL")

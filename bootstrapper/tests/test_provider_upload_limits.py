@@ -322,3 +322,16 @@ def test_docling_converter_failure_is_not_returned_as_successful_markdown(
 
     with pytest.raises(RuntimeError, match="Docling processing failed"):
         asyncio.run(processor.process_document(str(source)))
+
+
+def test_provider_upload_spool_ignores_unusable_client_extensions(tmp_path):
+    # A long client extension made mkstemp fail with ENAMETOOLONG (HTTP 500).
+    module = _load(ROOT / "services/parakeet/provider/bounded_upload.py", "parakeet_upload_suffix")
+    assert module._safe_suffix(".webm") == ".webm"
+    assert module._safe_suffix("") == ""
+    assert module._safe_suffix("." + "x" * 300) == ".bin"
+    assert module._safe_suffix("./../x") == ".bin"
+    path = asyncio.run(
+        module.spool_upload(FakeUpload([b"a"]), max_bytes=8, suffix="." + "x" * 300, directory=tmp_path)
+    )
+    assert path.suffix == ".bin"

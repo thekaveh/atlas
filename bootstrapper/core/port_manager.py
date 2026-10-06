@@ -35,6 +35,55 @@ def _bind_probe(family: int, address: tuple) -> tuple[Optional[socket.socket], E
         return None, exc
 
 
+def _runs_no_container(source: Optional[str]) -> bool:
+    """A source that publishes none of the service's container ports:
+    disabled, the LLM provider's cloud-only ``none`` (Ollama not run), or a
+    host-run ``*localhost*`` variant (scaled to 0; its slot never binds)."""
+    value = (source or "").strip()
+    return value in ("disabled", "none") or "localhost" in value
+
+
+def _free_despite_time_wait(port: int, bind_ip: str = "") -> bool:
+    """Whether a port refused by the strict probe is only held by TIME_WAIT.
+
+    Docker's (Go) listeners set SO_REUSEADDR, so a recently closed connection
+    does not stop them binding. Retry with SO_REUSEADDR on every address a
+    real listener could hold: on macOS a reusable wildcard bind alone would
+    hide a live 127.0.0.1 listener, so all four must succeed. (On Linux a
+    bound-but-not-listening SO_REUSEADDR socket also passes; Docker could
+    bind there too, so only a not-yet-listening server can race this.)
+    """
+    return all(_reusable_bind(family, address) for family, address in _reuse_probe_addresses(port, bind_ip))
+
+
+def _reuse_probe_addresses(port: int, bind_ip: str) -> list:
+    addresses = [(socket.AF_INET, ("0.0.0.0", port)), (socket.AF_INET, ("127.0.0.1", port))]
+    if socket.has_ipv6:
+        addresses += [(socket.AF_INET6, ("::", port)), (socket.AF_INET6, ("::1", port))]
+    if bind_ip and all(bind_ip != address[0] for _family, address in addresses):
+        # A specific HOST_BIND_IP (LAN address) is where compose will bind;
+        # macOS lets the four reusable binds above coexist with a live
+        # listener there.
+        family = socket.AF_INET6 if ":" in bind_ip else socket.AF_INET
+        addresses.append((family, (bind_ip, port)))
+    return addresses
+
+
+def _reusable_bind(family: int, address: tuple) -> bool:
+    """SO_REUSEADDR bind; an unsupported IPv6 stack counts as free."""
+    try:
+        with socket.socket(family, socket.SOCK_STREAM) as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if family == socket.AF_INET6:
+                probe.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+            probe.bind(address)
+    except OSError as exc:
+        return family == socket.AF_INET6 and exc.errno in (
+            errno.EAFNOSUPPORT, errno.EPROTONOSUPPORT, errno.EADDRNOTAVAIL,
+        )
+    return True
+
+
 def _assignment_pattern(var: str) -> str:
     """Match one `VAR=value` line, with an optional trailing comment.
 
@@ -135,6 +184,7 @@ class PortManager:
         families = [(socket.AF_INET, ("0.0.0.0", port))]
         if socket.has_ipv6:
             families.append((socket.AF_INET6, ("::", port)))
+        in_use = False
         with ExitStack() as cleanup:
             for family, address in families:
                 probe, error = _bind_probe(family, address)
@@ -142,10 +192,28 @@ class PortManager:
                     error_number = getattr(error, "errno", None)
                     if family == socket.AF_INET6 and error_number in unsupported_ipv6:
                         continue
-                    return False
+                    if error_number != errno.EADDRINUSE:
+                        return False
+                    in_use = True
+                    break
                 assert probe is not None
                 cleanup.callback(probe.close)
-            return True
+        # Outside the stack: a still-held strict IPv4 probe would make the
+        # fallback's own 0.0.0.0 bind fail (IPv6 TIME_WAIT read as in use).
+        return _free_despite_time_wait(port, self._host_bind_ip()) if in_use else True
+
+    def _host_bind_ip(self) -> str:
+        """HOST_BIND_IP as a bare address ("127.0.0.1:" -> "127.0.0.1").
+
+        An exported value wins, as it does for compose's interpolation.
+        """
+        raw = os.environ.get("HOST_BIND_IP")
+        if raw is None:
+            try:
+                raw = self.config_parser.parse_env_file().get("HOST_BIND_IP", "")
+            except (OSError, UnicodeDecodeError):  # unreadable .env: defaults
+                return ""
+        return (raw or "").strip().rstrip(":").strip("[]")
 
     def check_port_range_availability(self, base_port: int) -> List[int]:
         """
@@ -286,15 +354,39 @@ class PortManager:
             rows = get_topology().rows
         except Exception:  # noqa: BLE001
             return set()
-        return {
+        disabled = {
             row.port_var
             for row in rows
             if row.port_var
             and row.source_var
-            and sources.get(row.source_var) == 'disabled'
+            and _runs_no_container(sources.get(row.source_var))
+        }
+        return disabled | self._disabled_manifest_port_vars(sources)
+
+    def _disabled_manifest_port_vars(self, sources: dict) -> set:
+        """Every host ``*_PORT`` a disabled manifest declares.
+
+        A topology row names one port per service; Ray (GCS, client),
+        Redpanda (Kafka), OpenClaw (bridge), the exporters and others publish
+        more, all equally unbound. Fails open (empty set) like the caller.
+        """
+        try:
+            from pathlib import Path
+
+            from services.manifests import load_manifests
+
+            manifests = load_manifests(Path(self.config_parser.root_dir) / "services")
+        except Exception:  # noqa: BLE001 — fail open: probe these ports
+            return set()
+        return {
+            decl.name
+            for manifest in manifests
+            if manifest.sources and _runs_no_container(sources.get(manifest.sources.var))
+            for decl in manifest.env
+            if decl.name.endswith("_PORT") and "_LOCALHOST_" not in decl.name
         }
 
-    def suggest_available_base_port(self, start_from: int = 50000, max_attempts: int = 100) -> Optional[int]:
+    def suggest_available_base_port(self, start_from: int = 20000, max_attempts: int = 100) -> Optional[int]:
         """
         Suggest an available base port by checking ranges.
 
