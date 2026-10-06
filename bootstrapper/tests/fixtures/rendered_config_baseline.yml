@@ -3101,6 +3101,7 @@ services:
     - type: bind
       source: '{REPO_ROOT}/services/neo4j/build/scripts'
       target: /scripts
+      read_only: true
       bind: {}
     - type: volume
       source: neo4j-backups
@@ -4978,6 +4979,7 @@ services:
     - type: bind
       source: '{REPO_ROOT}/services/weaviate/init/scripts'
       target: /scripts
+      read_only: true
       bind: {}
   weaviate-init:
     container_name: atlas-weaviate-init
@@ -5006,6 +5008,7 @@ services:
     - type: bind
       source: '{REPO_ROOT}/services/weaviate/init/scripts'
       target: /scripts
+      read_only: true
       bind: {}
     - type: volume
       source: weaviate-shared-config

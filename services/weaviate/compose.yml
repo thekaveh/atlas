@@ -20,7 +20,7 @@ services:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
     volumes:
-      - ./init/scripts:/scripts
+      - ./init/scripts:/scripts:ro
       - weaviate-shared-config:/shared
     networks:
       - backend-network
@@ -90,7 +90,7 @@ services:
       - weaviate-data:/var/lib/weaviate
       - weaviate-backups:/var/lib/weaviate/backups
       - weaviate-shared-config:/shared
-      - ./init/scripts:/scripts
+      - ./init/scripts:/scripts:ro
     networks:
       - backend-network
     healthcheck:

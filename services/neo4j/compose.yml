@@ -27,7 +27,7 @@ services:
       - "${HOST_BIND_IP-127.0.0.1:}${GRAPH_DB_PORT}:7687"
       - "${HOST_BIND_IP-127.0.0.1:}${GRAPH_DB_DASHBOARD_PORT}:7474"
     volumes:
-      - ./build/scripts:/scripts
+      - ./build/scripts:/scripts:ro
       - neo4j-backups:/snapshot
       - graph-db-data:/data
     healthcheck:
