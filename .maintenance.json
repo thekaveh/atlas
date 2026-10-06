@@ -70,8 +70,8 @@
       {
         "path": "bootstrapper/core/consumer_manifest.py",
         "symbol": "load_consumer_config",
-        "cyclomatic_complexity": 72,
-        "rationale": "Fail-closed parser for the versioned consumer manifest; each branch emits a distinct validation failure and the contract suite exercises those outcomes. 73 -> 72 in the 2026-10-04 maintenance pass: the LightRAG rerank gate moved to _check_rerank_adapter_gate after the manifest loop so it reads env merged from every manifest."
+        "cyclomatic_complexity": 68,
+        "rationale": "Fail-closed parser for the versioned consumer manifest; each branch emits a distinct validation failure and the contract suite exercises those outcomes. 73 -> 72 in the 2026-10-04 maintenance pass: the LightRAG rerank gate moved to _check_rerank_adapter_gate after the manifest loop so it reads env merged from every manifest. 72 -> 68 on 2026-10-06: writing the plugin/sidecar-derived keys moved into _apply_derived_env, which also rejects a conflicting env.values entry."
       },
       {
         "path": "bootstrapper/services/service_config.py",
@@ -82,8 +82,8 @@
       {
         "path": "bootstrapper/start.py",
         "symbol": "AtlasStarter.apply_profile_overrides",
-        "cyclomatic_complexity": 45,
-        "rationale": "Central precedence boundary for CLI, track, and persisted source choices; host-bind ownership is extracted into B-grade helpers and profile/source-permutation tests cover the remaining explicit override cases. Overnight maintenance 2026-10-05 moved the env-knob loop into _profile_env_overrides (with _env_example_values/_prior_profile_env) and manifest SOURCE precedence into _manifest_source_vars, 48->45."
+        "cyclomatic_complexity": 43,
+        "rationale": "Central precedence boundary for CLI, track, and persisted source choices; host-bind ownership is extracted into B-grade helpers and profile/source-permutation tests cover the remaining explicit override cases. Overnight maintenance 2026-10-05 moved the env-knob loop into _profile_env_overrides (with _env_example_values/_prior_profile_env) and manifest SOURCE precedence into _manifest_source_vars, 48->45. 2026-10-06: the ATLAS_PROFILE_APPLIED record condition (now also written on a no-op first start) moved into _should_record_profile, 45->43."
       },
       {
         "path": "bootstrapper/start.py",
@@ -240,7 +240,7 @@
       {
         "path": "bootstrapper/core/consumer_manifest.py",
         "symbol": "load_consumer_config",
-        "cyclomatic_complexity": 72,
+        "cyclomatic_complexity": 68,
         "rationale": "Fail-closed parser and validator for a versioned external manifest. Its branches correspond to distinct validation errors and are covered by schema and consumer-contract tests."
       },
       {

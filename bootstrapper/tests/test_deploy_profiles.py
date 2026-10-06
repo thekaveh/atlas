@@ -488,3 +488,12 @@ def test_doctor_profile_reports_bundle_and_tiers():
 
 def test_doctor_profile_registered():
     assert start._doctor_check_profile in start.DOCTOR_CHECKS
+
+
+def test_first_noop_default_start_still_records_the_applied_marker(tmp_path):
+    """A default-profile first start with nothing to change wrote no marker,
+    so doctor's preflight treated the stack as never started and re-merged
+    the manifest over that start's CLI overrides."""
+    s = _make_starter(tmp_path, "HOST_BIND_IP=127.0.0.1:\n")
+    assert s.apply_profile_overrides("default") is True
+    assert _env(tmp_path)["ATLAS_PROFILE_APPLIED"] == "default"

@@ -5475,3 +5475,26 @@ def test_reader_roles_cannot_read_app_credentials(disposable_postgres):  # noqa:
                    "SELECT * FROM n8n.user_api_keys", "SELECT * FROM n8n.oauth_access_tokens",
                    "SELECT valves FROM public.tool"):
         assert database.sql(denied, check=False, **role).returncode != 0, denied
+
+
+def test_orchestrator_step_timeout_exits_124_not_a_traceback(monkeypatch, capsys):
+    # A host step timeout escaped as a raw traceback (exit 1); 64 stays for
+    # configuration/contract errors.
+    import importlib.util
+    import subprocess as _subprocess
+    import sys as _sys
+
+    path = Path(__file__).resolve().parents[2] / "services/backup/database_orchestrator.py"
+    spec = importlib.util.spec_from_file_location("atlas_orchestrator_exit_codes", path)
+    module = importlib.util.module_from_spec(spec)
+    _sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    def timed_out():
+        raise _subprocess.TimeoutExpired(["docker", "exec"], 900)
+
+    monkeypatch.setattr(module, "main", timed_out)
+    with pytest.raises(SystemExit) as raised:
+        module._cli()
+    assert raised.value.code == 124
+    assert "database orchestrator:" in capsys.readouterr().err

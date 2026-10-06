@@ -556,6 +556,31 @@ def _split_manifest_env(raw: str) -> list[str]:
     return pieces
 
 
+def _list_items(value: str, separator: str) -> list[str]:
+    """A separated list as its stripped items, so `a, b` equals `a,b`."""
+    return [item.strip() for item in value.split(separator) if item.strip()]
+
+
+def _apply_derived_env(
+    env_overrides: dict[str, str], env_origins: dict[str, str], derived: dict[str, str]
+) -> None:
+    """Write plugin/sidecar-derived keys. An env.values entry for one of them
+    used to be overwritten without a word (e.g. a pinned Ollama model
+    dropped); a different value is now an error naming both places."""
+    for key, value in derived.items():
+        if not value:
+            continue
+        separator = "," if key == "OLLAMA_CUSTOM_MODELS" else os.pathsep
+        if key in env_overrides and (
+            _list_items(env_overrides[key], separator) != _list_items(value, separator)
+        ):
+            raise ConsumerManifestError(
+                f"{key} is set in {env_origins.get(key, 'env.values')} and also "
+                "derived from the manifest's plugins/sidecars; declare it in one place"
+            )
+        env_overrides[key] = value
+
+
 def discover_consumer_manifest_paths(
     root_dir: Path | str,
     *,
@@ -3384,17 +3409,7 @@ def load_consumer_config(
         ),
         "OLLAMA_CUSTOM_MODELS": ",".join(_ordered_union(ollama_models)),
     }
-    for key, value in derived.items():
-        if not value:
-            continue
-        # An env.values entry for a key the manifest also derives used to be
-        # overwritten without a word (e.g. a pinned Ollama model dropped).
-        if key in env_overrides and env_overrides[key] != value:
-            raise ConsumerManifestError(
-                f"{key} is set in {env_origins.get(key, 'env.values')} and also "
-                "derived from the manifest's plugins/sidecars; declare it in one place"
-            )
-        env_overrides[key] = value
+    _apply_derived_env(env_overrides, env_origins, derived)
 
     if all_custom_nodes:
         # Reject a consumer node whose name collides with an Atlas-shipped node

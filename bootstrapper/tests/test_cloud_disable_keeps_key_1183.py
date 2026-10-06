@@ -625,3 +625,25 @@ def test_a_real_selection_leaves_the_overview_alone():
 
 def test_a_degraded_models_commit_leaves_the_overview_alone():
     assert _overview_after_models(SECRET_KEEP, enabled=False, key_set=True) == (False, True)
+
+
+def test_wizard_cold_start_carries_kept_key_and_source_forward():
+    """A cold start rebuilds .env from .env.example first, so a "keep"
+    (no write) used to lose the saved key and enabled source."""
+    from ui.textual.integration import _selections_to_args
+
+    selections = {cloud_secret_title(_P.name): SECRET_KEEP, "Cold start  ·  rebuild": "yes"}
+    env = {**_env(source="enabled"), "FAL_API_KEY": "fal-kept", "FAL_SOURCE": "enabled",
+           "OLLAMA_CUSTOM_MODELS": "qwen3:8b"}
+    source_args, options = _selections_to_args(
+        selections, services_info=[], current_base_port=63000, env_vars=env,
+    )
+    assert source_args[f"cloud_{_P.key}_source"] == "enabled"
+    assert options["cloud_api_keys"][_P.api_key_var] == _KEY
+    assert options["cloud_api_keys"]["FAL_API_KEY"] == "fal-kept"
+    assert source_args["fal_source"] == "enabled"
+    assert options["ollama_user_models"]["OLLAMA_CUSTOM_MODELS"] == "qwen3:8b"
+    # Without a cold start nothing extra is written.
+    del selections["Cold start  ·  rebuild"]
+    _, warm = _selections_to_args(selections, services_info=[], current_base_port=63000, env_vars=env)
+    assert _P.api_key_var not in warm["cloud_api_keys"]

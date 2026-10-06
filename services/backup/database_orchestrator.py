@@ -2112,7 +2112,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
 
-if __name__ == "__main__":
+def _cli() -> None:
     try:
         raise SystemExit(main())
     except (ContractError, SignalInterruption, subprocess.TimeoutExpired) as exc:
@@ -2121,3 +2121,7 @@ if __name__ == "__main__":
         if isinstance(exc, subprocess.TimeoutExpired):
             raise SystemExit(124)  # timeout(1) convention, distinct from config errors
         raise SystemExit(130 if isinstance(exc, SignalInterruption) else 64)
+
+
+if __name__ == "__main__":
+    _cli()

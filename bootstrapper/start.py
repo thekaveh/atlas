@@ -317,16 +317,28 @@ _PREFLIGHT_DERIVED_KEYS = frozenset({
 })
 
 
+def _should_record_profile(overrides, auto_vars, switching: bool, env_vars: dict) -> bool:
+    """Record ATLAS_PROFILE_APPLIED when the profile changed anything, and
+    always on the first start (even a no-op default profile): the marker is
+    what tells doctor's preflight that this stack's values, including CLI
+    overrides, are persisted and must not be re-merged."""
+    return bool(overrides or auto_vars or switching) or not _known_applied_profile(env_vars)
+
+
 def _preflight_declared(consumer_config, env_vars: dict) -> dict:
     """Manifest env a preflight may write. Once a start has persisted this
     stack's values, including CLI overrides (--base-port, -p,
     --<svc>-source) that must beat the manifest, re-merging the manifest
     silently undid them (doctor then pointed .env, ports and PROJECT_NAME at
-    a different stack), so only the derived overlay paths (#451) remain."""
+    a different stack), so only the derived overlay paths (#451) and keys
+    .env does not hold yet (newly added to the manifest) remain."""
     declared = dict(consumer_config.env_overrides or {})
     if not _known_applied_profile(env_vars):
         return declared
-    return {key: value for key, value in declared.items() if key in _PREFLIGHT_DERIVED_KEYS}
+    return {
+        key: value for key, value in declared.items()
+        if key in _PREFLIGHT_DERIVED_KEYS or key not in env_vars
+    }
 
 
 def _validate_consumer_manifests_early(starter, from_cli: bool) -> None:
@@ -775,7 +787,7 @@ class AtlasStarter:
 
         # Write the marker only when this run actually changes something (or
         # completes a switch) — a no-op run must leave .env byte-identical.
-        if overrides or auto_vars or switching:
+        if _should_record_profile(overrides, auto_vars, switching, env_vars):
             overrides["ATLAS_PROFILE_APPLIED"] = active
         if overrides and not self.source_override_manager.update_env_file(overrides):
             return False
@@ -7900,7 +7912,7 @@ def endpoints_export_command(
     env = starter.config_parser.parse_env_file()
     try:
         consumer_config = starter.config_parser.load_consumer_config()
-    except ValueError as exc:  # ConsumerManifestError: a message, not a traceback
+    except (ValueError, OSError) as exc:  # ConsumerManifestError / unreadable file
         raise click.ClickException(f"invalid consumer manifest: {exc}") from exc
 
     # A manifest BASE_PORT: auto is allocated at bring-up, and a cold .env still

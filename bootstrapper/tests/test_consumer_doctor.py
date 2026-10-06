@@ -2164,7 +2164,8 @@ def test_preflight_after_a_start_keeps_that_starts_cli_overrides(
     parsed = start_module.AtlasStarter().config_parser.parse_env_file()
     assert parsed["BASE_PORT"] == "64000"
     assert "BASE_PORT" not in applied
-    assert set(applied) <= start_module._PREFLIGHT_DERIVED_KEYS
+    # Derived overlay paths and keys .env lacks still materialize.
+    assert "EXTRA_CONSUMER_VALUE" in applied
 
 
 def test_env_values_conflicting_with_derived_sidecar_key_is_an_error(tmp_path: Path) -> None:

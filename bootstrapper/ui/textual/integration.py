@@ -33,6 +33,7 @@ from wizard.comfyui_steps import COMFYUI_MODELS_TITLE
 from wizard.model.cloud_rules import (
     SECRET_CLEAR,
     SECRET_KEEP,
+    _carry_kept_values_into_cold_start,
     resolve_cloud_provider,
     resolve_secret_verdict,
 )
@@ -1307,7 +1308,10 @@ def _selections_to_args(
         _current_pn = ((env_vars or {}).get("PROJECT_NAME") or "").strip().lower()
         if _pn and _pn != _current_pn:
             project_name_val = _pn
-    cold = selections.get("Cold start  ·  rebuild") == "yes"
+    cold = _carry_kept_values_into_cold_start(
+        selections.get("Cold start  ·  rebuild") == "yes", env_vars,
+        {"source": source_args, "keys": cloud_api_keys, "cloud_models": cloud_user_models, "ollama": ollama_user_models},
+    )
     hosts = selections.get("Hosts setup  ·  /etc/hosts", "default")
     launch = selections.get("Confirm  ·  launch the stack") == "yes"
     # Resolve the deployment profile from the wizard's profile-step selection.

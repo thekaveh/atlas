@@ -242,10 +242,11 @@ cd infra
 overlay/manifest errors before any container starts; `doctor` surfaces
 contract/port/provisioning problems; `--detach` exits after the health gates.
 Before a stack's first start, `doctor` and `compose validate` write the manifest's
-values into `.env` so the assembled compose resolves; after a start they refresh
-only the derived plugin/sidecar paths (`BACKEND_PLUGINS_DIR`,
-`COMFYUI_CUSTOM_MODELS_FILE`, `COMFYUI_CUSTOM_NODES_FILE`, `OLLAMA_CUSTOM_MODELS`),
-so a launch-time `--base-port`, `-p` or `--<svc>-source` keeps winning. With
+values into `.env` so the assembled compose resolves; after a start (which
+records `ATLAS_PROFILE_APPLIED`) they refresh only the derived plugin/sidecar
+paths (`BACKEND_PLUGINS_DIR`, `COMFYUI_CUSTOM_MODELS_FILE`,
+`COMFYUI_CUSTOM_NODES_FILE`, `OLLAMA_CUSTOM_MODELS`) and keys `.env` does not
+hold yet, so a launch-time `--base-port`, `-p` or `--<svc>-source` keeps winning. With
 `--format json`, `doctor` writes everything except the JSON document to stderr.
 A manifest named by `ATLAS_CONSUMER_MANIFEST` is validated before any `.env` write,
 exactly like `--consumer`. Declaring one of those four derived keys in
