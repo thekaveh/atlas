@@ -24,7 +24,7 @@ from .models import (
     normalization_metadata,
     optimization_metadata,
 )
-from .normalizer import external_resource_uris
+from .normalizer import _glb_json_chunk, external_resource_uris
 from .runner import GltfTransformError, run_gltf_transform
 from .storage import ArtifactStorage, ArtifactTooLargeError, CONTENT_TYPE
 
@@ -237,6 +237,19 @@ def _process_bytes(
         return _process_path(input_path, params, storage=storage)
 
 
+def _require_self_contained_glb(data: bytes) -> None:
+    """Fail closed: a .gltf JSON file, an undecodable GLB or one with external
+    URIs is rejected, because gltf-transform picks GLB vs JSON by content and
+    resolves non-data: URIs against the filesystem (or network)."""
+    if _glb_json_chunk(data) is None:
+        raise HTTPException(status_code=400, detail="Input must be a binary glTF 2.0 GLB")
+    if external_resource_uris(data):
+        raise HTTPException(
+            status_code=400,
+            detail="GLB must be self-contained: external buffer/image URIs are not allowed",
+        )
+
+
 def _process_path(
     input_path: Path,
     params: PostprocessParams,
@@ -244,12 +257,7 @@ def _process_path(
     storage: ArtifactStorage | None = None,
 ) -> PostprocessResponse:
     _enforce_input_size(input_path.stat().st_size)
-    external = external_resource_uris(input_path.read_bytes())
-    if external:
-        raise HTTPException(
-            status_code=400,
-            detail="GLB must be self-contained: external buffer/image URIs are not allowed",
-        )
+    _require_self_contained_glb(input_path.read_bytes())
     storage = storage or ArtifactStorage()
     started_at = time.monotonic()
     logger.info("asset_transform_started")

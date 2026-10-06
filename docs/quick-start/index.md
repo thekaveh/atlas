@@ -16,6 +16,10 @@ Run `./start.sh` from the repository root. The setup wizard walks through track 
 ./start.sh --setup-hosts
 ```
 
+Any stack flag (such as `--base-port` or `--setup-hosts`) skips the wizard and,
+without `--track`, launches the full `.env` default set rather than a track's
+subset; combine it with `--track <key>` on a fresh clone.
+
 ## 3. First Services To Visit
 
 Use the Atlas root dashboard at `http://localhost:63000` after launch. Direct service URLs and Kong aliases are listed in the generated service catalog and ports reference.

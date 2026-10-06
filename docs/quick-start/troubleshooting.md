@@ -77,7 +77,7 @@ Truly starting over? `./stop.sh --cold && ./start.sh --cold` **deletes every nam
 ### 3.4. Platform Issues
 ```bash
 # Windows/WSL issues?
-python3 bootstrapper/start.py --help  # Use Python directly
+./start.sh --help  # the wrapper provides the bootstrapper's Python dependencies
 
 # Shell script permissions?
 chmod +x start.sh stop.sh
@@ -317,7 +317,7 @@ cat .env | head -20
 
 If `.env` is corrupted beyond repair, rebuilding it from scratch is a **destructive** path: regenerated secrets no longer match the passwords baked into your existing database volumes (see §4.4), so a from-scratch `.env` only works together with a full project reset that deletes those volumes. Back up first (§10.3), then follow §10.1.
 
-**A service rejects its password or encryption key after an upgrade.** Atlas now writes a value from `.env.user`, `ATLAS_ENV_USER_FILE`, a consumer manifest's `env.values` or a wizard API key in single quotes when it contains a backslash or a bare `$`, because Docker Compose expands those in unquoted values. Older releases wrote such a value unquoted, so Compose passed a truncated secret (`ab$cd` reached containers as `ab`), and a service that stored it at first boot (an n8n encryption key, a database password, `LITELLM_SALT_KEY`) still holds the truncated form. Either set the value to what the service actually stored, or rotate it in the service. Generated secrets never contain `$` or a backslash and are unaffected.
+**A service rejects its password or encryption key after an upgrade.** Atlas now writes a value from `.env.user`, `ATLAS_ENV_USER_FILE`, a consumer manifest's `env.values` or a wizard API key in single quotes when it contains a backslash or a bare `$`, because Docker Compose expands those in unquoted values. Older releases wrote such a value unquoted, so Compose passed a truncated secret (`ab$cd` reached containers as `ab`), and a service that stored it at first boot (an n8n encryption key, a database password) still holds the truncated form. Either set the value to what the service actually stored, or rotate it in the service. Generated secrets never contain `$` or a backslash and are unaffected.
 
 ### 7.3. An image fails to build
 
@@ -364,7 +364,7 @@ docker compose logs --tail=100 -f backend
 grep -E '^[A-Z_]+_SOURCE=' .env
 
 # List all available CLI flags (Click-generated help is the source of truth)
-python3 bootstrapper/start.py --help
+./start.sh --help
 
 # Inspect the dynamic Kong configuration generator (kong.yml is rebuilt
 # on every startup — don't edit by hand; instead trace the inputs):
@@ -466,9 +466,12 @@ Rebuilding `.env` from `.env.example` is **not** a partial reset: freshly genera
 Do **not** copy a running database's data directory as a "backup" — a live PostgreSQL data dir copied file-by-file is torn mid-write and is not established as restorable. Use the stack's consistency-safe backup service instead: it captures a `pg_dump -Fc` Postgres dump, bounded offline Neo4j dumps, a native Weaviate snapshot, and a Supabase Storage archive, and pushes authenticated artifacts to the stack's S3 bucket.
 
 ```bash
-# One-time prerequisites: the backup runner and MinIO must be enabled
-# (BACKUP_SOURCE=container, MINIO_SOURCE=container in .env — or:)
-./start.sh --backup-source container --detach
+# One-time prerequisites: the backup runner and MinIO must be enabled, and
+# the manifest signing key and deployment id must be set in .env (Atlas does
+# not generate them; keep a copy outside the bucket, a restore needs them):
+#   BACKUP_MANIFEST_HMAC_KEY=$(openssl rand -hex 32)
+#   BACKUP_DEPLOYMENT_ID=<a stable name for this deployment>
+./start.sh --backup-source container --minio-source container --detach
 
 # Run a full consistency-safe backup (host entry point; quiesces Neo4j
 # and writes a completion marker per timestamp)

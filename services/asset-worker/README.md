@@ -49,7 +49,7 @@ The default `ASSET_WORKER_SOURCE=disabled` keeps the worker out of normal starts
 
 ### 4.1. Uploaded GLB
 
-Inputs (uploaded or MinIO-referenced) must be self-contained GLBs: a `buffers[].uri` or `images[].uri` that is not a `data:` URI is rejected with `400` before any converter runs, because the converters would resolve it against the container filesystem (or network) and embed what they read.
+Inputs (uploaded or MinIO-referenced) must be self-contained binary glTF 2.0 files: anything else (a `.gltf` JSON file, whatever its name, or a GLB whose JSON chunk does not parse) is rejected with `400`, as is a `buffers[].uri` or `images[].uri` that is not a `data:` URI is rejected with `400` before any converter runs, because the converters would resolve it against the container filesystem (or network) and embed what they read.
 
 `POST /gltf/postprocess` accepts `multipart/form-data`:
 

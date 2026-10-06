@@ -232,16 +232,16 @@ def _external_resource_uris(data: bytes) -> list[str]:
 
 
 def _glb_json_chunk(data: bytes) -> dict | None:
-    """The JSON chunk of a GLB v2 file, or None (malformed input is left for
-    the converter to report)."""
+    """The JSON chunk of a GLB v2 file, or None when the input is not one we
+    can read (the caller rejects it: the converters would still parse it)."""
     if len(data) < 20 or struct.unpack_from("<I", data, 0)[0] != 0x46546C67:
         return None
     try:
         chunk_length, chunk_type = struct.unpack_from("<II", data, 12)
         if chunk_type != 0x4E4F534A:
             return None
-        doc = json.loads(data[20: 20 + chunk_length].rstrip(b" \x00").decode("utf-8"))
-    except (ValueError, struct.error):
+        doc = json.loads(data[20: 20 + chunk_length].rstrip(b" \x00").decode("utf-8-sig"))
+    except (ValueError, struct.error, RecursionError):
         return None
     return doc if isinstance(doc, dict) else None
 
@@ -253,7 +253,12 @@ def _process_path(
     storage: ArtifactStorage | None = None,
 ) -> BakeResponse:
     _enforce_input_size(input_path.stat().st_size)
-    if _external_resource_uris(input_path.read_bytes()):
+    data = input_path.read_bytes()
+    # Fail closed: Blender picks GLB vs .gltf JSON by content and resolves
+    # non-data: URIs against the filesystem.
+    if _glb_json_chunk(data) is None:
+        raise HTTPException(status_code=400, detail="Input must be a binary glTF 2.0 GLB")
+    if _external_resource_uris(data):
         raise HTTPException(
             status_code=400,
             detail="GLB must be self-contained: external buffer/image URIs are not allowed",

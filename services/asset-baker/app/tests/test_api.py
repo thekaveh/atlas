@@ -9,6 +9,19 @@ import pytest
 from fastapi.testclient import TestClient
 
 
+def _minimal_glb() -> bytes:
+    """Smallest binary glTF 2.0 the services accept (JSON chunk only)."""
+    import json as _json
+    import struct as _struct
+
+    doc = _json.dumps({"asset": {"version": "2.0"}}).encode()
+    doc += b" " * (-len(doc) % 4)
+    return _struct.pack("<III", 0x46546C67, 2, 20 + len(doc)) + _struct.pack("<II", len(doc), 0x4E4F534A) + doc
+
+
+RAW_GLB = _minimal_glb()
+
+
 _TOKEN = "test-asset-baker-token"
 
 
@@ -149,7 +162,7 @@ def test_bake_upload_stores_content_addressed_local_artifacts(monkeypatch, tmp_p
     client = _client(api)
     response = client.post(
         "/assets/bake",
-        files={"file": ("cottage.glb", b"raw-glb", "model/gltf-binary")},
+        files={"file": ("cottage.glb", RAW_GLB, "model/gltf-binary")},
         data={"target_tris": "15000", "tex_size": "2048", "mode": "bake"},
     )
 
@@ -186,7 +199,7 @@ def test_bake_ref_round_trips_through_content_addressed_bucket(monkeypatch, tmp_
 
         def fetch(self, bucket, key):
             assert (bucket, key) == ("raw-assets", "incoming/mesh.glb")
-            return b"raw-from-minio"
+            return RAW_GLB
 
         def store(self, data, *, sha256, suffix, content_type):
             stored.append((sha256, suffix, content_type))
@@ -198,7 +211,7 @@ def test_bake_ref_round_trips_through_content_addressed_bucket(monkeypatch, tmp_
             }
 
     def fake_run(input_path, out_dir, params):
-        assert input_path.read_bytes() == b"raw-from-minio"
+        assert input_path.read_bytes() == RAW_GLB
         return _fake_artifacts(out_dir)
 
     monkeypatch.setattr(api, "ArtifactStorage", FakeStorage)
@@ -235,7 +248,7 @@ def test_foliage_skip_mode_emits_no_textures(monkeypatch, tmp_path):
     client = _client(api)
     response = client.post(
         "/assets/bake",
-        files={"file": ("fern.glb", b"raw-glb", "model/gltf-binary")},
+        files={"file": ("fern.glb", RAW_GLB, "model/gltf-binary")},
         data={"mode": "skip"},
     )
     assert response.status_code == 200, response.text
@@ -259,7 +272,7 @@ def test_black_bake_returns_422(monkeypatch, tmp_path):
     client = _client(api)
     response = client.post(
         "/assets/bake",
-        files={"file": ("metal.glb", b"raw-glb", "model/gltf-binary")},
+        files={"file": ("metal.glb", RAW_GLB, "model/gltf-binary")},
     )
     assert response.status_code == 422
     assert "black" in response.json()["detail"]
@@ -277,7 +290,7 @@ def test_timeout_returns_504(monkeypatch, tmp_path):
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
 
     client = _client(api)
-    response = client.post("/assets/bake", files={"file": ("big.glb", b"raw", "model/gltf-binary")})
+    response = client.post("/assets/bake", files={"file": ("big.glb", RAW_GLB, "model/gltf-binary")})
     assert response.status_code == 504
 
 
@@ -415,7 +428,7 @@ def test_worker_busy_returns_429(monkeypatch, tmp_path):
     app = api.create_app(api_token=_TOKEN)
     app.state.bake_semaphore = BusySemaphore()  # simulate a saturated worker
     client = TestClient(app, headers={"Authorization": f"Bearer {_TOKEN}"})
-    response = client.post("/assets/bake", files={"file": ("m.glb", b"raw", "model/gltf-binary")})
+    response = client.post("/assets/bake", files={"file": ("m.glb", RAW_GLB, "model/gltf-binary")})
     assert response.status_code == 429
 
 
@@ -467,7 +480,7 @@ def test_cancelled_request_holds_slot_until_bake_thread_exits(
             assert release.wait(timeout=5)
         raise api.HTTPException(status_code=418, detail="probe complete")
 
-    monkeypatch.setattr(api.ArtifactStorage, "fetch", lambda *_args: b"raw")
+    monkeypatch.setattr(api.ArtifactStorage, "fetch", lambda *_args: RAW_GLB)
     monkeypatch.setattr(api, "_process_bytes", blocking_process)
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
     app = api.create_app(api_token=_TOKEN)
@@ -501,7 +514,7 @@ def test_bake_upload_invalid_form_param_returns_422() -> None:
     # mode outside the Literal bake|skip is a client error → 422, not 500.
     response = _client(api).post(
         "/assets/bake",
-        files={"file": ("cottage.glb", b"raw-glb", "model/gltf-binary")},
+        files={"file": ("cottage.glb", RAW_GLB, "model/gltf-binary")},
         data={"mode": "explode"},
     )
     assert response.status_code == 422
@@ -561,3 +574,15 @@ def test_glb_with_external_image_uri_is_rejected_before_blender_runs(monkeypatch
     )
     assert response.status_code == 400
     assert "self-contained" in response.json()["detail"]
+
+
+def test_non_glb_input_is_rejected_instead_of_reaching_blender(monkeypatch, tmp_path):
+    from asset_baker import api
+
+    gltf_json = b'{"asset":{"version":"2.0"},"images":[{"uri":"/proc/self/environ"}]}'
+    monkeypatch.setattr(api, "run_bake", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ran")))
+    monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
+    monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
+    response = _client(api).post("/assets/bake", files={"file": ("x.glb", gltf_json, "model/gltf-binary")}, data={"mode": "skip"})
+    assert response.status_code == 400
+    assert "binary glTF 2.0" in response.json()["detail"]

@@ -65,16 +65,16 @@ def external_resource_uris(data: bytes) -> list[str]:
 
 
 def _glb_json_chunk(data: bytes) -> dict | None:
-    """The JSON chunk of a GLB v2 file, or None (malformed input is left for
-    the converter to report)."""
+    """The JSON chunk of a GLB v2 file, or None when the input is not one we
+    can read (the caller rejects it: the converters would still parse it)."""
     if len(data) < 20 or struct.unpack_from("<I", data, 0)[0] != 0x46546C67:
         return None
     try:
         chunk_length, chunk_type = struct.unpack_from("<II", data, 12)
         if chunk_type != JSON_CHUNK:
             return None
-        doc = json.loads(data[20: 20 + chunk_length].rstrip(b" \x00").decode("utf-8"))
-    except (ValueError, struct.error):
+        doc = json.loads(data[20: 20 + chunk_length].rstrip(b" \x00").decode("utf-8-sig"))
+    except (ValueError, struct.error, RecursionError):
         return None
     return doc if isinstance(doc, dict) else None
 

@@ -189,7 +189,7 @@ of silently going stale. The suite also asserts that `core/linear_startup.py`
 never imports `vmx` — that is what makes the `--no-tui` path structurally
 VMx-free rather than VMx-free by convention.
 
-`start.sh` and `stop.sh` are thin wrappers that prefer `uv run` and fall back to system Python. The bootstrapper can also be invoked directly: `python bootstrapper/start.py [flags]` or `python bootstrapper/stop.py`. `--no-tui` bypasses the Textual TUI and runs the linear stdout flow (used by CI, non-TTY shells, and very narrow terminals).
+`start.sh` and `stop.sh` are thin wrappers that prefer `uv run` and fall back to system Python. The bootstrapper can also be invoked directly with its dependencies available, e.g. `uv run --project bootstrapper python bootstrapper/start.py [flags]` (a bare system `python` lacks `click` and the other dependencies). `--no-tui` bypasses the Textual TUI and runs the linear stdout flow (used by CI, non-TTY shells, and very narrow terminals).
 
 Dependencies are managed via `uv` (with a pip fallback) and declared in `bootstrapper/pyproject.toml`, including the Python-version markers needed at the supported Python `>=3.10` floor. Treat that file and `bootstrapper/uv.lock` as the dependency source of truth rather than duplicating the inventory here.
 
