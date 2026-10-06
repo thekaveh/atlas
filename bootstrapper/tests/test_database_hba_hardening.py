@@ -52,6 +52,10 @@ host all all 0.0.0.0/0 reject
     assert "::1/128 scram-sha-256 clientcert=verify-full" in rewritten
     assert "10.0.0.0/8 scram-sha-256 map=atlas" in rewritten
     assert "0.0.0.0/0 reject" in rewritten
+    # pg_hba takes the first match: the weak host rules must be gone, not
+    # merely followed by scram ones.
+    assert "127.0.0.1/32 trust" not in rewritten
+    assert "::1/128 password" not in rewritten
     assert hba.with_name("pg_hba.conf.atlas.bak").read_text(encoding="utf-8") == original
 
 

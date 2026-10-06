@@ -629,7 +629,8 @@ def test_old_lock_owner_cannot_unlink_replacement(tmp_path):
     lock_path = tmp_path / "restore.lock"
     old = module.OwnedFileLock(lock_path, token="e" * 32)
     old.acquire()
-    old.detach_for_test()
+    # No detach: release() must refuse because the path now names another
+    # owner's file, not because the old handle was already dropped.
     lock_path.unlink()
     new = module.OwnedFileLock(lock_path, token="f" * 32)
     new.acquire()

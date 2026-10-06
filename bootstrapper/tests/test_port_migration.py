@@ -59,7 +59,8 @@ def test_idempotency(tmp_path):
     from services.migrations.migration_v1 import apply, stamp_version
     env_path = _write_env(tmp_path, "LITELLM_PORT=63012\n")
     new_defaults = {"LITELLM_PORT": 63030}
-    apply(env_path, new_defaults, base_port=63000)
+    first = apply(env_path, new_defaults, base_port=63000)
+    assert first.rewritten  # the first pass really rewrote, so the no-op below is meaningful
     stamp_version(env_path, 1)
     # Second pass with already-rewritten values: nothing matches the V0 expected_old.
     result2 = apply(env_path, new_defaults, base_port=63000)

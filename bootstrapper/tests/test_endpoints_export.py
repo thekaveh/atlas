@@ -120,9 +120,11 @@ def test_comfyui_host_endpoint_managed_mps_uses_mps_localhost_port() -> None:
     for Symptom 1 (dead :BASE+54 exported)."""
     env = _base_env()
     env["COMFYUI_SOURCE"] = "managed-localhost-mps"
-    env["COMFYUI_MPS_LOCALHOST_PORT"] = "8188"
+    # Non-default value: a reader that ignores the variable and falls back to
+    # the 8188 default must fail.
+    env["COMFYUI_MPS_LOCALHOST_PORT"] = "18188"
     d = _as_dict(build_export(env))
-    assert d["ATLAS_COMFYUI_HOST_ENDPOINT"] == "http://localhost:8188"
+    assert d["ATLAS_COMFYUI_HOST_ENDPOINT"] == "http://localhost:18188"
     assert d["ATLAS_COMFYUI_HOST_ENDPOINT"] != f"http://localhost:{env['COMFYUI_PORT']}"
 
 
@@ -141,9 +143,9 @@ def test_comfyui_host_endpoint_localhost_uses_localhost_port() -> None:
     """The localhost source serves on COMFYUI_LOCALHOST_PORT (default 8000)."""
     env = _base_env()
     env["COMFYUI_SOURCE"] = "localhost"
-    env["COMFYUI_LOCALHOST_PORT"] = "8000"
+    env["COMFYUI_LOCALHOST_PORT"] = "18000"  # non-default, so the variable is read
     d = _as_dict(build_export(env))
-    assert d["ATLAS_COMFYUI_HOST_ENDPOINT"] == "http://localhost:8000"
+    assert d["ATLAS_COMFYUI_HOST_ENDPOINT"] == "http://localhost:18000"
 
 
 def test_ollama_host_endpoint_localhost_emitted() -> None:
@@ -152,10 +154,10 @@ def test_ollama_host_endpoint_localhost_emitted() -> None:
     OLLAMA_PORT is unset under this source)."""
     env = _base_env()
     env["LLM_PROVIDER_SOURCE"] = "ollama-localhost"
-    env["OLLAMA_LOCALHOST_PORT"] = "11434"
+    env["OLLAMA_LOCALHOST_PORT"] = "11435"  # non-default, so the variable is read
     d = _as_dict(build_export(env))
     assert d["ATLAS_OLLAMA_SOURCE"] == "ollama-localhost"
-    assert d["ATLAS_OLLAMA_HOST_ENDPOINT"] == "http://localhost:11434"
+    assert d["ATLAS_OLLAMA_HOST_ENDPOINT"] == "http://localhost:11435"
 
 
 def test_ollama_host_endpoint_localhost_default_when_port_unset() -> None:

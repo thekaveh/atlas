@@ -38,12 +38,13 @@ def test_atomic_write_preserves_mode_and_replaces_complete_content(
 ) -> None:
     destination = tmp_path / ".env"
     destination.write_text("ROUNDTRIP=old\n", encoding="utf-8")
-    os.chmod(destination, 0o600)
+    # 0640, not the 0600 fallback, so a writer that ignores the existing mode fails.
+    os.chmod(destination, 0o640)
 
     atomic_write.atomic_write_text(destination, "ROUNDTRIP=new\n")
 
     assert destination.read_text(encoding="utf-8") == "ROUNDTRIP=new\n"
-    assert os.stat(destination).st_mode & 0o777 == 0o600
+    assert os.stat(destination).st_mode & 0o777 == 0o640
 
 
 def test_atomic_write_can_enforce_a_private_mode(tmp_path: Path) -> None:

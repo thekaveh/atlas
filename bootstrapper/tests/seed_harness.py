@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import re
+import os
 import shutil
 import subprocess
 import sys
@@ -104,6 +105,13 @@ SEED_QUERY = (
     "SELECT name, description, category, active "
     "FROM public.comfyui_workflows ORDER BY name;"
 )
+
+
+def docker_unavailable_locally() -> bool:
+    """Skip condition for the docker-gated seed tests: true only OUTSIDE CI.
+    Under CI a missing daemon must fail these data-migration tests, not turn
+    them silently green (the role/restore drills already do this)."""
+    return not docker_available() and not os.environ.get("CI")
 
 
 def docker_available() -> bool:
