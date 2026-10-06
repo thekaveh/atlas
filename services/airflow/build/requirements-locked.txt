@@ -208,7 +208,7 @@ watchfiles==1.2.0
 watchtower==3.4.0
 weaviate-client==4.16.2
 websockets==16.1.1
-werkzeug==3.1.8
+werkzeug==3.1.9
 wirerope==1.0.0
 wrapt==2.3.0
 wtforms==3.2.2
