@@ -2,6 +2,10 @@
 # Failure-atomic Postgres restore from a given (or latest) S3 backup timestamp.
 set -eu
 : "${SUPABASE_DB_USER:?required}"; : "${SUPABASE_DB_PASSWORD:?required}"; : "${SUPABASE_DB_NAME:?required}"
+# libpq reads PGPASSWORD from the environment. Exported once rather than
+# passed as `env PGPASSWORD=...` per command, which put the password in the
+# argv of every long-lived `timeout`/`env` process (visible through ps).
+export PGPASSWORD="$SUPABASE_DB_PASSWORD"
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 S3_CLIENT_SCRIPT=${BACKUP_S3_CLIENT_SCRIPT:-${SCRIPT_DIR}/s3-client.sh}
 if [ ! -r "$S3_CLIENT_SCRIPT" ] && [ -r "${PWD}/services/backup/init/scripts/s3-client.sh" ]; then
@@ -153,7 +157,7 @@ stop_download() {
 
 recover_cutover() {
   echo "restore: cutover recovery target=${SUPABASE_DB_NAME} staging=${TEMP_DB} rollback=${ROLLBACK_DB}" >&2
-  run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+  run_bounded psql -X \
     -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
     -v ON_ERROR_STOP=1 -v target_db="$SUPABASE_DB_NAME" \
     -v temp_db="$TEMP_DB" -v rollback_db="$ROLLBACK_DB" <<'SQL'
@@ -188,7 +192,7 @@ cleanup() {
     recover_cutover; record_cleanup_failure "$?"
   elif [ "$TEMP_CREATED" -eq 1 ] && [ "$CUTOVER_STARTED" -eq 0 ]; then
     echo "restore: removing temporary database ${TEMP_DB}" >&2
-    run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+    run_bounded psql -X \
       -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
       -v ON_ERROR_STOP=1 -v temp_db="$TEMP_DB" <<'SQL'
 SELECT pg_terminate_backend(pid)
@@ -204,7 +208,7 @@ SQL
     fi
   fi
   if [ -n "$LOCK_PID" ]; then
-    run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+    run_bounded psql -X \
       -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
       -v ON_ERROR_STOP=1 -v lock_app="$LOCK_APP" <<'SQL' >/dev/null
 SELECT pg_terminate_backend(pid)
@@ -434,7 +438,7 @@ archive_object_count="$(run_bounded wc -l <"$WORK/postgres.objects.actual" | tr 
 # background session is itself deadline-bounded and cleanup terminates only
 # this script's process.
 timeout -s TERM -k 10 "$LOCK_HOLD_SECONDS" \
-  env PGPASSWORD="$SUPABASE_DB_PASSWORD" PGAPPNAME="$LOCK_APP" \
+  env PGAPPNAME="$LOCK_APP" \
   psql -X -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
   -v ON_ERROR_STOP=1 \
   -c "SELECT pg_advisory_lock(hashtextextended('atlas-backup-restore', 0))" \
@@ -443,7 +447,7 @@ LOCK_PID=$!
 
 lock_attempt=0
 while :; do
-  lock_status="$(run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+  lock_status="$(run_bounded psql -X \
     -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
     -v ON_ERROR_STOP=1 -v lock_app="$LOCK_APP" -At <<'SQL'
 SELECT CASE
@@ -474,14 +478,14 @@ SQL
   sleep 0.1
 done
 
-target_exists="$(run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+target_exists="$(run_bounded psql -X \
   -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
   -v ON_ERROR_STOP=1 -v target_db="$SUPABASE_DB_NAME" -At <<'SQL'
 SELECT count(*) FROM pg_database WHERE datname = :'target_db';
 SQL
 )"
 [ "$target_exists" = "1" ] || { echo "restore: target database does not exist: ${SUPABASE_DB_NAME}" >&2; exit 1; }
-current_server_version="$(run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+current_server_version="$(run_bounded psql -X \
   -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
   -v ON_ERROR_STOP=1 -Atqc "SHOW server_version_num")"
 case "$current_server_version" in ''|*[!0-9]*) echo "restore: could not determine target server version" >&2; exit 1;; esac
@@ -490,7 +494,7 @@ case "$current_server_version" in ''|*[!0-9]*) echo "restore: could not determin
   exit 1
 }
 
-unsupported_state="$(run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+unsupported_state="$(run_bounded psql -X \
   -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
   -v ON_ERROR_STOP=1 -v target_db="$SUPABASE_DB_NAME" -At <<'SQL'
 SELECT count(*) FROM (
@@ -506,7 +510,7 @@ SQL
 )"
 [ "$unsupported_state" = "0" ] || { echo "restore: target has unsupported database-bound replication/subscription/prepared state" >&2; exit 1; }
 
-locale_provider="$(run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+locale_provider="$(run_bounded psql -X \
   -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
   -v ON_ERROR_STOP=1 -v target_db="$SUPABASE_DB_NAME" -At <<'SQL'
 SELECT datlocprovider FROM pg_database WHERE datname = :'target_db';
@@ -518,7 +522,7 @@ case "$locale_provider" in
 esac
 
 echo "restore: phase restore into ${TEMP_DB}"
-run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+run_bounded psql -X \
   -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
   -v ON_ERROR_STOP=1 -v temp_db="$TEMP_DB" -v target_db="$SUPABASE_DB_NAME" <<'SQL'
 SELECT CASE datlocprovider
@@ -544,7 +548,7 @@ WHERE datname = :'target_db' \gexec
 SQL
 TEMP_CREATED=1
 
-run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+run_bounded psql -X \
   -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
   -v ON_ERROR_STOP=1 -v temp_db="$TEMP_DB" -v target_db="$SUPABASE_DB_NAME" <<'SQL'
 SELECT format(
@@ -589,12 +593,12 @@ LEFT JOIN pg_roles AS r ON r.oid = s.setrole
 CROSS JOIN LATERAL unnest(s.setconfig) AS cfg
 WHERE d.datname = :'target_db' \gexec
 SQL
-run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" pg_restore \
+run_bounded pg_restore \
   -h supabase-db -U "$SUPABASE_DB_USER" -d "$TEMP_DB" \
   --exit-on-error "$DUMP"
 
 echo "restore: phase validate"
-validation_result="$(run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+validation_result="$(run_bounded psql -X \
   -h supabase-db -U "$SUPABASE_DB_USER" -d "$TEMP_DB" \
   -v ON_ERROR_STOP=1 -At <<'SQL'
 SELECT CASE WHEN
@@ -604,7 +608,7 @@ THEN 1 ELSE 0 END;
 SQL
 )"
 [ "$validation_result" = "1" ] || { echo "restore: validation failed in ${TEMP_DB}" >&2; exit 1; }
-run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+run_bounded psql -X \
   -h supabase-db -U "$SUPABASE_DB_USER" -d "$TEMP_DB" \
   -v ON_ERROR_STOP=1 -At <<'SQL' >"$WORK/staged.tables"
 SELECT encode(convert_to(n.nspname, 'UTF8'), 'hex') || E'\t' ||
@@ -623,7 +627,7 @@ staged_table_count="$(run_bounded wc -l <"$WORK/staged.tables" | tr -d '[:space:
   exit 1
 }
 
-lock_still_held="$(run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+lock_still_held="$(run_bounded psql -X \
   -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
   -v ON_ERROR_STOP=1 -v lock_app="$LOCK_APP" -At <<'SQL'
 SELECT count(*)
@@ -640,7 +644,7 @@ SQL
 
 echo "restore: phase cutover"
 CUTOVER_STARTED=1
-if ! run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+if ! run_bounded psql -X \
   -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
   -v target_db="$SUPABASE_DB_NAME" -v temp_db="$TEMP_DB" \
   -v rollback_db="$ROLLBACK_DB" <<'SQL'

@@ -129,6 +129,29 @@ def test_lightrag_pg_uri_populated_when_supabase_enabled(env_with_overrides):
     assert "supabase-db:5432" in env["LIGHTRAG_PG_URI"]
 
 
+def test_lightrag_pg_uri_encodes_its_own_role_credentials(env_with_overrides):
+    """The URI is built from Python locals, so the compose-text URI scans
+    never see it: pin encoding and the role choice behaviourally."""
+    from urllib.parse import unquote, urlsplit
+
+    sc = _sc(env_with_overrides({
+        "LIGHTRAG_SOURCE": "container",
+        "SUPABASE_SOURCE": "container",
+        "LIGHTRAG_DB_USER": "lr@user:x",
+        "LIGHTRAG_DB_PASSWORD": "p@ss:/w%rd#1",
+        # Blank pre-encoded companions exercise the pre-generator fallback.
+        "LIGHTRAG_DB_USER_URI": "",
+        "LIGHTRAG_DB_PASSWORD_URI": "",
+        "SUPABASE_DB_PASSWORD": "owner-secret-never-here",
+    }))
+    uri = sc.generate_service_environment()["LIGHTRAG_PG_URI"]
+    parts = urlsplit(uri)
+    assert parts.hostname == "supabase-db" and parts.port == 5432
+    assert unquote(parts.username) == "lr@user:x"
+    assert unquote(parts.password) == "p@ss:/w%rd#1"
+    assert "owner-secret-never-here" not in uri
+
+
 def test_lightrag_pg_uri_blank_when_supabase_disabled(env_with_overrides):
     sc = _sc(env_with_overrides({
         "LIGHTRAG_SOURCE": "container",
@@ -212,3 +235,15 @@ def test_lightrag_rerank_blank_when_lightrag_disabled(env_with_overrides):
     # Binding still resolves to `null` (never blank) so a re-enable racing the
     # .env rewrite can't boot the container with an empty RERANK_BINDING.
     assert env.get("LIGHTRAG_RERANK_BINDING") == "null"
+
+
+def test_lightrag_neo4j_uri_follows_a_host_run_neo4j(env_with_overrides):
+    """A fixed bolt://neo4j-graph-db URI broke LightRAG whenever Neo4j ran on
+    the host (no such container)."""
+    sc = _sc(env_with_overrides({
+        "LIGHTRAG_SOURCE": "container",
+        "NEO4J_GRAPH_DB_SOURCE": "localhost",
+    }))
+    uri = sc.generate_service_environment()["LIGHTRAG_NEO4J_URI"]
+    assert "neo4j-graph-db" not in uri
+    assert uri.startswith("bolt://") and uri.endswith(":${NEO4J_LOCALHOST_BOLT_PORT:-7687}")

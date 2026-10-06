@@ -37,9 +37,10 @@ $$ language 'plpgsql';
 -- latent abort that was never reached only because the image pre-sets the
 -- value. Removed rather than left as a landmine for a non-supabase Postgres.
 
--- Create replication slot for realtime if it doesn't exist
-SELECT pg_create_logical_replication_slot('supabase_realtime_slot', 'pgoutput')
-WHERE NOT EXISTS (
-  SELECT 1 FROM pg_replication_slots 
-  WHERE slot_name = 'supabase_realtime_slot'
-);
+-- Realtime v2 creates and owns its own replication slots and never reads
+-- DB_SLOT, so the `supabase_realtime_slot` this script used to create was
+-- never consumed: an idle logical slot pins WAL until
+-- max_slot_wal_keep_size and then goes `lost`. Drop the orphan when idle.
+SELECT pg_drop_replication_slot(slot_name)
+FROM pg_replication_slots
+WHERE slot_name = 'supabase_realtime_slot' AND NOT active;

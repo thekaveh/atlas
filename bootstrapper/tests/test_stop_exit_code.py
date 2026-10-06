@@ -53,15 +53,20 @@ def test_main_exits_nonzero_when_stop_fails(monkeypatch):
         stop_module.AtlasStopper, "show_configuration_info",
         lambda self, cold, clean, project_name_override=None: "atlas",
     )
+    calls = []
     monkeypatch.setattr(
         stop_module.AtlasStopper, "stop_services",
-        lambda self, cold, project_name: False,
+        lambda self, cold, project_name: calls.append(project_name) or False,
     )
     monkeypatch.setattr(
         stop_module.AtlasStopper, "ensure_dependencies_available", lambda self: True,
     )
     result = click.testing.CliRunner().invoke(stop_module.main, [])
+    assert calls == ["atlas"], "stop_services never ran"
     assert result.exit_code == 1
+    # The generic crash handler also exits 1; the failure must be the
+    # reported stop result, not a crash before stop ran.
+    assert "Unexpected error" not in result.output, result.output
 
 
 def test_main_exits_zero_when_stop_succeeds(monkeypatch):
@@ -163,6 +168,9 @@ def test_main_exits_nonzero_when_managed_host_remains_running(monkeypatch):
     result = click.testing.CliRunner().invoke(stop_module.main, ["--stop-managed-hosts"])
 
     assert result.exit_code == 1
+    # The generic crash handler also exits 1; the failure must be the
+    # reported stop result, not a crash before stop ran.
+    assert "Unexpected error" not in result.output, result.output
 
 
 def test_main_exits_nonzero_when_requested_hosts_cleanup_fails(monkeypatch):
@@ -184,6 +192,9 @@ def test_main_exits_nonzero_when_requested_hosts_cleanup_fails(monkeypatch):
     result = click.testing.CliRunner().invoke(stop_module.main, ["--clean-hosts"])
 
     assert result.exit_code == 1
+    # The generic crash handler also exits 1; the failure must be the
+    # reported stop result, not a crash before stop ran.
+    assert "Unexpected error" not in result.output, result.output
     assert "stopped successfully" not in result.output
     assert "completed with errors" in result.output
 
@@ -349,6 +360,9 @@ def test_main_exits_nonzero_when_compose_version_preflight_fails(monkeypatch):
     result = click.testing.CliRunner().invoke(stop_module.main, ["--stop-managed-hosts"])
 
     assert result.exit_code == 1
+    # The generic crash handler also exits 1; the failure must be the
+    # reported stop result, not a crash before stop ran.
+    assert "Unexpected error" not in result.output, result.output
     assert native_stops == ["comfyui", "vllm", "blender"]
 
 
@@ -376,3 +390,66 @@ def test_main_exits_2_for_invalid_persisted_project_before_preflights(tmp_path, 
 
     assert result.exit_code == 2
     assert "invalid PROJECT_NAME" in result.output
+
+
+def test_consumer_manifest_reaches_the_teardown_compose_seam(monkeypatch):
+    """--cold must load the consumer's overlays to remove their volumes."""
+    import os
+
+    seen = []
+    # setenv first so monkeypatch restores the variable main() writes.
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", "")
+    monkeypatch.setattr(
+        stop_module.AtlasStopper, "show_configuration_info",
+        lambda self, cold, clean, project_name_override=None: "atlas",
+    )
+    monkeypatch.setattr(
+        stop_module.AtlasStopper, "stop_services",
+        lambda self, cold, project_name: seen.append(
+            os.environ.get("ATLAS_CONSUMER_MANIFEST")
+        ) or True,
+    )
+    monkeypatch.setattr(
+        stop_module.AtlasStopper, "ensure_dependencies_available", lambda self: True,
+    )
+    result = click.testing.CliRunner().invoke(
+        stop_module.main, ["--consumer", "a.yml", "--consumer", "b.yml"]
+    )
+    assert result.exit_code == 0, result.output
+    assert seen == [os.pathsep.join(["a.yml", "b.yml"])]
+
+
+def test_stop_wrapper_records_the_invoking_directory_like_start():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    for wrapper in ("start.sh", "stop.sh"):
+        text = (root / wrapper).read_text(encoding="utf-8")
+        assert 'ATLAS_INVOKER_CWD="${PWD}"' in text, wrapper
+        assert text.index("ATLAS_INVOKER_CWD") < text.index("CDPATH='' cd -- \"$(dirname -- \"$0\")\"")
+
+
+def test_cold_stop_that_dropped_consumer_overlays_is_not_reported_as_a_full_wipe(
+    tmp_path, monkeypatch
+):
+    """Volumes declared only by a broken overlay survive a base-stack
+    `down --volumes`; the cold stop must not claim all data was removed."""
+    from core.consumer_manifest import ConsumerManifestError
+    from core.docker_manager import DockerManager
+
+    manager = DockerManager(str(tmp_path))
+    manager._compose_cmd = "docker compose"
+    monkeypatch.setattr(manager.config_parser, "get_project_name", lambda: "atlas")
+    monkeypatch.setattr(manager.config_parser, "env_file_exists", lambda: False)
+    monkeypatch.setattr(
+        manager.config_parser,
+        "load_consumer_config",
+        lambda: (_ for _ in ()).throw(ConsumerManifestError("invalid yaml")),
+    )
+    monkeypatch.setattr(
+        "core.docker_manager.subprocess.run",
+        lambda command, **_kwargs: type("Result", (), {"returncode": 0})(),
+    )
+
+    assert manager.perform_cold_stop_cleanup() is False
+    assert manager.teardown_overlays_dropped is True

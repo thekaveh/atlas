@@ -67,7 +67,7 @@ PROJECT_NAME=myproject  # Change from 'atlas' to your project name
 ### 2.4. Access Services
 
 Services are accessible on ports starting from 63000 (base port):
-- **Supabase PostgreSQL**: `psql -h localhost -p 63012 -U supabase_admin -d postgres` (wire-protocol port; base + 12; the default loopback-only direct port uses trust authentication)
+- **Supabase PostgreSQL**: `psql -h localhost -p 63012 -U supabase_admin -d postgres` (wire-protocol port; base + 12; the default loopback-only direct port requires the password, `SUPABASE_DB_PASSWORD`, over scram-sha-256)
 - **Supabase Studio**: http://localhost:63019 (base + 19)
 - **Kong API Gateway**: http://localhost:63000 (base + 0)
 - **N8N**: http://localhost:63075 (base + 75)
@@ -439,7 +439,7 @@ Atlas health endpoint it consumes.
 
 ```bash
 # Start infrastructure first
-cd infra && ./start.sh && cd ..
+cd infra && ./start.sh --no-tui --detach && cd ..
 
 # Start your application
 docker compose up -d
@@ -523,7 +523,7 @@ services:
 set -e
 
 echo "Starting infrastructure..."
-cd infra && ./start.sh && cd ..
+cd infra && ./start.sh --no-tui --detach && cd ..
 
 echo "Waiting for services to be ready..."
 sleep 10
@@ -633,10 +633,11 @@ DATABASE_URL=postgresql://user:pass@localhost:63012/db
 
 **Symptom**: Updated `.env` values don't apply to running services.
 
-**Solution**: Restart with cold start
+**Solution**: Run a normal start. Every `./start.sh` recreates the containers
+(`--force-recreate`) with the current `.env`; a cold start would instead rebuild
+`.env` from `.env.example` (losing the edit) and delete the project volumes.
 ```bash
-./infra/stop.sh
-./infra/start.sh --cold
+./infra/start.sh
 ```
 
 ### 8.6. Issue: Permission Denied for Volumes
@@ -730,7 +731,7 @@ jobs:
           cd infra
           cp .env.example .env
           echo "PROJECT_NAME=ci-test-${{ github.run_id }}" >> .env
-          ./start.sh
+          ./start.sh --no-tui --detach
 
       - name: Wait for Services
         run: sleep 30
@@ -775,12 +776,11 @@ DOC_PROCESSOR_SOURCE=disabled
 2. **Document Your Configuration**: Add README in parent project explaining infra setup
 
 3. **Backup Your .env**: Keep template with comments for new team members
-   ```bash
-   # Create template
-   cp infra/.env infra/.env.template
-   # Add to git (with secrets removed)
-   git add infra/.env.template
-   ```
+   Commit the non-secret settings in the parent repo, not a copy of
+   `infra/.env`: the parent cannot add files inside the submodule, and
+   `infra/.env` carries generated secrets. The recommended place is the
+   `env.values` block of your `atlas.consumer.yml` ([Reusing Atlas §6](reusing-atlas.md)),
+   which Atlas re-applies on every start.
 
 4. **Use PROJECT_NAME Consistently**: Match your project name across all configurations
 
@@ -804,7 +804,7 @@ DOC_PROCESSOR_SOURCE=disabled
 If you encounter issues:
 
 1. Check the [troubleshooting section](#8-troubleshooting) above
-2. Review container logs: `cd infra && docker compose logs`
+2. Review container logs: `docker compose -p <PROJECT_NAME> logs` from `infra/`, or `docker logs <PROJECT_NAME>-<service>` (a bare `docker compose logs` in `infra/` uses the folder name, `infra`, as the project)
 3. Check the main README and other documentation in `docs/`
 
 ---

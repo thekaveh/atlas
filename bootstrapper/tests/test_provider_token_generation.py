@@ -45,6 +45,8 @@ def test_provider_tokens_are_generated_when_absent_and_preserved_on_warm_run(tmp
 
     assert first["DOCLING_API_TOKEN"] is True
     assert first["PARAKEET_API_TOKEN"] is True
+    # A no-op generator would leave both blank and still compare equal below.
+    assert initial_docling and initial_parakeet and initial_docling != initial_parakeet
     assert second["DOCLING_API_TOKEN"] is True
     assert second["PARAKEET_API_TOKEN"] is True
     assert generator.get_current_env_value("DOCLING_API_TOKEN") == initial_docling

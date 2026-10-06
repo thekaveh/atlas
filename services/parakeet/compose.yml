@@ -46,7 +46,11 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 120s
+      # /health is 503 until the model loads; the load (a cold first boot
+      # also downloads ~2.4 GB) is bounded by PARAKEET_INFERENCE_TIMEOUT_SECONDS
+      # (900 s default). 810 s + 3 retries x 30 s covers that deadline; 120 s
+      # marked the container unhealthy and failed health-waiting starts.
+      start_period: 810s
     logging:
       driver: json-file
       options:

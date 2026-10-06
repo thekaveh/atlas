@@ -1,6 +1,6 @@
 # 5.2.47. Apache Spark (standalone cluster)
 
-Spark runs as a 5-container family in the stack's `data` band: `spark-master`, `spark-worker` (replicas via `SPARK_WORKER_COUNT`), `spark-history`, `spark-connect` (dedicated Spark Connect gRPC sidecar), and `spark-init` (an idempotent minio/mc init that creates the spark-history bucket).
+Spark runs as a 5-container family in the stack's `data` band: `spark-master`, `spark-worker` (replicas via `SPARK_WORKER_COUNT`), `spark-history`, `spark-connect` (dedicated Spark Connect gRPC sidecar), and `spark-init` (an idempotent MinIO-client init, on the maintained `pgsty/mc` image, that creates the spark-history bucket).
 
 ## 1. Overview
 
@@ -33,6 +33,7 @@ SPARK_CONNECT_CORES_MAX=1          # max standalone cores held by Spark Connect
 
 - **MinIO** — `spark-history` reads `s3a://spark-history/` for event logs. The `spark-init` container creates the bucket on first start (idempotent).
 - **Iceberg REST** — Spark Connect ships a default `lakehouse` catalog pointing at `http://iceberg-rest:8181`, with the warehouse at `s3a://lakehouse/`, MinIO path-style S3 settings, the scoped Iceberg MinIO service-account credentials, and `client.region=us-east-1`. The config is present even when `ICEBERG_REST_SOURCE=disabled`; Spark still starts for ML-only users, and only lakehouse SQL fails until the catalog is enabled.
+- **MinIO credentials** — the worker, Spark Connect and history server authenticate with the scoped `MINIO_SPARK_ACCESS_KEY` / `MINIO_SPARK_SECRET_KEY` service account, not MinIO root. Its policy covers the Spark history, lakehouse, jars, checkpoints and landing buckets; reading jars or data from any other bucket returns Access Denied unless the job supplies its own credentials (the Airflow lakehouse DAG does).
 - **Supabase Postgres** — Spark JDBC connector available; users add `--jars postgresql.jar` and point at `jdbc:postgresql://supabase-db:5432/${SUPABASE_DB_NAME}`. No pre-wired connection.
 - **Zeppelin** — Zeppelin's Spark interpreter points at `spark://spark-master:7077` (standalone Spark RPC). Spark Connect remains the JupyterHub/client path. See `services/zeppelin/README.md`.
 - **Airflow** — Airflow's `spark_default` Connection is seeded by `airflow-init` when `SPARK_SOURCE=container`. The provided `example_etl_with_llm.py` DAG uses `PythonOperator` + Spark Connect (`sc://spark-connect:15002`) for smoke; `SparkSubmitOperator` is available via the bundled `apache-airflow-providers-apache-spark` for user DAGs. Atlas enables the standalone master REST status API at `spark-master:6066` so cluster-mode `SparkSubmitOperator` can poll driver status after submission. The endpoint is backend-network-only and intentionally has no host port or Kong route. See `services/airflow/README.md`.
@@ -41,7 +42,9 @@ SPARK_CONNECT_CORES_MAX=1          # max standalone cores held by Spark Connect
 Spark Connect is a long-lived standalone application. Atlas caps it with
 `SPARK_CONNECT_CORES_MAX=1` (`spark.cores.max`) so it leaves worker capacity
 for standalone workloads such as Airflow cluster-mode `SparkSubmitOperator`
-drivers and Zeppelin `%spark` paragraphs. Raise the value for more Spark Connect parallelism only when `SPARK_WORKER_COUNT` and worker CPU limits leave
+drivers. Zeppelin's Spark interpreter is likewise capped at
+`ZEPPELIN_SPARK_CORES_MAX` (default 1; re-seeded on each start, so raise it in
+`.env` rather than in the interpreter settings). Raise the value for more Spark Connect parallelism only when `SPARK_WORKER_COUNT` and worker CPU limits leave
 enough unused cores for those standalone workloads; otherwise Connect can
 monopolize the cluster and leave other applications stuck in `PENDING`.
 
@@ -139,7 +142,7 @@ _No high-confidence opportunities identified._
 - **Airflow `SparkSubmitOperator` cluster-mode task succeeds in Spark but fails after submission** — confirm the standalone master REST status API is reachable from an in-stack container: `docker exec ${PROJECT_NAME}-airflow-scheduler curl -fsS http://spark-master:6066/`. Airflow's Spark provider uses this backend-network-only endpoint for post-submit driver status polling (`spark-submit --status <driverId>`); do not expose `6066` to the host.
 - **Standalone jobs stay `PENDING` while Spark Connect is running** — check the master JSON (`docker exec ${PROJECT_NAME}-spark-master curl -fsS http://localhost:8080/json/`) and compare `coresused` with the active app list. If `Spark Connect server` is consuming too much of the cluster, lower `SPARK_CONNECT_CORES_MAX` or increase `SPARK_WORKER_COUNT` / worker CPU capacity before running Airflow or Zeppelin standalone jobs.
 - **Workers don't appear in the master UI** — Compose's `depends_on: spark-master: condition: service_healthy` should serialize this. If a worker stays "lost", check `docker logs ${PROJECT_NAME}-spark-worker-1`.
-- **OOM in a worker** — the worker container is cgroup-capped at `${SPARK_WORKER_MEMORY_LIMIT:-4g}` (compose `deploy.resources.limits.memory`), but Spark's *internal* executor heap (`SPARK_WORKER_MEMORY`) is unset, so the JVM sizes itself heuristically and can exceed the cgroup → OOM-kill. For production, set `SPARK_WORKER_MEMORY` (Spark heap) below `SPARK_WORKER_MEMORY_LIMIT` (container cap) to leave headroom for off-heap/overhead.
+- **OOM in a worker** — the worker container is cgroup-capped at `${SPARK_WORKER_MEMORY_LIMIT:-4g}` (compose `deploy.resources.limits.memory`), but Spark's *internal* executor heap (`SPARK_WORKER_MEMORY`) is unset, so the JVM sizes itself heuristically and can exceed the cgroup → OOM-kill. The worker environment does not forward `SPARK_WORKER_MEMORY`/`SPARK_WORKER_CORES` from `.env`, so setting them there has no effect; add them to the `spark-worker` `environment:` block (or a compose override) with a heap below `SPARK_WORKER_MEMORY_LIMIT` (container cap) to leave headroom for off-heap/overhead, or keep executor memory requests under the cap.
 - **Spark Connect refused** — the gRPC server runs on the `spark-connect` sidecar (NOT spark-master); clients must use `sc://spark-connect:15002`. The port is backend-network-only — don't expose 15002 to the host.
 - **Checking Spark Connect readiness** — the sidecar publishes a Docker health signal (`starting` → `healthy`) once `15002` accepts sessions: `docker inspect --format '{{.State.Health.Status}}' ${PROJECT_NAME}-spark-connect`.
 

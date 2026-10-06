@@ -497,8 +497,8 @@ def test_cold_start_force_regenerates_volume_baked_db_passwords(tmp_path, monkey
             f"{var} must be force-regenerated on a cold start, not preserved"
         )
     # GRAPH_DB_AUTH must track the rotated neo4j password.
-    assert (kg.get_current_env_value("GRAPH_DB_AUTH") or "").endswith(
-        kg.get_current_env_value("GRAPH_DB_PASSWORD")
+    assert kg.get_current_env_value("GRAPH_DB_AUTH") == (
+        f"neo4j/{kg.get_current_env_value('GRAPH_DB_PASSWORD')}"
     )
 
 

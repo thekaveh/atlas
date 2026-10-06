@@ -159,7 +159,15 @@ ensure_login() {
     printf '%s\n%s\n%s' "$PGPASSWORD" "$role_name" "$role_password" | sha256sum
   )
   password_fingerprint=${password_fingerprint%% *}
+  # The password reaches psql through its environment (\getenv, psql 15+),
+  # not `-v password=...`, which exposed every scoped password in the argv.
+  ATLAS_SCOPED_ROLE_PASSWORD=$role_password
+  export ATLAS_SCOPED_ROLE_PASSWORD
+  # The image ships log_statement=ddl, which would write the ALTER ROLE ...
+  # PASSWORD statement (plaintext secret) to the server log on every change.
   printf '%s\n' \
+    "SET log_statement = 'none';" \
+    '\getenv password ATLAS_SCOPED_ROLE_PASSWORD' \
     "SELECT format('CREATE ROLE %I LOGIN', :'role')" \
     "WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'role') \\gexec" \
     "SELECT format('ALTER ROLE %I LOGIN PASSWORD %L', :'role', :'password')" \
@@ -169,8 +177,9 @@ ensure_login() {
     "      ANY (COALESCE(rolconfig, ARRAY[]::text[]))" \
     ") \\gexec" \
     "ALTER ROLE :\"role\" SET atlas.password_fingerprint TO :'fingerprint';" \
-    | psql_admin "$PGDATABASE" -v role="$role_name" -v password="$role_password" \
+    | psql_admin "$PGDATABASE" -v role="$role_name" \
         -v fingerprint="$password_fingerprint"
+  unset ATLAS_SCOPED_ROLE_PASSWORD
 }
 
 ensure_restricted_login() {
@@ -316,7 +325,12 @@ GRANT USAGE ON SCHEMA auth TO :"auth_role", :"openwebui_role";
 GRANT ALL ON ALL TABLES IN SCHEMA auth TO :"auth_role";
 GRANT ALL ON ALL SEQUENCES IN SCHEMA auth TO :"auth_role";
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA auth TO :"auth_role";
-GRANT SELECT ON auth.users TO :"openwebui_role";
+-- Only auth.users.id: the identity-sync trigger and RLS policy test existence
+-- by id. A table grant exposed password hashes and recovery tokens to a role
+-- whose service runs admin-authored Python. Revoke first so re-runs narrow an
+-- earlier table-level grant.
+REVOKE SELECT ON auth.users FROM :"openwebui_role";
+GRANT SELECT (id) ON auth.users TO :"openwebui_role";
 
 SELECT set_config('atlas.storage_role', :'storage_role', false);
 SELECT set_config('atlas.realtime_role', :'realtime_role', false);
@@ -534,6 +548,36 @@ ALTER DEFAULT PRIVILEGES FOR ROLE :"storage_role" IN SCHEMA storage
   GRANT SELECT ON TABLES TO
     :"airflow_reader", :"mcp_reader", :"jupyter_reader", :"zeppelin_reader";
 
+-- The bulk grant above also sweeps in tables Open WebUI and n8n create
+-- (none have RLS). Keep stored credentials away from the readers, which back
+-- the MCP Postgres tool and notebooks: whole credential tables are revoked,
+-- and account tables keep every column except the secret ones. Re-applied on
+-- each boot, right after the bulk grant re-adds table-level SELECT. n8n's
+-- default grant above still exposes tables n8n creates after this script
+-- (first boot, upgrades) until the next boot re-applies the revoke.
+SELECT format('REVOKE SELECT ON %s FROM %I, %I, %I, %I', c.oid::regclass,
+              :'airflow_reader', :'mcp_reader', :'jupyter_reader', :'zeppelin_reader')
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind IN ('r', 'p')
+  AND (n.nspname, c.relname) IN (
+    ('public', 'auth'), ('public', 'config'), ('public', 'oauth_session'),
+    ('public', 'api_key'), ('n8n', 'user_api_keys'), ('n8n', 'credentials_entity'),
+    ('n8n', 'oauth_access_tokens'), ('n8n', 'oauth_refresh_tokens'),
+    ('n8n', 'oauth_authorization_codes'), ('n8n', 'oauth_clients'),
+    ('n8n', 'secrets_provider_connection'), ('n8n', 'deployment_key'), ('n8n', 'settings'),
+    ('n8n', 'event_destinations'), ('n8n', 'variables'),
+    ('public', 'user'), ('n8n', 'user'), ('public', 'tool'), ('public', 'function')) \gexec
+SELECT format('GRANT SELECT (%s) ON %I.%I TO %I, %I, %I, %I',
+              string_agg(quote_ident(column_name), ', ' ORDER BY ordinal_position),
+              table_schema, table_name,
+              :'airflow_reader', :'mcp_reader', :'jupyter_reader', :'zeppelin_reader')
+FROM information_schema.columns
+WHERE (table_schema, table_name) IN
+    (('public', 'user'), ('n8n', 'user'), ('public', 'tool'), ('public', 'function'))
+  AND column_name NOT IN ('api_key', 'password', 'mfaSecret', 'mfaRecoveryCodes', 'valves')
+  AND NOT (table_schema = 'public' AND table_name = 'user' AND column_name = 'settings')
+GROUP BY table_schema, table_name \gexec
+
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO :"backend_role";
 
@@ -618,6 +662,28 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA n8n TO :"n8n_role";
 
 GRANT USAGE, CREATE ON SCHEMA public TO :"openwebui_role", :"lightrag_role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.users TO :"openwebui_role";
+-- public.users has row-level security, and open-webui-init's identity-sync
+-- trigger runs as this direct role (no auth.uid()/auth.role() claims). Without
+-- a policy naming it, every Open WebUI signup, including the first admin,
+-- failed with "new row violates row-level security policy". The policy covers
+-- only identities with no GoTrue (auth.users) row, the only rows the trigger
+-- writes: memory/research rows cascade from public.users, so the Open WebUI
+-- credential must not be able to delete or rewrite Backend/GoTrue identities.
+SELECT set_config('atlas.openwebui_sync_role', :'openwebui_role', false);
+DO $body$
+DECLARE
+  policy_name text := 'Atlas open-webui identity sync';
+  target name := current_setting('atlas.openwebui_sync_role');
+BEGIN
+  EXECUTE format('DROP POLICY IF EXISTS %I ON public.users', policy_name);
+  EXECUTE format(
+    'CREATE POLICY %I ON public.users FOR ALL TO %I '
+    'USING (NOT EXISTS (SELECT 1 FROM auth.users a WHERE a.id = public.users.id)) '
+    'WITH CHECK (NOT EXISTS (SELECT 1 FROM auth.users a WHERE a.id = public.users.id))',
+    policy_name, target
+  );
+END
+$body$;
 
 SELECT format('CREATE SCHEMA IF NOT EXISTS lightrag AUTHORIZATION %I', :'lightrag_role') \gexec
 ALTER SCHEMA lightrag OWNER TO :"lightrag_role";

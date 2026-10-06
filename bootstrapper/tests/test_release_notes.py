@@ -333,6 +333,9 @@ def test_update_and_check_changelog_detect_hand_edits(history: Path) -> None:
     tampered = changelog.read_text(encoding="utf-8").replace("expose support tiers", "expose tiers")
     changelog.write_text(tampered, encoding="utf-8")
     assert release_notes.main(["--check-changelog", "--repo", str(history)]) == 1
+    # The documented bare form re-renders the recorded range (no --range).
+    assert release_notes.main(["--update-changelog", "--repo", str(history)]) == 0
+    assert release_notes.main(["--check-changelog", "--repo", str(history)]) == 0
 
 
 @pytest.mark.parametrize(

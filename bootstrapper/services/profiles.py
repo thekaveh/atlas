@@ -188,3 +188,19 @@ def merge_consumer_profile_overrides(
             env={**base.env, **override_bundle.env},
         )
     return merged
+
+
+def profile_source_map() -> dict[str, dict[str, str]]:
+    """Each platform profile bundle's declared sources (manifest name -> option)."""
+    try:
+        return {name: dict(bundle.sources) for name, bundle in load_profile_bundles().items()}
+    except ProfileConfigError:
+        return {}
+
+
+def profile_source_default(
+    profile_sources: dict[str, dict[str, str]], mname: str, profile: str, fallback,
+):
+    """The source a wizard step should default to under ``profile``."""
+    value = profile_sources.get(canonical_profile(profile), {}).get(mname)
+    return value if value and value != "auto" else fallback

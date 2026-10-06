@@ -137,8 +137,6 @@ runtime_deps:
     - chatterbox
     - docling
     - crawl4ai
-    info_message: Local Deep Researcher enabled - will connect to available optional
-      services (neo4j, searxng, n8n, weaviate, parakeet, speaches, chatterbox, docling, crawl4ai)
 
 data_flow:
   calls:

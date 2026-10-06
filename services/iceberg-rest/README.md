@@ -18,7 +18,7 @@ In-stack clients use `http://iceberg-rest:8181`. Compose also publishes `ICEBERG
 
 ## 4. Architecture & Wiring
 
-`iceberg-rest-init` creates the `iceberg` database and role idempotently before `iceberg-rest` starts. `iceberg-rest` then exposes the Apache Iceberg REST API backed by Supabase JDBC catalog metadata and MinIO object storage.
+The `iceberg` database and role are created by `supabase-db-init` (`services/supabase/db/scripts/05-scoped-roles.sh`); `iceberg-rest-init` verifies the login before `iceberg-rest` starts. `iceberg-rest` then exposes the Apache Iceberg REST API backed by Supabase JDBC catalog metadata and MinIO object storage.
 
 Atlas builds a small local image from `ICEBERG_REST_IMAGE` because the upstream fixture image contains the Iceberg JDBC catalog implementation but not the PostgreSQL JDBC driver required for Supabase-backed persistence. `ICEBERG_REST_POSTGRES_JDBC_VERSION` pins that driver.
 

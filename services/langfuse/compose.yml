@@ -70,7 +70,7 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - "${HOST_BIND_IP:-}${LANGFUSE_PORT}:3000"
+      - "${HOST_BIND_IP-127.0.0.1:}${LANGFUSE_PORT}:3000"
     environment: &langfuse-env
       # Next.js standalone binds to process.env.HOSTNAME. Docker sets HOSTNAME
       # to the container ID, so the server binds that container's eth0 IP ONLY

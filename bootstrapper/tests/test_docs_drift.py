@@ -63,7 +63,7 @@ _REVIEWED_README_CONTRACTS = {
     },
     "mcp-servers": {
         "contains": (
-            "shared `supabase_admin` owner bypasses RLS",
+            "not the RLS-bypassing `supabase_admin` owner",
             "no schema, table, or column allowlist or output redaction",
             "privileged SQL functions and Neo4j procedures can still cause",
             "backend-network containers can call the unauthenticated",

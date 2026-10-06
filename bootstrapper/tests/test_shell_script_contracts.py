@@ -30,6 +30,17 @@ def test_n8n_install_nodes_uses_locked_prestart_install() -> None:
     assert "package-lock.json" in script
 
 
+def test_n8n_warm_restart_does_not_refetch_an_installed_locked_set() -> None:
+    """`npm ci` on every start made n8n-init (and so n8n) fail offline."""
+    script = (
+        REPO_ROOT / "services" / "n8n" / "init" / "scripts" / "install-nodes.sh"
+    ).read_text(encoding="utf-8")
+
+    guard = script.index('cmp -s /config/package-lock.json "$NODES_DIR/package-lock.json"')
+    assert 'node_modules/.package-lock.json' in script[guard:guard + 200]
+    assert guard < script.index("npm ci \\\n")
+
+
 def test_n8n_custom_node_specs_must_be_exactly_versioned() -> None:
     script = (
         REPO_ROOT / "services" / "n8n" / "init" / "scripts" / "install-nodes.sh"

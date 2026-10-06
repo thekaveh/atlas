@@ -9,7 +9,7 @@ capabilities:
   - name: "Document-to-Neo4j graph workflow"
     status: partial
     verification: tested
-    note: "Atlas builds the pinned upstream UI/backend and wires Neo4j plus LiteLLM, but APOC is not bundled and APOC-dependent operations require operator installation."
+    note: "Atlas builds the pinned upstream UI/backend and wires Neo4j (with APOC core) plus LiteLLM; APOC extended procedures are not installed."
   - name: "LiteLLM extraction and graph chat"
     status: partial
     verification: tested
@@ -57,10 +57,10 @@ env:
     description: "Host port for the Graph Builder frontend (in-container 8080)."
   - name: LLM_GRAPH_BUILDER_MODEL_ID
     default: atlas_litellm
-    description: "Model id shown in the Graph Builder UI. Atlas maps this id to LiteLLM's OpenAI-compatible endpoint."
+    description: "Model id shown in the Graph Builder UI. Keep atlas_litellm: compose only exports LLM_MODEL_CONFIG_ATLAS_LITELLM, and Graph Builder reads LLM_MODEL_CONFIG_<ID>, so another id breaks extraction and chat."
   - name: LLM_GRAPH_BUILDER_LLM_MODEL
     default: ""
-    description: "LiteLLM model alias used behind atlas_litellm. Empty = use LITELLM_DEFAULT_MODEL."
+    description: "LiteLLM model alias used behind atlas_litellm. Empty = use LITELLM_DEFAULT_MODEL, then gpt-4o-mini (needs an OpenAI key)."
   - name: LLM_GRAPH_BUILDER_NEO4J_DATABASE
     default: neo4j
     description: "Neo4j database name for Graph Builder data. Use a dedicated database on editions that support it."

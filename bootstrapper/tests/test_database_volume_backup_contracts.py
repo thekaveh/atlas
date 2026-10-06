@@ -615,8 +615,9 @@ def test_database_backup_and_restore_entrypoints_are_present() -> None:
     host_restore = (REPO / "services/backup/database_orchestrator.py").read_text(
         encoding="utf-8"
     )
-    assert "/v1/backups/filesystem" in host_restore
-    assert "/restore" in host_restore
+    # The exact restore endpoint: "/restore" alone also matches the volume
+    # mount and offline-restore paths elsewhere in the orchestrator.
+    assert 'f"/v1/backups/filesystem/{snapshot_id}/restore"' in host_restore
     assert "database_sha256" in restore_text
     assert "hmac_sha256" in restore_text
 
@@ -641,6 +642,8 @@ def _fake_docker(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     bin_dir.mkdir()
     trace = tmp_path / "docker.trace"
     state = tmp_path / "neo4j.state"
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
     docker = bin_dir / "docker"
     docker.write_text(
         "#!/bin/sh\n"
@@ -656,10 +659,24 @@ def _fake_docker(tmp_path: Path) -> tuple[Path, dict[str, str]]:
         "printf '%s\\n' neo4j-graph-db\n"
         "    ;;\n"
         "  'compose stop --timeout 5 neo4j-graph-db') printf '%s' stopped >\"$NEO4J_STATE\" ;;\n"
-        "  'compose up --no-deps -d neo4j-graph-db') printf '%s' running >\"$NEO4J_STATE\" ;;\n"
-        "  container\\ inspect\\ *) exit 1 ;;\n"
+        # Exact argv of _restore_neo4j_after_backup (database_orchestrator.py).
+        "  'compose up -d --no-deps --wait --wait-timeout 5 neo4j-graph-db') printf '%s' running >\"$NEO4J_STATE\" ;;\n"
+        # Models a killed compose client that left its owned job container
+        # (`--rm` normally removes it), so cleanup proves removal at once.
+        "  container\\ inspect\\ *) [ -f \"$JOBS/$3\" ] && cat \"$JOBS/$3\" || exit 1 ;;\n"
+        "  rm\\ -f\\ *) rm -f \"$JOBS/$3\" ;;\n"
+        "  ps\\ -a\\ --format\\ *) n=${6#name=^/}; n=${n%$}; [ -f \"$JOBS/$n\" ] && printf '%s\\n' \"$n\" ;;\n"
         "  ps\\ -aq\\ *) exit 0 ;;\n"
-        "  *'backup /scripts/backup-all.sh') exit \"${BACKUP_FAKE_RC:-0}\" ;;\n"
+        "  compose\\ run\\ *)\n"
+        "    eval \"script=\\${$#}\"\n"
+        "    [ \"${script##*/}\" = \"${BACKUP_FAKE_FAIL:-none}\" ] || exit 0\n"
+        "    name=; owner=; scope=; prev=\n"
+        "    for a; do\n"
+        "      case \"$prev\" in --name) name=$a ;; --label) case \"$a\" in *-token=*) owner=${a#*=} ;; *-scope=*) scope=${a#*=} ;; esac ;; esac\n"
+        "      prev=$a\n"
+        "    done\n"
+        "    printf '[{\"Name\":\"/%s\",\"Config\":{\"Labels\":{\"com.atlas.database-restore-token\":\"%s\",\"com.atlas.database-restore-scope\":\"%s\"}}}]\\n' \"$name\" \"$owner\" \"$scope\" >\"$JOBS/$name\"\n"
+        "    exit 9 ;;\n"
         "esac\n"
         "exit 0\n",
         encoding="utf-8",
@@ -670,7 +687,9 @@ def _fake_docker(tmp_path: Path) -> tuple[Path, dict[str, str]]:
         "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}",
         "TRACE": str(trace),
         "NEO4J_STATE": str(state),
+        "JOBS": str(jobs),
         "TMPDIR": str(tmp_path),
+        "ATLAS_DATABASE_LOCK_DIR": str(tmp_path),
         "BACKUP_TIMESTAMP": "20260830_010203",
         "BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS": "5",
         "BACKUP_RESTORE_GLOBAL_TIMEOUT_SECONDS": "10",
@@ -696,24 +715,6 @@ def test_backup_orchestrator_preserves_an_initially_stopped_neo4j(tmp_path: Path
     assert "offline-backup.sh" in calls
     assert "compose stop" not in calls
     assert "compose up" not in calls
-
-
-def test_backup_orchestrator_restarts_running_neo4j_after_failure(tmp_path: Path) -> None:
-    trace, env = _fake_docker(tmp_path)
-    Path(env["NEO4J_STATE"]).write_text("running", encoding="utf-8")
-    result = subprocess.run(
-        ["sh", str(REPO / "services/backup/run-consistent-backup.sh")],
-        env={**env, "NEO4J_INITIAL_STATE": "running", "BACKUP_FAKE_RC": "9"},
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=10,
-    )
-    assert result.returncode == 64, result.stderr
-    calls = trace.read_text(encoding="utf-8")
-    assert "compose stop" in calls
-    assert "offline-backup.sh" in calls
-    assert calls.count("compose up") == 1
 
 
 def test_weaviate_status_parser_rejects_duplicate_or_escaped_status(tmp_path: Path) -> None:
@@ -908,24 +909,57 @@ def _signed_database_publication(
     return weaviate_id
 
 
+def _resign_metadata(path: Path, key: bytes) -> None:
+    payload = path.read_text(encoding="utf-8").rsplit("hmac_sha256=", 1)[0]
+    path.write_text(
+        payload + "hmac_sha256="
+        + hmac.new(key, payload.encode(), hashlib.sha256).hexdigest() + "\n",
+        encoding="utf-8",
+    )
+
+
+_AUTH_FAILED = "metadata authentication failed"
+
+
 @pytest.mark.parametrize(
-    ("versions", "rejection"),
+    ("versions", "rejection", "tamper"),
     [
-        (("5.26.30", WEAVIATE_VERSION), None),
-        ((NEO4J_VERSION, WEAVIATE_VERSION), None),
-        ((NEO4J_VERSION, "1.38.13"), None),
-        (("5.26.29", WEAVIATE_VERSION), "Neo4j snapshot version is not restorable"),
-        ((NEO4J_VERSION, "1.38.12"), "Weaviate snapshot version is not restorable"),
+        (("5.26.30", WEAVIATE_VERSION), None, None),
+        ((NEO4J_VERSION, WEAVIATE_VERSION), None, None),
+        ((NEO4J_VERSION, "1.38.13"), None, None),
+        (("5.26.29", WEAVIATE_VERSION), "Neo4j snapshot version is not restorable", None),
+        ((NEO4J_VERSION, "1.38.12"), "Weaviate snapshot version is not restorable", None),
+        # Each case is otherwise fully consistent, so only the HMAC check rejects it.
+        ((NEO4J_VERSION, WEAVIATE_VERSION), _AUTH_FAILED, "wrong-key"),
+        ((NEO4J_VERSION, WEAVIATE_VERSION), _AUTH_FAILED, "completion"),
+        ((NEO4J_VERSION, WEAVIATE_VERSION), _AUTH_FAILED, "manifest"),
     ],
 )
 def test_database_restore_authenticates_stages_and_invokes_native_restore(
-    tmp_path: Path, versions: tuple[str, str], rejection: str | None
+    tmp_path: Path, versions: tuple[str, str], rejection: str | None, tamper: str | None
 ) -> None:
     """#1312, #1286: the previous pins' snapshots stay restorable; others fail."""
     timestamp = "20260830_010203"
     key_hex = "6" * 64
     s3_root = tmp_path / "s3"
     weaviate_id = _signed_database_publication(s3_root, timestamp, key_hex, versions)
+    attacker = bytes.fromhex("7" * 64)
+    complete = s3_root / "atlas-backups" / timestamp / "databases.complete"
+    manifest = complete.parent / ("b" * 32) / "databases.manifest"
+    if tamper == "wrong-key":
+        key_hex = "7" * 64  # restore host holds a different key than the signer
+    elif tamper == "completion":
+        _resign_metadata(complete, attacker)
+    elif tamper == "manifest":
+        # Attacker-signed manifest; completion re-bound to it with the real key.
+        _resign_metadata(manifest, attacker)
+        digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        complete.write_text(
+            re.sub(r"manifest_sha256=[0-9a-f]{64}", f"manifest_sha256={digest}",
+                   complete.read_text(encoding="utf-8")),
+            encoding="utf-8",
+        )
+        _resign_metadata(complete, bytes.fromhex(key_hex))
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     (fake_bin / "timeout").write_text(

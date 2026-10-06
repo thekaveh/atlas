@@ -5,6 +5,10 @@
 set -eu
 
 : "${SUPABASE_DB_USER:?required}"; : "${SUPABASE_DB_PASSWORD:?required}"; : "${SUPABASE_DB_NAME:?required}"
+# libpq reads PGPASSWORD from the environment. Exported once rather than
+# passed as `env PGPASSWORD=...` per command, which put the password in the
+# argv of every long-lived `timeout`/`env` process (visible through ps).
+export PGPASSWORD="$SUPABASE_DB_PASSWORD"
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 S3_CLIENT_SCRIPT=${BACKUP_S3_CLIENT_SCRIPT:-${SCRIPT_DIR}/s3-client.sh}
 if [ ! -r "$S3_CLIENT_SCRIPT" ] && [ -r "${PWD}/services/backup/init/scripts/s3-client.sh" ]; then
@@ -97,7 +101,7 @@ close_snapshot() {
 }
 release_backup_lock() {
   if [ -n "$BACKUP_LOCK_PID" ]; then
-    run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+    run_bounded psql -X \
       -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
       -v ON_ERROR_STOP=1 -v lock_app="$BACKUP_LOCK_APP" <<'SQL' >/dev/null 2>&1 || true
 SELECT pg_terminate_backend(pid)
@@ -110,7 +114,7 @@ SQL
   fi
 }
 verify_backup_lock() {
-  owned="$(run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+  owned="$(run_bounded psql -X \
     -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
     -v ON_ERROR_STOP=1 -v lock_app="$BACKUP_LOCK_APP" -At <<'SQL'
 SELECT count(*)
@@ -153,7 +157,7 @@ run_bounded mc mb --region "$BACKUP_S3_REGION" --ignore-existing "s3/${BUCKET}"
 # `set -e` aborted the backup. Create it first; empty reads as "pending" (#1237).
 : >"$BACKUP_LOCK_STATUS"
 timeout -s TERM -k 10 "$BACKUP_LOCK_HOLD_SECONDS" \
-  env PGPASSWORD="$SUPABASE_DB_PASSWORD" PGAPPNAME="$BACKUP_LOCK_APP" \
+  env PGAPPNAME="$BACKUP_LOCK_APP" \
   psql -X -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
   -v ON_ERROR_STOP=1 -qAt >"$BACKUP_LOCK_STATUS" 2>/dev/null <<SQL &
 SELECT pg_try_advisory_lock(hashtextextended('atlas-backup-publication', 0)) AS locked \gset
@@ -206,7 +210,7 @@ echo "backup: export one repeatable-read snapshot..."
 # Same fork-scheduling race as the lock status file above (#1237).
 : >"$WORK/postgres.snapshot"
 timeout -s TERM -k 10 "$SNAPSHOT_HOLD_SECONDS" \
-  env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+  psql -X \
   -h supabase-db -U "$SUPABASE_DB_USER" -d "$SUPABASE_DB_NAME" \
   -v ON_ERROR_STOP=1 -qAt >"$WORK/postgres.snapshot" <<SQL &
 BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
@@ -231,13 +235,13 @@ while :; do
 done
 
 echo "backup: pg_dump ${SUPABASE_DB_NAME}..."
-run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" pg_dump -h supabase-db -U "$SUPABASE_DB_USER" -d "$SUPABASE_DB_NAME" --snapshot="$snapshot_id" -Fc -f "$WORK/postgres.dump"
+run_bounded pg_dump -h supabase-db -U "$SUPABASE_DB_USER" -d "$SUPABASE_DB_NAME" --snapshot="$snapshot_id" -Fc -f "$WORK/postgres.dump"
 dump_bytes="$(run_bounded wc -c <"$WORK/postgres.dump" | tr -d '[:space:]')"
 case "$dump_bytes" in ''|*[!0-9]*) echo "backup: invalid PostgreSQL dump size" >&2; exit 1;; esac
 [ "$dump_bytes" -le "$MAX_DUMP_BYTES" ] || { echo "backup: PostgreSQL dump exceeds BACKUP_MAX_POSTGRES_DUMP_BYTES" >&2; exit 1; }
 
 echo "backup: create PostgreSQL snapshot and archive inventories..."
-run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+run_bounded psql -X \
   -h supabase-db -U "$SUPABASE_DB_USER" -d "$SUPABASE_DB_NAME" \
   -v ON_ERROR_STOP=1 -v snapshot_id="$snapshot_id" -qAt <<'SQL' >"$WORK/postgres.tables"
 BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
@@ -276,10 +280,10 @@ case "$object_count" in
     exit 1
     ;;
 esac
-database_name_hex="$(run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+database_name_hex="$(run_bounded psql -X \
   -h supabase-db -U "$SUPABASE_DB_USER" -d "$SUPABASE_DB_NAME" \
   -v ON_ERROR_STOP=1 -Atqc "SELECT encode(convert_to(current_database(), 'UTF8'), 'hex')")"
-server_version_num="$(run_bounded env PGPASSWORD="$SUPABASE_DB_PASSWORD" psql -X \
+server_version_num="$(run_bounded psql -X \
   -h supabase-db -U "$SUPABASE_DB_USER" -d "$SUPABASE_DB_NAME" \
   -v ON_ERROR_STOP=1 -Atqc "SHOW server_version_num")"
 dump_sha_output="$(run_bounded sha256sum "$WORK/postgres.dump")"; dump_sha256="${dump_sha_output%% *}"

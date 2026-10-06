@@ -31,6 +31,7 @@ drop-in for the raw file handle.
 from __future__ import annotations
 
 import contextlib
+import os
 import datetime
 import re
 import tempfile
@@ -157,11 +158,19 @@ class SessionLogTee:
         segment_path = self.base_path.with_name(
             f"{self.base_path.name}.{self._segment_index}"
         )
-        self._fh = open(  # noqa: SIM115 - lifetime managed by close()
-            segment_path, "w", buffering=1, encoding="utf-8"
-        )
+        # Exclusive, no-follow, owner-only from the first byte: the segment
+        # name is predictable, and on a shared /tmp another user could have
+        # pre-created it (or a symlink) to capture compose logs.
+        # A file we cannot remove makes O_EXCL fail; write() then degrades.
         with contextlib.suppress(OSError):
-            segment_path.chmod(0o600)
+            segment_path.unlink()
+        flags = (
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)  # no CRT \r\r\n
+        )
+        self._fh = os.fdopen(  # noqa: SIM115 - lifetime managed by close()
+            os.open(segment_path, flags, 0o600), "w", buffering=1, encoding="utf-8"
+        )
         self._rolling.append(segment_path)
         while len(self._rolling) > self._max_segments - 1:
             oldest = self._rolling.pop(0)

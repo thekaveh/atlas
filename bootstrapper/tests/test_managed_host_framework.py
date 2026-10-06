@@ -327,9 +327,14 @@ def test_no_health_block_means_a_tcp_probe(tmp_path):
     assert config.managed_host_services[0].health.kind == "tcp"
 
 
-@pytest.mark.parametrize("bad_name", ["Sam3", "-svc", "svc_name", "", "svc!"])
-def test_an_unusable_name_is_rejected(tmp_path, bad_name):
-    with pytest.raises(ConsumerManifestError, match="must match"):
+# A built-in's name shares its ~/.atlas/<name>/<name>.pid: stop/remove under
+# that name would act on Atlas's own process and checkout.
+@pytest.mark.parametrize("bad_name, error", [
+    *((name, "must match") for name in ("Sam3", "-svc", "svc_name", "", "svc!")),
+    *((name, "reserved") for name in ("comfyui-mps", "vllm-metal", "blender-mcp")),
+])
+def test_an_unusable_name_is_rejected(tmp_path, bad_name, error):
+    with pytest.raises(ConsumerManifestError, match=error):
         _load(tmp_path, {
             "managed_host_services": [{"name": bad_name, "command": "app", "port": 9001}],
         })

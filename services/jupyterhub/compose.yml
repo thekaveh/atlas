@@ -20,6 +20,8 @@ services:
       - "host.docker.internal:${HOST_GATEWAY_IP}"
     environment:
       JUPYTER_ENABLE_LAB: "yes"
+      # Inert: docker-stacks only adds the sudoers entry when the container
+      # starts as root, and this image ends with USER ${NB_UID}.
       GRANT_SUDO: "yes"
       JUPYTER_TOKEN: ${JUPYTERHUB_TOKEN}
       # VS Code remote-Jupyter connectivity. The Jupyter Server defaults
@@ -39,13 +41,18 @@ services:
       # sys.env only -- it has no dotenv fallback like the Python
       # notebooks -- and aborts on an empty value.
       LITELLM_DEFAULT_MODEL: ${LITELLM_DEFAULT_MODEL}
+      # Notebooks 01/02/14 embed with this; without it they fell back to
+      # ollama/nomic-embed-text, which a cloud-only stack does not serve.
+      LITELLM_EMBEDDING_MODEL: ${LITELLM_EMBEDDING_MODEL}
       # No `:-` default: WEAVIATE_URL is auto-managed and the weaviate
       # manifest blanks it for `disabled`. `${VAR:-x}` substitutes on EMPTY,
       # not just unset, so a default here resurrects an endpoint for a
       # service that is not running and defeats the consumer's
       # not-configured branch. Matches STT/TTS/DOCLING_ENDPOINT alongside.
       WEAVIATE_URL: ${WEAVIATE_URL}
-      NEO4J_URI: ${NEO4J_URI:-bolt://neo4j-graph-db:7687}
+      # No :- default: the bootstrapper blanks it for a disabled Neo4j, and a
+      # default made the service look configured anyway.
+      NEO4J_URI: ${NEO4J_URI}
       NEO4J_USER: ${GRAPH_DB_USER}
       NEO4J_PASSWORD: ${GRAPH_DB_PASSWORD}
       COMFYUI_BASE_URL: ${COMFYUI_ENDPOINT:-http://comfyui:18188}
@@ -60,7 +67,9 @@ services:
       RAY_ADDRESS: ${RAY_ADDRESS:-}
       # Spark Connect endpoint for notebook 09_spark_connect. Defaults to the
       # in-stack sidecar (needs SPARK_SOURCE != disabled); override to point a
-      # notebook at a remote/managed Spark Connect server (e.g. EMR Serverless).
+      # notebook at a remote Spark Connect server running Spark 4.1 (the kernel
+      # ships pyspark-client 4.1.2; EMR Serverless needs a separate
+      # pyspark[connect]==3.5 environment, see services/spark/examples).
       SPARK_REMOTE: ${SPARK_REMOTE:-sc://spark-connect:15002}
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
       # MLflow tracking server. Empty when MLFLOW_SOURCE=disabled.
@@ -83,6 +92,12 @@ services:
       AWS_DEFAULT_REGION: ${MINIO_REGION:-us-east-1}
       ICEBERG_REST_URI: http://iceberg-rest:8181
       ICEBERG_WAREHOUSE: s3://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/
+      # Notebook 11 writes here; without it a renamed bucket fell back to
+      # `jupyter`, which the scoped account may not create.
+      MINIO_BUCKET_JUPYTER: ${MINIO_BUCKET_JUPYTER:-jupyter}
+      # Bucket names notebook 12 writes through Spark Connect.
+      MINIO_BUCKET_ICEBERG_LANDING: ${MINIO_BUCKET_ICEBERG_LANDING:-landing}
+      MINIO_BUCKET_ICEBERG_CHECKPOINTS: ${MINIO_BUCKET_ICEBERG_CHECKPOINTS:-checkpoints}
       PYICEBERG_CATALOG__REST__TYPE: rest
       PYICEBERG_CATALOG__REST__URI: http://iceberg-rest:8181
       PYICEBERG_CATALOG__REST__WAREHOUSE: s3://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/
@@ -128,7 +143,7 @@ services:
       - --ServerApp.allow_remote_access=True
       - --ServerApp.disable_check_xsrf=False
     ports:
-      - "${HOST_BIND_IP:-}${JUPYTERHUB_PORT}:8888"
+      - "${HOST_BIND_IP-127.0.0.1:}${JUPYTERHUB_PORT}:8888"
     volumes:
       - jupyterhub-data:/home/jovyan/work
       - ./build/notebooks:/home/jovyan/notebooks:ro

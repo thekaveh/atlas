@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import os
 import secrets
 import shutil
+import struct
 import tempfile
 import threading
 import time
@@ -50,6 +52,19 @@ async def _join_request_task(task: asyncio.Task):
             pass
         raise cancelled
     return task.result()
+
+
+def _storage_error_status(exc: Exception):
+    """404/403 for a missing or forbidden input object (botocore ClientError),
+    instead of a bare 500; None for anything else."""
+    response = getattr(exc, "response", None)
+    error = response.get("Error", {}) if isinstance(response, dict) else {}
+    code = str(error.get("Code", "")) if isinstance(error, dict) else ""
+    if code in ("NoSuchKey", "NoSuchBucket", "404", "NotFound"):
+        return 404
+    if code in ("AccessDenied", "403", "Forbidden"):
+        return 403
+    return None
 
 
 def create_app(*, api_token: str | None = None) -> FastAPI:
@@ -162,6 +177,15 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
             data = storage.fetch(request.input.bucket, request.input.key)
         except ArtifactTooLargeError as exc:
             raise HTTPException(status_code=413, detail=str(exc)) from exc
+        except Exception as exc:
+            status = _storage_error_status(exc)
+            if status is None:
+                raise
+            raise HTTPException(
+                status_code=status,
+                detail=f"Input object {request.input.bucket}/{request.input.key} "
+                + ("was not found" if status == 404 else "is not readable"),
+            ) from exc
         return _process_bytes(data, request.params, storage=storage)
 
     @app.get("/assets/artifacts/{sha256}.{ext}")
@@ -197,6 +221,40 @@ def _process_bytes(
         return _process_path(input_path, params, storage=storage)
 
 
+def _external_resource_uris(data: bytes) -> list[str]:
+    """`buffers[].uri` / `images[].uri` in a GLB's JSON chunk that are not
+    `data:` URIs. Blender's importer resolves them against the filesystem,
+    so `../../proc/self/environ` would be read into a downloadable bake."""
+    entries = _resource_entries(_glb_json_chunk(data) or {})
+    if entries is None:
+        return ["<non-list buffers/images>"]  # malformed: reject, never 500
+    uris = [entry.get("uri") for entry in entries if isinstance(entry, dict)]
+    return [str(uri) for uri in uris if uri is not None and not str(uri).startswith("data:")]
+
+
+def _resource_entries(doc: dict) -> list | None:
+    """`buffers` + `images` entries, or None when either is not a list."""
+    groups = [doc.get("buffers") or [], doc.get("images") or []]
+    if not all(isinstance(group, list) for group in groups):
+        return None
+    return [*groups[0], *groups[1]]
+
+
+def _glb_json_chunk(data: bytes) -> dict | None:
+    """The JSON chunk of a GLB v2 file, or None when the input is not one we
+    can read (the caller rejects it: the converters would still parse it)."""
+    if len(data) < 20 or struct.unpack_from("<I", data, 0)[0] != 0x46546C67:
+        return None
+    try:
+        chunk_length, chunk_type = struct.unpack_from("<II", data, 12)
+        if chunk_type != 0x4E4F534A:
+            return None
+        doc = json.loads(data[20: 20 + chunk_length].rstrip(b" \x00").decode("utf-8-sig"))
+    except (ValueError, struct.error, RecursionError):
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
 def _process_path(
     input_path: Path,
     params: BakeParams,
@@ -204,6 +262,16 @@ def _process_path(
     storage: ArtifactStorage | None = None,
 ) -> BakeResponse:
     _enforce_input_size(input_path.stat().st_size)
+    data = input_path.read_bytes()
+    # Fail closed: Blender picks GLB vs .gltf JSON by content and resolves
+    # non-data: URIs against the filesystem.
+    if _glb_json_chunk(data) is None:
+        raise HTTPException(status_code=400, detail="Input must be a binary glTF 2.0 GLB")
+    if _external_resource_uris(data):
+        raise HTTPException(
+            status_code=400,
+            detail="GLB must be self-contained: external buffer/image URIs are not allowed",
+        )
     resolved = resolve_params(params)
     storage = storage or ArtifactStorage()
 

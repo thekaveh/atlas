@@ -179,3 +179,25 @@ def test_wizard_screen_uses_the_bounded_tee(monkeypatch, tmp_path):
         screen._close_launch_log_tee()
         for p in tmp_path.glob("atlas-launch-*"):
             p.unlink(missing_ok=True)
+
+
+def test_rotated_segments_never_follow_a_planted_symlink(tmp_path):
+    # The segment name is predictable; on a shared /tmp another user could
+    # pre-create it as a symlink (or a world-readable file) to capture logs.
+    tee = SessionLogTee(
+        prefix="atlas-launch-20260101T000000-",
+        config=SessionLogConfig(
+            directory=str(tmp_path), segment_max_bytes=256, max_segments=3, retained_sessions=5,
+        ),
+    )
+    trap = tmp_path / "captured.txt"
+    trap.write_text("", encoding="utf-8")
+    planted = tee.base_path.with_name(f"{tee.base_path.name}.1")
+    planted.symlink_to(trap)
+    for _ in range(50):
+        tee.write("payload line\n")
+    tee.close()
+    assert trap.read_text(encoding="utf-8") == ""
+    assert not planted.is_symlink()
+    segments = [p for p in tmp_path.iterdir() if p.name.startswith(tee.base_path.name + ".")]
+    assert segments and all(p.stat().st_mode & 0o777 == 0o600 for p in segments)

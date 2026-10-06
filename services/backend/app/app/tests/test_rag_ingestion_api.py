@@ -77,6 +77,16 @@ class _FakeLightrag:
         return False
 
 
+def _age_dispatch_claim(store, ingestion_id: str) -> None:
+    """Simulate an abandoned dispatch claim. `save()` deliberately keeps the
+    stored dispatch fields, so the test edits the in-memory record directly."""
+    import json
+
+    payload = json.loads(store._records[ingestion_id])
+    payload["dispatch_claimed_at"] = "2000-01-01T00:00:00+00:00"
+    store._records[ingestion_id] = json.dumps(payload)
+
+
 def _fake_service(tmp_path: Path, monkeypatch):
     from rag_ingestion.service import Deps, RagIngestionService
     from rag_ingestion.store import InMemoryIngestionStore
@@ -255,8 +265,7 @@ def test_dispatch_cleanup_failure_leaves_pending_job_retryable(
         with pytest.raises(RuntimeError, match="store unavailable"):
             await main.submit_rag_ingestion(request, True)
         pending = service.store.list()[0]
-        pending.dispatch_claimed_at = "2000-01-01T00:00:00+00:00"
-        service.store.save(pending)
+        _age_dispatch_claim(service.store, pending.id)
         response = await main.submit_rag_ingestion(request, True)
         return pending, response
 
@@ -363,9 +372,7 @@ def test_stale_dispatch_owner_cannot_overwrite_reclaimed_claim(
     record, created = service.submit("showcase-default")
     assert created is True
     assert service.claim_dispatch(record.id, "owner-a") is True
-    stale = service.store.get(record.id)
-    stale.dispatch_claimed_at = "2000-01-01T00:00:00+00:00"
-    service.store.save(stale)
+    _age_dispatch_claim(service.store, record.id)
     assert service.claim_dispatch(record.id, "owner-b") is True
 
     service.mark_dispatched(record.id, "job-a", "owner-a")

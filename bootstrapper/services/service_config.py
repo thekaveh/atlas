@@ -6,11 +6,27 @@ Python implementation of generate_service_environment() and related functions fr
 
 import os
 import re
+import sys
 from typing import Dict, Any, Optional
 from urllib.parse import quote
 from core.config_parser import ConfigParser
+from core.endpoints_contract import _expand_interpolation
 from utils.atomic_write import atomic_write_text, render_env_assignment
 from utils.system import get_localhost_host, resolve_host_gateway_ip
+
+
+# Same list as .env.example / compose: the backup contract requires
+# backup-filesystem, and a blank value is written back durably.
+_DEFAULT_WEAVIATE_MODULES = (
+    'text2vec-openai,text2vec-ollama,multi2vec-clip,'
+    'generative-openai,generative-ollama,backup-filesystem'
+)
+
+
+def _speaches_tts_model(env_file_vars: dict) -> str:
+    """SPEACHES_TTS_MODEL, or Kokoro when blank (a present-but-empty key
+    otherwise reached Open WebUI/Hermes as no model next to af_heart)."""
+    return env_file_vars.get('SPEACHES_TTS_MODEL') or 'speaches-ai/Kokoro-82M-v1.0-ONNX'
 
 
 def _configured_weaviate_modules(env_file_vars: dict, default_modules: str) -> str:
@@ -31,6 +47,35 @@ def _uri_component(env_file_vars: dict, name: str, default: str = '') -> str:
         env_file_vars.get(name, default), safe=''
     )
 
+
+
+def _lightrag_neo4j_username(raw_env: Dict[str, str]) -> str:
+    """LightRAG's Neo4j user follows GRAPH_DB_USER like every other consumer
+    (only a host-run Neo4j can use a name other than `neo4j`)."""
+    return (raw_env.get('GRAPH_DB_USER') or '').strip() or 'neo4j'
+
+
+# LightRAG storage selector -> (default class, connection var, backing service).
+_LIGHTRAG_STORAGE_BACKENDS = (
+    ('LIGHTRAG_GRAPH_STORAGE', 'Neo4JStorage', 'LIGHTRAG_NEO4J_URI', 'Neo4j'),
+    ('LIGHTRAG_VECTOR_STORAGE', 'PGVectorStorage', 'LIGHTRAG_PG_URI', 'Supabase Postgres'),
+    ('LIGHTRAG_KV_STORAGE', 'RedisKVStorage', 'LIGHTRAG_REDIS_URI', 'Redis'),
+    ('LIGHTRAG_DOC_STATUS_STORAGE', 'RedisDocStatusStorage', 'LIGHTRAG_REDIS_URI', 'Redis'),
+)
+
+
+def _warn_lightrag_storage_gaps(env_vars: Dict[str, str], raw_env: Dict[str, str]) -> None:
+    """Nothing switches LightRAG's storage classes when a backend is disabled,
+    so a blank connection URI with the default selector crash-loops it."""
+    for selector, default, uri_var, service in _LIGHTRAG_STORAGE_BACKENDS:
+        chosen = (raw_env.get(selector) or default).strip()
+        if chosen == default and not env_vars.get(uri_var):
+            print(
+                f"WARNING: LightRAG is enabled but {service} is disabled while "
+                f"{selector}={chosen}; LightRAG will fail to start. Enable {service} "
+                f"or set {selector} to a local storage class.",
+                file=sys.stderr,
+            )
 
 class ServiceConfig:
     """Generates service configurations based on YAML and SOURCE values."""
@@ -305,6 +350,11 @@ class ServiceConfig:
         # is one of the ollama-* values). Empty string when source=none.
         endpoint = config.get('environment', {}).get('OLLAMA_ENDPOINT', 'http://ollama:11434')
         endpoint = endpoint.replace('host.docker.internal', self.localhost_host)
+        # Resolve ${OLLAMA_LOCALHOST_PORT:-11434} here: compose's .env parser
+        # substitutes the default when the port line sits *after* this one (it
+        # does in .env.example), so LiteLLM pointed at 11434 while the host
+        # pull used the configured port.
+        endpoint = _expand_interpolation(endpoint, self.config_parser.parse_env_file())
         env_vars['LITELLM_OLLAMA_UPSTREAM'] = endpoint
 
         # Set GPU devices if specified
@@ -431,11 +481,9 @@ class ServiceConfig:
         # configured module list so advanced users keep any extra modules while
         # the CLIP module is toggled to match MULTI2VEC_CLIP_SOURCE.
         clip_source = self.service_sources.get('MULTI2VEC_CLIP_SOURCE', 'container-cpu')
-        default_modules = (
-            'text2vec-openai,text2vec-ollama,multi2vec-clip,'
-            'generative-openai,generative-ollama'
+        configured_modules = _configured_weaviate_modules(
+            env_file_vars, _DEFAULT_WEAVIATE_MODULES
         )
-        configured_modules = _configured_weaviate_modules(env_file_vars, default_modules)
         weaviate_modules = [
             module.strip()
             for module in configured_modules.split(',')
@@ -526,6 +574,11 @@ class ServiceConfig:
         # URLs we swap in the platform-correct gateway hostname.
         endpoint = config.get('environment', {}).get('STT_ENDPOINT', '')
         endpoint = endpoint.replace('host.docker.internal', self.localhost_host)
+        # Resolve ${PARAKEET/WHISPER_CPP_LOCALHOST_PORT:-...} here, as for Ollama:
+        # the .env lines derived from it (OPEN_WEB_UI_STT_API_URL,
+        # STT_INTERNAL_URL) sit above the port lines, where compose falls back
+        # to the default, so Open WebUI and Hermes called the wrong port.
+        endpoint = _expand_interpolation(endpoint, self.config_parser.parse_env_file())
         env_vars['STT_ENDPOINT'] = endpoint
 
         if source_value.startswith('speaches-container'):
@@ -571,6 +624,9 @@ class ServiceConfig:
 
         endpoint = config.get('environment', {}).get('TTS_ENDPOINT', '')
         endpoint = endpoint.replace('host.docker.internal', self.localhost_host)
+        # As for STT: resolve ${CHATTERBOX_LOCALHOST_PORT:-...} so the derived
+        # URLs never depend on .env line order.
+        endpoint = _expand_interpolation(endpoint, self.config_parser.parse_env_file())
         env_vars['TTS_ENDPOINT'] = endpoint
 
         if source_value.startswith('speaches-container'):
@@ -1732,6 +1788,13 @@ class ServiceConfig:
 
         return env_vars
     
+    def _neo4j_bolt_uri(self, neo4j_source: str) -> str:
+        """The source-aware Bolt URI NEO4J_URI carries, for other consumers."""
+        neo4j_uri = self.get_service_config('neo4j-graph-db', neo4j_source).get(
+            'environment', {}
+        ).get('NEO4J_URI') or 'bolt://neo4j-graph-db:7687'
+        return neo4j_uri.replace('host.docker.internal', self.localhost_host)
+
     def _generate_adaptive_services_config(self, all_env_vars: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         """Generate configuration for adaptive services."""
         env_vars = {}
@@ -1744,6 +1807,9 @@ class ServiceConfig:
         webui_source = sources.get('OPEN_WEB_UI_SOURCE', 'container')
         env_vars['OPEN_WEB_UI_SCALE'] = '0' if webui_source == 'disabled' else '1'
         env_vars['OPEN_WEB_UI_INIT_SCALE'] = '0' if webui_source == 'disabled' else '1'
+        # No image toggle pointing at a ComfyUI host that does not exist.
+        env_vars['OPEN_WEB_UI_ENABLE_IMAGE_GENERATION'] = str(
+            sources.get('COMFYUI_SOURCE', 'container-cpu') != 'disabled').lower()
 
         # Open WebUI adaptive TTS/STT (set engine and API base URL when provider is enabled)
         # Read endpoints from already-generated env vars (STT/TTS configs run before adaptive).
@@ -1773,9 +1839,7 @@ class ServiceConfig:
         # so we read the model knob directly from .env with a hard-coded fallback.
         if tts_source.startswith('speaches-container'):
             speaches_env = self.config_parser.parse_env_file()
-            env_vars['OPEN_WEB_UI_TTS_MODEL'] = speaches_env.get(
-                'SPEACHES_TTS_MODEL', 'speaches-ai/Kokoro-82M-v1.0-ONNX'
-            )
+            env_vars['OPEN_WEB_UI_TTS_MODEL'] = _speaches_tts_model(speaches_env)
             env_vars['OPEN_WEB_UI_TTS_VOICE'] = 'af_heart'
         elif tts_source.startswith('chatterbox'):
             # Chatterbox's /v1/audio/speech accepts any model string; the
@@ -1853,10 +1917,13 @@ class ServiceConfig:
             # Neo4j graph URI + credentials.
             neo4j_source = sources.get('NEO4J_GRAPH_DB_SOURCE', 'container')
             if neo4j_source != 'disabled':
-                # Neo4j compose service id is `neo4j-graph-db` (NOT `neo4j`).
-                # MUST match services/lightrag/service.yml::runtime_adaptive.
-                env_vars['LIGHTRAG_NEO4J_URI'] = 'bolt://neo4j-graph-db:7687'
-                env_vars['LIGHTRAG_NEO4J_USERNAME'] = 'neo4j'
+                # Same source-aware Bolt URI as NEO4J_URI: the container's
+                # compose id `neo4j-graph-db` (NOT `neo4j`), or the host's
+                # Bolt port for NEO4J_GRAPH_DB_SOURCE=localhost (runtime_sc in
+                # services/neo4j/service.yml). A fixed container URI broke
+                # LightRAG whenever Neo4j ran on the host.
+                env_vars['LIGHTRAG_NEO4J_URI'] = self._neo4j_bolt_uri(neo4j_source)
+                env_vars['LIGHTRAG_NEO4J_USERNAME'] = _lightrag_neo4j_username(lightrag_raw_env)
                 env_vars['LIGHTRAG_NEO4J_PASSWORD'] = lightrag_raw_env.get('GRAPH_DB_PASSWORD', '')
             else:
                 env_vars['LIGHTRAG_NEO4J_URI'] = ''
@@ -1872,6 +1939,7 @@ class ServiceConfig:
                 )
             else:
                 env_vars['LIGHTRAG_REDIS_URI'] = ''
+            _warn_lightrag_storage_gaps(env_vars, lightrag_raw_env)
 
         else:
             # LightRAG disabled — emit blanks so any stale .env values are

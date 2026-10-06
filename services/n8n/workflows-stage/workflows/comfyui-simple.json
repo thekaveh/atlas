@@ -78,6 +78,7 @@
       "name": "Generate Simple Image",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
+      "onError": "continueErrorOutput",
       "position": [
         460,
         300
@@ -125,6 +126,13 @@
     },
     "Generate Simple Image": {
       "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "Format Response",

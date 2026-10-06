@@ -56,6 +56,7 @@ from ui.textual.widgets.prompt_panel import (
     PromptOption,
     PromptStep,
 )
+from wizard.model.cloud_rules import resolve_secret_verdict
 from wizard.model.llm_rules import (
     LLM_ENGINE_TITLE,
     is_container_ollama as _is_container_ollama,
@@ -332,8 +333,12 @@ def build_ollama_steps(
         for s in (env_vars.get("OLLAMA_USER_MODELS", "") or "").split(",")
         if s.strip()
     }
+    # A present-but-blank OLLAMA_USER_MODELS is a deliberate "none" (start.py
+    # keeps it); pre-ticking the baseline again would re-pull it on Enter.
     ollama_default_values = (
-        sorted(ollama_existing) if ollama_existing else ollama_default_actives
+        sorted(ollama_existing)
+        if "OLLAMA_USER_MODELS" in env_vars
+        else ollama_default_actives
     )
     existing_custom = (env_vars.get("OLLAMA_CUSTOM_MODELS", "") or "").strip()
 
@@ -344,7 +349,13 @@ def build_ollama_steps(
             # Honor the user's port override — the 5th consumer site of
             # the localhost-port symmetry rule (runtime_sc, Kong,
             # service_config, localhost_validator already read it).
-            port = (env_vars.get("OLLAMA_LOCALHOST_PORT", "") or "").strip() or "11434"
+            # A port typed on the LLM Engine step this session wins over
+            # .env (it is only written to .env at launch).
+            port = (
+                str(selections.get("__secondary__:OLLAMA_LOCALHOST_PORT", "")).strip()
+                or (env_vars.get("OLLAMA_LOCALHOST_PORT", "") or "").strip()
+                or "11434"
+            )
             return f"http://localhost:{port}"
         if "external" in src and url:
             return url
@@ -558,7 +569,9 @@ def build_ollama_steps(
             service_name="",
             kind="multiselect",
             skip_if_prev=lambda sel: not _selected_llm_source(env_vars, sel).startswith("ollama-"),
-            options_provider=_merged_ollama_options,
+            options_provider=lambda selections: _with_saved_ollama_rows(
+                _merged_ollama_options(selections), env_vars
+            ),
             # Capability filter chips. Exact label set matches the
             # ``x-test-capability`` values observed on ollama.com/library
             # — keep these lowercase and aligned with what the parser
@@ -722,6 +735,28 @@ def _with_saved_rows(rows: List[PromptOption], env_vars: Dict[str, str],
     ]
 
 
+def _with_saved_ollama_rows(rows: List[PromptOption], env_vars: Dict[str, str]) -> List[PromptOption]:
+    """Ollama counterpart of _with_saved_rows (#1180).
+
+    A saved `family:tag` pre-ticks whenever its family row is listed, but a
+    model whose family is absent (an `hf.co/...` pull, or anything beyond the
+    curated fallback when the library scrape fails offline) was dropped from
+    OLLAMA_USER_MODELS on the next Enter.
+    """
+    known = {r.value for r in rows if r.value}
+    seen: set = set()  # a hand-edited repeat gets one row
+    extra: List[PromptOption] = []
+    for mid in (s.strip() for s in (env_vars.get("OLLAMA_USER_MODELS", "") or "").split(",")):
+        if mid and mid not in known and mid not in seen and mid.split(":", 1)[0] not in known:
+            seen.add(mid)
+            extra.append(PromptOption(
+                value=mid, label=mid,
+                hint="already in .env; kept so it is not dropped when unlisted",
+                badges=[BADGE_SAVED],
+            ))
+    return rows + extra
+
+
 def _make_cloud_options_provider(provider, env_vars: Dict[str, str],
                                  warn: Callable[[str], None]):
     """Return ``(options_provider, subtitle_provider)`` for one cloud
@@ -748,7 +783,10 @@ def _make_cloud_options_provider(provider, env_vars: Dict[str, str],
 
     def _resolve_key(selections: dict) -> str:
         v = selections.get(secret_title)
-        if isinstance(v, str) and v and v not in (SECRET_KEEP, SECRET_CLEAR):
+        # Every sentinel is a verdict about the stored key, never a key.
+        if isinstance(v, str) and v and v not in (
+            SECRET_KEEP, SECRET_CLEAR, SECRET_ENABLE, SECRET_DISABLE,
+        ):
             return v
         return (env_vars.get(api_key_var, "") or "").strip()
 
@@ -1041,42 +1079,35 @@ def build_default_model_steps(
     selected custom model.
     """
 
+    def _cloud_provider_active(p, selections: dict) -> bool:
+        """True when the launch will route ``p``: the #1183 verdict (or the
+        saved source when there is none) is enabled and a key remains.
+        A saved key alone no longer promotes a disabled provider."""
+        existing_key = (env_vars.get(p.api_key_var, "") or "").strip()
+        verdict = resolve_secret_verdict(
+            selections.get(cloud_secret_title(p.name)),
+            existing_key_set=bool(existing_key),
+        )
+        source = verdict.source
+        if source is None:
+            source = (env_vars.get(p.source_var, "disabled") or "").strip().lower()
+        key = existing_key if verdict.api_key is None else verdict.api_key
+        return source == "enabled" and bool(key)
+
     def _no_llm_active(selections: dict) -> bool:
         """Return True (→ skip) when no LLM provider is active.
 
         Ollama: source must start with ``ollama-``.
-        Cloud: any provider must have a real key (or SECRET_KEEP on an
-        existing key) to be considered active.
+        Cloud: any provider that ``_cloud_provider_active`` reports.
         """
         # Check Ollama
         src = _selected_llm_source(env_vars, selections)
         ollama_active = src.startswith("ollama-")
 
         # Check cloud providers
-        cloud_active = False
-        for p in CLOUD_PROVIDERS:
-            v = selections.get(cloud_secret_title(p.name))
-            if v is None:
-                # Step not visited — check .env
-                existing_source = (env_vars.get(p.source_var, "disabled") or "").strip().lower()
-                existing_key = (env_vars.get(p.api_key_var, "") or "").strip()
-                if existing_source == "enabled" and existing_key:
-                    cloud_active = True
-                    break
-            elif v == SECRET_KEEP:
-                existing_source = (env_vars.get(p.source_var, "disabled") or "").strip().lower()
-                existing_key = (env_vars.get(p.api_key_var, "") or "").strip()
-                if existing_source == "enabled" and existing_key:
-                    cloud_active = True
-                    break
-                # Disabled in .env but has key → auto-promote path
-                if existing_key:
-                    cloud_active = True
-                    break
-            elif v and v not in (SECRET_CLEAR,):
-                # Real key typed → provider is active
-                cloud_active = True
-                break
+        cloud_active = any(
+            _cloud_provider_active(p, selections) for p in CLOUD_PROVIDERS
+        )
 
         return not (ollama_active or cloud_active)
 
@@ -1115,22 +1146,7 @@ def build_default_model_steps(
                 names = _csv(env_vars.get(p.user_models_var, ""))
             else:
                 names = _csv(models_v)
-            # Determine if provider is active
-            if secret_v is not None and secret_v not in (SECRET_KEEP, SECRET_CLEAR, ""):
-                # Real key was typed
-                provider_active = True
-            elif secret_v == SECRET_KEEP or secret_v is None:
-                # Auto-promote: a saved key makes the provider active for the
-                # default-model pickers regardless of its source flag (matches
-                # _no_llm_active's disabled-but-keyed-as-active stance). The
-                # prior `existing_key and (existing_source == "enabled" or
-                # existing_key)` was a tautology — the outer `existing_key and`
-                # already required truthiness, so the RHS always reduced to
-                # existing_key — which always evaluated to bool(existing_key).
-                existing_key = (env_vars.get(p.api_key_var, "") or "").strip()
-                provider_active = bool(existing_key)
-            else:
-                provider_active = False
+            provider_active = _cloud_provider_active(p, selections)
             if provider_active:
                 for name in names:
                     pairs.append((p.key, name))
@@ -1292,6 +1308,11 @@ def build_default_model_steps(
     # the "— none / skip —" sentinel pre-selected. (Mirrors how the embedding
     # step pre-fills from its saved value.)
     _vision_default = (env_vars.get("LITELLM_VISION_MODEL", "") or "").strip()
+    # Same for chat: default_value=None selected option 0, so pressing Enter on
+    # a re-run replaced a saved LITELLM_DEFAULT_MODEL (e.g. gpt-4o) with
+    # the top-ranked model. A saved value not among the options still falls
+    # back to option 0 (the prompt panel drops unknown defaults).
+    _content_default = (env_vars.get("LITELLM_DEFAULT_MODEL", "") or "").strip() or None
 
     # default_value semantics for these options steps:
     #   - content: default_value=None → the WizardScreen pre-selects the FIRST
@@ -1309,11 +1330,12 @@ def build_default_model_steps(
             heading="Which model should be the default for chat?",
             subtitle=(
                 "This sets LITELLM_DEFAULT_MODEL — the fallback used by the backend and "
-                "Open WebUI when no model is specified. Pre-selected to the highest-priority "
-                "content-capable model from your current selections."
+                "Open WebUI when no model is specified. Pre-selected to your saved default "
+                "when it is still offered, otherwise the highest-priority content-capable "
+                "model from your current selections."
             ),
             options=[],
-            default_value=None,
+            default_value=_content_default,
             service_name="",
             kind="options",
             skip_if_prev=_skip_no_llm_or_no_content,
@@ -1352,7 +1374,14 @@ def build_default_model_steps(
             default_value="",
             default_value_provider=_saved_dimension_for_selected_model,
             service_name="",
+            # Free text (keeps the restored answer on back-navigation) but
+            # validated as a required 1-4000 number: an empty, `clear` or
+            # non-numeric answer used to pass the step and fail the launch in
+            # apply_user_model_selections after source overrides were written.
             kind="text",
+            number_min=1,
+            number_max=4000,
+            number_required=True,
             skip_if_prev=_skip_known_embedding_dimension,
         ),
         PromptStep(

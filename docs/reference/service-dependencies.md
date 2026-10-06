@@ -2,7 +2,9 @@
 
 ## 1. Generated Dependency Matrix
 
-| Service | Required | Optional | Runtime Calls |
+The start-order column is each manifest's `depends_on.required`: it orders startup and display (some entries only pin a port slot) and is not a list of runtime requirements. Runtime edges are in the Runtime Calls column.
+
+| Service | Start order (depends_on.required) | Optional | Runtime Calls |
 | --- | --- | --- | --- |
 | airflow | supabase, litellm, redis | spark, minio, iceberg-rest, redpanda, weaviate, neo4j | supabase, spark, redpanda, minio, iceberg-rest, litellm, weaviate, neo4j, redis |
 | asset-baker | minio | backend, comfyui, fal, blender-mcp, asset-worker | minio |

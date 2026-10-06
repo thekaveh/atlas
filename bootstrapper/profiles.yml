@@ -14,15 +14,20 @@
 #                 operator's non-empty bind is never touched.
 #   sources       {<service-name>: <option-id> | auto}. Asserted on every
 #                 start of this profile unless that service's source was set
-#                 by an explicit CLI flag this run (operator wins). `auto`
+#                 by an explicit CLI flag this run or is declared in a consumer
+#                 manifest's env (CLI > manifest > profile). `auto`
 #                 delegates to the durable `<SVC>_SOURCE: auto` resolver
 #                 (#753). On a profile SWITCH, a value asserted by the prior
 #                 profile is reset to the service default first (sentinel
 #                 discipline), so transitions leave no source residue.
-#   env           {<ENV_VAR>: <value>}. Applied only when the var is unset or
-#                 empty; an operator-set value is kept with a one-line notice
-#                 (the LOG_MAX_* discipline). Use for limits/logging knobs,
-#                 e.g. WEAVIATE_MEMORY_LIMIT.
+#   env           {<ENV_VAR>: <value>}. Applied when the var is unset, empty,
+#                 the shipped .env.example default, or (on a switch) the prior
+#                 profile's value for the same key — unless .env.user (or
+#                 ATLAS_ENV_USER_FILE) or the consumer manifest pins it; any
+#                 other operator-set value is kept with a one-line notice
+#                 (the LOG_MAX_* discipline). Keys
+#                 only the prior profile declared are not reset on a switch.
+#                 Use for limits/logging knobs, e.g. WEAVIATE_MEMORY_LIMIT.
 #
 # Names: `default` and `prod` are the canonical profiles (matching the
 # manifest options' `profiles:` tags); `dev` is accepted everywhere as an

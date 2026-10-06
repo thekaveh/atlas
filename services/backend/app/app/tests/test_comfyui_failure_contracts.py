@@ -36,6 +36,32 @@ async def test_queue_prompt_maps_transport_failure_to_typed_unavailable(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_rejected_workflow_is_a_client_error_without_upstream_detail():
+    # ComfyUI's 400 (bad node graph) was reported as a 502 outage.
+    import comfyui_client
+
+    client = comfyui_client.ComfyUIClient()
+    await client.client.aclose()
+    client.client = _response_client(
+        lambda _request: httpx.Response(400, json={"error": "SENTINEL_NODE_ERRORS"})
+    )
+    with pytest.raises(comfyui_client.ComfyUIWorkflowRejectedError):
+        await client.queue_prompt({"1": {"class_type": "SaveImage"}})
+    await client.client.aclose()
+
+
+def test_rejected_workflow_maps_to_400(fastapi_client):
+    import comfyui_client
+    import main
+
+    mapped = main._comfyui_gateway_error(
+        comfyui_client.ComfyUIWorkflowRejectedError("ComfyUI rejected the workflow")
+    )
+    assert mapped.status_code == 400
+    assert "SENTINEL" not in mapped.detail
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "response",
     [
@@ -295,6 +321,53 @@ def test_legacy_polling_history_outage_returns_503(
     assert response.status_code == 503
     assert response.json() == {"detail": "ComfyUI is unavailable"}
     assert "SENTINEL_COMFY_POLL_SECRET" not in response.text
+
+
+@pytest.mark.parametrize("route", ["/comfyui/generate", "/comfyui/workflow"])
+def test_legacy_timeout_cancels_the_prompt_and_returns_its_id(
+    fastapi_client, monkeypatch, route
+):
+    """#676 for the legacy routes: a prompt that outlives timeout_seconds is
+    cancelled, and the 504 names it so the caller can poll it, not re-queue."""
+    import asyncio
+
+    import main
+
+    cancelled = []
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def generate_simple_image(self, **kwargs):
+            return {"success": True, "prompt_id": "prompt-slow",
+                    "client_id": "c", "parameters": kwargs}
+
+        async def queue_prompt(self, _workflow):
+            return {"success": True, "prompt_id": "prompt-slow", "client_id": "c"}
+
+        async def wait_for_completion(self, *_args, **_kwargs):
+            raise asyncio.TimeoutError
+
+        async def cancel_prompt(self, prompt_id):
+            cancelled.append(prompt_id)
+            return True
+
+    monkeypatch.setattr(main, "ComfyUIClient", Client)
+    payload = (
+        {"prompt": "blue observatory"}
+        if route == "/comfyui/generate"
+        else {"workflow": {"1": {"class_type": "SaveImage"}}}
+    )
+
+    response = fastapi_client.post(route, json=payload)
+
+    assert response.status_code == 504
+    assert response.json()["detail"]["prompt_id"] == "prompt-slow"
+    assert cancelled == ["prompt-slow"]
 
 
 @pytest.mark.parametrize(
@@ -734,52 +807,6 @@ async def test_completion_continues_after_valid_pending_or_absent_history(
 
 
 @pytest.mark.parametrize("route", ["/comfyui/generate", "/comfyui/workflow"])
-def test_legacy_polling_timeout_returns_truthful_503(
-    fastapi_client, monkeypatch, route
-):
-    import main
-
-    monkeypatch.setenv("FAL_SOURCE", "disabled")
-
-    class Client:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        async def generate_simple_image(self, **kwargs):
-            return {
-                "success": True,
-                "prompt_id": "prompt-timeout",
-                "client_id": "client-timeout",
-                "parameters": kwargs,
-            }
-
-        async def queue_prompt(self, _workflow):
-            return {
-                "success": True,
-                "prompt_id": "prompt-timeout",
-                "client_id": "client-timeout",
-            }
-
-        async def wait_for_completion(self, *_args, **_kwargs):
-            raise asyncio.TimeoutError
-
-    monkeypatch.setattr(main, "ComfyUIClient", Client)
-    payload = (
-        {"prompt": "blue observatory"}
-        if route == "/comfyui/generate"
-        else {"workflow": {"1": {"class_type": "SaveImage"}}}
-    )
-
-    response = fastapi_client.post(route, json=payload)
-
-    assert response.status_code == 503
-    assert response.json() == {"detail": "ComfyUI is unavailable"}
-
-
-@pytest.mark.parametrize("route", ["/comfyui/generate", "/comfyui/workflow"])
 def test_legacy_polling_malformed_history_returns_truthful_502(
     fastapi_client, monkeypatch, route
 ):
@@ -922,8 +949,9 @@ def test_open_webui_tool_propagates_deadline_and_returns_artifact(monkeypatch):
     tool = module.Tools()
     tool.valves.timeout = 321
 
-    result = tool.generate_image("blue orbital archive", cfg=0.0)
-    tool.generate_image("blue orbital archive", cfg=30.0)
+    # Tool methods are async (blocking work runs in asyncio.to_thread).
+    result = asyncio.run(tool.generate_image("blue orbital archive", cfg=0.0))
+    asyncio.run(tool.generate_image("blue orbital archive", cfg=30.0))
 
     assert captured[0]["json"]["timeout_seconds"] == 321
     assert captured[0]["timeout"] == 326
@@ -979,7 +1007,7 @@ def test_open_webui_tool_returns_fal_artifact_url(monkeypatch):
         ),
     )
 
-    result = module.Tools().generate_image("blue orbital archive")
+    result = asyncio.run(module.Tools().generate_image("blue orbital archive"))
 
     assert "1 image(s) created" in result
     assert "https://cdn.example/fal-output.png" in result
@@ -1022,7 +1050,7 @@ def test_open_webui_tool_rejects_nonready_or_nonfal_configured_health(
 
     monkeypatch.setattr(module.requests, "post", unexpected_post)
 
-    result = module.Tools().generate_image("blue orbital archive")
+    result = asyncio.run(module.Tools().generate_image("blue orbital archive"))
 
     assert result == "❌ ComfyUI service is unavailable. Please try again later."
 
@@ -1058,7 +1086,7 @@ def test_open_webui_tool_renders_fal_configured_status_honestly(monkeypatch):
         module.requests, "get", lambda *_args, **_kwargs: next(responses)
     )
 
-    result = module.Tools().check_comfyui_status()
+    result = asyncio.run(module.Tools().check_comfyui_status())
 
     assert "⚠️ **Health Check:** configured" in result
     assert "Healthy" not in result
@@ -1443,3 +1471,111 @@ def test_image_route_preserves_byte_limit_as_client_error(fastapi_client, monkey
         "detail": "ComfyUI image exceeds configured byte limit"
     }
     assert "SENTINEL_COMFY_IMAGE_LIMIT" not in response.text
+
+
+def test_history_and_workflow_ids_are_path_encoded(monkeypatch):
+    """A `%3F` in the path parameter must not become an upstream query."""
+    import asyncio
+
+    import comfyui_client
+    import n8n_client
+
+    seen = []
+
+    class _Http:
+        async def get(self, url, **_kwargs):
+            seen.append(url)
+            raise RuntimeError("stop")
+
+    comfy = comfyui_client.ComfyUIClient.__new__(comfyui_client.ComfyUIClient)
+    comfy.base_url, comfy.client = "http://comfyui:18188", _Http()
+    n8n = n8n_client.N8nClient.__new__(n8n_client.N8nClient)
+    n8n.base_url, n8n._client, n8n.headers = "http://n8n:5678", _Http(), {}
+    for call in (lambda: comfy.get_history("?max_items=1000"),
+                 lambda: n8n.get_workflow("?limit=250")):
+        try:
+            asyncio.run(call())
+        except Exception:  # noqa: BLE001 - only the URL matters here
+            pass
+    assert seen == [
+        "http://comfyui:18188/history/%3Fmax_items%3D1000",
+        "http://n8n:5678/api/v1/workflows/%3Flimit%3D250",
+    ]
+
+
+# Media provider polling and artifact typing (kept here: the provider test
+# module is at its size ceiling).
+from tests.test_comfyui_media_provider import _run as _provider_run  # noqa: E402
+
+
+def test_poll_rereads_history_when_a_job_finishes_between_the_two_reads():
+    """ComfyUI moves a finished job from the queue into history in one step;
+    finishing between the history and queue reads used to be reported as a
+    permanent "failed" with its image never surfaced."""
+    history_reads = []
+
+    def handler(request):
+        if "/history/" in request.url.path:
+            history_reads.append(1)
+            if len(history_reads) == 1:
+                return httpx.Response(200, json={})
+            return httpx.Response(200, json={"pid-race": {
+                "outputs": {"9": {"images": [
+                    {"filename": "a.png", "subfolder": "", "type": "output"}
+                ]}},
+                "status": {"status_str": "success", "completed": True},
+            }})
+        return httpx.Response(200, json={"queue_running": [], "queue_pending": []})
+
+    async def body(client):
+        payload = await client.get_media_operation(operation_id="pid-race", modality="image")
+        assert payload["status"] == "succeeded"
+        assert len(history_reads) == 2
+
+    _provider_run(handler, body)
+
+
+@pytest.mark.parametrize(
+    ("filename", "expected"),
+    [("a.png", "image/png"), ("a.JPG", "image/jpeg"), ("a.webp", "image/webp"),
+     ("a.gif", "image/gif"), ("clip.mp4", "video/mp4"), ("weights.unknownext", "application/octet-stream"),
+     # Script-capable types never get an inline-renderable media type.
+     ("page.html", "application/octet-stream"), ("x.svg", "application/octet-stream")],
+)
+def test_artifact_content_type_follows_the_extension(filename, expected):
+    """Custom workflows emit GIF/video/audio too; all were labelled image/png."""
+    from comfyui_media_client import _content_type_for
+
+    assert _content_type_for(filename) == expected
+
+
+def test_strength_and_size_inputs_are_validated_not_defaulted():
+    import comfyui_media_client as cmc
+
+    # "nope" used to become 0.75 and width=0 became 1024.
+    assert cmc._strength("0.4") == 0.4
+    assert cmc._strength(None) == 0.75
+    assert cmc._strength(1.5) == 1.5  # clamped to 1.0 when building the graph
+    for bad in ("nope", "nan"):
+        with pytest.raises(ValueError, match="strength"):
+            cmc._strength(bad)
+    assert cmc._first_given(0, 512, 1024) == 0
+    assert cmc._first_given(None, None, 1024) == 1024
+
+
+def test_init_image_larger_than_the_side_cap_is_refused():
+    # img2img encodes the init image at its own size; a 6000x6000 input
+    # bypassed the 4096 width/height cap.
+    import io
+
+    import comfyui_media_client as cmc
+    from PIL import Image
+
+    def png(width, height):
+        buffer = io.BytesIO()
+        Image.new("RGB", (width, height)).save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    cmc._reject_oversized_init_image(png(4096, 64))
+    with pytest.raises(ValueError, match="4097x64"):
+        cmc._reject_oversized_init_image(png(4097, 64))

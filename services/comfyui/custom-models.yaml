@@ -1,6 +1,8 @@
 # Sidecar for user-authored ComfyUI models not in the curated catalog.
 # Edited by hand; the wizard reads it but never writes back.
-# Mounted into comfyui-init at /custom-models.yaml.
+# Read host-side by the bootstrapper (comfyui_resolver) and the wizard; it is
+# not mounted into any container. COMFYUI_CUSTOM_MODELS_FILE may list more
+# sidecars (os.pathsep-separated); absent paths fall back to this file.
 #
 # Schema:
 #   models:

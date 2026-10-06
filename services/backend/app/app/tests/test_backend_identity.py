@@ -634,3 +634,14 @@ def test_plugin_gateway_key_non_ascii_is_401_not_500(monkeypatch) -> None:
             )
         )
     assert exc.value.status_code == 401
+
+
+def test_unset_identity_auth_mode_fails_closed(monkeypatch):
+    """conftest disables auth for route tests, so pin the code fallback
+    itself: an unset BACKEND_IDENTITY_AUTH means "required"."""
+    import backend_identity
+
+    monkeypatch.delenv("BACKEND_IDENTITY_AUTH", raising=False)
+    with pytest.raises(HTTPException) as exc:
+        backend_identity._authenticate_backend_principal(None)
+    assert exc.value.status_code == 401

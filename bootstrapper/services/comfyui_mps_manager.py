@@ -59,9 +59,14 @@ _INSTALL_COMMAND_TIMEOUT_SECONDS = 30 * 60.0
 
 # Standard ComfyUI model subdirs mapped onto the reused host models dir so a
 # managed process never re-downloads weights the user already has.
+# Must cover every CATEGORY_TARGET_DIR value: provision_models downloads into
+# <models_path>/<target_dir> for each category, and ComfyUI only searches the
+# keys listed in extra_model_paths.yaml.
 _MODEL_SUBDIRS = (
     "checkpoints", "vae", "loras", "clip", "clip_vision", "controlnet",
     "unet", "diffusion_models", "text_encoders", "upscale_models",
+    "embeddings", "ipadapter", "instantid", "animatediff_models",
+    "animatediff_motion_lora", "mesh_models", "voice", "audio",
 )
 
 # Pinned Torch/vision/audio for a REPRODUCIBLE managed-MPS install (#648).
@@ -315,6 +320,14 @@ class ComfyUiMpsManager:
 
         requirements_sha256 = self._requirements_sha256()
         fresh = not self.venv_python.exists()
+        reconcile = not fresh and (
+            update or not self._installed_environment_matches(requirements_sha256)
+        )
+        if fresh or reconcile:
+            # Drop the "installed" marker before touching the venv: a pip
+            # failure below must not leave a status that matches on the next
+            # start and skips every install step over a half-built venv.
+            self.status_file.unlink(missing_ok=True)
         if fresh:
             self._run(["python3", "-m", "venv", str(self.venv_dir)])
             self._run([str(self.venv_python), "-m", "pip", "install", "--upgrade", "pip"])
@@ -323,7 +336,7 @@ class ComfyUiMpsManager:
             self._run([str(self.venv_python), "-m", "pip", "install", *self.torch_pin])
             self._run([str(self.venv_python), "-m", "pip", "install", "-r",
                        str(self.repo_dir / "requirements.txt")])
-        elif update or not self._installed_environment_matches(requirements_sha256):
+        elif reconcile:
             # Re-apply the Torch pin so a security/compat bump (of the pin itself)
             # lands without a manual venv wipe, then reconcile ComfyUI's own
             # requirements. `==` pins are exact — no --upgrade needed, and it
@@ -336,6 +349,7 @@ class ComfyUiMpsManager:
         self._write_status(
             installed_ref=self.ref,
             requirements_sha256=requirements_sha256,
+            torch_pin=self.torch_pin,
         )
 
     def _requirements_sha256(self) -> str:
@@ -353,6 +367,9 @@ class ComfyUiMpsManager:
         return (
             payload.get("installed_ref") == self.ref
             and payload.get("requirements_sha256") == requirements_sha256
+            # A changed COMFYUI_MPS_TORCH_PIN must reconcile on a plain start,
+            # as services/comfyui/README.md promises.
+            and payload.get("torch_pin") == self.torch_pin
         )
 
     def _checkout_ref(self) -> None:
@@ -813,13 +830,24 @@ class ComfyUiMpsManager:
         installed_ref: Optional[str],
         requirements_sha256: Optional[str] = None,
         pid: Optional[int] = None,
+        torch_pin: Optional[list[str]] = None,
     ) -> None:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         if requirements_sha256 is None and installed_ref and self.repo_dir.exists():
             requirements_sha256 = self._requirements_sha256()
+        if torch_pin is None:
+            # Only install records the pin it applied; start/stop carry the
+            # recorded one forward so a pin bump is never marked installed.
+            try:
+                torch_pin = json.loads(
+                    self.status_file.read_text(encoding="utf-8")
+                ).get("torch_pin")
+            except (OSError, ValueError, AttributeError):
+                torch_pin = None
         payload = {
             "installed_ref": installed_ref,
             "requirements_sha256": requirements_sha256,
+            "torch_pin": torch_pin,
             "port": self.port,
             "pid": pid,
         }

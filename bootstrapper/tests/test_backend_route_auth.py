@@ -23,6 +23,9 @@ import pytest
 BACKEND_APP = Path(__file__).resolve().parents[2] / "services" / "backend" / "app" / "app"
 
 _HTTP_METHODS = {"get", "post", "put", "patch", "delete", "head", "options"}
+#: Decorators that register a route without naming an HTTP verb. A websocket
+#: endpoint or an `api_route(methods=[...])` is just as reachable.
+_ROUTE_DECORATORS = _HTTP_METHODS | {"websocket", "api_route"}
 
 #: Vendored third-party code that happens to live under the app directory.
 _VENDORED = ("site-packages", ".ci-venv", ".venv", "node_modules", "/tests/")
@@ -41,25 +44,47 @@ def _is_vendored(path: Path) -> bool:
     return any(marker in str(path) for marker in _VENDORED)
 
 
+def _is_depends_on_auth(node: ast.AST) -> bool:
+    """`Depends(<auth dependency>)` — nothing else counts."""
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "Depends"
+        and bool(node.args)
+        and _is_auth_dependency(node.args[0])
+    )
+
+
 def _declares_dependencies(call: ast.Call) -> bool:
-    """True when `dependencies=[...]` is present AND non-empty."""
+    """True when a literal `dependencies=[...]` holds an auth dependency.
+
+    A non-empty list is not enough: `dependencies=[Depends(get_db)]` is not
+    access control. A computed list cannot be inspected statically, so it fails
+    closed rather than being assumed to carry auth.
+    """
     for keyword in call.keywords:
         if keyword.arg != "dependencies":
             continue
         if isinstance(keyword.value, (ast.List, ast.Tuple)):
-            return bool(keyword.value.elts)
-        return True  # a computed list — assume it carries something
+            return any(_is_depends_on_auth(elt) for elt in keyword.value.elts)
+        return False
     return False
 
 
+def _is_auth_dependency(target: ast.AST) -> bool:
+    """`require_*` / `_require_*` are the backend's enforcing dependencies.
+
+    Anything else does not count: `Depends(_BEARER)` is an
+    `HTTPBearer(auto_error=False)` that enforces nothing, and `get_db`-style
+    dependencies are not access control.
+    """
+    name = getattr(target, "id", None) or getattr(target, "attr", None) or ""
+    return name.startswith(("require_", "_require_"))
+
+
 def _signature_uses_depends(func: ast.AST) -> bool:
-    """True when any parameter default is a `Depends(...)` call."""
-    return any(
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "Depends"
-        for node in ast.walk(func.args)
-    )
+    """True when a parameter default is `Depends(<auth dependency>)`."""
+    return any(_is_depends_on_auth(node) for node in ast.walk(func.args))
 
 
 def _router_level_auth(tree: ast.Module) -> dict:
@@ -100,12 +125,12 @@ def _collect_routes() -> list[tuple[str, str, str, bool, str]]:
 
 
 def _route_decorators(func: ast.AST):
-    """Decorators of `func` that register an HTTP route."""
+    """Decorators of `func` that register an HTTP or websocket route."""
     for decorator in func.decorator_list:
         if (
             isinstance(decorator, ast.Call)
             and isinstance(decorator.func, ast.Attribute)
-            and decorator.func.attr in _HTTP_METHODS
+            and decorator.func.attr in _ROUTE_DECORATORS
         ):
             yield decorator
 
@@ -264,3 +289,49 @@ def test_each_declared_public_route_still_exists(public):
     """Otherwise the allowlist rots into a licence for a future route."""
     rows = {(r[0], r[1], r[2]) for r in _collect_routes()}
     assert public in rows, f"{public} is allowlisted as public but no longer exists"
+
+
+def test_a_non_enforcing_dependency_does_not_count_as_auth() -> None:
+    tree = ast.parse(
+        "async def a(c = Depends(_BEARER), db = Depends(get_db)): ...\n"
+        "async def b(p = Depends(require_service_principal)): ...\n"
+    )
+    a, b = tree.body
+    assert _signature_uses_depends(a) is False
+    assert _signature_uses_depends(b) is True
+
+
+def test_a_non_auth_dependencies_list_does_not_count_as_auth() -> None:
+    """`dependencies=[Depends(get_db)]` is non-empty but enforces nothing."""
+    tree = ast.parse(
+        "@app.get('/a', dependencies=[Depends(get_db)])\n"
+        "async def a(): ...\n"
+        "@app.get('/b', dependencies=[Depends(get_db), Depends(require_x)])\n"
+        "async def b(): ...\n"
+        "@app.get('/c', dependencies=DEPS)\n"
+        "async def c(): ...\n"
+    )
+    authed = {r[2]: r[3] for f in tree.body for r in _routes_on(f, "x.py", {})}
+    assert authed == {"/a": False, "/b": True, "/c": False}
+
+
+def test_a_router_with_only_non_auth_dependencies_is_not_authed() -> None:
+    tree = ast.parse(
+        "open_router = APIRouter(dependencies=[Depends(get_db)])\n"
+        "gated = APIRouter(dependencies=[Depends(_require_token)])\n"
+    )
+    assert _router_level_auth(tree) == {"open_router": False, "gated": True}
+
+
+def test_websocket_and_api_route_decorators_are_scanned() -> None:
+    tree = ast.parse(
+        "@router.websocket('/ws')\n"
+        "async def ws(websocket): ...\n"
+        "@app.api_route('/any', methods=['GET', 'POST'])\n"
+        "async def any_(): ...\n"
+    )
+    rows = [r for f in tree.body for r in _routes_on(f, "x.py", {})]
+    assert {(r[1], r[2], r[3]) for r in rows} == {
+        ("WEBSOCKET", "/ws", False),
+        ("API_ROUTE", "/any", False),
+    }

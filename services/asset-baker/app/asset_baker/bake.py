@@ -178,6 +178,14 @@ def import_glb(path):
         err(f"import failed for {path}: {e}"); return None
     new = [o for o in bpy.data.objects if o not in before]
     meshes = [o for o in new if o.type == 'MESH']
+    # Bake parent (empty/node) transforms into each mesh before the parents
+    # are deleted: dropping them lost root rotation/scale and pulled
+    # multi-part assets apart.
+    bpy.context.view_layer.update()
+    for o in meshes:
+        world = o.matrix_world.copy()
+        o.parent = None
+        o.matrix_world = world
     for o in new:
         if o.type != 'MESH': bpy.data.objects.remove(o, do_unlink=True)
     if not meshes: err(f"no meshes in {path}"); return None
@@ -188,7 +196,8 @@ def import_glb(path):
     bpy.context.view_layer.update()
     md = max(obj.dimensions) or 1.0
     s = CANONICAL / md
-    obj.scale = (s, s, s); bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    # Multiply: the object may carry a baked parent scale, already in md.
+    obj.scale = tuple(v * s for v in obj.scale); bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
     import mathutils
     obj.location.z -= min((obj.matrix_world @ mathutils.Vector(c)).z for c in obj.bound_box)

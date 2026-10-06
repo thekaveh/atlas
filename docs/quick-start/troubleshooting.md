@@ -2,7 +2,13 @@
 
 This guide covers common issues and their solutions when using Atlas.
 
-Every copy block below works from a **fresh shell at the repository root** — no exported variables are assumed. `docker compose` commands resolve the project name and configuration from the checked-out `docker-compose.yml` plus your `.env` automatically, and the few authenticated examples read the needed value from `.env` inline without printing it. Examples use the default `BASE_PORT=63000` port block; if you started with a custom `--base-port`, get your stack's real endpoints from `./start.sh endpoints export --format env` instead of translating port numbers by hand.
+Every copy block below works from a shell at the repository root after one setup line. Plain `docker compose` names the project after the checkout folder (or `COMPOSE_PROJECT_NAME`), not after Atlas's `PROJECT_NAME`, so run this once per shell; without it the commands only find the stack when the folder is named like the project (the default `atlas` checkout with `PROJECT_NAME=atlas`), never in a submodule checkout such as `infra/` or after `--project`:
+
+```bash
+export COMPOSE_PROJECT_NAME="$(sed -n 's/^PROJECT_NAME=["'\'']\{0,1\}\([A-Za-z0-9_-]*\).*/\1/p' .env | tail -n1)"
+```
+
+Configuration then comes from the checked-out `docker-compose.yml` plus your `.env`, and the few authenticated examples read the needed value from `.env` inline without printing it. Examples use the default `BASE_PORT=63000` port block; if you started with a custom `--base-port`, get your stack's real endpoints from `./start.sh endpoints export --format env` instead of translating port numbers by hand.
 
 ## 1. .env Migration (LiteLLM rollout)
 
@@ -19,16 +25,16 @@ The simplest repair is `./start.sh env backfill` — it preserves every value yo
 When `./start.sh` runs the Textual TUI, every line is tee'd to a timestamped file — both wizard-time diagnostic events (cloud `/v1/models` fetch failures, Ollama upstream discovery warnings, etc.) and the entire launch phase (build, port verification, `docker compose up`, per-service `logs --tail` on failure):
 
 ```
-/tmp/atlas-launch-<YYYYMMDDTHHMMSS>-<unique>.log
+${TMPDIR:-/tmp}/atlas-launch-<YYYYMMDDTHHMMSS>-<unique>.log
 ```
 
 The most recent log is always:
 
 ```bash
-ls -t /tmp/atlas-launch-*.log | head -1
+ls -t "${TMPDIR:-/tmp}"/atlas-launch-*.log | head -1   # macOS: TMPDIR is under /var/folders
 ```
 
-Inspect it after a failed launch — it captures everything the log pane showed, plus a few sources the pane filters out (e.g. cloud-fetch fallback warnings: `[warn/openai-fetch] live /v1/models returned 0 models — falling back to catalog (cause: HTTP 401)`). Session logs are bounded: 3 segments of 32 MiB per session (the first segment — session start and earliest diagnostics — is always kept; overflow rotates into numbered `.log.N` segments with truncation markers), and the 5 newest sessions are retained while older `atlas-launch-*` files are pruned at the next launch. Copy a log elsewhere if you need to keep it longer; exported copies are never touched by the pruning.
+Inspect it after a failed launch — it captures everything the log pane showed, plus a few sources the pane filters out (e.g. cloud-fetch fallback warnings: `[warn/openai-fetch] live /v1/models returned 0 models — falling back to catalog (cause: HTTP 401)`). Session logs are bounded: 3 segments of 32 MiB per session (the first segment — session start and earliest diagnostics — is always kept; overflow rotates into numbered `.log.N` segments with truncation markers), and the 5 newest sessions are retained while older `atlas-launch-*` files are pruned at the next launch. Copy a log elsewhere if you need to keep it longer; exported copies are never touched by the pruning. Every segment is created owner-only (`0600`) and never through an existing file or symlink. A failed launch step's reason (port conflicts, auto-disabled dependencies, key or config errors) is written to the log pane and this file, not only the generic `<step> failed` line.
 
 ## 3. Quick Fixes
 
@@ -44,6 +50,8 @@ lsof -i :63096
 kill -9 $(lsof -t -i:63096)
 ```
 
+The start-up port check only probes ports a container will actually publish: services set to `disabled`, the LLM provider's cloud-only `none` (Ollama not run) and host-run `localhost` variants are skipped, and a port held only by a closing connection (`TIME_WAIT`) is not treated as a conflict, since Docker can bind it anyway.
+
 ### 3.2. Memory Issues
 ```bash
 # Error: Containers crashing with exit code 137 (OOM kill)
@@ -58,7 +66,7 @@ colima start --memory 12 --cpu 6
 ### 3.3. Access Issues
 ```bash
 # Can't access *.localhost URLs?
-./start.sh --setup-hosts  # Configure hosts file
+./start.sh --setup-hosts  # Configure hosts file, then start the stack (no wizard)
 
 # Want to skip hosts setup?
 ./start.sh --skip-hosts   # Access via direct ports only
@@ -69,7 +77,7 @@ Truly starting over? `./stop.sh --cold && ./start.sh --cold` **deletes every nam
 ### 3.4. Platform Issues
 ```bash
 # Windows/WSL issues?
-python3 bootstrapper/start.py --help  # Use Python directly
+uv run --project bootstrapper python bootstrapper/start.py --help  # bypasses the sh wrapper
 
 # Shell script permissions?
 chmod +x start.sh stop.sh
@@ -309,6 +317,8 @@ cat .env | head -20
 
 If `.env` is corrupted beyond repair, rebuilding it from scratch is a **destructive** path: regenerated secrets no longer match the passwords baked into your existing database volumes (see §4.4), so a from-scratch `.env` only works together with a full project reset that deletes those volumes. Back up first (§10.3), then follow §10.1.
 
+**A service rejects its password or encryption key after an upgrade.** Atlas now writes a value from `.env.user`, `ATLAS_ENV_USER_FILE`, a consumer manifest's `env.values` or a wizard API key in single quotes when it contains a backslash or a bare `$`, because Docker Compose expands those in unquoted values. Older releases wrote such a value unquoted, so Compose passed a truncated secret (`ab$cd` reached containers as `ab`), and a service that stored it at first boot (an n8n encryption key, a database password) still holds the truncated form. Either set the value to what the service actually stored, or rotate it in the service. Generated secrets never contain `$` or a backslash and are unaffected.
+
 ### 7.3. An image fails to build
 
 Atlas builds local images before `docker compose up` in two cases. A cold start (`./start.sh --cold`, or the wizard's cold-start option) builds every enabled service's image without cache. A normal start builds only when the images are stale: on a fresh clone's first start, after the Atlas source or a build setting changed, or when the set of enabled services changed. A normal start whose images are current builds nothing and runs a single `docker compose up`, as before.
@@ -354,7 +364,7 @@ docker compose logs --tail=100 -f backend
 grep -E '^[A-Z_]+_SOURCE=' .env
 
 # List all available CLI flags (Click-generated help is the source of truth)
-python3 bootstrapper/start.py --help
+./start.sh --help
 
 # Inspect the dynamic Kong configuration generator (kong.yml is rebuilt
 # on every startup — don't edit by hand; instead trace the inputs):
@@ -364,7 +374,7 @@ cat bootstrapper/utils/kong_config_generator.py | head -80
 grep -E '^KONG_' .env
 
 # Inspect the SOURCE values the stack was configured with
-grep -E "(OLLAMA|COMFYUI|N8N|WEAVIATE|CLOUD|MINIO)[A-Z_]*_SOURCE" .env
+grep -E "(LLM_PROVIDER|COMFYUI|N8N|WEAVIATE|CLOUD|MINIO)[A-Z_]*_SOURCE" .env
 ```
 
 ### 8.3. Network Testing
@@ -373,8 +383,8 @@ grep -E "(OLLAMA|COMFYUI|N8N|WEAVIATE|CLOUD|MINIO)[A-Z_]*_SOURCE" .env
 # Test internal service connectivity (LLM goes through LiteLLM, not Ollama
 # directly). Inside the Compose network, services resolve by service name:
 docker compose exec backend curl -sf http://litellm:4000/health/liveliness
-docker compose exec litellm curl -sf http://ollama:11434/api/tags
-docker compose exec kong-api-gateway curl -sf http://supabase-api:3000/health
+docker compose exec litellm python -c "import urllib.request; print(urllib.request.urlopen('http://ollama:11434/api/tags', timeout=5).status)"   # the LiteLLM image has no curl
+docker compose exec kong-api-gateway curl -sf http://supabase-api:3000/   # PostgREST answers its OpenAPI root; /health is not a route
 
 # Test external access
 curl http://localhost:63096
@@ -424,7 +434,7 @@ Atlas recovery is **project-scoped by design**: everything Atlas creates — con
 
 ### 10.1. Complete Reset (destructive — deletes this project's data)
 
-`./stop.sh --cold` stops the stack and **deletes every named Atlas project volume**: databases, n8n workflows, downloaded models, generated artifacts. There is no undo. Take a backup first (§10.3).
+`./stop.sh --cold` stops the stack and **deletes every named Atlas project volume**: databases, n8n workflows, downloaded models, generated artifacts. There is no undo. Take a backup first (§10.3), and note that with the default `BACKUP_S3_MODE=local` the backup itself lives in this project's MinIO volume (and the Neo4j/Weaviate snapshot volumes), so `--cold` deletes it too: use `BACKUP_S3_MODE=external` or copy the bucket off the host before resetting. `./start.sh --cold` then rebuilds `.env` from `.env.example`; it saves the previous file next to it as `.env.backup.cold.<YYYYmmddTHHMMSS>.<random>` (owner-only; the five most recent cold copies are kept, separately from the routine `.env.backup.*` start-up copies), but keep your own copy of `BACKUP_MANIFEST_HMAC_KEY` and `BACKUP_DEPLOYMENT_ID`, since a backup cannot be restored without them.
 
 ```bash
 # Full project reset — removes THIS project's containers, network, and
@@ -433,7 +443,7 @@ Atlas recovery is **project-scoped by design**: everything Atlas creates — con
 
 # Start fresh (also destructive: --cold clears any surviving volumes
 # before rebuilding configuration and data from scratch)
-./start.sh --cold --base-port 64000
+./start.sh --cold
 ```
 
 ### 10.2. Partial Reset
@@ -456,15 +466,20 @@ Rebuilding `.env` from `.env.example` is **not** a partial reset: freshly genera
 Do **not** copy a running database's data directory as a "backup" — a live PostgreSQL data dir copied file-by-file is torn mid-write and is not established as restorable. Use the stack's consistency-safe backup service instead: it captures a `pg_dump -Fc` Postgres dump, bounded offline Neo4j dumps, a native Weaviate snapshot, and a Supabase Storage archive, and pushes authenticated artifacts to the stack's S3 bucket.
 
 ```bash
-# One-time prerequisites: the backup runner and MinIO must be enabled
-# (BACKUP_SOURCE=container, MINIO_SOURCE=container in .env — or:)
-./start.sh --backup-source container --detach
+# One-time prerequisites: the backup runner and MinIO must be enabled, and
+# the manifest signing key and deployment id must be set in .env (Atlas does
+# not generate them; keep a copy outside the bucket, a restore needs them).
+# Run `openssl rand -hex 32` and paste its output into the
+# BACKUP_MANIFEST_HMAC_KEY= line (present after the first ./start.sh; add it
+# otherwise; .env does not run commands), and set
+# BACKUP_DEPLOYMENT_ID= to a stable name (letters, digits, . _ -; max 128).
+./start.sh --backup-source container --minio-source container --detach
 
 # Run a full consistency-safe backup (host entry point; quiesces Neo4j
 # and writes a completion marker per timestamp)
 services/backup/run-consistent-backup.sh
 ```
 
-Coverage and limits: the backup captures the databases and Supabase Storage listed above — it does not capture `.env` (keep your own copy of it; it holds the keys that decrypt what the databases store) and Postgres and Storage are archived at slightly different instants. A backup is only proven by restoring it: before you rely on one — and before deleting anything — follow the restore procedure in [`services/backup/README.md`](../../services/backup/README.md) (`run-database-restore.sh` / `restore-postgres.sh`) on a disposable project. A guided restore rehearsal is tracked in [#1034](https://github.com/thekaveh/atlas/issues/1034).
+Coverage and limits: the backup captures the main Supabase database (`SUPABASE_DB_NAME`), Neo4j, Weaviate and Supabase Storage listed above. The per-service databases on the same Postgres server (LiteLLM, Airflow, Langfuse, MLflow, Label Studio, the Iceberg catalog, Supavisor and similar) are **not** dumped, so their keys, spend, traces, registries and metadata are lost by a reset. Local-mode artifacts live in this project's MinIO volume and do not survive `./stop.sh --cold` (§10.1). The backup does not capture `.env` (keep your own copy of it; it holds the keys that decrypt what the databases store) and Postgres and Storage are archived at slightly different instants. The Storage archive has no restore procedure yet (it is not in the signed manifest), so after a Postgres restore `storage.objects` rows may not match the files on disk. A backup is only proven by restoring it: before you rely on one — and before deleting anything — follow the restore procedure in [`services/backup/README.md`](../../services/backup/README.md) (`run-database-restore.sh` / `restore-postgres.sh`) on a disposable project. A guided restore rehearsal is tracked in [#1034](https://github.com/thekaveh/atlas/issues/1034).
 
 Remember: Most issues can be resolved without losing data. Try targeted solutions before doing a complete reset!

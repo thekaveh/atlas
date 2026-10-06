@@ -477,3 +477,57 @@ def test_answered_set_does_not_shrink_on_back_nav():
     answered.add(5)
     answered.add(6)
     assert answered == {5, 6}
+
+
+def test_kept_custom_dimension_stays_confirmable_on_revisit():
+    """Keeping the saved dimension commits SECRET_KEEP; on a revisit the step
+    must show the saved value again instead of refusing Enter as empty."""
+    from dataclasses import replace
+
+    from wizard.llm_steps import (
+        LLM_DEFAULT_EMBED_DIM_TITLE,
+        LLM_DEFAULT_EMBED_TITLE,
+        build_default_model_steps,
+    )
+
+    env = {
+        "LLM_PROVIDER_SOURCE": "ollama-container-cpu",
+        "OLLAMA_USER_MODELS": "custom-a",
+        "LITELLM_EMBEDDING_MODEL": "custom/provider-a",
+        "LANGMEM_EMBEDDING_DIM": "2048",
+        "CLOUD_OPENAI_SOURCE": "disabled",
+        "CLOUD_ANTHROPIC_SOURCE": "disabled",
+        "CLOUD_OPENROUTER_SOURCE": "disabled",
+    }
+    built = build_default_model_steps(env)
+    embed = replace(
+        next(step for step in built if step.title == LLM_DEFAULT_EMBED_TITLE),
+        options=[PromptOption("custom/provider-a", "Custom A")],
+        options_provider=None, skip_if_prev=None,
+    )
+    dimension = next(step for step in built if step.title == LLM_DEFAULT_EMBED_DIM_TITLE)
+    next_step = PromptStep(
+        title="Next", step_index=3, step_total=3, heading="Next",
+        options=[PromptOption("next", "Next")], default_value="next",
+    )
+    screen = WizardScreen(steps=[embed, dimension, next_step], services=[], no_splash=True)
+    launch_log_path = screen._launch_log_path
+
+    async def scenario():
+        async with _WizardApp(screen).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            screen.action_confirm()  # embedding model
+            await pilot.pause()
+            screen.action_confirm()  # keep the saved 2048
+            await pilot.pause()
+            screen.action_back()
+            await pilot.pause()
+            return screen._prompt.current_number_error()
+
+    try:
+        error = asyncio.run(scenario())
+    finally:
+        screen._close_launch_log_tee()
+        if launch_log_path is not None:
+            launch_log_path.unlink(missing_ok=True)
+    assert error is None, error

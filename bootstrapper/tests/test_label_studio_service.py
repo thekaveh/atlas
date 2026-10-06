@@ -168,7 +168,7 @@ def test_label_studio_compose_contract() -> None:
     assert init["environment"]["LABEL_STUDIO_DB_PASSWORD"] == "${LABEL_STUDIO_DB_PASSWORD:?LABEL_STUDIO_DB_PASSWORD is required}"
 
     assert service["image"] == f"${{LABEL_STUDIO_IMAGE:-{IMAGE}}}"
-    assert service["ports"] == ["${HOST_BIND_IP:-}${LABEL_STUDIO_PORT}:8080"]
+    assert service["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${LABEL_STUDIO_PORT}:8080"]
     assert service["depends_on"]["label-studio-init"]["condition"] == "service_completed_successfully"
     assert service["volumes"] == ["label-studio-data:/label-studio/data"]
     env = service["environment"]

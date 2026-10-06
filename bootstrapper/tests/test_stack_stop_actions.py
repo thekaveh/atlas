@@ -120,6 +120,7 @@ def test_a_single_press_arms_but_does_not_tear_down():
         async with _App(scr).run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             scr._phase = "launch"
+            scr._launch_succeeded = True  # stop keys work only after a successful launch
             scr.action_stop_stack()
             await pilot.pause()
             return stopper.calls, scr._pending_teardown
@@ -137,6 +138,7 @@ def test_a_second_press_commits_a_normal_stop():
         async with _App(scr).run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             scr._phase = "launch"
+            scr._launch_succeeded = True  # stop keys work only after a successful launch
             scr.action_stop_stack()
             scr.action_stop_stack()
             await pilot.pause()
@@ -158,6 +160,7 @@ def test_a_second_press_commits_a_cold_stop():
         async with _App(scr).run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             scr._phase = "launch"
+            scr._launch_succeeded = True  # stop keys work only after a successful launch
             scr.action_stop_stack_cold()
             scr.action_stop_stack_cold()
             await pilot.pause()
@@ -182,6 +185,7 @@ def test_arming_one_variant_does_not_commit_the_other():
         async with _App(scr).run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             scr._phase = "launch"
+            scr._launch_succeeded = True  # stop keys work only after a successful launch
             scr.action_stop_stack()          # arms NORMAL
             scr.action_stop_stack_cold()     # different variant → re-arms
             await pilot.pause()
@@ -204,6 +208,7 @@ def test_the_teardown_worker_uses_its_own_group():
         async with _App(scr).run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             scr._phase = "launch"
+            scr._launch_succeeded = True  # stop keys work only after a successful launch
             # Record what run_worker is actually asked for. Reading
             # scr.workers instead would race: the worker finishes and is
             # drained from the list before the assertion runs.
@@ -234,6 +239,7 @@ def test_teardown_keys_are_advertised_only_once_the_stack_is_up():
         async with _App(scr).run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             scr._phase = "launch"
+            scr._launch_succeeded = True  # stop keys work only after a successful launch
             scr._launch_succeeded = False
             starting = scr._footer_hints()
             scr._launch_succeeded = True
@@ -261,6 +267,7 @@ def test_teardown_keys_are_not_swallowed_by_the_search_whitelist():
         async with _App(scr).run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             scr._phase = "launch"
+            scr._launch_succeeded = True  # stop keys work only after a successful launch
             # Outside the setup phase check_action must not suppress them.
             return (
                 scr.check_action("stop_stack", ()),

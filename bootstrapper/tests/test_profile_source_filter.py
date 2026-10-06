@@ -244,3 +244,30 @@ def test_profile_step_default_value_is_default_when_unset():
     ]
     assert profile_steps
     assert profile_steps[0].default_value == "default"
+
+
+def test_cli_pinned_track_and_profile_survive_launch_pruning():
+    """--track/--profile skip their steps because the answer is pinned; the
+    launch-time prune must not then drop that pinned answer (the launch
+    would otherwise resolve to no track and the dev profile)."""
+    from ui.textual.integration import (
+        PICKER_STEP_TITLE,
+        PROFILE_STEP_TITLE,
+        _build_steps_and_rows,
+    )
+    from ui.textual.screens.wizard_screen import prune_skip_hidden_selections
+    from core.config_parser import ConfigParser
+    from utils.hosts_manager import HostsManager
+
+    steps, *_ = _build_steps_and_rows(
+        ConfigParser(), HostsManager(),
+        track_key="gen-ai-rag",
+        overridden_services=frozenset(),
+        profile="prod",
+    )
+    pinned = {PICKER_STEP_TITLE: "gen-ai-rag", PROFILE_STEP_TITLE: "prod"}
+
+    pruned = prune_skip_hidden_selections(steps, dict(pinned), pinned=pinned)
+
+    assert pruned[PICKER_STEP_TITLE] == "gen-ai-rag"
+    assert pruned[PROFILE_STEP_TITLE] == "prod"

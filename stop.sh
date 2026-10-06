@@ -26,7 +26,15 @@ if [ "$(id -u)" -eq 0 ]; then
     exit 2
 fi
 
+# Capture the caller's directory before entering the Atlas checkout, as
+# start.sh does, so a relative --consumer / ATLAS_CONSUMER_MANIFEST path
+# resolves to the same manifest at teardown as at launch.
+if [ -z "${ATLAS_INVOKER_CWD:-}" ]; then
+    ATLAS_INVOKER_CWD="${PWD}"
+    export ATLAS_INVOKER_CWD
+fi
+
 # Change to the script directory
-cd "$(dirname "$0")" || { echo "stop.sh: failed to enter script directory" >&2; exit 1; }
+CDPATH='' cd -- "$(dirname -- "$0")" >/dev/null || { echo "stop.sh: failed to enter script directory" >&2; exit 1; }
 
 exec sh bootstrapper/_run.sh stop.py "$@"

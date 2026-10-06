@@ -18,7 +18,7 @@ upstream: https://github.com/RedisInsight/RedisInsight
 Official self-hostable Redis GUI for browsing keys, inspecting streams, profiling commands, and debugging the half-dozen stack services that share the redis instance.
 
 ## 2. Problem it solves
-Today the only way to inspect Redis state across the stack — kong's rate-limit cache, n8n's BullMQ queues, open-webui's websocket store on db=2, jupyterhub's session store on db=3, the litellm cache, the backend's session keys — is `redis-cli` inside the container. There's no view of stream lag, BullMQ stuck jobs, or a slow-command profile across consumers. RedisInsight surfaces all of this in one web UI and adds bulk operations + a CLI workbench with auto-complete.
+Today the only way to inspect Redis state across the stack — n8n's BullMQ queues, open-webui's websocket store on db=2, jupyterhub's session store on db=3, the litellm cache, the backend's session keys — is `redis-cli` inside the container. There's no view of stream lag, BullMQ stuck jobs, or a slow-command profile across consumers. RedisInsight surfaces all of this in one web UI and adds bulk operations + a CLI workbench with auto-complete.
 
 ## 3. Deferred decision (2026-07-04)
 
@@ -52,7 +52,7 @@ small — One container, one Kong alias, one SOURCE variant (`container | disabl
 - v2 stores its own config in a volume — small but worth a named volume entry.
 
 ## 7. Why now (and why not sooner)
-Eight stack services now write to Redis on five different DB indices. Debugging "why is n8n's BullMQ stuck?" or "what's eating Kong's rate-limit memory?" requires per-service `redis-cli` sessions today. A single GUI cuts the loop from minutes to seconds and makes Redis observable in the same way Supabase Studio makes Postgres observable.
+Eight stack services now write to Redis on five different DB indices. Debugging "why is n8n's BullMQ stuck?" or "what's eating the LiteLLM cache memory?" requires per-service `redis-cli` sessions today. A single GUI cuts the loop from minutes to seconds and makes Redis observable in the same way Supabase Studio makes Postgres observable.
 
 ## 8. Upstream evidence
 - https://github.com/RedisInsight/RedisInsight

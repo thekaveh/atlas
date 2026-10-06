@@ -474,3 +474,25 @@ def test_generated_registry_mounts_avoid_app_source_bind():
         assert path.startswith("/atlas-consumer-config/"), (
             f"{path}: expected the reserved /atlas-consumer-config/ contract dir"
         )
+
+
+def test_more_than_one_graph_target_rejected(tmp_path: Path) -> None:
+    """Both targets would upload to the single LIGHTRAG_ENDPOINT: double
+    uploads and a doubled documents_uploaded count."""
+    manifest = _write_consumer(
+        tmp_path,
+        "c",
+        """
+        rag_ingestion_profiles:
+          version: 1
+          profiles:
+            - name: p
+              corpus: {source: mount, path: docs}
+              graph_targets:
+                - {backend: lightrag, mode: upload_documents, on_unavailable: skip}
+                - {backend: lightrag, mode: upload_documents, on_unavailable: skip}
+        """,
+    )
+
+    with pytest.raises(ConsumerManifestError, match="more than one graph_target"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])

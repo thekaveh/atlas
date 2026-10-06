@@ -22,7 +22,7 @@ services:
       CRAWL4AI_API_TOKEN: ${CRAWL4AI_API_TOKEN}
       CRAWL4AI_ALLOW_INTERNAL_URLS: ${CRAWL4AI_ALLOW_INTERNAL_URLS:-false}
     ports:
-      - "${HOST_BIND_IP:-}${CRAWL4AI_PORT}:11235"
+      - "${HOST_BIND_IP-127.0.0.1:}${CRAWL4AI_PORT}:11235"
     healthcheck:
       test: "curl -fsS http://localhost:11235/health || exit 1"
       interval: 30s

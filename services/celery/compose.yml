@@ -80,6 +80,7 @@ services:
       TIKA_ENDPOINT: ${TIKA_ENDPOINT:-}
       TIKA_MAX_FILE_SIZE: ${TIKA_MAX_FILE_SIZE:-52428800}
       TIKA_TIMEOUT_SECONDS: ${TIKA_TIMEOUT_SECONDS:-30}
+      DOCLING_INFERENCE_TIMEOUT_SECONDS: ${DOCLING_INFERENCE_TIMEOUT_SECONDS:-900}
       LIGHTRAG_ENDPOINT: ${LIGHTRAG_ENDPOINT:-}
       LIGHTRAG_API_KEY: ${LIGHTRAG_API_KEY:-}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-}
@@ -123,15 +124,18 @@ services:
         condition: service_started
     environment:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}
+      # Flower reads FLOWER_* options from the environment; as --basic-auth
+      # the shared dashboard credential sat in the process argv for life.
+      # :- matches Kong's fallback for an empty username (kong_admin).
+      FLOWER_BASIC_AUTH: ${DASHBOARD_USERNAME:-kong_admin}:${DASHBOARD_PASSWORD}
     command:
       - celery
       - --broker=${CELERY_BROKER_URL:-}
       - flower
       - --address=0.0.0.0
       - --port=5555
-      - --basic-auth=${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}
     ports:
-      - "${HOST_BIND_IP:-}${FLOWER_PORT}:5555"
+      - "${HOST_BIND_IP-127.0.0.1:}${FLOWER_PORT}:5555"
     healthcheck:
       test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request\nurllib.request.urlopen('http://localhost:5555/healthcheck', timeout=5).read()\nPY"]
       interval: 30s

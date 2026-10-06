@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-Redpanda adds a disabled-by-default Kafka API broker for Atlas data-engineering streaming work. It is scoped to a single-node local broker, a topic bootstrap init container, and Redpanda Console. Spark gets the matching Kafka Structured Streaming jars baked into the Atlas Spark image, so notebooks, Zeppelin, Airflow Spark jobs, and Spark Connect jobs can read and write Kafka streams without runtime `--packages` downloads.
+Redpanda adds a disabled-by-default Kafka API broker for Atlas data-engineering streaming work. It is scoped to a single-node local broker, a topic bootstrap init container, and Redpanda Console. Spark gets the matching Kafka Structured Streaming jars baked into the Atlas Spark image, so Spark Connect jobs (the JupyterHub notebooks) and cluster-mode Airflow Spark submits can read and write Kafka streams without runtime `--packages` downloads. Zeppelin and client-mode Airflow submits run their Spark driver in their own images, which do not carry the Kafka jars; add them with `--packages org.apache.spark:spark-sql-kafka-0-10_2.13:<spark version>` there.
 
 ## 2. Access
 
@@ -25,12 +25,12 @@ The init container creates the comma-separated topics in `REDPANDA_DEMO_TOPICS`;
 
 Downstream projects that need deterministic topics before a Spark subscription should set `REDPANDA_DEMO_TOPICS=<topic1,topic2>` in `.env`. For example, data-engineering scenario suites can use `REDPANDA_DEMO_TOPICS=events,online_retail_cdc` to pre-seed project-owned topics at bootstrap. Redpanda runs in `dev-container` mode, so producer-first flows can create topics on first write, but Atlas consumers should prefer explicit `REDPANDA_DEMO_TOPICS` pre-seeding when a reader expects the topic to already exist.
 
-When Redpanda is enabled, Atlas injects in-network bootstrap values for downstream containers:
+When Redpanda is enabled, Atlas sets in-network bootstrap values in `.env`:
 
-- `REDPANDA_BROKERS=redpanda:9092`
-- `SPARK_KAFKA_BOOTSTRAP_SERVERS=redpanda:9092`
+- `REDPANDA_BROKERS=redpanda:9092` (written to `.env` only; no container receives it)
+- `SPARK_KAFKA_BOOTSTRAP_SERVERS=redpanda:9092` (passed to Spark, Airflow, JupyterHub and Zeppelin)
 
-Those values are container-network endpoints for Spark, Airflow, JupyterHub, Zeppelin, and other Atlas services. Host-side clients should use `localhost:${REDPANDA_KAFKA_PORT}` instead.
+These are container-network endpoints. Host-side clients should use `localhost:${REDPANDA_KAFKA_PORT}` instead.
 
 Image pins:
 

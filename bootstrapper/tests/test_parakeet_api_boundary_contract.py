@@ -16,11 +16,13 @@ PROVIDER = ROOT / "services" / "parakeet" / "provider"
 SHARED = PROVIDER / "shared"
 
 
-def _load_named(name: str, path: Path):
+def _load_named(monkeypatch, name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
+    # monkeypatch restores sys.modules, so a later test importing the same
+    # bare name (e.g. docling's bounded_upload) gets its own module.
+    monkeypatch.setitem(sys.modules, name, module)
     spec.loader.exec_module(module)
     return module
 
@@ -31,9 +33,9 @@ def test_gpu_api_authenticates_and_runs_both_transcription_contracts(monkeypatch
     monkeypatch.setenv("PARAKEET_CONCURRENCY", "1")
     monkeypatch.setenv("PARAKEET_CORS_ORIGINS", "")
 
-    _load_named("bounded_upload", PROVIDER / "bounded_upload.py")
-    _load_named("provider_boundary", PROVIDER / "provider_boundary.py")
-    _load_named("startup", PROVIDER / "startup.py")
+    _load_named(monkeypatch, "bounded_upload", PROVIDER / "bounded_upload.py")
+    _load_named(monkeypatch, "provider_boundary", PROVIDER / "provider_boundary.py")
+    _load_named(monkeypatch, "startup", PROVIDER / "startup.py")
 
     calls = []
     transcribe = types.ModuleType("transcribe")
@@ -51,7 +53,7 @@ def test_gpu_api_authenticates_and_runs_both_transcription_contracts(monkeypatch
     transcribe.transcribe_audio_sync = transcribe_audio_sync
     monkeypatch.setitem(sys.modules, "transcribe", transcribe)
 
-    api = _load_named("parakeet_gpu_api_under_test", SHARED / "api_server.py")
+    api = _load_named(monkeypatch, "parakeet_gpu_api_under_test", SHARED / "api_server.py")
     api._model_startup._state = "healthy"
     api._model_startup._model = object()
 

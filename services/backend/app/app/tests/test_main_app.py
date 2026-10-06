@@ -105,6 +105,57 @@ def test_storage_upload_returns_503_for_storage_dependency_failure(monkeypatch):
     assert resp.json()["detail"] == "Supabase Storage is unavailable"
 
 
+def test_storage_upload_maps_an_existing_object_to_409(monkeypatch):
+    """storage3 does not upsert; a duplicate path is a permanent conflict,
+    and the old 503 made clients retry it forever."""
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    from storage3.exceptions import StorageApiError
+    import main
+
+    class Bucket:
+        def upload(self, **_kwargs):
+            raise StorageApiError("The resource already exists", "Duplicate", "409")
+
+    class Storage:
+        def from_(self, _bucket):
+            return Bucket()
+
+    monkeypatch.setattr(main, "storage_client", Storage())
+    resp = TestClient(main.app).post(
+        "/storage/upload",
+        files={"file": ("example.txt", b"hello", "text/plain")},
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "default/example.txt already exists"
+
+
+def test_storage_upload_maps_a_storage_size_rejection_to_413(monkeypatch):
+    """Storage caps objects at 50 MiB, below MAX_UPLOAD_BYTES; its 413 must not
+    become a retryable 503."""
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    from storage3.exceptions import StorageApiError
+    import main
+
+    class Bucket:
+        def upload(self, **_kwargs):
+            raise StorageApiError("The object exceeded the maximum allowed size", "EntityTooLarge", "413")
+
+    class Storage:
+        def from_(self, _bucket):
+            return Bucket()
+
+    monkeypatch.setattr(main, "storage_client", Storage())
+    resp = TestClient(main.app).post(
+        "/storage/upload",
+        files={"file": ("example.txt", b"hello", "text/plain")},
+    )
+
+    assert resp.status_code == 413
+
+
 def test_storage_upload_rejects_unapproved_bucket_and_path_filename(monkeypatch):
     _stub_required_env(monkeypatch)
     from fastapi.testclient import TestClient
@@ -273,7 +324,7 @@ def test_research_cancel_reports_best_effort_local_cancellation(monkeypatch):
     assert resp.status_code == 202
     body = resp.json()
     assert body["status"] == "cancel_requested"
-    assert "remote LangGraph cancellation is not supported" in body["message"]
+    assert "makes LangGraph cancel the remote run" in body["message"]
 
 
 def test_research_logs_returns_404_when_session_is_absent(monkeypatch):
@@ -414,3 +465,19 @@ def test_lifespan_rejects_invalid_media_recovery_config_before_task_start(
         with TestClient(main.app):
             pass
     assert started is False
+
+
+def test_research_defaults_follow_the_operator_ldr_settings(monkeypatch):
+    """Omitted values use LOCAL_DEEP_RESEARCHER_*; a run's own values win in LDR."""
+    import main
+
+    monkeypatch.setenv("LOCAL_DEEP_RESEARCHER_LOOPS", "5")
+    monkeypatch.setenv("LOCAL_DEEP_RESEARCHER_SEARCH_API", "duckduckgo")
+    assert main._research_default_loops() == 5
+    assert main._research_default_search_api() == "duckduckgo"
+    monkeypatch.setenv("LOCAL_DEEP_RESEARCHER_LOOPS", "50")
+    monkeypatch.delenv("LOCAL_DEEP_RESEARCHER_SEARCH_API")
+    assert main._research_default_loops() == 3
+    assert main._research_default_search_api() == "searxng"
+    request = main.ResearchStartRequest(query="q")
+    assert request.max_loops is None and request.search_api is None

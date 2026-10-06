@@ -30,7 +30,7 @@ Use `./start.sh` for the guided wizard, or pass a targeted flag for scripted cha
 
 ### 3.1. Vectorization through LiteLLM
 
-Weaviate's text vectorization talks to the always-on **LiteLLM gateway** via the `text2vec-openai` module. LiteLLM's OpenAI-compatible endpoint (`LITELLM_BASE_URL`) is wired into Weaviate as the OpenAI host, and `OPENAI_APIKEY` inside the Weaviate container is set to `LITELLM_MASTER_KEY`. This means whatever embedding model LiteLLM has registered (Ollama-backed `nomic-embed-text` by default, or a cloud provider's embedding model) is what Weaviate will use — no separate `text2vec-ollama` wiring required. The default vectorizer is now `text2vec-openai`. See [LiteLLM Gateway](../litellm/README.md) for how to register additional embedding models.
+Weaviate's text vectorization talks to the always-on **LiteLLM gateway** via the `text2vec-openai` module. The Weaviate container receives only `OPENAI_APIKEY` (set to `LITELLM_MASTER_KEY`); the LiteLLM base URL is set per collection in `moduleConfig.text2vec-openai.baseURL` by whoever creates the collection (the backend or a consumer), since `text2vec-openai` would otherwise call api.openai.com. This means whatever embedding model LiteLLM has registered (Ollama-backed `nomic-embed-text` by default, or a cloud provider's embedding model) is what Weaviate will use — no separate `text2vec-ollama` wiring required. The default vectorizer is `none`: a collection must name its vectorizer (and LiteLLM `baseURL`) explicitly or supply its own vectors, because a `text2vec-openai` default would send the master key to api.openai.com for any collection created without one. See [LiteLLM Gateway](../litellm/README.md) for how to register additional embedding models.
 
 ### 3.2. Multi2Vec CLIP module
 
@@ -125,7 +125,7 @@ Support tier: **experimental** — Capability contract declared (#967); no cited
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| Persistent semantic vector storage | supported | tested | Atlas configures persistent Weaviate REST and gRPC storage and wires backend consumers through container or operator-run localhost sources. |
+| Persistent semantic vector storage | supported | tested | Atlas configures persistent Weaviate REST and gRPC storage and wires backend consumers through container or operator-run localhost sources; Backend memory vectorizes through the in-network LiteLLM, so a localhost Weaviate leaves memory on pgvector. |
 | LiteLLM and CLIP vectorization | partial | tested | Text vectorization routes through LiteLLM and optional CLIP supports multimodal embeddings, but enabling SigLIP changes dimensions and requires collection revectorization. |
 | Authenticated multi-tenant isolation | not-supported | documented | The stock container enables anonymous access and Atlas does not provision tenant boundaries or per-consumer authorization policies. |
 | Automated vector database backups | supported | tested | Atlas enables Weaviate's native filesystem backup provider and the backup runner creates, polls, verifies, exports, and restores completed snapshots without archiving the live data volume. Scheduling and retention remain operator-owned. |

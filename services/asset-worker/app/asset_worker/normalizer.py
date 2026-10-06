@@ -37,7 +37,7 @@ def normalize_glb(input_path: Path, output_path: Path, params: PostprocessParams
         return
 
     doc, bin_chunk = parsed
-    accessors = _position_accessors(doc)
+    accessors = _position_accessors(doc, len(bin_chunk))
     if not accessors:
         shutil.copyfile(input_path, output_path)
         return
@@ -51,6 +51,41 @@ def normalize_glb(input_path: Path, output_path: Path, params: PostprocessParams
     _write_positions(bin_chunk, accessors, transformed)
     _update_accessor_bounds(doc, accessors, bin_chunk)
     output_path.write_bytes(_build_glb(doc, bytes(bin_chunk)))
+
+
+def external_resource_uris(data: bytes) -> list[str]:
+    """`buffers[].uri` / `images[].uri` in a GLB's JSON chunk that are not
+    `data:` URIs. A GLB is self-contained, and the converters resolve any
+    other URI against the filesystem (or network), so `../../proc/self/environ`
+    would be read and embedded in a downloadable artifact."""
+    entries = _resource_entries(_glb_json_chunk(data) or {})
+    if entries is None:
+        return ["<non-list buffers/images>"]  # malformed: reject, never 500
+    uris = [entry.get("uri") for entry in entries if isinstance(entry, dict)]
+    return [str(uri) for uri in uris if uri is not None and not str(uri).startswith("data:")]
+
+
+def _resource_entries(doc: dict) -> list | None:
+    """`buffers` + `images` entries, or None when either is not a list."""
+    groups = [doc.get("buffers") or [], doc.get("images") or []]
+    if not all(isinstance(group, list) for group in groups):
+        return None
+    return [*groups[0], *groups[1]]
+
+
+def _glb_json_chunk(data: bytes) -> dict | None:
+    """The JSON chunk of a GLB v2 file, or None when the input is not one we
+    can read (the caller rejects it: the converters would still parse it)."""
+    if len(data) < 20 or struct.unpack_from("<I", data, 0)[0] != 0x46546C67:
+        return None
+    try:
+        chunk_length, chunk_type = struct.unpack_from("<II", data, 12)
+        if chunk_type != JSON_CHUNK:
+            return None
+        doc = json.loads(data[20: 20 + chunk_length].rstrip(b" \x00").decode("utf-8-sig"))
+    except (ValueError, struct.error, RecursionError):
+        return None
+    return doc if isinstance(doc, dict) else None
 
 
 def _parse_glb(data: bytes) -> tuple[dict, bytearray] | None:
@@ -82,7 +117,7 @@ def _parse_glb(data: bytes) -> tuple[dict, bytearray] | None:
     return doc, bin_chunk
 
 
-def _position_accessors(doc: dict) -> list[PositionAccessor]:
+def _position_accessors(doc: dict, bin_len: int) -> list[PositionAccessor]:
     result: list[PositionAccessor] = []
     accessors = doc.get("accessors") or []
     buffer_views = doc.get("bufferViews") or []
@@ -94,28 +129,47 @@ def _position_accessors(doc: dict) -> list[PositionAccessor]:
             if isinstance(position_index, int):
                 used_indices.add(position_index)
     for index in sorted(used_indices):
-        accessor = accessors[index]
+        # Untrusted file: out-of-range or non-object entries are skipped
+        # (negative indices would silently wrap), so validate reports them.
+        accessor = accessors[index] if 0 <= index < len(accessors) else None
+        if not isinstance(accessor, dict):
+            continue
         if accessor.get("componentType") != FLOAT or accessor.get("type") != "VEC3":
             continue
         view_index = accessor.get("bufferView")
-        if not isinstance(view_index, int):
+        if not isinstance(view_index, int) or not 0 <= view_index < len(buffer_views):
             continue
         view = buffer_views[view_index]
-        if view.get("buffer", 0) != 0:
+        if not isinstance(view, dict) or view.get("buffer", 0) != 0:
             continue
-        view_offset = int(view.get("byteOffset", 0))
-        accessor_offset = int(accessor.get("byteOffset", 0))
-        stride = int(view.get("byteStride", 12))
+        try:
+            offset = int(view.get("byteOffset", 0)) + int(accessor.get("byteOffset", 0))
+            stride = int(view.get("byteStride", 12))
+            count = int(accessor.get("count", 0))
+        except (TypeError, ValueError):
+            continue
+        if offset < 0 or stride < 12:
+            continue
         result.append(
             PositionAccessor(
                 accessor_index=index,
                 buffer_view_index=view_index,
-                count=int(accessor.get("count", 0)),
-                offset=view_offset + accessor_offset,
+                # The declared count is bounded by the bytes actually present:
+                # a 1 KB file claiming count=1e12 used to spin the worker for
+                # hours outside every timeout while holding its only slot.
+                count=_bounded_count(count, offset, stride, bin_len),
+                offset=offset,
                 stride=stride,
             )
         )
     return result
+
+
+def _bounded_count(count: int, offset: int, stride: int, bin_len: int) -> int:
+    """Largest vertex count whose last 12-byte element fits in the buffer."""
+    if offset + 12 > bin_len:
+        return 0
+    return max(0, min(count, (bin_len - offset - 12) // stride + 1))
 
 
 def _read_positions(bin_chunk: bytearray, accessors: list[PositionAccessor]) -> list[tuple[float, float, float]]:
@@ -159,18 +213,19 @@ def _orient_positions(
 
     ``keep`` (default) and ``y`` perform NO reorientation — glTF is +Y-up by
     spec, so incoming orientation is trusted and only scale/center/ground
-    runs. ``x``/``z`` explicitly remap that axis to +Y (the historical swap,
-    now opt-in). ``auto`` runs a genuine minimum-AABB-volume search over
+    runs. ``x``/``z`` explicitly rotate that axis to +Y (opt-in). ``auto`` runs a genuine minimum-AABB-volume search over
     small pitch/roll tilts (what the metadata name promises) with a dead-band
     so a model already within a few degrees of Y-up is never touched — even
     when it is wider than tall (the extent-argmax bug this replaces).
     """
     if params.up_axis in ("keep", "y"):
         return positions
+    # Proper rotations (det +1): a coordinate swap is a mirror that flipped
+    # the model left-right and turned its faces inside out.
     if params.up_axis == "x":
-        return [(y, x, z) for x, y, z in positions]
+        return [(-y, x, z) for x, y, z in positions]  # +90 deg about Z
     if params.up_axis == "z":
-        return [(x, z, y) for x, y, z in positions]
+        return [(x, z, -y) for x, y, z in positions]  # -90 deg about X
     return _auto_upright(positions)
 
 

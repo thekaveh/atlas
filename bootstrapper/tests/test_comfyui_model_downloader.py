@@ -379,6 +379,9 @@ def test_corrupt_cache_is_replaced_only_after_verified_download(tmp_path: Path) 
     assert result.returncode == 0
     assert "cached but sha mismatch" in result.stdout
     assert target.read_bytes() == PAYLOAD
+    # ComfyUI runs unprivileged: published models and model dirs stay readable.
+    assert target.stat().st_mode & 0o777 == 0o644
+    assert (models / "loras").stat().st_mode & 0o777 == 0o755
     _assert_no_transfer_debris(models)
 
 
@@ -771,12 +774,15 @@ def test_required_download_failure_writes_failed_plan_status(tmp_path: Path) -> 
         tmp_path,
         _row(
             url="https://huggingface.co/example/models/resolve/"
-            "0123456789abcdef0123456789abcdef01234567/failure/model.bin",
+            "0123456789abcdef0123456789abcdef01234567/failure/model.bin?token=keep-out",
             provisioning="required",
         ),
     )
 
     assert result.returncode != 0
+    # The downloader's own error survives cleanup, with the URL redacted.
+    assert "download failed for <url>" in result.stdout
+    assert "keep-out" not in result.stdout + result.stderr
     fields = _status_fields(models)
     assert fields[0] == "v1"
     assert fields[2:] == ["failed", "1", "0"]

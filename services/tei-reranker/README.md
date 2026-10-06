@@ -113,7 +113,7 @@ _No high-confidence opportunities identified._
 curl -fs http://localhost:${TEI_RERANKER_PORT}/health   # 200 OK when up
 ```
 
-Container `start_period` is 120 s (first run downloads the model).
+Container `start_period` is 300 s (first run downloads the ~740 MB model before the server binds).
 
 ## 7. Troubleshooting
 

@@ -44,7 +44,7 @@ services:
       mlflow-init:
         condition: service_completed_successfully
     ports:
-      - "${HOST_BIND_IP:-}${MLFLOW_PORT}:5000"
+      - "${HOST_BIND_IP-127.0.0.1:}${MLFLOW_PORT}:5000"
     environment:
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
       AWS_ACCESS_KEY_ID: ${MINIO_MLFLOW_ACCESS_KEY}
@@ -57,7 +57,16 @@ services:
       _MLFLOW_SERVER_ARTIFACT_ROOT: mlflow-artifacts:/
       _MLFLOW_SERVER_ARTIFACT_DESTINATION: s3://${MINIO_BUCKET_MLFLOW:-mlflow}
       _MLFLOW_SERVER_SERVE_ARTIFACTS: "true"
-      MLFLOW_SERVER_ALLOWED_HOSTS: mlflow,mlflow:5000,localhost,localhost:5000,localhost:${MLFLOW_PORT},mlflow.localhost,mlflow.localhost:${KONG_HTTP_PORT}
+      MLFLOW_SERVER_ALLOWED_HOSTS: mlflow,mlflow:5000,localhost,localhost:5000,localhost:${MLFLOW_PORT},127.0.0.1:${MLFLOW_PORT},mlflow.localhost,mlflow.localhost:${KONG_HTTP_PORT},mlflow.localhost:${KONG_HTTPS_PORT}
+      # Without a list MLflow admits only localhost origins, so every UI
+      # POST/PUT/DELETE through Kong (Origin: mlflow.localhost) got a 403.
+      # The direct-port origins are listed too for clarity; MLflow 3.16
+      # always admits localhost origins.
+      MLFLOW_SERVER_CORS_ALLOWED_ORIGINS: http://mlflow.localhost:${KONG_HTTP_PORT},https://mlflow.localhost:${KONG_HTTPS_PORT},http://localhost:${MLFLOW_PORT},http://127.0.0.1:${MLFLOW_PORT}
+      # 4 workers x 2 engines (tracking + registry) on the shared supabase-db:
+      # SQLAlchemy's 5+10 default could open 120 connections.
+      MLFLOW_SQLALCHEMYSTORE_POOL_SIZE: "2"
+      MLFLOW_SQLALCHEMYSTORE_MAX_OVERFLOW: "3"
     working_dir: /opt/atlas
     command:
       - python

@@ -208,10 +208,10 @@ def test_celery_compose_contract() -> None:
 
     assert flower["image"] == "${FLOWER_IMAGE:-mher/flower:2.0.1}"
     assert flower["deploy"]["replicas"] == "${FLOWER_SCALE:-0}"
-    assert flower["ports"] == ["${HOST_BIND_IP:-}${FLOWER_PORT}:5555"]
+    assert flower["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${FLOWER_PORT}:5555"]
     assert flower["depends_on"]["redis"]["condition"] == "service_healthy"
     assert flower["environment"]["CELERY_BROKER_URL"] == "${CELERY_BROKER_URL:-}"
-    assert "--basic-auth=${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}" in flower["command"]
+    assert flower["environment"]["FLOWER_BASIC_AUTH"] == "${DASHBOARD_USERNAME:-kong_admin}:${DASHBOARD_PASSWORD}"
     assert "--port=5555" in flower["command"]
     assert "http://localhost:5555/healthcheck" in "\n".join(flower["healthcheck"]["test"])
 
@@ -284,3 +284,15 @@ def test_celery_docs_describe_retry_security_and_async_memory_scope() -> None:
         "Research start is deferred",
     ):
         assert expected in readme
+
+
+def test_n8n_kong_route_keeps_the_gateway_read_timeout() -> None:
+    # Bundled webhooks hold the response open (research, ComfyUI up to 300 s);
+    # the n8n service's own 60 s read/write timeout returned 504 mid-run.
+    from utils.kong_config_generator import KongConfigGenerator
+
+    gen = KongConfigGenerator(ConfigParser(str(REPO_ROOT)))
+    gen.load_environment_variables = lambda: setattr(gen, "env_vars", {"N8N_SOURCE": "container"})
+    services = gen.generate_kong_config()["services"]
+    n8n = next(service for service in services if service["name"] == "n8n-api")
+    assert n8n["read_timeout"] == n8n["write_timeout"] == 300000

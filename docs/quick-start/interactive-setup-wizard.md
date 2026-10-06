@@ -53,13 +53,15 @@ and inline-image behavior can vary between terminal emulators.
 
 ## 2. Step Order
 
-The wizard's question order isn't fixed — service-source steps are sorted by each service's resolved port (so the wizard's order matches the stack-overview panel beside it), with the LLM cluster spliced in immediately after the LLM Engine step. The shape is roughly:
+Service-source steps follow the canonical topology order (`services/topology.py`, the same order as the stack-overview panel beside them), with the LLM cluster spliced in immediately after the LLM Engine step. The shape is roughly:
 
 ```
-first  Base port
+first  Track (skipped when --track is passed)
+       Profile: dev or production hardening (skipped when --profile is passed)
+       Base port
        Project name (Docker Compose namespace / container family → PROJECT_NAME)
-…      Service-source steps, sorted by resolved port
-       (ComfyUI, LLM Engine, ollama-related, Weaviate, …)
+…      Service-source steps, in topology order
+       (… Weaviate, …, LLM Engine, ollama-related, …, ComfyUI, …)
 …      LLM cluster (spliced right after the LLM Engine step):
          Ollama  ·  models               (single unified multiselect)
          Ollama  ·  additional models    (free-text, container only)
@@ -71,11 +73,11 @@ first  Base port
          LLM defaults  ·  vision model    (single-select, skippable)
 …      Remaining service-source steps
 near-end  Cold start
-near-end  Hosts file
+near-end  Hosts setup · /etc/hosts
 last   Confirm — Launch the stack with this configuration?
 ```
 
-Steps gated by `skip_if_prev` predicates simply vanish from the flow when their precondition isn't met (e.g. each cloud key/model pair only renders when its `CLOUD_*_SOURCE` is `enabled` after the prior secret step; Ollama variant steps only render when `LLM_PROVIDER_SOURCE` is an `ollama-*` value).
+Steps gated by `skip_if_prev` predicates simply vanish from the flow when their precondition isn't met (e.g. each cloud provider's models step only renders when its `CLOUD_*_SOURCE` is `enabled` after the API-key step, which is always shown; Ollama variant steps only render when `LLM_PROVIDER_SOURCE` is an `ollama-*` value).
 
 ## 3. Prompt Kinds
 
@@ -83,7 +85,7 @@ Each wizard step renders one of five prompt widgets, picked based on the questio
 
 | Kind | Used for | UX |
 |---|---|---|
-| `options` | Single-select with a small fixed option set — every `*_SOURCE`, the `Cold start` toggle, the `Hosts file` choice, and the three **LLM defaults** pickers (chat / embedding / vision, see §4.6). | Up/Down arrows + Enter; the current `.env` value is pre-highlighted. |
+| `options` | Single-select with a small fixed option set — every `*_SOURCE`, the `Cold start` toggle, the `Hosts setup · /etc/hosts` choice, and the three **LLM defaults** pickers (chat / embedding / vision, see §4.6). | Up/Down arrows + Enter; the current `.env` value is pre-highlighted. |
 | `number` | Numeric prompts (`Base port`). | Single-line input. A value outside the step's range, or one that is not a number, is **refused**: the hint under the input becomes the reason and you stay on the step (see §7.2). A bare Enter keeps the displayed default. |
 | `secret` | API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`). | Masked password Input + a live char-count hint as you paste. When a key is already set, the hint shows the source-aware action: press Enter to keep the saved key, type a new key to replace, type `clear` + Enter to remove. No sentinel rows are rendered — the input field IS the prompt. |
 | `multiselect` | Cloud and Ollama model lists. | `[selected]` / `[ ]` rows in a scrollable viewport (capped height; the cursor follows the selection so a 230-row library scrape stays usable). Space toggles, Enter confirms. **Cloud** multiselect: default-active set (intersected with what your account actually returns) is pre-checked on first visit. **Ollama** multiselect: source-aware — container shows the library only, localhost shows a merged `[pulled]` + `[library]` view. Purely additive; the default-active baseline is baked into `services/ollama/models.yaml` with `default: true` and resolved by `model_resolver` on every `docker compose up`. |
@@ -104,7 +106,7 @@ The wizard refuses to launch when **LLM Engine = `none`**, vLLM Metal is disable
 A single unified multi-select shown for every `ollama-*` source. The option list is **source-aware**:
 
 - **`ollama-container-*`** — only the live scrape of `https://ollama.com/library` (~230 entries). Nothing is pulled yet (the in-stack container isn't running at wizard time), so the library is the primary discovery surface. The `ollama-pull` init container fetches checked entries at startup.
-- **`ollama-localhost`** — the upstream's `/api/tags` (already-pulled models) merged with the library scrape. Each row carries a status badge: `[pulled]` (on disk on the upstream — checking activates it immediately) or `[library]` (catalog-only — checking saves the name to `OLLAMA_USER_MODELS` in `.env` but you must `ollama pull <name>` on the host yourself so it's available when LiteLLM routes to it).
+- **`ollama-localhost`** — the upstream's `/api/tags` (already-pulled models) merged with the library scrape. Each row carries a status badge: `[pulled]` (on disk on the upstream — checking activates it immediately) or `[library]` (catalog-only — checking saves the name to `OLLAMA_USER_MODELS` in `.env`, and the bootstrapper pulls it onto the host daemon at start, #757, so it's available when LiteLLM routes to it).
 
 Each row is 2 cells tall and surfaces:
 
@@ -141,10 +143,10 @@ Selections persist as `OLLAMA_USER_MODELS`.
 
 When the library scrape fails (rare), the wizard falls back to the curated default-active baseline in `bootstrapper/utils/llm_catalog.py` (qwen3.8:latest, qwen3-embedding:0.6b, nomic-embed-text). Capability tags and sizes aren't recoverable in fallback (the catalog only carries `embedding` / `vision` flags); the `[legacy]` badge is suppressed because age data is unavailable. When `/api/tags` fails for a localhost source, the merge degrades to library-only with a warning in the session log.
 
-The default-active baseline is baked into `services/ollama/models.yaml` with `default: true` and is always included by `model_resolver` when `OLLAMA_USER_MODELS` is empty, so checking items here is **purely additive** — leaving everything unchecked still leaves the baseline active. Pre-checking behaviour:
+The default-active baseline is baked into `services/ollama/models.yaml` with `default: true` and seeds `OLLAMA_USER_MODELS` in `.env.example`. Unchecking everything is a deliberate answer: the wizard writes `OLLAMA_USER_MODELS=`, the bootstrapper keeps the blank, nothing is pulled, and `model_resolver` registers no Ollama model (host models auto-imported for `ollama-localhost` are still registered). Only a missing `OLLAMA_USER_MODELS` key falls back to the baseline. Pre-checking behaviour:
 
-- **First visit** (`OLLAMA_USER_MODELS` empty): the wizard pre-checks the default-active baseline (`default_active_names("ollama")` → `qwen3.8:latest`, `qwen3-embedding:0.6b`, `nomic-embed-text`). The user sees the baseline already ticked.
-- **Subsequent visit** (`OLLAMA_USER_MODELS` set): the saved selection is restored, intersected with the visible options. Names no longer in the merged list are dropped silently.
+- **First visit** (`OLLAMA_USER_MODELS` not set): the wizard pre-checks the default-active baseline (`default_active_names("ollama")` → `qwen3.8:latest`, `qwen3-embedding:0.6b`, `nomic-embed-text`). The user sees the baseline already ticked.
+- **Subsequent visit** (`OLLAMA_USER_MODELS` set, even blank): the saved selection is restored; a blank value leaves everything unticked. A saved model whose family is not in the merged list (an `hf.co/...` pull, or anything beyond the curated fallback when the library scrape fails) is shown as a `saved` row and stays ticked, so Enter does not drop it.
 
 ### 4.3. Ollama  ·  additional models to pull (text)
 
@@ -152,9 +154,9 @@ Shown only for `ollama-container-*` sources. Free-text comma-separated list, e.g
 
 ### 4.4. Cloud key + model pairs (secret + multiselect)
 
-Each enabled cloud provider gets two consecutive steps:
+Each cloud provider gets two consecutive steps (the API-key step is always shown; the models step only when the provider ends up enabled):
 
-1. **API key** (`secret` kind). The widget is a masked password Input — no sentinel rows are rendered. Turning a provider on or off and storing or deleting its key are **separate actions** (#1183, see §4.4.2). The hint line below the input always tells you which action Enter will take.
+1. **API key** (`secret` kind). The widget is a masked password Input — no sentinel rows are rendered. Turning a provider on or off and storing or deleting its key are **separate actions** (#1183, see §4.4.1). The hint line below the input always tells you which action Enter will take.
 2. **Models** (`multiselect`). Live fetch from the provider's models endpoint:
    - **OpenAI** — `GET /v1/models` (filtered to the chat / o-series / `text-embedding-3-*` set).
    - **Anthropic** — `GET /v1/models` (Anthropic's documented endpoint).
@@ -207,8 +209,8 @@ Live fetches run in the background so the wizard stays responsive; a `Fetching <
 
 After the cloud key/model pairs, the wizard asks you to pick the **default model per role** from everything you just selected (Ollama + cloud). Three consecutive `options` steps, each pre-highlighting the current `.env` value:
 
-1. **Chat / content** → `LITELLM_DEFAULT_MODEL`. The fallback the backend and Open WebUI use when no model is named. Pre-selected to the highest-priority content-capable model in your selection.
-2. **Embedding** → `LITELLM_EMBEDDING_MODEL` and its derived `LANGMEM_EMBEDDING_DIM`. The picker reads the curated model's declared `dim:` from `services/*/models.yaml` and persists the same dimension contract for Backend and the Supabase memory migration. Existing 768-dimensional deployments remain compatible; selecting a 1536- or 3072-dimensional model triggers a lossless expand/re-embed/validate rollout on the next start. Backend verifies the effective model output before accepting traffic. Custom embedding models must declare `LANGMEM_EMBEDDING_DIM` explicitly; indexed dimensions are limited to 1–4,000 by pgvector's halfvec HNSW contract.
+1. **Chat / content** → `LITELLM_DEFAULT_MODEL`. The fallback the backend and Open WebUI use when no model is named. Pre-selected to your saved default when it is still offered, otherwise to the highest-priority content-capable model in your selection.
+2. **Embedding** → `LITELLM_EMBEDDING_MODEL` and its derived `LANGMEM_EMBEDDING_DIM`. The picker reads the curated model's declared `dim:` from `services/*/models.yaml` and persists the same dimension contract for Backend and the Supabase memory migration. Every start also re-derives the dimension of a curated model whose catalog value changed (`qwen3-embedding:0.6b` is 1024, not the 1536 once declared), without a wizard run. Existing 768-dimensional deployments remain compatible; selecting a 1024-, 1536- or 3072-dimensional model triggers a lossless expand/re-embed/validate rollout on the next start. Backend verifies the effective model output before accepting traffic. Custom embedding models must declare `LANGMEM_EMBEDDING_DIM` explicitly; the dimension step refuses an empty entry when no dimension is saved (with one saved, Enter keeps it), any `clear` or non-numeric entry, and anything outside 1–4,000 (pgvector's halfvec HNSW limit), before the launch starts.
 3. **Vision** → `LITELLM_VISION_MODEL`. The first option is **— none / skip —**; vision routing is optional, and the step is skipped entirely when no vision-capable model is selected.
 
 All three persist to `.env` and are consumed by `litellm-init` (via `model_resolver`) on the next `docker compose up`. The whole trio is skipped when no LLM provider is active.
@@ -232,11 +234,18 @@ Each row carries:
   This is the display-group chip used by the filter row above;
   the actual family-grouping mechanism is the **variant tree**
   described below.
-- **Status badges** — `[pulled]` (model file already on disk under
-  `services/comfyui/data/<target_dir>/`, only meaningful for
-  container modes), `[library]` (catalog-only — not yet downloaded).
-- **Capability hints** — `[gpu]` if `min_vram_gb > 0`, `required node: <node>`
-  if the model requires a ComfyUI custom node. For container sources,
+- **Descriptive badges** — `[family]`, category, size in GB, and (when the
+  catalog sets them) `[precision]`, `[variant]` and `[license]`.
+- **`[pulled]`** — every file of the entry is already in the
+  `<project>-comfyui-models` named volume. The wizard finds the volume with
+  `docker volume inspect`; when its mountpoint is not readable from the host
+  (Docker Desktop keeps it inside the VM) the badge is omitted, so its absence
+  does not mean "not downloaded".
+- **Warning badges** (shown with a warning-sign prefix; warn-only, nothing is
+  hidden) — `node: <nodes>` when the model needs ComfyUI custom nodes,
+  `requires GPU` (no GPU detected and the model is not CPU-capable),
+  `requires N GB VRAM` (detected GPU memory is below the model's minimum),
+  `requires N GB RAM`, and any license restriction. For container sources,
   the bootstrapper maps those node names through
   `services/comfyui/custom-nodes.yaml` and writes a pinned
   `active-custom-nodes.tsv` install plan. Dependency-bearing nodes must carry
@@ -292,8 +301,12 @@ ComfyUI sources, but the downstream init pipeline branches:
   the bootstrapper still writes the manifest so the backend
   `/comfyui/db/models` endpoint that Open WebUI and n8n consume can
   serve the active set. You populate your host ComfyUI install's
-  `models/<target_dir>/` directory yourself, same as
-  `ollama pull <name>` for an Ollama localhost upstream.
+  `models/<target_dir>/` directory yourself (unlike `ollama-localhost`,
+  which Atlas provisions automatically).
+- **`managed-localhost-mps`** — Atlas provisions the selected models into
+  `COMFYUI_MPS_MODELS_PATH` on the host at start (no `comfyui-init`
+  container), and installs the required allowlisted custom nodes into the
+  host ComfyUI. See the ComfyUI README §10.
 
 Selection persists as `COMFYUI_USER_MODELS` (comma-separated
 catalog names) in `.env`. CLI flag `--comfyui-models` accepts the
@@ -316,15 +329,16 @@ entries is not treated as a fallback trigger.
 
 ## 6. Inline secondary numeric inputs
 
-Three service rows mount an inline numeric input alongside the source prompt
+These service rows mount an inline numeric input alongside the source prompt
 via the `SecondaryNumberInput` widget (see `ui.textual.widgets.prompt_panel`).
 Selections persist as a sibling env var:
 
 | Row | Env var | Default | Range | Visible when |
 |---|---|---|---|---|
-| Ray | `RAY_WORKER_COUNT` | `2` | 0..(no upper cap) | `ray-container-cpu`, `ray-container-gpu` |
+| Ray | `RAY_WORKER_COUNT` | `2` | 0..64 | `ray-container-cpu`, `ray-container-gpu` |
 | Spark | `SPARK_WORKER_COUNT` | `2` | 1..8 | `container` |
 | Prometheus | `PROMETHEUS_RETENTION_DAYS` | `7` | 1..365 | `container` |
+| ComfyUI, Document Processor, Apache Tika, Hermes Agent, OpenClaw, LLM Engine, Neo4j, Weaviate, STT/TTS providers, LightRAG, TEI Reranker | that option's `*_LOCALHOST_PORT` (e.g. `OLLAMA_LOCALHOST_PORT`) | the current `.env` value | 1024..65535 | the service's localhost-type option (`localhost`, `ollama-localhost`, `docling-localhost`, `managed-localhost-mps`, …) |
 
 The input renders directly on the source step — no follow-up cascade — so
 the user picks both a source and a numeric refinement in one keystroke
@@ -337,13 +351,13 @@ Spark worker-count inputs are wired directly in the wizard code
 
 ## 7. Stack Options
 
-The wizard also collects these stack-level (non-service-source) options — **base port first**, before any service-source prompts; the cold-start and hosts-file options come last:
+The wizard also collects these stack-level (non-service-source) options. Track and profile come first, then **base port**, before any service-source prompt; the cold-start and hosts-file options come last:
 
-- **Base port** for all services (default: 63000) — collected at the very start of the wizard so all subsequent port displays reflect the chosen base.
+- **Base port** for all services (default: 63000) — collected before any service-source prompt so all subsequent port displays reflect the chosen base.
 - **Track** prompts are labelled "asked in every track", not "always-on". The LLM Engine, Prometheus, Grafana and cloud-provider keys are exempt from track filtering so every track asks about them — but Prometheus and Grafana ship **disabled**, and a blank cloud key leaves that provider off, so being asked is not the same as running (#1032). The genuinely always-running tier is Supabase + Kong + Redis + LiteLLM + Backend, which is never prompted.
-- **Profile** descriptions are checked against `bootstrapper/profiles.yml` by a test, so the copy cannot drift from the overlay. Both shipped profiles bind published ports to `127.0.0.1:`; `prod` adds log rotation, turns Prometheus and Grafana on, and hides localhost sources. Per-service resource limits are `.env` defaults independent of the profile — the profile step no longer claims otherwise.
+- **Profile** descriptions are checked against `bootstrapper/profiles.yml` by a test, so the copy cannot drift from the overlay. Both shipped profiles bind published ports to `127.0.0.1:`; `prod` adds log rotation, turns Prometheus and Grafana on, and hides localhost sources. With `prod` selected, the Prometheus and Grafana source steps default to `container` (the bundle's value), so pressing Enter keeps them on; choosing `disabled` there is an explicit answer and wins. Per-service resource limits are `.env` defaults independent of the profile — the profile step no longer claims otherwise.
 - Picking a track **interactively** now re-dims the service rows that track excludes, matching what the launch resolver will produce. Previously the dimming was computed only for a `--track` passed on the CLI.
-- **Cold start** is an explicit destructive choice, defaulting to **No**. Press **Ctrl+R** to read every consequence in full before answering (§7.1). It removes this project's containers and Compose-managed volumes, including database records, object files, workflow/chat history, models and caches stored in those volumes. It also re-creates `.env` and regenerates keys/passwords. Back up needed data and configuration first. Bind-mounted files and external volumes remain.
+- **Cold start** is an explicit destructive choice, defaulting to **No**. Press **Ctrl+R** to read every consequence in full before answering (§7.1). It removes this project's containers and Compose-managed volumes, including database records, object files, workflow/chat history, models and caches stored in those volumes. It also re-creates `.env` and regenerates keys/passwords. Back up needed data and configuration first. Bind-mounted files and external volumes remain. Although `.env` is re-created, an earlier "Enter keeps current" answer (a cloud API key and its enabled/disabled state and model list, the fal.ai key and its enabled state, the Ollama and ComfyUI model lists) is carried into the new `.env`; answer "remove" to drop a key instead.
 - **Hosts file configuration** to enable friendly URLs like `chat.localhost` and `n8n.localhost`.
 
 ### 7.1. Reading a destructive warning in full
@@ -376,7 +390,7 @@ Before launching, a configuration summary inside the same anchored info-box show
 
 - Every service with its selected source, alias (when hosts are configured), and direct port.
 - Hosted endpoints (e.g., `chat.localhost:63000`) if hosts file entries are configured.
-- A separate **Cloud APIs** sub-section lists OpenAI / Anthropic / OpenRouter status (`enabled · key set present`, `disabled`, `enabled · key missing`). Cloud providers don't run as containers, so they render below the services grid rather than alongside real services.
+- A separate **Cloud APIs** sub-section lists OpenAI / Anthropic / OpenRouter status (`enabled · key set` with a check mark, `disabled`, or `enabled · key MISSING` with a warning mark). Cloud providers don't run as containers, so they render below the services grid rather than alongside real services.
 - Color-coded source choices (container = green, localhost / cloud = cyan, off = slate).
 
 You confirm to launch (the **Launch the stack with this configuration?** step is the wizard's final question), or cancel to exit without changes.
@@ -422,8 +436,8 @@ After confirmation, the wizard transitions in-place from prompts to the launch p
 - **Unseen-error marker:** if an error is logged while you're on the Setup tab, the Logs label picks up a red `!` — `[  Logs! ]`. The failure toast is transient; the marker is not. It clears the moment you visit the tab. Warnings never raise it (a normal launch emits enough of them that the marker would be permanently lit, which is the same as having no marker).
 - The **Logs** pane streams `docker compose` build / up / port-verify / `logs -f` output, line-by-line.
 - Per-service container names (e.g. `atlas-supabase-db`, `atlas-ollama-pull`) are **color-coded** based on `bootstrapper/ui/textual/palette.py::SOURCE_COLORS`. Unknown service names get a stable hue from a small md5-based palette so every service in the stack remains visually distinguishable.
-- The full launch-phase output is also tee'd to an owner-only `/tmp/atlas-launch-<timestamp>-<unique>.log` for post-mortem inspection. See [Troubleshooting](troubleshooting.md#2-session-log).
-- Press `Ctrl+Q` to detach cleanly from the wizard UI. `Ctrl+C` sends SIGINT — fine after services are up (already-detached compose containers keep running) but during the launch pipeline it may interrupt a compose step mid-flight, leaving the stack in a partial state. Either way, services that have finished starting keep running; resume log streaming with `docker compose logs -f <service>`.
+- The full launch-phase output is also tee'd to an owner-only `${TMPDIR:-/tmp}/atlas-launch-<timestamp>-<unique>.log` (Python's temporary directory; under `/var/folders` on macOS) for post-mortem inspection. See [Troubleshooting](troubleshooting.md#2-session-log).
+- Press `Ctrl+Q` to detach cleanly from the wizard UI once the stack is up; while startup is still running, `Ctrl+Q` only reminds you that `Ctrl+C` cancels. `Ctrl+C` sends SIGINT — fine after services are up (already-detached compose containers keep running) but during the launch pipeline it may interrupt a compose step mid-flight, leaving the stack in a partial state. Either way, services that have finished starting keep running; resume log streaming with `docker compose logs -f <service>`.
 - Each way out states its consequences (§9.2). Once the stack is up, the log pane lists `ctrl+q`, `ctrl+s` and `ctrl+x` with what each does to services, configuration and data. Cancelling with `Ctrl+C` prints, after the screen closes, that containers already started keep running, the configuration written so far is kept and no data was deleted.
 
 ### 9.1. Recovery without deleting data
@@ -474,7 +488,9 @@ The four ways out are distinct, and each states all three consequences (#1032):
 Only cold stop deletes data, and it needs an explicit confirmation: the second
 `Ctrl+X` press, or the `--cold` flag itself. Cancelling never deletes anything.
 Declining the `--no-tui` pre-launch summary starts nothing and keeps the
-configuration written up to that point.
+configuration written up to that point. Under `--cold` the cold cleanup has
+already run by then (volumes removed, `.env` recreated), so declining does not
+bring that data back; the cancel message says so.
 
 ## 10. Navigation
 
@@ -535,11 +551,11 @@ The prompt panel's top border shows the step title, a counter and a small progre
 
 ## 13. Relationship to .env and CLI Flags
 
-The wizard reads your current `.env` values as defaults and produces the same `--*-source` overrides that CLI flags would. After confirmation, these overrides are applied to `.env` and the stack launches normally.
+The wizard reads your current `.env` values as defaults (a source the selected profile declares defaults to the profile's value; a `.env` value the step does not offer falls back to the manifest's declared default) and produces the same `--*-source` overrides that CLI flags would. After confirmation, these overrides are applied to `.env` and the stack launches normally.
 
 - **Wizard selections are persistent** in `.env` and carry over to future runs
-- **CLI flags always skip the wizard** and apply directly
-- **Any flag** (including `--cold`, `--base-port`, etc.) skips the wizard
+- **Configuration flags skip the whole wizard** and apply directly: any `--*-source`, model-list, or API-key flag, the scalar setting flags `--ray-worker-count`, `--spark-workers`, `--prometheus-retention-days` and `--comfyui-custom-models-file`, and the stack flags `--base-port`, `--cold`, `--setup-hosts`, `--skip-hosts`, `--detach`, and `--json`
+- **Selection flags keep the wizard**: `--track` and `--profile` pre-answer (and hide) their own steps (a consumer manifest's `profile:` hides the profile step the same way); `--project` and `--consumer` change no prompt
 
 ## 14. Requirements
 
@@ -548,7 +564,7 @@ The TUI uses two Python libraries — both included in `bootstrapper/pyproject.t
 - **textual** — owns the wizard prompts and the post-confirm launch phase (pinned summary + log pane + filter chips), all hosted in a single Textual app.
 - **rich** — used for styled spans inside Textual widgets and for the `--no-tui` linear pre-launch summary table.
 
-Python ≥ 3.10 is required (see `bootstrapper/pyproject.toml`). The wizard automatically falls back to the linear stdout flow when `stdin` isn't a TTY, when the terminal is too small to host the Textual app, or when the user passes `--no-tui`. In that mode `./start.sh` prints a pre-launch summary table and streams docker compose output directly.
+Python ≥ 3.10 is required (see `bootstrapper/pyproject.toml`). The wizard automatically falls back to the linear stdout flow when `stdin` isn't a TTY, when the terminal is too small to host the Textual app, or when the user passes `--no-tui`. In that mode `./start.sh` prints a pre-launch summary table and streams docker compose output directly. Without `--track`, the linear flow first asks for a track on stdin and applies it like the wizard does: services outside the track are written to `.env` as `disabled`. When stdin is not a terminal (cron, systemd, CI, `ssh` without `-t`) it takes the default track (`gen-ai-rag`) without asking, so scripted runs against a configured stack should pass `--track all` (no filtering) or the intended `--track <key>`.
 
 ## 15. Brand Customization
 
@@ -622,7 +638,7 @@ New services added under `services/<name>/` with a `service.yml` manifest (and i
 
 ## 17. Dependency Validation
 
-The wizard validates service dependencies in real time. For example, if you enable n8n but disable Weaviate (which n8n requires), the wizard warns you and offers to either enable the dependency or disable the dependent service. The same machinery enforces the "LiteLLM must have an upstream" rule (LLM Engine != `none`, or at least one cloud provider is `enabled`).
+Dependencies are checked at launch, not while you answer the prompts. A service whose required dependency is disabled (for example n8n with Weaviate disabled) is reported and then disabled itself, so check the launch log if a service you picked does not start. The `gen-ai-eng` track includes n8n but not Weaviate, so n8n is disabled there unless you also pass `--weaviate-source container`. The "LiteLLM must have an upstream" rule (LLM Engine != `none`, at least one cloud provider `enabled`, or `VLLM_METAL_SOURCE=managed-localhost`) is enforced by source validation, which stops the launch before anything starts.
 
 ## 18. Hosts File Setup
 
@@ -631,7 +647,9 @@ The hosts file configuration step enables friendly URLs routed through Kong API 
 | Option | Behavior |
 |--------|----------|
 | **Default** | Checks `/etc/hosts` for required entries, warns if missing |
-| **Setup hosts now** | Adds entries to `/etc/hosts` (requires `sudo`) |
+| **Setup now** | Adds missing entries to `/etc/hosts`. The wizard cannot show a `sudo` password prompt, so this works only when `sudo` needs no password; otherwise the launch continues with a warning and you run `./start.sh --setup-hosts` from a terminal. |
 | **Skip** | No hosts check, use `localhost:PORT` URLs only |
+
+None of the three options stops the launch: missing entries affect only the friendly `*.localhost` URLs.
 
 When hosts are configured, the pre-launch summary table shows both the direct `localhost:PORT` URL and the friendly `service.localhost:KONG_PORT` URL for applicable services.

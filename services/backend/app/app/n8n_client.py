@@ -1,5 +1,6 @@
 import httpx
 import os
+from urllib.parse import quote
 from typing import Dict, Any, List, Optional
 
 
@@ -65,7 +66,8 @@ class N8nClient:
     async def get_workflow(self, workflow_id: str) -> Dict[str, Any]:
         """Get a workflow by ID"""
         response = await self._client.get(
-            f"{self.base_url}/api/v1/workflows/{workflow_id}", headers=self.headers
+            f"{self.base_url}/api/v1/workflows/{quote(workflow_id, safe='')}",
+            headers=self.headers,
         )
         response.raise_for_status()
         return response.json()

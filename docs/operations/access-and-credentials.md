@@ -18,8 +18,9 @@ A Kong gate applies only through the `*.localhost` alias. The service's direct p
 | Service | Entry point | Kind | What opens it | Checked against |
 |---|---|---|---|---|
 | Backend API | `api.localhost` | Supabase identity + Atlas-generated secret | User-scoped routes take a Supabase user JWT (§4). Operator and integration routes take the generated `BACKEND_INTERNAL_API_TOKEN`, `BACKEND_N8N_API_TOKEN`, `BACKEND_NOTEBOOK_API_TOKEN` or `BACKEND_OPEN_WEBUI_API_TOKEN`; `/api/ray/*` takes `RAY_JOB_API_TOKEN`. `/`, `/health`, `/ready`, `/metrics` and the API docs are public. Optional `BACKEND_KONG_AUTH=key-auth` adds an `apikey: ${BACKEND_KONG_API_KEY}` gate. | `services/backend/README.md`, `services/backend/app/app/backend_identity.py` |
-| Supabase APIs | `localhost` paths `/auth/v1`, `/rest/v1`, `/graphql/v1`, `/realtime/v1`, `/storage/v1` | Supabase identity + Atlas-generated secret | Kong key-auth with `apikey: ${SUPABASE_ANON_KEY}` (or `SUPABASE_SERVICE_KEY`), then a Supabase user JWT where the API requires one. | `services/supabase/README.md`, `services/kong/README.md` |
+| Supabase APIs | paths `/auth/v1`, `/rest/v1`, `/graphql/v1`, `/realtime/v1`, `/storage/v1` on any Host (`localhost` by convention) | Supabase identity + Atlas-generated secret | Kong key-auth with `apikey: ${SUPABASE_ANON_KEY}` (or `SUPABASE_SERVICE_KEY`), then a Supabase user JWT where the API requires one. Public-bucket, signed and signed-upload object URLs (`/storage/v1/object/public/`, `/storage/v1/object/sign/`, `/storage/v1/object/upload/sign/`) need no `apikey`; Storage checks the bucket flag or token (creating a signed URL still needs a user JWT). Realtime is routed but not functional (see the Supabase README §4.5). | `services/supabase/README.md`, `services/kong/README.md` |
 | Supabase Studio | `supabase-studio.localhost` | Atlas-generated secret | Kong dashboard basic-auth. Studio has no login of its own. | `services/supabase/README.md` |
+| Supabase pg-meta (SQL) | `localhost` path `/pg/` (matches any Host) | Atlas-generated secret | Kong dashboard basic-auth; pg-meta runs SQL as the database superuser, so the dashboard pair is a superuser credential. | `services/supabase/README.md` |
 | Open WebUI | `chat.localhost` | Atlas-generated secret (admin); service-native (other users) | The seeded admin: `OPEN_WEB_UI_ADMIN_EMAIL` (default `admin@localhost`) / `OPEN_WEB_UI_ADMIN_PASSWORD`. Other users are Open WebUI accounts; they are stored in the Supabase database but are not Supabase Auth users. | `services/open-webui/README.md`, `services/open-webui/service.yml` |
 | LiteLLM | `litellm.localhost` | Atlas-generated secret | `/ui`: `LITELLM_UI_USERNAME` (default `admin`) with `LITELLM_MASTER_KEY` as the password. `/v1/*` and `/spend/*`: `Authorization: Bearer ${LITELLM_MASTER_KEY}`. | `services/litellm/README.md` |
 | Grafana | `grafana.localhost` | Atlas-generated secret | `GRAFANA_ADMIN_USERNAME` (default `admin`) / `GRAFANA_ADMIN_PASSWORD`. Sign-up and anonymous access are off. | `services/grafana/README.md` |
@@ -33,7 +34,7 @@ A Kong gate applies only through the `*.localhost` alias. The service's direct p
 | Celery Flower | `flower.localhost` | Atlas-generated secret | Kong dashboard basic-auth; Flower's own basic-auth uses the same pair. | `services/celery/README.md` |
 | Crawl4AI | `crawl4ai.localhost` | Atlas-generated secret | Kong dashboard basic-auth, then `Authorization: Bearer ${CRAWL4AI_API_TOKEN}` on every route except `/health`. | `services/crawl4ai/README.md` |
 | Docling | `docling.localhost` | Atlas-generated secret | `Authorization: Bearer ${DOCLING_API_TOKEN}` except `/health`. | `services/doc-processor/README.md`, `services/docling/README.md` |
-| LightRAG API | `lightrag.localhost` | Atlas-generated secret | `/api` routes take `Authorization: Bearer ${LIGHTRAG_API_KEY}`. | `services/lightrag/README.md` |
+| LightRAG API | `lightrag.localhost` | Atlas-generated secret | Document, query and graph routes take the `X-API-Key: ${LIGHTRAG_API_KEY}` header; a Bearer token carrying the key is rejected with 401. `/health` and the Ollama-compatible `/api/*` chat routes are open by default (LightRAG's `WHITELIST_PATHS`, which Atlas does not override). | `services/lightrag/README.md` |
 | Asset Baker | `asset-baker.localhost` | Atlas-generated secret | `Authorization: Bearer ${ASSET_BAKER_API_TOKEN}`; `/health` and `/metrics` are public. | `services/asset-baker/README.md` |
 | Asset Worker | `asset-worker.localhost` | Atlas-generated secret | `Authorization: Bearer ${ASSET_WORKER_API_TOKEN}`; `/health` and `/metrics` are public. | `services/asset-worker/README.md` |
 | MLflow | `mlflow.localhost` | Atlas-generated secret | Kong dashboard basic-auth. MLflow has no login of its own. | `services/mlflow/README.md` |
@@ -48,9 +49,9 @@ A Kong gate applies only through the `*.localhost` alias. The service's direct p
 | STT (Parakeet) | `stt.localhost` | Atlas-generated secret | `Authorization: Bearer ${PARAKEET_API_TOKEN}` except `/health`, when the engine is Parakeet. Speaches and whisper.cpp have no login. | `services/stt-provider/README.md` |
 | n8n | `n8n.localhost` | Service-native | The owner account you create on the first visit. | `services/n8n/README.md` |
 | JupyterHub | `jupyter.localhost` | Service-native | A Jupyter token (`?token=…`). With `JUPYTERHUB_TOKEN` empty, the default, Jupyter generates one and prints it in the container log on every start. | `services/jupyterhub/README.md` |
-| OpenClaw | `openclaw.localhost` | Service-native | `OPENCLAW_GATEWAY_TOKEN`, which you set yourself; it is empty by default. | `services/openclaw/README.md` |
+| OpenClaw | `openclaw.localhost` | Atlas-generated secret | `OPENCLAW_GATEWAY_TOKEN`, generated into `.env` on start when empty and kept once set. | `services/openclaw/README.md` |
 | Prometheus | `prometheus.localhost` | No login | The route adds no auth; the scrape paths stay internal. | `services/prometheus/README.md` |
-| Hermes dashboard | `hermes.localhost` | No login | Runs in upstream's unauthenticated dashboard mode. | `services/hermes/README.md` |
+| Hermes dashboard | `hermes.localhost` | Atlas-generated secret | Kong dashboard basic-auth. The dashboard itself runs in upstream's unauthenticated mode, so its direct host port has no login. | `services/hermes/README.md` |
 | Spark | `spark.localhost`, `spark-history.localhost` | No login | Master and History Server UIs are open. | `services/spark/README.md` |
 | Zeppelin | direct `localhost:${ZEPPELIN_PORT}` (no Kong alias) | No login | Loopback-bound. | `services/zeppelin/README.md` |
 | Weaviate | `weaviate.localhost` | No login | Anonymous access is enabled. | `services/weaviate/README.md` |
@@ -73,7 +74,7 @@ The surfaces a new user usually opens first, and what each needs:
 3. **LiteLLM UI**, `litellm.localhost/ui` — an Atlas-generated secret: `admin` with `LITELLM_MASTER_KEY`.
 4. **Supabase Studio**, `supabase-studio.localhost` — an Atlas-generated secret: the Kong dashboard pair, `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`.
 5. **n8n**, `n8n.localhost` — a service-native account: create the owner on first visit.
-6. **JupyterHub**, `jupyter.localhost` — a service-native token: `docker logs ${PROJECT_NAME}-jupyterhub 2>&1 | grep token`.
+6. **JupyterHub**, `jupyter.localhost` — a service-native token: `docker logs <PROJECT_NAME>-jupyterhub 2>&1 | grep token` (Atlas runs Compose under `-p <PROJECT_NAME>`, so a bare `docker compose logs` from another directory or an `infra/` submodule targets the wrong project).
 7. **Grafana**, `grafana.localhost` — an Atlas-generated secret: `admin` with `GRAFANA_ADMIN_PASSWORD`.
 8. **The Backend API**, `api.localhost` — Supabase identity for your own data (§4), or `BACKEND_INTERNAL_API_TOKEN` for operator routes.
 

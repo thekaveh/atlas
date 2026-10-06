@@ -1,13 +1,11 @@
 ---
-name: creative-comfyui-host-override
-description: Override the bundled creative-comfyui skill's hardcoded ComfyUI host.
-extends: creative-comfyui
-priority: 100
+name: atlas-comfyui-host
+description: "Atlas ComfyUI endpoint — read before using the comfyui skill: ComfyUI runs at ${COMFYUI_INTERNAL_URL}, not http://127.0.0.1:8188."
 ---
 
-# ComfyUI host override
+# ComfyUI host in this stack
 
-The bundled `creative-comfyui` skill defaults to `http://127.0.0.1:8188`,
+The bundled `comfyui` skill defaults to `http://127.0.0.1:8188`,
 which doesn't exist inside this container. The atlas stack runs
 ComfyUI as a sibling service on the Docker network — reachable at the
 URL below.

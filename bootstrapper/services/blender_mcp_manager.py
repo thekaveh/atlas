@@ -175,6 +175,10 @@ class ProcessStatus:
 
 
 class BlenderMcpManager:
+    # Per-attempt readiness probe budget: health() is a full get_scene_info
+    # round trip through Blender, which a 0.5s cap fails on a busy scene.
+    readiness_probe_timeout = 10.0
+
     def __init__(
         self,
         state_dir: Path | str,

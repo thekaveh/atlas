@@ -129,6 +129,115 @@ def test_memory_schema_state_is_private_but_backend_can_read_it():
     )
 
 
+#: Shell comment lines, stripped from the `.sh` slices so prose is not parsed.
+_SHELL_LINE_COMMENT = re.compile(r"^[ \t]*#[^\n]*", re.MULTILINE)
+#: Searched, not anchored: a statement can share its `;`-chunk with a
+#: preceding `DO $$ BEGIN`, `THEN`, or a shell `<<'SQL'` heredoc opener.
+_GRANT_STATEMENT = re.compile(
+    r"(?:ALTER\s+DEFAULT\s+PRIVILEGES\b(?P<defaults>.*?))?"
+    r"\bGRANT\b(?P<privileges>.*?)\bON\b(?P<target>.*?)\bTO\b(?P<grantees>.*)$",
+    re.IGNORECASE | re.DOTALL,
+)
+_ALL_TABLES_IN_SCHEMA = re.compile(r"^ALL\s+TABLES\s+IN\s+SCHEMA\b(.*)$", re.IGNORECASE)
+_DEFAULTS_IN_SCHEMA = re.compile(r"\bIN\s+SCHEMA\b(.*)$", re.IGNORECASE | re.DOTALL)
+_GRANTEE_TAIL = re.compile(r"\b(?:WITH\s+GRANT\s+OPTION|GRANTED\s+BY)\b.*$", re.IGNORECASE)
+
+
+def _identifiers(clause: str) -> list[str]:
+    """`a, "B", :"c"` -> `["a", "b", "c"]`; psql `:"var"` and quotes stripped."""
+    return [
+        part.strip().lstrip(":").replace('"', "").strip().lower()
+        for part in clause.split(",")
+        if part.strip()
+    ]
+
+
+def _grant_and_seed_sql() -> str:
+    """Every seed slice that can issue a GRANT: the `.sql` files and the `.sh`
+    ones (`05-scoped-roles.sh` grants on `storage` through psql heredocs).
+
+    Grants built at runtime (`format(...) \\gexec`, `EXECUTE 'GRANT ...'`, a
+    psql variable as the schema) are not visible to this static scan."""
+    parts = []
+    for path in sorted(SCRIPTS_DIR.iterdir()):
+        text = path.read_text(encoding="utf-8")
+        if path.suffix == ".sh":
+            # SQL comments (`-- note`) but not psql flags (`--username`):
+            # stripping the flag line would hide its `-c "GRANT ..."`.
+            text = _SHELL_LINE_COMMENT.sub("", text)
+            parts.append(re.sub(r"(?<!\S)--(?!-?[A-Za-z])[^\n]*", "", text))
+        elif path.suffix == ".sql":
+            parts.append(_SQL_LINE_COMMENT.sub("", text))
+    return "\n".join(parts)
+
+
+def _storage_table_grants(sql: str, table: str) -> list[tuple[str, list[str]]]:
+    """`(statement, grantees)` for every GRANT reaching `storage.<table>`.
+
+    Covers object lists (`ON storage.objects, storage.buckets`, optional
+    `TABLE`, quoted `"storage"."objects"`), schema lists
+    (`ALL TABLES IN SCHEMA public, storage`) and default privileges on
+    `storage`. Schema USAGE, sequences and functions are not table access.
+    """
+    table_ref = re.compile(rf'^"?storage"?\s*\.\s*"?{table}"?$', re.IGNORECASE)
+    found = []
+    for raw in sql.split(";"):
+        statement = " ".join(raw.split())
+        match = _GRANT_STATEMENT.search(statement)
+        if not match:
+            continue
+        target = match.group("target").strip()
+        if _grant_reaches_storage_table(target, match.group("defaults"), table_ref):
+            grantees = _identifiers(_GRANTEE_TAIL.sub("", match.group("grantees")))
+            found.append((statement, grantees))
+    return found
+
+
+def _grant_reaches_storage_table(target: str, defaults, table_ref) -> bool:
+    """Whether one GRANT's target covers the storage table `table_ref` names."""
+    if defaults is not None:
+        schemas = _DEFAULTS_IN_SCHEMA.search(defaults)
+        # No IN SCHEMA = every schema, storage included.
+        reaches = schemas is None or "storage" in _identifiers(schemas.group(1))
+        return reaches and bool(re.fullmatch(r"TABLES", target, re.IGNORECASE))
+    all_tables = _ALL_TABLES_IN_SCHEMA.match(target)
+    if all_tables:
+        return "storage" in _identifiers(all_tables.group(1))
+    objects = re.sub(r"^TABLE\s+", "", target, flags=re.IGNORECASE)
+    return any(table_ref.match(obj.strip()) for obj in objects.split(","))
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "GRANT SELECT ON storage.objects, storage.buckets TO anon;",
+        "GRANT SELECT ON TABLE storage.buckets, storage.objects TO anon;",
+        'GRANT SELECT ON "storage"."objects", "storage"."buckets" TO anon;',
+        "GRANT SELECT ON ALL TABLES IN SCHEMA public, storage TO anon;",
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA public, storage GRANT SELECT ON TABLES TO anon;",
+        "ALTER DEFAULT PRIVILEGES FOR ROLE x IN SCHEMA storage GRANT ALL ON TABLES TO service_role, anon;",
+        "DO $$ BEGIN GRANT SELECT ON storage.objects, storage.buckets TO anon; END $$;",
+        "psql <<'SQL'\nGRANT SELECT ON storage.objects, storage.buckets TO :\"anon\";\nSQL",
+    ],
+)
+def test_the_storage_grant_scan_sees_every_spelling(statement):
+    """A guard that a respelling slips past is worse than no guard."""
+    for table in ("objects", "buckets"):
+        grants = _storage_table_grants(statement, table)
+        assert grants and "anon" in grants[0][1], (table, statement)
+
+
+def test_the_storage_grant_scan_finds_the_real_service_grants():
+    """Positive control: the legitimate storage grants in the seed are seen."""
+    grantees = {
+        grantee
+        for table in ("objects", "buckets")
+        for _, names in _storage_table_grants(_grant_and_seed_sql(), table)
+        for grantee in names
+    }
+    assert {"service_role", "storage_role"} <= grantees, grantees
+
+
 @pytest.mark.parametrize("role", ["anon", "authenticated"])
 @pytest.mark.parametrize("table", ["objects", "buckets"])
 def test_storage_tables_are_not_granted_to_client_roles(table, role):
@@ -145,36 +254,14 @@ def test_storage_tables_are_not_granted_to_client_roles(table, role):
     every bucket's contents and a DML grant lets any account rewrite or delete
     other people's object rows. PostgREST reaches these tables only by switching
     into these two roles; the Storage service uses its own credentials.
+
+    Grantee lists are parsed, not substring-matched, and `PUBLIC` counts as
+    every role. Service identities (`service_role`, `:"storage_role"`, the
+    read-only reader and Studio roles in `05-scoped-roles.sh`) are allowed.
     """
-    sql = _all_sql()
-    # `ON TABLE storage.x` and `ON storage.x` are both valid; the original
-    # required the second spelling exactly, so `GRANT SELECT ON TABLE
-    # storage.objects TO anon;` slipped past.
-    for match in re.finditer(
-        rf"GRANT\s+[^;]*?\s+ON\s+(?:TABLE\s+)?storage\.{table}\s+TO\s+([^;]+);",
-        sql,
-        re.IGNORECASE,
-    ):
-        assert role not in match.group(1), (
-            f"storage.{table} is granted to {role}: {match.group(0).strip()}"
-        )
-    for match in re.finditer(
-        r"GRANT\s+[^;]*?\s+ON\s+ALL\s+TABLES\s+IN\s+SCHEMA\s+storage\s+TO\s+([^;]+);",
-        sql,
-        re.IGNORECASE,
-    ):
-        assert role not in match.group(1), (
-            f"schema-wide storage grant includes {role}: {match.group(0).strip()}"
-        )
-    # ...and the DEFAULT PRIVILEGE, which grants anon on every FUTURE table
-    # and was not checked at all.
-    for match in re.finditer(
-        r"ALTER\s+DEFAULT\s+PRIVILEGES[^;]*?IN\s+SCHEMA\s+storage\s+GRANT[^;]*?TO\s+([^;]+);",
-        sql,
-        re.IGNORECASE,
-    ):
-        assert role not in match.group(1), (
-            f"storage default privilege includes {role}: {match.group(0).strip()}"
+    for statement, grantees in _storage_table_grants(_grant_and_seed_sql(), table):
+        assert role not in grantees and "public" not in grantees, (
+            f"storage.{table} is granted to {role}: {statement}"
         )
 
 
@@ -218,3 +305,13 @@ def test_public_client_grants_are_conditional_on_row_level_security():
         "the per-table grant loop is gone; client roles on `public` must stay "
         "gated on the table actually carrying RLS"
     )
+
+
+def test_function_grants_never_reexpose_security_definer_routines():
+    """06 runs on every boot, after the definer functions of slices 10/14
+    already exist; a blanket grant to `authenticated` reopened them through
+    PostgREST /rpc until those slices revoked them again."""
+    sql = (SCRIPTS_DIR / "06-permissions.sql").read_text(encoding="utf-8")
+    assert "GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO authenticated" not in sql
+    assert "NOT p.prosecdef" in sql
+    assert "GRANT ALL ON ROUTINE %s TO authenticated" in sql

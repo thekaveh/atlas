@@ -182,7 +182,7 @@ def test_mcp_servers_compose_contract() -> None:
     assert service["environment"]["MCP_POSTGRES_MAX_ROWS"] == "${MCP_POSTGRES_MAX_ROWS:-50}"
     assert service["environment"]["MCP_SEARXNG_MAX_RESULTS"] == "${MCP_SEARXNG_MAX_RESULTS:-5}"
     assert service["environment"]["SEARXNG_URL"] == "http://searxng:8080"
-    assert service["environment"]["NEO4J_URI"] == "${NEO4J_URI:-bolt://neo4j-graph-db:7687}"
+    assert service["environment"]["NEO4J_URI"] == "${NEO4J_URI}"
     assert service["depends_on"]["supabase-db-init"]["condition"] == "service_completed_successfully"
     assert service["depends_on"]["neo4j-graph-db"]["condition"] == "service_started"
     assert service["depends_on"]["searxng"]["condition"] == "service_started"
@@ -202,6 +202,24 @@ def test_mcp_runtime_guards_reject_write_and_unbounded_inputs() -> None:
     assert runtime.is_safe_neo4j_read("CALL db.labels()")
     assert not runtime.is_safe_neo4j_read("CREATE (n:User)")
     assert not runtime.is_safe_neo4j_read("MATCH (n) DETACH DELETE n")
+    # APOC core is loaded: its load/periodic/cypher procedures send HTTP or run
+    # writes from a read-only session; backticks/spaces must not hide them.
+    assert runtime.is_safe_neo4j_read("CALL apoc.meta.data()")
+    for escape in (
+        "MATCH (n) WITH count(n) AS c CALL apoc.load.jsonParams('http://ollama:11434/x', {}, '{}') "
+        "YIELD value RETURN value",
+        "MATCH (n) CALL `apoc`.periodic.iterate('MATCH (m) RETURN m', 'DETACH DELETE m', {}) YIELD batches RETURN batches",
+        "RETURN apoc . cypher.runFirstColumnSingle('CREATE (x) RETURN x', {})",
+        # live-confirmed bypasses of name filters (Neo4j 5.26.31 + APOC core)
+        "CALL apoc.meta.graph.of('CALL ap'+'oc.load.json(\"http://x\") YIELD value RETURN value') "
+        "YIELD nodes RETURN size(nodes)",
+        "CALL \\u0061poc.load.json('http://x') YIELD value RETURN value",
+        "CALL apoc\\u002Eload.json('http://x') YIELD value RETURN value",
+        "MATCH (n) WITH n AS `y`SET y.p = 1 RETURN y",
+    ):
+        assert not runtime.is_safe_neo4j_read(escape), escape
+    for schema_call in ("CALL apoc.meta.schema()", "CALL apoc.meta.data() YIELD label, property RETURN label, property"):
+        assert runtime.is_safe_neo4j_read(schema_call), schema_call
     # A MATCH statement ends in RETURN, so it's wrapped with a server-side LIMIT.
     assert runtime.bounded_neo4j_cypher("MATCH (n) RETURN n") == (
         "CALL {\nMATCH (n) RETURN n\n}\nRETURN *\nLIMIT $atlas_limit"
@@ -242,7 +260,7 @@ def test_mcp_postgres_capability_discloses_scoped_read_role_limits() -> None:
         "without object ownership or BYPASSRLS",
         "SELECT/WITH/SHOW/EXPLAIN",
         "no schema, table, or column allowlist or redaction",
-        "pg_read_all_data",
+        "minus a credential deny list",
         "operator-scoped rather than tenant-scoped",
     ))
 
@@ -315,3 +333,163 @@ def test_mcp_servers_docs_describe_consumers_guardrails_and_deferred_gateways() 
         "namespace",
     ):
         assert expected in readme
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        # `--` inside a literal used to hide the rest from the guard while
+        # psycopg's simple protocol ran every statement (COMMIT ends READ ONLY).
+        "SELECT '--'; COMMIT; SELECT pg_sleep(1e6)",
+        "WITH a AS (SELECT '--'), b AS (DELETE FROM t RETURNING *) SELECT * FROM b",
+        "SELECT $$--$$; COMMIT",
+        "SELECT '/*'; DROP TABLE t; SELECT '*/'",
+        # E'' strings honor backslash escapes; `$` continues an identifier.
+        "SELECT E'\\' -- ' ; COMMIT; DROP TABLE t",
+        "SELECT 1 AS a$b$, '$b$ -- ', 1; COMMIT; DROP TABLE t",
+    ],
+)
+def test_postgres_guard_is_literal_aware(sql: str) -> None:
+    assert _runtime_module().is_safe_postgres_read(sql) is False
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT 'a--b' AS x FROM t",
+        "SELECT 'it''s' /* note */",
+        "SELECT 1 -- ok",
+        "SELECT E'it\\'s' AS x",
+        "SELECT name FROM t WHERE x = 'e' -- note",
+        "SELECT /* outer /* nested */ still comment */ 1",
+    ],
+)
+def test_postgres_guard_keeps_literals_and_comments_usable(sql: str) -> None:
+    assert _runtime_module().is_safe_postgres_read(sql) is True
+
+
+def test_cypher_guard_uses_cypher_comment_syntax() -> None:
+    module = _runtime_module()
+    # `--` is not a Cypher comment, so it must not hide the DELETE.
+    assert module.is_safe_neo4j_read(
+        "MATCH (n) WITH n, '--' AS x DETACH DELETE n RETURN x"
+    ) is False
+    assert module.is_safe_neo4j_read("MATCH (n) RETURN n // trailing note") is True
+    assert "// trailing" not in module.bounded_neo4j_cypher(
+        "MATCH (n) RETURN n // trailing note"
+    )
+
+
+def test_postgres_query_executes_the_text_the_guard_approved(monkeypatch) -> None:
+    """If the scanner and PostgreSQL ever disagree about a literal, the run
+    must fail as a syntax error rather than execute hidden statements."""
+    import types
+
+    module = _runtime_module()
+    executed = []
+
+    class Cursor:
+        def execute(self, sql, params=None):
+            executed.append(sql)
+
+        def fetchmany(self, _n):
+            return []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    class Conn(Cursor):
+        def cursor(self):
+            return Cursor()
+
+    fake = types.SimpleNamespace(connect=lambda **_kw: Conn())
+    monkeypatch.setitem(sys.modules, "psycopg", fake)
+    monkeypatch.setitem(sys.modules, "psycopg.rows", types.SimpleNamespace(dict_row=None))
+    monkeypatch.setenv("MCP_POSTGRES_DB_USER", "u")
+    monkeypatch.setenv("MCP_POSTGRES_DB_PASSWORD", "p")
+    module.postgres_query("SELECT 1 -- trailing note")
+    assert "SELECT 1" in executed and not any("--" in sql for sql in executed)
+
+
+def test_scanner_follows_postgres_comment_rules() -> None:
+    module = _runtime_module()
+    # Nested block comments close at the matching */, as in PostgreSQL.
+    assert module._without_comments("SELECT /* a /* b */ c */ 1") == "SELECT   1"
+    # A line comment ends at a bare CR too, so FROM t is not swallowed.
+    assert module._without_comments("SELECT 1 --c\rFROM t") == "SELECT 1  \rFROM t"
+
+
+def test_neo4j_read_retries_unaliased_returns_without_the_limit_wrapper(monkeypatch) -> None:
+    """Neo4j rejects `CALL { MATCH (n) RETURN n.name } RETURN *` ("must be
+    aliased"); the tool re-runs the plain read, still capped by fetch()."""
+    import sys
+    import types
+
+    monkeypatch.setenv("NEO4J_URI", "bolt://neo4j-graph-db:7687")
+
+    runs = []
+
+    class Record:
+        def data(self):
+            return {"n.name": "x"}
+
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def run(self, query, **params):
+            runs.append(query.text)
+            if query.text.startswith("CALL {"):
+                raise RuntimeError("Expression in CALL { RETURN ... } must be aliased (use AS)")
+            return types.SimpleNamespace(fetch=lambda n: [Record()] * min(n, 2))
+
+    class Query:
+        def __init__(self, text, timeout=None):
+            self.text = text
+
+    driver = types.SimpleNamespace(session=lambda **_kw: Session(), close=lambda: None)
+    monkeypatch.setitem(sys.modules, "neo4j", types.SimpleNamespace(
+        READ_ACCESS="READ", Query=Query,
+        GraphDatabase=types.SimpleNamespace(driver=lambda *_a, **_kw: driver),
+    ))
+    runtime = _runtime_module()
+
+    out = runtime.neo4j_read_cypher("MATCH (n) RETURN n.name", limit=5)
+
+    assert out["rows"] == [{"n.name": "x"}, {"n.name": "x"}]
+    assert runs[0].startswith("CALL {") and runs[1] == "MATCH (n) RETURN n.name"
+
+
+def test_query_rows_are_made_json_safe():
+    # neo4j.time values and non-UTF-8 bytea failed the whole tool call.
+    runtime = _runtime_module()
+
+    class DateTime:
+        def iso_format(self):
+            return "2026-10-05T12:00:00Z"
+
+    class Duration(tuple):  # neo4j Duration/Point subclass tuple
+        def iso_format(self):
+            return "P2DT5S"
+
+    rows = runtime._json_safe([{"d": DateTime(), "b": memoryview(b"\xff\xfe"), "n": [1, "x"],
+                                "p": Duration((0, 2, 5, 0))}])
+    assert rows == [{"d": "2026-10-05T12:00:00Z", "b": "\\xfffe", "n": [1, "x"], "p": "P2DT5S"}]
+
+
+
+def test_neo4j_tool_names_a_disabled_graph_database(monkeypatch):
+    # compose passes NEO4J_URI blank when Neo4j is disabled; the driver
+    # raised a cryptic "URI scheme '' is not supported".
+    runtime = _runtime_module()
+    monkeypatch.setenv("NEO4J_URI", "")
+    import pytest
+
+    with pytest.raises(ValueError, match="not configured"):
+        runtime.neo4j_read_cypher("MATCH (n) RETURN n LIMIT 1")

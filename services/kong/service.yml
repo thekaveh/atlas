@@ -34,6 +34,9 @@ env:
     # default removed — computed by services/topology.py slot allocator
   - name: KONG_HTTPS_PORT
     # default removed — computed by services/topology.py slot allocator
+  - name: KONG_CORS_EXTRA_ORIGINS
+    default: ""
+    description: "Comma-separated exact browser origins (scheme://host[:port]) allowed cross-origin through Kong in addition to *.localhost, localhost and 127.0.0.1, e.g. a LAN or tunnel front-end. Normalised (lowercase, no trailing slash or default port); wildcards and paths are ignored with a warning. Read when Kong's config is generated at start."
   - name: DASHBOARD_USERNAME
     default: kong_admin
   - name: DASHBOARD_PASSWORD
@@ -43,8 +46,8 @@ env:
 
 depends_on:
   # Kong is a proxy — it does not need its upstream targets to be UP to start
-  # serving traffic. Only Supabase (config storage) + Redis (rate-limit state)
-  # are real bootstrap blockers. The proxy targets (open-webui, n8n, backend,
+  # serving traffic. Supabase and Redis are listed for start ordering only:
+  # Kong is DB-less and its rate limiter uses policy: local, not Redis. The proxy targets (open-webui, n8n, backend,
   # …) are listed in data_flow.calls below, which is the correct abstraction
   # for "what does Kong route to" and drives the architecture diagram.
   required:

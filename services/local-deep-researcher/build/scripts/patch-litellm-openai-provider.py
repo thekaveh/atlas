@@ -52,6 +52,36 @@ def _patch_configuration(text: str) -> str:
     return text
 
 
+# Upstream from_runnable_config reads os.environ first, so the container's
+# SEARCH_API / MAX_WEB_RESEARCH_LOOPS silently overrode the per-run values the
+# backend and n8n send. Only these two run knobs flip to config-first: letting a
+# caller override e.g. openai_api_base would send the LiteLLM key elsewhere.
+_RUN_CONFIG_FIRST_MARKER = "_ATLAS_RUN_CONFIG_FIRST"
+_UPSTREAM_RAW_VALUE = "            name: os.environ.get(name.upper(), configurable.get(name))\n"
+_PATCHED_RAW_VALUE = (
+    "            name: (\n"
+    "                configurable.get(name)\n"
+    "                if name in _ATLAS_RUN_CONFIG_FIRST\n"
+    "                and configurable.get(name) is not None\n"
+    "                else os.environ.get(name.upper(), configurable.get(name))\n"
+    "            )\n"
+)
+
+
+def _patch_run_config_precedence(text: str) -> str:
+    if _RUN_CONFIG_FIRST_MARKER in text:
+        return text
+    if _UPSTREAM_RAW_VALUE not in text or "\nclass Configuration(" not in text:
+        raise RuntimeError("could not find Configuration.from_runnable_config() to patch")
+    text = text.replace(_UPSTREAM_RAW_VALUE, _PATCHED_RAW_VALUE, 1)
+    return text.replace(
+        "\nclass Configuration(",
+        '\n_ATLAS_RUN_CONFIG_FIRST = frozenset({"max_web_research_loops", "search_api"})\n'
+        "\n\nclass Configuration(",
+        1,
+    )
+
+
 def _patch_graph(text: str) -> str:
     if "from langchain_openai import ChatOpenAI" not in text:
         text = text.replace(
@@ -134,11 +164,13 @@ def main() -> None:
     configuration = CONFIGURATION_PATH.read_text(encoding="utf-8")
     graph = GRAPH_PATH.read_text(encoding="utf-8")
 
-    patched_configuration = _patch_configuration(configuration)
+    patched_configuration = _patch_run_config_precedence(_patch_configuration(configuration))
     patched_graph = _patch_graph(graph)
 
     if 'Literal["ollama", "lmstudio", "openai"]' not in patched_configuration:
         raise RuntimeError("could not patch Configuration.llm_provider for openai")
+    if _RUN_CONFIG_FIRST_MARKER not in patched_configuration:
+        raise RuntimeError("could not patch Configuration run-config precedence")
     get_llm_start = patched_graph.index("def get_llm(")
     get_llm_end = patched_graph.index("\n# Nodes", get_llm_start)
     get_llm = patched_graph[get_llm_start:get_llm_end]

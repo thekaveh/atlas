@@ -126,3 +126,12 @@ def test_speaches_gpu_image_shell_export_wins(env_with_overrides, monkeypatch):
     }))
     env = sc.generate_service_environment()
     assert env["SPEACHES_IMAGE"] == "ghcr.io/example/speaches:custom-cuda"
+
+
+@pytest.mark.parametrize("comfyui_source, expected", [
+    ("disabled", "false"), ("container-cpu", "true"),
+])
+def test_open_webui_image_generation_follows_comfyui_source(env_with_overrides, comfyui_source, expected):
+    # No image toggle aimed at a ComfyUI host that does not exist.
+    sc = _sc(env_with_overrides({"COMFYUI_SOURCE": comfyui_source}))
+    assert sc.generate_service_environment()["OPEN_WEB_UI_ENABLE_IMAGE_GENERATION"] == expected

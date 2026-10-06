@@ -37,21 +37,51 @@ Speech-to-text authentication is source-aware. For either Parakeet source, `OPEN
 
 If a dependency is disabled, adaptive services should degrade where supported. Some implementation-level dependency cleanup is tracked separately as bootstrapper work and is outside this documentation pass.
 
+Open WebUI offers every `Tools` method whose name does not start with `__`
+to the model, so the bundled tools keep helpers (the Backend header builder,
+the blocking research runner) outside the `Tools` class; long research calls
+run in a worker thread so they do not stall the server's event loop.
+
 Bundled memory and ComfyUI tools call the Backend from Open WebUI's server
 process with the auto-generated `BACKEND_OPEN_WEBUI_API_TOKEN`. The header is
 attached to every Backend request and never sent to browser JavaScript. The
 tool code may delegate the authenticated Open WebUI user id, while the Backend
 accepts this caller token only on memory and legacy ComfyUI routes. The init
 container installs an idempotent trigger/backfill that maps valid Open WebUI
-UUIDs into `public.users`, preserving memory foreign-key ownership.
+UUIDs into `public.users`, preserving memory foreign-key ownership; `public.users`
+has row-level security, so `supabase-db-init` gives the Open WebUI database role
+its own policy ("Atlas open-webui identity sync") for that trigger. In the
+`auth` schema the role can read only `auth.users.id` (the column those
+existence checks need), not password hashes or recovery tokens.
 Automatic post-conversation extraction uses two daemon workers and a bounded
 four-job waiting queue. Saturated work is skipped with a bounded diagnostic,
 and Backend non-success responses are treated as extraction failures; chat
 responses never wait for the extraction timeout.
 
+**Saved admin settings override `.env`.** Open WebUI keeps its connection, audio
+and image settings as persistent config (`ENABLE_PERSISTENT_CONFIG` defaults to
+true and Atlas does not change it). The env vars Atlas injects only seed the
+first boot; once an administrator saves the Connections, Audio or Images page,
+the stored value wins. A later STT/TTS source switch, a regenerated
+`PARAKEET_API_TOKEN` or a new `LITELLM_MASTER_KEY` is then ignored until the
+page is updated again (or the value is reset in Admin Settings).
+
+**Built-in image generation is not wired to a working workflow.** The compose
+fragment turns on `ENABLE_IMAGE_GENERATION` with the ComfyUI engine whenever
+ComfyUI is enabled (`OPEN_WEB_UI_ENABLE_IMAGE_GENERATION`, set by the
+bootstrapper; `false` when `COMFYUI_SOURCE=disabled`, unless an admin has already
+saved Images settings, which Open WebUI keeps in its database), but sets no
+`COMFYUI_WORKFLOW`, `COMFYUI_WORKFLOW_NODES` or `IMAGE_GENERATION_MODEL`, so
+Open WebUI submits its stock workflow (checkpoint `model.safetensors`, no prompt
+node mapping) and ComfyUI rejects it. Configure the workflow under Admin
+Settings → Images (for example from `extras/workflows/default-text-to-image.json`),
+or use the bundled ComfyUI tool, which goes through the Backend. The tool and
+function folders are mounted read-only; `open-webui-init` registers them
+through the API.
+
 ### 4.1. Atlas Safe Prompt Middleware
 
-Atlas ships a disabled-by-default `Atlas Safe Prompt Middleware` Filter Function in `extras/functions/atlas_safe_prompt_middleware.py`. The existing `open-webui-init` container registers it with Open WebUI on startup, but the function's own `enabled` valve defaults to `false`, so it is inert until an admin enables it from Open WebUI's Functions settings.
+Atlas ships a disabled-by-default `Atlas Safe Prompt Middleware` Filter Function in `extras/functions/atlas_safe_prompt_middleware.py`. The existing `open-webui-init` container registers it with Open WebUI on startup, but the function's own `enabled` valve defaults to `false`, so it is inert until an admin enables it from Open WebUI's Functions settings. Like every registered Filter Function (including `Memory Auto-Extraction`), it is also created inactive and not global: an admin must switch it on and either make it global or attach it to models before it runs on any chat, whatever its valve says.
 
 When enabled, the filter runs inside Open WebUI before requests reach LiteLLM and redacts obvious accidental secrets from user messages, such as bearer tokens, `sk-...` API keys, AWS access keys, and password assignments. This covers Open WebUI-originated chat traffic only. LiteLLM remains the universal model gateway for the stack, and LiteLLM + Langfuse remains the stack-wide observability path for tracing, latency, and cost. OpenLIT remains deferred as a separate UI/service.
 
@@ -86,7 +116,7 @@ Because upstream now marks Pipelines as legacy for new deployments and recommend
 
 ### 5.4. Future — Missing pair integrations
 
-- **open-webui ↔ searxng** — *Why:* Open WebUI consumes SearXNG as a first-class web-search provider for in-chat grounding, but the stack only wires SearXNG to local-deep-researcher today. *Mechanism:* `ENABLE_RAG_WEB_SEARCH=true` + `RAG_WEB_SEARCH_ENGINE=searxng` + `SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>&format=json`. *Effort:* small. *Confidence:* high.
+- **open-webui ↔ searxng** — *Why:* Open WebUI consumes SearXNG as a first-class web-search provider for in-chat grounding, but the stack only wires SearXNG to local-deep-researcher today. *Mechanism:* `ENABLE_WEB_SEARCH=true` + `WEB_SEARCH_ENGINE=searxng` + `SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>&format=json`. *Effort:* small. *Confidence:* high.
 - **open-webui ↔ jupyterhub** — *Why:* Open WebUI ships a Jupyter-backed code-execution engine that runs LLM-emitted Python in a real kernel with persistent state, instead of the in-browser Pyodide sandbox. *Mechanism:* `CODE_EXECUTION_ENGINE=jupyter` + `CODE_EXECUTION_JUPYTER_URL=http://jupyterhub:8888` + `CODE_EXECUTION_JUPYTER_AUTH=token` (mirror for `CODE_INTERPRETER_*`). *Effort:* medium. *Confidence:* high.
 - **open-webui ↔ minio** — *Why:* Chat uploads, generated images, and TTS audio currently live in a Docker volume and vanish on `--cold`; Open WebUI supports S3 storage natively and MinIO is already in the stack. *Mechanism:* `STORAGE_PROVIDER=s3` + `S3_ENDPOINT_URL=http://minio:9000` + `S3_BUCKET_NAME=openwebui` with MinIO credentials, plus an `mc mb` init step. *Effort:* small. *Confidence:* high.
 - **open-webui ↔ n8n** — *Why:* n8n workflows could be surfaced to chat as Open WebUI Tools, letting users trigger automations ("email this summary", "create a Jira ticket") without writing Python. *Mechanism:* register an OpenAPI tool server pointing at an n8n webhook that serves `openapi.json` (via a workflow-to-schema wrapper). *Effort:* medium. *Confidence:* medium.
@@ -123,7 +153,7 @@ Support tier: **experimental** — Capability contract declared (#967); no cited
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Unified browser chat through LiteLLM | supported | tested | Atlas initializes an Open WebUI administrator and routes its OpenAI-compatible model traffic through the LiteLLM catalog, including Hermes when enabled. |
-| Source-aware speech and image features | partial | tested | Open WebUI receives selected speech endpoints and ComfyUI settings, while model readiness, disabled providers, and source-specific credentials can leave individual features unavailable. |
+| Source-aware speech and image features | partial | tested | Open WebUI receives selected speech endpoints and ComfyUI settings, while model readiness, disabled providers, source-specific credentials, saved admin settings, and the unconfigured built-in ComfyUI workflow can leave individual features unavailable. |
 | Backend memory and research tools | partial | tested | Bundled server-side tools use scoped Backend tokens and synchronized user identities, but extraction is bounded best-effort and research depends on Local Deep Researcher availability. |
 | Safe prompt secret redaction | partial | tested | The registered filter redacts common secret patterns only after an administrator enables its default-off valve, and it covers Open WebUI user messages rather than stack-wide traffic. |
 | Open WebUI access control | supported | tested | Direct and CORS-only chat.localhost paths rely on Open WebUI's own account and session authentication; Kong provides routing but no additional login layer. |

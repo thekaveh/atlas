@@ -20,6 +20,7 @@ def test_gltf_transform_runner_includes_normalization_and_optimization_flags(
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr("shutil.which", lambda name: f"/usr/bin/{name}")
     input_path = tmp_path / "in.glb"
     output_path = tmp_path / "out.glb"
     input_path.write_bytes(b"raw")
@@ -75,3 +76,55 @@ def test_gltf_transform_runner_applies_timeout_to_every_subprocess(
     run_gltf_transform(input_path, tmp_path / "out.glb", PostprocessParams())
 
     assert timeouts == [17.0, 17.0, 17.0]
+
+
+def test_gltf_transform_runner_disables_upstream_defaults_when_not_requested(
+    monkeypatch, tmp_path
+) -> None:
+    """gltf-transform 4.5 defaults --simplify true and --compress meshopt."""
+    from asset_worker.models import PostprocessParams
+    from asset_worker.runner import run_gltf_transform
+
+    commands = []
+
+    def fake_run(command, *, check, timeout):
+        commands.append(command)
+        if command[1] == "optimize":
+            tmp_path.joinpath("out.glb").write_bytes(b"optimized")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    input_path = tmp_path / "in.glb"
+    input_path.write_bytes(b"raw")
+
+    run_gltf_transform(
+        input_path,
+        tmp_path / "out.glb",
+        PostprocessParams(meshopt=False, collider_decimation=None),
+    )
+
+    optimize = next(command for command in commands if command[1] == "optimize")
+    joined = " ".join(optimize)
+    assert "--simplify false" in joined
+    assert "--compress false" in joined
+    assert "--texture-compress webp" in joined
+
+
+def test_gltf_transform_runner_rejects_ktx2_without_ktx_software(
+    monkeypatch, tmp_path
+) -> None:
+    import pytest
+
+    from asset_worker.models import PostprocessParams
+    from asset_worker.runner import GltfTransformError, run_gltf_transform
+
+    def fake_run(command, *, check, timeout):
+        raise AssertionError("no subprocess may run when ktx is missing")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    input_path = tmp_path / "in.glb"
+    input_path.write_bytes(b"raw")
+
+    with pytest.raises(GltfTransformError, match="KTX-Software"):
+        run_gltf_transform(input_path, tmp_path / "out.glb", PostprocessParams(ktx2=True))

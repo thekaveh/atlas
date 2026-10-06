@@ -25,7 +25,7 @@ sources_consulted:
 
 - **searxng ↔ open-webui**
   - Why valuable: Open WebUI ships a first-class "Web Search" toggle (per the upstream README: "Perform web searches using 15+ providers including SearXNG"). Today it is silently disabled — no env vars are set in `services/open-webui/service.yml` — so chat sessions have no live-web grounding without going through the side-loaded `research_tool.py` extra.
-  - Mechanism sketch: in `runtime_adaptive.open-web-ui.adapts_to`, add `searxng`; set `ENABLE_RAG_WEB_SEARCH=true`, `RAG_WEB_SEARCH_ENGINE=searxng`, `SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>` when `SEARXNG_SOURCE != disabled`.
+  - Mechanism sketch: in `runtime_adaptive.open-web-ui.adapts_to`, add `searxng`; set `ENABLE_WEB_SEARCH=true`, `WEB_SEARCH_ENGINE=searxng`, `SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>` when `SEARXNG_SOURCE != disabled`.
   - Effort: small.
   - Risks / open questions: SearXNG `settings.yml` already enables `formats: [html, json]` (confirmed line 78-80) so no upstream change is needed. The current `method: POST` is fine — Open WebUI uses GET against `SEARXNG_QUERY_URL`. Hermes already templates a `SEARXNG_INTERNAL_URL`; converge on one var name to avoid drift (see `reference_litellm_quirks` for prior dual-alias pain).
   - Confidence: high (upstream README explicitly names SearXNG as a supported web-search provider).

@@ -83,7 +83,7 @@ def test_v0_env_migrates_through_the_full_chain(tmp_path):
     assert "COMFYUI_USER_MODELS" in text
     # v4: retired curated Ollama model reference rewritten.
     assert "LITELLM_DEFAULT_MODEL=ollama/qwen3.8:latest" in text
-    assert "WEAVIATE_ENABLE_MODULES=backup-filesystem" in text
+    assert "WEAVIATE_ENABLE_MODULES=text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem" in text
 
 
 def test_chain_is_idempotent_on_second_run(tmp_path):

@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Literal, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, status
+from fastapi.responses import PlainTextResponse
 
 from bounded_upload import (
     MAX_BODY_TIMEOUT_SECONDS,
@@ -142,7 +143,7 @@ async def transcribe(
             return {"text": result["text"]}
         if response_format == "verbose_json":
             return result
-        return result["text"]
+        return PlainTextResponse(result["text"])  # OpenAI's text format is raw text
     except ProviderDeadlineExceeded:
         return fatal_timeout_response("PARAKEET")
     except UploadTooLargeError as exc:

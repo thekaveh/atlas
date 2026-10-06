@@ -8,7 +8,7 @@ capabilities:
   - name: "Container and managed-MPS image generation"
     status: supported
     verification: tested
-    note: "Atlas configures CPU and NVIDIA containers plus an Apple-Silicon Metal host process behind the same endpoint contract."
+    note: "Atlas configures a CPU container and an Apple-Silicon Metal host process behind the same endpoint contract; `container-gpu` currently runs the same CPU image with no GPU device reservation, so it gets no CUDA acceleration."
   - name: "Workflow and model provisioning"
     status: partial
     verification: tested

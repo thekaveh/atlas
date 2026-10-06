@@ -121,6 +121,21 @@ def test_stop_job_returns_200_when_enabled(
     assert resp.json() == {"stopped": True}
 
 
+def test_unknown_job_returns_404_not_500(
+    fastapi_client, mock_job_submission_client, monkeypatch,
+):
+    # The Ray SDK reports a dashboard 404 as a RuntimeError naming the code.
+    monkeypatch.setenv("RAY_JOB_API_TOKEN", "ray-test-token")
+    missing = RuntimeError("Request failed with status code 404: Job raysubmit_x does not exist.")
+    mock_instance = mock_job_submission_client.return_value
+    mock_instance.get_job_status.side_effect = missing
+    mock_instance.stop_job.side_effect = missing
+    assert fastapi_client.get("/api/ray/jobs/raysubmit_x", headers=RAY_HEADERS).status_code == 404
+    assert fastapi_client.delete("/api/ray/jobs/raysubmit_x", headers=RAY_HEADERS).status_code == 404
+    mock_instance.stop_job.side_effect = RuntimeError("Request failed with status code 500: boom")
+    assert fastapi_client.delete("/api/ray/jobs/raysubmit_x", headers=RAY_HEADERS).status_code == 500
+
+
 def test_invalid_payload_returns_422(fastapi_client, monkeypatch):
     """Missing the required `entrypoint` field → FastAPI returns 422 unprocessable."""
     monkeypatch.setenv("RAY_JOB_API_TOKEN", "ray-test-token")
@@ -253,3 +268,22 @@ def test_stop_timeout_maps_to_504_and_stays_reconcilable(
     assert resp.status_code == 504
     assert "raysubmit_amb" in resp.json()["detail"]
 
+
+
+@pytest.mark.parametrize("token", [None, "", "   "])
+def test_ray_job_token_fails_closed_when_unset(monkeypatch, token):
+    """Every other test sets RAY_JOB_API_TOKEN; a fail-open regression on the
+    unset path would leave arbitrary-command job submission unauthenticated."""
+    from fastapi import HTTPException
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    import ray_routes
+
+    if token is None:
+        monkeypatch.delenv("RAY_JOB_API_TOKEN", raising=False)
+    else:
+        monkeypatch.setenv("RAY_JOB_API_TOKEN", token)
+    for credentials in (None, HTTPAuthorizationCredentials(scheme="Bearer", credentials="")):
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(ray_routes._require_ray_job_token(credentials))
+        assert exc.value.status_code == 503

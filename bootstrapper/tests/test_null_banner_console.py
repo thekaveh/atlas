@@ -43,7 +43,7 @@ def test_apply_user_model_selections_persists_catalog_dimension_contract():
         source_override_manager = _SOM()
 
     stub = _Stub()
-    # qwen3-embedding:0.6b declares 1536 in services/ollama/models.yaml.
+    # qwen3-embedding:0.6b declares 1024 in services/ollama/models.yaml.
     selections = {
         "LITELLM_EMBEDDING_MODEL": "ollama/qwen3-embedding:0.6b",
         "OLLAMA_USER_MODELS": "qwen3.8:latest",
@@ -51,7 +51,7 @@ def test_apply_user_model_selections_persists_catalog_dimension_contract():
     result = AtlasStarter.apply_user_model_selections(stub, selections)
     assert result is True
     assert captured.get("OLLAMA_USER_MODELS") == "qwen3.8:latest"
-    assert captured.get("LANGMEM_EMBEDDING_DIM") == "1536"
+    assert captured.get("LANGMEM_EMBEDDING_DIM") == "1024"
 
 
 def test_apply_user_model_selections_accepts_custom_model_with_selected_dimension():
@@ -220,3 +220,21 @@ def test_apply_user_model_selections_accepts_explicitly_aligned_langmem_override
     )
     assert captured["LANGMEM_EMBEDDING_MODEL"] == "custom/provider-b"
     assert captured["LANGMEM_EMBEDDING_DIM"] == "1024"
+
+
+def test_launch_banner_forwards_status_messages_to_the_log_sink():
+    # Many pipeline steps report WHY they failed only through the banner
+    # (port conflicts, dependency auto-disables, key errors); swallowing them
+    # left the TUI with a bare "<step> failed".
+    seen = []
+    banner = _NullBanner(sink=lambda message, level: seen.append((message, level)))
+    banner.show_status_message("Port 63000 is already in use", "warning")
+    banner.show_status_message("")
+    banner.show_section_header("ignored")
+    assert seen == [("Port 63000 is already in use", "warn")]  # chip level
+    banner.console.print("[red]Kong configuration error[/red]: route x")
+    assert seen[-1] == ("Kong configuration error: route x", "error")
+    banner.console.print("plain detail: the required port is configured")
+    assert seen[-1] == ("plain detail: the required port is configured", "info")
+    banner.console.print("[yellow]heads up[/yellow]")
+    assert seen[-1] == ("heads up", "warn")

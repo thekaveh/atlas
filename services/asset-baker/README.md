@@ -4,7 +4,7 @@
 
 Asset Baker is Atlas' containerized **Blender headless HP→LP bake worker**. It turns messy AI-generated high-poly meshes — the interpenetrating shells/flaps, texture distortion, and missing normal maps that make img2mesh output unusable as game/web assets — into clean low-poly GLBs with a baked BaseColor + tangent-normal map. The pipeline is the industry HP→LP bake: **voxel-remesh → decimate → fresh Smart-UV → selected-to-active bake** of color + normal from the original.
 
-It is a **distinct service from the [Asset Worker](../asset-worker/README.md)** (#343): that Node/glTF-Transform worker does weld/simplify/compress and *cannot* voxel-remesh, regenerate UVs, or bake textures/normals — those need Blender. Asset Baker rides the same content-addressed MinIO artifact schema and sits behind the same `/assets/*` route family, so `generate → image→3D → bake (this) → optimize (asset-worker)` speak one job idiom while remaining separate containers (Blender vs Node images).
+It is a **distinct service from the [Asset Worker](../asset-worker/README.md)** (#343): that Node/glTF-Transform worker does weld/simplify/compress and *cannot* voxel-remesh, regenerate UVs, or bake textures/normals — those need Blender. Asset Baker rides the same content-addressed MinIO artifact schema and the same `/assets/*` path idiom on its own `asset-baker.localhost` route (the Backend gateway has no bake route), so `generate → image→3D → bake (this) → optimize (asset-worker)` speak one job idiom while remaining separate containers (Blender vs Node images).
 
 It is **disabled by default** (`ASSET_BAKER_SOURCE=disabled`); the recommended enabled mode is `container-cpu`. Cycles bakes on **CPU** by design: deterministic, runs anywhere (CI, Linux prod), measured 30–200 s/asset at 2k textures, and GPU-contention-safe (Docker on macOS can't pass Metal into a container anyway). GPU (`container-gpu`) and managed `localhost` are deferred until separate lifecycle/performance evidence exists. The Blender image is ~1.5–2.5 GB, so the service is track-membered (`gen-ai-creative`) and never always-on.
 
@@ -74,6 +74,8 @@ The image installs a **pinned, checksum-verified** headless Blender at build tim
 
 ### 4.1. Uploaded GLB
 
+Inputs (uploaded or MinIO-referenced) must be self-contained binary glTF 2.0 files: anything else (a `.gltf` JSON file, whatever its name, or a GLB whose JSON chunk does not parse) is rejected with `400`, as is a `buffers[].uri` or `images[].uri` that is not a `data:` URI. Both checks run before any converter, because the converters would resolve such a URI against the container filesystem (or network) and embed what they read.
+
 `POST /assets/bake` accepts `multipart/form-data`:
 
 ```bash
@@ -132,13 +134,13 @@ Both endpoints return a content-addressed artifact envelope — the baked LP GLB
 
 When `ASSET_BAKER_MINIO_ENABLED=false`, artifacts are stored under `ASSET_BAKER_ARTIFACT_DIR/bake/<sha256>.{glb,png}` and `download_url=/assets/artifacts/<sha256>.glb`. A `skip` (foliage) bake emits `textures: []` and `color_mean: null`.
 
-Failure statuses: `400` (empty / non-GLB), `413` (over `ASSET_BAKER_MAX_UPLOAD_MB`), `422` (bake failed — including the **black-bake QA gate**), `429` (worker busy — bounded concurrency), `504` (bake timeout).
+Failure statuses: `400` (empty / non-GLB), `413` (over `ASSET_BAKER_MAX_UPLOAD_MB`), `422` (bake failed — including the **black-bake QA gate**), `429` (worker busy — bounded concurrency), `504` (bake timeout); `/assets/bake/ref` also returns `404` for a missing input object and `403` for one the service account cannot read. The Kong route's read/write timeout follows `ASSET_BAKER_TIMEOUT_SECONDS` + 30 s, so a long bake is not cut at the gateway's 300 s default.
 
 ## 5. Architecture & Wiring
 
 The worker spawns a headless Blender subprocess (`blender -b -P bake.py`) per request and enforces bounds (size, timeout, concurrency=1, temp-file cleanup) around it. The bake pipeline (`bake.py`, ported from DayDreams' battle-tested `spikes/one-cell/bake_lp.py`) runs per source:
 
-1. **Import → join → canonical-normalize.** All meshes are joined and scaled to `canonical_size` max-dimension **before** remeshing — raw GLBs aren't meter-scale and the relative voxel/ray heuristics explode without it (a 0.99 m "cottage" otherwise remeshes to 8.3 M faces). The base is rested at `z=0`.
+1. **Import → join → canonical-normalize.** Parent node transforms (root rotation/scale, multi-part placement) are first baked into each mesh, then all meshes are joined and scaled to `canonical_size` max-dimension **before** remeshing — raw GLBs aren't meter-scale and the relative voxel/ray heuristics explode without it (a 0.99 m "cottage" otherwise remeshes to 8.3 M faces). The base is rested at `z=0`.
 2. **Voxel-remesh** fuses the interpenetrating shells/flaps that cause tilt/floaters into one watertight surface.
 3. **Debris-shell drop** removes loose fragments below `MIN_SHELL_FACES`.
 4. **Decimate** to `target_tris` (skipped if already under).
@@ -202,6 +204,7 @@ Outputs are SHA-256 content-addressed and written to MinIO (`bake/<sha256>.{glb,
 - `504` bake timeout: raise `ASSET_BAKER_TIMEOUT_SECONDS` or lower `tex_size`/`target_tris` for very heavy assets.
 - `401 Invalid Asset Baker bearer token`: pass `Authorization: Bearer ${ASSET_BAKER_API_TOKEN}`.
 - `403 Input bucket is not allowed`: add the intended bucket to `ASSET_BAKER_ALLOWED_INPUT_BUCKETS`; do not broaden the list to unrelated or private buckets.
+- Dependency check fails with "Asset Baker requires MinIO": the container waits on `minio` and `minio-init`, and the `gen-ai-creative` track leaves MinIO off. Add `--minio-source container` (for example `./start.sh --track gen-ai-creative --asset-baker-source container-cpu --minio-source container`), declare `MINIO_SOURCE: container` in a consumer manifest, or disable Asset Baker.
 - MinIO upload failure: confirm `MINIO_SOURCE=container`, `ASSET_BAKER_MINIO_BUCKET`, and the generated `MINIO_ASSET_BAKER_*` credentials.
 - Kong alias missing: confirm `ASSET_BAKER_SOURCE=container-cpu`, run `./start.sh --setup-hosts`, and regenerate routes through the normal startup flow.
 

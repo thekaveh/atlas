@@ -157,7 +157,7 @@ def test_verba_compose_contract() -> None:
     assert service["deploy"]["replicas"] == "${VERBA_SCALE:-0}"
     assert service["depends_on"]["weaviate"]["condition"] == "service_healthy"
     assert service["depends_on"]["litellm"]["condition"] == "service_started"
-    assert service["ports"] == ["${HOST_BIND_IP:-}${VERBA_PORT}:8000"]
+    assert service["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${VERBA_PORT}:8000"]
     assert service["volumes"] == ["verba-data:/data"]
 
     env = service["environment"]
@@ -169,8 +169,10 @@ def test_verba_compose_contract() -> None:
     assert env["OPENAI_EMBED_API_KEY"] == "${LITELLM_MASTER_KEY}"
     assert env["OPENAI_EMBED_BASE_URL"] == "http://litellm:4000/v1"
     assert env["OPENAI_CUSTOM_EMBED"] == "true"
-    assert env["OPENAI_MODEL"] == "${VERBA_OPENAI_MODEL:-}"
-    assert env["OPENAI_EMBED_MODEL"] == "${VERBA_OPENAI_EMBED_MODEL:-}"
+    # Set-but-empty overrides Verba's own default with "", so fall back.
+    assert env["OPENAI_MODEL"] == "${VERBA_OPENAI_MODEL:-${LITELLM_DEFAULT_MODEL}}"
+    assert env["OPENAI_EMBED_MODEL"] == "${VERBA_OPENAI_EMBED_MODEL:-${LITELLM_EMBEDDING_MODEL}}"
+    assert service["extra_hosts"] == ["host.docker.internal:${HOST_GATEWAY_IP}"]
     assert env["DEFAULT_DEPLOYMENT"] == "${VERBA_DEFAULT_DEPLOYMENT:-Docker}"
     assert env["UNSTRUCTURED_API_URL"] == ""
     assert env["UNSTRUCTURED_API_KEY"] == ""

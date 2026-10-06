@@ -9,6 +9,7 @@ version: 1.4.0
 license: MIT
 """
 
+import asyncio
 import json
 import time
 import requests
@@ -26,26 +27,42 @@ class Tools:
             description="Max wait time in seconds (15 minutes for research completion)",
         )
         search_api: str = Field(
-            default="searxng", description="Search API to use (searxng or duckduckgo)"
+            default="searxng",
+            description="Search API (ignored: LDR's LOCAL_DEEP_RESEARCHER_SEARCH_API env takes precedence)",
         )
         assistant_id: str = Field(
             default="ollama_deep_researcher",
             description="LangGraph assistant/graph id for Local Deep Researcher",
         )
-        max_loops: int = Field(default=3, description="Maximum research loops")
+        max_loops: int = Field(
+            default=3,
+            description="Research loops (ignored: LDR's LOCAL_DEEP_RESEARCHER_LOOPS env takes precedence)",
+        )
         enable_tool: bool = Field(default=True, description="Enable this research tool")
 
     def __init__(self):
         self.valves = self.Valves()
 
-    def research(self, query: str):
+    async def research(self, query: str):
         """
         Research a topic using web search and AI analysis.
 
         :param query: The topic or question to research
         :return: Research findings with sources
         """
+        # Open WebUI runs a sync tool on its event loop; a run of up to
+        # `timeout` seconds would stall every user, so block in a worker thread.
+        return await asyncio.to_thread(_ResearchRun(self.valves).run, query)
 
+
+class _ResearchRun:
+    """Blocking research call, kept off ``Tools``: Open WebUI 0.6.32
+    exposes every ``Tools`` method not prefixed ``__`` as a model tool."""
+
+    def __init__(self, valves):
+        self.valves = valves
+
+    def run(self, query: str):
         if not self.valves.enable_tool:
             return str(
                 "❌ Research tool is currently disabled. Enable it in tool settings if needed."

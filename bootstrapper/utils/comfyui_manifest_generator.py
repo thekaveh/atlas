@@ -221,6 +221,8 @@ class ComfyUIManifestGenerator:
         lock_dir.mkdir(parents=True, exist_ok=True)
         destination = lock_dir / f"{expected}.txt"
         fd, tmp = tempfile.mkstemp(dir=str(lock_dir), prefix=expected + ".", suffix=".tmp")
+        # mkstemp is 0600; the backend (appuser) reads these via a bind mount.
+        os.fchmod(fd, 0o644)
         os.close(fd)
         try:
             shutil.copyfile(source, tmp)
@@ -293,6 +295,8 @@ class ComfyUIManifestGenerator:
             prefix=tsv_path.name + ".",
             suffix=".tmp",
         )
+        # mkstemp is 0600; the backend (appuser) reads these via a bind mount.
+        os.fchmod(fd, 0o644)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 for row in download_rows:
@@ -324,6 +328,8 @@ class ComfyUIManifestGenerator:
             prefix=tsv_path.name + ".",
             suffix=".tmp",
         )
+        # mkstemp is 0600; the backend (appuser) reads these via a bind mount.
+        os.fchmod(fd, 0o644)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 for node in nodes:

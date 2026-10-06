@@ -435,7 +435,9 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.check_title is not None:
         return args
-    if args.check_changelog:
+    if args.check_changelog or (args.update_changelog and not args.since_tag):
+        # Both changelog modes default to the range the block records, as the
+        # --update-changelog help and the block's own regenerate line promise.
         args.rev_range = args.rev_range or committed_block_range(
             (args.repo / _CHANGELOG).read_text(encoding="utf-8")
         )

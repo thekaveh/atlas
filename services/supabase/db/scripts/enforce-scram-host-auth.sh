@@ -8,6 +8,27 @@ pgdata=${PGDATA:-/var/lib/postgresql/data}
 hba="$pgdata/pg_hba.conf"
 entrypoint=${ATLAS_POSTGRES_ENTRYPOINT:-/usr/local/bin/docker-entrypoint.sh}
 
+# With the image's own config (`-D /etc/postgresql`) the server reads
+# /etc/postgresql/pg_hba.conf, so the data-directory file is inert: a rule
+# this guard would refuse there is reported, not fatal.
+data_hba_in_use=1
+case " $* " in
+  *" -D /etc/postgresql "*) data_hba_in_use=0 ;;
+esac
+
+refuse_hba_upgrade() {
+  reason=$1
+  shift
+  if [ "$data_hba_in_use" = 1 ]; then
+    echo "supabase-db: refusing pg_hba.conf upgrade: $reason" >&2
+    exit 1
+  fi
+  echo "supabase-db: leaving the unused data-directory pg_hba.conf as is: $reason" >&2
+  rm -f "$candidate" "$rendered" "$backup_candidate"
+  trap - EXIT HUP INT TERM
+  exec "$entrypoint" postgres "$@"
+}
+
 validate_hba() {
   awk '
     function fail(message) {
@@ -45,12 +66,10 @@ if [ -s "$pgdata/PG_VERSION" ] && [ -f "$hba" ]; then
   trap 'rm -f "$candidate" "$rendered" "$backup_candidate"' EXIT HUP INT TERM
 
   if awk 'BEGIN { found=0 } $1 ~ /^include(_if_exists|_dir)?$/ { found=1 } END { exit found ? 0 : 1 }' "$hba"; then
-    echo "supabase-db: refusing pg_hba.conf upgrade: include directives require explicit operator review" >&2
-    exit 1
+    refuse_hba_upgrade "include directives require explicit operator review" "$@"
   fi
   if awk 'BEGIN { found=0 } $1 ~ /^host/ && $5 == "md5" { found=1 } END { exit found ? 0 : 1 }' "$hba"; then
-    echo "supabase-db: refusing pg_hba.conf upgrade: md5 rules may serve MD5-only role verifiers; migrate verifiers before requiring SCRAM" >&2
-    exit 1
+    refuse_hba_upgrade "md5 rules may serve MD5-only role verifiers; migrate verifiers before requiring SCRAM" "$@"
   fi
 
   # Keep an exact, permission-preserving recovery copy before validating or

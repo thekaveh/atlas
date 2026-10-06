@@ -10,7 +10,7 @@ import pytest
 from tests import seed_harness
 
 pytestmark = pytest.mark.skipif(
-    not seed_harness.docker_available(), reason="docker not on PATH"
+    seed_harness.docker_unavailable_locally(), reason="docker not on PATH"
 )
 
 

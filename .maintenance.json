@@ -70,8 +70,8 @@
       {
         "path": "bootstrapper/core/consumer_manifest.py",
         "symbol": "load_consumer_config",
-        "cyclomatic_complexity": 73,
-        "rationale": "Fail-closed parser for the versioned consumer manifest; each branch emits a distinct validation failure and the contract suite exercises those outcomes."
+        "cyclomatic_complexity": 68,
+        "rationale": "Fail-closed parser for the versioned consumer manifest; each branch emits a distinct validation failure and the contract suite exercises those outcomes. 73 -> 72 in the 2026-10-04 maintenance pass: the LightRAG rerank gate moved to _check_rerank_adapter_gate after the manifest loop so it reads env merged from every manifest. 72 -> 68 on 2026-10-06: writing the plugin/sidecar-derived keys moved into _apply_derived_env, which also rejects a conflicting env.values entry."
       },
       {
         "path": "bootstrapper/services/service_config.py",
@@ -82,14 +82,14 @@
       {
         "path": "bootstrapper/start.py",
         "symbol": "AtlasStarter.apply_profile_overrides",
-        "cyclomatic_complexity": 48,
-        "rationale": "Central precedence boundary for CLI, track, and persisted source choices; host-bind ownership is extracted into B-grade helpers and profile/source-permutation tests cover the remaining explicit override cases."
+        "cyclomatic_complexity": 43,
+        "rationale": "Central precedence boundary for CLI, track, and persisted source choices; host-bind ownership is extracted into B-grade helpers and profile/source-permutation tests cover the remaining explicit override cases. Overnight maintenance 2026-10-05 moved the env-knob loop into _profile_env_overrides (with _env_example_values/_prior_profile_env) and manifest SOURCE precedence into _manifest_source_vars, 48->45. 2026-10-06: the ATLAS_PROFILE_APPLIED record condition (now also written on a no-op first start) moved into _should_record_profile, 45->43."
       },
       {
         "path": "bootstrapper/start.py",
         "symbol": "AtlasStarter.backfill_missing_env_vars",
-        "cyclomatic_complexity": 38,
-        "rationale": "Compatibility migration over the complete environment schema; branches correspond to independently tested legacy and missing-value cases."
+        "cyclomatic_complexity": 33,
+        "rationale": "Compatibility migration over the complete environment schema; branches correspond to independently tested legacy and missing-value cases. 38 -> 33 on 2026-10-06: the .env key scan moved into _scan_env_keys (which now treats `export KEY=` as present) and port rebasing into _rebase_backfilled_ports."
       },
       {
         "path": "bootstrapper/start.py",
@@ -100,8 +100,8 @@
       {
         "path": "bootstrapper/start.py",
         "symbol": "main",
-        "cyclomatic_complexity": 126,
-        "rationale": "Click composition root declaring and forwarding the public CLI surface; option and startup tests cover the branches, while extraction would only relocate forwarding logic. Cyclomatic complexity fell 129 -> 126 on 2026-09-23 (#1184): the linear track prompt's inline read/validate/warn block moved into the module-level _prompt_for_track helper, removing three branches from main. No behaviour was removed \u2014 the helper is strictly stricter than the block it replaced."
+        "cyclomatic_complexity": 124,
+        "rationale": "Click composition root declaring and forwarding the public CLI surface; option and startup tests cover the branches, while extraction would only relocate forwarding logic. Cyclomatic complexity fell 129 -> 126 on 2026-09-23 (#1184): the linear track prompt's inline read/validate/warn block moved into the module-level _prompt_for_track helper, removing three branches from main. No behaviour was removed \u2014 the helper is strictly stricter than the block it replaced. Fell 126 -> 124 on 2026-10-06 when the early consumer-manifest validation moved into _validate_consumer_manifests_early (which now also covers ATLAS_CONSUMER_MANIFEST)."
       },
       {
         "path": "bootstrapper/tests/test_agents_guidance.py",
@@ -148,14 +148,14 @@
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_build_steps_and_rows",
-        "cyclomatic_complexity": 75,
-        "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; discovery and parity tests exercise its service-specific branches. 76 -> 75 on #1050: the subtitle fallback moved into _support_subtitle."
+        "cyclomatic_complexity": 74,
+        "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; discovery and parity tests exercise its service-specific branches. 76 -> 75 on #1050: the subtitle fallback moved into _support_subtitle. 75 -> 74 on the 2026-10-05 maintenance run: the source-step fallback now reads the manifest's sources.default through services.manifests.manifest_source_default instead of an inline svc.options[0] conditional, and the profile-aware default lives in the module-level _make_profile_default_provider."
       },
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_selections_to_args",
-        "cyclomatic_complexity": 54,
-        "rationale": "Boundary translator for the wizard selection matrix; embedding-contract selection is extracted into a B-grade helper and CLI/TUI parity tests verify the remaining explicit source and secret-state branches. 59 -> 54 on #1255: fal.ai's hand-written secret branch chain was replaced by one call to cloud_rules.resolve_secret_verdict, the table the cloud providers already use."
+        "cyclomatic_complexity": 52,
+        "rationale": "Boundary translator for the wizard selection matrix; embedding-contract selection is extracted into a B-grade helper and CLI/TUI parity tests verify the remaining explicit source and secret-state branches. 59 -> 54 on #1255: fal.ai's hand-written secret branch chain was replaced by one call to cloud_rules.resolve_secret_verdict, the table the cloud providers already use. 54 -> 52: consumer-declared key mapping moved to tracks.consumer_declared_track_keys."
       },
       {
         "path": "bootstrapper/ui/textual/screens/wizard_screen.py",
@@ -213,34 +213,34 @@
       },
       {
         "path": "services/open-webui/extras/tools/comfyui_image_generation_tool.py",
-        "symbol": "Tools.generate_image",
+        "symbol": "_Blocking.generate_image",
         "cyclomatic_complexity": 34,
-        "rationale": "Open WebUI integration workflow spans validation, ComfyUI submission, polling, and result mapping; tool tests cover the external-state branches."
+        "rationale": "Open WebUI integration workflow spans validation, ComfyUI submission, polling, and result mapping; tool tests cover the external-state branches. Overnight maintenance 2026-10-05 moved the blocking body from Tools to _Blocking (Tools.generate_image is now an async wrapper that runs it in a worker thread so the Open WebUI event loop is not blocked); it takes one request dict so the wrapper's explicit tool signature is the only >4-parameter function."
       }
     ],
     "accepted_signals": [
       {
         "path": "bootstrapper/start.py",
         "symbol": "main",
-        "cyclomatic_complexity": 126,
-        "rationale": "Click composition root that declares and forwards the public CLI surface; behavior is partitioned into tested AtlasStarter methods, and extracting option forwarding alone would add indirection without reducing runtime branching. Fell 129 -> 126 on 2026-09-23 (#1184) when the linear track prompt's inline read/validate/warn block moved into _prompt_for_track."
+        "cyclomatic_complexity": 124,
+        "rationale": "Click composition root that declares and forwards the public CLI surface; behavior is partitioned into tested AtlasStarter methods, and extracting option forwarding alone would add indirection without reducing runtime branching. Fell 129 -> 126 on 2026-09-23 (#1184) when the linear track prompt's inline read/validate/warn block moved into _prompt_for_track; 126 -> 124 on 2026-10-06 when early consumer-manifest validation moved into _validate_consumer_manifests_early."
       },
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_build_steps_and_rows",
-        "cyclomatic_complexity": 75,
-        "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; parity and discovery tests cover the branches. Revisit when prompt construction changes next."
+        "cyclomatic_complexity": 74,
+        "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; parity and discovery tests cover the branches. 75 -> 74 on the 2026-10-05 maintenance run (manifest default lookup moved to services.manifests.manifest_source_default). Revisit when prompt construction changes next."
       },
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_selections_to_args",
-        "cyclomatic_complexity": 54,
-        "rationale": "Boundary translator for the same manifest-driven option matrix; embedding-contract selection now lives in a B-grade helper, while CLI/TUI parity tests remain the safer control for the explicit source and secret-state branches. 59 -> 54 on #1255: fal.ai's secret handling now delegates to cloud_rules.resolve_secret_verdict instead of re-implementing the verdict table inline."
+        "cyclomatic_complexity": 52,
+        "rationale": "Boundary translator for the same manifest-driven option matrix; embedding-contract selection now lives in a B-grade helper, while CLI/TUI parity tests remain the safer control for the explicit source and secret-state branches. 59 -> 54 on #1255: fal.ai's secret handling now delegates to cloud_rules.resolve_secret_verdict instead of re-implementing the verdict table inline. 54 -> 52 (overnight maintenance): consumer-declared SOURCE keys are mapped to wizard track keys by tracks.consumer_declared_track_keys (grade A), which also fixed multi-container families being force-disabled over a manifest's env.values."
       },
       {
         "path": "bootstrapper/core/consumer_manifest.py",
         "symbol": "load_consumer_config",
-        "cyclomatic_complexity": 73,
+        "cyclomatic_complexity": 68,
         "rationale": "Fail-closed parser and validator for a versioned external manifest. Its branches correspond to distinct validation errors and are covered by schema and consumer-contract tests."
       },
       {

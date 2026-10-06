@@ -144,3 +144,5 @@ def test_weaviate_modules_is_not_exempt_from_backfill():
 
     assert "WEAVIATE_ENABLE_MODULES" not in _USER_OWNED_BLANKABLE
     assert "OLLAMA_USER_MODELS" in _USER_OWNED_BLANKABLE  # the genuine case stays
+    # ServiceConfig blanks it for a disabled CLIP and refills it when enabled.
+    assert "CLIP_INFERENCE_API" in _USER_OWNED_BLANKABLE

@@ -200,3 +200,35 @@ def test_live_redis_execution_claim_exact_owner_contract() -> None:
         store._redis.delete(_IDX_PREFIX + record.idempotency_key)
         store._redis.srem(_INDEX_SET, record.id)
         store._redis.zrem(_INDEX_ZSET, record.id)
+
+
+def test_worker_save_does_not_undo_a_later_dispatch_acceptance() -> None:
+    """The worker reads the record while `dispatching`; the API then records
+    `accepted`. The worker's later save must not restore its stale copy."""
+    from rag_ingestion.store import InMemoryIngestionStore
+
+    store = InMemoryIngestionStore()
+    record = IngestionRecord(
+        id="ing-1", consumer="acme", profile="default", revision="1",
+        idempotency_key="key-1",
+    )
+    store.create_if_absent(record)
+    assert store.claim_dispatch("ing-1", ("api", "2026-01-01T00:00:01", "2026-01-01"))
+    worker_copy = store.get("ing-1")
+    assert store.mark_dispatched("ing-1", ("job-1", "api"), "2026-01-01T00:00:02")
+
+    worker_copy.status = "running"
+    store.save(worker_copy)
+
+    stored = store.get("ing-1")
+    assert stored.status == "running"
+    assert stored.dispatch_state == "accepted"
+    assert stored.dispatch_job_id == "job-1"
+
+
+def test_redis_save_scripts_keep_dispatch_fields() -> None:
+    for script in (
+        RedisIngestionStore._SAVE_SCRIPT, RedisIngestionStore._SAVE_CLAIMED_SCRIPT
+    ):
+        assert "for _, field in ipairs(DISPATCH_FIELDS) do" in script
+        assert "incoming[field] = current[field]" in script

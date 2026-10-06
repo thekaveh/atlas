@@ -154,21 +154,13 @@ async def get_pg_pool(
         return pool
 
 
-@asynccontextmanager
-async def acquire_conn(database_url: str, **pool_kwargs):
-    """Acquire a pooled connection for a SHORT-LIVED DB op.
+async def acquire_bounded(pool):
+    """Check a connection out of ``pool`` within the saturation deadline.
 
-    Drop-in for the ``conn = await connect_postgres(...); try: ... finally:
-    await conn.close()`` pattern — used as ``async with acquire_conn(url) as
-    conn:``. See the pool invariant above: do NOT use this while holding the
-    connection across non-DB I/O.
-
-    Acquisition is bounded (#1171): when every slot stays busy past
-    ``_POOL_ACQUIRE_TIMEOUT_SECONDS`` this raises :class:`PoolSaturatedError`
-    instead of queuing indefinitely. asyncpg owns the timeout/cancellation
-    path, so a timed-out or cancelled acquisition never leaks a slot.
+    Raises :class:`PoolSaturatedError` when every slot stays busy past
+    ``_POOL_ACQUIRE_TIMEOUT_SECONDS``. The caller owns the returned connection
+    and must release it to ``pool``.
     """
-    pool = await get_pg_pool(database_url, **pool_kwargs)
     started = asyncio.get_running_loop().time()
     try:
         # The timeout guards ONLY the acquisition wait: a TimeoutError raised
@@ -187,6 +179,25 @@ async def acquire_conn(database_url: str, **pool_kwargs):
         _POOL_ACQUIRE_WAIT_SECONDS.observe(
             asyncio.get_running_loop().time() - started
         )
+    return conn
+
+
+@asynccontextmanager
+async def acquire_conn(database_url: str, **pool_kwargs):
+    """Acquire a pooled connection for a SHORT-LIVED DB op.
+
+    Drop-in for the ``conn = await connect_postgres(...); try: ... finally:
+    await conn.close()`` pattern — used as ``async with acquire_conn(url) as
+    conn:``. See the pool invariant above: do NOT use this while holding the
+    connection across non-DB I/O.
+
+    Acquisition is bounded (#1171): when every slot stays busy past
+    ``_POOL_ACQUIRE_TIMEOUT_SECONDS`` this raises :class:`PoolSaturatedError`
+    instead of queuing indefinitely. asyncpg owns the timeout/cancellation
+    path, so a timed-out or cancelled acquisition never leaks a slot.
+    """
+    pool = await get_pg_pool(database_url, **pool_kwargs)
+    conn = await acquire_bounded(pool)
     try:
         yield conn
     finally:

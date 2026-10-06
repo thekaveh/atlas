@@ -475,3 +475,96 @@ def test_upstream_failure_body_is_not_exposed() -> None:
         )
 
     assert "secret" not in str(captured.value)
+
+
+def test_docling_uses_its_own_timeout_and_legacy_formats_go_to_tika(monkeypatch) -> None:
+    """TIKA_TIMEOUT_SECONDS (30 s) cut Docling's cold-start/large-PDF runs, and
+    Atlas's Docling answers unsupported formats with 500, never 415."""
+    import document_extraction as module
+
+    monkeypatch.setenv("DOCLING_INFERENCE_TIMEOUT_SECONDS", "600")
+    config = DocumentExtractorConfig.from_env()
+    assert config.timeout_seconds == 30.0
+    assert config.docling_timeout_seconds == 630.0
+    for name in ("old.doc", "sheet.xls", "deck.ppt", "book.epub"):
+        assert DocumentExtractor(config)._is_long_tail(name, None), name
+    assert not DocumentExtractor(config)._is_long_tail("paper.pdf", "application/pdf")
+    # Markdown/CSV/HTML often arrive labelled text/plain; Docling handles them,
+    # and Tika is disabled by default, so text/plain must not reroute them.
+    assert not DocumentExtractor(config)._is_long_tail("notes.md", "text/plain")
+    assert not DocumentExtractor(config)._is_long_tail("data.csv", "application/vnd.ms-excel")
+    assert module.DOCLING_TIMEOUT_MARGIN_SECONDS == 30.0
+
+
+def _docling_ok():
+    return FakeResponse(200, json_data={
+        "content": "# ok", "format": "markdown", "chunks": [],
+        "metadata": {"pages": 1, "tables": 0, "images": 0, "formulas": 0,
+                     "processing_time": 0.1, "source_format": "pdf", "file_size": 6},
+    })
+
+
+def _busy_extractor(responses, busy_wait=30.0):
+    client = FakeAsyncClient(responses)
+    extractor = DocumentExtractor(
+        DocumentExtractorConfig(docling_endpoint="http://docling-gpu:8000",
+                                docling_api_token=TEST_DOCLING_TOKEN, tika_endpoint="http://tika:9998",
+                                docling_busy_wait_seconds=busy_wait),
+        http_client=client,
+    )
+    return client, extractor
+
+
+def test_docling_busy_429_is_retried(monkeypatch) -> None:
+    # Docling converts one document at a time; Celery runs two jobs.
+    import document_extraction
+    slept = []
+
+    async def no_sleep(seconds):
+        slept.append(seconds)
+
+    monkeypatch.setattr(document_extraction.asyncio, "sleep", no_sleep)
+    client, extractor = _busy_extractor([FakeResponse(429), FakeResponse(429), _docling_ok()])
+    result = _run(extractor.extract(content=b"%PDF-1", filename="a.pdf", content_type="application/pdf"))
+    assert result.extractor == "docling"
+    assert len(client.calls) == 3 and slept == [1.0, 2.0]  # growing backoff
+
+
+def test_docling_still_busy_maps_to_unavailable(monkeypatch) -> None:
+    import document_extraction
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(document_extraction.asyncio, "sleep", no_sleep)
+    _client, extractor = _busy_extractor([FakeResponse(429)], busy_wait=0.0)
+    with pytest.raises(ExtractionUnavailableError):
+        _run(extractor.extract(content=b"%PDF-1", filename="a.pdf", content_type="application/pdf"))
+
+
+def test_docling_chunking_can_be_disabled_for_rechunking_callers() -> None:
+    client, extractor = _busy_extractor([_docling_ok()])
+    _run(extractor.extract(content=b"%PDF-1", filename="a.pdf", content_type="application/pdf", chunking=False))
+    assert client.calls[0][1]["data"]["enable_chunking"] == "false"
+
+
+def test_docling_busy_sleep_is_clamped_to_the_remaining_budget(monkeypatch) -> None:
+    import document_extraction
+    slept = []
+    real_sleep = asyncio.sleep
+
+    async def recording_sleep(seconds):
+        slept.append(seconds)
+        await real_sleep(seconds)  # real clock, so the budget runs out
+
+    monkeypatch.setattr(document_extraction.asyncio, "sleep", recording_sleep)
+    _client, extractor = _busy_extractor([FakeResponse(429)] * 50, busy_wait=0.25)
+    with pytest.raises(ExtractionUnavailableError):
+        _run(extractor.extract(content=b"%PDF-1", filename="a.pdf", content_type="application/pdf"))
+    assert slept and all(seconds <= 0.25 for seconds in slept)
+
+
+def test_ingestion_parser_waits_longer_for_busy_docling() -> None:
+    from rag_ingestion.clients import ParserAdapter
+
+    assert ParserAdapter()._get_extractor().config.docling_busy_wait_seconds == 120.0

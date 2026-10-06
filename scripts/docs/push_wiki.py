@@ -40,6 +40,9 @@ def _git_env(key_path: Path | None) -> dict[str, str]:
 
 
 def sync_wiki(source: Path, repo_dir: Path) -> None:
+    # An empty/missing source would wipe the wiki on --push and pass --check.
+    if not (source / "Home.md").is_file():
+        raise SystemExit(f"refusing to sync the wiki: {source}/Home.md is missing")
     repo_dir.mkdir(parents=True, exist_ok=True)
     for item in list(repo_dir.iterdir()):
         if item.name == ".git":

@@ -102,6 +102,7 @@ def _run_screen(scenario):
         async with _App(screen).run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             screen._phase = "launch"
+            screen._launch_succeeded = True  # stop keys work only after a successful launch
             return await scenario(screen, pilot)
 
     try:

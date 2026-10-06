@@ -8,7 +8,13 @@ Crawl4AI provides a local, token-protected web extraction API for pages that nee
 - Kong URL: `http://crawl4ai.localhost:${KONG_HTTP_PORT}`
 - Internal URL: `http://crawl4ai:11235`
 
-The Kong route is created only when `CRAWL4AI_SOURCE=container`. Kong adds the standard dashboard-user `basic-auth`, `acl`, and `cors` plugins, while Crawl4AI still requires `Authorization: Bearer ${CRAWL4AI_API_TOKEN}` for API calls.
+The Kong route is created only when `CRAWL4AI_SOURCE=container`. Kong adds the standard dashboard-user `basic-auth`, `acl`, and `cors` plugins, while Crawl4AI still requires `Authorization: Bearer ${CRAWL4AI_API_TOKEN}` for API calls. Both credentials can't share the `Authorization` header, so through Kong send the dashboard credential as `Proxy-Authorization` (Kong's basic-auth reads it) alongside the bearer token:
+
+```bash
+curl -H "Proxy-Authorization: Basic $(printf '%s:%s' "$DASHBOARD_USERNAME" "$DASHBOARD_PASSWORD" | base64)" \
+     -H "Authorization: Bearer $CRAWL4AI_API_TOKEN" \
+     http://crawl4ai.localhost:${KONG_HTTP_PORT}/health
+```
 
 ## 3. Configuration
 - `CRAWL4AI_SOURCE=disabled|container` controls whether the service runs.

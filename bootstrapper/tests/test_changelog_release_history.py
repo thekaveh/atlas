@@ -525,7 +525,7 @@ def test_release_record_matches_tags_and_targets_in_a_complete_checkout() -> Non
         text=True,
     ).stdout.strip()
     if shallow == "true":
-        return
+        pytest.skip("shallow clone: release tags are not all checked out")
 
     release_tags = _release_tag_inventory(_checked_out_v_tags())
     assert release_tags == set(record), "committed release record differs from checked-out tags"

@@ -3,11 +3,18 @@ set -e
 
 echo "backend: Reading dynamic Weaviate configuration..."
 
-# Check if shared config exists.
 # weaviate-init writes the embedding model identifier (LiteLLM-prefixed,
-# e.g. "ollama/nomic-embed-text") into /shared/weaviate-config.env on first
-# run. Backend reads it as LITELLM_EMBEDDING_MODEL.
-if [ -f "/shared/weaviate-config.env" ]; then
+# e.g. "ollama/nomic-embed-text") into /shared/weaviate-config.env; it is the
+# fallback when LITELLM_EMBEDDING_MODEL is unset or empty (never under compose).
+# Compose passes LITELLM_EMBEDDING_MODEL from .env. It wins: weaviate-init
+# only runs (and refreshes the file) when Weaviate is a container, so with
+# WEAVIATE_SOURCE=disabled/localhost the file is stale or absent and the
+# hard-coded default below used to override the configured model (memory
+# then failed its embedding-model/dimension check).
+if [ -n "${LITELLM_EMBEDDING_MODEL:-}" ]; then
+  export LITELLM_EMBEDDING_MODEL
+  echo "backend: Using LiteLLM embedding model from the environment: $LITELLM_EMBEDDING_MODEL"
+elif [ -f "/shared/weaviate-config.env" ]; then
   echo "backend: Loading dynamic Weaviate configuration"
   # shellcheck source=/dev/null
   . /shared/weaviate-config.env

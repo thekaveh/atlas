@@ -37,6 +37,7 @@ services:
       MINIO_BUCKET_ICEBERG_JARS: jars
       MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
       MINIO_BUCKET_ICEBERG_LANDING: landing
+      MINIO_BUCKET_SPARK_HISTORY: spark-history
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ICEBERG_ACCESS_KEY: ''
       MINIO_ICEBERG_SECRET_KEY: ''
@@ -106,6 +107,7 @@ services:
       GRAPH_DB_USER: neo4j
       ICEBERG_REST_SOURCE: disabled
       LITELLM_MASTER_KEY: ''
+      MINIO_REGION: us-east-1
       MINIO_ROOT_PASSWORD: ''
       MINIO_ROOT_USER: minioadmin
       MINIO_SOURCE: container
@@ -141,6 +143,9 @@ services:
       airflow-init:
         condition: service_completed_successfully
         required: true
+      airflow-webserver:
+        condition: service_healthy
+        required: true
     deploy:
       replicas: 0
       resources:
@@ -164,6 +169,7 @@ services:
       MINIO_BUCKET_ICEBERG_JARS: jars
       MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
       MINIO_BUCKET_ICEBERG_LANDING: landing
+      MINIO_BUCKET_SPARK_HISTORY: spark-history
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ICEBERG_ACCESS_KEY: ''
       MINIO_ICEBERG_SECRET_KEY: ''
@@ -234,6 +240,7 @@ services:
       MINIO_BUCKET_ICEBERG_JARS: jars
       MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
       MINIO_BUCKET_ICEBERG_LANDING: landing
+      MINIO_BUCKET_SPARK_HISTORY: spark-history
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ICEBERG_ACCESS_KEY: ''
       MINIO_ICEBERG_SECRET_KEY: ''
@@ -475,6 +482,7 @@ services:
       DATABASE_URL: postgresql://atlas_backend:atlas-db-password@supabase-db:5432/postgres
       DOCLING_API_TOKEN: ''
       DOCLING_ENDPOINT: ''
+      DOCLING_INFERENCE_TIMEOUT_SECONDS: '900'
       FAL_API_KEY: ''
       FAL_ENABLE_SAFETY_CHECKER: 'true'
       FAL_IMAGE_TO_3D_MODEL: fal-ai/trellis
@@ -511,6 +519,8 @@ services:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
+      LOCAL_DEEP_RESEARCHER_LOOPS: '3'
+      LOCAL_DEEP_RESEARCHER_SEARCH_API: searxng
       MAX_UPLOAD_BYTES: '104857600'
       MEDIA_BUDGET_ALLOW_UNKNOWN_COST: 'false'
       MEDIA_BUDGET_CONSUMER_CAPS: ''
@@ -530,7 +540,7 @@ services:
       N8N_API_KEY: ''
       N8N_BASE_URL: http://n8n:5678
       NEO4J_PASSWORD: neo4j_password
-      NEO4J_URI: bolt://neo4j-graph-db:7687
+      NEO4J_URI: ''
       NEO4J_USER: neo4j
       OTEL_EXPORTER_OTLP_ENDPOINT: ''
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
@@ -751,6 +761,7 @@ services:
       DATABASE_URL: postgresql://atlas_backend:atlas-db-password@supabase-db:5432/postgres
       DOCLING_API_TOKEN: ''
       DOCLING_ENDPOINT: ''
+      DOCLING_INFERENCE_TIMEOUT_SECONDS: '900'
       LANGMEM_EMBEDDING_DIM: '768'
       LANGMEM_EMBEDDING_MODEL: ''
       LANGMEM_ENABLED: 'true'
@@ -895,7 +906,7 @@ services:
       timeout: 10s
       interval: 30s
       retries: 5
-      start_period: 2m0s
+      start_period: 10m0s
     image: ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7
     labels:
       com.atlas.category: ai
@@ -936,6 +947,7 @@ services:
     - type: bind
       source: '{HOME}/Documents/ComfyUI/models'
       target: /host_models
+      read_only: true
       bind: {}
     - type: bind
       source: '{REPO_ROOT}/volumes/comfyui'
@@ -1088,7 +1100,6 @@ services:
     - flower
     - --address=0.0.0.0
     - --port=5555
-    - --basic-auth=kong_admin:kong_password
     container_name: atlas-flower
     depends_on:
       celery-worker:
@@ -1101,6 +1112,7 @@ services:
       replicas: 0
     environment:
       CELERY_BROKER_URL: ''
+      FLOWER_BASIC_AUTH: kong_admin:kong_password
     healthcheck:
       test:
       - CMD-SHELL
@@ -1219,6 +1231,8 @@ services:
       LITELLM_MASTER_KEY: ''
       OPENAI_API_KEY: ''
       OPENROUTER_API_KEY: ''
+      SEARXNG_URL: ''
+      VOICE_TOOLS_OPENAI_KEY: not-required
     extra_hosts:
     - host.docker.internal=
     healthcheck:
@@ -1288,7 +1302,9 @@ services:
       SEARXNG_INTERNAL_URL: ''
       STT_INTERNAL_API_KEY: ''
       STT_INTERNAL_URL: ''
+      TTS_INTERNAL_MODEL: tts-1-hd
       TTS_INTERNAL_URL: ''
+      TTS_INTERNAL_VOICE: alloy
     image: atlas-hermes-init:local
     labels:
       com.atlas.agent: hermes
@@ -1502,12 +1518,16 @@ services:
       LITELLM_API_KEY: ''
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
+      LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
       MCP_SERVERS_URL: ''
+      MINIO_BUCKET_ICEBERG_CHECKPOINTS: checkpoints
+      MINIO_BUCKET_ICEBERG_LANDING: landing
+      MINIO_BUCKET_JUPYTER: jupyter
       MINIO_ENDPOINT: http://minio:9000
       MLFLOW_TRACKING_URI: ''
       N8N_BASE_URL: http://n8n:5678
       NEO4J_PASSWORD: neo4j_password
-      NEO4J_URI: bolt://neo4j-graph-db:7687
+      NEO4J_URI: ''
       NEO4J_USER: neo4j
       PARAKEET_API_TOKEN: ''
       PYICEBERG_CATALOG__REST__S3__ACCESS_KEY_ID: ''
@@ -1595,36 +1615,26 @@ services:
         condition: service_started
         required: true
     environment:
-      DASHBOARD_PASSWORD: kong_password
-      DASHBOARD_USERNAME: kong_admin
       KONG_DATABASE: 'off'
       KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
       KONG_DNS_NOT_FOUND_TTL: '1'
       KONG_DNS_ORDER: LAST,A,CNAME
       KONG_DNS_STALE_TTL: '4'
-      KONG_NGINX_HTTP_LOG_FORMAT: atlas '$$request_method $$uri $$server_protocol'
-        $$status $$body_bytes_sent '"$$http_user_agent"' $$kong_request_id
-      KONG_NGINX_HTTP_UPSTREAM_KEEPALIVE: '16'
-      KONG_NGINX_HTTP_UPSTREAM_KEEPALIVE_REQUESTS: '100'
-      KONG_NGINX_HTTP_UPSTREAM_KEEPALIVE_TIMEOUT: 60s
+      KONG_NGINX_HTTP_LOG_FORMAT: atlas '$$request_method $$uri $$server_protocol $$status
+        $$body_bytes_sent "$$http_user_agent" $$kong_request_id'
       KONG_NGINX_PROXY_CHUNKED_TRANSFER_ENCODING: 'on'
       KONG_NGINX_PROXY_KEEPALIVE_TIMEOUT: '300'
       KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
       KONG_NGINX_PROXY_PROXY_BUFFERING: 'off'
       KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
       KONG_NGINX_PROXY_PROXY_CACHE: 'off'
+      KONG_NGINX_PROXY_PROXY_NEXT_UPSTREAM: error
       KONG_NGINX_PROXY_TCP_NODELAY: 'on'
       KONG_NGINX_PROXY_TCP_NOPUSH: 'on'
+      KONG_PORT_MAPS: 63000:8000,63001:8443
       KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,rate-limiting,pre-function,prometheus
       KONG_PROXY_ACCESS_LOG: /dev/stdout atlas
-      KONG_PROXY_READ_TIMEOUT: '300'
-      KONG_PROXY_SEND_TIMEOUT: '300'
-      KONG_REDIS_HOST: redis
-      KONG_REDIS_PASSWORD: redis_password
-      KONG_REDIS_PORT: '6379'
       KONG_STATUS_LISTEN: 0.0.0.0:8100
-      SUPABASE_ANON_KEY: ''
-      SUPABASE_SERVICE_KEY: ''
     expose:
     - '8100'
     extra_hosts:
@@ -2150,6 +2160,9 @@ services:
       LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
       LITELLM_MASTER_KEY: ''
+      NEO4J_LOCALHOST_HTTP_PORT: '7474'
+    extra_hosts:
+    - host.docker.internal=
     image: atlas-lightrag-init:local
     networks:
       backend-network: null
@@ -2193,7 +2206,6 @@ services:
       LANGFUSE_PUBLIC_KEY: ''
       LANGFUSE_SECRET_KEY: ''
       LITELLM_MASTER_KEY: ''
-      LITELLM_OTEL_V2: 'false'
       OPENAI_API_KEY: ''
       OPENROUTER_API_KEY: ''
       OTEL_ENDPOINT: ''
@@ -2261,6 +2273,7 @@ services:
       ANTHROPIC_API_KEY: ''
       ANTHROPIC_USER_MODELS: ''
       ATLAS_MODELS_DIR: /atlas-models
+      ATLAS_OTEL_ENABLED: 'false'
       FAL_API_KEY: ''
       FAL_MODEL: fal-ai/flux/dev
       FAL_SOURCE: disabled
@@ -2407,7 +2420,7 @@ services:
         DEPLOYMENT_ENV: local
         VITE_AUTH0_CLIENT_ID: ''
         VITE_AUTH0_DOMAIN: ''
-        VITE_BACKEND_API_URL: http://graphbuilder-api.localhost:63000
+        VITE_BACKEND_API_URL: http://graphbuilder.localhost:63000/atlas-api
         VITE_BATCH_SIZE: '2'
         VITE_CHAT_MODES: vector,graph_vector,graph,fulltext,graph_vector_fulltext,entity_vector,global_vector
         VITE_CHUNK_OVERLAP: '20'
@@ -2526,17 +2539,6 @@ services:
       replicas: 0
     environment:
       LOKI_RETENTION_PERIOD: 24h
-    healthcheck:
-      test:
-      - CMD
-      - wget
-      - -q
-      - --spider
-      - http://localhost:3100/ready
-      timeout: 10s
-      interval: 30s
-      retries: 5
-      start_period: 20s
     image: grafana/loki:3.7.0
     logging:
       driver: json-file
@@ -2587,7 +2589,7 @@ services:
       MCP_POSTGRES_MAX_ROWS: '50'
       MCP_SEARXNG_MAX_RESULTS: '5'
       MCP_TOOL_TIMEOUT_SECONDS: '15'
-      NEO4J_URI: bolt://neo4j-graph-db:7687
+      NEO4J_URI: ''
       SEARXNG_URL: http://searxng:8080
     image: atlas-mcp-servers:local
     logging:
@@ -2747,7 +2749,10 @@ services:
       AWS_DEFAULT_REGION: us-east-1
       AWS_SECRET_ACCESS_KEY: ''
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
-      MLFLOW_SERVER_ALLOWED_HOSTS: mlflow,mlflow:5000,localhost,localhost:5000,localhost:63092,mlflow.localhost,mlflow.localhost:63000
+      MLFLOW_SERVER_ALLOWED_HOSTS: mlflow,mlflow:5000,localhost,localhost:5000,localhost:63092,127.0.0.1:63092,mlflow.localhost,mlflow.localhost:63000,mlflow.localhost:63001
+      MLFLOW_SERVER_CORS_ALLOWED_ORIGINS: http://mlflow.localhost:63000,https://mlflow.localhost:63001,http://localhost:63092,http://127.0.0.1:63092
+      MLFLOW_SQLALCHEMYSTORE_MAX_OVERFLOW: '3'
+      MLFLOW_SQLALCHEMYSTORE_POOL_SIZE: '2'
     healthcheck:
       test:
       - CMD-SHELL
@@ -2877,6 +2882,7 @@ services:
       LITELLM_API_KEY: ''
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: 'false'
       N8N_EDITOR_BASE_URL: http://n8n.localhost:63000
       N8N_ENCRYPTION_KEY: your-random-encryption-key
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: 'true'
@@ -2891,7 +2897,7 @@ services:
       N8N_PROXY_HOPS: '1'
       N8N_PUSH_BACKEND: websocket
       N8N_SECURE_COOKIE: 'false'
-      NODE_ENV: development
+      NODE_ENV: production
       NODE_OPTIONS: --max_old_space_size=512
       OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS: 'true'
       PARAKEET_API_TOKEN: ''
@@ -3008,13 +3014,16 @@ services:
       LITELLM_API_KEY: ''
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: 'false'
+      N8N_EDITOR_BASE_URL: http://n8n.localhost:63000
       N8N_ENCRYPTION_KEY: your-random-encryption-key
       N8N_METRICS: 'true'
       N8N_METRICS_INCLUDE_DEFAULT_METRICS: 'true'
       N8N_METRICS_INCLUDE_EXECUTION_DATA_METRICS: 'true'
       N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL: 'true'
       N8N_METRICS_PREFIX: n8n_
-      NODE_ENV: development
+      N8N_PROTOCOL: http
+      NODE_ENV: production
       PARAKEET_API_TOKEN: ''
       QUEUE_BULL_REDIS_DB: '0'
       QUEUE_BULL_REDIS_HOST: redis
@@ -3025,6 +3034,7 @@ services:
       TIKA_ENDPOINT: ''
       TTS_ENDPOINT: ''
       WEAVIATE_URL: ''
+      WEBHOOK_URL: http://n8n.localhost:63000/
     image: n8nio/n8n:2.28.2
     logging:
       driver: json-file
@@ -3055,14 +3065,15 @@ services:
     environment:
       NEO4J_ACCEPT_LICENSE_AGREEMENT: 'yes'
       NEO4J_AUTH: neo4j/neo4j_password
+      NEO4J_PLUGINS: '["apoc"]'
       NEO4J_browser_remote__content__hostname__whitelist: '*'
       NEO4J_dbms_security_procedures_unrestricted: apoc.*
       NEO4J_server_default__advertised__address: neo4j-graph-db
     healthcheck:
       test:
       - CMD-SHELL
-      - cypher-shell -u "$${NEO4J_AUTH%%/*}" -p "$${NEO4J_AUTH#*/}" "RETURN 1" >/dev/null
-        2>&1
+      - NEO4J_USERNAME="$${NEO4J_AUTH%%/*}" NEO4J_PASSWORD="$${NEO4J_AUTH#*/}" cypher-shell
+        "RETURN 1" >/dev/null 2>&1
       timeout: 10s
       interval: 10s
       retries: 30
@@ -3090,6 +3101,7 @@ services:
     - type: bind
       source: '{REPO_ROOT}/services/neo4j/build/scripts'
       target: /scripts
+      read_only: true
       bind: {}
     - type: volume
       source: neo4j-backups
@@ -3271,10 +3283,12 @@ services:
     - type: bind
       source: '{REPO_ROOT}/services/open-webui/extras/tools'
       target: /app/backend/data/tools
+      read_only: true
       bind: {}
     - type: bind
       source: '{REPO_ROOT}/services/open-webui/extras/functions'
       target: /app/backend/data/functions
+      read_only: true
       bind: {}
   open-webui-init:
     build:
@@ -3400,15 +3414,19 @@ services:
     entrypoint:
     - sh
     - -c
-    - "set -e\nCONFIG=/home/node/.openclaw/openclaw.json\nPATCH='{\"gateway\":{\"\
-      controlUi\":{\"dangerouslyAllowHostHeaderOriginFallback\":true}}}'\n# Write\
-      \ via tmp + mv on BOTH branches: `> \"$$CONFIG\"` truncates\n# the target before\
-      \ jq runs, so a missing/failed jq used to\n# leave a 0-byte config the gateway\
-      \ chokes on (and re-runs\n# could not self-heal \u2014 jq errors on the empty\
-      \ file).\nif [ -s \"$$CONFIG\" ]; then\n  jq --argjson patch \"$$PATCH\" '.\
-      \ * $$patch' \"$$CONFIG\" > \"$$CONFIG.tmp\" && mv \"$$CONFIG.tmp\" \"$$CONFIG\"\
-      \nelse\n  echo \"$$PATCH\" | jq . > \"$$CONFIG.tmp\" && mv \"$$CONFIG.tmp\"\
-      \ \"$$CONFIG\"\nfi\nchown -R 1000:1000 /home/node/.openclaw\n"
+    - "set -e\nCONFIG=/home/node/.openclaw/openclaw.json\nPATCH='{\"gateway\":{\"controlUi\"\
+      :{\"dangerouslyAllowHostHeaderOriginFallback\":true}}}'\n# Write via tmp + mv on\
+      \ BOTH branches: `> \"$$CONFIG\"` truncates\n# the target before jq runs, so a missing/failed\
+      \ jq used to\n# leave a 0-byte config the gateway chokes on (and re-runs\n# could\
+      \ not self-heal \u2014 jq errors on the empty file).\nif [ -s \"$$CONFIG\" ]; then\n\
+      \  jq --argjson patch \"$$PATCH\" '. * $$patch' \"$$CONFIG\" > \"$$CONFIG.tmp\"\
+      \ && mv \"$$CONFIG.tmp\" \"$$CONFIG\"\nelse\n  echo \"$$PATCH\" | jq . > \"$$CONFIG.tmp\"\
+      \ && mv \"$$CONFIG.tmp\" \"$$CONFIG\"\nfi\n# The bundled litellm provider reads\
+      \ LITELLM_API_KEY but defaults its\n# base URL to http://localhost:4000 (ECONNREFUSED\
+      \ in this container).\n# Point it at the gateway only when unset, keeping operator\
+      \ values.\njq '.models.providers.litellm.baseUrl //= \"http://litellm:4000\" | .models.providers.litellm.models\
+      \ //= []' \"$$CONFIG\" > \"$$CONFIG.tmp\" && mv \"$$CONFIG.tmp\" \"$$CONFIG\"\n\
+      chown -R 1000:1000 /home/node/.openclaw\n"
     image: atlas-openclaw-init:local
     networks:
       backend-network: null
@@ -3428,7 +3446,7 @@ services:
     container_name: atlas-otel-collector
     depends_on:
       loki:
-        condition: service_healthy
+        condition: service_started
         required: true
       tempo:
         condition: service_healthy
@@ -3470,7 +3488,6 @@ services:
       replicas: 0
     environment:
       DATA_SOURCE_NAME: postgresql://atlas_metrics:atlas-db-password@supabase-db:5432/postgres?sslmode=disable
-      PG_EXPORTER_AUTO_DISCOVER_DATABASES: 'true'
       PG_EXPORTER_DISABLE_SETTINGS_METRICS: 'true'
     healthcheck:
       test:
@@ -3637,17 +3654,16 @@ services:
     - --maxmemory-policy
     - volatile-lru
     container_name: atlas-redis
+    environment:
+      REDISCLI_AUTH: redis_password
     healthcheck:
       test:
-      - CMD
-      - redis-cli
-      - -a
-      - redis_password
-      - ping
+      - CMD-SHELL
+      - redis-cli ping | grep -q PONG
       timeout: 10s
       interval: 30s
       retries: 3
-      start_period: 30s
+      start_period: 2m0s
     image: redis:7.2.14-alpine
     logging:
       driver: json-file
@@ -3807,7 +3823,7 @@ services:
     deploy:
       replicas: 1
     environment:
-      FORCE_OWNERSHIP: '1'
+      FORCE_OWNERSHIP: 'false'
       SEARXNG_BASE_URL: http://localhost:63056
       SEARXNG_SECRET: ''
     healthcheck:
@@ -3866,11 +3882,13 @@ services:
     - --conf
     - spark.hadoop.fs.s3a.endpoint=http://minio:9000
     - --conf
-    - spark.hadoop.fs.s3a.access.key=minioadmin
+    - spark.hadoop.fs.s3a.access.key=
     - --conf
     - spark.hadoop.fs.s3a.secret.key=
     - --conf
     - spark.hadoop.fs.s3a.path.style.access=true
+    - --conf
+    - spark.hadoop.fs.s3a.endpoint.region=us-east-1
     - --conf
     - spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
     - --conf
@@ -3944,8 +3962,8 @@ services:
       replicas: 0
     environment:
       SPARK_HISTORY_OPTS: -Dspark.history.fs.logDirectory=s3a://spark-history/ -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000
-        -Dspark.hadoop.fs.s3a.access.key=minioadmin -Dspark.hadoop.fs.s3a.secret.key=
-        -Dspark.hadoop.fs.s3a.path.style.access=true
+        -Dspark.hadoop.fs.s3a.access.key= -Dspark.hadoop.fs.s3a.secret.key=
+        -Dspark.hadoop.fs.s3a.path.style.access=true -Dspark.hadoop.fs.s3a.endpoint.region=us-east-1
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
     image: atlas-spark:local
     logging:
@@ -4052,7 +4070,7 @@ services:
       \  <property><name>fs.s3a.path.style.access</name><value>true</value></property>\n\
       \  <property><name>fs.s3a.connection.ssl.enabled</name><value>false</value></property>\n\
       \  <property><name>fs.s3a.aws.credentials.provider</name><value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value></property>\n\
-      \  <property><name>fs.s3a.access.key</name><value>minioadmin</value></property>\n\
+      \  <property><name>fs.s3a.access.key</name><value></value></property>\n\
       \  <property><name>fs.s3a.secret.key</name><value></value></property>\n</configuration>\n\
       EOF\nexec /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077\
       \ --webui-port 8081\n"
@@ -4070,7 +4088,7 @@ services:
     - /bin/bash
     - -lc
     environment:
-      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_ACCESS_KEY_ID: ''
       AWS_ENDPOINT_URL_S3: http://minio:9000
       AWS_REGION: us-east-1
       AWS_SECRET_ACCESS_KEY: ''
@@ -4094,7 +4112,6 @@ services:
       PGRST_DB_ANON_ROLE: anon
       PGRST_DB_SCHEMA: public,storage
       PGRST_DB_URI: postgres://authenticator:atlas-db-password@supabase-db:5432/postgres
-      PGRST_DB_USE_LEGACY_GUCS: 'false'
       PGRST_JWT_SECRET: ''
     image: postgrest/postgrest:v12.2.10
     logging:
@@ -4120,6 +4137,8 @@ services:
     environment:
       API_EXTERNAL_URL: http://supabase-auth:9999
       DB_NAMESPACE: auth
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: '9999'
       GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:atlas-db-password@supabase-db:5432/postgres
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DISABLE_SIGNUP: 'false'
@@ -4139,6 +4158,18 @@ services:
       GOTRUE_SMTP_PORT: '1025'
       GOTRUE_SMTP_SENDER_NAME: Supabase Auth
       GOTRUE_SMTP_USER: ''
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - --no-verbose
+      - --tries=1
+      - --spider
+      - http://localhost:9999/health
+      timeout: 5s
+      interval: 10s
+      retries: 3
+      start_period: 30s
     image: supabase/gotrue:v2.191.0
     logging:
       driver: json-file
@@ -4158,6 +4189,8 @@ services:
     command:
     - sh
     - /usr/local/bin/enforce-scram-host-auth.sh
+    - -D
+    - /etc/postgresql
     container_name: atlas-supabase-db
     environment:
       POSTGRES_DB: postgres
@@ -4167,10 +4200,11 @@ services:
     healthcheck:
       test:
       - CMD-SHELL
-      - pg_isready -U supabase_admin -d postgres
+      - pg_isready -h localhost -U supabase_admin -d postgres
       timeout: 5s
       interval: 10s
       retries: 5
+      start_period: 1m0s
     image: supabase/postgres:17.6.1.139
     logging:
       driver: json-file
@@ -4190,6 +4224,10 @@ services:
     - type: volume
       source: supabase-db-data
       target: /var/lib/postgresql/data
+      volume: {}
+    - type: volume
+      source: supabase-db-config
+      target: /etc/postgresql-custom
       volume: {}
     - type: bind
       source: '{REPO_ROOT}/services/supabase/db/snapshot'
@@ -4290,6 +4328,7 @@ services:
       PG_META_DB_HOST: supabase-db
       PG_META_DB_NAME: postgres
       PG_META_DB_PASSWORD: atlas-db-password
+      PG_META_CRYPTO_KEY: ''
       PG_META_DB_PORT: '5432'
       PG_META_DB_USER: atlas_meta
       PG_META_PORT: '8080'
@@ -4327,7 +4366,6 @@ services:
       DB_NAME: postgres
       DB_PASSWORD: atlas-db-password
       DB_PORT: '5432'
-      DB_SLOT: supabase_realtime_slot
       DB_USER: atlas_realtime
       DNS_NODES: supabase-realtime-noop.invalid
       ERL_AFLAGS: -proto_dist inet_tcp
@@ -4374,6 +4412,7 @@ services:
       POSTGREST_URL: http://supabase-api:3000
       PROJECT_REF: default
       REGION: local
+      REQUEST_ALLOW_X_FORWARDED_PATH: 'true'
       SERVICE_KEY: ''
       STORAGE_BACKEND: file
       TENANT_ID: stub
@@ -4423,9 +4462,9 @@ services:
         required: true
     environment:
       AUTH_JWT_SECRET: ''
-      DATABASE_URL: postgresql://atlas_meta:atlas-db-password@supabase-db:5432/postgres
       DEFAULT_ORGANIZATION_NAME: atlas
       HOSTNAME: 0.0.0.0
+      PG_META_CRYPTO_KEY: ''
       POSTGRES_DB: postgres
       POSTGRES_HOST: supabase-db
       POSTGRES_PASSWORD: atlas-db-password
@@ -4549,7 +4588,7 @@ services:
       timeout: 5s
       interval: 30s
       retries: 5
-      start_period: 2m0s
+      start_period: 5m0s
     image: __TEI_RERANKER_CPU_IMAGE__
     logging:
       driver: json-file
@@ -4577,13 +4616,13 @@ services:
     container_name: atlas-tempo
     deploy:
       replicas: 0
+    environment:
+      TEMPO_RETENTION_PERIOD: 336h
     healthcheck:
       test:
       - CMD
-      - wget
-      - -q
-      - --spider
-      - http://localhost:3200/ready
+      - /tempo
+      - -health
       timeout: 10s
       interval: 30s
       retries: 5
@@ -4657,6 +4696,8 @@ services:
     deploy:
       replicas: 0
     environment:
+      JAVA_TOOL_OPTIONS: -Dhttp-server.process-forwarded=true
+      MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
       MINIO_ICEBERG_ACCESS_KEY: ''
       MINIO_ICEBERG_SECRET_KEY: ''
       MINIO_REGION: us-east-1
@@ -4812,11 +4853,13 @@ services:
       OPENAI_CUSTOM_EMBED: 'true'
       OPENAI_EMBED_API_KEY: ''
       OPENAI_EMBED_BASE_URL: http://litellm:4000/v1
-      OPENAI_EMBED_MODEL: ''
-      OPENAI_MODEL: ''
+      OPENAI_EMBED_MODEL: ollama/nomic-embed-text
+      OPENAI_MODEL: ollama/qwen3.8:latest
       UNSTRUCTURED_API_KEY: ''
       UNSTRUCTURED_API_URL: ''
       WEAVIATE_URL_VERBA: ''
+    extra_hosts:
+    - host.docker.internal=
     healthcheck:
       test:
       - CMD-SHELL
@@ -4877,7 +4920,7 @@ services:
       BACKUP_FILESYSTEM_PATH: /var/lib/weaviate/backups
       CLIP_INFERENCE_API: http://multi2vec-clip:8080
       CLUSTER_HOSTNAME: weaviate
-      DEFAULT_VECTORIZER_MODULE: text2vec-openai
+      DEFAULT_VECTORIZER_MODULE: none
       ENABLE_MODULES: text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem
       OPENAI_APIKEY: ''
       PERSISTENCE_DATA_PATH: /var/lib/weaviate
@@ -4899,6 +4942,7 @@ services:
       timeout: 5s
       interval: 10s
       retries: 5
+      start_period: 2m0s
     image: cr.weaviate.io/semitechnologies/weaviate:1.38.17
     logging:
       driver: json-file
@@ -4935,6 +4979,7 @@ services:
     - type: bind
       source: '{REPO_ROOT}/services/weaviate/init/scripts'
       target: /scripts
+      read_only: true
       bind: {}
   weaviate-init:
     container_name: atlas-weaviate-init
@@ -4963,6 +5008,7 @@ services:
     - type: bind
       source: '{REPO_ROOT}/services/weaviate/init/scripts'
       target: /scripts
+      read_only: true
       bind: {}
     - type: volume
       source: weaviate-shared-config
@@ -5007,7 +5053,7 @@ services:
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER: spark://spark-master:7077
       SPARK_SUBMIT_OPTIONS: --conf spark.submit.deployMode=client --conf spark.driver.bindAddress=0.0.0.0
-        --conf spark.driver.host=zeppelin --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000
+        --conf spark.driver.host=zeppelin --conf spark.cores.max=1 --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000
         --conf spark.hadoop.fs.s3a.access.key= --conf spark.hadoop.fs.s3a.secret.key=
         --conf spark.hadoop.fs.s3a.path.style.access=true --conf spark.hadoop.fs.s3a.endpoint.region=us-east-1
         --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
@@ -5101,6 +5147,7 @@ services:
       TRINO_JDBC_URL: jdbc:trino://trino:8080/lakehouse
       TRINO_JDBC_USER: atlas
       TRINO_SOURCE: disabled
+      ZEPPELIN_SPARK_CORES_MAX: '1'
       ZEPPELIN_URL: http://zeppelin:8080
     image: python:3.12.13-alpine
     networks:
@@ -5210,6 +5257,9 @@ volumes:
     driver: local
   searxng-data:
     name: atlas-searxng-data
+    driver: local
+  supabase-db-config:
+    name: atlas-supabase-db-config
     driver: local
   supabase-db-data:
     name: atlas-supabase-db-data

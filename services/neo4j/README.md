@@ -27,16 +27,20 @@ After running `./start.sh --setup-hosts`, the Kong browser alias is `http://grap
 
 ## 4. Container-mode backup and restore
 
-These commands and paths apply only to `NEO4J_GRAPH_DB_SOURCE=container`. In `localhost` mode, use the backup and restore procedures of the host-managed Neo4j installation. The Atlas container provides a manual full-dump backup command; restore from the latest existing snapshot is automatic at container startup, but backup creation is never scheduled automatically.
+These commands and paths apply only to `NEO4J_GRAPH_DB_SOURCE=container`. In `localhost` mode, use the backup and restore procedures of the host-managed Neo4j installation. Neo4j Community has no online dump, and inside the container the server is the main process, so every dump or load runs against the stopped database volume. Restore from the latest legacy snapshot is automatic at container startup; backup creation is never scheduled automatically.
 
 ### 4.1. Manual Backup
 
 To manually create a graph database backup:
 
 ```bash
-# Create a backup (will temporarily stop and restart Neo4j)
-docker exec -it ${PROJECT_NAME}-neo4j-graph-db /usr/local/bin/backup.sh
+# Legacy single-database dump into /snapshot (database offline for the duration)
+docker compose stop neo4j-graph-db
+docker compose run --rm --no-deps --entrypoint /usr/local/bin/backup.sh neo4j-graph-db
+docker compose start neo4j-graph-db
 ```
+
+`backup.sh` refuses to run (exit 75) inside the running container: stopping the server there stops the container before the dump starts.
 
 The legacy backup is stored in the `${PROJECT_NAME}-neo4j-backups` named volume mounted at `/snapshot`. Images created before the coordinated workflow may also contain the legacy repository bind path `build/snapshot`; Atlas leaves that path and its files operator-accessible rather than deleting or silently migrating them. Import a legacy dump manually after verifying its origin and exact Neo4j compatibility. For coordinated Atlas backups, use `services/backup/run-consistent-backup.sh`; it preserves the initial running state, dumps both `system` and `neo4j` with the exact 5.26.31 image, and publishes signed metadata with the other database artifacts.
 
@@ -45,25 +49,31 @@ The legacy backup is stored in the `${PROJECT_NAME}-neo4j-backups` named volume 
 To restore from a previous backup:
 
 ```bash
-# Restore from the latest backup
-docker exec -it ${PROJECT_NAME}-neo4j-graph-db /usr/local/bin/restore.sh
+# Load the newest /snapshot/backup_*.dump (database offline for the duration)
+docker compose stop neo4j-graph-db
+docker compose run --rm --no-deps --entrypoint /usr/local/bin/restore.sh neo4j-graph-db
+docker compose start neo4j-graph-db
 ```
+
+For coordinated restores of the signed `system` + `neo4j` artifacts, use `services/backup/run-database-restore.sh` (see the backup service README).
 
 ### 4.3. Automatic Restore
 
 - **Automatic restoration at startup** is enabled by default
-- When the container starts, it automatically restores from the latest backup if available
-- To disable automatic restore, remove or rename the `auto_restore.sh` script in the Dockerfile
+- When the container starts with an empty `neo4j` database (a fresh data volume), it restores the latest `/snapshot/backup_*.dump` if one exists. `./stop.sh --cold` also removes the snapshot volume, so nothing is left to restore after it; copy dumps you want to keep out first
+- A load that fails (automatic or `restore.sh`) leaves a `/data/.atlas-restore-incomplete` marker, so the next start retries the load (with `--overwrite-destination`) instead of booting the partially loaded store. If no `backup_*.dump` is left to retry with, the container refuses to start until you put one back or delete the marker
+- A populated database is never overwritten at startup; to roll a live database back to a snapshot, use the offline `restore.sh` (§4.2)
+- To disable automatic restore, remove the `auto_restore.sh` `COPY` from the Dockerfile and rebuild; the entrypoint then logs that automatic restore is disabled and starts normally
 
 ### 4.4. Important Backup Notes
 
-- By default, data persists in the Docker volume between restarts — **but** once a
-  `/snapshot/backup_*.dump` exists (i.e. after `backup.sh` has run), the
-  automatic restore-on-startup (§4.3) overwrites the live volume with that
-  snapshot on every boot. Disable `auto_restore.sh` (§4.3) if you need the volume
-  to survive restarts unchanged
-- Backups are FULL dumps (`neo4j-admin database dump`); the database
-  is stopped for the duration and restarted automatically (EXIT trap)
+- Data persists in the Docker volume between restarts. The automatic restore
+  (§4.3) runs only when the `neo4j` database is empty, so an existing
+  `/snapshot/backup_*.dump` does not roll back a live volume on reboot
+- Backups are FULL dumps (`neo4j-admin database dump`) taken while the
+  service is stopped; restart it yourself with `docker compose start`.
+  Coordinated backups (`services/backup/run-consistent-backup.sh`) write
+  `/snapshot/<timestamp>/neo4j.dump`, which the automatic restore ignores
 - Backup files are timestamped for easy identification
 
 ## 5. Container-mode data persistence
@@ -88,11 +98,17 @@ GRAPH_DB_AUTH=neo4j/your_password  # Combined form consumed by the Neo4j contain
 GRAPH_DB_PORT=63023            # Bolt protocol (mapped to 7687 inside the container)
 GRAPH_DB_DASHBOARD_PORT=63024  # Browser interface and HTTP API (mapped to 7474)
 
-# Database Settings
-NEO4J_server_memory_heap_initial__size=512m
-NEO4J_server_memory_heap_max__size=1G
-NEO4J_server_memory_pagecache_size=512m
+# Container resources
+NEO4J_MEMORY_LIMIT=2g          # Compose memory limit for the container
 ```
+
+The compose fragment also loads the APOC core plugin (`NEO4J_PLUGINS=["apoc"]`,
+installed at start from the jar the image ships in `labs/`, no download) and
+allows `apoc.*`; LLM Graph Builder depends on it. In container mode the image
+accepts only the `neo4j` admin user, so `GRAPH_DB_USER` matters only for a
+host-run Neo4j (`NEO4J_GRAPH_DB_SOURCE=localhost`). The Browser on the
+published port pre-fills `neo4j://neo4j-graph-db:7687` (the in-network
+advertised address); change it to `bolt://localhost:${GRAPH_DB_PORT}`.
 
 ## 7. Usage Examples
 
@@ -171,16 +187,14 @@ Neo4j can be integrated into workflows for:
 ## 10. Performance Tuning
 
 ### 10.1. Memory Configuration
-Adjust memory settings based on your data size and available system memory:
+`NEO4J_MEMORY_LIMIT` (default `2g`) caps the container. Without explicit settings, the JVM and Neo4j derive heap and page cache from the memory the container sees. Atlas does not forward `NEO4J_server_memory_*` settings from `.env`; to pin them, add them to the service's `environment:` through a Compose override, for example:
 
-```bash
-# For larger datasets
-NEO4J_server_memory_heap_max__size=2G
-NEO4J_server_memory_pagecache_size=1G
-
-# For smaller datasets or limited memory
-NEO4J_server_memory_heap_max__size=512m
-NEO4J_server_memory_pagecache_size=256m
+```yaml
+services:
+  neo4j-graph-db:
+    environment:
+      NEO4J_server_memory_heap_max__size: 2G
+      NEO4J_server_memory_pagecache_size: 1G
 ```
 
 ### 10.2. Query Optimization
@@ -200,7 +214,7 @@ docker logs ${PROJECT_NAME}-neo4j-graph-db -f
 curl http://localhost:63024/
 
 # Check Bolt connection
-docker exec ${PROJECT_NAME}-neo4j-graph-db cypher-shell -u neo4j -p password "RETURN 'Connection OK'"
+docker exec ${PROJECT_NAME}-neo4j-graph-db cypher-shell -u neo4j -p "$GRAPH_DB_PASSWORD" "RETURN 'Connection OK'"
 ```
 
 ### 11.2. Database Statistics
@@ -278,7 +292,7 @@ _Rows marked planned are documented or intended, not wired yet._
 
 - **Native vector index (HNSW)** — *Why pursue:* Neo4j 5 ships an HNSW vector index, letting us store embeddings on graph nodes and combine ANN search with graph traversal in one DB. *Effort:* small.
 - **GenAI plugin (`genai.vector.encode*`)** — *Why pursue:* embed text directly inside Cypher via OpenAI/Vertex/Bedrock — wire it to LiteLLM and ingestion becomes one query. *Effort:* small.
-- **APOC core + extended** — *Why pursue:* image is plain `neo4j:5.26.31`; APOC is not preinstalled. APOC unlocks bulk import, periodic-iterate, JSON/HTTP, and LLM procedures. *Effort:* small.
+- **APOC extended** — *Why pursue:* APOC core is loaded (`NEO4J_PLUGINS=["apoc"]` from the image's `labs/` jar); the extended library would add more JSON/HTTP, import and LLM procedures. *Effort:* small.
 - **Neosemantics (n10s)** — *Why pursue:* RDF/ontology import/export bridges Neo4j with external semantic-web sources (Wikidata, schema.org). *Effort:* medium.
 - **Read-only role for LLM-generated Cypher** — *Why pursue:* safe execution of model-authored queries from open-webui/hermes; mitigates prompt-injection-to-`DETACH DELETE`. *Effort:* small.
 
@@ -305,8 +319,11 @@ docker exec ${PROJECT_NAME}-neo4j-graph-db cat /var/lib/neo4j/conf/neo4j.conf
 
 ### 14.3. Recovery Procedures
 ```bash
-# If database is corrupted, restore from backup
-docker exec -it ${PROJECT_NAME}-neo4j-graph-db /usr/local/bin/restore.sh
+# If database is corrupted, restore the newest legacy snapshot (offline, §4.2)
+docker compose stop neo4j-graph-db
+docker compose run --rm --no-deps --entrypoint /usr/local/bin/restore.sh neo4j-graph-db
+docker compose start neo4j-graph-db
+# Coordinated signed backups restore with services/backup/run-database-restore.sh
 
 # If backup is corrupted, reinitialize (data loss)
 docker volume rm ${PROJECT_NAME}-graph-db-data

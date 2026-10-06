@@ -29,6 +29,14 @@ The manifest (`service.yml`) and compose fragment (`compose.yml`) in this folder
 are the bootstrapper's source of truth for those values; treat this README as a
 pointer, not a duplicate of the aggregator doc.
 
+Backend and Celery document extraction waits up to `DOCLING_INFERENCE_TIMEOUT_SECONDS`
+plus 30 s for Docling (not Tika's `TIKA_TIMEOUT_SECONDS`), and sends legacy Office
+(`.doc`, `.xls`, `.ppt`) and `.epub` files to Tika first, because Atlas's Docling
+providers answer an unsupported format with 500 rather than 415. Other limits
+still apply first: Kong's 300 s per-service timeout on `api.localhost` (an HTTP
+client gets a 504 while the conversion continues) and Celery's task time limits
+(`CELERY_TASK_SOFT_TIME_LIMIT_SECONDS` 840 s / `CELERY_TASK_TIME_LIMIT_SECONDS` 900 s).
+
 ## 2. Dependencies & Integrations
 
 ### 2.1. Current — Upstream (this service calls)
