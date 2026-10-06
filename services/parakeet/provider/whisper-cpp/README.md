@@ -74,9 +74,9 @@ whisper-server \
 ```
 
 `--convert` (it needs `ffmpeg` on the `PATH`, for example `brew install ffmpeg`)
-lets the server decode the WebM/Opus recordings Open WebUI's microphone button
-sends; without it `whisper-server` reads only WAV, MP3 and FLAC and rejects
-every browser recording.
+lets the server accept formats beyond WAV, MP3 and FLAC, such as the OGG/Opus
+voice notes clients like Hermes send as recorded. Open WebUI already transcodes
+browser microphone recordings to MP3 before sending them.
 
 The `/v1/audio/transcriptions` path makes the server drop-in compatible with
 the OpenAI Whisper API surface (which is what Open WebUI / Speaches /

@@ -99,9 +99,6 @@ class DocumentTooLargeError(DocumentExtractionError):
     """Raised before any network call when an upload exceeds the size cap."""
 
 
-# Docling always answers busy with Retry-After: 1, and one conversion takes
-# tens of seconds to minutes, so wait on a time budget, not a retry count.
-_DOCLING_BUSY_WAIT_SECONDS = 120.0
 
 
 def _retry_after_seconds(response: Any) -> float:
@@ -127,6 +124,10 @@ class DocumentExtractorConfig:
     # Docling has its own deadline (DOCLING_INFERENCE_TIMEOUT_SECONDS, 900 s):
     # a cold GPU model load or a large accurate-table PDF outlasts Tika's 30 s.
     docling_timeout_seconds: float = 930.0
+    # Docling answers busy with Retry-After: 1 and one conversion takes tens
+    # of seconds to minutes, so busy replies are retried on a time budget.
+    # Short for the HTTP route (Kong cuts it at 300 s); ingestion raises it.
+    docling_busy_wait_seconds: float = 30.0
 
     @classmethod
     def from_env(cls) -> "DocumentExtractorConfig":
@@ -238,7 +239,8 @@ class DocumentExtractor:
         ``chunking=False`` skips Docling's chunk list for callers that re-chunk
         the content themselves (its 10,000-chunk cap rejects long books)."""
         loop = asyncio.get_running_loop()
-        deadline = loop.time() + _DOCLING_BUSY_WAIT_SECONDS
+        deadline = loop.time() + self.config.docling_busy_wait_seconds
+        attempt = 0
         while True:
             response = await self._post_docling_once(upload, chunking)
             if response.status_code != 429:
@@ -246,7 +248,10 @@ class DocumentExtractor:
             remaining = deadline - loop.time()
             if remaining <= 0:
                 raise ExtractionUnavailableError("Docling is busy; retry the request")
-            await asyncio.sleep(min(_retry_after_seconds(response), remaining))
+            # Growing backoff: each retry re-sends the whole upload.
+            backoff = max(_retry_after_seconds(response), min(2.0**attempt, 10.0))
+            await asyncio.sleep(min(backoff, remaining))
+            attempt += 1
 
     async def _post_docling_once(self, upload: tuple, chunking: bool) -> Any:
         url = f"{self.config.docling_endpoint.rstrip('/')}/v1/document/convert"

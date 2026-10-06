@@ -453,9 +453,14 @@ class ParserAdapter:
 
     def _get_extractor(self) -> Any:
         if self._extractor is None:
-            from document_extraction import DocumentExtractor
+            from dataclasses import replace
 
-            self._extractor = DocumentExtractor()
+            from document_extraction import DocumentExtractor, DocumentExtractorConfig
+
+            # Background ingestion can wait longer for a busy Docling than the
+            # HTTP route before falling back to the next parser.
+            config = replace(DocumentExtractorConfig.from_env(), docling_busy_wait_seconds=120.0)
+            self._extractor = DocumentExtractor(config)
         return self._extractor
 
     async def parse(self, file: CorpusFile, parser_order: List[str]) -> ParsedDocument:

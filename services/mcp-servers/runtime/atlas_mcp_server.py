@@ -239,8 +239,11 @@ def postgres_query(sql: str, limit: int | None = None) -> dict[str, Any]:
     # READ WRITE, defeating the read-only guard (e.g. SELECT nextval() would
     # advance a sequence). With autocommit=True our explicit BEGIN opens the
     # transaction and its READ ONLY characteristic actually applies.
+    # connect_timeout: an unreachable database must not hang the tool call
+    # past its own 15 s budget.
     with psycopg.connect(
-        **_postgres_connection_kwargs(), autocommit=True, row_factory=dict_row
+        **_postgres_connection_kwargs(), autocommit=True, row_factory=dict_row,
+        connect_timeout=10,
     ) as conn:
         with conn.cursor() as cur:
             cur.execute("BEGIN READ ONLY")

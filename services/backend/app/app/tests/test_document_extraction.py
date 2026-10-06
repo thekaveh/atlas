@@ -504,11 +504,12 @@ def _docling_ok():
     })
 
 
-def _busy_extractor(responses):
+def _busy_extractor(responses, busy_wait=30.0):
     client = FakeAsyncClient(responses)
     extractor = DocumentExtractor(
         DocumentExtractorConfig(docling_endpoint="http://docling-gpu:8000",
-                                docling_api_token=TEST_DOCLING_TOKEN, tika_endpoint="http://tika:9998"),
+                                docling_api_token=TEST_DOCLING_TOKEN, tika_endpoint="http://tika:9998",
+                                docling_busy_wait_seconds=busy_wait),
         http_client=client,
     )
     return client, extractor
@@ -526,7 +527,7 @@ def test_docling_busy_429_is_retried(monkeypatch) -> None:
     client, extractor = _busy_extractor([FakeResponse(429), FakeResponse(429), _docling_ok()])
     result = _run(extractor.extract(content=b"%PDF-1", filename="a.pdf", content_type="application/pdf"))
     assert result.extractor == "docling"
-    assert len(client.calls) == 3 and slept == [1.0, 1.0]
+    assert len(client.calls) == 3 and slept == [1.0, 2.0]  # growing backoff
 
 
 def test_docling_still_busy_maps_to_unavailable(monkeypatch) -> None:
@@ -536,8 +537,7 @@ def test_docling_still_busy_maps_to_unavailable(monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(document_extraction.asyncio, "sleep", no_sleep)
-    monkeypatch.setattr(document_extraction, "_DOCLING_BUSY_WAIT_SECONDS", 0.0)
-    _client, extractor = _busy_extractor([FakeResponse(429)])
+    _client, extractor = _busy_extractor([FakeResponse(429)], busy_wait=0.0)
     with pytest.raises(ExtractionUnavailableError):
         _run(extractor.extract(content=b"%PDF-1", filename="a.pdf", content_type="application/pdf"))
 
@@ -546,3 +546,25 @@ def test_docling_chunking_can_be_disabled_for_rechunking_callers() -> None:
     client, extractor = _busy_extractor([_docling_ok()])
     _run(extractor.extract(content=b"%PDF-1", filename="a.pdf", content_type="application/pdf", chunking=False))
     assert client.calls[0][1]["data"]["enable_chunking"] == "false"
+
+
+def test_docling_busy_sleep_is_clamped_to_the_remaining_budget(monkeypatch) -> None:
+    import document_extraction
+    slept = []
+    real_sleep = asyncio.sleep
+
+    async def recording_sleep(seconds):
+        slept.append(seconds)
+        await real_sleep(seconds)  # real clock, so the budget runs out
+
+    monkeypatch.setattr(document_extraction.asyncio, "sleep", recording_sleep)
+    _client, extractor = _busy_extractor([FakeResponse(429)] * 50, busy_wait=0.25)
+    with pytest.raises(ExtractionUnavailableError):
+        _run(extractor.extract(content=b"%PDF-1", filename="a.pdf", content_type="application/pdf"))
+    assert slept and all(seconds <= 0.25 for seconds in slept)
+
+
+def test_ingestion_parser_waits_longer_for_busy_docling() -> None:
+    from rag_ingestion.clients import ParserAdapter
+
+    assert ParserAdapter()._get_extractor().config.docling_busy_wait_seconds == 120.0

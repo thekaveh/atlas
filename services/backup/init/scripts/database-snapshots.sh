@@ -138,7 +138,9 @@ wait_for_weaviate_status() {
   database_operation=$1
   database_status_url=$2
   database_response=$3
-  database_deadline=$(( $(date +%s) + BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS ))
+  # A snapshot/restore scales with data size; the quiesce timeout (120 s)
+  # failed every backup of a larger Weaviate dataset.
+  database_deadline=$(( $(date +%s) + ${BACKUP_COMMAND_TIMEOUT_SECONDS:-900} ))
   while :; do
     weaviate_request GET "${database_status_url}" "${database_response}"
     database_status="$(weaviate_json_string "${database_response}" status)" || {

@@ -1567,7 +1567,7 @@ class DatabaseCoordinator:
             status = response.get("status")
             if not isinstance(status, str):
                 raise ContractError("Weaviate restore start omitted status")
-            deadline = time.monotonic() + self.timeout
+            deadline = time.monotonic() + self.data_timeout  # scales with data, not quiesce
             while weaviate_status_kind(status) == "pending":
                 if time.monotonic() >= deadline:
                     self._weaviate_cancel(container, f"/v1/backups/filesystem/{snapshot_id}/restore")
@@ -2115,6 +2115,7 @@ def main(argv: list[str] | None = None) -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (ContractError, SignalInterruption) as exc:
+    except (ContractError, SignalInterruption, subprocess.TimeoutExpired) as exc:
+        # A step timeout used to escape as a raw traceback and exit 1.
         print(f"database orchestrator: {exc}", file=sys.stderr)
-        raise SystemExit(64 if isinstance(exc, ContractError) else 130)
+        raise SystemExit(130 if isinstance(exc, SignalInterruption) else 64)
