@@ -64,5 +64,7 @@ def test_long_lived_commands_and_probes_carry_no_password_flags():
     assert flower["environment"]["FLOWER_BASIC_AUTH"].startswith("${DASHBOARD_USERNAME}")
     # Exact exec form: a CMD-SHELL string would make a "-a" membership check
     # pass vacuously while still carrying the password.
-    assert redis["healthcheck"]["test"] == ["CMD", "redis-cli", "ping"]
+    # PONG required: redis-cli exits 0 on -LOADING/NOAUTH error replies.
+    assert redis["healthcheck"]["test"] == ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+    assert " -a " not in redis["healthcheck"]["test"][1]
     assert redis["environment"]["REDISCLI_AUTH"] == "${REDIS_PASSWORD}"

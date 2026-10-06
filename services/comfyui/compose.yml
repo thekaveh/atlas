@@ -90,7 +90,9 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 120s
+      # Cold start checks out COMFYUI_REF and pip-installs custom nodes
+      # (amd64-emulated on Apple Silicon) before the check can pass.
+      start_period: 600s
     logging:
       driver: json-file
       options:

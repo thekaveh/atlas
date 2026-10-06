@@ -2108,3 +2108,34 @@ def test_doctor_base_port_matches_what_start_does(raw, status):
         port_manager=PortManager(),
     )
     assert start_module._doctor_check_base_port(starter)["status"] == status
+
+
+def test_consumer_artifacts_cannot_alias_stack_names(tmp_path: Path) -> None:
+    """Consumer "asset" + store "baker" took over asset-baker's MinIO
+    credentials; spark-history passed the bucket check; workflow id "plan"
+    was overwritten by plan.json; a host service "litellm" overrode
+    ATLAS_LITELLM_HOST_ENDPOINT."""
+    from core.consumer_manifest import (
+        ConsumerManifestError,
+        StorageStore,
+        _host_service_name,
+        _parse_n8n_workflows_block,
+        _validate_storage_collisions,
+    )
+
+    def store(consumer: str, name: str, bucket: str) -> StorageStore:
+        key = f"{consumer}_{name}".upper().replace("-", "_")
+        return StorageStore(consumer, name, key, f"{consumer}-{name}", bucket)
+
+    with pytest.raises(ConsumerManifestError, match="MINIO_ASSET_BAKER_ACCESS_KEY"):
+        _validate_storage_collisions([store("asset", "baker", "my-bucket")])
+    with pytest.raises(ConsumerManifestError, match="built-in"):
+        _validate_storage_collisions([store("demo", "logs", "spark-history")])
+    _validate_storage_collisions([store("demo", "media", "demo-media")])  # fine
+    with pytest.raises(ConsumerManifestError, match="reserved"):
+        _parse_n8n_workflows_block(
+            {"n8n_workflows": {"version": 1, "workflows": [{"id": "plan", "path": "w.json"}]}},
+            "demo", tmp_path, tmp_path / "atlas.consumer.yml",
+        )
+    with pytest.raises(ConsumerManifestError, match="reserved"):
+        _host_service_name({"name": "litellm"}, origin="m", seen=set())

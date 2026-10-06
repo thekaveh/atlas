@@ -239,7 +239,7 @@ class KongConfigGenerator:
         `anonymous` fallthrough, and DB-less Kong has no admin API — so this
         declarative file is the ONLY place a credential can come from. With
         zero `keyauth_credentials`, every request to /rest/v1/, /auth/v1/,
-        /storage/v1/, /graphql/v1/ and /realtime/v1/api/ returned 401,
+        /storage/v1/, /graphql/v1 and /realtime/v1/api/ returned 401,
         including one carrying the correct `SUPABASE_ANON_KEY`.
 
         Verified against kong:3.9.3 — before: the correct key and a wrong key
@@ -467,7 +467,7 @@ class KongConfigGenerator:
                     # host gives this route two matching criteria, which
                     # outranks the Supabase routes that match on path alone —
                     # regardless of how much longer their prefix is. Every
-                    # /rest/v1/, /auth/v1/, /storage/v1/, /graphql/v1/ and
+                    # /rest/v1/, /auth/v1/, /storage/v1/, /graphql/v1 and
                     # /pg/ request to host `localhost` was answered with 200
                     # and this dashboard's HTML instead of being proxied.
                     # Worse than a 404: clients saw a success status carrying

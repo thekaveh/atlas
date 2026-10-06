@@ -202,8 +202,8 @@ storage:                                 # parent-owned MinIO buckets + scoped c
 ```
 
 **Reserved-namespace rules:** litellm aliases may not shadow a stack-owned model
-(runtime `hermes-agent`/`lightrag` + every catalog model name); n8n ids are
-namespaced `atlas-consumer-<id>`; a storage bucket may **not** reuse a built-in bucket name (`comfyui`, `backend`, `n8n`, `lakehouse`, and the others in `_BUILTIN_BUCKET_NAMES`).
+(runtime `hermes-agent`/`lightrag`/`fal-image`/`tei-rerank` + every catalog model name); n8n ids are
+namespaced `atlas-consumer-<id>`; a storage bucket may **not** reuse a built-in bucket name (`comfyui`, `backend`, `n8n`, `lakehouse`, `spark-history`, `raw-assets` and every other default `MINIO_BUCKET_*` in `.env.example`), and a store whose generated `MINIO_BUCKET_<KEY>` / `MINIO_<KEY>_ACCESS_KEY` / `MINIO_<KEY>_SECRET_KEY` name matches a stack variable or another store's (consumer `asset` + store `baker` would alias asset-baker's credentials) is rejected; the workflow id `plan` is reserved for the seed plan.
 Unknown top-level keys are rejected. See
 [§6.1](#61-registering-a-parent-project-with-atlasconsumeryml) for the full key
 reference.
@@ -1316,7 +1316,7 @@ URL no HTTP client can use.
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `name` | yes | `[a-z0-9][a-z0-9-]*`. Becomes `~/.atlas/<name>` and `ATLAS_<NAME>_HOST_ENDPOINT`, so two consumers loaded together cannot share one; `comfyui-mps`, `vllm-metal` and `blender-mcp` are reserved for the built-ins. The state directory is per user, not per project, so separate consumer repos on one machine must also use distinct names. |
+| `name` | yes | `[a-z0-9][a-z0-9-]*`. Becomes `~/.atlas/<name>` and `ATLAS_<NAME>_HOST_ENDPOINT`, so two consumers loaded together cannot share one; `comfyui-mps`, `vllm-metal` and `blender-mcp` are reserved for the built-ins, and the stack service names the endpoints export already names (`backend`, `litellm`, `comfyui`, `asset-worker`, `ollama`, `minio`, `weaviate`, `neo4j`, `n8n`, `redis`, `supabase`) are reserved too. The state directory is per user, not per project, so separate consumer repos on one machine must also use distinct names. |
 | `command` | yes | String (POSIX-split) or list. Argv — **not** a shell line. |
 | `port` | yes | 1–65535. |
 | `workdir` | no | Defaults to the manifest's directory. Must resolve inside the consumer root. |

@@ -98,6 +98,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      # Not ready until the CLIP module answers and shards/Raft load.
+      start_period: 120s
     logging:
       driver: json-file
       options:

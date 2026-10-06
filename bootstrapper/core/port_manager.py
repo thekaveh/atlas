@@ -43,7 +43,7 @@ def _runs_no_container(source: Optional[str]) -> bool:
     return value in ("disabled", "none") or "localhost" in value
 
 
-def _free_despite_time_wait(port: int) -> bool:
+def _free_despite_time_wait(port: int, bind_ip: str = "") -> bool:
     """Whether a port refused by the strict probe is only held by TIME_WAIT.
 
     Docker's (Go) listeners set SO_REUSEADDR, so a recently closed connection
@@ -53,22 +53,34 @@ def _free_despite_time_wait(port: int) -> bool:
     bound-but-not-listening SO_REUSEADDR socket also passes; Docker could
     bind there too, so only a not-yet-listening server can race this.)
     """
+    return all(_reusable_bind(family, address) for family, address in _reuse_probe_addresses(port, bind_ip))
+
+
+def _reuse_probe_addresses(port: int, bind_ip: str) -> list:
     addresses = [(socket.AF_INET, ("0.0.0.0", port)), (socket.AF_INET, ("127.0.0.1", port))]
     if socket.has_ipv6:
         addresses += [(socket.AF_INET6, ("::", port)), (socket.AF_INET6, ("::1", port))]
-    for family, address in addresses:
-        try:
-            with socket.socket(family, socket.SOCK_STREAM) as probe:
-                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                if family == socket.AF_INET6:
-                    probe.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
-                probe.bind(address)
-        except OSError as exc:
-            if family == socket.AF_INET6 and exc.errno in (
-                errno.EAFNOSUPPORT, errno.EPROTONOSUPPORT, errno.EADDRNOTAVAIL,
-            ):
-                continue
-            return False
+    if bind_ip and all(bind_ip != address[0] for _family, address in addresses):
+        # A specific HOST_BIND_IP (LAN address) is where compose will bind;
+        # macOS lets the four reusable binds above coexist with a live
+        # listener there.
+        family = socket.AF_INET6 if ":" in bind_ip else socket.AF_INET
+        addresses.append((family, (bind_ip, port)))
+    return addresses
+
+
+def _reusable_bind(family: int, address: tuple) -> bool:
+    """SO_REUSEADDR bind; an unsupported IPv6 stack counts as free."""
+    try:
+        with socket.socket(family, socket.SOCK_STREAM) as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if family == socket.AF_INET6:
+                probe.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+            probe.bind(address)
+    except OSError as exc:
+        return family == socket.AF_INET6 and exc.errno in (
+            errno.EAFNOSUPPORT, errno.EPROTONOSUPPORT, errno.EADDRNOTAVAIL,
+        )
     return True
 
 
@@ -188,7 +200,20 @@ class PortManager:
                 cleanup.callback(probe.close)
         # Outside the stack: a still-held strict IPv4 probe would make the
         # fallback's own 0.0.0.0 bind fail (IPv6 TIME_WAIT read as in use).
-        return _free_despite_time_wait(port) if in_use else True
+        return _free_despite_time_wait(port, self._host_bind_ip()) if in_use else True
+
+    def _host_bind_ip(self) -> str:
+        """HOST_BIND_IP as a bare address ("127.0.0.1:" -> "127.0.0.1").
+
+        An exported value wins, as it does for compose's interpolation.
+        """
+        raw = os.environ.get("HOST_BIND_IP")
+        if raw is None:
+            try:
+                raw = self.config_parser.parse_env_file().get("HOST_BIND_IP", "")
+            except (OSError, UnicodeDecodeError):  # unreadable .env: defaults
+                return ""
+        return (raw or "").strip().rstrip(":").strip("[]")
 
     def check_port_range_availability(self, base_port: int) -> List[int]:
         """

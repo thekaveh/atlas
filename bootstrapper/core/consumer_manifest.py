@@ -834,8 +834,36 @@ _BUILTIN_BUCKET_NAMES = frozenset(
     {
         "comfyui", "backend", "n8n", "jupyter", "docling", "langfuse",
         "mlflow", "label-studio", "lakehouse", "jars", "checkpoints", "landing",
+        "raw-assets", "spark-history", "asset-worker", "asset-baker",
     }
 )
+
+
+def _stack_minio_reservations() -> tuple[frozenset, frozenset]:
+    """(env var names, bucket defaults) the stack's own MinIO wiring uses.
+
+    A store's generated MINIO_BUCKET_<KEY> / MINIO_<KEY>_ACCESS_KEY must not
+    alias one (consumer "asset" + store "baker" took over asset-baker's
+    credentials and policy). Read from .env.example so new stack buckets are
+    covered; the static bucket list is the fallback.
+    """
+    import re
+
+    example = Path(__file__).resolve().parents[2] / ".env.example"
+    try:
+        text = example.read_text(encoding="utf-8")
+    except OSError:
+        return frozenset(), _BUILTIN_BUCKET_NAMES
+    pattern = re.compile(
+        r"^((?:MINIO_BUCKET_\w+|ASSET_\w+_MINIO_BUCKET|MINIO_\w+_(?:ACCESS|SECRET)_KEY))=(.*)$",
+        re.M,
+    )
+    names, buckets = set(), set(_BUILTIN_BUCKET_NAMES)
+    for name, value in pattern.findall(text):
+        names.add(name)
+        if "BUCKET" in name and value.strip():
+            buckets.add(value.strip())
+    return frozenset(names), frozenset(buckets)
 
 _STORE_NAME_RE = __import__("re").compile(r"^[a-z0-9][a-z0-9-]*$")
 _BUCKET_NAME_RE = __import__("re").compile(r"^[a-z0-9][a-z0-9.-]*[a-z0-9]$")
@@ -951,12 +979,29 @@ def _parse_storage_block(
     return stores
 
 
+def _claim_store_vars(store: StorageStore, claimed: set[str]) -> None:
+    """Reserve every env var a store generates, rejecting any already taken."""
+    store_vars = [store.bucket_var, store.access_var, store.secret_var] + [
+        store.extra_bucket_var(index) for index in range(len(store.extra_buckets))
+    ]
+    for var in store_vars:
+        if var in claimed:
+            raise ConsumerManifestError(
+                f"storage store {store.consumer}/{store.name} generates {var}, "
+                "which a stack service or another store already uses; rename the store"
+            )
+        claimed.add(var)
+
+
 def _validate_storage_collisions(stores: Iterable[StorageStore]) -> None:
     """Reject bucket-name, key, and consumer-id collisions across all stores."""
     bucket_owner: dict[str, str] = {}
     keys: set[str] = set()
     consumer_ids: set[str] = set()
+    stack_vars, stack_buckets = _stack_minio_reservations()
+    generated_vars: set[str] = set(stack_vars)
     for store in stores:
+        _claim_store_vars(store, generated_vars)
         if store.key in keys:
             raise ConsumerManifestError(
                 f"storage key collision: {store.key} declared by two stores"
@@ -968,7 +1013,7 @@ def _validate_storage_collisions(stores: Iterable[StorageStore]) -> None:
             )
         consumer_ids.add(store.consumer_id)
         for bucket in store.all_buckets:
-            if bucket in _BUILTIN_BUCKET_NAMES:
+            if bucket in stack_buckets:
                 raise ConsumerManifestError(
                     f"storage bucket {bucket!r} collides with a built-in Atlas bucket"
                 )
@@ -1104,7 +1149,7 @@ LITELLM_ENDPOINT_TEMPLATES: dict[str, str] = {
 # The two runtime-stitched stack rows (see init.py hermes/lightrag). The full
 # reserved set (``_reserved_litellm_aliases()``) unions these with every YAML
 # catalog model name so a consumer can't hijack a stack model alias.
-_RESERVED_LITELLM_ALIASES_BASE = frozenset({"hermes-agent", "lightrag"})
+_RESERVED_LITELLM_ALIASES_BASE = frozenset({"hermes-agent", "lightrag", "fal-image", "tei-rerank"})
 
 # Only these keys are accepted on a model entry; ``api_key`` (a literal secret)
 # is rejected with a dedicated message pointing at ``api_key_var``.
@@ -1556,6 +1601,12 @@ def _parse_n8n_workflows_block(
         if not _N8N_ID_RE.match(wid):
             raise ConsumerManifestError(
                 f"n8n_workflows id {wid!r} must match [a-z0-9][a-z0-9._-]* ({origin})"
+            )
+        if wid == N8N_CONSUMER_PLAN_PATH.stem:
+            # <id>.json shares the directory with plan.json, which overwrote
+            # the workflow and was then imported as one.
+            raise ConsumerManifestError(
+                f"n8n_workflows id {wid!r} is reserved for the seed plan ({origin})"
             )
         if wid in seen:
             raise ConsumerManifestError(
@@ -2080,6 +2131,16 @@ def _parse_host_port(raw: Any, *, name: str, origin: str) -> int:
 _BUILTIN_MANAGED_HOSTS = frozenset({"comfyui-mps", "vllm-metal", "blender-mcp"})
 
 
+def _stack_endpoint_names() -> frozenset[str]:
+    """Stack services the endpoints export names ATLAS_<NAME>_HOST_ENDPOINT;
+    a host service with one of these names overrode that export."""
+    try:
+        from core.endpoints_contract import CONSUMER_SERVICES
+    except ImportError:  # loose-import context
+        return frozenset()
+    return frozenset(svc.service.lower().replace("_", "-") for svc in CONSUMER_SERVICES)
+
+
 def _host_service_name(raw: Mapping[str, Any], *, origin: str, seen: set[str]) -> str:
     name = str(raw.get("name") or "").strip()
     if not _HOST_NAME_RE.match(name):
@@ -2087,7 +2148,7 @@ def _host_service_name(raw: Mapping[str, Any], *, origin: str, seen: set[str]) -
             f"managed_host_services name {name!r} must match [a-z0-9][a-z0-9-]* — it "
             f"becomes a state directory and an env-var name ({origin})"
         )
-    if name in _BUILTIN_MANAGED_HOSTS:
+    if name in _BUILTIN_MANAGED_HOSTS or name in _stack_endpoint_names():
         # Same ~/.atlas/<name>/<name>.pid as the built-in: a declared host
         # with this name could stop the built-in's process or remove its
         # checkout and venv.

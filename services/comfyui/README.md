@@ -126,6 +126,8 @@ _No high-confidence opportunities identified._
 
 **Managed MPS mode — health shows `device: cpu` or an fp8 model crashes.** MPS requires BF16 weights; `fp8`/`fp8-scaled` variants crash on Metal. `./start.sh comfyui-mps preflight` warns on fp8 catalog picks. If `health` reports `device: cpu`, Torch didn't pick up Metal — reinstall with `./start.sh comfyui-mps install --update`. A freshly started host is *reachable but cold*; the first request loads the model (~9–13 s) — that's not a hang.
 
+**ComfyUI shows `health: starting` for several minutes on first run.** The container checks out `COMFYUI_REF` and installs custom nodes (amd64-emulated on Apple Silicon) before its healthcheck can pass; the healthcheck allows a 600 s start period.
+
 **`/comfyui/workflow` or `/comfyui/generate` returns 400.** ComfyUI rejected the submitted graph (a missing node, wrong input or unknown model file); fix the workflow rather than retrying. A 502 still means ComfyUI answered with an invalid response, and a 503 that it is unreachable.
 
 **`ws://comfyui:18188/ws` 502s through Kong.** Kong's WebSocket support is wired but consumers using `comfyui.localhost` instead of `comfyui:18188` may hit timeout-related drops. From sibling containers prefer the internal DNS name.

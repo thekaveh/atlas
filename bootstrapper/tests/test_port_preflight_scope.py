@@ -185,3 +185,32 @@ def test_ipv6_time_wait_is_not_a_conflict():
     accepted.close()
     client.close()
     assert PortManager(str(REPO_ROOT)).check_port_availability(port) is True
+
+
+def test_listener_on_the_configured_host_bind_ip_is_a_conflict(tmp_path):
+    # macOS lets the reusable wildcard/loopback probes coexist with a live
+    # listener on a LAN address, which is exactly where compose binds when
+    # HOST_BIND_IP names it.
+    import socket
+
+    import pytest
+
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(("10.255.255.255", 1))
+        lan_ip = probe.getsockname()[0]
+    except OSError:
+        pytest.skip("no routable IPv4 address")
+    finally:
+        probe.close()
+    if lan_ip.startswith("127."):
+        pytest.skip("no non-loopback IPv4 address")
+    manager = _manager(tmp_path, f"HOST_BIND_IP={lan_ip}:\n")
+    live = socket.socket()
+    live.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    live.bind((lan_ip, 0))
+    live.listen(1)
+    try:
+        assert manager.check_port_availability(live.getsockname()[1]) is False
+    finally:
+        live.close()

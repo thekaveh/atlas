@@ -903,7 +903,7 @@ services:
       timeout: 10s
       interval: 30s
       retries: 5
-      start_period: 2m0s
+      start_period: 10m0s
     image: ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7
     labels:
       com.atlas.category: ai
@@ -3649,13 +3649,12 @@ services:
       REDISCLI_AUTH: redis_password
     healthcheck:
       test:
-      - CMD
-      - redis-cli
-      - ping
+      - CMD-SHELL
+      - redis-cli ping | grep -q PONG
       timeout: 10s
       interval: 30s
       retries: 3
-      start_period: 30s
+      start_period: 2m0s
     image: redis:7.2.14-alpine
     logging:
       driver: json-file
@@ -4192,10 +4191,11 @@ services:
     healthcheck:
       test:
       - CMD-SHELL
-      - pg_isready -U supabase_admin -d postgres
+      - pg_isready -h localhost -U supabase_admin -d postgres
       timeout: 5s
       interval: 10s
       retries: 5
+      start_period: 1m0s
     image: supabase/postgres:17.6.1.139
     logging:
       driver: json-file
@@ -4578,7 +4578,7 @@ services:
       timeout: 5s
       interval: 30s
       retries: 5
-      start_period: 2m0s
+      start_period: 5m0s
     image: __TEI_RERANKER_CPU_IMAGE__
     logging:
       driver: json-file
@@ -4930,6 +4930,7 @@ services:
       timeout: 5s
       interval: 10s
       retries: 5
+      start_period: 2m0s
     image: cr.weaviate.io/semitechnologies/weaviate:1.38.17
     logging:
       driver: json-file
