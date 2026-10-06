@@ -565,6 +565,7 @@ WHERE c.relkind IN ('r', 'p')
     ('n8n', 'oauth_access_tokens'), ('n8n', 'oauth_refresh_tokens'),
     ('n8n', 'oauth_authorization_codes'), ('n8n', 'oauth_clients'),
     ('n8n', 'secrets_provider_connection'), ('n8n', 'deployment_key'), ('n8n', 'settings'),
+    ('n8n', 'event_destinations'), ('n8n', 'variables'),
     ('public', 'user'), ('n8n', 'user'), ('public', 'tool'), ('public', 'function')) \gexec
 SELECT format('GRANT SELECT (%s) ON %I.%I TO %I, %I, %I, %I',
               string_agg(quote_ident(column_name), ', ' ORDER BY ordinal_position),

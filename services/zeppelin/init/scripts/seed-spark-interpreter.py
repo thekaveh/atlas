@@ -48,6 +48,9 @@ def build_atlas_properties(env: dict[str, str]) -> dict[str, str]:
         "spark.submit.deployMode": "client",
         "spark.driver.bindAddress": "0.0.0.0",
         "spark.driver.host": "zeppelin",
+        # The interpreter is long-lived; uncapped it holds every free core and
+        # Airflow's cluster-mode submits wait forever for one.
+        "spark.cores.max": "1",
         "spark.hadoop.fs.s3a.endpoint": minio_endpoint,
         "spark.hadoop.fs.s3a.access.key": _env(env, "MINIO_SPARK_ACCESS_KEY"),
         "spark.hadoop.fs.s3a.secret.key": _env(env, "MINIO_SPARK_SECRET_KEY"),

@@ -73,6 +73,42 @@ def confirm_driver_status_via_rest(
     return payload
 
 
+def kill_driver_via_rest(
+    driver_id: str,
+    rest_host: str = "spark-master",
+    rest_port: int = 6066,
+    timeout: int = 10,
+) -> None:
+    """Ask the standalone master to kill a cluster-mode driver."""
+    url = f"http://{rest_host}:{rest_port}/v1/submissions/kill/{driver_id}"
+    request = urllib.request.Request(url, data=b"", method="POST")
+    with urllib.request.urlopen(request, timeout=timeout) as resp:
+        resp.read()
+
+
+def _log_tee(hook, original_log_processor, captured_lines: list[str]):
+    """Wrap the provider's log processor: lines pass through one at a time
+    (the task log streams live), are captured, and the driver id is recorded
+    on the hook as soon as it appears so on_kill can stop the driver."""
+
+    def _tee(lines):
+        for line in lines:
+            captured_lines.append(line)
+            if hook.__dict__.get("_atlas_driver_id") is None:
+                match = _DRIVER_ID_RE.search(line)
+                if match:
+                    hook._atlas_driver_id = match.group(1)
+            yield line
+
+    def _capturing_log_processor(lines):
+        teed = _tee(lines)
+        original_log_processor(teed)
+        for _ in teed:  # capture whatever the processor did not consume
+            pass
+
+    return _capturing_log_processor
+
+
 def submit_and_confirm_via_rest(
     hook,
     application: str,
@@ -96,14 +132,8 @@ def submit_and_confirm_via_rest(
     # --- 1. Capture the spark-submit log (#880) ---
     captured_lines: list[str] = []
     original_log_processor = getattr(hook, "_process_spark_submit_log", None)
-
-    def _capturing_log_processor(lines):
-        captured_lines.extend(lines)
-        if original_log_processor:
-            original_log_processor(iter(captured_lines))
-
     if original_log_processor:
-        hook._process_spark_submit_log = _capturing_log_processor
+        hook._process_spark_submit_log = _log_tee(hook, original_log_processor, captured_lines)
 
     # --- 2. Disable the :7077 RPC poll ---
     hook._should_track_driver_status = False
@@ -153,6 +183,15 @@ class RestConfirmingSparkHook:
         )
 
     def on_kill(self) -> None:
+        # The provider kills only the local spark-submit here (it needs the
+        # driver-tracking state we disable), which would leave the cluster
+        # driver holding cores and let a retry run alongside it.
+        driver_id = self._hook.__dict__.get("_atlas_driver_id")
+        if driver_id:
+            try:
+                kill_driver_via_rest(driver_id, rest_host=self._rest_host)
+            except Exception as exc:  # best effort; still kill spark-submit
+                self._hook.log.warning("Could not kill Spark driver %s: %s", driver_id, exc)
         self._hook.on_kill()
 
     def __getattr__(self, name):

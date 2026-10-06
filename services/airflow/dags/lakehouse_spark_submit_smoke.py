@@ -55,6 +55,9 @@ default_args = {
     "depends_on_past": False,
     "retries": 1,
     "retry_delay": timedelta(minutes=2),
+    # waitAppCompletion blocks until the driver finishes; bound it so a
+    # driver that never gets a core fails instead of hanging forever.
+    "execution_timeout": timedelta(minutes=30),
 }
 
 

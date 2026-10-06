@@ -143,6 +143,9 @@ services:
       airflow-init:
         condition: service_completed_successfully
         required: true
+      airflow-webserver:
+        condition: service_healthy
+        required: true
     deploy:
       replicas: 0
       resources:
@@ -5043,7 +5046,7 @@ services:
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER: spark://spark-master:7077
       SPARK_SUBMIT_OPTIONS: --conf spark.submit.deployMode=client --conf spark.driver.bindAddress=0.0.0.0
-        --conf spark.driver.host=zeppelin --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000
+        --conf spark.driver.host=zeppelin --conf spark.cores.max=1 --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000
         --conf spark.hadoop.fs.s3a.access.key= --conf spark.hadoop.fs.s3a.secret.key=
         --conf spark.hadoop.fs.s3a.path.style.access=true --conf spark.hadoop.fs.s3a.endpoint.region=us-east-1
         --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions

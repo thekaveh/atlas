@@ -36,7 +36,7 @@ n8n 2.28.2 always uses the owner-account setup flow, and community nodes are
 loaded from the pinned packages installed by `n8n-init` — no auth-mode or
 community-package env vars are needed for the pinned image.
 
-Both containers run with `NODE_ENV=production` (the image default); development mode would add any-origin credentialed CORS, drop `X-Frame-Options` and return stack traces from the REST API.
+Both containers run with `NODE_ENV=production` (the image default); development mode would add any-origin credentialed CORS, drop `X-Frame-Options` and return stack traces from the REST API. Production mode also checks the editor's push WebSocket `Origin` against the `Forwarded` host Kong injects (`n8n.localhost:${KONG_HTTP_PORT}`), so the editor works at that URL and at the direct port, but an editor reached through a tunnel hostname (cloudflared with `httpHostHeader: n8n.localhost`) or another Kong port loses its live connection ("Connection lost"); webhooks are unaffected.
 
 `N8N_BLOCK_ENV_ACCESS_IN_NODE` is set to `"false"` on `n8n` and `n8n-worker`.
 n8n 2.x otherwise rejects `$env` in expressions, and every bundled workflow

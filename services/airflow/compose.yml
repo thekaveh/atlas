@@ -153,6 +153,10 @@ services:
     depends_on:
       airflow-init:
         condition: service_completed_successfully
+      # LocalExecutor tasks call the api-server's execution API; starting
+      # earlier fails runs scheduled during a cold start (burning a retry).
+      airflow-webserver:
+        condition: service_healthy
     healthcheck:
       # Airflow's recommended scheduler liveness probe — checks that THIS
       # host has a fresh SchedulerJob heartbeat in the metadata DB. Silent

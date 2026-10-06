@@ -201,6 +201,7 @@ runtime_sc:
         # Airflow 3.x: was AIRFLOW__WEBSERVER__SECRET_KEY (section retired).
         AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
         AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+        AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/execution/
         # Parity with api-server + init. DagFileProcessor invokes
         # AuthManager during DAG parsing.
         AIRFLOW__CORE__AUTH_MANAGER: "airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager"
@@ -239,6 +240,7 @@ runtime_sc:
         AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
         AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
         AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
+        AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/execution/
         AIRFLOW__CORE__AUTH_MANAGER: "airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager"
         AIRFLOW__FAB__AUTH_BACKENDS: "airflow.providers.fab.auth_manager.api.auth.backend.basic_auth"
         AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -297,6 +299,7 @@ runtime_sc:
         # connection-seeding helper (litellm + minio + supabase + the
         # dedicated airflow Postgres role).
         LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+        MINIO_REGION: ${MINIO_REGION:-us-east-1}  # minio_default connection region
         MINIO_ROOT_USER: ${MINIO_ROOT_USER}
         MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
         SUPABASE_DB_NAME: ${SUPABASE_DB_NAME}
