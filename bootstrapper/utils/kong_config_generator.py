@@ -8,6 +8,7 @@ Replaces static kong.yml/kong-local.yml with dynamic service routing.
 import math
 import yaml
 import socket
+import re
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from urllib.parse import urlparse
@@ -144,7 +145,9 @@ class KongConfigGenerator:
             '_format_version': '2.1',
             '_transform': True,
             'consumers': self.get_consumers(),
-            'services': self._with_default_timeouts(self.get_all_services()),
+            'services': self._with_local_cors(
+                self._with_default_timeouts(self.get_all_services()), self._cors_origins()
+            ),
             # Global Prometheus plugin — exposes /metrics on Kong's Status
             # API (port 8100). Prometheus's observability bundle scrapes it
             # at `kong-api-gateway:8100/metrics`. The plugin is harmless when Prom isn't
@@ -274,6 +277,42 @@ class KongConfigGenerator:
             )
         return mode
     
+    # Browser origins allowed through Kong's CORS: any *.localhost /
+    # localhost / 127.0.0.1 page on any port (plus KONG_CORS_EXTRA_ORIGINS).
+    # A bare `cors` plugin answers `*`, so any website the operator visits
+    # could read responses from, and send preflighted requests to, the
+    # no-login services (Weaviate, LightRAG, ComfyUI, ...).
+    _LOCAL_CORS_ORIGINS = [
+        r"https?://([a-z0-9-]+\.)*localhost(:[0-9]+)?",
+        r"https?://127\.0\.0\.1(:[0-9]+)?",
+    ]
+
+    def _cors_origins(self) -> List[str]:
+        """Local origins plus any exact KONG_CORS_EXTRA_ORIGINS."""
+        extra = (self.get_env_value('KONG_CORS_EXTRA_ORIGINS') or '').split(',')
+        return list(self._LOCAL_CORS_ORIGINS) + [re.escape(o.strip()) for o in extra if o.strip()]
+
+    @classmethod
+    def _with_local_cors(
+        cls, services: List[Dict[str, Any]], origins: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Scope every `cors` plugin without explicit origins to ``origins``
+        (default: local browser origins)."""
+        origins = list(origins or cls._LOCAL_CORS_ORIGINS)
+        for service in services:
+            cls._scope_cors(service.get('plugins') or [], origins)
+            for route in service.get('routes') or []:
+                cls._scope_cors(route.get('plugins') or [], origins)
+        return services
+
+    @staticmethod
+    def _scope_cors(plugins: List[Dict[str, Any]], origins: List[str]) -> None:
+        for index, plugin in enumerate(plugins):
+            config = plugin.get('config') or {}
+            if plugin.get('name') == 'cors' and 'origins' not in config:
+                # New dict: generators may share plugin literals.
+                plugins[index] = {**plugin, 'config': {**config, 'origins': list(origins)}}
+
     @staticmethod
     def _with_default_timeouts(services: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Give every service the gateway's intended 300s read/write timeout.

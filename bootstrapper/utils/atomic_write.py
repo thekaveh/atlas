@@ -205,7 +205,8 @@ def decode_env_value(raw: str) -> str:
 
 
 def _compose_would_rewrite(value: str) -> bool:
-    """A backslash, or a `$` that is not a `${...}` reference."""
+    """A backslash, or a `$` that is not a `${...}` reference. `$$` is quoted
+    too: Atlas's own readers take it literally, so containers must as well."""
     return "\\" in value or re.search(r"\$(?!\{)", value) is not None
 
 

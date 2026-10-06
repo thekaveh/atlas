@@ -231,4 +231,10 @@ def test_launch_banner_forwards_status_messages_to_the_log_sink():
     banner.show_status_message("Port 63000 is already in use", "warning")
     banner.show_status_message("")
     banner.show_section_header("ignored")
-    assert seen == [("Port 63000 is already in use", "warning")]
+    assert seen == [("Port 63000 is already in use", "warn")]  # chip level
+    banner.console.print("[red]Kong configuration error[/red]: route x")
+    assert seen[-1] == ("Kong configuration error: route x", "error")
+    banner.console.print("plain detail: the required port is configured")
+    assert seen[-1] == ("plain detail: the required port is configured", "info")
+    banner.console.print("[yellow]heads up[/yellow]")
+    assert seen[-1] == ("heads up", "warn")

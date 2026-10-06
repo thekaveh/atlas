@@ -1211,6 +1211,8 @@ def test_values_compose_would_rewrite_are_single_quoted():
     assert render_env_value("K", "ab\\c") == "'ab\\c'"
     # ${VAR} references are written on purpose for compose to interpolate.
     assert render_env_value("K", "http://h:${PORT:-1}") == "http://h:${PORT:-1}"
+    # `$$` stays literal in containers too, matching what Atlas itself reads.
+    assert render_env_value("K", "pa$$word") == "'pa$$word'"
     for value in ("pa$word", "ab\\c", "a$$b"):
         assert decode_env_value(render_env_value("K", value)) == value
     for bad in ("it's $5", "ends\\"):

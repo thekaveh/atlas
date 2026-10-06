@@ -3211,7 +3211,9 @@ class WizardScreen(Screen):
             # The stopper prints through a Rich banner, which would tear
             # the Textual chrome apart — same substitution the pipeline
             # makes for the starter.
-            stopper.banner = _NullBanner()
+            stopper.banner = _NullBanner(
+                sink=lambda message, level: self._safe_log(message, source="teardown", level=level)
+            )
             project = self._resolve_project_name()
             ok = await asyncio.to_thread(stopper.stop_services, cold, project)
             # Managed ComfyUI-MPS, vLLM-Metal, and Blender MCP runtimes are host-global
@@ -3436,8 +3438,8 @@ class WizardScreen(Screen):
         # Persist the wizard's chosen PROJECT_NAME (from the project-name step)
         # BEFORE anything reads get_project_name() or runs compose, so the whole
         # launch — and a later bare ./stop.sh — target this container family.
-        # (Banner is the NullBanner here, so the persist's status line is
-        # suppressed and doesn't corrupt the Textual chrome.)
+        # (Banner is the NullBanner here, so the persist's status line goes to
+        # the log pane instead of corrupting the Textual chrome.)
         _proj = (self._stack_options or {}).get("project_name")
         if _proj:
             if not starter._persist_project_name(_proj):
@@ -4030,6 +4032,34 @@ class _NullSink:
 _NULL_SINK = _NullSink()
 
 
+class _ConsoleSink:
+    """``banner.console`` stand-in: ``print`` forwards the plain text (Rich
+    markup stripped) to the log sink; anything else is a no-op."""
+
+    def __init__(self, sink) -> None:
+        self._sink = sink
+
+    def print(self, *objects, **_kwargs) -> None:
+        from rich.text import Text
+
+        raw = " ".join(str(item) for item in objects)
+        try:
+            text = Text.from_markup(raw).plain
+        except Exception:  # noqa: BLE001 — unbalanced markup: keep raw text
+            text = raw
+        # The colour carries the severity (red errors, yellow warnings), so the
+        # Errors/Warns filter chips still find these lines.
+        import re
+
+        styles = " ".join(re.findall(r"\[([a-z_ ]+)\]", raw.lower()))
+        level = "error" if "red" in styles else ("warn" if "yellow" in styles else "info")
+        if text.strip():
+            self._sink(text, level)
+
+    def __getattr__(self, name):
+        return _NULL_SINK
+
+
 class _NullBanner:
     """Drop-in for ``starter.banner`` that keeps pipeline output off stdout
     while we're inside the Textual app. Status messages go to ``sink`` (the
@@ -4038,9 +4068,14 @@ class _NullBanner:
 
     def __init__(self, sink=None) -> None:
         self._sink = sink
+        # Some steps print the failure DETAIL via banner.console.print (Kong
+        # validation errors, dependency violations, scale errors).
+        self.console = _ConsoleSink(sink) if sink is not None else _NULL_SINK
 
     def show_status_message(self, message="", level="info", *_extra) -> None:
         if self._sink is not None and str(message).strip():
+            # The log pane and its filter chips use warn/ok, not warning/success.
+            level = {"warning": "warn", "success": "ok"}.get(level, level)
             self._sink(str(message), str(level or "info"))
     def show_section_header(self, *args, **kwargs) -> None: ...
     def show_subsection_header(self, *args, **kwargs) -> None: ...

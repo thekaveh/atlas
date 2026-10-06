@@ -114,7 +114,7 @@ def test_backend_kong_auth_disabled_by_default():
     config = _generate("")
     backend = _service(config, "backend-api")
 
-    assert backend["plugins"] == [{"name": "cors"}]
+    assert [plugin["name"] for plugin in backend["plugins"]] == ["cors"]
     assert not [
         consumer
         for consumer in config["consumers"]
@@ -195,7 +195,7 @@ def test_backend_route_auth_empty_is_historical_single_route():
     """No overrides → byte-identical to the pre-#402 shape (regression guard)."""
     config = _generate_with_plugin_auth("", [])
     backend = _service(config, "backend-api")
-    assert backend["plugins"] == [{"name": "cors"}]
+    assert [plugin["name"] for plugin in backend["plugins"]] == ["cors"]
     assert backend["routes"] == [
         {"name": "backend-api-all", "strip_path": False, "hosts": ["api.localhost"]}
     ]
@@ -210,7 +210,7 @@ def test_backend_route_auth_open_prefix_opts_out_of_key_auth_default():
     )
     backend = _service(config, "backend-api")
     # cors stays at the service level; auth composes per route.
-    assert backend["plugins"] == [{"name": "cors"}]
+    assert [plugin["name"] for plugin in backend["plugins"]] == ["cors"]
     routes = {r["name"]: r for r in backend["routes"]}
     assert _plugin_names(routes["backend-api-public"]) == []          # open → no auth
     assert routes["backend-api-public"]["paths"] == ["/public"]
@@ -313,7 +313,7 @@ def test_backend_timeout_partial_override_gets_dedicated_service():
     # Unset fields take the gateway's 300s default, not Kong's 60s.
     assert timed["write_timeout"] == 300_000
     assert timed["url"] == "http://backend:8000/"
-    assert timed["plugins"] == [{"name": "cors"}]
+    assert [plugin["name"] for plugin in timed["plugins"]] == ["cors"]
     assert timed["routes"] == [
         {
             "name": "backend-api-tableau",
@@ -997,3 +997,30 @@ def test_asset_baker_route_outlasts_the_bake_timeout():
     assert _bake_timeout_ms(" 900.0 ") == 930_000  # the worker reads it with float()
     assert _bake_timeout_ms("1e9") == 2**31 - 2  # beyond Kong's limit breaks the config
     assert _bake_timeout_ms("nan") == _bake_timeout_ms("junk") == 630_000
+
+
+def test_cors_is_scoped_to_local_browser_origins():
+    # A bare `cors` plugin answers Access-Control-Allow-Origin: *, so any
+    # website could read and write the no-login services cross-origin.
+    from utils.kong_config_generator import KongConfigGenerator
+
+    services = KongConfigGenerator._with_local_cors(
+        [{"name": "s", "plugins": [{"name": "cors"}], "routes": [{"plugins": [{"name": "cors"}]}]}]
+    )
+    for plugin in (services[0]["plugins"][0], services[0]["routes"][0]["plugins"][0]):
+        assert plugin["config"]["origins"] == KongConfigGenerator._LOCAL_CORS_ORIGINS
+        assert "*" not in plugin["config"]["origins"]
+
+
+def test_extra_cors_origins_are_appended_as_exact_matches():
+    from core.config_parser import ConfigParser
+    from utils.kong_config_generator import KongConfigGenerator
+
+    gen = KongConfigGenerator(ConfigParser(str(Path(__file__).resolve().parents[2])))
+    gen.load_environment_variables = lambda: setattr(
+        gen, "env_vars", {"KONG_CORS_EXTRA_ORIGINS": "http://192.168.1.5:3000, https://app.example.com"}
+    )
+    gen.load_environment_variables()
+    origins = gen._cors_origins()
+    assert origins[:2] == KongConfigGenerator._LOCAL_CORS_ORIGINS
+    assert origins[2:] == [r"http://192\.168\.1\.5:3000", r"https://app\.example\.com"]

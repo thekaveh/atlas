@@ -164,7 +164,10 @@ class SessionLogTee:
         # A file we cannot remove makes O_EXCL fail; write() then degrades.
         with contextlib.suppress(OSError):
             segment_path.unlink()
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        flags = (
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)  # no CRT \r\r\n
+        )
         self._fh = os.fdopen(  # noqa: SIM115 - lifetime managed by close()
             os.open(segment_path, flags, 0o600), "w", buffering=1, encoding="utf-8"
         )

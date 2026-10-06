@@ -169,7 +169,7 @@ env:
     description: "Maximum bounded media ledger pages processed per 30-second recovery poll. Must be an integer from 1 through 50; the cursor resumes on the next poll."
   - name: BACKEND_CORS_ORIGINS
     default: "*"
-    description: "Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness."
+    description: "Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness. Requests through Kong are also limited to local origins plus KONG_CORS_EXTRA_ORIGINS."
   - name: BACKEND_CORS_ALLOW_ORIGIN_REGEX
     default: ""
     description: "Optional regex accepted by the backend CORS middleware for wildcard subdomain policies."

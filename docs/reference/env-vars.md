@@ -107,7 +107,7 @@
 | MEDIA_OPERATION_TTL_SECONDS | backend | 604800 | Redis retention in seconds for hosted media operation state. The default keeps terminal results available for seven days across Backend replicas and restarts. |
 | MEDIA_LEDGER_RECOVERY_BATCH_SIZE | backend | 100 | Maximum media ledger intents loaded in one bounded Redis recovery page. Must be an integer from 1 through 500. |
 | MEDIA_LEDGER_RECOVERY_MAX_CYCLES | backend | 4 | Maximum bounded media ledger pages processed per 30-second recovery poll. Must be an integer from 1 through 50; the cursor resumes on the next poll. |
-| BACKEND_CORS_ORIGINS | backend | * | Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness. |
+| BACKEND_CORS_ORIGINS | backend | * | Comma-separated browser origins accepted by the backend CORS middleware. Default preserves local-development permissiveness. Requests through Kong are also limited to local origins plus KONG_CORS_EXTRA_ORIGINS. |
 | BACKEND_CORS_ALLOW_ORIGIN_REGEX | backend |  | Optional regex accepted by the backend CORS middleware for wildcard subdomain policies. |
 | BACKEND_DEV_RELOAD | backend | false | Opt-in uvicorn --reload for live development (#679). Disabled by default so the production/consumer image runs a stable process: with backend_plugins bind-mounted, host-side git churn in the plugin tree would otherwise restart or crash-loop the backend. The plugin seam installs at boot, so recreate the backend to apply plugin changes. |
 | BACKEND_KONG_AUTH | backend | disabled | Default gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header). A backend plugin's plugin.yml `auth:` setting (`open` or `key-auth`) overrides this per route prefix (#402). |
@@ -380,6 +380,7 @@
 | KONG_API_GATEWAY_SOURCE | kong | container | Single-option (container only). |
 | KONG_HTTP_PORT | kong | 63000 | - |
 | KONG_HTTPS_PORT | kong | 63001 | - |
+| KONG_CORS_EXTRA_ORIGINS | kong |  | Comma-separated exact browser origins (scheme://host[:port]) allowed cross-origin through Kong in addition to *.localhost, localhost and 127.0.0.1, e.g. a LAN or tunnel front-end. Read when Kong's config is generated at start. |
 | DASHBOARD_USERNAME | kong | kong_admin | - |
 | DASHBOARD_PASSWORD | kong | kong_password | Auto-generated on first ./start.sh when left at the placeholder (rotate-when-absent, like MINIO_ROOT_PASSWORD). Gates the Kong-routed Studio dashboard via basic-auth. |
 | KONG_API_GATEWAY_IMAGE | kong | kong:3.9.3 | Container image for `kong-api-gateway`. |

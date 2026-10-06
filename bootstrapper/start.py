@@ -3451,7 +3451,7 @@ class AtlasStarter:
                 return True
             if _run_privileged_hosts_setup(non_interactive=True):
                 return True
-            # print: the TUI's banner is a no-op; its log pane captures stdout.
+            # print: the TUI's log pane captures stdout as well as its banner.
             print(
                 "WARNING: hosts entries not added: sudo needs a password, which "
                 "the wizard cannot prompt for. Run ./start.sh --setup-hosts in a "

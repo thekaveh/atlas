@@ -34,6 +34,9 @@ env:
     # default removed — computed by services/topology.py slot allocator
   - name: KONG_HTTPS_PORT
     # default removed — computed by services/topology.py slot allocator
+  - name: KONG_CORS_EXTRA_ORIGINS
+    default: ""
+    description: "Comma-separated exact browser origins (scheme://host[:port]) allowed cross-origin through Kong in addition to *.localhost, localhost and 127.0.0.1, e.g. a LAN or tunnel front-end. Read when Kong's config is generated at start."
   - name: DASHBOARD_USERNAME
     default: kong_admin
   - name: DASHBOARD_PASSWORD
