@@ -170,7 +170,7 @@ def _apply_memory_script(
 @pytest.fixture
 def disposable_pgvector():
     if not seed_harness.docker_available():
-        if os.environ.get("CI"):
+        if seed_harness.in_ci():
             pytest.fail("Docker daemon unavailable in CI; this migration drill must run")
         pytest.skip("local Docker daemon unavailable")
     seed_harness.ensure_database_image()

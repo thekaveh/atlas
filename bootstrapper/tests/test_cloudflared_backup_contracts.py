@@ -4441,19 +4441,30 @@ def test_restore_rejects_oversized_manifest_before_parsing(tmp_path: Path) -> No
     timeout = tmp_path / "timeout"
     timeout.write_text('#!/bin/sh\nshift 5\nexec "$@"\n', encoding="utf-8")
     timeout.chmod(0o755)
-    oversized = tmp_path / "oversized"
-    oversized.write_bytes(b"x" * 5000)
-    (tmp_path / "postgres.complete").write_text("\n".join([
-        "completion_format=1", "backup_timestamp=20260829_120000", "backup_id=" + "1" * 32,
-        "manifest_sha256=" + "0" * 64, "manifest_bytes=5000", "dump_bytes=1",
-        "tables_bytes=1", "objects_bytes=1", "hmac_sha256=" + "0" * 64, "",
-    ]))
+    _write_fake_setsid(tmp_path)
+    key_hex = "a" * 64
+    backup_id = "1" * 32
+    publication = tmp_path / "20260829_120000"
+    (publication / backup_id).mkdir(parents=True)
+    oversized = b"x" * 5000
+    (publication / backup_id / "postgres.manifest").write_bytes(oversized)
+    # Correctly signed with the restore key, so only the size bound can reject it.
+    payload = "\n".join([
+        "completion_format=1", "backup_timestamp=20260829_120000", "backup_id=" + backup_id,
+        "manifest_sha256=" + hashlib.sha256(oversized).hexdigest(), "manifest_bytes=5000",
+        "dump_bytes=1", "tables_bytes=1", "objects_bytes=1", "",
+    ])
+    (publication / "postgres.complete").write_text(
+        payload + "hmac_sha256="
+        + hmac.new(bytes.fromhex(key_hex), payload.encode(), hashlib.sha256).hexdigest() + "\n"
+    )
+    trace = tmp_path / "mc.trace"
     mc = tmp_path / "mc"
     mc.write_text(
         """#!/bin/sh
 case "$1" in
   alias|ls) exit 0 ;;
-  cat) cat "$FIXTURE/$(basename "$2")" ;;
+  cat) printf '%s\\n' "$2" >>"$TRACE"; cat "$FIXTURE/${2#s3/*/}" ;;
 esac
 """,
         encoding="utf-8",
@@ -4465,9 +4476,10 @@ esac
         env={
             "PATH": f"{tmp_path}:/usr/bin:/bin",
             "FIXTURE": str(tmp_path),
+            "TRACE": str(trace),
             "BACKUP_TIMESTAMP": "20260829_120000",
             "BACKUP_RESTORE_MAINTENANCE_MODE": "confirmed",
-            "BACKUP_MANIFEST_HMAC_KEY": "a" * 64,
+            "BACKUP_MANIFEST_HMAC_KEY": key_hex,
             "BACKUP_DEPLOYMENT_ID": "atlas-test-deployment",
             "SUPABASE_DB_USER": "postgres",
             "SUPABASE_DB_PASSWORD": "secret",
@@ -4480,8 +4492,10 @@ esac
         check=False,
     )
 
-    assert result.returncode != 0
+    assert result.returncode == 1, result.stderr
     assert "incomplete or unauthenticated" in result.stderr
+    fetched = trace.read_text().splitlines()
+    assert fetched == ["s3/atlas-backups/20260829_120000/postgres.complete"], fetched
 
 
 def test_latest_skips_replay_and_incomplete_prefix_and_real_openssl_rejects_wrong_key(tmp_path: Path) -> None:
@@ -4501,7 +4515,7 @@ case "$1" in
   cat) rel=${2#s3/atlas-backups/}; cat "$FIXTURE/$rel" ;;
 esac
 """)
-    (bin_dir / "pg_restore").write_text('#!/bin/sh\nprintf "%s\\n" "$*" >>"$TRACE"\nexit 99\n')
+    (bin_dir / "pg_restore").write_text('#!/bin/sh\nprintf "pg_restore invoked\\n" >>"$TRACE"\nexit 99\n')
     openssl_path = shutil.which("openssl")
     assert openssl_path
     (bin_dir / "openssl").write_text(f'#!/bin/sh\nprintf "openssl invoked\\n" >>"$TRACE"\nexec "{openssl_path}" "$@"\n')
@@ -4518,14 +4532,16 @@ esac
     assert result.returncode != 0
     assert "using completed backup 20260827_120000" in result.stdout
     assert trace.read_text().count("openssl invoked") == 2
+    assert "pg_restore invoked" in trace.read_text()  # positive control for the half below
     trace.write_text("")
     wrong = subprocess.run(
         ["sh", str(REPO / "services/backup/init/scripts/restore-postgres.sh")],
         env={**base_env, "BACKUP_TIMESTAMP": "20260827_120000", "BACKUP_MANIFEST_HMAC_KEY": "4" * 64},
         text=True, capture_output=True, check=False,
     )
-    assert wrong.returncode != 0
-    assert "pg_restore" not in trace.read_text()
+    assert wrong.returncode == 1, wrong.stderr
+    assert "incomplete or unauthenticated: 20260827_120000" in wrong.stderr
+    assert trace.read_text().splitlines() == ["openssl invoked"]  # completion HMAC only
 
 
 def test_backup_writes_hmac_manifest_and_snapshot_owned_object_inventory(
@@ -5498,3 +5514,49 @@ def test_orchestrator_step_timeout_exits_124_not_a_traceback(monkeypatch, capsys
         module._cli()
     assert raised.value.code == 124
     assert "database orchestrator:" in capsys.readouterr().err
+
+
+def _assert_neo4j_restarted_and_job_removed(calls: list[str], env: dict) -> None:
+    up = "compose up -d --no-deps --wait --wait-timeout 5 neo4j-graph-db"
+    stop = "compose stop --timeout 5 neo4j-graph-db"
+    assert calls.count(stop) == 1 and calls.count(up) == 1
+    offline = next(i for i, c in enumerate(calls) if c.endswith("/scripts/offline-backup.sh"))
+    assert calls.index(stop) < offline < calls.index(up)
+    assert Path(env["NEO4J_STATE"]).read_text(encoding="utf-8") == "running"
+    assert any(c.startswith("rm -f atlas-db-") for c in calls)
+    assert not any(Path(env["JOBS"]).iterdir())
+
+
+@pytest.mark.parametrize("failing_job", ["offline-backup.sh", "backup-all.sh"])
+def test_backup_orchestrator_restarts_running_neo4j_after_failure(
+    tmp_path: Path, failing_job: str
+) -> None:
+    from tests.test_database_volume_backup_contracts import REPO as _VOLUME_REPO, _fake_docker as _volume_fake_docker
+
+    trace, env = _volume_fake_docker(tmp_path)
+    Path(env["NEO4J_STATE"]).write_text("running", encoding="utf-8")
+    result = subprocess.run(
+        ["sh", str(_VOLUME_REPO / "services/backup/run-consistent-backup.sh")],
+        env={**env, "NEO4J_INITIAL_STATE": "running", "BACKUP_FAKE_FAIL": failing_job},
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=20,
+    )
+    assert result.returncode == 64, result.stderr
+    # The primary job failure is reported, not a restart-compensation failure.
+    assert "command failed (9)" in result.stderr and failing_job in result.stderr, result.stderr
+    assert "restart health was not proven" not in result.stderr, result.stderr
+    _assert_neo4j_restarted_and_job_removed(trace.read_text(encoding="utf-8").splitlines(), env)
+
+
+@pytest.mark.parametrize(("available", "ci", "skip"), [
+    (True, "", False), (True, "true", False), (False, "", True),
+    (False, "false", True), (False, "true", False), (False, "1", False),
+])
+def test_seed_docker_tests_skip_only_outside_ci(monkeypatch, available, ci, skip) -> None:
+    from tests import seed_harness
+
+    monkeypatch.setattr(seed_harness, "docker_available", lambda: available)
+    monkeypatch.setenv("CI", ci)
+    assert seed_harness.docker_unavailable_locally() is skip

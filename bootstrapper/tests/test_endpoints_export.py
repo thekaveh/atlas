@@ -6,7 +6,6 @@ per-consumer storage fields, with secret masking by default.
 """
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,7 +17,7 @@ from core.endpoints_contract import (
     render_env,
     render_json,
 )
-from start import _manifest_base_port_is_unallocated, endpoints_export_command
+from start import _manifest_base_port_is_unallocated
 
 
 def _base_env(base_port: int = 63000) -> dict[str, str]:
@@ -675,15 +674,36 @@ def test_manifest_auto_base_port_is_unallocated_until_bring_up(
     )
 
 
-def test_endpoints_export_refuses_unallocated_auto_base_port_by_default() -> None:
-    """The refusal is opt-out, so the ambiguity is chosen rather than stumbled into."""
-    signature = inspect.signature(endpoints_export_command.callback)
-    assert "allow_unresolved" in signature.parameters
-    source = inspect.getsource(endpoints_export_command.callback)
-    assert "allow_unresolved" in source
-    assert "Exit(3)" in source
-    assert "--allow-unresolved" in (endpoints_export_command.help or "") or any(
-        "--allow-unresolved" in (param.opts or [None])[0]
-        for param in endpoints_export_command.params
-        if getattr(param, "opts", None)
+@pytest.mark.parametrize(
+    ("args", "exit_code"),
+    ((["endpoints", "export"], 3), (["endpoints", "export", "--allow-unresolved"], 0)),
+)
+def test_endpoints_export_refuses_unallocated_auto_base_port_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, args: list[str], exit_code: int,
+) -> None:
+    """The refusal is opt-out, so the ambiguity is chosen rather than stumbled into.
+
+    Drives the real command: a manifest `BASE_PORT: auto` with a .env still at
+    DEFAULT_BASE_PORT must exit 3 and print no endpoints, and
+    `--allow-unresolved` must export anyway.
+    """
+    from click.testing import CliRunner
+    import start as start_module
+    from core.config_parser import ConfigParser
+
+    env_file = tmp_path / ".env"
+    env = {**_base_env(), "BASE_PORT": str(DEFAULT_BASE_PORT)}
+    env_file.write_text("".join(f"{k}={v}\n" for k, v in env.items()), encoding="utf-8")
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env_file))
+    monkeypatch.setattr(
+        ConfigParser, "load_consumer_config", lambda self: _consumer_config("auto")
     )
+
+    result = CliRunner().invoke(start_module.main, args)
+
+    assert result.exit_code == exit_code, result.output
+    if exit_code == 3:
+        assert "--allow-unresolved" in result.output
+        assert "ATLAS_KONG_GATEWAY" not in result.output
+    else:
+        assert "ATLAS_KONG_GATEWAY=http://localhost:63000" in result.output

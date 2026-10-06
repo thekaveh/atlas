@@ -34,6 +34,11 @@ def _run_guard(tmp_path: Path, hba: str, *args: str):
     return result, hba_path
 
 
+def _active_rules(text: str) -> str:
+    """pg_hba rules with comment lines removed (a commented-out weak rule is fine)."""
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
 def test_hba_upgrade_preserves_non_host_rules_options_and_address_families(
     tmp_path: Path,
 ) -> None:
@@ -54,8 +59,9 @@ host all all 0.0.0.0/0 reject
     assert "0.0.0.0/0 reject" in rewritten
     # pg_hba takes the first match: the weak host rules must be gone, not
     # merely followed by scram ones.
-    assert "127.0.0.1/32 trust" not in rewritten
-    assert "::1/128 password" not in rewritten
+    active = _active_rules(rewritten)
+    assert "127.0.0.1/32 trust" not in active
+    assert "::1/128 password" not in active
     assert hba.with_name("pg_hba.conf.atlas.bak").read_text(encoding="utf-8") == original
 
 
