@@ -243,7 +243,10 @@ class SourceOverrideManager:
                 # so a consumer-supplied key or value reaches `.env` through
                 # here without ever passing the consumer parser.
                 var_value = render_env_assignment(var_name, raw_value)
-                pattern = rf'^{re.escape(var_name)}=.*$'
+                # `export KEY=` is KEY to Compose and to parse_env_file, so it
+                # is rewritten too (keeping the prefix); otherwise a later
+                # export line would silently win over this override.
+                pattern = rf'^(export[ \t]+)?{re.escape(var_name)}=.*$'
                 replacement = f'{var_name}={var_value}'
 
                 if re.search(pattern, updated_content, re.MULTILINE):
@@ -254,7 +257,8 @@ class SourceOverrideManager:
                     # base64-encoded keys, etc.) would otherwise corrupt
                     # silently.
                     updated_content = re.sub(
-                        pattern, lambda _m, r=replacement: r, updated_content, flags=re.MULTILINE
+                        pattern, lambda m, r=replacement: (m.group(1) or "") + r,
+                        updated_content, flags=re.MULTILINE,
                     )
                 else:
                     # Variable doesn't exist, append it (shouldn't happen with SOURCE vars)

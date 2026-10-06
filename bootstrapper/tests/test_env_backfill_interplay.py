@@ -166,3 +166,19 @@ def test_service_sources_use_the_same_parser_as_compose(tmp_path):
     sources = parser.parse_service_sources()
     assert sources["WEAVIATE_SOURCE"] == "disabled"
     assert sources["N8N_SOURCE"] == "container"
+
+
+def test_source_override_rewrites_export_lines_too(tmp_path):
+    """parse_env_file and Compose read `export KEY=` as KEY; an override that
+    rewrote only the bare line left the export line winning."""
+    from core.config_parser import ConfigParser
+    from utils.source_override_manager import SourceOverrideManager
+
+    env = tmp_path / ".env"
+    env.write_text("WEAVIATE_SOURCE=container\nexport WEAVIATE_SOURCE=container\n")
+    parser = ConfigParser(str(tmp_path))
+    parser.env_file_path = env
+    manager = SourceOverrideManager(parser)
+    assert manager.update_env_file({"WEAVIATE_SOURCE": "disabled"})
+    assert "export WEAVIATE_SOURCE=disabled" in env.read_text()
+    assert parser.parse_env_file()["WEAVIATE_SOURCE"] == "disabled"

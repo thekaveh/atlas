@@ -154,15 +154,21 @@ def _identifiers(clause: str) -> list[str]:
 
 def _grant_and_seed_sql() -> str:
     """Every seed slice that can issue a GRANT: the `.sql` files and the `.sh`
-    ones (`05-scoped-roles.sh` grants on `storage` through psql heredocs)."""
+    ones (`05-scoped-roles.sh` grants on `storage` through psql heredocs).
+
+    Grants built at runtime (`format(...) \\gexec`, `EXECUTE 'GRANT ...'`, a
+    psql variable as the schema) are not visible to this static scan."""
     parts = []
     for path in sorted(SCRIPTS_DIR.iterdir()):
         text = path.read_text(encoding="utf-8")
         if path.suffix == ".sh":
-            parts.append(_SHELL_LINE_COMMENT.sub("", text))
+            # Only whole-line `--` SQL comments: an inline `--` in shell is a
+            # flag (`psql --username ... -c "GRANT ..."`), not a comment.
+            text = _SHELL_LINE_COMMENT.sub("", text)
+            parts.append(re.sub(r"(?m)^[ \t]*--[^\n]*", "", text))
         elif path.suffix == ".sql":
-            parts.append(text)
-    return _SQL_LINE_COMMENT.sub("", "\n".join(parts))
+            parts.append(_SQL_LINE_COMMENT.sub("", text))
+    return "\n".join(parts)
 
 
 def _storage_table_grants(sql: str, table: str) -> list[tuple[str, list[str]]]:
