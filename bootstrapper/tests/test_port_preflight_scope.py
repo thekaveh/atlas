@@ -119,3 +119,69 @@ def test_secondary_ports_of_a_disabled_service_are_not_probed(tmp_path):
 
     conflicts = manager.get_port_conflicts(63000)
     assert "RAY_GCS_PORT" not in conflicts and "RAY_CLIENT_PORT" not in conflicts
+
+
+def test_ports_of_host_run_sources_are_not_probed(tmp_path):
+    # A localhost source scales the container to 0, so its slot never binds.
+    manager = _manager(tmp_path, "COMFYUI_SOURCE=localhost\n")
+    comfy_port = manager.calculate_port_assignments(63000)["COMFYUI_PORT"]
+    manager.check_port_availability = lambda port: port != comfy_port
+    assert "COMFYUI_PORT" not in manager.get_port_conflicts(63000)
+
+
+def test_time_wait_is_not_a_conflict_but_a_live_listener_is(tmp_path):
+    # Docker binds through TIME_WAIT (SO_REUSEADDR); the strict probe did not,
+    # so a just-closed Kong connection aborted the restart it had just stopped.
+    import socket
+
+    from core.port_manager import PortManager
+
+    manager = PortManager(str(REPO_ROOT))
+    server = socket.socket()
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+    client = socket.create_connection(("127.0.0.1", port))
+    accepted, _ = server.accept()
+    server.close()
+    accepted.close()  # server side closes first -> TIME_WAIT on `port`
+    client.close()
+    assert manager.check_port_availability(port) is True
+
+    live = socket.socket()
+    live.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # as Docker does
+    live.bind(("127.0.0.1", port))
+    live.listen(1)
+    try:
+        assert manager.check_port_availability(port) is False
+    finally:
+        live.close()
+
+
+
+def test_ipv6_time_wait_is_not_a_conflict():
+    # The strict IPv4 probe was still held when the fallback ran, so a ::1
+    # TIME_WAIT (a browser hitting localhost over IPv6) stayed a conflict.
+    import socket
+
+    import pytest
+
+    from core.port_manager import PortManager
+
+    if not socket.has_ipv6:
+        pytest.skip("no IPv6")
+    server = socket.socket(socket.AF_INET6)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        server.bind(("::1", 0))
+    except OSError:
+        pytest.skip("no ::1")
+    server.listen(1)
+    port = server.getsockname()[1]
+    client = socket.create_connection(("::1", port))
+    accepted, _ = server.accept()
+    server.close()
+    accepted.close()
+    client.close()
+    assert PortManager(str(REPO_ROOT)).check_port_availability(port) is True

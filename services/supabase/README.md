@@ -179,7 +179,7 @@ execute privilege is revoked from public API roles despite its required
 **Features**:
 - Automatic API generation from database schema
 - Row Level Security (RLS) enforcement
-- Not yet functional: Realtime subscriptions (see §4.5) and the `/graphql/v1/` route, which returns 404 because the `pg_graphql` extension is not installed and `graphql_public` is not an exposed schema
+- Not yet functional: Realtime subscriptions (see §4.5) and the `/graphql/v1` route, which returns 404 because the `pg_graphql` extension is not installed and `graphql_public` is not an exposed schema
 
 ### 4.5. Realtime Service
 
@@ -346,7 +346,7 @@ _No upstream calls._
 - **Database Webhooks** — *Why pursue:* lets row-level changes trigger LiteLLM calls or n8n flows without a polling worker; depends on `pg_net`. *Effort:* small.
 - **Row-Level Security policy coverage** — *Why pursue:* the `public.users`, backend research, memory, and media-spend-ledger tables now define RLS policies, but the ComfyUI workflow/generation tables still lack table-specific RLS (they hold shared, non-user app state). Finish the per-table policy model before exposing those tables through PostgREST broadly. *Effort:* medium.
 - **GoTrue OAuth providers (Google, GitHub)** — *Why pursue:* stack ships with email-only login; SSO is a near-zero-code add via `GOTRUE_EXTERNAL_*` envs. *Effort:* small.
-- **`pg_graphql` endpoint** — *Why pursue:* Kong already routes `/graphql/v1/` to PostgREST's `rpc/graphql`, but no consumer uses pg_graphql's typed schema; wiring n8n/backend to it would give a typed GraphQL surface. *Effort:* small.
+- **`pg_graphql` endpoint** — *Why pursue:* Kong already routes `/graphql/v1` to PostgREST's `rpc/graphql`, but no consumer uses pg_graphql's typed schema; wiring n8n/backend to it would give a typed GraphQL surface. *Effort:* small.
 - **Realtime broadcast + presence channels** — *Why pursue:* `supabase-realtime` runs but nothing subscribes; broadcast channels would let backend push job-status updates to open-webui without polling. *Effort:* medium.
 - **Storage image transformation** — *Why pursue:* prerequisite for the imgproxy candidate; lights up resize URLs once `IMGPROXY_URL` is set. *Effort:* small.
 

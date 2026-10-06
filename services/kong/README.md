@@ -33,7 +33,7 @@ Plain `python3 scripts/check-kong-routes.py` works too if `PyYAML` is on your sy
 - `/` on bare `localhost` → Atlas service directory and health dashboard
 - `/auth/v1/` → Supabase Auth service
 - `/rest/v1/` → Supabase API (PostgREST)
-- `/graphql/v1/` → Supabase GraphQL
+- `/graphql/v1` → Supabase GraphQL
 - `/realtime/v1/` → Supabase Realtime
 - `/storage/v1/` → Supabase Storage
 - `/pg/` → Supabase Meta service

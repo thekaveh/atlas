@@ -35,6 +35,43 @@ def _bind_probe(family: int, address: tuple) -> tuple[Optional[socket.socket], E
         return None, exc
 
 
+def _runs_no_container(source: Optional[str]) -> bool:
+    """A source that publishes none of the service's container ports:
+    disabled, the LLM provider's cloud-only ``none`` (Ollama not run), or a
+    host-run ``*localhost*`` variant (scaled to 0; its slot never binds)."""
+    value = (source or "").strip()
+    return value in ("disabled", "none") or "localhost" in value
+
+
+def _free_despite_time_wait(port: int) -> bool:
+    """Whether a port refused by the strict probe is only held by TIME_WAIT.
+
+    Docker's (Go) listeners set SO_REUSEADDR, so a recently closed connection
+    does not stop them binding. Retry with SO_REUSEADDR on every address a
+    real listener could hold: on macOS a reusable wildcard bind alone would
+    hide a live 127.0.0.1 listener, so all four must succeed. (On Linux a
+    bound-but-not-listening SO_REUSEADDR socket also passes; Docker could
+    bind there too, so only a not-yet-listening server can race this.)
+    """
+    addresses = [(socket.AF_INET, ("0.0.0.0", port)), (socket.AF_INET, ("127.0.0.1", port))]
+    if socket.has_ipv6:
+        addresses += [(socket.AF_INET6, ("::", port)), (socket.AF_INET6, ("::1", port))]
+    for family, address in addresses:
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as probe:
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                if family == socket.AF_INET6:
+                    probe.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+                probe.bind(address)
+        except OSError as exc:
+            if family == socket.AF_INET6 and exc.errno in (
+                errno.EAFNOSUPPORT, errno.EPROTONOSUPPORT, errno.EADDRNOTAVAIL,
+            ):
+                continue
+            return False
+    return True
+
+
 def _assignment_pattern(var: str) -> str:
     """Match one `VAR=value` line, with an optional trailing comment.
 
@@ -135,6 +172,7 @@ class PortManager:
         families = [(socket.AF_INET, ("0.0.0.0", port))]
         if socket.has_ipv6:
             families.append((socket.AF_INET6, ("::", port)))
+        in_use = False
         with ExitStack() as cleanup:
             for family, address in families:
                 probe, error = _bind_probe(family, address)
@@ -142,10 +180,15 @@ class PortManager:
                     error_number = getattr(error, "errno", None)
                     if family == socket.AF_INET6 and error_number in unsupported_ipv6:
                         continue
-                    return False
+                    if error_number != errno.EADDRINUSE:
+                        return False
+                    in_use = True
+                    break
                 assert probe is not None
                 cleanup.callback(probe.close)
-            return True
+        # Outside the stack: a still-held strict IPv4 probe would make the
+        # fallback's own 0.0.0.0 bind fail (IPv6 TIME_WAIT read as in use).
+        return _free_despite_time_wait(port) if in_use else True
 
     def check_port_range_availability(self, base_port: int) -> List[int]:
         """
@@ -291,7 +334,7 @@ class PortManager:
             for row in rows
             if row.port_var
             and row.source_var
-            and sources.get(row.source_var) == 'disabled'
+            and _runs_no_container(sources.get(row.source_var))
         }
         return disabled | self._disabled_manifest_port_vars(sources)
 
@@ -313,12 +356,12 @@ class PortManager:
         return {
             decl.name
             for manifest in manifests
-            if manifest.sources and sources.get(manifest.sources.var) == 'disabled'
+            if manifest.sources and _runs_no_container(sources.get(manifest.sources.var))
             for decl in manifest.env
             if decl.name.endswith("_PORT") and "_LOCALHOST_" not in decl.name
         }
 
-    def suggest_available_base_port(self, start_from: int = 50000, max_attempts: int = 100) -> Optional[int]:
+    def suggest_available_base_port(self, start_from: int = 20000, max_attempts: int = 100) -> Optional[int]:
         """
         Suggest an available base port by checking ranges.
 

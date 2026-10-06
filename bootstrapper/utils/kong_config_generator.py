@@ -744,7 +744,7 @@ class KongConfigGenerator:
                     {
                         'name': 'graphql-v1-all',
                         'strip_path': True,
-                        'paths': ['/graphql/v1/']
+                        'paths': ['/graphql/v1']  # canonical pg_graphql URL has no slash
                     }
                 ],
                 'plugins': [

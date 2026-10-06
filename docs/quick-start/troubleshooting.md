@@ -50,6 +50,8 @@ lsof -i :63096
 kill -9 $(lsof -t -i:63096)
 ```
 
+The start-up port check only probes ports a container will actually publish: services set to `disabled`, the LLM provider's cloud-only `none` (Ollama not run) and host-run `localhost` variants are skipped, and a port held only by a closing connection (`TIME_WAIT`) is not treated as a conflict, since Docker can bind it anyway.
+
 ### 3.2. Memory Issues
 ```bash
 # Error: Containers crashing with exit code 137 (OOM kill)
