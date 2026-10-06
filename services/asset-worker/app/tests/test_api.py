@@ -507,3 +507,26 @@ def test_non_ascii_bearer_token_is_401_not_500() -> None:
         json={"input": {"bucket": "raw-assets", "key": "mesh.glb"}, "params": {}},
     )
     assert response.status_code == 401
+
+
+def test_missing_reference_object_is_404_not_500(monkeypatch, tmp_path) -> None:
+    from asset_worker import api
+
+    class Missing(Exception):
+        response = {"Error": {"Code": "NoSuchKey"}}
+
+    class FakeStorage:
+        output_bucket = "asset-worker"
+
+        def fetch(self, bucket: str, key: str) -> bytes:
+            raise Missing()
+
+    monkeypatch.setattr(api, "ArtifactStorage", FakeStorage)
+    monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
+    monkeypatch.setenv("ASSET_WORKER_MINIO_ENABLED", "true")
+    response = _client(api).post(
+        "/gltf/postprocess/ref",
+        json={"input": {"bucket": "raw-assets", "key": "incoming/none.glb"}, "params": {}},
+    )
+    assert response.status_code == 404
+    assert "was not found" in response.json()["detail"]

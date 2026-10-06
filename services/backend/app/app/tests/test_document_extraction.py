@@ -536,7 +536,8 @@ def test_docling_still_busy_maps_to_unavailable(monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(document_extraction.asyncio, "sleep", no_sleep)
-    _client, extractor = _busy_extractor([FakeResponse(429)] * 6)
+    monkeypatch.setattr(document_extraction, "_DOCLING_BUSY_WAIT_SECONDS", 0.0)
+    _client, extractor = _busy_extractor([FakeResponse(429)])
     with pytest.raises(ExtractionUnavailableError):
         _run(extractor.extract(content=b"%PDF-1", filename="a.pdf", content_type="application/pdf"))
 

@@ -99,7 +99,9 @@ class DocumentTooLargeError(DocumentExtractionError):
     """Raised before any network call when an upload exceeds the size cap."""
 
 
-_DOCLING_BUSY_RETRIES = 5
+# Docling always answers busy with Retry-After: 1, and one conversion takes
+# tens of seconds to minutes, so wait on a time budget, not a retry count.
+_DOCLING_BUSY_WAIT_SECONDS = 120.0
 
 
 def _retry_after_seconds(response: Any) -> float:
@@ -235,13 +237,16 @@ class DocumentExtractor:
         document at a time by default while Celery runs two jobs.
         ``chunking=False`` skips Docling's chunk list for callers that re-chunk
         the content themselves (its 10,000-chunk cap rejects long books)."""
-        for attempt in range(_DOCLING_BUSY_RETRIES + 1):
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + _DOCLING_BUSY_WAIT_SECONDS
+        while True:
             response = await self._post_docling_once(upload, chunking)
             if response.status_code != 429:
                 return response
-            if attempt < _DOCLING_BUSY_RETRIES:
-                await asyncio.sleep(_retry_after_seconds(response))
-        raise ExtractionUnavailableError("Docling is busy; retry the request")
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise ExtractionUnavailableError("Docling is busy; retry the request")
+            await asyncio.sleep(min(_retry_after_seconds(response), remaining))
 
     async def _post_docling_once(self, upload: tuple, chunking: bool) -> Any:
         url = f"{self.config.docling_endpoint.rstrip('/')}/v1/document/convert"

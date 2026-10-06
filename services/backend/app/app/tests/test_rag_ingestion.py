@@ -121,7 +121,7 @@ class FailingLightrag(FakeLightrag):
 class RaisingExtractor:
     """Stands in for a reachable-but-failing Docling/Tika endpoint."""
     async def extract(
-        self, *, content, filename=None, content_type=None, extractor=None
+        self, *, content, filename=None, content_type=None, extractor=None, chunking=True
     ):
         raise RuntimeError("docling exploded")
 

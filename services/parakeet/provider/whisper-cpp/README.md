@@ -69,8 +69,14 @@ whisper-server \
   --host 0.0.0.0 \
   --port 63042 \
   --model ~/path/to/ggml-large-v3.bin \
-  --inference-path /v1/audio/transcriptions
+  --inference-path /v1/audio/transcriptions \
+  --convert
 ```
+
+`--convert` (it needs `ffmpeg` on the `PATH`, for example `brew install ffmpeg`)
+lets the server decode the WebM/Opus recordings Open WebUI's microphone button
+sends; without it `whisper-server` reads only WAV, MP3 and FLAC and rejects
+every browser recording.
 
 The `/v1/audio/transcriptions` path makes the server drop-in compatible with
 the OpenAI Whisper API surface (which is what Open WebUI / Speaches /

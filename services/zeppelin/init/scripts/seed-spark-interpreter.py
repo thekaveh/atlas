@@ -29,7 +29,7 @@ def _env(env: dict[str, str], name: str, default: str = "") -> str:
 
 def _positive_int(value: str, default: str) -> str:
     """A non-integer or non-positive core cap would fail or starve the app."""
-    if value.isdigit() and int(value) > 0:
+    if value.isascii() and value.isdecimal() and int(value) > 0:
         return value
     print(f"WARNING: ignoring ZEPPELIN_SPARK_CORES_MAX={value!r}; using {default}")
     return default
