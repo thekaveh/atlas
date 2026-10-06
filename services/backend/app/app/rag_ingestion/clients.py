@@ -473,6 +473,7 @@ class ParserAdapter:
                         filename=file.name,
                         content_type=file.content_type,
                         extractor=parser,
+                        chunking=False,  # re-chunked by Chonkie below
                     )
                     text = getattr(result, "content", None)
                     if text is None and isinstance(result, dict):

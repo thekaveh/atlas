@@ -19,7 +19,7 @@ Kong creates both Graph Builder routes only when `LLM_GRAPH_BUILDER_SOURCE=conta
 - `LLM_GRAPH_BUILDER_SOURCE=disabled|container` controls whether the service runs. The default is `disabled`.
 - `LLM_GRAPH_BUILDER_PORT` is assigned by the apps-category port allocator.
 - `LLM_GRAPH_BUILDER_MODEL_ID=atlas_litellm` is the model name shown in the Graph Builder UI. Keep it: the compose fragment only exports `LLM_MODEL_CONFIG_ATLAS_LITELLM`, and Graph Builder looks up `LLM_MODEL_CONFIG_<ID>`, so any other id fails every extraction and chat.
-- `LLM_GRAPH_BUILDER_LLM_MODEL` selects the underlying LiteLLM model alias. Empty means Atlas uses `LITELLM_DEFAULT_MODEL`.
+- `LLM_GRAPH_BUILDER_LLM_MODEL` selects the underlying LiteLLM model alias. Empty means Atlas uses `LITELLM_DEFAULT_MODEL`; if that is empty too, it falls back to `gpt-4o-mini` (LiteLLM's OpenAI route, which needs an OpenAI key), so a local-only stack must keep one of the two set.
 - `LLM_GRAPH_BUILDER_NEO4J_DATABASE=neo4j` controls the database name passed to the upstream backend. Use a dedicated database on Neo4j editions that support multiple databases.
 - `LLM_GRAPH_BUILDER_REACT_APP_SOURCES=local,wiki,web` keeps the first Atlas slice local and web oriented. S3 can be added later once endpoint configuration is proven against MinIO.
 - `LLM_GRAPH_BUILDER_DIFFBOT_API_KEY` optionally enables upstream Diffbot-backed features; the default Atlas LiteLLM model path leaves it blank.

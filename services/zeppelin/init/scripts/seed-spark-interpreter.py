@@ -27,6 +27,14 @@ def _env(env: dict[str, str], name: str, default: str = "") -> str:
     return default if value is None or value == "" else value
 
 
+def _positive_int(value: str, default: str) -> str:
+    """A non-integer or non-positive core cap would fail or starve the app."""
+    if value.isdigit() and int(value) > 0:
+        return value
+    print(f"WARNING: ignoring ZEPPELIN_SPARK_CORES_MAX={value!r}; using {default}")
+    return default
+
+
 def build_atlas_properties(env: dict[str, str]) -> dict[str, str]:
     minio_endpoint = _env(env, "MINIO_ENDPOINT", "http://minio:9000")
     minio_region = _env(env, "MINIO_REGION", "us-east-1")
@@ -50,7 +58,7 @@ def build_atlas_properties(env: dict[str, str]) -> dict[str, str]:
         "spark.driver.host": "zeppelin",
         # The interpreter is long-lived; uncapped it holds every free core and
         # Airflow's cluster-mode submits wait forever for one.
-        "spark.cores.max": _env(env, "ZEPPELIN_SPARK_CORES_MAX", "1"),
+        "spark.cores.max": _positive_int(_env(env, "ZEPPELIN_SPARK_CORES_MAX", "1"), "1"),
         "spark.hadoop.fs.s3a.endpoint": minio_endpoint,
         "spark.hadoop.fs.s3a.access.key": _env(env, "MINIO_SPARK_ACCESS_KEY"),
         "spark.hadoop.fs.s3a.secret.key": _env(env, "MINIO_SPARK_SECRET_KEY"),

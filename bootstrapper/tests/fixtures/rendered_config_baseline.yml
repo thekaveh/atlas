@@ -4852,11 +4852,13 @@ services:
       OPENAI_CUSTOM_EMBED: 'true'
       OPENAI_EMBED_API_KEY: ''
       OPENAI_EMBED_BASE_URL: http://litellm:4000/v1
-      OPENAI_EMBED_MODEL: ''
-      OPENAI_MODEL: ''
+      OPENAI_EMBED_MODEL: ollama/nomic-embed-text
+      OPENAI_MODEL: ollama/qwen3.8:latest
       UNSTRUCTURED_API_KEY: ''
       UNSTRUCTURED_API_URL: ''
       WEAVIATE_URL_VERBA: ''
+    extra_hosts:
+    - host.docker.internal=
     healthcheck:
       test:
       - CMD-SHELL

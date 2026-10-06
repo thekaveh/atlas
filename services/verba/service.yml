@@ -63,10 +63,10 @@ env:
     description: "Resolved Weaviate URL passed to upstream WEAVIATE_URL_VERBA, which Verba reads only for its Weaviate (cloud) deployment; the default Docker deployment always dials weaviate:8080. For WEAVIATE_SOURCE=localhost pick Custom on Verba's connect screen."
   - name: VERBA_OPENAI_MODEL
     default: ""
-    description: "Optional Verba OpenAI generator model name. Empty lets Verba list LiteLLM models."
+    description: "Optional Verba OpenAI generator model name. Empty uses LITELLM_DEFAULT_MODEL (Verba itself would otherwise start with an empty model name)."
   - name: VERBA_OPENAI_EMBED_MODEL
     default: ""
-    description: "Optional Verba OpenAI-compatible embedding model name. Empty keeps upstream default behavior."
+    description: "Optional Verba OpenAI-compatible embedding model name. Empty uses LITELLM_EMBEDDING_MODEL."
   - name: VERBA_DEFAULT_DEPLOYMENT
     default: Docker
     description: "Verba deployment selector. Atlas uses Docker to target the external Weaviate container."

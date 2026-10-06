@@ -514,7 +514,7 @@
 | LLM_GRAPH_BUILDER_REF | llm-graph-builder | 4a412f4688cf4096976045c019edc0a7f6ddcb6b | Pinned upstream neo4j-labs/llm-graph-builder git ref used by the source-build containers. |
 | LLM_GRAPH_BUILDER_PORT | llm-graph-builder | 63095 | Host port for the Graph Builder frontend (in-container 8080). |
 | LLM_GRAPH_BUILDER_MODEL_ID | llm-graph-builder | atlas_litellm | Model id shown in the Graph Builder UI. Keep atlas_litellm: compose only exports LLM_MODEL_CONFIG_ATLAS_LITELLM, and Graph Builder reads LLM_MODEL_CONFIG_&lt;ID&gt;, so another id breaks extraction and chat. |
-| LLM_GRAPH_BUILDER_LLM_MODEL | llm-graph-builder |  | LiteLLM model alias used behind atlas_litellm. Empty = use LITELLM_DEFAULT_MODEL. |
+| LLM_GRAPH_BUILDER_LLM_MODEL | llm-graph-builder |  | LiteLLM model alias used behind atlas_litellm. Empty = use LITELLM_DEFAULT_MODEL, then gpt-4o-mini (needs an OpenAI key). |
 | LLM_GRAPH_BUILDER_NEO4J_DATABASE | llm-graph-builder | neo4j | Neo4j database name for Graph Builder data. Use a dedicated database on editions that support it. |
 | LLM_GRAPH_BUILDER_DIFFBOT_API_KEY | llm-graph-builder |  | Optional Diffbot API key for upstream Diffbot extraction/model features. Atlas' default LiteLLM path does not require it. |
 | LLM_GRAPH_BUILDER_GCP_LOG_METRICS_ENABLED | llm-graph-builder | false | Enable the upstream Google Cloud logging integration. Requires project id and an ADC credential file. |
@@ -972,8 +972,8 @@
 | VERBA_ENDPOINT | verba |  | In-network URL for Atlas services and notebooks. |
 | VERBA_SCALE | verba |  | - |
 | VERBA_WEAVIATE_URL | verba |  | Resolved Weaviate URL passed to upstream WEAVIATE_URL_VERBA, which Verba reads only for its Weaviate (cloud) deployment; the default Docker deployment always dials weaviate:8080. For WEAVIATE_SOURCE=localhost pick Custom on Verba's connect screen. |
-| VERBA_OPENAI_MODEL | verba |  | Optional Verba OpenAI generator model name. Empty lets Verba list LiteLLM models. |
-| VERBA_OPENAI_EMBED_MODEL | verba |  | Optional Verba OpenAI-compatible embedding model name. Empty keeps upstream default behavior. |
+| VERBA_OPENAI_MODEL | verba |  | Optional Verba OpenAI generator model name. Empty uses LITELLM_DEFAULT_MODEL (Verba itself would otherwise start with an empty model name). |
+| VERBA_OPENAI_EMBED_MODEL | verba |  | Optional Verba OpenAI-compatible embedding model name. Empty uses LITELLM_EMBEDDING_MODEL. |
 | VERBA_DEFAULT_DEPLOYMENT | verba | Docker | Verba deployment selector. Atlas uses Docker to target the external Weaviate container. |
 | VERBA_IMAGE | verba | semitechnologies/verba@sha256:0947d289ebff2c9814941c8d4282ee994dc79598e76162ae82e6efda4682b0b7 | Upstream publishes semitechnologies/verba:latest but no v2.1.3 Docker tag; Atlas pins the observed multi-arch index digest. |
 | VLLM_METAL_SOURCE | vllm-metal | disabled | Options: managed-localhost (bootstrapper-supervised host process on Apple silicon), disabled. |

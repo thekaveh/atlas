@@ -130,13 +130,14 @@ class KeywordOnlyExtractor:
     def __init__(self):
         self.calls = []
 
-    async def extract(self, *, content, filename, content_type, extractor=None):
+    async def extract(self, *, content, filename, content_type, extractor=None, chunking=True):
         self.calls.append(
             {
                 "content": content,
                 "filename": filename,
                 "content_type": content_type,
                 "extractor": extractor,
+                "chunking": chunking,
             }
         )
         return SimpleNamespace(content=f"parsed by {extractor}", extractor=extractor)
@@ -222,6 +223,7 @@ def test_parser_adapter_uses_keyword_contract_and_exact_parser_selection():
             "filename": "notes.txt",
             "content_type": "text/plain",
             "extractor": "tika",
+            "chunking": False,
         }
     ]
 

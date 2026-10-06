@@ -169,8 +169,10 @@ def test_verba_compose_contract() -> None:
     assert env["OPENAI_EMBED_API_KEY"] == "${LITELLM_MASTER_KEY}"
     assert env["OPENAI_EMBED_BASE_URL"] == "http://litellm:4000/v1"
     assert env["OPENAI_CUSTOM_EMBED"] == "true"
-    assert env["OPENAI_MODEL"] == "${VERBA_OPENAI_MODEL:-}"
-    assert env["OPENAI_EMBED_MODEL"] == "${VERBA_OPENAI_EMBED_MODEL:-}"
+    # Set-but-empty overrides Verba's own default with "", so fall back.
+    assert env["OPENAI_MODEL"] == "${VERBA_OPENAI_MODEL:-${LITELLM_DEFAULT_MODEL}}"
+    assert env["OPENAI_EMBED_MODEL"] == "${VERBA_OPENAI_EMBED_MODEL:-${LITELLM_EMBEDDING_MODEL}}"
+    assert service["extra_hosts"] == ["host.docker.internal:${HOST_GATEWAY_IP}"]
     assert env["DEFAULT_DEPLOYMENT"] == "${VERBA_DEFAULT_DEPLOYMENT:-Docker}"
     assert env["UNSTRUCTURED_API_URL"] == ""
     assert env["UNSTRUCTURED_API_KEY"] == ""

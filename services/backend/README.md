@@ -164,7 +164,7 @@ BACKEND_STATE_STORE_MODE=redis       # memory is explicit single-process/ephemer
 
 Adaptive listing comes from `runtime_adaptive.backend.adapts_to` in `services/backend/service.yml`.
 
-When Docling is enabled, the Backend authenticates every conversion request with `DOCLING_API_TOKEN` and refuses to send the request if the endpoint is configured without a token. The credential stays in the Backend process; clients calling Backend routes never receive it. Docling's own `/health` route remains public, while its conversion and discovery routes are protected.
+When Docling is enabled, the Backend authenticates every conversion request with `DOCLING_API_TOKEN` and refuses to send the request if the endpoint is configured without a token. The credential stays in the Backend process; clients calling Backend routes never receive it. Docling's own `/health` route remains public, while its conversion and discovery routes are protected. Docling converts one document at a time by default and answers a concurrent request with HTTP 429; the Backend retries that up to 5 times (honouring `Retry-After`, 0.5-10 s), and a request still refused returns 503 from `/documents/extract`. Corpus ingestion asks Docling for markdown only (`enable_chunking=false`) because it re-chunks the text itself, which also keeps long books under Docling's 10,000-chunk limit.
 
 `POST /documents/extract` treats Docling and Tika as untrusted upstream boundaries: malformed success payloads fail validation rather than being indexed as empty documents, and the public route returns a stable generic error so provider details and document content never cross the API boundary. The exact required response shape is documented in the extraction route's code.
 

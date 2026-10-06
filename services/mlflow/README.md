@@ -89,9 +89,8 @@ MLflow model serving, deployment plugins, and promotion workflows are intentiona
 
 ## 6. Troubleshooting
 
-- **Database connections.** Each of the 4 server workers opens separate tracking and registry SQLAlchemy engines; `MLFLOW_SQLALCHEMYSTORE_POOL_SIZE=2` and `MLFLOW_SQLALCHEMYSTORE_MAX_OVERFLOW=3` cap that at 40 connections to the shared `supabase-db` (SQLAlchemy's 5+10 default allowed 120).
-- **Job-backed MLflow features.** `atlas_server.py` starts uvicorn directly instead of `mlflow server`, so MLflow's background job runner is not started; MLflow 3.16 features that submit server-side jobs fail when invoked. Nothing Atlas ships uses them.
-
+- **Database connections:** Each of the 4 server workers opens separate tracking and registry SQLAlchemy engines; `MLFLOW_SQLALCHEMYSTORE_POOL_SIZE=2` and `MLFLOW_SQLALCHEMYSTORE_MAX_OVERFLOW=3` cap that at 40 connections to the shared `supabase-db` (SQLAlchemy's 5+10 default allowed 120); MLflow ignores `MAX_OVERFLOW=0`, so use at least 1.
+- **Job-backed MLflow features:** `atlas_server.py` starts uvicorn directly instead of `mlflow server`, so MLflow's background job runner is not started; MLflow 3.16 features that submit server-side jobs fail when invoked (HTTP 500, leaving a PENDING job row). Nothing Atlas ships uses them.
 - **No tracking URI in notebooks:** confirm `MLFLOW_SOURCE=container` and restart after the bootstrapper regenerates `.env`.
 - **Artifacts fail to upload:** keep `MINIO_SOURCE=container`; MLflow requires MinIO-backed artifact storage in this Atlas slice.
 - **Database errors on first boot:** `mlflow-init` only runs a login check; the `mlflow` database/role are created by `supabase-db-init` (`services/supabase/db/scripts/05-scoped-roles.sh`), so check `supabase-db-init` logs for the cause.

@@ -494,3 +494,54 @@ def test_docling_uses_its_own_timeout_and_legacy_formats_go_to_tika(monkeypatch)
     assert not DocumentExtractor(config)._is_long_tail("notes.md", "text/plain")
     assert not DocumentExtractor(config)._is_long_tail("data.csv", "application/vnd.ms-excel")
     assert module.DOCLING_TIMEOUT_MARGIN_SECONDS == 30.0
+
+
+def _docling_ok():
+    return FakeResponse(200, json_data={
+        "content": "# ok", "format": "markdown", "chunks": [],
+        "metadata": {"pages": 1, "tables": 0, "images": 0, "formulas": 0,
+                     "processing_time": 0.1, "source_format": "pdf", "file_size": 6},
+    })
+
+
+def _busy_extractor(responses):
+    client = FakeAsyncClient(responses)
+    extractor = DocumentExtractor(
+        DocumentExtractorConfig(docling_endpoint="http://docling-gpu:8000",
+                                docling_api_token=TEST_DOCLING_TOKEN, tika_endpoint="http://tika:9998"),
+        http_client=client,
+    )
+    return client, extractor
+
+
+def test_docling_busy_429_is_retried(monkeypatch) -> None:
+    # Docling converts one document at a time; Celery runs two jobs.
+    import document_extraction
+    slept = []
+
+    async def no_sleep(seconds):
+        slept.append(seconds)
+
+    monkeypatch.setattr(document_extraction.asyncio, "sleep", no_sleep)
+    client, extractor = _busy_extractor([FakeResponse(429), FakeResponse(429), _docling_ok()])
+    result = _run(extractor.extract(content=b"%PDF-1", filename="a.pdf", content_type="application/pdf"))
+    assert result.extractor == "docling"
+    assert len(client.calls) == 3 and slept == [1.0, 1.0]
+
+
+def test_docling_still_busy_maps_to_unavailable(monkeypatch) -> None:
+    import document_extraction
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(document_extraction.asyncio, "sleep", no_sleep)
+    _client, extractor = _busy_extractor([FakeResponse(429)] * 6)
+    with pytest.raises(ExtractionUnavailableError):
+        _run(extractor.extract(content=b"%PDF-1", filename="a.pdf", content_type="application/pdf"))
+
+
+def test_docling_chunking_can_be_disabled_for_rechunking_callers() -> None:
+    client, extractor = _busy_extractor([_docling_ok()])
+    _run(extractor.extract(content=b"%PDF-1", filename="a.pdf", content_type="application/pdf", chunking=False))
+    assert client.calls[0][1]["data"]["enable_chunking"] == "false"

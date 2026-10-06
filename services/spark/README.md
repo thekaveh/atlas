@@ -42,10 +42,9 @@ SPARK_CONNECT_CORES_MAX=1          # max standalone cores held by Spark Connect
 Spark Connect is a long-lived standalone application. Atlas caps it with
 `SPARK_CONNECT_CORES_MAX=1` (`spark.cores.max`) so it leaves worker capacity
 for standalone workloads such as Airflow cluster-mode `SparkSubmitOperator`
-drivers. Zeppelin's Spark interpreter sets no `spark.cores.max`, so while it
-is alive it takes every free core and other applications wait in `PENDING`;
-restart the interpreter (or set `spark.cores.max` in its settings) before
-running Airflow Spark jobs. Raise the value for more Spark Connect parallelism only when `SPARK_WORKER_COUNT` and worker CPU limits leave
+drivers. Zeppelin's Spark interpreter is likewise capped at
+`ZEPPELIN_SPARK_CORES_MAX` (default 1; re-seeded on each start, so raise it in
+`.env` rather than in the interpreter settings). Raise the value for more Spark Connect parallelism only when `SPARK_WORKER_COUNT` and worker CPU limits leave
 enough unused cores for those standalone workloads; otherwise Connect can
 monopolize the cluster and leave other applications stuck in `PENDING`.
 

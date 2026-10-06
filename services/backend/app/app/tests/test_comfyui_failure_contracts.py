@@ -949,8 +949,9 @@ def test_open_webui_tool_propagates_deadline_and_returns_artifact(monkeypatch):
     tool = module.Tools()
     tool.valves.timeout = 321
 
-    result = tool.generate_image("blue orbital archive", cfg=0.0)
-    tool.generate_image("blue orbital archive", cfg=30.0)
+    # Tool methods are async (blocking work runs in asyncio.to_thread).
+    result = asyncio.run(tool.generate_image("blue orbital archive", cfg=0.0))
+    asyncio.run(tool.generate_image("blue orbital archive", cfg=30.0))
 
     assert captured[0]["json"]["timeout_seconds"] == 321
     assert captured[0]["timeout"] == 326
@@ -1006,7 +1007,7 @@ def test_open_webui_tool_returns_fal_artifact_url(monkeypatch):
         ),
     )
 
-    result = module.Tools().generate_image("blue orbital archive")
+    result = asyncio.run(module.Tools().generate_image("blue orbital archive"))
 
     assert "1 image(s) created" in result
     assert "https://cdn.example/fal-output.png" in result
@@ -1049,7 +1050,7 @@ def test_open_webui_tool_rejects_nonready_or_nonfal_configured_health(
 
     monkeypatch.setattr(module.requests, "post", unexpected_post)
 
-    result = module.Tools().generate_image("blue orbital archive")
+    result = asyncio.run(module.Tools().generate_image("blue orbital archive"))
 
     assert result == "❌ ComfyUI service is unavailable. Please try again later."
 
@@ -1085,7 +1086,7 @@ def test_open_webui_tool_renders_fal_configured_status_honestly(monkeypatch):
         module.requests, "get", lambda *_args, **_kwargs: next(responses)
     )
 
-    result = module.Tools().check_comfyui_status()
+    result = asyncio.run(module.Tools().check_comfyui_status())
 
     assert "⚠️ **Health Check:** configured" in result
     assert "Healthy" not in result

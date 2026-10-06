@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
+import asyncio
 import logging
 import math
 import os
@@ -98,6 +99,18 @@ class DocumentTooLargeError(DocumentExtractionError):
     """Raised before any network call when an upload exceeds the size cap."""
 
 
+_DOCLING_BUSY_RETRIES = 5
+
+
+def _retry_after_seconds(response: Any) -> float:
+    """Docling's Retry-After (seconds), bounded to 0.5-10 s; 1 s if absent."""
+    try:
+        value = float(response.headers.get("Retry-After", 1))
+    except (AttributeError, TypeError, ValueError):
+        value = 1.0
+    return min(max(value, 0.5), 10.0) if math.isfinite(value) else 1.0
+
+
 class ExtractionUnavailableError(DocumentExtractionError):
     """Raised when the selected extractor path cannot run."""
 
@@ -163,11 +176,11 @@ class DocumentExtractor:
         filename: str,
         content_type: str | None,
         extractor: str | None = None,
+        chunking: bool = True,
     ) -> DocumentExtractionResult:
         if len(content) > self.config.max_file_size:
             raise DocumentTooLargeError(
-                f"{filename} exceeds maximum extraction size of "
-                f"{self.config.max_file_size} bytes"
+                f"{filename} exceeds maximum extraction size of {self.config.max_file_size} bytes"
             )
 
         if extractor not in {None, "docling", "tika"}:
@@ -195,7 +208,8 @@ class DocumentExtractor:
                 "Docling provider credential is unavailable"
             )
 
-        response = await self._post_docling(content, filename, content_type)
+        upload = (filename, content, content_type or "application/octet-stream")
+        response = await self._post_docling(upload, chunking=chunking)
         if response.status_code == 200:
             return self._docling_result(response, filename, content_type, len(content))
 
@@ -216,23 +230,25 @@ class DocumentExtractor:
             f"Docling extraction failed with HTTP {response.status_code}"
         )
 
-    async def _post_docling(
-        self,
-        content: bytes,
-        filename: str,
-        content_type: str | None,
-    ) -> Any:
+    async def _post_docling(self, upload: tuple, *, chunking: bool = True) -> Any:
+        """POST to Docling, retrying its 429 busy reply: it converts one
+        document at a time by default while Celery runs two jobs.
+        ``chunking=False`` skips Docling's chunk list for callers that re-chunk
+        the content themselves (its 10,000-chunk cap rejects long books)."""
+        for attempt in range(_DOCLING_BUSY_RETRIES + 1):
+            response = await self._post_docling_once(upload, chunking)
+            if response.status_code != 429:
+                return response
+            if attempt < _DOCLING_BUSY_RETRIES:
+                await asyncio.sleep(_retry_after_seconds(response))
+        raise ExtractionUnavailableError("Docling is busy; retry the request")
+
+    async def _post_docling_once(self, upload: tuple, chunking: bool) -> Any:
         url = f"{self.config.docling_endpoint.rstrip('/')}/v1/document/convert"
-        files = {
-            "file": (
-                filename,
-                content,
-                content_type or "application/octet-stream",
-            )
-        }
+        files = {"file": upload}
         data = {
             "output_format": "markdown",
-            "enable_chunking": "true",
+            "enable_chunking": "true" if chunking else "false",
         }
         return await self._post(
             url,

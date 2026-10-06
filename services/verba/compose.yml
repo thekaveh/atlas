@@ -25,13 +25,18 @@ services:
       OPENAI_EMBED_API_KEY: ${LITELLM_MASTER_KEY}
       OPENAI_EMBED_BASE_URL: http://litellm:4000/v1
       OPENAI_CUSTOM_EMBED: "true"
-      OPENAI_MODEL: ${VERBA_OPENAI_MODEL:-}
-      OPENAI_EMBED_MODEL: ${VERBA_OPENAI_EMBED_MODEL:-}
+      # Verba reads os.getenv(name, default): a set-but-empty value overrides
+      # its default with "", so fall back to the stack's LiteLLM models.
+      OPENAI_MODEL: ${VERBA_OPENAI_MODEL:-${LITELLM_DEFAULT_MODEL}}
+      OPENAI_EMBED_MODEL: ${VERBA_OPENAI_EMBED_MODEL:-${LITELLM_EMBEDDING_MODEL}}
       DEFAULT_DEPLOYMENT: ${VERBA_DEFAULT_DEPLOYMENT:-Docker}
       UNSTRUCTURED_API_URL: ""
       UNSTRUCTURED_API_KEY: ""
     volumes:
       - verba-data:/data
+    # The documented "Custom" connection to a host Weaviate needs this on Linux.
+    extra_hosts:
+      - "host.docker.internal:${HOST_GATEWAY_IP}"
     networks:
       - backend-network
     healthcheck:
