@@ -576,3 +576,18 @@ def test_non_glb_input_is_rejected_instead_of_reaching_gltf_transform(monkeypatc
     response = _client(api).post("/gltf/postprocess", files={"file": ("x.glb", gltf_json, "model/gltf-binary")})
     assert response.status_code == 400
     assert "binary glTF 2.0" in response.json()["detail"]
+
+
+def test_non_list_buffers_are_rejected_not_a_500(monkeypatch, tmp_path) -> None:
+    import json as _json
+    import struct as _struct
+
+    from asset_worker import api
+
+    doc = _json.dumps({"asset": {"version": "2.0"}, "buffers": {"a": {"uri": "../x"}}}).encode()
+    doc += b" " * (-len(doc) % 4)
+    glb = _struct.pack("<III", 0x46546C67, 2, 20 + len(doc)) + _struct.pack("<II", len(doc), 0x4E4F534A) + doc
+    monkeypatch.setattr(api, "run_gltf_transform", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ran")))
+    monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
+    response = _client(api).post("/gltf/postprocess", files={"file": ("x.glb", glb, "model/gltf-binary")})
+    assert response.status_code == 400

@@ -527,8 +527,11 @@ def test_execute_research_discards_remote_pending_request_when_cancelled_before_
                 message="started",
             )
 
-        async def wait_for_completion(self, session_id):
+        async def wait_for_completion(self, session_id, max_wait_time=300):
             raise AssertionError("wait should not be reached")
+
+        async def delete_thread(self, session_id):
+            self.deleted = session_id
 
         def discard_pending(self, session_id):
             self.discarded.append(session_id)
@@ -552,6 +555,9 @@ def test_execute_research_discards_remote_pending_request_when_cancelled_before_
     asyncio.run(scenario())
 
     assert fake_client.discarded == ["remote-thread-1"]
+    # The thread is kept on cancel: LangGraph's on_disconnect cancel looks the
+    # run up in it, and deleting it first would orphan the run.
+    assert not hasattr(fake_client, "deleted")
 
 
 def test_execute_research_discards_remote_pending_request_when_wait_is_cancelled():
@@ -566,8 +572,11 @@ def test_execute_research_discards_remote_pending_request_when_wait_is_cancelled
                 message="started",
             )
 
-        async def wait_for_completion(self, session_id):
+        async def wait_for_completion(self, session_id, max_wait_time=300):
             raise asyncio.CancelledError()
+
+        async def delete_thread(self, session_id):
+            self.deleted = session_id
 
         def discard_pending(self, session_id):
             self.discarded.append(session_id)
@@ -591,6 +600,9 @@ def test_execute_research_discards_remote_pending_request_when_wait_is_cancelled
     asyncio.run(scenario())
 
     assert fake_client.discarded == ["remote-thread-1"]
+    # The thread is kept on cancel: LangGraph's on_disconnect cancel looks the
+    # run up in it, and deleting it first would orphan the run.
+    assert not hasattr(fake_client, "deleted")
 
 
 def test_background_research_task_cleanup_runs_when_db_connect_fails():
@@ -843,3 +855,14 @@ def test_research_record_access_applies_owner_predicate(method_name):
     assert "user_id" in sql
     assert "::uuid" in sql
     assert UUID(owner_id) in args
+
+
+def test_research_thread_cleanup_is_best_effort():
+    # langgraph dev keeps every thread in memory; cleanup must never fail a
+    # session even when the server is unreachable.
+    import asyncio as _asyncio
+
+    from research_client import ResearchClient
+
+    client = ResearchClient(base_url="http://127.0.0.1:9")  # discard port
+    _asyncio.run(client.delete_thread("thread-1"))  # does not raise

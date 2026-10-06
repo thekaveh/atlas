@@ -468,8 +468,11 @@ class ResearchService:
                 f"Remote research session started: {remote_session_id}",
             )
 
-            # Wait for completion
-            final_response = await self.research_client.wait_for_completion(remote_session_id)
+            # Wait for completion. A fixed 300 s cut off multi-loop runs on
+            # CPU models; allow ~3 minutes per requested research loop.
+            final_response = await self.research_client.wait_for_completion(
+                remote_session_id, max_wait_time=max(300, 180 * request.max_loops)
+            )
 
             if final_response.status == ResearchStatus.COMPLETED:
                 # Get the results
@@ -478,6 +481,11 @@ class ResearchService:
                 if research_result:
                     # Store the results
                     await self._store_research_result(session_id, research_result)
+                    # langgraph dev keeps every thread (and its checkpoints) in
+                    # memory. Only a finished run's thread is deleted: on a
+                    # timeout/cancel the server's own cancel looks the run up
+                    # in that thread, and deleting first would orphan it.
+                    await self.research_client.delete_thread(remote_session_id)
                 else:
                     raise ResearchError("Failed to retrieve research results")
             else:

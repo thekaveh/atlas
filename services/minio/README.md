@@ -47,7 +47,7 @@ one bucket.
 - **Root user:** `MINIO_ROOT_USER` (default `minioadmin`)
 - **Root password:** `MINIO_ROOT_PASSWORD` — auto-generated to `.env` on first `./start.sh`. Retrieve with `grep ^MINIO_ROOT_PASSWORD= .env`. Use these credentials to log into the admin console.
 
-Root credentials are not surfaced to consumers, which use the scoped service accounts below (Spark's worker, connect and history containers included). The deliberate exceptions are Airflow (its containers and seeded `minio_default` connection carry the root pair, so DAG authors must be trusted, as the Airflow README's trusted-DAG boundary states) and the backup runner, which falls back to the root pair in local S3 mode (see the backup README). A rotated service-account key does not revoke the old one: `minio-init` creates the new account but never removes earlier ones, so remove a leaked key yourself with `mc admin user svcacct rm`.
+Root credentials are not surfaced to consumers, which use the scoped service accounts below (Spark's worker, connect and history containers included). The deliberate exceptions are Airflow (its containers and seeded `minio_default` connection carry the root pair, so DAG authors must be trusted, as the Airflow README's trusted-DAG boundary states) and the backup runner, which falls back to the root pair in local S3 mode (see the backup README). A changed secret key is applied to the existing account, but a changed access key does not revoke the old account: `minio-init` creates the new account and never removes earlier ones, so remove a leaked key yourself with `mc admin user svcacct rm local <old-access-key>`.
 
 ## 4. Bucket layout
 

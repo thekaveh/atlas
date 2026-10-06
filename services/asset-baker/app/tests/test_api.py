@@ -586,3 +586,19 @@ def test_non_glb_input_is_rejected_instead_of_reaching_blender(monkeypatch, tmp_
     response = _client(api).post("/assets/bake", files={"file": ("x.glb", gltf_json, "model/gltf-binary")}, data={"mode": "skip"})
     assert response.status_code == 400
     assert "binary glTF 2.0" in response.json()["detail"]
+
+
+def test_non_list_images_are_rejected_not_a_500(monkeypatch, tmp_path):
+    import json as _json
+    import struct as _struct
+
+    from asset_baker import api
+
+    doc = _json.dumps({"asset": {"version": "2.0"}, "images": {"a": {"uri": "../x"}}}).encode()
+    doc += b" " * (-len(doc) % 4)
+    glb = _struct.pack("<III", 0x46546C67, 2, 20 + len(doc)) + _struct.pack("<II", len(doc), 0x4E4F534A) + doc
+    monkeypatch.setattr(api, "run_bake", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ran")))
+    monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
+    monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
+    response = _client(api).post("/assets/bake", files={"file": ("x.glb", glb, "model/gltf-binary")}, data={"mode": "skip"})
+    assert response.status_code == 400
