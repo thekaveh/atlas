@@ -111,7 +111,7 @@ methodtools==0.4.7
 more-itertools==11.1.0
 msgpack==1.2.1
 msgspec==0.21.1
-multidict==6.7.1
+multidict==6.9.1
 natsort==8.4.0
 neo4j==6.2.0
 numpy==2.5.1
