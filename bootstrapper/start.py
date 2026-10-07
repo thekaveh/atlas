@@ -106,17 +106,77 @@ def _ollama_is_engine(env: Dict[str, str]) -> bool:
     return (env.get("LLM_PROVIDER_SOURCE") or "").strip().lower().startswith("ollama-")
 
 
-def _stale_ollama_default_keys(env: Dict[str, str]) -> set:
-    """Default-model keys naming ``ollama/*`` while Ollama is not the engine."""
-    if _ollama_is_engine(env):
-        return set()
-    return {
-        key for key in (
-            "LITELLM_DEFAULT_MODEL", "LITELLM_VISION_MODEL",
-            "LITELLM_EMBEDDING_MODEL", "LANGMEM_EMBEDDING_MODEL",
-        )
-        if (env.get(key) or "").strip().startswith("ollama/")
-    }
+_DEFAULT_MODEL_KEYS = (
+    "LITELLM_DEFAULT_MODEL", "LITELLM_VISION_MODEL",
+    "LITELLM_EMBEDDING_MODEL", "LANGMEM_EMBEDDING_MODEL",
+)
+
+
+def _cloud_provider_of(model: str):
+    """The cloud provider a model id belongs to (a ``<key>/`` prefix or a
+    catalog name), or None for anything else, e.g. a consumer model."""
+    from utils import llm_catalog  # noqa: PLC0415
+    from utils.cloud_providers import CLOUD_PROVIDERS  # noqa: PLC0415
+
+    for provider in CLOUD_PROVIDERS:
+        names = {entry.name for entry in llm_catalog.cloud_entries(provider.key)}
+        if model.startswith(f"{provider.key}/") or model in names:
+            return provider
+    return None
+
+
+def _unrouted_ollama_reason(env: Dict[str, str]) -> Optional[str]:
+    """Why an unregistered ``ollama/*`` default will not be routed, or None
+    when host auto-import may register tags this run cannot see."""
+    if not _ollama_is_engine(env):
+        return "Ollama is not enabled"
+    # The same test litellm-init uses before importing the host's tags.
+    host_imports = (env.get("LLM_PROVIDER_SOURCE") or "").strip().lower().startswith(
+        "ollama-localhost"
+    ) and (env.get("OLLAMA_AUTO_IMPORT_LOCAL_MODELS") or "").strip().lower() in (
+        "true", "1", "yes", "on", "enabled")
+    return None if host_imports else "not among the Ollama models this launch registers"
+
+
+def _unrouted_reason(env: Dict[str, str], model: str, routed: set) -> Optional[str]:
+    """Why ``model`` will not be routed this launch, or None when it will be,
+    or when that cannot be known here (a host auto-import or a consumer model):
+    a default that may still be routed is never overwritten."""
+    if not model or model in routed:
+        return None
+    if model.startswith("ollama/"):
+        return _unrouted_ollama_reason(env)
+    provider = _cloud_provider_of(model)
+    if provider is None:
+        return None
+    if (env.get(provider.source_var) or "").strip() != "enabled":
+        return f"{provider.name} is not enabled"
+    if not (env.get(provider.api_key_var) or "").strip():
+        # A missing key is a misconfiguration to fix, not a reason to move the
+        # embedding pair (which would re-embed memory) for good.
+        return None
+    return f"not among the {provider.name} models this launch registers"
+
+
+def _routed_model_names(env: Dict[str, str]) -> set:
+    """Model names litellm-init registers this launch: every active model
+    (an Ollama one under both names) and the managed vLLM Metal model, often
+    an `openai/...` Hugging Face id."""
+    from utils.model_resolver import active_models  # noqa: PLC0415
+
+    active = active_models(env)
+    routed = {entry.name for entry in active}
+    routed |= {f"ollama/{entry.name}" for entry in active if entry.provider == "ollama"}
+    if (env.get("VLLM_METAL_SOURCE") or "").strip().lower() == "managed-localhost":
+        routed.add((env.get("VLLM_METAL_MODEL") or "").strip())
+    return routed
+
+
+def _stale_default_keys(env: Dict[str, str]) -> Dict[str, str]:
+    """Default-model keys naming a model this launch will not route, with why (#1359)."""
+    routed = _routed_model_names(env)
+    reasons = {key: _unrouted_reason(env, (env.get(key) or "").strip(), routed) for key in _DEFAULT_MODEL_KEYS}
+    return {key: reason for key, reason in reasons.items() if reason}
 
 
 def _embedding_replacement(env: Dict[str, str], stale: set) -> str:
@@ -136,11 +196,11 @@ def _embedding_replacement(env: Dict[str, str], stale: set) -> str:
     return best("embeddings", env) or ""
 
 
-def _ollama_default_replacements(env: Dict[str, str]) -> Dict[str, str]:
-    """Replacements for ``ollama/*`` default models when Ollama is not the
-    LLM engine (see ``AtlasStarter.reconcile_default_models``). Blank
+def _default_model_replacements(env: Dict[str, str]) -> tuple[Dict[str, str], Dict[str, str]]:
+    """(replacements, reason per stale key) for default models this launch
+    will not route (see ``AtlasStarter.reconcile_default_models``). Blank
     resolutions are dropped: the end-of-run backfill would only restore the
-    template's ``ollama/*`` value in the same launch."""
+    template's value in the same launch."""
     from utils.cloud_providers import CLOUD_PROVIDERS  # noqa: PLC0415
     from utils.model_resolver import resolved_defaults  # noqa: PLC0415
 
@@ -155,27 +215,28 @@ def _ollama_default_replacements(env: Dict[str, str]) -> Dict[str, str]:
             for p in CLOUD_PROVIDERS
         },
     }
-    stale = _stale_ollama_default_keys(env)
+    reasons = _stale_default_keys(env)
+    stale = set(reasons)
     updates = {
         key: value for key, value in resolved_defaults(env).items()
         if key in stale and value
     }
     if not stale & {"LITELLM_EMBEDDING_MODEL", "LANGMEM_EMBEDDING_MODEL"}:
-        return updates
+        return updates, reasons
     embedding = _embedding_replacement(env, stale)
     if not embedding:
         print(
-            "WARNING: the default embedding model names Ollama, which is not "
-            "enabled, and no active provider offers an embedding model; memory "
+            "WARNING: the default embedding model will not be routed this "
+            "launch, and no active provider offers an embedding model; memory "
             "and RAG embedding calls will fail until one is selected."
         )
-        return updates
+        return updates, reasons
     # Both keys are always passed so apply_user_model_selections recomputes
     # LANGMEM_EMBEDDING_DIM for the pair.
     updates["LITELLM_EMBEDDING_MODEL"] = embedding
     if (env.get("LANGMEM_EMBEDDING_MODEL") or "").strip():
         updates["LANGMEM_EMBEDDING_MODEL"] = embedding
-    return updates
+    return updates, reasons
 
 
 def _run_privileged_hosts_setup(non_interactive: bool = False) -> bool:
@@ -945,23 +1006,26 @@ class AtlasStarter:
         return self.source_override_manager.update_env_file(selections)
 
     def reconcile_default_models(self) -> bool:
-        """Repoint default models that name an inactive Ollama engine.
+        """Repoint default models this launch will not route.
 
-        `.env.example` ships ``ollama/*`` chat, vision and embedding defaults.
-        The wizard's default-model steps replace them, but a CLI-flag or
-        consumer launch with ``LLM_PROVIDER_SOURCE=none`` kept them, and
-        LiteLLM registers only active models: every default chat and every
-        embedding call failed with "invalid model". Only ``ollama/*`` values
-        with no Ollama source are touched, so a deliberately chosen model is
-        never overwritten.
+        LiteLLM registers only active models, so a default naming a disabled
+        engine or cloud provider, or a model no longer selected, made every
+        default chat or embedding call fail with "invalid model" (#1359).
+        `.env.example`'s ``ollama/*`` defaults under a cloud-only launch were
+        the first case fixed. A default is replaced only when it is known not
+        to be routed; a routed model, a consumer model or a host-imported
+        Ollama tag is never overwritten.
         """
         env = self.config_parser.parse_env_file()
-        replacements = _ollama_default_replacements(env)
+        replacements, reasons = _default_model_replacements(env)
         changed = {
             key: value for key, value in replacements.items() if value != env.get(key)
         }
         for key, value in sorted(changed.items()):
-            print(f"Default model {key}: {env.get(key)} -> {value} (Ollama is not enabled)")
+            print(f"Default model {key}: {env.get(key)} -> {value} ({reasons.get(key, 'its pair moved')})")
+        for key in sorted(set(reasons) - set(replacements)):
+            print(f"WARNING: default model {key}={env.get(key)} is not routed ({reasons[key]}) "
+                  "and no active provider offers a replacement")
         # The embedding pair goes through the normal path, unchanged half
         # included, so its dimension contract (LANGMEM_EMBEDDING_DIM)
         # follows the new model.

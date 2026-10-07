@@ -872,7 +872,7 @@ def test_reconcile_aligns_to_a_deliberate_langmem_override(tmp_path):
     starter = _reconcile_starter(
         tmp_path,
         "LLM_PROVIDER_SOURCE=none\n"
-        "CLOUD_OPENAI_SOURCE=enabled\nOPENAI_API_KEY=sk-test\nOPENAI_USER_MODELS=\n"
+        "CLOUD_OPENAI_SOURCE=enabled\nOPENAI_API_KEY=sk-test\nOPENAI_USER_MODELS=gpt-5,text-embedding-3-small\n"
         "LITELLM_DEFAULT_MODEL=ollama/qwen3.8:latest\n"
         "LITELLM_EMBEDDING_MODEL=ollama/nomic-embed-text\n"
         "LANGMEM_EMBEDDING_MODEL=text-embedding-3-small\nLANGMEM_EMBEDDING_DIM=768\n",
@@ -889,7 +889,7 @@ def test_reconcile_repoints_a_stale_langmem_override_to_the_active_pair(tmp_path
     starter = _reconcile_starter(
         tmp_path,
         "LLM_PROVIDER_SOURCE=none\n"
-        "CLOUD_OPENAI_SOURCE=enabled\nOPENAI_API_KEY=sk-test\nOPENAI_USER_MODELS=\n"
+        "CLOUD_OPENAI_SOURCE=enabled\nOPENAI_API_KEY=sk-test\nOPENAI_USER_MODELS=gpt-5,text-embedding-3-small\n"
         "LITELLM_EMBEDDING_MODEL=text-embedding-3-small\n"
         "LANGMEM_EMBEDDING_MODEL=ollama/nomic-embed-text\nLANGMEM_EMBEDDING_DIM=768\n",
     )
@@ -987,3 +987,81 @@ def test_custom_embedding_dimension_is_left_alone(tmp_path):
     )
     assert starter.reconcile_default_models() is True
     assert starter.config_parser.parse_env_file()["LANGMEM_EMBEDDING_DIM"] == "384"
+
+
+# ─── defaults are checked against the routed model set (#1359) ───────────
+
+
+def test_a_default_on_a_disabled_cloud_provider_moves_to_the_resolver_pick(tmp_path, capsys):
+    starter = _reconcile_starter(
+        tmp_path,
+        "LLM_PROVIDER_SOURCE=none\n"
+        "CLOUD_OPENAI_SOURCE=disabled\nOPENAI_API_KEY=sk-test\n"
+        "CLOUD_ANTHROPIC_SOURCE=enabled\nANTHROPIC_API_KEY=sk-ant\n"
+        "LITELLM_DEFAULT_MODEL=openai/gpt-5\n",
+    )
+    from utils.model_resolver import resolved_defaults
+
+    assert starter.reconcile_default_models() is True
+
+    env = starter.config_parser.parse_env_file()
+    expected = resolved_defaults({**env, "LITELLM_ANTHROPIC_ENABLED": "true"})["LITELLM_DEFAULT_MODEL"]
+    assert env["LITELLM_DEFAULT_MODEL"] == expected and expected
+    assert "(OpenAI is not enabled)" in capsys.readouterr().out
+
+
+def test_an_ollama_default_is_kept_only_while_it_is_registered(tmp_path):
+    starter = _reconcile_starter(
+        tmp_path,
+        "LLM_PROVIDER_SOURCE=ollama-container-cpu\nOLLAMA_USER_MODELS=qwen3:8b\n"
+        "LITELLM_DEFAULT_MODEL=ollama/llama3:70b\nLITELLM_VISION_MODEL=ollama/qwen3:8b\n",
+    )
+
+    assert starter.reconcile_default_models() is True
+
+    env = starter.config_parser.parse_env_file()
+    assert env["LITELLM_DEFAULT_MODEL"] != "ollama/llama3:70b"  # not pulled, not registered
+    assert env["LITELLM_VISION_MODEL"] == "ollama/qwen3:8b"  # routed: never overwritten
+
+
+def test_a_routed_cloud_default_and_a_consumer_model_are_never_overwritten(tmp_path):
+    starter = _reconcile_starter(
+        tmp_path,
+        "LLM_PROVIDER_SOURCE=none\n"
+        "CLOUD_OPENAI_SOURCE=enabled\nOPENAI_API_KEY=sk-test\nOPENAI_USER_MODELS=gpt-5,gpt-5-mini\n"
+        "LITELLM_DEFAULT_MODEL=gpt-5-mini\nLITELLM_VISION_MODEL=acme-consumer-model\n",
+    )
+
+    assert starter.reconcile_default_models() is True
+
+    env = starter.config_parser.parse_env_file()
+    assert (env["LITELLM_DEFAULT_MODEL"], env["LITELLM_VISION_MODEL"]) == ("gpt-5-mini", "acme-consumer-model")
+
+
+def test_defaults_the_repair_must_not_move(tmp_path, capsys):
+    """The managed vLLM Metal model is routed under an `openai/...` id; an
+    unkeyed provider is fixed by its key, not by re-embedding memory."""
+    starter = _reconcile_starter(
+        tmp_path,
+        "LLM_PROVIDER_SOURCE=none\nCLOUD_ANTHROPIC_SOURCE=enabled\nANTHROPIC_API_KEY=sk-ant\n"
+        "VLLM_METAL_SOURCE=managed-localhost\nVLLM_METAL_MODEL=openai/gpt-oss-20b\n"
+        "CLOUD_OPENAI_SOURCE=enabled\nOPENAI_API_KEY=\n"
+        "LITELLM_DEFAULT_MODEL=openai/gpt-oss-20b\nLITELLM_EMBEDDING_MODEL=text-embedding-3-large\n",
+    )
+
+    assert starter.reconcile_default_models() is True
+
+    env = starter.config_parser.parse_env_file()
+    assert env["LITELLM_DEFAULT_MODEL"] == "openai/gpt-oss-20b"
+    assert env["LITELLM_EMBEDDING_MODEL"] == "text-embedding-3-large"
+
+
+def test_a_stale_default_with_no_replacement_is_reported(tmp_path, capsys):
+    starter = _reconcile_starter(
+        tmp_path, "LLM_PROVIDER_SOURCE=none\nCLOUD_OPENAI_SOURCE=disabled\nLITELLM_DEFAULT_MODEL=gpt-5\n",
+    )
+
+    assert starter.reconcile_default_models() is True
+
+    assert starter.config_parser.parse_env_file()["LITELLM_DEFAULT_MODEL"] == "gpt-5"
+    assert "LITELLM_DEFAULT_MODEL=gpt-5 is not routed (OpenAI is not enabled)" in capsys.readouterr().out
