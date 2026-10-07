@@ -30,9 +30,9 @@ def test_resolver_keeps_non_default_and_resolves_fresh_otherwise():
     from core.config_parser import DEFAULT_BASE_PORT
 
     pm = NS(
-        auto_base_port=lambda: 20000,
+        auto_base_port=lambda **_kw: 20000,
         validate_base_port=lambda p: 1024 <= p <= 65000,
-        check_port_range_availability=lambda p: [],  # block free
+        check_port_range_availability=lambda p, *_a: [],  # block free
     )
 
     # not auto -> unchanged
@@ -55,7 +55,7 @@ def test_resolver_keeps_non_default_and_resolves_fresh_otherwise():
 def test_resolver_falls_back_to_default_when_no_free_block():
     from core.config_parser import DEFAULT_BASE_PORT
 
-    pm = NS(auto_base_port=lambda: None, validate_base_port=lambda p: True)
+    pm = NS(auto_base_port=lambda **_kw: None, validate_base_port=lambda p: True)
     r = _starter({}, pm)._resolve_auto_base_port_override({"BASE_PORT": "auto"})
     assert r["BASE_PORT"] == str(DEFAULT_BASE_PORT)
 
@@ -101,9 +101,9 @@ def test_foreign_occupancy_re_resolves_own_occupancy_keeps():
       occupied + not ours   → re-resolve to the next free block (self-heal)
       docker unknowable     → keep (never surprise-move ports)"""
     pm_busy = NS(
-        auto_base_port=lambda: 20100,
+        auto_base_port=lambda **_kw: 20100,
         validate_base_port=lambda p: 1024 <= p <= 65000,
-        check_port_range_availability=lambda p: [20000, 20012],  # occupied
+        check_port_range_availability=lambda p, *_a: [20000, 20012],  # occupied
     )
     env = {"BASE_PORT": "20000", "PROJECT_NAME": "consumer-a"}
 
@@ -121,9 +121,9 @@ def test_foreign_occupancy_re_resolves_own_occupancy_keeps():
 
     # occupied + foreign + NO free block anywhere → keep with warning, not crash
     pm_full = NS(
-        auto_base_port=lambda: None,
+        auto_base_port=lambda **_kw: None,
         validate_base_port=lambda p: True,
-        check_port_range_availability=lambda p: [20000],
+        check_port_range_availability=lambda p, *_a: [20000],
     )
     r = _starter(env, pm_full, own_containers=False)._resolve_auto_base_port_override(
         {"BASE_PORT": "auto"}

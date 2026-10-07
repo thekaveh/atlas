@@ -716,7 +716,7 @@ def test_doctor_rag_ingestion_warns_when_fail_target_disabled(tmp_path, monkeypa
     import start as start_module
 
     manifest = _write_rag_consumer(tmp_path, "rag-showcase", "fail")
-    _write_base_env(tmp_path)  # WEAVIATE_URL unset + on_unavailable=fail → warn
+    _write_base_env(tmp_path)  # WEAVIATE_SOURCE unset (disabled) + on_unavailable=fail → warn
     monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
     _patch_starter_paths(monkeypatch, tmp_path)
     monkeypatch.setattr(
@@ -730,8 +730,30 @@ def test_doctor_rag_ingestion_warns_when_fail_target_disabled(tmp_path, monkeypa
     payload = json.loads(result.output)
     checks = {entry["id"]: entry for entry in payload["checks"]}
     assert checks["rag-ingestion-profiles"]["status"] == "warn"
-    assert "WEAVIATE_URL" in " ".join(checks["rag-ingestion-profiles"]["details"]["warnings"])
+    assert "WEAVIATE_SOURCE" in " ".join(checks["rag-ingestion-profiles"]["details"]["warnings"])
     assert payload["ok"] is True
+
+
+def test_doctor_rag_ingestion_follows_the_source_not_the_start_written_endpoint(
+    tmp_path, monkeypatch
+) -> None:
+    """A fresh .env has WEAVIATE_SOURCE=container and an empty WEAVIATE_URL,
+    which only a start fills in; that warned before (#1391)."""
+    import start as start_module
+
+    manifest = _write_rag_consumer(tmp_path, "rag-showcase", "fail")
+    _write_base_env(tmp_path, extra="WEAVIATE_SOURCE=container\nWEAVIATE_URL=\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["rag-ingestion-profiles"]["status"] == "pass"
 
 
 def test_doctor_rag_ingestion_pass_when_none(tmp_path, monkeypatch) -> None:
@@ -775,7 +797,7 @@ def test_doctor_lightrag_profiles_pass_when_endpoint_set(tmp_path, monkeypatch) 
     import start as start_module
 
     manifest = _write_lightrag_profile_consumer(tmp_path, "rag-showcase")
-    _write_base_env(tmp_path, extra="LIGHTRAG_ENDPOINT=http://lightrag:9621\n")
+    _write_base_env(tmp_path, extra="LIGHTRAG_SOURCE=container\nLIGHTRAG_ENDPOINT=http://lightrag:9621\n")
     monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
     _patch_starter_paths(monkeypatch, tmp_path)
     monkeypatch.setattr(
@@ -795,7 +817,7 @@ def test_doctor_lightrag_profiles_warn_when_endpoint_unset(tmp_path, monkeypatch
     import start as start_module
 
     manifest = _write_lightrag_profile_consumer(tmp_path, "rag-showcase")
-    _write_base_env(tmp_path)  # no LIGHTRAG_ENDPOINT → warn
+    _write_base_env(tmp_path)  # no LIGHTRAG_SOURCE (disabled) → warn
     monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
     _patch_starter_paths(monkeypatch, tmp_path)
     monkeypatch.setattr(
@@ -809,7 +831,7 @@ def test_doctor_lightrag_profiles_warn_when_endpoint_unset(tmp_path, monkeypatch
     payload = json.loads(result.output)
     checks = {entry["id"]: entry for entry in payload["checks"]}
     assert checks["lightrag-query-profiles"]["status"] == "warn"
-    assert "LIGHTRAG_ENDPOINT" in checks["lightrag-query-profiles"]["message"]
+    assert "LIGHTRAG_SOURCE" in checks["lightrag-query-profiles"]["message"]
     assert payload["ok"] is True  # warn does not fail the run
 
 
@@ -819,7 +841,7 @@ def test_doctor_lightrag_profiles_reports_alias(tmp_path, monkeypatch) -> None:
     manifest = _write_lightrag_profile_consumer(
         tmp_path, "rag-showcase", alias="graph-rag-hybrid"
     )
-    _write_base_env(tmp_path, extra="LIGHTRAG_ENDPOINT=http://lightrag:9621\n")
+    _write_base_env(tmp_path, extra="LIGHTRAG_SOURCE=container\nLIGHTRAG_ENDPOINT=http://lightrag:9621\n")
     monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
     _patch_starter_paths(monkeypatch, tmp_path)
     monkeypatch.setattr(

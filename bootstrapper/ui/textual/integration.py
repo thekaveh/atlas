@@ -142,7 +142,7 @@ def meta_flags_for(selections: dict) -> list[tuple[str, str]]:
     return flags
 
 
-def _resolve_auto_base_port(fallback: int) -> int:
+def _resolve_auto_base_port(fallback: int, source_args: dict | None = None) -> int:
     """Resolve a wizard ``auto`` base-port answer to a concrete free block.
 
     Delegates to the same ``PortManager.auto_base_port`` the ``--base-port
@@ -157,7 +157,7 @@ def _resolve_auto_base_port(fallback: int) -> int:
     try:
         from core.port_manager import PortManager
 
-        resolved = PortManager().auto_base_port()
+        resolved = PortManager().auto_base_port(source_overrides=source_args)
     except Exception:  # noqa: BLE001 - probing is best-effort
         return fallback
     return resolved if resolved else fallback
@@ -1274,7 +1274,8 @@ def _selections_to_args(
     # "--base-port auto", which is what reproduces the choice next time.
     base_port_auto = str(bp or "").strip().lower() == "auto"
     if base_port_auto:
-        base_port_val = _resolve_auto_base_port(current_base_port)
+        # Probe with the sources this wizard chose, not .env's (#1391).
+        base_port_val = _resolve_auto_base_port(current_base_port, source_args)
     else:
         try:
             base_port_val = int(bp) if bp else current_base_port
@@ -1553,7 +1554,7 @@ def run_launch_flow(
     )
     if launch_base_port is None:
         # Show the block `auto` would take, as the wizard does (#1390).
-        base_port = _resolve_auto_base_port(current_base_port)
+        base_port = _resolve_auto_base_port(current_base_port, source_args)
 
     # Build a synthetic env dict that reflects the effective post-launch
     # configuration: container ports re-derived from the chosen base port,
