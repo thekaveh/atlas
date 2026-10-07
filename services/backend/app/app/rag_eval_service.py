@@ -37,6 +37,21 @@ class RagEvaluationError(RuntimeError):
     pass
 
 
+class RagEvaluationUpstreamError(RagEvaluationError):
+    """The live evaluator (LiteLLM-backed Ragas run) failed: a server-side
+    fault, not a bad request. Subclasses RagEvaluationError for the same
+    reason as the dependency error below (#1354)."""
+
+
+def _evaluation_error(exc: Exception) -> RagEvaluationError:
+    """A 4xx from the evaluator (an unknown caller-chosen model, say) is the
+    caller's error; anything else is an upstream failure (#1354)."""
+    status_code = getattr(exc, "status_code", None)
+    if isinstance(status_code, int) and 400 <= status_code < 500:
+        return RagEvaluationError(str(exc))
+    return RagEvaluationUpstreamError(str(exc))
+
+
 class RagEvaluationDependencyError(RagEvaluationError):
     """A missing/broken ragas dependency — a server-side outage (→ 503), not a
     client error. It MUST subclass RagEvaluationError (like the sibling
@@ -311,7 +326,7 @@ def _run_ragas_evaluation(
     except RagEvaluationError:
         raise
     except Exception as exc:  # pragma: no cover - exercised only with live evaluator calls.
-        raise RagEvaluationError(str(exc)) from exc
+        raise _evaluation_error(exc) from exc
 
 
 def _result_scores(

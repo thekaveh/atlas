@@ -25,9 +25,11 @@ from .service import (
     IngestionExecutionLeaseLost,
     RagIngestionService,
     ingestion_execution_lease_seconds,
+    is_permanent_redis_reply,
 )
 
 __all__ = [
+    "is_permanent_redis_reply",
     "RagIngestionService",
     "Deps",
     "RagIngestionRequest",

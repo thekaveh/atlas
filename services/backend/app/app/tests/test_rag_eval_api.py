@@ -81,3 +81,59 @@ def test_rag_eval_endpoint_rejects_empty_records(monkeypatch):
     )
 
     assert response.status_code == 422
+
+
+def test_evaluator_failure_is_a_502_with_a_fixed_detail(monkeypatch):
+    """#1354: a LiteLLM/Ragas failure is the server's, not the caller's, and its
+    raw text is logged, not returned."""
+    main = _fresh_main(monkeypatch)
+    from fastapi.testclient import TestClient
+    from rag_eval_service import RagEvaluationUpstreamError
+
+    def fail(_request):
+        raise RagEvaluationUpstreamError("litellm.APIError: key sk-live-abc rejected")
+
+    monkeypatch.setattr(main, "evaluate_rag_records", fail)
+    response = TestClient(main.app).post(
+        "/api/rag/evaluate",
+        json={"records": [{"question": "q", "answer": "a", "contexts": ["c"]}], "metrics": ["faithfulness"]},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "RAG evaluation failed"
+
+
+def test_workflows_route_maps_an_unreachable_n8n_to_503(monkeypatch):
+    import httpx
+
+    main = _fresh_main(monkeypatch)
+    from fastapi.testclient import TestClient
+
+    async def unreachable():
+        raise httpx.ConnectError("connection refused")
+
+    async def upstream_500(_workflow_id):
+        request = httpx.Request("GET", "http://n8n:5678/api/v1/workflows/w1")
+        raise httpx.HTTPStatusError("boom", request=request, response=httpx.Response(500, request=request))
+
+    monkeypatch.setattr(main.n8n_client, "list_workflows", unreachable)
+    monkeypatch.setattr(main.n8n_client, "get_workflow", upstream_500)
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "disabled")
+    client = TestClient(main.app)
+
+    assert client.get("/workflows").status_code == 503
+    assert client.get("/workflows/w1").status_code == 502
+
+
+def test_evaluator_4xx_is_the_callers_error_and_others_are_upstream():
+    from rag_eval_service import RagEvaluationUpstreamError, _evaluation_error
+
+    class BadModel(Exception):
+        status_code = 404
+
+    class Outage(Exception):
+        status_code = 503
+
+    assert type(_evaluation_error(BadModel("model not found"))).__name__ == "RagEvaluationError"
+    assert isinstance(_evaluation_error(Outage("upstream down")), RagEvaluationUpstreamError)
+    assert isinstance(_evaluation_error(RuntimeError("boom")), RagEvaluationUpstreamError)

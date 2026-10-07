@@ -154,6 +154,23 @@ TRANSIENT_EXCEPTIONS = (
 )
 
 
+def is_permanent_redis_reply(exc: BaseException) -> bool:
+    """A Redis error reply that repeats on every attempt, e.g. WRONGTYPE (#1354).
+
+    Subclasses Redis returns while it recovers (read-only replica after a
+    failover, maxmemory pressure, cluster resharding, a lost master) stay
+    transient."""
+    from redis import exceptions as redis_errors
+
+    transient = tuple(
+        getattr(redis_errors, name)
+        for name in ("ReadOnlyError", "OutOfMemoryError", "TryAgainError",
+                     "ClusterDownError", "MasterDownError", "AskError", "MovedError")
+        if hasattr(redis_errors, name)
+    )
+    return isinstance(exc, redis_errors.ResponseError) and not isinstance(exc, transient)
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -480,7 +497,7 @@ class RagIngestionService:
         except IngestionExecutionLeaseLost:
             raise
         except TRANSIENT_EXCEPTIONS as exc:
-            if retry_transient:
+            if retry_transient and not is_permanent_redis_reply(exc):
                 running = next(
                     (
                         phase
