@@ -20,6 +20,7 @@ Every line below is a complete, safe-to-run command:
 ./start.sh --no-tui --detach
 ./start.sh managed-host list
 ./start.sh models probe --kind embedding
+./start.sh storage inventory
 ./stop.sh
 ```
 
