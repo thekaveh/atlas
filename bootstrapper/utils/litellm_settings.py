@@ -43,6 +43,25 @@ def _cache_ttl(env: Mapping[str, str]) -> int:
     return ttl if ttl > 0 else DEFAULT_CACHE_TTL_SECONDS
 
 
+#: What the response cache serves (#1359). Embeddings, reranks and
+#: transcriptions are deterministic for a fixed model; a cached chat reply
+#: silently replaced a fresh run of the hermes-agent and lightrag
+#: passthroughs, so chat caching is opt-in.
+_EMBEDDING_CALL_TYPES = [
+    "embedding", "aembedding", "rerank", "arerank", "transcription", "atranscription",
+]
+_CHAT_CALL_TYPES = [
+    "completion", "acompletion", "text_completion", "atext_completion", "responses", "aresponses",
+]
+
+
+def _cache_call_types(env: Mapping[str, str]) -> list:
+    """``supported_call_types``: embeddings, reranks and transcriptions, plus
+    chat and Responses API calls with LITELLM_CACHE_CHAT=true."""
+    chat = (env.get("LITELLM_CACHE_CHAT") or "").strip().lower() == "true"
+    return _EMBEDDING_CALL_TYPES + (_CHAT_CALL_TYPES if chat else [])
+
+
 def _otel_callback_settings(values: Mapping[str, str], litellm_settings: Dict[str, Any]) -> Dict[str, Any]:
     """Add LiteLLM's "otel" callback when ATLAS_OTEL_ENABLED.
 
@@ -90,6 +109,7 @@ def base_settings(env: Mapping[str, str] | None = None) -> Dict[str, Any]:
             # identifiable, so they can be scanned or dropped without touching
             # a neighbour's keyspace.
             "namespace": (values.get("LITELLM_CACHE_NAMESPACE") or "litellm.cache").strip(),
+            "supported_call_types": _cache_call_types(values),
         },
         "drop_params": True,
         # Prometheus metrics — emits per-model request/token/cost/latency

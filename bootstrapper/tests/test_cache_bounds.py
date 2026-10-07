@@ -82,6 +82,7 @@ def test_the_init_container_receives_the_cache_vars() -> None:
     env = _services(LITELLM_COMPOSE)["litellm-init"]["environment"]
     assert env.get("LITELLM_CACHE_TTL") == "${LITELLM_CACHE_TTL:-3600}"
     assert env.get("LITELLM_CACHE_NAMESPACE") == "${LITELLM_CACHE_NAMESPACE:-litellm.cache}"
+    assert env.get("LITELLM_CACHE_CHAT") == "${LITELLM_CACHE_CHAT:-false}"
 
 
 # ─── 2. Redis sheds cache, never the queue ───────────────────────────
@@ -144,3 +145,14 @@ def test_the_parallel_settings_still_stand() -> None:
     env = _services(OLLAMA_COMPOSE)["ollama"]["environment"]
     assert env.get("OLLAMA_NUM_PARALLEL") == "${OLLAMA_NUM_PARALLEL:-8}"
     assert env.get("OLLAMA_MAX_LOADED_MODELS") == "${OLLAMA_MAX_LOADED_MODELS:-2}"
+
+
+def test_the_response_cache_serves_embeddings_and_chat_only_on_opt_in():
+    """A cached chat reply replaced a fresh hermes-agent or lightrag run (#1359)."""
+    from utils.litellm_settings import base_settings
+
+    default = base_settings({})["litellm_settings"]["cache_params"]["supported_call_types"]
+    assert {"embedding", "aembedding", "rerank", "arerank"} <= set(default)
+    assert not {"completion", "acompletion", "responses"} & set(default)
+    chat = base_settings({"LITELLM_CACHE_CHAT": "true"})["litellm_settings"]["cache_params"]
+    assert {"completion", "acompletion", "embedding"} <= set(chat["supported_call_types"])
