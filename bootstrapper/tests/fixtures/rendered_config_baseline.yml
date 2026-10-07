@@ -1244,8 +1244,8 @@ services:
     healthcheck:
       test:
       - CMD-SHELL
-      - 'curl --fail --silent --show-error -H "Authorization: Bearer $$API_SERVER_KEY"
-        http://127.0.0.1:8642/v1/models >/dev/null'
+      - 'printf ''header = "Authorization: Bearer %s"\n'' "$$API_SERVER_KEY" | curl --fail
+        --silent --show-error -K- http://127.0.0.1:8642/v1/models >/dev/null'
       timeout: 10s
       interval: 30s
       retries: 5
