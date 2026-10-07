@@ -79,7 +79,7 @@ langchain-text-splitters==1.1.2
 langgraph==1.2.10
 langgraph-checkpoint==4.1.1
 langgraph-prebuilt==1.1.0
-langgraph-sdk==0.4.2
+langgraph-sdk==0.4.4
 langsmith==0.10.15
 markdown-it-py==4.2.0
 markupsafe==3.0.3
@@ -87,7 +87,7 @@ marshmallow==3.26.2
 mdurl==0.1.2
 minio==7.2.20
 msgpack==1.2.1
-multidict==6.7.1
+multidict==6.9.1
 multiprocess==0.70.19
 mypy-extensions==1.1.0
 narwhals==2.24.0

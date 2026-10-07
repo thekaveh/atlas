@@ -178,7 +178,7 @@ NPM_PROJECTS = (
 NPM_PROJECT_EXCEPTIONS: dict[str, tuple[frozenset[str], date]] = {
     # GHSA-vfj7-8cjw-p6xm (braces <=3.0.3: stack exhaustion on deeply nested
     # brace patterns) reaches the asset worker only through
-    # @gltf-transform/cli 4.5.0 -> micromatch 4.0.8 -> braces 3.0.3, and 3.0.3
+    # @gltf-transform/cli 4.5.1 -> micromatch 4.0.8 -> braces 3.0.3, and 3.0.3
     # is the newest braces release, so there is nothing to upgrade to. The CLI
     # builds patterns only from its own constants and from --pattern/--slots,
     # and asset_worker/runner.py runs inspect, validate and optimize with fixed
