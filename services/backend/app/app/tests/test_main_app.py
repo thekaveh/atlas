@@ -210,7 +210,7 @@ def test_memory_requests_reject_unbounded_payloads(monkeypatch):
         "/memory/extract",
         json={
             "user_id": user_id,
-            "namespace": "x" * 129,
+            "namespace": "x" * 101,  # memory_facts.namespace is VARCHAR(100)
             "messages": [{"role": "user", "content": "x" * 20001}],
         },
     )

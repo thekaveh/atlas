@@ -1004,3 +1004,21 @@ def test_graphql_escape_covers_every_control_character():
     escaped = MemoryStore._escape_graphql_string(raw)
     assert "\x0b" not in escaped and "\x00" not in escaped
     assert _json.loads(f'"{escaped}"') == raw
+
+
+def test_memory_namespace_cannot_exceed_the_column_width():
+    """memory_facts.namespace is VARCHAR(100); 101-128 used to validate and
+    then fail every insert with a 200 "failed" extraction."""
+    import pytest
+    from pydantic import ValidationError
+
+    from memory_models import MemoryExtractRequest, MemoryRecallRequest, MemorySummarizeRequest
+
+    user = "00000000-0000-4000-8000-000000000001"
+    message = [{"role": "user", "content": "hi"}]
+    assert MemoryExtractRequest(user_id=user, messages=message, namespace="x" * 100).namespace
+    for build in (lambda ns: MemoryExtractRequest(user_id=user, messages=message, namespace=ns),
+                  lambda ns: MemoryRecallRequest(user_id=user, query="q", namespace=ns),
+                  lambda ns: MemorySummarizeRequest(user_id=user, namespace=ns)):
+        with pytest.raises(ValidationError):
+            build("x" * 101)
