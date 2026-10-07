@@ -19,8 +19,31 @@ Every line below is a complete, safe-to-run command:
 ./start.sh endpoints export --format json
 ./start.sh --no-tui --detach
 ./start.sh managed-host list
+./start.sh models probe --kind embedding
 ./stop.sh
 ```
+
+`./start.sh models probe` measures model capabilities through the running
+LiteLLM gateway instead of trusting the catalog (#1195). Each probe sends one
+request with a fixed expected answer: tool calling (the model must call an
+offered tool), JSON output (a JSON object answering 2+2), vision (naming the
+colour of a red square) and embedding dimension (the same probe
+`lightrag-init` uses). Each reports `supported`, `unsupported` or
+`unavailable` (the gateway is unreachable, fails, or answers with an
+authentication, unknown-model, timeout or rate-limit error, which say nothing
+about the model). By default it probes the
+configured default chat, vision and embedding models for the capabilities
+their catalog entry declares; `--model` and `--kind` narrow it. It prints the
+number of requests first and refuses a run over `--max-requests` (default 20,
+exit 3), because cloud probes are billed. Results go to the gitignored
+`volumes/litellm/capability-probes.json`, keyed by model, provider, gateway
+alias and catalog revision, and a `supported` or `unsupported` verdict is
+reused only for that exact identity (`unavailable` is measured again;
+`--refresh` re-measures everything). Every result, new or stored, is printed;
+a declared capability that measured `unsupported` is a failure and the command
+exits 1. The gateway is reached on `HOST_BIND_IP` (default `127.0.0.1`) and
+`LITELLM_PORT`. Probes never run during `./start.sh` and never change model
+selection.
 
 Before a subcommand (`doctor`, `endpoints`, `env`, `compose`, `managed-host`, …) only `--consumer` applies; it is exported for the subcommand. Output-mode flags (`--no-tui`, `--json`, `--no-splash`, `--detach`) are accepted there and ignored. Any other start option placed there, such as `-p` or `--base-port`, has no effect, and Atlas prints a warning naming it: subcommands read the project and ports from `.env`.
 
