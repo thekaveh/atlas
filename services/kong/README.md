@@ -52,7 +52,7 @@ The path routes above answer only on `localhost`, `127.0.0.1`, `kong-api-gateway
 - `hermes.localhost` → Hermes Agent web dashboard (if `HERMES_SOURCE != disabled` and `HERMES_DASHBOARD_ENABLED=true`)
 - `litellm.localhost` → LiteLLM gateway + admin dashboard (always-on; same alias exposes `/ui/`, `/v1/*`, and `/spend/*`)
 - `minio.localhost` → MinIO admin console (if `MINIO_SOURCE != disabled`)
-- `s3.minio.localhost` → MinIO S3 API (if `MINIO_SOURCE != disabled`; clients can also use the direct `MINIO_PORT`)
+- `s3.minio.localhost` → MinIO S3 API (if `MINIO_SOURCE != disabled`; clients can also use the direct `MINIO_PORT`). `/minio/v2/metrics`, `/minio/metrics/v3` and `/minio/prometheus/metrics` answer 403 (`request-termination`, #1386)
 - `supabase-studio.localhost` → Supabase Studio dashboard
 - `graph.localhost` → Neo4j Browser (`NEO4J_GRAPH_DB_SOURCE != disabled`)
 - `weaviate.localhost` → Weaviate REST API (`WEAVIATE_SOURCE != disabled`)
@@ -69,7 +69,7 @@ The path routes above answer only on `localhost`, `127.0.0.1`, `kong-api-gateway
 - `lightrag.localhost` → http://lightrag:9621/ (LightRAG WebUI + API; `preserve_host` enabled)
 - `rerank.localhost` → http://tei-reranker:80/ (TEI rerank API)
 - `grafana.localhost` → http://grafana:3000/ (Grafana dashboards; `GRAFANA_SOURCE != disabled`)
-- `prometheus.localhost` → http://prometheus:9090/ (Prometheus UI; `PROMETHEUS_SOURCE != disabled`)
+- `prometheus.localhost` → http://prometheus:9090/ (Prometheus UI; `PROMETHEUS_SOURCE != disabled`). `/-/quit` and `/-/reload` answer 403 (`request-termination`, #1386)
 - `ray.localhost` → http://ray-head:8265/ (Ray dashboard; `RAY_SOURCE != disabled`)
 - `langfuse.localhost` → http://langfuse-web:3000/ (Langfuse observability UI; `LANGFUSE_SOURCE=container`)
 - `mlflow.localhost` → http://mlflow:5000/ (MLflow tracking UI; `MLFLOW_SOURCE=container`)
