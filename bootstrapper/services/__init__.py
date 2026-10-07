@@ -151,6 +151,18 @@ def _readiness_probe_timeout(manager, remaining: float) -> float:
     return max(0.05, min(limit, remaining))
 
 
+def launched_with_other_settings(record: dict, pid, settings: dict) -> bool:
+    """Whether the running managed process ``pid`` was launched with other
+    ``settings`` (port, listen/bind) than are configured now (#1361).
+
+    Only a record naming that pid counts, and a key the record lacks is
+    unknown rather than changed, so a state file from an older Atlas never
+    forces a restart."""
+    if pid is None or not isinstance(record, dict) or record.get("pid") != pid:
+        return False
+    return any(key in record and record[key] != value for key, value in settings.items())
+
+
 def await_owned_process_readiness(manager, status, wait_timeout, error_details):
     """Wait for a health proof while repeatedly retaining ownership proof."""
     label, bind, port, error_type, clock = error_details

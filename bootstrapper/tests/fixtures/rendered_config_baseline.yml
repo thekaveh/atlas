@@ -1311,6 +1311,8 @@ services:
       TTS_INTERNAL_MODEL: tts-1-hd
       TTS_INTERNAL_URL: ''
       TTS_INTERNAL_VOICE: alloy
+    extra_hosts:
+    - host.docker.internal=
     image: atlas-hermes-init:local
     labels:
       com.atlas.agent: hermes
@@ -2597,6 +2599,8 @@ services:
       MCP_TOOL_TIMEOUT_SECONDS: '15'
       NEO4J_URI: ''
       SEARXNG_URL: http://searxng:8080
+    extra_hosts:
+    - host.docker.internal=
     image: atlas-mcp-servers:local
     logging:
       driver: json-file
@@ -2918,6 +2922,8 @@ services:
       VUE_APP_URL_BASE_API: http://n8n.localhost:63000/
       WEAVIATE_URL: ''
       WEBHOOK_URL: http://n8n.localhost:63000/
+    extra_hosts:
+    - host.docker.internal=
     healthcheck:
       test:
       - CMD
@@ -3041,6 +3047,8 @@ services:
       TTS_ENDPOINT: ''
       WEAVIATE_URL: ''
       WEBHOOK_URL: http://n8n.localhost:63000/
+    extra_hosts:
+    - host.docker.internal=
     image: n8nio/n8n:2.28.2
     logging:
       driver: json-file

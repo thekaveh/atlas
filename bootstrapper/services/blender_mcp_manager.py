@@ -202,6 +202,8 @@ class BlenderMcpManager:
         self.addon_path = self.state_dir / "addon.py"
         self.launcher_path = self.state_dir / "launcher.py"
         self.pid_file = self.state_dir / "blender-mcp.pid"
+        # Port and bind the running process was launched with (#1361).
+        self.launch_file = self.state_dir / "blender-mcp.launch.json"
         self.log_file = self.state_dir / "blender-mcp.log"
         self.launch_lock_file = (
             self.state_dir.parent / f".{self.state_dir.name}.launch.lock"
@@ -349,6 +351,15 @@ class BlenderMcpManager:
             ("Blender MCP", BlenderMcpError),
         )
         status = self.status()
+        if status.running and self._launched_elsewhere(status.pid):
+            # BLENDER_MCP_LOCALHOST_PORT or BLENDER_MCP_BIND changed: the owned
+            # process still serves the old address, so restart it (#1361).
+            if not self._stop_locked():
+                raise BlenderMcpError(
+                    f"Blender MCP (pid {status.pid}) runs with an old port or bind "
+                    "address and could not be stopped; run `./start.sh blender-mcp stop`"
+                )
+            status = self.status()
         if status.running:
             return await_owned_process_readiness(
                 self,
@@ -401,6 +412,7 @@ class BlenderMcpManager:
             try:
                 _started = _require_started(process.pid, _MHM._process_start_time)
                 _write_pid(self.pid_file, process.pid, _started)
+                self._record_launch(process.pid)
             except BaseException as exc:
                 outcome = _compensate(
                     process.pid,
@@ -509,6 +521,26 @@ class BlenderMcpManager:
         # a failed stop KEEPS the pid file so the process is not orphan-tracked
         return stopped
 
+    def _record_launch(self, pid: int) -> None:
+        payload = {"pid": pid, "port": self.port, "bind": self.bind}
+        try:
+            self.launch_file.write_text(json.dumps(payload), encoding="utf-8")
+        except OSError:
+            pass  # without a record a changed port is not detected, as before
+
+    def _launch_record(self) -> dict:
+        try:
+            record = json.loads(self.launch_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return record if isinstance(record, dict) else {}
+
+    def _launched_elsewhere(self, pid: Optional[int]) -> bool:
+        from services import launched_with_other_settings
+        return launched_with_other_settings(
+            self._launch_record(), pid, {"port": self.port, "bind": self.bind}
+        )
+
     def status(self) -> ProcessStatus:
         pid = self._read_pid()
         running = (
@@ -568,7 +600,9 @@ class BlenderMcpManager:
             )
             raise BlenderMcpError(f"preflight failed: {failures}")
         with self._launch_guard():
-            already = self.status().running
+            current = self.status()
+            # A bridge restarted for a new port or bind is created by this run.
+            already = current.running and not self._launched_elsewhere(current.pid)
             self._install_locked()
             status = self._start_locked(45.0)
         return status, not already

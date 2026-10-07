@@ -171,3 +171,65 @@ def test_at_least_one_fragment_has_relative_bind_sources() -> None:
         "No relative bind-mount sources found across any fragment — "
         "the discovery logic in _iter_bind_sources is likely broken."
     )
+
+
+def _sliced_host_vars(manifests) -> set[str]:
+    return {
+        var
+        for manifest in manifests
+        for options in manifest.runtime_sc.values()
+        for option in options.values()
+        for var, value in ((option or {}).get("environment") or {}).items()
+        if "host.docker.internal" in str(value)
+    }
+
+
+def _generated_host_vars(env_with_overrides, overrides: dict) -> set[str]:
+    from core.config_parser import ConfigParser
+    from services.service_config import ServiceConfig
+
+    parser = ConfigParser(str(REPO_ROOT))
+    parser.env_file_path = env_with_overrides(overrides)
+    env = ServiceConfig(config_parser=parser).generate_service_environment()
+    return {var for var, value in env.items() if "host.docker.internal" in str(value)}
+
+
+def _localhost_endpoint_vars(env_with_overrides) -> set[str]:
+    """Variables that name host.docker.internal: from the manifests'
+    runtime slices, and from the bootstrapper's generated environment with
+    every source, and then each source alone, set to its localhost option
+    (a consumer that is itself a source keeps its own variables only while
+    it runs as a container)."""
+    from services.manifests import load_manifests
+
+    manifests = load_manifests(REPO_ROOT / "services")
+    localhost = {
+        m.sources.var: option.id
+        for m in manifests if m.sources
+        for option in m.sources.options if option.id.endswith("localhost") and "managed" not in option.id
+    }
+    runs = [localhost, *({var: option} for var, option in localhost.items())]
+    return _sliced_host_vars(manifests).union(
+        *(_generated_host_vars(env_with_overrides, overrides) for overrides in runs)
+    )
+
+
+def _reads_without_mapping(service: dict, endpoint_vars: set[str]) -> list[str]:
+    if any(str(h).startswith("host.docker.internal:") for h in service.get("extra_hosts") or []):
+        return []
+    environment = yaml.safe_dump(service.get("environment") or {})
+    return sorted(v for v in endpoint_vars if re.search(r"\$\{" + v + r"\b", environment))
+
+
+def test_every_consumer_of_a_localhost_endpoint_maps_host_docker_internal(env_with_overrides):
+    """Localhost-source endpoints always name host.docker.internal (#1361), so
+    each container reading one must map it; Docker on Linux has no such name
+    unless extra_hosts adds it."""
+    endpoint_vars = _localhost_endpoint_vars(env_with_overrides)
+    unmapped = [
+        (name, reads)
+        for fragment in _iter_fragment_files()
+        for name, service in ((yaml.safe_load(fragment.read_text()) or {}).get("services") or {}).items()
+        if (reads := _reads_without_mapping(service, endpoint_vars))
+    ]
+    assert endpoint_vars and unmapped == []

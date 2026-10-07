@@ -8,7 +8,6 @@ import os
 import platform
 import ctypes
 import subprocess
-import socket
 
 
 def detect_os() -> str:
@@ -55,25 +54,16 @@ def is_elevated() -> bool:
 
 def get_localhost_host() -> str:
     """
-    Get the correct host reference for localhost services.
-    On Linux, host.docker.internal might not work, so we need a fallback.
-    
-    Returns:
-        str: The appropriate localhost hostname for Docker
+    The hostname containers use to reach a localhost-source service.
+
+    Always ``host.docker.internal``: every container consuming such an
+    endpoint maps it with ``extra_hosts: host.docker.internal:${HOST_GATEWAY_IP}``
+    (``resolve_host_gateway_ip``, Podman included). The name used to be
+    resolved on the host, where it never resolves on Linux, so endpoints were
+    rewritten to a hard-coded 172.17.0.1 that a custom bridge, rootless
+    Docker or Podman does not serve (#1361).
     """
-    os_type = detect_os()
-    
-    if os_type == "linux":
-        # Check if host.docker.internal resolves
-        try:
-            socket.gethostbyname("host.docker.internal")
-            return "host.docker.internal"
-        except socket.gaierror:
-            # Fallback to Docker bridge gateway on Linux
-            return "172.17.0.1"
-    else:
-        # Works on macOS and Windows
-        return "host.docker.internal"
+    return "host.docker.internal"
 
 
 def detect_container_runtime() -> str:

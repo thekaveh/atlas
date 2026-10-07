@@ -1139,6 +1139,8 @@ Atlas's bootstrapper computes a set of **auto-managed endpoint variables** in `.
 | `LITELLM_BASE_URL` | locked (always-on; does not vary by source) | `http://litellm:4000` | n/a (locked — no localhost mode) |
 | `MINIO_ENDPOINT` | `MINIO_SOURCE` | `http://minio:9000` | n/a (`container`/`disabled` only — no localhost mode) |
 
+A localhost-source value always names `host.docker.internal`, on Linux too (#1361). Docker Desktop resolves that name; on Linux Docker and Podman a consuming container resolves it only with `extra_hosts: ["host.docker.internal:${HOST_GATEWAY_IP}"]`, which every Atlas container that reads one carries. Add the same mapping to your own services.
+
 `LITELLM_BASE_URL` is the base URL with **no path suffix** — LiteLLM's OpenAI-compatible routes live under `/v1` (e.g. `${LITELLM_BASE_URL}/v1/chat/completions`), so append `/v1` in your client.
 
 **Consumer-bridging pattern.** In your overlay Compose fragment or `services/_user/` service, bridge the auto-managed endpoint into your service's own variable using a three-level fallback:

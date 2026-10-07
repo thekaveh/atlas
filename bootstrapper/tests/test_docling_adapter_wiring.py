@@ -189,3 +189,28 @@ def test_compose_isolates_adapter_and_provider_secret(tmp_path):
     }
     assert services["docling-gpu"]["ports"][0]["host_ip"] == "127.0.0.1"
     assert services["parakeet-gpu"]["ports"][0]["host_ip"] == "127.0.0.1"
+
+
+def test_localhost_endpoints_never_use_the_docker_bridge_ip_on_linux(env_with_overrides, monkeypatch):
+    """host.docker.internal never resolves on a Linux host, which rewrote every
+    localhost endpoint to a hard-coded 172.17.0.1 (#1361)."""
+    import json
+    import socket
+
+    import utils.system as system
+
+    def unresolvable(_name):
+        raise socket.gaierror("no such host")
+
+    monkeypatch.setattr(system, "detect_os", lambda: "linux")
+    monkeypatch.setattr(socket, "gethostbyname", unresolvable)
+    parser = ConfigParser(str(ROOT))
+    parser.env_file_path = env_with_overrides(
+        {"TIKA_SOURCE": "tika-localhost", "DOC_PROCESSOR_SOURCE": "docling-localhost",
+         "WEAVIATE_SOURCE": "localhost"}
+    )
+
+    generated = ServiceConfig(config_parser=parser).generate_service_environment()
+
+    assert "172.17.0.1" not in json.dumps(generated)
+    assert generated["TIKA_ENDPOINT"].startswith("http://host.docker.internal:")

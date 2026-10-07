@@ -9,6 +9,7 @@ file) proves the real /system_stats-reports-MPS contract; it never runs in CI.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import json
 import platform
 import subprocess
 import threading
@@ -1854,3 +1855,53 @@ def test_the_pid_file_warning_leads_the_preflight_checks(tmp_path, monkeypatch):
     services.add_recycled_pid_check(result, manager)
 
     assert [c["name"] for c in result.checks] == ["pid-file", "memory"]
+
+
+# ─────────── a changed port or listen restarts the owned process (#1361) ───────────
+@pytest.mark.parametrize("changed", [{"port": 8288}, {"listen": "0.0.0.0"}])
+@pytest.mark.parametrize("entry", ["start_with_ownership", "ensure_running_with_ownership"])
+def test_start_restarts_an_owned_process_launched_with_other_settings(tmp_path, monkeypatch, changed, entry):
+    mgr = _mgr(tmp_path, **changed)
+    _install_stub(mgr)
+    mgr.pid_file.write_text("999")
+    mgr.status_file.write_text(json.dumps({"pid": 999, "port": 8188, "listen": "127.0.0.1"}))
+    alive = {999}
+    monkeypatch.setattr(ComfyUiMpsManager, "_managed_process_alive", lambda self, pid: pid in alive)
+    monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda self, pid: False)
+    stopped = []
+
+    def stop(self):
+        stopped.append(self._read_pid())
+        alive.discard(999)
+        self._clear_pid()
+        return True
+
+    monkeypatch.setattr(ComfyUiMpsManager, "_stop_locked", stop)
+    monkeypatch.setattr(mod.socket, "socket", lambda *a, **k: _FakeSocket(1))  # port free
+    launched = {}
+
+    def fake_popen(args, **kwargs):
+        if args and args[0] == "ps":
+            return SimpleNamespace(pid=0, returncode=0, stdout="", stderr="")
+        launched["args"] = args
+        alive.add(4242)
+        return SimpleNamespace(pid=4242)
+
+    monkeypatch.setattr(mod.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(
+        "services.managed_host.ManagedHostManager._process_start_time",
+        staticmethod(lambda _pid: "Mon Jan  1 00:00:00 2024"),
+    )
+    # ./start.sh goes through preflight and install, which rewrites the status
+    # file before start compares it with the configuration.
+    monkeypatch.setattr(ComfyUiMpsManager, "preflight", lambda self: SimpleNamespace(ok=True, checks=[]))
+    monkeypatch.setattr(ComfyUiMpsManager, "_install_locked", lambda self: self._write_status(installed_ref=self.ref))
+    assert mgr.status().port == 8188  # what the old process actually serves
+
+    status, created = getattr(mgr, entry)()
+
+    assert stopped == [999] and created is True and status.pid == 4242
+    assert status.port == mgr.port and str(mgr.port) in launched["args"]
+    assert mgr.listen in launched["args"]
+    record = json.loads(mgr.status_file.read_text())
+    assert (record["port"], record["listen"]) == (mgr.port, mgr.listen)
