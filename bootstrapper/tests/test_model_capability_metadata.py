@@ -373,3 +373,109 @@ def test_capability_docs_are_synchronized_across_three_surfaces() -> None:
         assert "catalog_name" in text
         assert "operator preference" in text
         assert "lexical" in text
+
+
+# ─── opt-in capability probes (#1195) ───────────────────────────────────
+
+_TOOL_CALL = {"choices": [{"message": {"tool_calls": [{"function": {"name": "get_utc_time"}}]}}]}
+_REPLY = lambda text: {"choices": [{"message": {"content": text}}]}  # noqa: E731
+
+
+@pytest.mark.parametrize(("kind", "good", "bad"), [
+    ("tools", _TOOL_CALL, _REPLY("It is noon.")),
+    ("json", _REPLY('<think>sum</think>```json\n{"answer": 4.0}\n```'), _REPLY("four")),
+    ("vision", _REPLY("Red."), _REPLY("I considered it, but I cannot view images.")),
+])
+def test_each_probe_tells_supported_unsupported_and_unavailable_apart(kind, good, bad):
+    import start
+
+    probe = {"tools": start.probe_tools, "json": start.probe_json, "vision": start.probe_vision}[kind]
+    for reply, expected in (((200, good), "supported"), ((200, bad), "unsupported"),
+                            ((400, {}), "unsupported"), ((None, {}), "unavailable"), ((503, {}), "unavailable"),
+                            ((401, {}), "unavailable"), ((429, {}), "unavailable"), ((200, []), "unsupported")):
+        assert probe(lambda _path, _body, r=reply: r, "m") == expected, (kind, reply)
+
+
+def _tool_model() -> str:
+    return next(e.name for e in llm_catalog.ollama_entries() if e.capabilities.get("tools"))
+
+
+def test_a_declared_tool_capability_the_provider_ignores_fails(tmp_path, capsys):
+    import start
+
+    (tmp_path / ".env").write_text("LITELLM_DEFAULT_MODEL=x\n")
+    alias = f"ollama/{_tool_model()}"
+    plan = start.plan_capability_probes([alias], ["tools"], {}, refresh=False)
+    ignore = lambda _path, _body: (200, _REPLY("noon"))  # noqa: E731
+
+    assert start.run_capability_probes(tmp_path, ("http://gw/v1", "k", ignore), plan, 5) == 0
+    assert start.report_capability_probes(tmp_path, [alias], ["tools"]) == 1
+    assert "tools: unsupported  FAIL: declared by the catalog" in capsys.readouterr().out
+    # A stored verdict is reported (and fails) again without a new request.
+    assert start.plan_capability_probes([alias], ["tools"], start._probe_store(tmp_path), False) == []
+    assert start.report_capability_probes(tmp_path, [alias], ["tools"]) == 1
+
+
+def test_the_probe_command_never_changes_model_selection(tmp_path, monkeypatch):
+    import start
+    from click.testing import CliRunner
+
+    env_text = "LITELLM_DEFAULT_MODEL=ollama/qwen3.8:latest\nLITELLM_PORT=63004\n"
+    (tmp_path / ".env").write_text(env_text)
+    parser = type("P", (), {"root_dir": str(tmp_path), "parse_env_file": lambda self: {
+        "LITELLM_DEFAULT_MODEL": "ollama/qwen3.8:latest", "LITELLM_PORT": "63004"}})()
+    monkeypatch.setattr(start, "AtlasStarter", lambda: type("S", (), {"config_parser": parser})())
+    monkeypatch.setattr(start, "gateway_post", lambda *_a: lambda _p, _b: (200, _REPLY("noon")))
+    result = CliRunner().invoke(start.main, ["models", "probe", "--kind", "tools"])
+    assert result.exit_code == 1 and "FAIL" in result.output, result.output
+    assert (tmp_path / ".env").read_text() == env_text
+
+
+def test_the_embedding_probe_is_lightrag_inits_own(monkeypatch):
+    import start
+    import urllib.error
+
+    probe = start._shared_embedding_probe()
+    assert probe.__code__.co_filename.endswith("services/lightrag/init/scripts/resolve-models.py")
+    namespace = probe.__globals__  # the loaded resolve-models.py module
+    for raised, expected in ((urllib.error.HTTPError("u", 400, "bad", None, None), "unsupported"),
+                             (urllib.error.URLError("down"), "unavailable")):
+        monkeypatch.setattr(namespace["urllib"].request, "urlopen", lambda *_a, e=raised, **_k: (_ for _ in ()).throw(e))
+        assert probe("http://gw/v1", "k", "m") == (expected, None)
+    monkeypatch.setitem(namespace, "probe_embedding_dim", lambda *_a, **_k: ("supported", 2560))
+    assert namespace["resolve_dim"]("some-unlisted-embedder") == 2560  # resolve_dim calls the shared probe
+    monkeypatch.setitem(namespace, "probe_embedding_dim", lambda *_a, **_k: ("unavailable", None))
+    assert namespace["resolve_dim"]("some-unlisted-embedder") == 768  # lightrag-init's fallback stays
+
+
+def test_probes_are_opt_in_and_capped(tmp_path):
+    import start
+
+    root = Path(start.__file__).resolve().parent
+    callers = [path for folder in ("core", "ui", "wizard", "services", "utils")
+               for path in (root / folder).rglob("*.py") if "run_capability_probes" in path.read_text()]
+    assert callers == []  # only `./start.sh models probe` runs them
+    source = Path(start.__file__).read_text()
+    command = source[source.index("def models_probe_command"):]
+    assert source.count("run_capability_probes(") == 2 and "run_capability_probes(" in command
+    calls = []
+    plan = [("a", "tools", {}), ("b", "tools", {}), ("c", "tools", {})]
+    assert start.run_capability_probes(tmp_path, ("u", "k", lambda *a: calls.append(a)), plan, 2) == 3
+    assert calls == []
+    # An unavailable result measured nothing, so it is never reused.
+    alias = f"ollama/{_tool_model()}"
+    identity = start.probe_identity(alias, start._catalog_entry(alias))
+    stale = {json.dumps(identity, sort_keys=True): {"results": {"tools": "unavailable"}}}
+    assert start.plan_capability_probes([alias], ["tools"], stale, refresh=False)
+
+
+def test_a_stored_result_is_reused_only_for_the_same_identity():
+    import start
+
+    alias = f"ollama/{_tool_model()}"
+    identity = start.probe_identity(alias, start._catalog_entry(alias))
+    stored = lambda ident: {json.dumps(ident, sort_keys=True): {"results": {"tools": "supported"}}}  # noqa: E731
+    assert start.plan_capability_probes([alias], ["tools"], stored(identity), refresh=False) == []
+    for field in ("model", "provider", "alias", "revision"):
+        changed = {**identity, field: identity[field] + "-other"}
+        assert start.plan_capability_probes([alias], ["tools"], stored(changed), refresh=False), field
