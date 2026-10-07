@@ -440,9 +440,9 @@ jobs:
         # check-compose-source-deps.py invokes `docker compose config` to
         # render the merged shape across all per-service fragments (the
         # top-level docker-compose.yml is a thin `include:`-only shell).
-        # Without .env present, compose interpolation fails and the
-        # script falls through to a raw parse that sees zero edges,
-        # producing spurious "missing dependency" failures.
+        # check-compose-source-deps.py renders against .env.example itself
+        # and exits 2 on a compose failure; the track-membership audit below
+        # still builds a ConfigParser over the project .env.
         run: cp .env.example .env
 
       - name: Docs drift gate (regen --all --check)
