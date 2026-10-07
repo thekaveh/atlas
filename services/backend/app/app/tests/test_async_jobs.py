@@ -1006,3 +1006,4 @@ def test_rag_execution_claim_retry_is_rescheduled(
         invoked["execution_owner"] if carries_owner else None
     )
     assert captured["args"] == ()
+

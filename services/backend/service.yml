@@ -110,6 +110,12 @@ env:
   - name: RESEARCH_MAX_CONCURRENT
     default: 4
     description: "Maximum research sessions admitted concurrently per Backend process. Excess start requests fail before database work with HTTP 429."
+  - name: BACKEND_HEAVY_WORK_CONCURRENCY
+    default: 4
+    description: "Maximum /api/chunk and /api/rag/evaluate jobs the Backend runs at once, on a pool of its own so they cannot starve other routes. Further calls get HTTP 503 with Retry-After until a slot frees (#1354)."
+  - name: BACKEND_HEAVY_WORK_TIMEOUT_SECONDS
+    default: 600
+    description: "Seconds a /api/chunk or /api/rag/evaluate call waits for its result before answering HTTP 504. The job keeps its concurrency slot until its thread actually finishes (#1354)."
   - name: BACKEND_PG_POOL_MIN
     default: 1
     description: "Minimum connections kept warm in the Backend's shared asyncpg pool (#804). Short-lived DB ops draw from this pool instead of paying a fresh connect handshake each time; long-hold paths (memory vector-reconcile) keep dedicated connections."

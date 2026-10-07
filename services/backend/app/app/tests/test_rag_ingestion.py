@@ -21,6 +21,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import ResponseError
 
 from rag_ingestion.clients import (
     CorpusFile,
@@ -2436,3 +2437,102 @@ def test_interrupted_run_is_recorded_failed_not_left_running(tmp_path, monkeypat
     final = store.get(record.id)
     assert final.status == "failed"
     assert any("interrupted" in error["message"] for error in final.errors)
+
+
+# --- Redis failures end the job instead of retrying forever (#1354) ----------
+
+
+
+def test_rag_redis_error_reply_fails_without_retry(monkeypatch):
+    """#1354: a Redis error reply (WRONGTYPE) repeats on every attempt."""
+    import celery_tasks
+    import rag_ingestion
+    from redis.exceptions import ResponseError
+
+    def fail_ingestion(*_args, **_kwargs):
+        raise ResponseError("WRONGTYPE Operation against a key holding the wrong kind of value")
+
+    monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", fail_ingestion)
+    monkeypatch.setattr(
+        celery_tasks.rag_ingestion_task, "retry",
+        lambda **_kw: pytest.fail("a Redis error reply must not be retried"),
+    )
+
+    with pytest.raises(ResponseError):
+        celery_tasks.rag_ingestion_task.run("ingestion-1")
+
+
+def test_transient_redis_replies_are_still_retried():
+    """#1354: replies Redis sends while it recovers are not permanent."""
+    from redis.exceptions import OutOfMemoryError, ReadOnlyError, ResponseError
+
+    from rag_ingestion import is_permanent_redis_reply
+
+    assert is_permanent_redis_reply(ResponseError("WRONGTYPE wrong kind of value"))
+    assert not is_permanent_redis_reply(ReadOnlyError("READONLY replica"))
+    assert not is_permanent_redis_reply(OutOfMemoryError("OOM command not allowed"))
+    assert not is_permanent_redis_reply(ConnectionError("down"))
+
+
+def test_rag_redis_outage_retries_stop_at_the_cap(monkeypatch):
+    import celery_tasks
+    import rag_ingestion
+
+    def fail_ingestion(*_args, **_kwargs):
+        raise RedisConnectionError("Redis still down")
+
+    monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", fail_ingestion)
+    monkeypatch.setattr(
+        celery_tasks.rag_ingestion_task, "retry",
+        lambda **_kw: pytest.fail("retry past the cap"),
+    )
+
+    with pytest.raises(RedisConnectionError):
+        celery_tasks.rag_ingestion_task.run(
+            "ingestion-1",
+            retry_state={
+                "phase_attempt": 0,
+                "infrastructure_attempt": celery_tasks._RAG_INFRASTRUCTURE_RETRY_LIMIT,
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    ("failure", "retry_transient"),
+    [
+        (ResponseError("WRONGTYPE Operation against a key holding the wrong kind of value"), True),
+        (RedisConnectionError("Redis still down"), False),
+    ],
+)
+def test_unretryable_redis_failure_leaves_a_failed_record_not_a_pending_one(
+    tmp_path, monkeypatch, failure, retry_transient
+):
+    """A permanent reply, or any failure on the final attempt
+    (retry_transient=False), must end with a terminal record: a record left
+    "waiting for Celery retry" answers every resubmit as a dead duplicate."""
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content body"})
+    pf = _profiles_file(
+        tmp_path,
+        vector=[{"backend": "weaviate", "collection_prefix": "P", "on_unavailable": "fail"}],
+    )
+
+    class FailingEmbedder:
+        def available(self):
+            return True
+
+        async def embed(self, texts):
+            raise failure
+
+    store = InMemoryIngestionStore()
+    svc = RagIngestionService(
+        store=store,
+        deps=Deps(embedder=FailingEmbedder(), weaviate=FakeWeaviate(),
+                  lightrag=FakeLightrag(available=False), poll_interval=0.01),
+        profiles_path=pf,
+    )
+    record, _ = svc.submit("showcase-default")
+
+    result = asyncio.run(svc.run(record.id, retry_transient=retry_transient))
+
+    assert result.status == "failed"
+    assert store.get(record.id).status == "failed"

@@ -114,12 +114,14 @@ from chunking_service import (
     ChunkResponse,
     ChunkingDependencyError,
     ChunkingError,
+    ChunkingUpstreamError,
     chunk_text,
 )
 from rag_eval_service import (
     RagEvaluationDependencyError,
     RagEvaluationError,
     RagEvaluationRequest,
+    RagEvaluationUpstreamError,
     RagEvaluationResponse,
     evaluate_rag_records,
 )
@@ -181,6 +183,16 @@ def _unexpected_error(operation: str, exc: Exception, *, status_code: int = 500)
         stack,
     )
     return HTTPException(status_code=status_code, detail=f"{operation} failed")
+
+
+def _n8n_gateway_error(operation: str, exc: Exception) -> HTTPException:
+    """n8n unreachable -> 503, n8n answered with an error -> 502, anything
+    else -> 500; details are logged, never returned (#1354)."""
+    if isinstance(exc, httpx.TransportError):
+        return _unexpected_error(operation, exc, status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+    if isinstance(exc, httpx.HTTPStatusError):
+        return _unexpected_error(operation, exc, status_code=status.HTTP_502_BAD_GATEWAY)
+    return _unexpected_error(operation, exc)
 
 
 def _comfyui_gateway_error(exc: Exception) -> HTTPException:
@@ -781,7 +793,7 @@ async def list_workflows():
         workflows = await n8n_client.list_workflows()
         return workflows
     except Exception as exc:
-        raise _unexpected_error("List workflows", exc)
+        raise _n8n_gateway_error("List workflows", exc)
 
 
 @app.get(
@@ -800,9 +812,9 @@ async def get_workflow(workflow_id: str):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Workflow with ID {workflow_id} not found",
             )
-        raise _unexpected_error("Get workflow", exc)
+        raise _n8n_gateway_error("Get workflow", exc)
     except Exception as exc:
-        raise _unexpected_error("Get workflow", exc)
+        raise _n8n_gateway_error("Get workflow", exc)
 
 
 
@@ -938,6 +950,87 @@ async def extract_document(file: UploadFile = File(...)):
         ) from e
 
 
+class _HeavyWorkGate:
+    """A bounded executor for the CPU- and network-heavy stateless routes (#1354).
+
+    asyncio.to_thread shares the loop's default executor with every other
+    to_thread route, so a burst of slow evaluations stalled job-status and
+    ingestion reads. This gate owns its own pool and admits at most
+    ``limit`` jobs. A slot frees only when its thread actually finishes, so a
+    timed-out job still counts until it stops running."""
+
+    def __init__(self, limit: int) -> None:
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        self.limit = limit
+        self.in_flight = 0
+        self._lock = threading.Lock()
+        self.executor = ThreadPoolExecutor(max_workers=limit, thread_name_prefix="heavy-work")
+
+    def submit(self, fn, request):
+        """The job's concurrent future, or None when every slot is taken. The
+        slot is released from the worker thread, so it frees even if the
+        requesting event loop is gone by then."""
+        with self._lock:
+            if self.in_flight >= self.limit:
+                return None
+            self.in_flight += 1
+        try:
+            future = self.executor.submit(fn, request)
+        except BaseException:
+            self.release()
+            raise
+        future.add_done_callback(self.release)
+        return future
+
+    def release(self, _future=None) -> None:
+        with self._lock:
+            self.in_flight -= 1
+
+
+_HEAVY_WORK_GATE: Optional[_HeavyWorkGate] = None
+
+
+def _positive_env_number(name: str, default: str, cast):
+    try:
+        value = cast(os.getenv(name, default))
+    except ValueError:
+        value = cast(default)
+    return value if value > 0 else cast(default)
+
+
+def _heavy_work_gate() -> _HeavyWorkGate:
+    global _HEAVY_WORK_GATE
+    if _HEAVY_WORK_GATE is None:
+        _HEAVY_WORK_GATE = _HeavyWorkGate(
+            _positive_env_number("BACKEND_HEAVY_WORK_CONCURRENCY", "4", int)
+        )
+    return _HEAVY_WORK_GATE
+
+
+async def _run_heavy_work(fn, request, operation: str):
+    """Run ``fn(request)`` on the bounded pool: 503 + Retry-After when full,
+    504 after BACKEND_HEAVY_WORK_TIMEOUT_SECONDS."""
+    job = _heavy_work_gate().submit(fn, request)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"{operation} is at its concurrency limit; retry shortly",
+            headers={"Retry-After": "5"},
+        )
+    timeout = _positive_env_number("BACKEND_HEAVY_WORK_TIMEOUT_SECONDS", "600", float)
+    # asyncio.wait, not wait_for: a TimeoutError raised BY the job must keep
+    # its own meaning, not read as the deadline passing.
+    done, _pending = await asyncio.wait({asyncio.wrap_future(job)}, timeout=timeout)
+    if not done:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=f"{operation} did not finish within {timeout:g} s",
+        )
+    return done.pop().result()
+
+
 @app.post(
     "/api/chunk",
     response_model=ChunkResponse,
@@ -946,12 +1039,14 @@ async def extract_document(file: UploadFile = File(...)):
 async def chunk_document_text(request: ChunkRequest):
     """Chunk text for RAG ingestion using Chonkie-backed strategies."""
     try:
-        return await asyncio.to_thread(chunk_text, request)
+        return await _run_heavy_work(chunk_text, request, "Chunking")
     except ChunkingDependencyError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(e),
         )
+    except ChunkingUpstreamError as e:
+        raise _unexpected_error("Chunking", e, status_code=status.HTTP_502_BAD_GATEWAY)
     except ChunkingError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -967,12 +1062,14 @@ async def chunk_document_text(request: ChunkRequest):
 async def evaluate_rag_quality(request: RagEvaluationRequest):
     """Evaluate supplied RAG answers and contexts with Ragas metrics."""
     try:
-        return await asyncio.to_thread(evaluate_rag_records, request)
+        return await _run_heavy_work(evaluate_rag_records, request, "RAG evaluation")
     except RagEvaluationDependencyError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(e),
         )
+    except RagEvaluationUpstreamError as e:
+        raise _unexpected_error("RAG evaluation", e, status_code=status.HTTP_502_BAD_GATEWAY)
     except (RagEvaluationError, ValueError) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1511,13 +1608,18 @@ async def cancel_research(
     """Cancel a running research session"""
     _validate_uuid_param(session_id, "session_id")
     try:
-        success = await research_service.cancel_research(
+        outcome = await research_service.cancel_research_outcome(
             session_id, owner_user_id=research_owner_id(principal)
         )
-        if not success:
+        if outcome == "not_found":
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot cancel research session {session_id} - session not found or not running"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Research session {session_id} not found",
+            )
+        if outcome != "cancelled":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Research session {session_id} is not running",
             )
         return JSONResponse(
             status_code=status.HTTP_202_ACCEPTED,

@@ -662,6 +662,13 @@ class ResearchService:
         self, session_id: str, owner_user_id: Optional[str] = None
     ) -> bool:
         """Cancel a running research session"""
+        return await self.cancel_research_outcome(session_id, owner_user_id) == "cancelled"
+
+    async def cancel_research_outcome(
+        self, session_id: str, owner_user_id: Optional[str] = None
+    ) -> str:
+        """Cancel a running session: "cancelled", "not_running" (exists but
+        already finished) or "not_found" (absent or not the caller's) (#1354)."""
         conn = await self._get_db_connection()
         try:
             persistence = asyncio.create_task(
@@ -684,7 +691,16 @@ class ResearchService:
                     task.add_done_callback(cancel_requested.discard)
             if caller_cancelled:
                 raise asyncio.CancelledError
-            return cancelled
+            if cancelled:
+                return "cancelled"
+            existing = await conn.fetchrow(
+                """
+                SELECT status FROM public.research_sessions
+                WHERE id = $1 AND ($2::uuid IS NULL OR user_id = $2::uuid)
+                """,
+                session_id, UUID(owner_user_id) if owner_user_id else None,
+            )
+            return "not_running" if existing else "not_found"
         finally:
             await self._release_db_connection(conn)
 

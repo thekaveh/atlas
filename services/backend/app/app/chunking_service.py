@@ -18,6 +18,11 @@ class ChunkingDependencyError(ChunkingError):
     pass
 
 
+class ChunkingUpstreamError(ChunkingError):
+    """The chunker itself failed (tokenizer download, model load, library
+    error): a server-side fault, not a bad request (#1354)."""
+
+
 class ChunkRequest(BaseModel):
     text: str = Field(min_length=1, max_length=1_000_000)
     strategy: ChunkStrategy = "recursive"
@@ -185,7 +190,10 @@ def chunk_text(
     except ChunkingDependencyError:
         raise
     except Exception as exc:
-        raise ChunkingError(f"Chunking failed for strategy {request.strategy!r}: {exc}") from exc
+        # A tokenizer the caller named that cannot be loaded stays a 400; any
+        # other chunker failure is the server's (#1354).
+        error_type = ChunkingError if type(exc).__name__ == "InvalidTokenizerError" else ChunkingUpstreamError
+        raise error_type(f"Chunking failed for strategy {request.strategy!r}: {exc}") from exc
 
     chunks = _normalize_chunks(raw_chunks, request.text)
     return ChunkResponse(
