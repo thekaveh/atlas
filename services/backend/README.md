@@ -114,6 +114,30 @@ Extraction runs the LLM call outside the database transaction, then commits acce
 
 Memory writes (edits, soft deletes, consolidation, retention) mark a durable `vector_sync_pending` intent alongside the Postgres change. The selected backend is latched: while Weaviate serves recall, each successful store/update also maintains a pgvector shadow without advancing the dirty generation; pending clears only after both writes are durable. Successful pgvector-authoritative writes advance the dirty generation atomically with the vector update when Weaviate is unavailable. Weaviate failback occurs only through `POST /memory/vector-store/probe`; the probe verifies the configured model/dimension and collection module identity, then rebuilds active objects and retirements from authoritative Postgres before switching searches. Failback may clear its monotonic generation only through a matching model/dimension compare-and-set after every pending retirement is drained. Sustained write churn leaves pgvector latched with an observable reason instead of looping indefinitely. Weaviate recall and mutations check the generation before and after external I/O; a change discards the result or preserves pgvector authority, so no stale result or lost write crosses the transition. Runtime Weaviate outages latch pgvector without per-request readiness probes. A failed embedding inside Weaviate (its LiteLLM vectorizer call, reported as a 5xx on writes or GraphQL `errors` on recall) is not an outage: the write still lands in the pgvector shadow and stays `vector_sync_pending` (reconciliation defers it per row and retries), recall is served from that shadow for the request, and nothing latches. Weaviate writes and recall allow 30 seconds for that embedding call. With `WEAVIATE_SOURCE=localhost` the collection vectorizes through `http://litellm:4000`, which a host Weaviate cannot resolve, and the Backend sends no Weaviate API key, so treat localhost Weaviate as unsupported for memory: every write fails vectorization and every recall is answered from the pgvector shadow. `LANGMEM_EMBEDDING_DIM` is validated against a real LiteLLM embedding before Backend startup; the database migration preserves existing vectors, re-embeds through short optimistic transactions that release database connections during LiteLLM calls, and contracts only after every existing row matches the selected dimension.
 
+Reviewing and deleting your own memories (#1206). Listing
+(`GET /memory/user/{user_id}`) and recall return each fact's
+`source_conversation_id` and `source_message_ids` with `origin: "recorded"`, or
+`origin: "not recorded"` when neither was stored. Extraction records only the
+`conversation_id` the caller sends (no message ids), and the bundled Open WebUI
+tool and filter and the n8n workflows send none today, so their facts read "not
+recorded". `GET`, `PUT` and `DELETE` take a `user_id`; with a Supabase user JWT
+any other user's id is refused with `403`. `PUT /memory/{memory_id}` corrects a
+fact's content, and the next recall returns the corrected text; `PUT` with
+`is_active: true` restores a deleted fact. `DELETE /memory/{memory_id}` is a
+soft delete and says so. The response reports `deletion: "soft"`, the Postgres
+row's new state (`is_active: false`, row retained), the Weaviate object
+(never removed; `deactivated` only when Weaviate serves recall, otherwise
+`awaiting_rebuild` until the next failback rebuild retires it, or
+`configured: false` without Weaviate), the pgvector `embedding` (never
+cleared) and a `retained` list: the fact row and its embedding, the Weaviate
+object's content, `memory_consolidation_log` reasons that can restate the fact,
+the `memory_sessions` extraction records, and the source conversation, which
+Atlas never stored. Consistency bound: a deleted fact is excluded from recall
+immediately, because every recall re-reads `is_active` from Postgres for each
+vector hit, so a vector left behind cannot return it. Deletion does not stop
+re-extraction: extraction checks no existing facts, so extracting the same
+conversation again can store the same content as a new fact.
+
 Async `POST /memory/consolidate?async_job=true` accepts an optional
 `idempotency_key`. Reusing it derives and republishes the same stable Celery job
 ID, so a request lost before broker acknowledgement can be retried safely. The

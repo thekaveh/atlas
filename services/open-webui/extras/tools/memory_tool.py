@@ -184,7 +184,11 @@ class _Blocking:
             )
             response.raise_for_status()
 
-            return f"Memory {memory_id} has been deleted successfully."
+            # A soft delete (#1206): say so, rather than claiming erasure.
+            return (
+                f"Memory {memory_id} has been deactivated: it no longer appears in "
+                "recall, but its stored text is retained."
+            )
 
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:

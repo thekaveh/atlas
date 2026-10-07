@@ -14,6 +14,7 @@ bootstrapper/tests/); they require the backend's own dependencies
 
 import asyncio
 import os
+import re
 import unittest
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -466,6 +467,200 @@ def test_recall_refetch_rejects_cross_tenant_vector_hits(monkeypatch):
     query, params = fetchrows[-1]
     assert "user_id = $3" in query and "namespace = $4" in query
     assert params[2:] == (UUID(int=2), "private")
+
+
+# --- owned-memory review surface (#1206) ------------------------------------
+
+
+class _FactTable:
+    """In-memory public.memory_facts answering exactly the queries the list,
+    update, delete, reconcile and recall paths issue."""
+
+    def __init__(self, *rows):
+        self.rows = {row["id"]: dict(row) for row in rows}
+        self.recall_queries = []
+
+    async def fetch(self, query, *params):
+        if "vector_sync_pending = true" in query:
+            return [dict(r) for r in self.rows.values() if r["vector_sync_pending"]]
+        return [dict(r) for r in self.rows.values() if r["is_active"]]
+
+    async def fetchval(self, query, *params):
+        return sum(1 for r in self.rows.values() if r["is_active"])
+
+    async def execute(self, query, *params):
+        if "SET vector_sync_pending = false" in query:
+            self.rows[params[0]]["vector_sync_pending"] = False
+
+    async def close(self):
+        return None
+
+    async def fetchrow(self, query, *params):
+        for marker, handler in (
+            ("SELECT * FROM public.memory_facts", self._owned_row),
+            ("embedding IS NOT NULL", self._state_row),
+            ("SET is_active = false, vector_sync_pending = true", self._soft_delete),
+            ("UPDATE public.memory_facts SET", self._update),
+        ):
+            if marker in query:
+                return handler(query, params)
+        self.recall_queries.append(query)
+        return self._recall_row(params)
+
+    def _owned_row(self, _query, params):
+        row = self.rows.get(params[0])
+        return dict(row) if row and row["user_id"] == params[1] else None
+
+    def _state_row(self, _query, params):
+        return dict(self.rows[params[0]])
+
+    def _soft_delete(self, _query, params):
+        row = self._owned_row(None, params)
+        if row is None:
+            return None
+        self.rows[params[0]].update(is_active=False, vector_sync_pending=True)
+        return {"id": row["id"]}
+
+    def _update(self, query, params):
+        row = self.rows[params[-2]]
+        for field, index in re.findall(r"(\w+) = \$(\d+)", query.split("WHERE")[0]):
+            row[field] = params[int(index) - 1]
+        row["vector_sync_pending"] = "vector_sync_pending = true" in query
+        return dict(row)
+
+    def _recall_row(self, params):
+        row = self.rows.get(params[0])
+        return dict(row) if row and row["is_active"] and row["user_id"] == params[2] else None
+
+
+def _fact_row(number, user, content, **overrides):
+    now = datetime.now(timezone.utc)
+    row = {"id": UUID(int=number), "user_id": UUID(int=user), "content": content,
+           "fact_type": "preference", "confidence": 0.9, "namespace": "default",
+           "is_active": True, "created_at": now, "updated_at": now, "metadata": "{}",
+           "source_conversation_id": None, "source_message_ids": "[]",
+           "weaviate_id": f"w-{number}", "vector_sync_pending": False, "embedding_present": True}
+    row.update(overrides)
+    return row
+
+
+def _memory_service_over(monkeypatch, table, vector_hits=()):
+    import memory_service
+
+    monkeypatch.setattr(memory_service, "connect_postgres", AsyncMock(return_value=table))
+    monkeypatch.setattr(memory_service, "acquire_conn",
+                        lambda *_a, **_k: _acquire_connection(lambda: table))
+    service = _extraction_service()
+    service._litellm_complete = AsyncMock(return_value="summary")
+    service.store = SimpleNamespace(
+        update_embedding=AsyncMock(return_value="w-new"), deactivate_embedding=AsyncMock(),
+        search_similar=AsyncMock(return_value=[{"pg_fact_id": str(h)} for h in vector_hits]),
+        weaviate_url="http://weaviate:8080", backend="weaviate",
+    )
+    return service
+
+
+def test_listing_shows_provenance_or_says_it_was_not_recorded(monkeypatch):
+    conversation = UUID(int=77)
+    table = _FactTable(
+        _fact_row(1, 9, "likes tea", source_conversation_id=conversation,
+                  source_message_ids='["m1", "m2"]'),
+        _fact_row(2, 9, "added by hand"),
+    )
+    service = _memory_service_over(monkeypatch, table)
+
+    facts = {f["content"]: f for f in asyncio.run(service.list_memories(str(UUID(int=9))))["memories"]}
+
+    from memory_models import MemoryFact
+
+    assert MemoryFact(**facts["likes tea"]).model_dump()["source_message_ids"] == ["m1", "m2"]
+    assert facts["likes tea"]["source_conversation_id"] == str(conversation)
+    assert facts["likes tea"]["origin"] == "recorded"
+    assert facts["added by hand"]["origin"] == "not recorded"
+    assert facts["added by hand"]["source_conversation_id"] is None
+
+
+def test_a_corrected_fact_is_what_recall_returns(monkeypatch):
+    table = _FactTable(_fact_row(1, 9, "likes coffee"))
+    service = _memory_service_over(monkeypatch, table, vector_hits=[UUID(int=1)])
+    user = str(UUID(int=9))
+
+    asyncio.run(service.update_memory(str(UUID(int=1)), user, {"content": "likes tea"}))
+    recalled = asyncio.run(service.recall(user, "drinks"))
+
+    assert [m["content"] for m in recalled["memories"]] == ["likes tea"]
+
+
+def test_delete_report_names_every_store_and_what_survives(monkeypatch):
+    table = _FactTable(_fact_row(1, 9, "likes coffee"))
+    service = _memory_service_over(monkeypatch, table)
+
+    report = asyncio.run(service.delete_memory_report(str(UUID(int=1)), str(UUID(int=9))))
+
+    assert report["deletion"] == "soft"
+    assert report["postgres"] == {"is_active": False, "row_retained": True}
+    assert report["weaviate"]["object_removed"] is False
+    assert report["weaviate"]["deactivated"] is True and report["weaviate"]["sync_pending"] is False
+    assert report["pgvector"] == {"embedding_cleared": False, "embedding_present": True}
+    for store in ("memory_facts", "Weaviate object", "memory_consolidation_log", "source conversation"):
+        assert any(store in item for item in report["retained"]), store
+    assert asyncio.run(service.delete_memory_report(str(UUID(int=1)), str(UUID(int=8)))) is None
+
+
+@pytest.mark.parametrize(("backend", "url", "expected"), [
+    # pgvector serves recall: the Weaviate object keeps isActive=true until a rebuild.
+    ("pgvector", "http://weaviate:8080",
+     {"deactivated": False, "awaiting_rebuild": True}),
+    (None, None, {"configured": False}),
+])
+def test_delete_report_does_not_claim_a_weaviate_deactivation_that_did_not_happen(
+    monkeypatch, backend, url, expected
+):
+    table = _FactTable(_fact_row(1, 9, "likes coffee"))
+    service = _memory_service_over(monkeypatch, table)
+    service.store.backend, service.store.weaviate_url = backend, url
+
+    report = asyncio.run(service.delete_memory_report(str(UUID(int=1)), str(UUID(int=9))))
+
+    assert {key: report["weaviate"][key] for key in expected} == expected
+
+
+def test_a_deleted_fact_leaves_recall_at_once_even_with_a_stale_vector(monkeypatch):
+    """The documented bound is immediate: recall re-reads is_active, so a
+    vector Weaviate or pgvector still returns (here: deactivation failed and
+    sync stays pending) cannot bring the fact back."""
+    table = _FactTable(_fact_row(1, 9, "likes coffee"))
+    service = _memory_service_over(monkeypatch, table, vector_hits=[UUID(int=1)])
+    service.store.deactivate_embedding = AsyncMock(side_effect=ConnectionError("weaviate down"))
+    user = str(UUID(int=9))
+
+    report = asyncio.run(service.delete_memory_report(str(UUID(int=1)), user))
+    recalled = asyncio.run(service.recall(user, "drinks"))
+
+    assert report["weaviate"]["sync_pending"] is True
+    assert recalled["memories"] == []
+    # The guard is the real query's predicate, not the fake's filtering.
+    assert table.recall_queries and all("is_active = true" in q for q in table.recall_queries)
+
+
+@pytest.mark.asyncio
+async def test_extraction_can_recreate_a_deleted_fact(monkeypatch):
+    """Documented: extraction does not consult deleted facts, so the same
+    conversation can yield the same content again as a NEW fact."""
+    import memory_service
+
+    connection = _RecordingConn()
+    monkeypatch.setattr(memory_service, "connect_postgres", AsyncMock(return_value=connection))
+    monkeypatch.setattr(memory_service, "acquire_conn",
+                        lambda *_a, **_k: _acquire_connection(lambda: connection))
+    service = _extraction_service()
+    service._litellm_complete = AsyncMock(return_value='[{"content":"likes coffee"}]')
+
+    await service.extract_facts(str(UUID(int=9)), [{"role": "user", "content": "I like coffee"}])
+
+    inserts = [params for query, params in connection.calls if "INSERT INTO public.memory_facts" in query]
+    assert inserts and inserts[0][3] == "likes coffee"
+    assert not any("is_active = false" in query for query, _ in connection.calls)
 
 
 if __name__ == "__main__":
