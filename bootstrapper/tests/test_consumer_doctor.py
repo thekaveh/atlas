@@ -2623,6 +2623,23 @@ def test_blender_mcp_status_lists_every_pool_instance(tmp_path, monkeypatch) -> 
     assert set(again) == {"running", "pid", "port_open"}
 
 
+def test_manual_pool_start_restarts_a_moved_pool_together(tmp_path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    import start as start_module
+    from services import blender_mcp_manager as bm
+
+    calls = []
+    env = _blender_pool_env(tmp_path, 2)
+    monkeypatch.setattr(start_module, "_blender_mcp_manager", lambda: bm.manager_from_env(env))
+    monkeypatch.setattr(bm, "pool_moves", lambda _pool: True)
+    monkeypatch.setattr(bm.BlenderMcpManager, "stop", lambda self: calls.append(("stop", self.port)) or True)
+    monkeypatch.setattr(bm.BlenderMcpManager, "ensure_running", lambda self: calls.append(("start", self.port))
+                        or (SimpleNamespace(to_dict=lambda: {"running": True}), True))
+    assert CliRunner().invoke(start_module.main, ["blender-mcp", "start"]).exit_code == 0
+    assert calls == [("stop", 9900), ("stop", 9901), ("start", 9900), ("start", 9901)]
+
+
 def test_launch_blocker_checks_every_pool_instance_before_the_stack_stops(tmp_path, monkeypatch) -> None:
     from types import SimpleNamespace
 

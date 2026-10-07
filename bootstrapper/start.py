@@ -8355,11 +8355,16 @@ def gateway_post(base_url: str, key: str):
 # Statuses that say nothing about the model's capability: a wrong key, an
 # alias the gateway does not serve, a timeout, a rate limit.
 _PROBE_INCONCLUSIVE_STATUSES = {401, 403, 404, 408, 429}
+# LiteLLM answers an alias it does not serve (provider disabled, model not
+# pulled) with a 400, not a 404; the error text is what identifies it.
+_UNKNOWN_MODEL_TEXT = re.compile(r"invalid model name|model\b.{0,120}\bnot found|no such model", re.I | re.S)
 
 
-def probe_status_outcome(status) -> "str | None":
+def probe_status_outcome(status, payload=None) -> "str | None":
     """The outcome an HTTP status already decides, or None to read the reply."""
     if status is None or status >= 500 or status in _PROBE_INCONCLUSIVE_STATUSES:
+        return PROBE_UNAVAILABLE
+    if status >= 400 and _UNKNOWN_MODEL_TEXT.search(json.dumps(payload or {})):
         return PROBE_UNAVAILABLE
     return PROBE_UNSUPPORTED if status >= 400 else None
 
@@ -8367,7 +8372,7 @@ def probe_status_outcome(status) -> "str | None":
 def _probe_message(post, body: dict):
     """(outcome the HTTP status already decides, or None; the reply message)."""
     status, payload = post("/chat/completions", body)
-    verdict = probe_status_outcome(status)
+    verdict = probe_status_outcome(status, payload)
     if verdict or not isinstance(payload, dict):
         return verdict or PROBE_UNSUPPORTED, {}
     choices = payload.get("choices") or [{}]
@@ -9248,9 +9253,14 @@ def blender_mcp_install() -> None:
 def blender_mcp_start() -> None:
     """Launch the headless bridge (installs first if needed); every instance
     of a BLENDER_MCP_INSTANCES pool, each on its allocated port."""
-    from services.blender_mcp_manager import BlenderMcpError, share_verified_addon
+    from services.blender_mcp_manager import BlenderMcpError, pool_moves, share_verified_addon
 
     pool, rows = _blender_mcp_pool(), []
+    if len(pool) > 1 and pool_moves(pool):
+        # As at ./start.sh: a shifted base port can make one instance's new
+        # port another's old one, so the pool restarts together.
+        for manager in pool:
+            manager.stop()
     for manager in pool:
         index = getattr(manager, "pool_index", 0)
         if index == 1:

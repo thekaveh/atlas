@@ -379,6 +379,9 @@ def test_capability_docs_are_synchronized_across_three_surfaces() -> None:
 
 _TOOL_CALL = {"choices": [{"message": {"tool_calls": [{"function": {"name": "get_utc_time"}}]}}]}
 _REPLY = lambda text: {"choices": [{"message": {"content": text}}]}  # noqa: E731
+# What LiteLLM returns for an alias it does not serve: a 400, not a 404.
+_UNKNOWN_ALIAS = {"error": {"message": "400: {'error': '/chat/completions: Invalid model name passed in model=gpt-5'}",
+                            "type": "None", "code": "400"}}
 
 
 @pytest.mark.parametrize(("kind", "good", "bad"), [
@@ -392,7 +395,8 @@ def test_each_probe_tells_supported_unsupported_and_unavailable_apart(kind, good
     probe = {"tools": start.probe_tools, "json": start.probe_json, "vision": start.probe_vision}[kind]
     for reply, expected in (((200, good), "supported"), ((200, bad), "unsupported"),
                             ((400, {}), "unsupported"), ((None, {}), "unavailable"), ((503, {}), "unavailable"),
-                            ((401, {}), "unavailable"), ((429, {}), "unavailable"), ((200, []), "unsupported")):
+                            ((401, {}), "unavailable"), ((429, {}), "unavailable"), ((200, []), "unsupported"),
+                            ((400, _UNKNOWN_ALIAS), "unavailable")):
         assert probe(lambda _path, _body, r=reply: r, "m") == expected, (kind, reply)
 
 
@@ -438,7 +442,11 @@ def test_the_embedding_probe_is_lightrag_inits_own(monkeypatch):
     probe = start._shared_embedding_probe()
     assert probe.__code__.co_filename.endswith("services/lightrag/init/scripts/resolve-models.py")
     namespace = probe.__globals__  # the loaded resolve-models.py module
+    import io
+
+    unknown = io.BytesIO(json.dumps(_UNKNOWN_ALIAS).encode())
     for raised, expected in ((urllib.error.HTTPError("u", 400, "bad", None, None), "unsupported"),
+                             (urllib.error.HTTPError("u", 400, "bad", None, unknown), "unavailable"),
                              (urllib.error.URLError("down"), "unavailable")):
         monkeypatch.setattr(namespace["urllib"].request, "urlopen", lambda *_a, e=raised, **_k: (_ for _ in ()).throw(e))
         assert probe("http://gw/v1", "k", "m") == (expected, None)
