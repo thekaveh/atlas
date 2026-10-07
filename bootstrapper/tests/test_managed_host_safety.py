@@ -364,3 +364,42 @@ def test_install_update_recreates_the_venv(tmp_path: Path, monkeypatch, update, 
     create = [argv for what, argv in steps if what == "venv create"]
     if update or not manager.venv_python.exists():
         assert ("--clear" in create[0]) is clears
+
+
+@pytest.mark.parametrize("case", [
+    (9877, "127.0.0.1", True), (9876, "localhost", True), (9876, "127.0.0.1", False),
+])
+def test_blender_mcp_restarts_when_its_port_or_bind_changed(tmp_path, monkeypatch, case):
+    """It waited 45 s for the old process on the new port, then failed (#1361)."""
+    import json
+
+    import services.blender_mcp_manager as blender
+
+    port, bind, restarts = case
+    manager = BlenderMcpManager(tmp_path / "blender", port=port, bind=bind)
+    manager.state_dir.mkdir(parents=True)
+    manager.pid_file.write_text("999")
+    (manager.state_dir / "blender-mcp.launch.json").write_text(
+        json.dumps({"pid": 999, "port": 9876, "bind": "127.0.0.1"})
+    )
+    alive = {999}
+    monkeypatch.setattr(BlenderMcpManager, "_pid_alive", lambda self, pid: pid in alive)
+    monkeypatch.setattr(BlenderMcpManager, "_managed_process_alive", lambda self, pid: pid in alive)
+    monkeypatch.setattr(BlenderMcpManager, "_pid_is_stranger", lambda self, pid: False)
+    monkeypatch.setattr(BlenderMcpManager, "_port_in_use", lambda self: False)
+    monkeypatch.setattr(BlenderMcpManager, "_stop_locked", lambda self: alive.clear() or True)
+    monkeypatch.setattr(BlenderMcpManager, "blender_binary", lambda self: None)
+    monkeypatch.setattr(blender, "await_owned_process_readiness", lambda *a: "reused")
+
+    if restarts:
+        with pytest.raises(blender.BlenderMcpError, match="no Blender install"):
+            manager.start()  # stopped, then went on to relaunch
+        assert not alive
+    else:
+        assert manager.start() == "reused" and alive == {999}
+    # A bridge restarted for a new address is owned (and rolled back) by this run.
+    alive.add(999)
+    monkeypatch.setattr(BlenderMcpManager, "preflight", lambda self: type("Ok", (), {"ok": True})())
+    monkeypatch.setattr(BlenderMcpManager, "_install_locked", lambda self: None)
+    monkeypatch.setattr(BlenderMcpManager, "_start_locked", lambda self, _timeout: "status")
+    assert manager.ensure_running() == ("status", restarts)

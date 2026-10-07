@@ -256,12 +256,14 @@ A normal `./start.sh` with this source runs preflight → install → start at t
 ./start.sh comfyui-mps install --update   # force a fresh dependency reconciliation
 ./start.sh comfyui-mps provision     # idempotent model provisioning into COMFYUI_MPS_MODELS_PATH (#754); --verify forces a full re-hash
 ./start.sh comfyui-mps provision-nodes  # idempotent custom-node provisioning into <state>/ComfyUI/custom_nodes (#905)
-./start.sh comfyui-mps start         # launch the host process (idempotent — one per host)
+./start.sh comfyui-mps start         # launch the host process (idempotent — one per host; restarts it after a port/listen change)
 ./start.sh comfyui-mps status        # running / pid / installed ref (JSON)
 ./start.sh comfyui-mps health        # probe /system_stats: reachability + compute device (mps/cpu)
 ./start.sh comfyui-mps stop          # stop the complete managed process group
 ./start.sh comfyui-mps remove        # stop + delete the state dir (checkout, venv, logs)
 ```
+
+**Changing the port or listen address.** `status.json` records the port and listen address the process was launched with, and `status` reports that port while it runs. When `COMFYUI_MPS_LOCALHOST_PORT` or `COMFYUI_MPS_LISTEN` no longer match, the next start stops the Atlas-owned process and relaunches it on the new address. Before this, the old process was reused on its old port while status reported the new one (#1361).
 
 The same preflight also runs as a CI-safe doctor check: `./start.sh doctor` reports a `comfyui-mps` line — `skipped` when the source isn't selected, `fail` with an actionable message on an unsupported host, `pass`/`warn` on Apple Silicon. Under `managed-localhost-mps` the doctor also lints declared custom nodes (#905): a node whose repo is absent or not at its pinned ref is reported with a pointer to `./start.sh comfyui-mps provision-nodes`; `mps_unsafe` nodes are ignored.
 

@@ -252,3 +252,42 @@ def test_finalize_warns_on_unreachable_and_failures(monkeypatch):
     warnings = [m for level, m in s.banner.messages if level == "warning"]
     assert any("boom" in m for m in warnings)
     assert any("stack starts anyway" in m for m in warnings)
+
+
+def test_a_stalled_pull_fails_at_the_stall_bound_and_is_retried_once(monkeypatch):
+    """The read timeout was 3600 s and a failed pull was final (#1361)."""
+    import threading
+    import time
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    attempts: list[int] = []
+
+    class Pull(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802 - http.server API
+            attempts.append(1)
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"status":"pulling manifest"}\n')
+            self.wfile.flush()
+            if len(attempts) == 1:
+                time.sleep(1.0)  # silent past the stall bound
+            self.wfile.write(b'{"status":"success"}\n')
+
+        def log_message(self, *_args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Pull)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setattr(ol, "_PULL_STALL_TIMEOUT", 0.3, raising=False)
+    monkeypatch.setattr(ol, "list_host_tags", lambda base_url, **k: set())
+    logs: list[str] = []
+    try:
+        result = ol.pull_declared_models(
+            {"OLLAMA_USER_MODELS": "tiny:1b", "OLLAMA_LOCALHOST_PORT": str(server.server_port)},
+            log=logs.append,
+        )
+    finally:
+        server.shutdown()
+
+    assert (result.pulled, result.failed, len(attempts)) == (["tiny:1b"], [], 2)
+    assert any("retrying once" in line for line in logs)
