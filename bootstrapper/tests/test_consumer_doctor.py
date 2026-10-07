@@ -2543,3 +2543,144 @@ def test_no_manifest_or_env_user_value_is_never_blanked(tmp_path, monkeypatch):
     starter._apply_env_user_overlay()
 
     assert starter.config_parser.parse_env_file()["OLLAMA_CUSTOM_MODELS"] == "mistral:7b"
+
+
+# ─── managed Blender MCP pool (#851) ─────────────────────────────────────
+
+
+def _blender_pool_env(tmp_path: Path, instances: int) -> dict:
+    return {"BLENDER_MCP_SOURCE": "managed-localhost", "BLENDER_MCP_STATE_DIR": str(tmp_path / "bmcp"),
+            "BLENDER_MCP_LOCALHOST_PORT": "9900", "BLENDER_MCP_INSTANCES": str(instances)}
+
+
+def test_consumer_manifest_blender_mcp_block_sets_the_pool_size(tmp_path: Path) -> None:
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    def load(block: str):
+        (tmp_path / "atlas.consumer.yml").write_text(f"name: demo\n{block}", encoding="utf-8")
+        return load_consumer_config(tmp_path, explicit_paths=[str(tmp_path / "atlas.consumer.yml")])
+
+    assert load("blender_mcp:\n  instances: 3\n").env_overrides["BLENDER_MCP_INSTANCES"] == "3"
+    assert "BLENDER_MCP_INSTANCES" not in load("").env_overrides
+    assert "BLENDER_MCP_INSTANCES" not in load("blender_mcp:\n").env_overrides  # null declares nothing
+    assert "BLENDER_MCP_INSTANCES" not in load("blender_mcp: {}\n").env_overrides
+    for bad in ("blender_mcp:\n  instances: 3\n  ports: [1, 2]\n", "blender_mcp:\n  instances: 0\n",
+                "blender_mcp:\n  instances: true\n", "blender_mcp: 3\n"):
+        with pytest.raises(ConsumerManifestError, match="blender_mcp"):
+            load(bad)
+
+
+def test_blender_mcp_pool_starts_health_gates_and_tears_down_n_instances(tmp_path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    import start as start_module
+    import stop as stop_module
+    from services import blender_mcp_manager as bm
+
+    running: dict = {}
+    monkeypatch.setattr(bm.BlenderMcpManager, "ensure_running",
+                        lambda self: (running.setdefault(self.port, self.state_dir), True) and
+                        (SimpleNamespace(running=True, pid=1), True))
+    monkeypatch.setattr(bm.BlenderMcpManager, "health", lambda self: {"reachable": self.port in running})
+    monkeypatch.setattr(bm.BlenderMcpManager, "stop", lambda self: running.pop(self.port, None) is not None)
+    monkeypatch.setattr(bm.BlenderMcpManager, "status",
+                        lambda self: SimpleNamespace(running=self.port in running, pid=None))
+    env = _blender_pool_env(tmp_path, 3)
+    starter = start_module.AtlasStarter.__new__(start_module.AtlasStarter)
+    starter.config_parser = SimpleNamespace(parse_env_file=lambda: env)
+    starter.banner = SimpleNamespace(show_status_message=lambda *_a, **_k: None)
+    starter._managed_hosts_started_this_run = []
+
+    assert starter._finalize_managed_blender_mcp() is True
+    assert sorted(running) == [9900, 9901, 9902]  # Atlas-allocated, distinct
+    assert len({str(d) for d in running.values()}) == 3  # one state dir (pid file) each
+    assert [label for label, _m in starter._managed_hosts_started_this_run] == [
+        "Blender MCP", "Blender MCP #1", "Blender MCP #2"]
+
+    stopper = stop_module.AtlasStopper.__new__(stop_module.AtlasStopper)
+    stopper.config_parser = SimpleNamespace(env_file_exists=lambda: True, parse_env_file=lambda: env)
+    stopper.banner = starter.banner
+    (tmp_path / "bmcp" / "instances" / "1").mkdir(parents=True)
+    (tmp_path / "bmcp" / "instances" / "2").mkdir(parents=True)
+    assert stopper.stop_managed_blender_mcp() is True and running == {}
+
+
+def test_blender_mcp_status_lists_every_pool_instance(tmp_path, monkeypatch) -> None:
+    import start as start_module
+    from services import blender_mcp_manager as bm
+
+    env = _blender_pool_env(tmp_path, 3)
+    monkeypatch.setattr(bm.BlenderMcpManager, "_port_in_use", lambda self: False)  # no real probes
+    monkeypatch.setattr(start_module, "_blender_mcp_manager", lambda: bm.manager_from_env(env))
+    result = CliRunner().invoke(start_module.main, ["blender-mcp", "status"])
+    rows = json.loads(result.output)
+    assert result.exit_code == 0 and [(r["instance"], r["port"]) for r in rows] == [(0, 9900), (1, 9901), (2, 9902)]
+    monkeypatch.setattr(start_module, "_blender_mcp_manager", lambda: bm.manager_from_env({**env, "BLENDER_MCP_INSTANCES": "1"}))
+    single = json.loads(CliRunner().invoke(start_module.main, ["blender-mcp", "status"]).output)
+    assert set(single) == {"running", "pid", "port_open"}  # unchanged single-instance shape
+    (tmp_path / "bmcp" / "instances" / "2").mkdir(parents=True)  # a stopped stray: no pid file
+    again = json.loads(CliRunner().invoke(start_module.main, ["blender-mcp", "status"]).output)
+    assert set(again) == {"running", "pid", "port_open"}
+
+
+def test_launch_blocker_checks_every_pool_instance_before_the_stack_stops(tmp_path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    import start as start_module
+    from services import blender_mcp_manager as bm
+
+    env = _blender_pool_env(tmp_path, 3)
+    monkeypatch.setattr(bm.BlenderMcpManager, "preflight", lambda self: SimpleNamespace(ok=True, checks=[]))
+    monkeypatch.setattr(bm.BlenderMcpManager, "_port_in_use", lambda self: self.port == 9901)
+    assert start_module._managed_host_pool_blocker(bm, env, "Blender MCP") == (
+        "instance 1: port 9901 is already in use by an unmanaged process")
+    monkeypatch.setattr(bm, "pool_held_ports", lambda _pool: {9901})  # held by the pool itself
+    assert start_module._managed_host_pool_blocker(bm, env, "Blender MCP") is None
+
+
+def test_pool_ports_past_65535_fail_preflight(tmp_path) -> None:
+    from services import blender_mcp_manager as bm
+
+    env = {**_blender_pool_env(tmp_path, 10), "BLENDER_MCP_LOCALHOST_PORT": "65530"}
+    checks = {c["name"]: c["status"] for c in bm.pool_from_env(env)[-1].preflight().checks}
+    assert checks["port"] == "fail"
+    assert "port" not in {c["name"] for c in bm.pool_from_env(env)[0].preflight().checks}
+
+
+def test_doctor_warns_on_a_stray_pool_instance_and_start_reaps_it(tmp_path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    import start as start_module
+    from services import blender_mcp_manager as bm
+
+    env = _blender_pool_env(tmp_path, 1)
+    stray = bm.pool_members(bm.manager_from_env({**env, "BLENDER_MCP_INSTANCES": "3"}))[2]
+    stray.state_dir.mkdir(parents=True)
+    stray.pid_file.write_text("999999\n", encoding="utf-8")  # a process that is long gone
+    monkeypatch.setattr(bm.BlenderMcpManager, "preflight", lambda self: SimpleNamespace(
+        status="ok", checks=[{"name": "blender", "detail": "ok"}], to_dict=lambda: {}))
+    starter = start_module.AtlasStarter.__new__(start_module.AtlasStarter)
+    starter.config_parser = SimpleNamespace(parse_env_file=lambda: env)
+
+    row = start_module._doctor_check_blender_mcp(starter)
+    assert row["status"] == "warn" and "instance 2 has a stale pid file" in row["message"]
+    bad = start_module._doctor_check_blender_mcp(SimpleNamespace(config_parser=SimpleNamespace(
+        parse_env_file=lambda: {**env, "BLENDER_MCP_INSTANCES": "²"})))
+    assert "BLENDER_MCP_INSTANCES='²' is not 1 to 16" in bad["message"]
+
+    stopped = []
+    monkeypatch.setattr(bm.BlenderMcpManager, "stop", lambda self: stopped.append(self.pool_index) or True)
+    starter.banner = SimpleNamespace(show_status_message=lambda *_a, **_k: None)
+    starter._reap_stray_blender_mcp(env)
+    assert stopped == [2]
+
+
+def test_endpoints_export_advertises_every_pool_instance() -> None:
+    from core.endpoints_contract import build_export
+
+    env = {"BLENDER_MCP_SOURCE": "managed-localhost", "BLENDER_MCP_LOCALHOST_PORT": "9900", "BLENDER_MCP_INSTANCES": "3"}
+    d = {f.name: f.value for f in build_export(env)}
+    assert d["ATLAS_BLENDER_MCP_HOST_ENDPOINT"] == "tcp://localhost:9900"
+    assert d["ATLAS_BLENDER_MCP_HOST_ENDPOINTS"] == "tcp://localhost:9900,tcp://localhost:9901,tcp://localhost:9902"
+    single = {f.name for f in build_export({**env, "BLENDER_MCP_INSTANCES": "1"})}
+    assert "ATLAS_BLENDER_MCP_HOST_ENDPOINTS" not in single
