@@ -265,6 +265,9 @@ class ComfyUiMpsManager:
             elif precision:
                 result.add(f"model:{name}", _OK, f"precision {model.get('precision')} is MPS-safe")
 
+        from services import add_recycled_pid_check
+
+        add_recycled_pid_check(result, self)
         return result
 
     def _unified_memory_gb(self) -> Optional[int]:

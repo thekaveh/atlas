@@ -383,7 +383,7 @@ class ManagedHostManager:
         result = PreflightResult()
         add_lifecycle_preflight(
             result, lifecycle_support_error(fcntl, os, signal, "managed-host"),
-            (_OK, _FAIL),
+            (_OK, _FAIL), manager=self,
         )
         self._preflight_bind(result)
         self._preflight_venv(result)

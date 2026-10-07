@@ -779,9 +779,15 @@ def test_start_refuses_group_or_memory_only_survivor(
         )
     else:
         manager._untracked_pid = 4242
-    monkeypatch.setattr(manager, "_pid_alive", lambda _pid: False)
-    monkeypatch.setattr(manager, "_managed_process_alive", lambda _pid: True)
-    monkeypatch.setattr(manager, "_pid_is_stranger", lambda _pid: True)
+    # A dead leader also has no live start identity; stubbing it keeps the
+    # recycled-pid check (#1341) from asking `ps` about whatever 4242 is now.
+    for target, name, value in (
+        (manager, "_pid_alive", False), (manager, "_managed_process_alive", True),
+        (manager, "_pid_is_stranger", True),
+        (services_package, "process_start_identity", None),
+        (services_package, "legacy_process_start_identity", None),
+    ):
+        monkeypatch.setattr(target, name, lambda _pid, value=value: value)
 
     with pytest.raises(error_type, match="refus|ownership|tracked"):
         start()
