@@ -1082,3 +1082,49 @@ def test_empty_dashboard_username_falls_back_instead_of_breaking_kong():
         cred["username"] for c in config["consumers"] for cred in c.get("basicauth_credentials", [])
     ]
     assert "kong_admin" in usernames and "" not in usernames
+
+
+# --- the default-route audit compares every route, not only hosts (#1389) ----
+
+
+def _kong_audit():
+    import importlib.util
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "check-kong-routes.py"
+    spec = importlib.util.spec_from_file_location("check_kong_routes", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _broken_kong_configs(config: dict) -> list[tuple[dict, str]]:
+    """A rogue path-only route, a dropped key-auth, a flipped strip_path."""
+    import copy
+
+    rogue, no_auth, flipped = (copy.deepcopy(config) for _ in range(3))
+    rogue["services"].append({"name": "rogue", "url": "http://supabase-db:5432",
+                              "routes": [{"name": "rogue", "paths": ["/db"]}]})
+    keyed = next(s for s in no_auth["services"] if {"name": "key-auth"} in [
+        {"name": p["name"]} for p in s["plugins"]])
+    keyed["plugins"] = [p for p in keyed["plugins"] if p["name"] != "key-auth"]
+    route = flipped["services"][1]["routes"][0]
+    route["strip_path"] = not route["strip_path"]
+    return [(rogue, "route rogue: UNEXPECTED"), (no_auth, "service_plugins"), (flipped, "strip_path")]
+
+
+def test_kong_audit_fails_on_path_only_routes_dropped_plugins_and_strip_path(tmp_path, monkeypatch):
+    audit = _kong_audit()
+    config = yaml.safe_load(audit.generate_default_kong_config(tmp_path).read_text())
+    assert audit.route_issues(config) == []
+    broken = _broken_kong_configs(config)
+    for mutated, expected in broken:
+        assert [issue for issue in audit.route_issues(mutated) if expected in issue], expected
+    flipped = broken[-1][0]
+
+    def generate(out_dir: Path) -> Path:
+        out = out_dir / "kong.yml"
+        out.write_text(yaml.safe_dump(flipped))
+        return out
+
+    monkeypatch.setattr(audit, "generate_default_kong_config", generate)
+    assert audit.main() == 1
