@@ -150,6 +150,78 @@ def _validate_consolidation_action(
 _RECONCILE_TRANSIENT_STREAK = 3
 
 
+def _fact_provenance(row) -> Dict[str, Any]:
+    """The originating conversation and messages of a fact row (#1206)."""
+    conversation = row.get("source_conversation_id")
+    raw_ids = row.get("source_message_ids")
+    if isinstance(raw_ids, str):
+        raw_ids = json.loads(raw_ids or "[]")
+    message_ids = [str(item) for item in raw_ids] if isinstance(raw_ids, list) else []
+    recorded = conversation is not None or bool(message_ids)
+    return {
+        "source_conversation_id": str(conversation) if conversation is not None else None,
+        "source_message_ids": message_ids,
+        "origin": "recorded" if recorded else "not recorded",
+    }
+
+
+#: What a memory deletion keeps, named in every deletion report (#1206).
+_RETAINED_AFTER_DELETE = (
+    "public.memory_facts row: content, provenance and confidence stay, marked inactive",
+    "the pgvector embedding in that row",
+    "the Weaviate object, if any: content kept, marked isActive=false",
+    "public.memory_consolidation_log entries, whose LLM-written reason can restate the fact",
+    "public.memory_sessions extraction records (counts and status, no fact text)",
+    "the source conversation itself, which Atlas never stored: it stays with the caller, e.g. Open WebUI chat history",
+)
+
+
+def _weaviate_deletion_state(state, store) -> Dict[str, Any]:
+    """What happened to the Weaviate object. Only a Weaviate-serving store
+    patches it; when pgvector serves recall the object keeps isActive=true
+    until the next failback rebuild retires it."""
+    pending = bool(state["vector_sync_pending"])
+    if store is None or not getattr(store, "weaviate_url", None):
+        return {"configured": False, "object_removed": False}
+    serving = getattr(store, "backend", None) == "weaviate"
+    return {
+        "configured": True,
+        "object_id": state["weaviate_id"],
+        "object_removed": False,
+        "deactivated": serving and not pending,
+        "sync_pending": pending,
+        "awaiting_rebuild": not serving,
+    }
+
+
+def _deletion_report(state, store=None) -> Dict[str, Any]:
+    """Store-by-store account of a soft delete (#1206)."""
+    return {
+        "success": True,
+        "deletion": "soft",
+        "message": (
+            "Memory deactivated, not erased: it no longer appears in recall, "
+            "but its stored data is retained"
+        ),
+        "postgres": {"is_active": bool(state["is_active"]), "row_retained": True},
+        "weaviate": _weaviate_deletion_state(state, store),
+        "pgvector": {
+            "embedding_cleared": False,
+            "embedding_present": bool(state["embedding_present"]),
+        },
+        "retained": list(_RETAINED_AFTER_DELETE),
+        "recall": (
+            "excluded immediately: every recall re-reads is_active from Postgres, "
+            "so a vector left in Weaviate or pgvector cannot return the fact"
+        ),
+        "re_extraction": (
+            "not prevented: extraction checks no existing facts, deleted or not, so "
+            "another extraction over the same conversation can store the same content as a new fact"
+        ),
+        "restore": "PUT /memory/{memory_id} with is_active=true reactivates the fact",
+    }
+
+
 class MemoryService:
     """LangMem-inspired persistent memory service."""
 
@@ -452,6 +524,10 @@ Extract the facts as JSON:"""
                             "created_at": inserted["created_at"].isoformat(),
                             "updated_at": inserted["updated_at"].isoformat(),
                             "metadata": {"source": "auto_extraction"},
+                            # Extraction stores the conversation id only; it has
+                            # no message ids to record (#1206).
+                            **_fact_provenance({"source_conversation_id": conv_uuid,
+                                                "source_message_ids": []}),
                         }
                         stored_facts.append(public_fact)
                         embedding_inputs.append((fact_uuid, public_fact))
@@ -621,7 +697,8 @@ Extract the facts as JSON:"""
                 row = await conn.fetchrow(
                     """
                     SELECT id, content, fact_type, confidence, namespace,
-                           is_active, created_at, updated_at, metadata
+                           is_active, created_at, updated_at, metadata,
+                           source_conversation_id, source_message_ids
                     FROM public.memory_facts
                     WHERE id = $1 AND is_active = true AND confidence >= $2
                       AND user_id = $3 AND namespace = $4
@@ -643,6 +720,7 @@ Extract the facts as JSON:"""
                             "created_at": row["created_at"].isoformat(),
                             "updated_at": row["updated_at"].isoformat(),
                             "metadata": json.loads(row["metadata"]) if isinstance(row["metadata"], str) else (row["metadata"] or {}),
+                            **_fact_provenance(row),
                         }
                     )
 
@@ -1164,7 +1242,8 @@ Extract the facts as JSON:"""
             rows = await conn.fetch(
                 """
                 SELECT id, content, fact_type, confidence, namespace,
-                       is_active, created_at, updated_at, metadata
+                       is_active, created_at, updated_at, metadata,
+                       source_conversation_id, source_message_ids
                 FROM public.memory_facts
                 WHERE user_id = $1 AND namespace = $2 AND is_active = true
                 ORDER BY updated_at DESC
@@ -1196,6 +1275,7 @@ Extract the facts as JSON:"""
                     "created_at": row["created_at"].isoformat(),
                     "updated_at": row["updated_at"].isoformat(),
                     "metadata": json.loads(row["metadata"]) if isinstance(row["metadata"], str) else (row["metadata"] or {}),
+                    **_fact_provenance(row),
                 }
                 for row in rows
             ]
@@ -1284,6 +1364,18 @@ Extract the facts as JSON:"""
 
     async def delete_memory(self, memory_id: str, user_id: str) -> bool:
         """Soft-delete a memory fact (set is_active=false)."""
+        return await self._soft_delete(memory_id, user_id, report=False) is not None
+
+    async def delete_memory_report(
+        self, memory_id: str, user_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Soft-delete a fact and say what each store now holds (#1206), or
+        None when the caller owns no such fact."""
+        return await self._soft_delete(memory_id, user_id, report=True)
+
+    async def _soft_delete(
+        self, memory_id: str, user_id: str, *, report: bool
+    ) -> Optional[Dict[str, Any]]:
         self._check_enabled()
         await self._ensure_initialized()
 
@@ -1305,10 +1397,19 @@ Extract the facts as JSON:"""
                 user_uuid,
             )
             if not deleted:
-                return False
+                return None
             await self._reconcile_pending_vectors(conn)
-
-            return True
+            if not report:
+                return {}
+            state = await conn.fetchrow(
+                """
+                SELECT is_active, vector_sync_pending, weaviate_id,
+                       embedding IS NOT NULL AS embedding_present
+                FROM public.memory_facts WHERE id = $1
+                """,
+                memory_uuid,
+            )
+            return _deletion_report(state, self.store) if state else None
 
         finally:
             await conn.close()  # HOLD (see above)

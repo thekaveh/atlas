@@ -278,9 +278,9 @@ def test_memory_delete_requires_and_forwards_user_id(monkeypatch):
 
     async def fake_delete(memory_id, user_id):
         calls.append((memory_id, user_id))
-        return True
+        return {"success": True, "deletion": "soft"}
 
-    monkeypatch.setattr(main.memory_service, "delete_memory", fake_delete)
+    monkeypatch.setattr(main.memory_service, "delete_memory_report", fake_delete)
     client = TestClient(main.app)
     memory_id = "00000000-0000-4000-8000-000000000001"
     user_id = "00000000-0000-4000-8000-000000000002"
@@ -499,3 +499,72 @@ def test_research_defaults_follow_the_operator_ldr_settings(monkeypatch):
     assert main._research_default_search_api() == "searxng"
     request = main.ResearchStartRequest(query="q")
     assert request.max_loops is None and request.search_api is None
+
+
+# --- owned memory: scope and deletion report (#1206) ------------------------
+
+
+def _memory_client_as(monkeypatch, subject: str):
+    import time
+    import uuid
+
+    import jwt
+    from fastapi.testclient import TestClient
+
+    _stub_required_env(monkeypatch)
+    import main
+
+    secret = "atlas-test-supabase-jwt-secret-32-bytes"
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "required")
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", secret)
+    token = jwt.encode({"sub": subject, "role": "authenticated", "aud": "authenticated",
+                        "exp": int(time.time()) + 60}, secret, algorithm="HS256")
+    client = TestClient(main.app)
+    client.headers["Authorization"] = f"Bearer {token}"
+    return main, client, str(uuid.uuid4())
+
+
+def test_memory_routes_reject_another_users_facts(monkeypatch):
+    import uuid
+
+    owner = str(uuid.uuid4())
+    main, client, _other_fact = _memory_client_as(monkeypatch, owner)
+    stranger = str(uuid.uuid4())
+    fact = str(uuid.uuid4())
+    touched = []
+    for name in ("list_memories", "update_memory", "delete_memory_report"):
+        async def record(*_a, _n=name, **_k):
+            touched.append(_n)
+        monkeypatch.setattr(main.memory_service, name, record)
+
+    responses = [
+        client.get(f"/memory/user/{stranger}"),
+        client.put(f"/memory/{fact}", params={"user_id": stranger}, json={"content": "x"}),
+        client.delete(f"/memory/{fact}", params={"user_id": stranger}),
+    ]
+
+    assert [r.status_code for r in responses] == [403, 403, 403]
+    assert touched == []
+
+
+def test_memory_delete_returns_the_store_by_store_report(monkeypatch):
+    import uuid
+
+    owner = str(uuid.uuid4())
+    main, client, fact = _memory_client_as(monkeypatch, owner)
+    report = {"success": True, "deletion": "soft", "message": "m",
+              "postgres": {"is_active": False, "row_retained": True},
+              "weaviate": {"object_id": "w", "object_removed": False, "deactivated": True,
+                           "sync_pending": False},
+              "pgvector": {"embedding_cleared": False, "embedding_present": True},
+              "retained": ["r"], "recall": "x", "re_extraction": "y"}
+
+    async def delete(memory_id, user_id):
+        return report if user_id == owner else None
+
+    monkeypatch.setattr(main.memory_service, "delete_memory_report", delete)
+    body = client.delete(f"/memory/{fact}", params={"user_id": owner}).json()
+
+    for key in ("deletion", "postgres", "weaviate", "pgvector", "retained", "recall", "re_extraction"):
+        assert key in body
+    assert body["weaviate"]["object_removed"] is False and body["pgvector"]["embedding_cleared"] is False
