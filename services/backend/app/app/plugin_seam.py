@@ -15,6 +15,7 @@ from __future__ import annotations
 import importlib
 import logging
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -62,7 +63,39 @@ except ValueError:
 # install is belt-and-braces).
 _PLUGIN_SITE_ENV = "BACKEND_PLUGINS_SITE_DIR"
 _PLUGIN_SITE_DEFAULT = "/tmp/atlas-plugins-site"
+# Marks a directory this seam owns, so a custom BACKEND_PLUGINS_SITE_DIR is
+# only emptied once the seam has created it (#1340).
+_PLUGIN_SITE_MARKER = ".atlas-plugin-site"
 _plugin_site_dir: Path | None = None
+
+
+def _reset_plugin_site(site_dir: Path) -> None:
+    """Empty the plugin site before this boot's installs.
+
+    `pip install --target --upgrade` never removes an earlier version's
+    `*.dist-info`, and the site survives a `docker restart`, so each pin
+    change left stale metadata that `pip list` and `importlib.metadata`
+    reported instead of the version actually imported (#1340). Every boot
+    reinstalls the requirements anyway, so starting from an empty site costs
+    nothing. Only the default site, or one carrying this seam's marker, is
+    emptied: a mis-set BACKEND_PLUGINS_SITE_DIR is never wiped.
+    """
+    marker = site_dir / _PLUGIN_SITE_MARKER
+    entries = [entry for entry in site_dir.iterdir() if entry.name != _PLUGIN_SITE_MARKER]
+    owned = marker.exists() or (str(site_dir) == _PLUGIN_SITE_DEFAULT and not site_dir.is_symlink())
+    if entries and not owned:
+        _log.warning(
+            "plugin seam: %s is not an Atlas plugin site (no %s); leaving its contents",
+            site_dir,
+            _PLUGIN_SITE_MARKER,
+        )
+        return
+    for entry in entries:
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+    marker.touch()
 
 
 def _ensure_plugin_site() -> Path | None:
@@ -85,6 +118,10 @@ def _ensure_plugin_site() -> Path | None:
         )
         _plugin_site_dir = None
         return None
+    try:
+        _reset_plugin_site(site_dir)
+    except OSError as exc:  # a stale entry left behind is the lesser harm
+        _log.warning("plugin seam: could not empty plugin site %s (%s)", site_dir, exc)
     # Insert BEFORE any plugin import so the FileFinder for this path is
     # created against an existing directory (footgun #2: a sys.path entry
     # whose directory is missing at first import is permanently cached as
