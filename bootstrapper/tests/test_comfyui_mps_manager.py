@@ -1657,3 +1657,200 @@ def test_extra_model_paths_cover_every_provisioned_category_dir():
     from utils.comfyui_library import CATEGORY_TARGET_DIR
 
     assert set(CATEGORY_TARGET_DIR.values()) <= set(_MODEL_SUBDIRS)
+
+
+def test_start_clears_a_recycled_pid_record_instead_of_refusing(tmp_path):
+    """#1341: the tableau stack's pid file named a pid now held by Safari's
+    SearchHelper, started after the recorded ComfyUI. That record is stale:
+    start clears it (failing later only because no venv is installed here)
+    and never touches the process holding the pid."""
+    import subprocess as sp
+    import sys as _sys
+
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+    stranger = sp.Popen([_sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        mgr.pid_file.write_text(
+            f"{stranger.pid}\nstart_utc=Thu Jan  1 00:00:00 2020\n", encoding="utf-8"
+        )
+        with pytest.raises(ComfyUiMpsError, match="venv is not installed"):
+            mgr.start()
+        assert not mgr.pid_file.exists()
+        assert stranger.poll() is None
+    finally:
+        stranger.kill()
+        stranger.wait()
+
+# --- shared recycled-pid handling across managed hosts (#1341) --------------
+# Generic-framework cases live here, beside the ComfyUI case that motivated
+# them, so the framework test module stays under the module-size signal.
+import os  # noqa: E402
+import sys  # noqa: E402
+
+from services.managed_host import ManagedHostError  # noqa: E402
+from tests.test_managed_host_framework import _manager, running_service  # noqa: E402,F401
+
+
+
+def _stranger():
+    return subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+
+
+def _spy_signals_to(monkeypatch, watched: int) -> list[int]:
+    """Record real signals (not liveness probes) sent to ``watched``; pass the rest on."""
+    signalled: list[int] = []
+    real_kill, real_killpg = os.kill, os.killpg
+
+    def kill(pid, sig):
+        if pid == watched and sig:
+            signalled.append(pid)
+            return None
+        return real_kill(pid, sig)
+
+    def killpg(pid, sig):
+        if pid == watched:
+            signalled.append(pid)
+            return None
+        return real_killpg(pid, sig)
+
+    monkeypatch.setattr("services.managed_host.os.kill", kill)
+    monkeypatch.setattr("services.managed_host.os.killpg", killpg)
+    return signalled
+
+
+def test_start_replaces_a_recycled_pid_record_without_signalling_its_holder(
+    running_service, monkeypatch
+):
+    """The pid file names a live process that started after the recorded one:
+    the OS recycled the pid. Start must clear the record and launch, and must
+    never signal the process now holding that pid."""
+    manager = running_service
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    stranger = _stranger()
+    signalled = _spy_signals_to(monkeypatch, stranger.pid)
+    try:
+        manager.pid_file.write_text(
+            f"{stranger.pid}\nstart_utc=Thu Jan  1 00:00:00 2020\n", encoding="utf-8"
+        )
+        warnings = [c for c in manager.preflight().checks if c["name"] == "pid-file"]
+        assert warnings and warnings[0]["status"] == "warn"
+        assert str(stranger.pid) in warnings[0]["detail"]
+
+        status = manager.start(wait_timeout=30.0)
+
+        assert status.running is True
+        assert status.pid != stranger.pid
+        assert manager._read_pid() == status.pid
+        assert stranger.poll() is None, "start() touched the process holding the recycled pid"
+        assert signalled == []
+    finally:
+        stranger.kill()
+        stranger.wait()
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        ("linux-proc-start-v1:500", "linux-proc-start-v1:900", None, True),
+        # Boot-relative ticks restart at boot, so a smaller value is still a
+        # different process.
+        ("linux-proc-start-v1:900000", "linux-proc-start-v1:500", None, True),
+        ("linux-proc-start-v1:500", "linux-proc-start-v1:500", None, False),
+        ("linux-proc-start-v1:500", None, None, False),
+        ("Wed Oct  1 10:00:00 2026", None, "Fri Oct  3 08:00:00 2026", True),
+        ("Fri Oct  3 08:00:00 2026", None, "Wed Oct  1 10:00:00 2026", False),
+        ("Wed Oct  1 10:00:00 2026", None, "Wed Oct  1 10:00:00 2026", False),
+        ("Wed Oct  1 10:00:00 2026", None, None, False),
+        ("not a time", None, "Fri Oct  3 08:00:00 2026", False),
+        (None, "linux-proc-start-v1:900", "Fri Oct  3 08:00:00 2026", False),
+    ],
+)
+def test_only_a_proven_identity_mismatch_counts_as_recycled(tmp_path, monkeypatch, case):
+    """``case`` is (recorded stamp, live v1 identity, live ps identity, expected)."""
+    import services
+
+    recorded, live_v1, live_ps, expected = case
+    monkeypatch.setattr(services.sys, "platform", "darwin")
+    pid_file = tmp_path / "svc.pid"
+    pid_file.write_text("4242\n" + (f"start_utc={recorded}\n" if recorded else ""), encoding="utf-8")
+    monkeypatch.setattr(services, "process_start_identity", lambda _pid: live_v1)
+    monkeypatch.setattr(services, "legacy_process_start_identity", lambda _pid: live_ps)
+
+    assert services.tracked_pid_was_recycled(4242, pid_file) is expected
+
+
+def test_refusal_stands_for_unknown_ownership_but_not_for_a_recycled_pid(tmp_path, monkeypatch):
+    import services
+
+    pid_file = tmp_path / "svc.pid"
+    pid_file.write_text("4242\nstart_utc=Wed Oct  1 10:00:00 2026\n", encoding="utf-8")
+    args = ((4242, pid_file), lambda _pid: True, lambda _pid: True, ("svc", ManagedHostError))
+
+    monkeypatch.setattr(services, "legacy_process_start_identity", lambda _pid: "Fri Oct  3 08:00:00 2026")
+    services.refuse_untrusted_tracked_pid(*args)  # recycled: no refusal
+
+    monkeypatch.setattr(services, "legacy_process_start_identity", lambda _pid: None)
+    with pytest.raises(ManagedHostError, match="ownership is mismatched or unknown"):
+        services.refuse_untrusted_tracked_pid(*args)
+
+
+def test_preflight_stays_quiet_for_our_own_live_process(tmp_path):
+    manager = _manager(tmp_path, "identity", (sys.executable, "-c", "pass"))
+    manager.state_dir.mkdir(parents=True, exist_ok=True)
+    ours = _stranger()
+    try:
+        manager._write_pid_file(ours.pid)
+        assert not [c for c in manager.preflight().checks if c["name"] == "pid-file"]
+    finally:
+        ours.kill()
+        ours.wait()
+
+
+@pytest.mark.parametrize(("booted_after", "expected"), [(True, True), (False, False)])
+def test_linux_lstart_records_need_a_reboot_since_the_record(
+    tmp_path, monkeypatch, booted_after, expected
+):
+    """On Linux ``ps lstart`` moves with the realtime clock, so a later live
+    time alone could be Atlas's own process after a clock step."""
+    import services
+
+    monkeypatch.setattr(services.sys, "platform", "linux")
+    monkeypatch.setattr(services, "legacy_process_start_identity", lambda _pid: "Fri Oct  3 08:00:00 2026")
+    monkeypatch.setattr(services, "_linux_booted_after", lambda _recorded: booted_after)
+    pid_file = tmp_path / "svc.pid"
+    pid_file.write_text("4242\nstart_utc=Wed Oct  1 10:00:00 2026\n", encoding="utf-8")
+
+    assert services.tracked_pid_was_recycled(4242, pid_file) is expected
+
+
+def test_a_record_naming_another_pid_is_never_called_recycled(tmp_path, monkeypatch):
+    import services
+
+    monkeypatch.setattr(services.sys, "platform", "darwin")
+    monkeypatch.setattr(services, "legacy_process_start_identity", lambda _pid: "Fri Oct  3 08:00:00 2026")
+    pid_file = tmp_path / "svc.pid"
+    pid_file.write_text("0\nstart_utc=Wed Oct  1 10:00:00 2026\n", encoding="utf-8")
+
+    assert services.tracked_pid_was_recycled(4242, pid_file) is False
+
+
+def test_the_pid_file_warning_leads_the_preflight_checks(tmp_path, monkeypatch):
+    import services
+    from services.managed_host import PreflightResult
+
+    result = PreflightResult()
+    result.add("memory", "warn", "low memory")
+    manager = type("M", (), {
+        "pid_file": tmp_path / "svc.pid",
+        "_read_pid": lambda self: 4242,
+        "_managed_process_alive": lambda self, pid: True,
+    })()
+    monkeypatch.setattr(services, "tracked_pid_was_recycled", lambda pid, pid_file: True)
+
+    services.add_recycled_pid_check(result, manager)
+
+    assert [c["name"] for c in result.checks] == ["pid-file", "memory"]

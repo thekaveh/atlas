@@ -1044,3 +1044,4 @@ def test_remove_does_not_self_deadlock_on_the_lifecycle_lock(tmp_path):
     manager = ManagedHostManager(_spec(), tmp_path)
     manager.state_dir.mkdir(parents=True, exist_ok=True)
     manager.remove()  # must return, not hang
+

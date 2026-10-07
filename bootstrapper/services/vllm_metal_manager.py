@@ -230,6 +230,9 @@ class VllmMetalManager:
             elif quant:
                 result.add(f"model:{name}", _OK, f"quantization {model.get('quantization')} is Metal-safe")
 
+        from services import add_recycled_pid_check
+
+        add_recycled_pid_check(result, self)
         return result
 
     def _python_version(self, py_path: str) -> Optional[tuple[int, int, int]]:

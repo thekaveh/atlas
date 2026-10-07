@@ -2888,8 +2888,10 @@ class AtlasStarter:
         its cost: it no longer aborts the whole bring-up before Compose runs.
         The process is left exactly as found (typically the previous pin's
         host, still serving) and nothing is added to rollback ownership,
-        because this run created nothing. Every other ownership refusal,
-        including a stamped record whose identity does not match, stays fatal.
+        because this run created nothing. Every other ownership refusal stays
+        fatal. A stamped record whose live pid is provably a younger process
+        never reaches here: the guard treats that recycled pid as a stale
+        record and the start replaces it (#1341).
         """
         from services import legacy_pid_refusal_file
 
