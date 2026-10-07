@@ -675,6 +675,7 @@ def _run_restore(
     command_timeout: int = 20,
     restore_path: Path = RESTORE,
     client_name: str = "",
+    deployment_id: str = DEPLOYMENT_ID,
 ):
     container_path = os.environ.get(
         "PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -709,7 +710,7 @@ def _run_restore(
             "-e",
             f"BACKUP_MANIFEST_HMAC_KEY={MANIFEST_HMAC_KEY}",
             "-e",
-            f"BACKUP_DEPLOYMENT_ID={DEPLOYMENT_ID}",
+            f"BACKUP_DEPLOYMENT_ID={deployment_id}",
             "-e",
             "BACKUP_TIMESTAMP=20260829_000000",
             "-e",
@@ -1129,6 +1130,8 @@ def test_corrupt_archive_fails_in_preflight_without_touching_live_database(
 
     assert result.returncode != 0
     assert "phase preflight" in result.stdout
+    # A shorter payload stops at the size check (#1388).
+    assert "downloaded artifact size mismatch" in result.stderr
     assert _state(disposable_postgres, target) == "live"
     assert _temporary_databases(disposable_postgres) == ""
 
@@ -1297,9 +1300,19 @@ def test_repeated_16_byte_database_name_keeps_exact_identity(
     assert _state(disposable_postgres, target) == "archive"
 
 
-def test_restore_rejects_corrupt_dump_checksum(
-    disposable_postgres: DisposablePostgres, tmp_path: Path
+@pytest.mark.parametrize(
+    ("artifact", "message"),
+    [
+        ("postgres.dump", "dump checksum mismatch"),
+        ("postgres.tables", "table inventory checksum mismatch"),
+        ("postgres.objects", "object inventory checksum mismatch"),
+    ],
+)
+def test_restore_rejects_corrupt_artifact_checksum(
+    disposable_postgres: DisposablePostgres, tmp_path: Path, artifact: str, message: str
 ) -> None:
+    """One flipped byte keeps the length, so the size checks pass and only
+    the checksum compare can refuse it (#1388)."""
     target = _database_name("restore_bad_checksum")
     source = _database_name("restore_source")
     disposable_postgres.create_database(target)
@@ -1309,15 +1322,40 @@ def test_restore_rejects_corrupt_dump_checksum(
     _write_client_fakes(tmp_path)
     _dump_database(disposable_postgres, tmp_path, source)
     _write_restore_sidecar(disposable_postgres, tmp_path, source, target)
-    with (tmp_path / "postgres.dump").open("ab") as dump:
-        dump.write(b"corrupt")
+    corrupted = bytearray((tmp_path / artifact).read_bytes())
+    corrupted[0] ^= 0x01
+    (tmp_path / artifact).write_bytes(bytes(corrupted))
 
     result = _run_restore(disposable_postgres, tmp_path, target)
 
     assert result.returncode != 0
-    assert "authenticated download limit" in result.stderr
+    assert message in result.stderr
     assert _state(disposable_postgres, target) == "live"
     assert _temporary_databases(disposable_postgres) == ""
+
+
+def test_restore_rejects_a_backup_from_another_deployment(
+    disposable_postgres: DisposablePostgres, tmp_path: Path
+) -> None:
+    """The signed manifest names its deployment; a target with another ID
+    refuses it before any download (#1388)."""
+    target = _database_name("restore_foreign")
+    source = _database_name("restore_source")
+    disposable_postgres.create_database(target)
+    disposable_postgres.create_database(source)
+    _seed_state(disposable_postgres, target, "live")
+    _seed_state(disposable_postgres, source, "archive")
+    _write_client_fakes(tmp_path)
+    _dump_database(disposable_postgres, tmp_path, source)
+    _write_restore_sidecar(disposable_postgres, tmp_path, source, target)
+
+    result = _run_restore(
+        disposable_postgres, tmp_path, target, deployment_id="atlas-other-deployment"
+    )
+
+    assert result.returncode != 0
+    assert "backup deployment identity does not match target" in result.stderr
+    assert _state(disposable_postgres, target) == "live"
 
 
 def test_restore_rejects_unsigned_extra_manifest_fields(

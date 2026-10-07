@@ -19,8 +19,6 @@ from tests import test_database_backup_live_integration as live_integration
 REPO = Path(__file__).resolve().parents[2]
 ORCHESTRATOR = REPO / "services/backup/database_orchestrator.py"
 RESTORE_SCRIPT = REPO / "services/backup/init/scripts/restore-databases.sh"
-NEO_BACKUP = REPO / "services/neo4j/build/scripts/offline-backup.sh"
-NEO_RESTORE = REPO / "services/neo4j/build/scripts/offline-restore.sh"
 
 
 LIVE_PROBE_FAILURES = (
@@ -409,12 +407,6 @@ def test_weaviate_live_validator_has_a_private_backup_backend():
     assert "BACKUP_FILESYSTEM_PATH=/backups" in joined
     assert "--tmpfs /backups:" in joined
     assert requests == ["/v1/schema", "/v1/objects?limit=1"]
-
-
-def test_exact_neo4j_version_match_is_not_substring():
-    for script in (NEO_BACKUP, NEO_RESTORE):
-        text = script.read_text(encoding="utf-8")
-        assert '*"${EXPECTED_NEO4J_VERSION}"*' not in text
 
 
 def test_successful_cutover_is_not_rolled_back_for_retention_failure():

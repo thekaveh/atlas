@@ -138,6 +138,26 @@ def test_offline_restore_still_requires_the_exact_pinned_runtime(tmp_path: Path)
     assert admin == ""
 
 
+@pytest.mark.parametrize("runtime", [f"{PINNED}0", f"Neo4j {PINNED}"])
+def test_offline_scripts_need_the_exact_runtime_not_a_substring(tmp_path: Path, runtime: str) -> None:
+    """Both offline scripts refuse a runtime whose version merely contains the
+    pin (#1388); this replaced a grep for one glob spelling."""
+    restored, admin = _offline_restore(tmp_path, f"neo4j:{PINNED}", PINNED, runtime=runtime)
+    fake_bin = tmp_path / "bin"
+    backed_up = subprocess.run(
+        ["bash", str(OFFLINE_BACKUP)],
+        env={**os.environ, "PATH": f"{fake_bin}:{os.environ.get('PATH', '')}",
+             "BACKUP_TIMESTAMP": "20260101_000000", "NEO4J_SNAPSHOT_ROOT": str(tmp_path / "out"),
+             "BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS": "5"},
+        text=True, capture_output=True, check=False, timeout=30,
+    )
+
+    for result in (restored, backed_up):
+        assert result.returncode == 78, result.stderr
+        assert "exact version mismatch" in result.stderr
+    assert admin == "" and not (tmp_path / "out").exists()
+
+
 def test_previous_release_dump_restores_into_the_pinned_image(
     exact_docker: None, tmp_path: Path
 ) -> None:
