@@ -36,13 +36,23 @@ def _has_basic_auth(holder: Dict[str, Any]) -> bool:
     return any(p.get('name') == 'basic-auth' for p in holder.get('plugins') or [])
 
 
+def is_host_alias_route(route: Dict[str, Any]) -> bool:
+    """True for a route that owns a whole host (no paths, or only the root).
+
+    The Supabase API routes carry a host allowlist too (#1382), but they are
+    path-scoped: ``localhost`` stays the root dashboard's host."""
+    return bool(route.get('hosts')) and all(
+        path in ('/', '/$') for path in route.get('paths') or ['/']
+    )
+
+
 def _basic_auth_hosts(services: list[Dict[str, Any]]) -> frozenset[str]:
     """Hosts whose route or service requires the dashboard-user basic-auth."""
     hosts: set[str] = set()
     for service in services:
         for route in service.get('routes') or []:
-            if _has_basic_auth(service) or _has_basic_auth(route):
-                hosts.update(route.get('hosts') or [])
+            if is_host_alias_route(route) and (_has_basic_auth(service) or _has_basic_auth(route)):
+                hosts.update(route['hosts'])
     return frozenset(hosts)
 
 
@@ -262,9 +272,17 @@ class KongConfigGenerator:
 
     #: Supabase consumers, mirroring upstream Supabase's own `kong.yml`.
     _SUPABASE_KEY_CONSUMERS = (
-        ('anon', 'SUPABASE_ANON_KEY'),
-        ('service_role', 'SUPABASE_SERVICE_KEY'),
+        ('anon', 'SUPABASE_ANON_KEY', 'anon'),
+        ('service_role', 'SUPABASE_SERVICE_KEY', 'admin'),
     )
+    #: ACL groups the key-auth Supabase services admit, as upstream Supabase's
+    #: kong.yml. Any other key-auth consumer (backend_api_user) is refused, so
+    #: BACKEND_KONG_API_KEY no longer passes as the anon key (#1382).
+    _SUPABASE_ACL_GROUPS = ['anon', 'admin']
+    #: Hosts the Supabase path routes answer on: the browser and host clients,
+    #: the in-network gateway name, and containers reaching Kong through the
+    #: host. KONG_SUPABASE_EXTRA_HOSTS adds more (tunnel hostnames) (#1382).
+    _SUPABASE_HOSTS = ['localhost', '127.0.0.1', 'kong-api-gateway', 'host.docker.internal']
 
     def _supabase_key_auth_consumers(self) -> List[Dict[str, Any]]:
         """Consumers holding the Supabase API keys.
@@ -289,7 +307,7 @@ class KongConfigGenerator:
         """
         seen: set = set()
         consumers: List[Dict[str, Any]] = []
-        for username, var in self._SUPABASE_KEY_CONSUMERS:
+        for username, var, group in self._SUPABASE_KEY_CONSUMERS:
             key = (self.get_env_value(var, '') or '').strip()
             if not key or key in seen:
                 # A duplicate key would make Kong reject the whole
@@ -299,6 +317,7 @@ class KongConfigGenerator:
             consumers.append({
                 'username': username,
                 'keyauth_credentials': [{'key': key}],
+                'acls': [{'group': group}],
             })
         return consumers
 
@@ -774,7 +793,47 @@ class KongConfigGenerator:
         return None
     
     def get_supabase_services(self) -> List[Dict[str, Any]]:
-        """Get Supabase services (always containerized)."""
+        """Get Supabase services (always containerized), limited to known
+        hosts and, behind key-auth, to the Supabase key consumers (#1382)."""
+        return self._restrict_supabase_routes(self._supabase_service_routes())
+
+    #: Tag on the host-allowlisted Supabase API routes, so route audits can
+    #: tell them from whole-host aliases.
+    SUPABASE_API_ROUTE_TAG = 'atlas-supabase-api'
+
+    def _supabase_hosts(self) -> List[str]:
+        hosts = list(self._SUPABASE_HOSTS)
+        # The project-prefixed container name, which consumer containers on
+        # the Atlas network may use instead of the service name.
+        project = (self.get_env_value('PROJECT_NAME') or '').strip().lower()
+        if project and re.fullmatch(r"[a-z0-9_.-]+", project):
+            hosts.append(f"{project}-kong-api-gateway")
+        for entry in (self.get_env_value('KONG_SUPABASE_EXTRA_HOSTS') or '').split(','):
+            host = entry.strip().lower()
+            if host and re.fullmatch(r"[a-z0-9.-]+", host) and host not in hosts:
+                hosts.append(host)
+            elif host and host not in hosts:
+                print(f"WARNING: ignoring KONG_SUPABASE_EXTRA_HOSTS entry {entry.strip()!r} "
+                      "(expected a bare hostname or IPv4 address, no port or scheme)")
+        return hosts
+
+    def _restrict_supabase_routes(self, services: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Add the host allowlist to every route without its own ``hosts``
+        and an ACL to every service behind key-auth."""
+        hosts = self._supabase_hosts()
+        acl = {'name': 'acl', 'config': {'allow': list(self._SUPABASE_ACL_GROUPS),
+                                         'hide_groups_header': True}}
+        for service in services:
+            for route in service.get('routes') or []:
+                if 'hosts' not in route:
+                    route['hosts'] = list(hosts)
+                    route['tags'] = [self.SUPABASE_API_ROUTE_TAG]
+            plugins = service.get('plugins') or []
+            if any(plugin.get('name') == 'key-auth' for plugin in plugins):
+                plugins.append(dict(acl, config=dict(acl['config'])))
+        return services
+
+    def _supabase_service_routes(self) -> List[Dict[str, Any]]:
         return [
             # Auth services
             {
