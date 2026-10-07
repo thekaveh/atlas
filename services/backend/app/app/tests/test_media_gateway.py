@@ -5,6 +5,8 @@ import importlib
 import json
 import os
 import sys
+import time
+import uuid
 import types
 
 import pytest
@@ -1116,13 +1118,15 @@ class _FakeComfyUIMediaClient:
             "provider": "comfyui",
             "model": "krea2-turbo-bf16",
             "modality": "image",
-            "artifact_url": "/comfyui/image/out.png?folder_type=output",
+            "artifact_url": f"/media/operations/{kwargs['operation_id']}/artifacts/0",
             "artifacts": [
                 {
-                    "url": "/comfyui/image/out.png?folder_type=output",
+                    "url": f"/media/operations/{kwargs['operation_id']}/artifacts/0",
                     "role": "image",
                     "content_type": "image/png",
                     "filename": "out.png",
+                    "subfolder": "",
+                    "folder_type": "output",
                 }
             ],
             "cost_usd": 0.0,
@@ -1249,7 +1253,7 @@ def test_comfyui_poll_normalizes_succeeded_with_proxy_artifact(monkeypatch):
     assert polled.status_code == 200
     body = polled.json()
     assert body["status"] == "succeeded"
-    assert body["artifact_url"] == "/comfyui/image/out.png?folder_type=output"
+    assert body["artifact_url"] == f"/media/operations/{op_id}/artifacts/0"
     assert body["artifacts"][0]["filename"] == "out.png"
     assert body["cost_usd"] == 0.0
     assert _FakeComfyUIMediaClient.poll_kwargs["operation_id"] == op_id
@@ -1522,3 +1526,172 @@ def test_unknown_media_provider_returns_400(monkeypatch):
     )
     assert response.status_code == 400
     assert "provider" in response.json()["detail"].lower()
+
+
+# --- owner-checked ComfyUI artifact route (#1379) ----------------------------
+
+_ARTIFACT_JWT_SECRET = "atlas-test-supabase-jwt-secret-32-bytes"
+
+
+def _artifact_user_headers(subject: str) -> dict[str, str]:
+    import jwt
+
+    token = jwt.encode(
+        {"sub": subject, "role": "authenticated", "aud": "authenticated",
+         "exp": int(time.time()) + 60},
+        _ARTIFACT_JWT_SECRET,
+        algorithm="HS256",
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _artifact_app(monkeypatch, owner: str, *, provider: str = "comfyui"):
+    """A required-auth app holding one succeeded operation owned by ``owner``,
+    with a ComfyUI client that records which file it was asked for."""
+    import asyncio
+
+    main = _fresh_main_comfyui(monkeypatch)
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "required")
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", _ARTIFACT_JWT_SECRET)
+    fetched: list[tuple[str, str, str]] = []
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get_image_data(self, filename, subfolder, folder_type):
+            fetched.append((filename, subfolder, folder_type))
+            return b"\x89PNG"
+
+    monkeypatch.setattr(main, "ComfyUIClient", _Client)
+    artifacts = [{"url": "/media/operations/op-1/artifacts/0", "filename": "out.png",
+                  "subfolder": "sub", "folder_type": "output"}]
+    asyncio.run(main.MEDIA_OPERATION_STORE.create({
+        "operation_id": "op-1", "provider": provider, "modality": "image",
+        "model": "m", "created_at_epoch": time.time(), "timeout_seconds": 60,
+        "owner_scope": f"user:{owner}", "budget_tracked": False, "reconciled": True,
+        "last_payload": {"operation_id": "op-1", "status": "succeeded", "artifacts": artifacts},
+    }))
+    from fastapi.testclient import TestClient
+
+    return TestClient(main.app), fetched
+
+
+def test_operation_owner_fetches_its_comfyui_artifact(monkeypatch):
+    owner = str(uuid.uuid4())
+    client, fetched = _artifact_app(monkeypatch, owner)
+
+    response = client.get("/media/operations/op-1/artifacts/0", headers=_artifact_user_headers(owner))
+
+    assert response.status_code == 200
+    assert response.content == b"\x89PNG"
+    assert response.headers["content-type"] == "image/png"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert fetched == [("out.png", "sub", "output")]
+
+
+def test_another_user_cannot_fetch_the_artifact(monkeypatch):
+    client, fetched = _artifact_app(monkeypatch, str(uuid.uuid4()))
+
+    response = client.get(
+        "/media/operations/op-1/artifacts/0", headers=_artifact_user_headers(str(uuid.uuid4()))
+    )
+
+    assert response.status_code == 404
+    assert fetched == []
+
+
+def test_artifact_index_out_of_range_or_request_override_is_refused(monkeypatch):
+    owner = str(uuid.uuid4())
+    client, fetched = _artifact_app(monkeypatch, owner)
+    headers = _artifact_user_headers(owner)
+
+    assert client.get("/media/operations/op-1/artifacts/1", headers=headers).status_code == 404
+    assert client.get("/media/operations/op-1/artifacts/-1", headers=headers).status_code == 404
+    overridden = client.get(
+        "/media/operations/op-1/artifacts/0",
+        params={"filename": "other.png", "subfolder": "../x", "folder_type": "input"},
+        headers=headers,
+    )
+    assert overridden.status_code == 200
+    assert fetched == [("out.png", "sub", "output")]
+
+
+def test_artifact_route_serves_only_comfyui_operations(monkeypatch):
+    owner = str(uuid.uuid4())
+    client, fetched = _artifact_app(monkeypatch, owner, provider="fal")
+
+    response = client.get("/media/operations/op-1/artifacts/0", headers=_artifact_user_headers(owner))
+
+    assert response.status_code == 404
+    assert fetched == []
+
+
+def test_artifact_route_matches_poll_ownership_for_service_and_anonymous_callers(monkeypatch):
+    client, fetched = _artifact_app(monkeypatch, str(uuid.uuid4()))
+    monkeypatch.setenv("BACKEND_INTERNAL_API_TOKEN", "internal-secret")
+
+    service = client.get(
+        "/media/operations/op-1/artifacts/0", headers={"Authorization": "Bearer internal-secret"}
+    )
+    anonymous = client.get("/media/operations/op-1/artifacts/0")
+
+    assert service.status_code == 404  # a user's operation is not the service scope
+    assert anonymous.status_code == 401
+    assert fetched == []
+
+
+def test_malformed_stored_artifact_is_not_found_not_a_server_error(monkeypatch):
+    import asyncio
+
+    owner = str(uuid.uuid4())
+    client, fetched = _artifact_app(monkeypatch, owner)
+    import main
+
+    for op_id, artifacts in (("op-bad", ["not-a-dict"]), ("op-empty", [{"filename": ""}])):
+        asyncio.run(main.MEDIA_OPERATION_STORE.create({
+            "operation_id": op_id, "provider": "comfyui", "modality": "image", "model": "m",
+            "created_at_epoch": time.time(), "timeout_seconds": 60,
+            "owner_scope": f"user:{owner}", "budget_tracked": False, "reconciled": True,
+            "last_payload": {"operation_id": op_id, "status": "succeeded", "artifacts": artifacts},
+        }))
+        response = client.get(f"/media/operations/{op_id}/artifacts/0", headers=_artifact_user_headers(owner))
+        assert response.status_code == 404
+    assert fetched == []
+
+
+def test_poll_then_follow_artifact_url_serves_the_file(monkeypatch):
+    """End to end on the gateway: the artifact_url a poll returns is fetchable
+    by the same caller."""
+    _reset_comfyui_fake()
+    main = _fresh_main_comfyui(monkeypatch)
+    monkeypatch.setattr(main, "ComfyUIMediaClient", _FakeComfyUIMediaClient, raising=False)
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get_image_data(self, filename, subfolder, folder_type):
+            return f"{filename}|{subfolder}|{folder_type}".encode()
+
+    monkeypatch.setattr(main, "ComfyUIClient", _Client)
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    submitted = client.post(
+        "/media/generate",
+        json={"modality": "image", "provider": "comfyui", "model": "krea2-turbo-bf16", "input": {"prompt": "p"}},
+    )
+    polled = client.get(f"/media/operations/{submitted.json()['operation_id']}").json()
+
+    followed = client.get(polled["artifact_url"])
+
+    assert followed.status_code == 200
+    assert followed.content == b"out.png||output"
+

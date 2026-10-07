@@ -238,14 +238,17 @@ def test_queue_status_running_queued_lost():
     assert cmc.ComfyUIMediaClient._queue_status("pid-x", running) == "failed"
 
 
-def test_extract_artifacts_builds_proxy_url():
+def test_extract_artifacts_builds_owner_checked_operation_url():
     entry = {"outputs": {"9": {"images": [
         {"filename": "out.png", "subfolder": "sub", "type": "output"},
+        {"filename": "out2.png", "type": "output"},
     ]}}}
-    arts = cmc.ComfyUIMediaClient._extract_artifacts(entry)
-    assert len(arts) == 1
+    arts = cmc.ComfyUIMediaClient._extract_artifacts(entry, operation_id="pid-1")
+    assert len(arts) == 2
     a = arts[0]
-    assert a["url"] == "/comfyui/image/out.png?subfolder=sub&folder_type=output"
+    assert a["url"] == "/media/operations/pid-1/artifacts/0"
+    assert arts[1]["url"] == "/media/operations/pid-1/artifacts/1"
+    assert (a["subfolder"], a["folder_type"]) == ("sub", "output")
     assert a["role"] == "image"
     assert a["content_type"] == "image/png"
     assert a["filename"] == "out.png"
@@ -257,8 +260,8 @@ def test_artifact_url_is_gateway_relative_contract():
     unlike FAL's absolute hosted URL (pinned in test_media_gateway.py). This
     guards the documented shape difference so the two can't silently diverge."""
     entry = {"outputs": {"9": {"images": [{"filename": "out.png", "type": "output"}]}}}
-    url = cmc.ComfyUIMediaClient._extract_artifacts(entry)[0]["url"]
-    assert url.startswith("/comfyui/image/")  # gateway-relative
+    url = cmc.ComfyUIMediaClient._extract_artifacts(entry, operation_id="pid-1")[0]["url"]
+    assert url.startswith("/media/operations/")  # gateway-relative
     assert "://" not in url  # never an absolute URL
     assert not url.startswith(("http://", "https://"))
 
@@ -445,7 +448,7 @@ def test_poll_running_then_succeeded():
         assert running["artifact_url"] is None
         done = await client.get_media_operation(operation_id="prompt-abc", modality="image")
         assert done["status"] == "succeeded"
-        assert done["artifact_url"] == "/comfyui/image/out.png?folder_type=output"
+        assert done["artifact_url"] == "/media/operations/prompt-abc/artifacts/0"
         assert done["artifacts"][0]["filename"] == "out.png"
         assert done["cost_usd"] == 0.0
 
