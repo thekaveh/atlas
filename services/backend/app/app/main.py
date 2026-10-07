@@ -2507,14 +2507,20 @@ def _media_response(payload: Dict[str, Any]) -> MediaOperationResponse:
 
 
 async def _submit_media_provider(
-    *, provider: str, modality: str, model: str, prepared_input: Dict[str, Any]
+    *, route: tuple[str, str, str], prepared_input: Dict[str, Any],
+    timeout_seconds: Optional[int],
 ) -> Dict[str, Any]:
     """Dispatch a media submit to the right provider client (#519 generalizes
-    the former FAL-only call). Each client returns the normalized envelope;
-    ValueError → 400, other Exception → 502 (handled by the caller)."""
+    the former FAL-only call). ``route`` is (provider, modality, model); the
+    request's ``timeout_seconds`` extends FAL's queue-start limit (#1358). Each
+    client returns the normalized envelope; ValueError → 400, other
+    Exception → 502 (handled by the caller)."""
+    provider, modality, model = route
     if provider == "fal":
         api_key = _require_fal_api_key()
-        async with FalClient(api_key=api_key, model=model) as client:
+        async with FalClient(
+            api_key=api_key, model=model, start_timeout_seconds=timeout_seconds
+        ) as client:
             return await client.submit_media_operation(
                 modality=modality, input=prepared_input, model=model
             )
@@ -2783,10 +2789,9 @@ async def submit_media_generation(
 
         try:
             payload = await _submit_media_provider(
-                provider=provider,
-                modality=modality,
-                model=model,
+                route=(provider, modality, model),
                 prepared_input=prepared_input,
+                timeout_seconds=request.timeout_seconds,
             )
         except (FalSubmissionAmbiguousError, asyncio.CancelledError) as exc:
             # FAL may have accepted paid work before the response carrying its
@@ -3284,7 +3289,7 @@ async def _poll_media_operation_or_raise(operation: dict, operation_id: str) -> 
         )
     except HTTPException:
         raise
-    except ValueError as e:
+    except ValueError as e:  # FAL's unknown-status ValueError is FalUpstreamError: 502
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),

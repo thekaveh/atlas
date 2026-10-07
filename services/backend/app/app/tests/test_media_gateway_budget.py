@@ -1952,3 +1952,105 @@ def test_timed_out_fal_job_keeps_its_reservation_until_settled(monkeypatch):
     assert settled.status_code == 200 and settled.json()["status"] == "failed"
     record = asyncio.run(main.MEDIA_BUDGET_ENGINE.store.get("fal-3d-9"))
     assert record.status == main.media_ledger.STATUS_RELEASED
+
+
+# --- FAL request timeout, SDK client lifetime, unknown status, missing GLB (#1358)
+
+
+def test_request_timeout_reaches_fal_submit(monkeypatch):
+    main = _fresh_main(monkeypatch, budget_enabled=False)
+    _CapturingFalClient.captured = {}
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+    from fastapi.testclient import TestClient
+
+    body = {"modality": "image_to_3d", "provider": "fal", "model": "trellis",
+            "input": {"image": "https://cdn.example/sprite.png"}, "timeout_seconds": 900}
+    assert TestClient(main.app).post("/media/generate", json=body).status_code == 202
+    assert _CapturingFalClient.captured["init"]["start_timeout_seconds"] == 900
+
+
+def _fal_sdk(monkeypatch, status_reply, result=None):
+    """A fal_client stand-in whose AsyncClient records construction and close."""
+    log = {"clients": 0, "closed": 0, "submit": None}
+
+    class _Http:
+        async def aclose(self):
+            log["closed"] += 1
+            if log.get("close_fails"):
+                raise RuntimeError("transport already gone")
+
+    class FakeAsyncClient:
+        def __init__(self, *, key, default_timeout):
+            log["clients"] += 1
+            log["default_timeout"] = default_timeout
+
+        @property
+        async def _client(self):
+            return _Http()
+
+        async def submit(self, model, *, arguments, start_timeout):
+            self.__dict__["_client"] = None  # what fal-client's cache leaves
+            log["submit"] = start_timeout
+            return SimpleNamespace(request_id="fal-1")
+
+        async def status(self, model, request_id):
+            return status_reply()
+
+        async def result(self, model, request_id):
+            return result
+
+    monkeypatch.setitem(sys.modules, "fal_client", SimpleNamespace(AsyncClient=FakeAsyncClient))
+    from fal_media_client import FalClient
+
+    return FalClient, log
+
+
+def test_one_sdk_client_per_fal_client_closed_on_exit_with_request_start_timeout(monkeypatch):
+    class Completed:
+        error = None
+
+    fal, log = _fal_sdk(monkeypatch, Completed, {"model_mesh": {"url": "https://cdn/m.glb"}})
+
+    async def run(start_timeout_seconds):
+        async with fal(api_key="k", model="fal-ai/trellis", timeout_seconds=120,
+                       start_timeout_seconds=start_timeout_seconds) as c:
+            await c.submit_media_operation(modality="image_to_3d", input={"image": "https://x/a.png"})
+            await c.get_media_operation(operation_id="fal-1", modality="image_to_3d")
+            return c.start_timeout_seconds
+
+    asyncio.run(run(900))
+    # The queue-start limit follows the request; each HTTP call keeps 120 s.
+    assert (log["submit"], log["default_timeout"]) == (900, 120.0)
+    assert (log["clients"], log["closed"]) == (1, 1)
+    # A short request never lowers it (the SDK rejects a start timeout <= 1 s),
+    # and a failed close does not mask the submitted request.
+    log["close_fails"] = True
+    assert asyncio.run(run(1)) == 120.0 and log["submit"] == 120.0
+
+
+def test_unknown_fal_queue_status_is_a_provider_error_not_a_caller_error(monkeypatch):
+    def unknown():
+        raise ValueError("Unknown status: PAUSED")
+
+    _fal_sdk(monkeypatch, unknown)
+    main = _fresh_main(monkeypatch, budget_enabled=False)
+    operation = {"provider": "fal", "modality": "image_to_3d", "model": "fal-ai/trellis"}
+
+    # The real FalClient over the SDK's ValueError: it used to answer 400.
+    with pytest.raises(main.HTTPException) as raised:
+        asyncio.run(main._poll_media_operation_or_raise(operation, "fal-1"))
+    assert raised.value.status_code == 502
+
+
+@pytest.mark.parametrize("result", [{"preview": {"url": "https://cdn/p.png"}}, {}])
+def test_a_completed_3d_job_without_a_glb_is_flagged_and_stays_succeeded(monkeypatch, result):
+    class Completed:
+        error = None
+
+    fal, _log = _fal_sdk(monkeypatch, Completed, result)
+    polled = asyncio.run(fal(api_key="k", model="fal-ai/trellis").get_media_operation(
+        operation_id="fal-1", modality="image_to_3d"))
+
+    assert (polled["status"], polled["artifact_url"]) == ("succeeded", None)
+    assert polled["provenance"]["glb_missing"] is True
+
