@@ -138,7 +138,7 @@ def test_asset_worker_manifest_contract() -> None:
     assert "ASSET_WORKER_PORT" in env
     assert env["ASSET_WORKER_ENDPOINT"]["auto_managed"] is True
     assert env["ASSET_WORKER_MINIO_BUCKET"]["default"] == "asset-worker"
-    assert env["ASSET_WORKER_GLTF_TRANSFORM_VERSION"]["default"] == "4.5.0"
+    assert env["ASSET_WORKER_GLTF_TRANSFORM_VERSION"]["default"] == "4.5.1"
 
 
 def test_asset_worker_track_membership_and_cli_mapping() -> None:
