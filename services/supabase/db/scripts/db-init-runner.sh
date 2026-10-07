@@ -91,4 +91,14 @@ echo "db-init-runner: Applying scoped PostgreSQL roles and grants..."
 echo "db-init-runner: Running optional user post-initialization scripts from $USER_SQL_DIR..."
 run_sql_directory "$USER_SQL_DIR" "user" "false" "/tmp/_db_init_user_sql_files"
 
+# A public table a user script creates inherits the default anon /
+# authenticated grants; 06 publishes only tables with RLS and revokes the
+# rest, but it ran before the user scripts. Re-apply it so a table without
+# RLS is not readable through PostgREST until the next boot.
+if [ -d "$USER_SQL_DIR" ] && find "$USER_SQL_DIR" -maxdepth 1 -type f -name '*.sql' | grep -q .; then
+  echo "db-init-runner: Re-applying RLS-gated client grants after user scripts..."
+  psql -v ON_ERROR_STOP=1 --host "$PGHOST" --username "$PGUSER" --dbname "$PGDATABASE" \
+    -a -f "$ATLAS_SQL_DIR/06-permissions.sql"
+fi
+
 echo "db-init-runner: All post-initialization scripts finished successfully."

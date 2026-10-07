@@ -688,8 +688,8 @@ DROP POLICY IF EXISTS "Service role can access all consolidation logs" ON public
 -- USING (true) made the policy a no-op, and 06-permissions' default
 -- privileges grant `authenticated` table rights, so any authenticated
 -- PostgREST caller had full CRUD on every user's memories. The
--- backend's direct supabase_admin connection bypasses RLS (owner) and
--- is unaffected.
+-- backend connects as BACKEND_DB_USER through the "Atlas backend direct
+-- role access" policy in 05-scoped-roles.sh and is unaffected.
 CREATE POLICY "Service role can access all memory facts" ON public.memory_facts
     FOR ALL USING (auth.role() = 'service_role');
 

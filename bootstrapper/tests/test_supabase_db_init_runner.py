@@ -132,6 +132,9 @@ def test_db_init_runner_runs_user_sql_after_all_atlas_sql(tmp_path: Path) -> Non
         "ROLE_PROVISIONER",
         str(user_dir / "00-user.sql"),
         str(user_dir / "99-user.sql"),
+        # Client grants re-applied after user scripts, so a user table
+        # without RLS is not published to anon/authenticated meanwhile.
+        str(atlas_dir / "06-permissions.sql"),
     ]
 
 

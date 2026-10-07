@@ -859,7 +859,10 @@ def _env_file_values(repo: Path) -> dict[str, str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        values[key.strip()] = _env_value(value.strip())
+        # Compose reads `export KEY=` as KEY; without this the lookup missed
+        # and PROJECT_NAME fell back to `atlas`, aiming a restore at another
+        # project's volumes.
+        values[re.sub(r"^export[ \t]+", "", key.strip())] = _env_value(value.strip())
     return values
 
 

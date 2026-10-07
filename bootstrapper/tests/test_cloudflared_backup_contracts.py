@@ -5632,3 +5632,18 @@ def test_backup_run_uses_the_derived_bound_and_validates_it_before_the_lock():
     assert main.index("backup_timeout = backup_run_timeout(values)") < main.index("acquire")
     assert "register_container(name, timeout=max(timeout, 900))" in main
     assert "], timeout=backup_timeout)" in main
+
+
+def test_orchestrator_reads_export_prefixed_env_lines(tmp_path):
+    """`export PROJECT_NAME=myproj` read as the key "export PROJECT_NAME", so
+    the lookup fell back to `atlas` and a restore targeted another project's
+    volumes."""
+    module = _database_orchestrator_module()
+    (tmp_path / ".env").write_text(
+        "export PROJECT_NAME=myproj\nexport NEO4J_GRAPH_DB_SOURCE=disabled\nWEAVIATE_SOURCE=container\n",
+        encoding="utf-8",
+    )
+    values = module._env_file_values(tmp_path)
+    assert values["PROJECT_NAME"] == "myproj"
+    assert values["NEO4J_GRAPH_DB_SOURCE"] == "disabled"
+    assert values["WEAVIATE_SOURCE"] == "container"
