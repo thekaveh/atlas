@@ -228,3 +228,42 @@ def test_minio_metrics_are_blocked_at_the_gateway(monkeypatch):
          "/minio/metrics/v3/system/cpu", "/minio/prometheus/metrics"),
         ("/minio/health/live", "/bucket/object"),
     )
+
+
+def test_every_plugin_the_generator_emits_is_allowed_by_kong(tmp_path):
+    """Kong loads only KONG_PLUGINS; a declarative config naming any other
+    plugin is rejected whole. The #1386 blocked routes used
+    request-termination, which the allowlist lacked."""
+    import re
+    from pathlib import Path
+
+    import yaml
+    from core.config_parser import ConfigParser
+    from utils.kong_config_generator import KongConfigGenerator
+
+    repo = Path(__file__).resolve().parents[2]
+    lines = (repo / ".env.example").read_text(encoding="utf-8").splitlines()
+    enabled = {"PROMETHEUS_SOURCE": "container", "GRAFANA_SOURCE": "container", "MINIO_SOURCE": "container"}
+    lines = [line for line in lines if line.split("=", 1)[0] not in enabled] + [f"{k}={v}" for k, v in enabled.items()]
+    env_path = tmp_path / ".env"
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    parser = ConfigParser(str(repo))
+    parser.env_file_path = env_path
+    raw = KongConfigGenerator(parser).generate_kong_config()
+    config = yaml.safe_load(raw) if isinstance(raw, str) else raw
+
+    def plugin_names(node):
+        if isinstance(node, dict):
+            for item in node.get("plugins") or []:
+                yield item["name"]
+            for value in node.values():
+                yield from plugin_names(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from plugin_names(value)
+
+    used = set(plugin_names(config))
+    compose = (repo / "services" / "kong" / "compose.yml").read_text(encoding="utf-8")
+    allowed = set(re.search(r"KONG_PLUGINS:\s*(\S+)", compose).group(1).split(","))
+    assert "request-termination" in used
+    assert used - allowed == set()

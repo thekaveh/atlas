@@ -51,7 +51,7 @@ services:
       # auto-redirect ``http://litellm.localhost:${KONG_HTTP_PORT}/`` to
       # ``/ui/`` (LiteLLM's admin dashboard lives at /ui/; the proxy
       # root serves Swagger). Lua snippet lives next to the route.
-      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,rate-limiting,pre-function,prometheus
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,rate-limiting,pre-function,prometheus,request-termination
       # Expose the Kong Status API on 8100 so Prometheus can scrape /metrics
       # via the in-cluster `kong-api-gateway:8100` upstream (the compose
       # service id; `kong` alone does not resolve on backend-network).

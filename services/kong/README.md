@@ -192,6 +192,8 @@ Kong supports WebSocket connections for real-time services:
 5. **File Writing**: Configuration written to volumes/api/kong-dynamic.yml
 6. **Kong Startup**: Kong loads the generated configuration
 
+Kong loads only the plugins named in `KONG_PLUGINS` (`services/kong/compose.yml`), and DB-less Kong rejects the whole declarative file when it names any other plugin, which takes down every route. A generator change that emits a new plugin must add it there; `tests/test_kong_route_and_auth_invariants.py` checks every emitted plugin against the list.
+
 ## 10. Debugging Kong Configuration
 
 ### 10.1. View Generated Configuration
