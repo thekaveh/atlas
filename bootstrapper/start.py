@@ -4264,7 +4264,10 @@ class AtlasStarter:
         return ok
 
     def verify_one_shot_init_containers(self, on_line=None) -> bool:
-        """Fail startup if enabled post-start one-shot init containers failed."""
+        """Fail startup if enabled post-start one-shot init containers failed.
+
+        The TUI's cancel ends the up-to-900 s wait early through
+        ``docker_manager.should_stop`` (#1357)."""
         env_vars = self.config_parser.parse_env_file()
         services: list[str] = []
         if env_vars.get("N8N_INIT_SCALE", "0") != "0":
@@ -4307,6 +4310,11 @@ class AtlasStarter:
 
         for service, reason in failures:
             msg = f"{service} failed after compose up ({reason})"
+            if reason != "cancelled":
+                # The exit status alone does not say why (#1357).
+                tail = self.docker_manager.one_shot_log_tail(service)
+                if tail:
+                    msg += "\n  last log lines:\n" + "\n".join(f"    {line}" for line in tail)
             if on_line is None:
                 self.banner.show_status_message(msg, "error")
             else:
@@ -6648,7 +6656,7 @@ def _export_failed_start_bundle(starter: "AtlasStarter", transcript, exit_code) 
         echo(f"⚠ support bundle not written: {exc}")
 
 
-def _report_tui_exit(rc: int) -> int:
+def _report_tui_exit(rc: int, stopped_previous: bool = False) -> int:
     """Say what a cancelled Textual run left behind, then pass ``rc`` on.
 
     Ctrl+C exits the Textual app with 130 at any point. The alternate screen
@@ -6658,7 +6666,7 @@ def _report_tui_exit(rc: int) -> int:
     (#1032).
     """
     if rc == 130:
-        print(cancel_notice())
+        print(cancel_notice(stopped_previous))
     return rc
 
 
@@ -7786,7 +7794,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     no_splash=no_splash,
                     profile=profile,
                 )
-                sys.exit(_report_tui_exit(rc))
+                sys.exit(_report_tui_exit(rc, getattr(starter, "stopped_previous_instance", False)))
 
             # No-TUI fallback (spec §6.2 / §8.6): we're in will_run_wizard mode
             # but is_tui_capable returned False (--no-tui flag or non-TTY /
@@ -7917,7 +7925,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     no_splash=no_splash,
                     profile=profile,
                 )
-                sys.exit(_report_tui_exit(rc))
+                sys.exit(_report_tui_exit(rc, getattr(starter, "stopped_previous_instance", False)))
 
         # Linear (--no-tui / non-TTY) flow from here on — the wizard and
         # CLI-flag TUI branches above both sys.exit() before this point.
@@ -7953,7 +7961,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
     except KeyboardInterrupt:
         starter.rollback_managed_host_processes()
         print("\n❌ Startup interrupted by user")
-        print(f"   {cancel_notice()}")
+        print(f"   {cancel_notice(getattr(starter, 'stopped_previous_instance', False), cold)}")
         sys.exit(1)
     except Exception as e:
         starter.rollback_managed_host_processes()

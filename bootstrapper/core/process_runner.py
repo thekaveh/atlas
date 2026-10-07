@@ -740,3 +740,70 @@ def run_with_deadline(
                 _close_process_pipes(process)
     assert process is not None
     return capture.completed(command, process.returncode)
+
+
+# --- one-shot init container wait (#1357) ------------------------------------
+# Pure helpers for DockerManager.failed_one_shot_services; ``ps`` is its
+# ``_compose_ps_json`` (service -> (rows, error)).
+
+
+def sleep_unless_stopped(seconds: float, should_stop) -> None:
+    """Sleep up to ``seconds``, waking within 0.2 s once ``should_stop()``."""
+    end = time.monotonic() + seconds
+    while (remaining := end - time.monotonic()) > 0:
+        if should_stop is not None and should_stop():
+            return
+        time.sleep(min(0.2, remaining))
+
+
+def _one_shot_row_verdict(row: dict) -> tuple[str, str]:
+    """("done" | "failed" | "pending", reason) for one ``docker compose ps`` row."""
+    exit_code = str(row.get("ExitCode", "")).strip()
+    state = str(row.get("State", "")).strip().lower()
+    status = str(row.get("Status", "")).strip()
+    if exit_code and exit_code not in {"0", "<nil>", "None"}:
+        return "failed", f"exit {exit_code}: {status or state or 'exited'}"
+    if state != "exited":
+        return "pending", status or state or "not exited yet"
+    lower = status.lower()
+    if exit_code == "0" or "exit 0" in lower or "exited (0)" in lower:
+        return "done", ""
+    return "failed", status or state
+
+
+def _classify_one_shot_rows(rows: list[dict]) -> tuple[str, str]:
+    """Collapse one service's rows: any failure wins, then any still running."""
+    verdicts = [_one_shot_row_verdict(row) for row in rows]
+    for wanted in ("failed", "pending"):
+        for verdict, reason in verdicts:
+            if verdict == wanted:
+                return verdict, reason
+    return "done", ""
+
+
+def one_shot_state(service: str, ps) -> tuple[str, str]:
+    """("done" | "failed" | "pending", reason) for one one-shot service. A
+    failed ``docker compose ps`` is retried twice before it counts."""
+    for attempt in range(3):
+        rows, error = ps(service)
+        if error is None:
+            break
+        if attempt < 2:
+            time.sleep(0.5)
+    if error is not None:
+        return "failed", error
+    if not rows:
+        return "pending", "container not observed yet"
+    return _classify_one_shot_rows(rows)
+
+
+def poll_one_shots(pending: list, failures: list, last_reason: dict, ps) -> None:
+    """One pass: drop finished services from ``pending``, record failures."""
+    for service in list(pending):
+        verdict, reason = one_shot_state(service, ps)
+        if verdict == "pending":
+            last_reason[service] = reason
+            continue
+        pending.remove(service)
+        if verdict == "failed":
+            failures.append((service, reason))

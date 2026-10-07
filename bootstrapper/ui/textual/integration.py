@@ -21,6 +21,8 @@ from pathlib import Path
 from textual.app import App
 from textual.binding import Binding
 
+from core.launch_outcome import record_interrupt as _record_interrupt
+
 
 _THEME_PATH = Path(__file__).parent / "theme.css"
 
@@ -1484,12 +1486,11 @@ def run_setup_flow(
                 prefilled_selections=(_prefilled if _prefilled else None),
                 track_display_name=_track_display_name,
                 no_splash=no_splash,
-                on_launch_result=lambda code: state_holder.__setitem__("exit_code", code),
+                on_launch_result=lambda code: state_holder.update(exit_code=code, launch_result=code),
             ))
 
         def action_interrupt(self) -> None:
-            state_holder["interrupted"] = True
-            state_holder["exit_code"] = 130
+            _record_interrupt(state_holder)
             self.exit()
 
     _run_app_with_process_cleanup(_SetupApp())
@@ -1672,12 +1673,11 @@ def run_launch_flow(
                 ),
                 track_display_name=_track_display_name,
                 no_splash=no_splash,
-                on_launch_result=lambda code: state_holder.__setitem__("exit_code", code),
+                on_launch_result=lambda code: state_holder.update(exit_code=code, launch_result=code),
             ))
 
         def action_interrupt(self) -> None:
-            state_holder["interrupted"] = True
-            state_holder["exit_code"] = 130
+            _record_interrupt(state_holder)
             self.exit()
 
     _run_app_with_process_cleanup(_LaunchApp())
