@@ -237,6 +237,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from utils.atomic_write import (
     atomic_replace_text, atomic_write_text, create_private_backup, env_lines, render_env_assignment,
+    set_env_assignment,
 )
 from utils.banner import BannerDisplay
 from utils.hosts_manager import HostsManager
@@ -314,8 +315,37 @@ def _env_example_values(env_example_path) -> dict[str, str]:
 # preflight refreshes once a start has persisted the stack's own values.
 _PREFLIGHT_DERIVED_KEYS = frozenset({
     "BACKEND_PLUGINS_DIR", "COMFYUI_CUSTOM_MODELS_FILE",
-    "COMFYUI_CUSTOM_NODES_FILE", "OLLAMA_CUSTOM_MODELS",
+    "COMFYUI_CUSTOM_NODES_FILE", "OLLAMA_CUSTOM_MODELS", "ATLAS_DERIVED_KEYS",
 })
+
+
+def _with_stale_derived_keys_cleared(
+    overrides: dict, env_vars: dict, consumer_config=None, protected=frozenset()
+) -> dict:
+    """Blank the derived keys a previous start wrote (per ATLAS_DERIVED_KEYS)
+    whose plugin or sidecar is gone, e.g. a removed model_sidecars.ollama left
+    OLLAMA_CUSTOM_MODELS pinning models no manifest declares (#1368).
+
+    Only while a consumer manifest is configured: the manifest is passed on
+    each run, so a plain `doctor` or start without it must not strip a running
+    consumer stack. Keys in ``protected`` (just set by a .env.user overlay)
+    are never blanked."""
+    from core.consumer_manifest import DERIVED_ENV_KEYS, DERIVED_KEYS_MARKER
+
+    def keys(raw) -> set:
+        return {item.strip() for item in str(raw or "").split(",") if item.strip()}
+
+    if consumer_config is not None and not getattr(consumer_config, "consumers", None):
+        return overrides
+    previous = keys(env_vars.get(DERIVED_KEYS_MARKER)) & set(DERIVED_ENV_KEYS)
+    current = keys(overrides.get(DERIVED_KEYS_MARKER))
+    if not previous - current:
+        return overrides
+    cleared = dict(overrides)
+    for key in previous - current - set(overrides) - set(protected):
+        cleared[key] = ""
+    cleared.setdefault(DERIVED_KEYS_MARKER, "")
+    return cleared
 
 
 def _should_record_profile(overrides, auto_vars, switching: bool, env_vars: dict) -> bool:
@@ -1123,24 +1153,39 @@ class AtlasStarter:
             )
             applied_overrides.update(external_overrides)
 
-        consumer_config = self.config_parser.load_consumer_config()
-        if consumer_config.env_overrides:
-            resolved_overrides = self._resolve_auto_source_overrides(
-                self._resolve_auto_base_port_override(
-                    dict(consumer_config.env_overrides)
-                )
-            )
-            self._merge_env_file_overrides(resolved_overrides)
-            count = len(resolved_overrides)
-            names = ", ".join(consumer.name for consumer in consumer_config.consumers)
-            self.banner.show_status_message(
-                f"  • Applied consumer manifest env ({count} override{'s' if count != 1 else ''})"
-                f" for {names}",
-                "info",
-            )
-            applied_overrides.update(resolved_overrides)
-
+        applied_overrides.update(self._apply_consumer_manifest_env(set(applied_overrides)))
         return applied_overrides
+
+    def _apply_consumer_manifest_env(self, overlay_keys: set) -> Dict[str, str]:
+        """Merge the consumer manifest's env into .env, blanking derived keys
+        whose source is gone (never the overlay's ``overlay_keys``), and return
+        the values an operator pinned this way."""
+        consumer_config = self.config_parser.load_consumer_config()
+        declared = dict(consumer_config.env_overrides or {})
+        manifest_overrides = _with_stale_derived_keys_cleared(
+            declared, self.config_parser.parse_env_file(),
+            consumer_config, protected=overlay_keys,
+        )
+        if not manifest_overrides:
+            return {}
+        resolved_overrides = self._resolve_auto_source_overrides(
+            self._resolve_auto_base_port_override(manifest_overrides)
+        )
+        self._merge_env_file_overrides(resolved_overrides)
+        # The bookkeeping marker is not a consumer setting.
+        count = len([key for key in resolved_overrides if key != "ATLAS_DERIVED_KEYS"])
+        names = ", ".join(consumer.name for consumer in consumer_config.consumers)
+        self.banner.show_status_message(
+            f"  • Applied consumer manifest env ({count} override{'s' if count != 1 else ''})"
+            f" for {names}",
+            "info",
+        )
+        # Blanked stale keys are Atlas housekeeping, not values an operator
+        # pinned, so later profile handling must not treat them as pinned.
+        return {
+            key: value for key, value in resolved_overrides.items()
+            if key in declared or key not in manifest_overrides
+        }
 
     def build_support_bundle(self, options, checks=None):
         """Assemble the redacted support bundle (#1057); writes nothing.
@@ -1226,7 +1271,10 @@ class AtlasStarter:
                 _known_applied_profile(self.config_parser.parse_env_file())
                 or getattr(consumer_config, "profile", None) or "default"
             )
-        declared = _preflight_declared(consumer_config, self.config_parser.parse_env_file())
+        env_vars = self.config_parser.parse_env_file()
+        declared = _with_stale_derived_keys_cleared(
+            _preflight_declared(consumer_config, env_vars), env_vars, consumer_config
+        )
         overrides = self._resolve_auto_source_overrides(
             self._resolve_auto_base_port_override(declared),
             quiet=True,
@@ -1270,18 +1318,7 @@ class AtlasStarter:
             var_value = render_env_assignment(var_name, raw_value)
             # `export KEY=` is KEY to Compose and parse_env_file: rewrite it
             # in place too (keeping `export`) or it would win over this value.
-            pattern = rf"^(export[ \t]+)?{re.escape(var_name)}=.*$"
-            replacement = f"{var_name}={var_value}"
-            if re.search(pattern, updated_content, re.MULTILINE):
-                updated_content = re.sub(
-                    pattern,
-                    lambda m, r=replacement: (m.group(1) or "") + r,
-                    updated_content,
-                    flags=re.MULTILINE,
-                )
-            else:
-                separator = "" if updated_content.endswith("\n") else "\n"
-                updated_content += f"{separator}{replacement}\n"
+            updated_content = set_env_assignment(updated_content, var_name, var_value)
 
         atomic_write_text(env_file_path, updated_content, mode=0o600)
 

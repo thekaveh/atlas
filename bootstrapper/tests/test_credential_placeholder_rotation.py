@@ -137,9 +137,10 @@ def test_generate_missing_keys_succeeds_when_neo4j_volume_locks_rotation(
     assert not failed, f"warm start must not fail the step; failed: {failed}"
 
 
-def test_graph_db_auth_still_asserted_without_a_neo4j_volume(tmp_path, monkeypatch):
-    """The volume exemption must not weaken the genuine fresh-install check:
-    with no volume, a stale composite is still surfaced as a failure."""
+def test_graph_db_auth_follows_a_hand_set_password_without_a_neo4j_volume(tmp_path, monkeypatch):
+    """#1368: with no Neo4j volume yet, GRAPH_DB_AUTH is recomputed from
+    GRAPH_DB_USER/GRAPH_DB_PASSWORD, so Neo4j and its clients agree. (It was
+    reported as a failure and left stale.)"""
     _seed_env(
         tmp_path,
         """
@@ -150,11 +151,12 @@ def test_graph_db_auth_still_asserted_without_a_neo4j_volume(tmp_path, monkeypat
         """,
     )
     kg = KeyGenerator(str(tmp_path))
-    monkeypatch.setattr(kg, "_neo4j_db_volume_exists", lambda: False)
+    monkeypatch.setattr(kg, "_neo4j_db_volume_exists", lambda unknown=False: False)
 
     results = kg.generate_missing_keys(force_regenerate=False)
 
-    assert results.get("GRAPH_DB_AUTH") is False
+    assert results.get("GRAPH_DB_AUTH") is True
+    assert kg.get_current_env_value("GRAPH_DB_AUTH") == "neo4j/already-rotated-xyz"
 
 
 def test_graph_db_rotation_proceeds_when_no_neo4j_volume(tmp_path, monkeypatch):
@@ -367,12 +369,13 @@ def test_generate_missing_keys_rotates_all_placeholder_defaults(tmp_path):
     kg.assert_no_placeholders_remaining()
 
 
-def test_graph_db_auth_split_state_is_surfaced(tmp_path):
-    """Edge: if GRAPH_DB_PASSWORD was hand-pinned (non-placeholder) but
-    GRAPH_DB_AUTH still holds its placeholder, the password rotator does NOT
-    fire (it is guarded on the password), so GRAPH_DB_AUTH stays stale. That
-    must be SURFACED — in the generate_missing_keys results AND by the prod
-    gate — not silently passed. Intentional, documented behavior."""
+def test_graph_db_auth_split_state_is_surfaced_once_neo4j_has_a_volume(
+    tmp_path, monkeypatch, capsys
+):
+    """With a Neo4j volume, Neo4j already applied its first-boot password, so
+    GRAPH_DB_AUTH is left as it is: the split is SURFACED (a warning and the
+    prod gate), never silently rewritten. With a volume the result is not
+    reported (an expected skip on a warm start)."""
     import pytest
     env = tmp_path / ".env"
     env.write_text(
@@ -382,8 +385,10 @@ def test_graph_db_auth_split_state_is_surfaced(tmp_path):
         encoding="utf-8",
     )
     kg = KeyGenerator(str(tmp_path))
-    results = kg.generate_missing_keys(force_regenerate=False)
-    assert results.get("GRAPH_DB_AUTH") is False
+    monkeypatch.setattr(kg, "_neo4j_db_volume_exists", lambda unknown=False: True)
+    kg.generate_missing_keys(force_regenerate=False)
+    assert kg.get_current_env_value("GRAPH_DB_AUTH") == "neo4j/neo4j_password"
+    assert "GRAPH_DB_AUTH does not match" in capsys.readouterr().out
     with pytest.raises(RuntimeError) as ei:
         kg.assert_no_placeholders_remaining()
     assert "GRAPH_DB_AUTH" in str(ei.value)
@@ -513,3 +518,43 @@ def test_non_cold_preserves_real_volume_baked_db_passwords(tmp_path, monkeypatch
         assert kg.get_current_env_value(var) == old, (
             f"{var} must be preserved on a non-cold start"
         )
+
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        # A `$`, space or `#` must reach Neo4j as the clients read it.
+        ("'a$b c'", "neo4j/old", "neo4j", "neo4j/a$b c"),
+        ("x", "none", "neo4j", "none"),  # auth deliberately off
+        ("p/q", "neo4j/old", "neo4j", "neo4j/old"),  # Neo4j rejects a '/' password
+        ("x", "neo4j/old", "admin", "neo4j/old"),  # and any user but neo4j
+    ],
+)
+def test_graph_db_auth_sync_edge_cases(tmp_path, monkeypatch, case):
+    """``case`` is (GRAPH_DB_PASSWORD, GRAPH_DB_AUTH, GRAPH_DB_USER, expected)."""
+    password, auth, user, expected = case
+    _seed_env(
+        tmp_path,
+        f"""
+        PROJECT_NAME=atlas
+        GRAPH_DB_USER={user}
+        GRAPH_DB_PASSWORD={password}
+        GRAPH_DB_AUTH={auth}
+        """,
+    )
+    kg = KeyGenerator(str(tmp_path))
+    monkeypatch.setattr(kg, "_neo4j_db_volume_exists", lambda unknown=False: False)
+
+    assert kg.sync_graph_db_auth() is True
+    assert kg.get_current_env_value("GRAPH_DB_AUTH") == expected
+
+
+def test_graph_db_auth_is_left_alone_when_docker_cannot_be_asked(tmp_path, monkeypatch):
+    _seed_env(tmp_path, "PROJECT_NAME=atlas\nGRAPH_DB_PASSWORD=new\nGRAPH_DB_AUTH=neo4j/old\n")
+    kg = KeyGenerator(str(tmp_path))
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: (_ for _ in ()).throw(OSError("no docker")))
+
+    kg.sync_graph_db_auth()
+
+    assert kg.get_current_env_value("GRAPH_DB_AUTH") == "neo4j/old"

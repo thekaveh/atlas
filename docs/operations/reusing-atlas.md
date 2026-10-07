@@ -238,7 +238,7 @@ cd infra
   --project myproject [--track <k>] [--detach]   # BASE_PORT + project come from the manifest
 ```
 
-`env backfill` keeps `.env` complete across pin bumps (a newly added `*_PORT` is seeded on your `BASE_PORT` block, not the default one, and an `export KEY=` line counts as present). Source, profile and consumer-manifest overrides rewrite an `export KEY=` line in place, keeping `export`; `compose validate` catches
+`env backfill` keeps `.env` complete across pin bumps (a newly added `*_PORT` is seeded on your `BASE_PORT` block, not the default one, and an `export KEY=` line counts as present). Every Atlas `.env` writer (source, profile and consumer-manifest overrides, generated secrets and Supabase keys, service configuration, `--base-port` and the layout migrations) rewrites an `export KEY=` line in place, keeping `export`, instead of appending a second assignment (#1368); `compose validate` catches
 overlay/manifest errors before any container starts; `doctor` surfaces
 contract/port/provisioning problems; `--detach` exits after the health gates.
 Before a stack's first start, `doctor` and `compose validate` write the manifest's
@@ -251,7 +251,12 @@ hold yet, so a launch-time `--base-port`, `-p` or `--<svc>-source` keeps winning
 A manifest named by `ATLAS_CONSUMER_MANIFEST` is validated before any `.env` write,
 exactly like `--consumer`. Declaring one of those four derived keys in
 `env.values` as well as through plugins/sidecars is an error naming both places,
-instead of the sidecar list silently replacing your value.
+instead of the sidecar list silently replacing your value. Atlas records the
+derived keys it wrote in `ATLAS_DERIVED_KEYS`; when a later start with a
+consumer manifest no longer derives one (you removed `model_sidecars.ollama`,
+say), it blanks that key. Without a manifest nothing is blanked, and a value
+from `.env.user` or `ATLAS_ENV_USER_FILE` is never blanked; a derived key you
+edit by hand in `.env` stays Atlas-owned and is cleared with its source (#1368).
 
 **5. Consuming endpoints.** Your host-side code (a devserver, a desktop app)
 reads the exported contract; in-container plugins use compose service DNS

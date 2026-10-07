@@ -179,6 +179,31 @@ def render_env_assignment(key: str, value: str) -> str:
     return render_env_value(key, assert_safe_env_assignment(key, value))
 
 
+def env_assignment_pattern(key: str) -> "re.Pattern[str]":
+    """Every line the reader resolves to ``key`` (#1368).
+
+    The reader and Compose both take ``export KEY=`` as KEY, and the reader
+    also accepts leading blanks and blanks before ``=``. Group 1 keeps the
+    line's indent and ``export`` prefix for the rewrite."""
+    return re.compile(
+        rf'^([ \t]*(?:export[ \t]+)?){re.escape(key)}[ \t]*=.*$', re.MULTILINE
+    )
+
+
+def set_env_assignment(content: str, key: str, value: str) -> str:
+    """Set ``key`` to the already rendered ``value`` in `.env` text: rewrite
+    every line that assigns it (keeping an ``export`` prefix), or append one
+    line when none does. A bare ``^KEY=`` match appended a second line next to
+    an ``export KEY=`` one, and the stale line could win (#1368)."""
+    pattern = env_assignment_pattern(key)
+    line = f"{key}={value}"
+    if pattern.search(content):
+        # A function replacement: values may hold backslashes re.sub expands.
+        return pattern.sub(lambda m: m.group(1) + line, content)
+    separator = "" if not content or content.endswith("\n") else "\n"
+    return f"{content}{separator}{line}\n"
+
+
 def decode_env_value(raw: str) -> str:
     """Decode the right-hand side of one `.env` line, as the reader does.
 
