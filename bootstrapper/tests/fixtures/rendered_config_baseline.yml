@@ -335,6 +335,7 @@ services:
         max-size: 10m
     networks:
       backend-network: null
+    platform: linux/amd64
     ports:
     - mode: ingress
       host_ip: 127.0.0.1

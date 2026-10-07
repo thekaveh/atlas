@@ -30,6 +30,7 @@
 | ASSET_BAKER_SOURCE | asset-baker | disabled | Deployment mode for the Blender HP→LP bake worker. container-cpu runs deterministic Cycles-CPU bakes (GPU-optional, deferred). |
 | ASSET_BAKER_PORT | asset-baker | 63052 | Host port for the asset-baker API (in-container listen port is 8096). |
 | ASSET_BAKER_SCALE | asset-baker |  | - |
+| ASSET_BAKER_PLATFORM | asset-baker | linux/amd64 | Platform the asset-baker image is built and run for. The Blender build is x86_64-only, so arm64 hosts (Apple Silicon) run it under emulation; keep linux/amd64. |
 | ASSET_BAKER_ENDPOINT | asset-baker |  | In-network URL for the asset-baker API. |
 | ASSET_BAKER_API_TOKEN | asset-baker |  | Auto-generated bearer token required by all Asset Baker data and processing routes; /health remains unauthenticated. |
 | ASSET_BAKER_ALLOWED_INPUT_BUCKETS | asset-baker |  | Optional comma- or space-separated reference-route bucket allowlist; blank follows MINIO_BUCKET_ASSET_INPUTS. |

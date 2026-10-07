@@ -63,7 +63,7 @@ The image installs a **pinned, checksum-verified** headless Blender at build tim
 | Version | `ASSET_BAKER_BLENDER_VERSION` (default `4.3.2`) |
 | Artifact | `blender-<version>-linux-x64.tar.xz` |
 | Integrity | `ASSET_BAKER_BLENDER_SHA256` (default `4da1c956…a5592e6`), verified with `sha256sum -c` before extraction |
-| Architecture | **`linux/amd64` (x86_64) only** — Blender ships no official `linux-arm64` build; the Dockerfile fails fast with an actionable message on any other architecture (build with `--platform=linux/amd64` on Apple Silicon) |
+| Architecture | **`linux/amd64` (x86_64) only** — Blender ships no official `linux-arm64` build; the Dockerfile fails fast with an actionable message on any other architecture. The compose service pins `platform: ${ASSET_BAKER_PLATFORM:-linux/amd64}`, so an arm64 host (Apple Silicon) builds and runs it under emulation |
 | License | Blender is **GNU GPL-2.0-or-later**; it runs as a separate headless subprocess (`blender -b`), not linked into Atlas code, so it imposes no license obligation on Atlas itself |
 
 **Download source.** The canonical `download.blender.org` returns HTTP 403 to automated clients ([#505](https://github.com/thekaveh/atlas/issues/505)), so the build fetches from the official Blender **mirror network**, trying each in turn (`ftp.nluug.nl`, `mirror.clarkson.edu`, `mirrors.ocf.berkeley.edu`, `mirrors.dotsrc.org`) until one succeeds. Because the SHA-256 is verified regardless of host, the mirror is interchangeable and a single mirror outage does not break the build. A clean `docker build` therefore succeeds without any developer cache, and a build-time smoke step asserts `blender --version` matches the pinned version.
