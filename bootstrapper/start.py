@@ -6,6 +6,7 @@ Python implementation of start.sh with full feature parity.
 Cross-platform startup script for Atlas — the self-hosted engineering platform.
 """
 
+import importlib
 import re
 import sys
 import os
@@ -2855,6 +2856,30 @@ class AtlasStarter:
         )
         return True
 
+    def preflight_managed_host_processes(self) -> bool:
+        """Refuse a launch whose managed host would refuse to start (#1342).
+
+        Runs before port configuration, which stops a running stack on a warm
+        start. The checks are the ones the host start treats as fatal (host
+        preflight, untrusted pid record, a foreign listener on the port), all
+        read-only, so a failure leaves the previous containers running.
+        """
+        env = self.config_parser.parse_env_file()
+        for var, value, label, module in _MANAGED_HOST_SOURCES:
+            if (env.get(var) or "").strip() != value:
+                continue
+            factory = importlib.import_module(module).manager_from_env
+            problem = _managed_host_launch_blocker(factory, env, label)
+            if problem:
+                self.banner.show_status_message(
+                    f"Managed {label} host cannot start: {problem}. The launch "
+                    "stops here, before a warm start would stop the running "
+                    "containers.",
+                    "error",
+                )
+                return False
+        return True
+
     def start_managed_host_processes(self) -> bool:
         """Start selected native hosts immediately before Compose startup.
 
@@ -4870,6 +4895,39 @@ def _local_build_groups(
         if spec.get("build") is not None:
             groups.setdefault(spec.get("image") or name, []).append(name)
     return needed, list(groups.values())
+
+
+# Selected-source values that run a managed native host, with the module that
+# builds its manager (#1342). Order matches start_managed_host_processes.
+_MANAGED_HOST_SOURCES = (
+    ("COMFYUI_SOURCE", "managed-localhost-mps", "ComfyUI (MPS)", "services.comfyui_mps_manager"),
+    ("VLLM_METAL_SOURCE", "managed-localhost", "vLLM (Metal)", "services.vllm_metal_manager"),
+    ("BLENDER_MCP_SOURCE", "managed-localhost", "Blender MCP", "services.blender_mcp_manager"),
+)
+
+
+def _managed_host_launch_blocker(factory, env: dict, label: str) -> Optional[str]:
+    """Why the host start would refuse, or None. Read-only: nothing is
+    installed, launched or signalled."""
+    from services import legacy_pid_refusal_file, refuse_untrusted_tracked_pid
+
+    try:
+        manager = factory(env)
+        pre = manager.preflight()
+        if not pre.ok:
+            failed = [f"{c['name']}: {c['detail']}" for c in pre.checks if c["status"] == "fail"]
+            return "preflight failed: " + "; ".join(failed)
+        refuse_untrusted_tracked_pid(
+            (manager._read_pid(), manager.pid_file),
+            manager._managed_process_alive, manager._pid_is_stranger,
+            (label, RuntimeError),
+        )
+        if not manager.status().running and manager._port_in_use():
+            return f"port {manager.port} is already in use by an unmanaged process"
+    except Exception as exc:  # noqa: BLE001 - the start would fail the same way
+        # The stamp-less record from an older pin only warns at start (#990).
+        return None if legacy_pid_refusal_file(exc) is not None else str(exc)
+    return None
 
 
 def _doctor_result(

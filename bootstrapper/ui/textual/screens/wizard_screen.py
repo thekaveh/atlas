@@ -3590,6 +3590,11 @@ class WizardScreen(Screen):
              starter.reconcile_default_models),
             ("Validate source configurations",
              starter.validate_source_configurations),
+            # Before port configuration, which stops a running stack on a
+            # warm start: a managed host that would refuse to start must not
+            # cost that stack (#1342).
+            ("Preflight managed hosts",
+             starter.preflight_managed_host_processes),
             # Always clear any port env vars left over from a previous
             # session BEFORE port configuration runs, so the new
             # base-port assignments aren't shadowed by stale exports.
