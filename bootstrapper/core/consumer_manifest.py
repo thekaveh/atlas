@@ -136,6 +136,11 @@ class LitellmModel:
             # LiteLLM resolves ``os.environ/<VAR>`` at request time (same form
             # as the stack hermes-agent row). The secret VALUE never appears here.
             params["api_key"] = f"os.environ/{self.api_key_var}"
+        else:
+            # A keyless openai/* row falls back to the container's
+            # OPENAI_API_KEY, sending the operator's OpenAI key to the plugin;
+            # pin a placeholder as the managed vLLM row does.
+            params["api_key"] = "sk-noauth"
         # Ownership markers first so a consumer-supplied model_info cannot
         # override them (they are filtered out of the user block below).
         info: dict[str, Any] = {"atlas_owner": self.consumer, "atlas_managed": True}
@@ -1544,6 +1549,7 @@ N8N_CONSUMER_OVERLAY_PATH = Path("volumes/n8n/consumer-workflows.compose.yml")
 # id is prefixed with this so an upsert can never collide with a user/stack
 # workflow — Atlas owns (and may reconcile/delete) exactly the ids under it.
 N8N_SEED_ID_NAMESPACE = "atlas-consumer-"
+_N8N_MAX_WORKFLOW_ID = 36  # n8n workflow_entity.id is varchar(36)
 
 # Top-level workflow fields stripped during normalization: they carry runtime
 # state / pinned execution payloads (a secret-leak carrier) and have no place in
@@ -1649,6 +1655,13 @@ def _parse_n8n_workflows_block(
         if not _N8N_ID_RE.match(wid):
             raise ConsumerManifestError(
                 f"n8n_workflows id {wid!r} must match [a-z0-9][a-z0-9._-]* ({origin})"
+            )
+        if len(N8N_SEED_ID_NAMESPACE + wid) > _N8N_MAX_WORKFLOW_ID:
+            # n8n stores workflow_entity.id as varchar(36); a longer seed id
+            # fails the import, which the seed logs and exits 0 on.
+            raise ConsumerManifestError(
+                f"n8n_workflows id {wid!r} is too long: at most "
+                f"{_N8N_MAX_WORKFLOW_ID - len(N8N_SEED_ID_NAMESPACE)} characters ({origin})"
             )
         if wid == N8N_CONSUMER_PLAN_PATH.stem:
             # <id>.json shares the directory with plan.json, which overwrote

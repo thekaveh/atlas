@@ -121,10 +121,12 @@ def test_model_without_api_key_var_has_no_overlay(tmp_path: Path) -> None:
     )
     config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
     assert config.litellm_models_file is not None
-    # No api_key_var declared → no key injected, no overlay generated.
+    # No api_key_var declared → no key injected, no overlay generated. The
+    # row pins a placeholder: a keyless openai/* row otherwise sent the
+    # container's OPENAI_API_KEY to the plugin.
     assert config.litellm_overlay is None
     row = config.litellm_models[0].to_row()
-    assert "api_key" not in row["litellm_params"]
+    assert row["litellm_params"]["api_key"] == "sk-noauth"
 
 
 # ── multiple consumers / ordering / byte-stability ──────────────────

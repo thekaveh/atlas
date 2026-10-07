@@ -2798,3 +2798,20 @@ def test_wizard_overview_previews_a_typed_localhost_port() -> None:
     localhost = SimpleNamespace(secondary_number=SimpleNamespace(env_var="OLLAMA_LOCALHOST_PORT"))
     assert screen._typed_host_port(localhost) == "11500"
     assert screen._typed_host_port(SimpleNamespace(secondary_number=None)) == ""
+
+
+@pytest.mark.parametrize("wid,ok", [("a" * 21, True), ("a" * 22, False)])
+def test_n8n_workflow_ids_fit_n8n_id_column(tmp_path, wid, ok):
+    """n8n stores workflow ids as varchar(36); a longer atlas-consumer-<id>
+    failed the import, which the seed logs and exits 0 on, so the workflow
+    was silently missing."""
+    from core.consumer_manifest import ConsumerManifestError, _parse_n8n_workflows_block
+
+    (tmp_path / "wf.json").write_text('{"name": "w", "nodes": [], "connections": {}}', encoding="utf-8")
+    data = {"n8n_workflows": {"version": 1, "workflows": [{"id": wid, "path": "wf.json"}]}}
+    manifest = tmp_path / "atlas.consumer.yml"
+    if ok:
+        _parse_n8n_workflows_block(data, "acme", tmp_path, manifest)
+    else:
+        with pytest.raises(ConsumerManifestError, match="too long"):
+            _parse_n8n_workflows_block(data, "acme", tmp_path, manifest)
