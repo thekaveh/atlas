@@ -3154,24 +3154,9 @@ class AtlasStarter:
 
     def _reap_stray_blender_mcp(self, env: dict) -> None:
         """Stop pool instances above the configured size (#851)."""
-        from services.blender_mcp_manager import stray_pool_members
+        from services.blender_mcp_manager import manager_from_env
 
-        for manager in stray_pool_members(env):
-            try:
-                manager.stop()
-                problem = "its pid file remains" if manager.pid_file.exists() else ""
-            except Exception as exc:  # noqa: BLE001 - a stray must not block the start
-                problem = str(exc)
-            if problem:
-                self.banner.show_status_message(
-                    f"Could not stop stray Blender MCP instance {manager.pool_index}: {problem}; "
-                    "check it with `./start.sh blender-mcp status`.", "warning",
-                )
-            else:
-                self.banner.show_status_message(
-                    f"  • Stopped Blender MCP instance {manager.pool_index}: it is "
-                    "above BLENDER_MCP_INSTANCES.", "info",
-                )
+        reap_stray_blender_mcp(manager_from_env(env), self.banner.show_status_message)
 
     def _start_blender_mcp_instance(self, manager) -> bool:
         from services.blender_mcp_manager import BlenderMcpError
@@ -5104,7 +5089,9 @@ def _managed_host_pool_blocker(module, env: dict, label: str) -> Optional[str]:
     if pool_from_env is None:
         return _managed_host_launch_blocker(module.manager_from_env, env, label)
     pool = pool_from_env(env)
-    held = module.pool_held_ports(pool)
+    # Strays above the pool size are stopped before the start, so the
+    # ports they hold are not foreign either.
+    held = module.pool_held_ports(pool_from_env(env, include_strays=True))
     for member in pool:
         name = f"{label} #{member.pool_index}" if member.pool_index else label
         problem = _managed_host_launch_blocker(lambda _env, m=member: m, env, name, held)
@@ -8517,6 +8504,20 @@ def _measure(kind: str, alias: str, gateway: tuple) -> tuple:
     return probe(post, alias), None
 
 
+def _record_probe(record: dict, kind: str, outcome: str, dim) -> None:
+    """Store one outcome. ``unavailable`` measured nothing, so it never
+    replaces an earlier real verdict (a --refresh while the gateway is down);
+    a dimension is kept only beside a supported embedding."""
+    if outcome == PROBE_UNAVAILABLE and record["results"].get(kind) in (PROBE_SUPPORTED, PROBE_UNSUPPORTED):
+        return
+    record["results"][kind] = outcome
+    if kind == "embedding":
+        if dim and outcome == PROBE_SUPPORTED:
+            record["embedding_dim"] = dim
+        else:
+            record.pop("embedding_dim", None)
+
+
 def run_capability_probes(root: Path, gateway: tuple, plan: list, max_requests: int) -> int:
     """Run ``plan`` (one request per probe) against ``gateway`` =
     (base_url, key, post) and store the results. Refuses (exit 3) a plan
@@ -8530,9 +8531,7 @@ def run_capability_probes(root: Path, gateway: tuple, plan: list, max_requests: 
         for alias, kind, identity in plan:
             outcome, dim = _measure(kind, alias, gateway)
             record = store.setdefault(json.dumps(identity, sort_keys=True), {"identity": identity, "results": {}})
-            record["results"][kind] = outcome
-            if dim:
-                record["embedding_dim"] = dim
+            _record_probe(record, kind, outcome, dim)
     finally:
         if plan:
             path = root / PROBE_RESULTS_FILE
@@ -8553,7 +8552,8 @@ def report_capability_probes(root: Path, aliases, kinds) -> int:
             outcome = record.get("results", {}).get(kind, "not measured")
             fail = kind in declared and outcome == PROBE_UNSUPPORTED
             failed += fail
-            dim = f" ({record['embedding_dim']} dimensions)" if kind == "embedding" and record.get("embedding_dim") else ""
+            shown = kind == "embedding" and outcome == PROBE_SUPPORTED and record.get("embedding_dim")
+            dim = f" ({record['embedding_dim']} dimensions)" if shown else ""
             print(f"  {alias} {kind}: {outcome}{dim}{'  FAIL: declared by the catalog' if fail else ''}")
     return 1 if failed else 0
 
@@ -9224,6 +9224,26 @@ def blender_mcp_group() -> None:
     execute_code runs arbitrary Python inside Blender."""
 
 
+def reap_stray_blender_mcp(base, report) -> None:
+    """Stop the instances of ``base``'s pool above its configured size
+    (#851); ``report`` is (message, level). Shared by ./start.sh and
+    `blender-mcp start`."""
+    from services.blender_mcp_manager import stray_members
+
+    for manager in stray_members(base):
+        try:
+            manager.stop()
+            problem = "its pid file remains" if manager.pid_file.exists() else ""
+        except Exception as exc:  # noqa: BLE001 - a stray must not block the start
+            problem = str(exc)
+        if problem:
+            report(f"Could not stop stray Blender MCP instance {manager.pool_index}: {problem}; "
+                   "check it with `./start.sh blender-mcp status`.", "warning")
+        else:
+            report(f"  • Stopped Blender MCP instance {manager.pool_index}: it is "
+                   "above BLENDER_MCP_INSTANCES.", "info")
+
+
 def _blender_mcp_manager():
     starter = AtlasStarter()
     env = starter.config_parser.parse_env_file()
@@ -9275,6 +9295,7 @@ def blender_mcp_start() -> None:
     from services.blender_mcp_manager import BlenderMcpError, pool_moves, share_verified_addon
 
     pool, rows = _blender_mcp_pool(), []
+    reap_stray_blender_mcp(pool[0], lambda message, _level: print(message))
     if len(pool) > 1 and pool_moves(pool):
         # As at ./start.sh: a shifted base port can make one instance's new
         # port another's old one, so the pool restarts together.

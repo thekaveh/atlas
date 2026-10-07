@@ -2736,3 +2736,34 @@ def test_url_credentials_with_an_at_sign_are_fully_redacted() -> None:
     text = redactor.text("postgresql://postgres:Xy7@kq9Lmn2@db:5432/x")
     assert "kq9Lmn2" not in text and "Xy7" not in text
     assert text.endswith("@db:5432/x")
+
+
+def test_a_stray_instances_port_is_not_foreign_and_manual_start_reaps_it(tmp_path, monkeypatch) -> None:
+    """A pool shrunk 2→1 with its base moved onto the stray's port was refused
+    as an "unmanaged process", and `blender-mcp start` left the stray running."""
+    from types import SimpleNamespace
+
+    import start as start_module
+    from services import blender_mcp_manager as bm
+
+    env = {**_blender_pool_env(tmp_path, 1), "BLENDER_MCP_LOCALHOST_PORT": "9901"}
+    base = bm.manager_from_env(env)
+    stray = bm._pool_member(base, 1)
+    for member, pid, port in ((base, 1111, 9900), (stray, 2222, 9901)):
+        member.state_dir.mkdir(parents=True, exist_ok=True)
+        member.pid_file.write_text(f"{pid}\n")
+        member.launch_file.write_text(json.dumps({"pid": pid, "port": port, "bind": "127.0.0.1"}))
+    monkeypatch.setattr(bm.BlenderMcpManager, "preflight", lambda self: SimpleNamespace(ok=True, checks=[]))
+    monkeypatch.setattr(bm.BlenderMcpManager, "_pid_alive", staticmethod(lambda pid: True))
+    monkeypatch.setattr(bm.BlenderMcpManager, "_managed_process_alive", lambda self, pid: True)
+    monkeypatch.setattr(bm.BlenderMcpManager, "_pid_is_stranger", lambda self, pid: False)
+    monkeypatch.setattr(bm.BlenderMcpManager, "_port_in_use", lambda self: self.port in {9900, 9901})
+    assert start_module._managed_host_pool_blocker(bm, env, "Blender MCP") is None
+
+    calls = []
+    monkeypatch.setattr(start_module, "_blender_mcp_manager", lambda: bm.manager_from_env(env))
+    monkeypatch.setattr(bm.BlenderMcpManager, "stop", lambda self: calls.append(("stop", self.pool_index)) or True)
+    monkeypatch.setattr(bm.BlenderMcpManager, "ensure_running", lambda self: calls.append(("start", self.pool_index))
+                        or (SimpleNamespace(to_dict=lambda: {"running": True}), True))
+    assert CliRunner().invoke(start_module.main, ["blender-mcp", "start"]).exit_code == 0
+    assert calls[0] == ("stop", 1) and ("start", 0) in calls

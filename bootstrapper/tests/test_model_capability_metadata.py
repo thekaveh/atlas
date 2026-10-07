@@ -487,3 +487,24 @@ def test_a_stored_result_is_reused_only_for_the_same_identity():
     for field in ("model", "provider", "alias", "revision"):
         changed = {**identity, field: identity[field] + "-other"}
         assert start.plan_capability_probes([alias], ["tools"], stored(changed), refresh=False), field
+
+
+def test_an_unavailable_refresh_keeps_the_real_verdict(tmp_path, monkeypatch, capsys):
+    """`--refresh` with the gateway down overwrote a measured verdict with
+    `unavailable`, and the stale dimension was printed beside it."""
+    import start
+
+    alias = "ollama/nomic-embed-text"
+    identity = start.probe_identity(alias, start._catalog_entry(alias))
+    monkeypatch.setattr(start, "_measure", lambda kind, a, gw: ("supported", 768))
+    start.run_capability_probes(tmp_path, ("u", "k", None), [(alias, "embedding", identity)], 20)
+    monkeypatch.setattr(start, "_measure", lambda kind, a, gw: ("unavailable", None))
+    plan = start.plan_capability_probes([alias], [], start._probe_store(tmp_path), True)
+    start.run_capability_probes(tmp_path, ("u", "k", None), plan, 20)
+    start.report_capability_probes(tmp_path, [alias], [])
+    assert "embedding: supported (768 dimensions)" in capsys.readouterr().out
+    monkeypatch.setattr(start, "_measure", lambda kind, a, gw: ("unsupported", None))
+    start.run_capability_probes(tmp_path, ("u", "k", None), plan, 20)
+    start.report_capability_probes(tmp_path, [alias], [])
+    out = capsys.readouterr().out
+    assert "embedding: unsupported" in out and "dimensions" not in out
