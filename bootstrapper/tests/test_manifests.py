@@ -1733,6 +1733,10 @@ def test_prometheus_access_contract_matches_compose_and_kong_surfaces():
         "host_bind_ip": host_bind_ip.default,
         "route_hosts": kong_prometheus["routes"][0]["hosts"],
         "plugins": {plugin["name"] for plugin in kong_prometheus["plugins"]},
+        "blocked": [
+            (route["paths"], route["plugins"][0]["name"], route["plugins"][0]["config"]["status_code"])
+            for route in kong_prometheus["routes"][1:]
+        ],
         "capability": (capability.status, capability.verification),
     } == {
         "prometheus_ports": ["${HOST_BIND_IP-127.0.0.1:}${PROMETHEUS_PORT}:9090"],
@@ -1742,12 +1746,14 @@ def test_prometheus_access_contract_matches_compose_and_kong_surfaces():
         "host_bind_ip": "127.0.0.1:",
         "route_hosts": ["prometheus.localhost"],
         "plugins": {"cors"},
+        "blocked": [([r"/-(?:/|\x252[Ff])+(quit|reload)"], "request-termination", 403)],
         "capability": ("not-supported", "tested"),
     }
     _assert_text_contract(capability.note, contains=(
         "direct PROMETHEUS_PORT, NODE_EXPORTER_PORT, and CADVISOR_PORT publishes have no authentication",
         "CORS-only Kong prometheus.localhost route has no authentication",
         "--web.enable-lifecycle is enabled",
+        "Kong answers 403 to /-/quit and /-/reload",
         "default HOST_BIND_IP=127.0.0.1: keeps direct ports loopback-bound",
         "HOST_BIND_IP=127.0.0.1:",
         "firewall or remove the direct ports",

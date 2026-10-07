@@ -57,6 +57,15 @@ def _basic_auth_hosts(services: list[Dict[str, Any]]) -> frozenset[str]:
 
 
 
+# A path separator as Kong sees it: Kong keeps an encoded slash, and Go
+# upstreams (Prometheus, MinIO) decode it back to '/' before routing, so a
+# blocked path must match either form (#1386). '%' is written \x25 because
+# Kong rejects a raw '%' that is not valid percent-encoding in a route path.
+# No '~' prefix: this file is _format_version 2.1, where Kong recognises a
+# regex path by its characters (as the root dashboard's '/$').
+_ANY_SLASH = r'(?:/|\x252[Ff])+'
+
+
 # Kong rejects the whole declarative config above this (2^31 - 2 ms).
 _KONG_MAX_TIMEOUT_MS = 2**31 - 2
 
@@ -1530,7 +1539,17 @@ class KongConfigGenerator:
                     'strip_path': False,
                     'preserve_host': True,
                     'hosts': ['s3.minio.localhost']
-                }
+                },
+                # MINIO_PROMETHEUS_AUTH_TYPE=public lets Prometheus scrape
+                # minio:9000 on the internal network; through Kong the same
+                # metrics would be open to any local page (#1386).
+                self._blocked_paths_route(
+                    'minio-s3-metrics-blocked', 's3.minio.localhost',
+                    # v2 (/minio/v2/metrics/*), v3 (/minio/metrics/v3/*) and
+                    # the legacy /minio/prometheus/metrics all honour it.
+                    [rf'/minio{_ANY_SLASH}(?:v[23]{_ANY_SLASH}metrics|metrics{_ANY_SLASH}v3'
+                     rf'|prometheus{_ANY_SLASH}metrics)'],
+                ),
             ],
             'plugins': [{'name': 'cors'}]
         }
@@ -1676,8 +1695,32 @@ class KongConfigGenerator:
             ],
         }
 
+    @staticmethod
+    def _blocked_paths_route(name: str, host: str, paths: List[str]) -> Dict[str, Any]:
+        """A route that answers 403 for ``paths`` on ``host`` without reaching
+        the upstream. Host plus path outranks the host-only alias route (#1386)."""
+        return {
+            'name': name,
+            'strip_path': False,
+            'hosts': [host],
+            'paths': list(paths),
+            'plugins': [{
+                'name': 'request-termination',
+                'config': {'status_code': 403,
+                           'message': 'Blocked at the gateway; use the internal network.'},
+            }],
+        }
+
     def generate_prometheus_service(self) -> Optional[Dict[str, Any]]:
-        return self._generate_simple_container_route(*self._SIMPLE_CONTAINER_ROUTES[0])
+        service = self._generate_simple_container_route(*self._SIMPLE_CONTAINER_ROUTES[0])
+        if service is not None:
+            # --web.enable-lifecycle stays on for operators on the direct port;
+            # through Kong any page could POST /-/quit cross-site.
+            service['routes'].append(self._blocked_paths_route(
+                'prometheus-lifecycle-blocked', 'prometheus.localhost',
+                [rf'/-{_ANY_SLASH}(quit|reload)'],
+            ))
+        return service
 
     def generate_spark_master_service(self) -> Optional[Dict[str, Any]]:
         return self._generate_simple_container_route(*self._SIMPLE_CONTAINER_ROUTES[1])
