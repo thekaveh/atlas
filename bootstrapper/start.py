@@ -399,6 +399,23 @@ def _manifest_source_vars(consumer_config) -> set[str]:
     return {var for var, value in declared.items() if var.endswith("_SOURCE") and value}
 
 
+def _env_user_source_vars(starter) -> set[str]:
+    """``*_SOURCE`` keys this run's ``.env.user`` / ATLAS_ENV_USER_FILE set."""
+    return {key for key in getattr(starter, "_env_user_keys", None) or () if key.endswith("_SOURCE")}
+
+
+def _declared_sources(values: dict) -> dict:
+    """The ``*_SOURCE`` entries of a consumer manifest's env, which the auto
+    port probe must see before they reach .env (#1391)."""
+    return {key: value for key, value in values.items() if key.endswith("_SOURCE") and value}
+
+
+def _cli_source_overrides(params: dict) -> dict:
+    """``--<svc>-source`` values given this run, keyed by env var."""
+    return {name.upper(): value for name, value in params.items()
+            if name.endswith("_source") and value is not None}
+
+
 def _operator_env_keys(starter, consumer_config) -> set[str]:
     """Keys an operator pinned this run: ``.env.user`` overlay + manifest env."""
     keys = set(getattr(starter, "_env_user_keys", None) or ())
@@ -725,6 +742,9 @@ class AtlasStarter:
         # Consumer manifest env.values beat the profile, as they beat the
         # track (#783): CLI flag > manifest > profile.
         explicit_vars.update(_manifest_source_vars(consumer_config))
+        # A *_SOURCE pinned in .env.user / ATLAS_ENV_USER_FILE wins too; the
+        # overlay only guarded the profile's env, not its sources (#1391).
+        explicit_vars.update(_env_user_source_vars(self))
         for legacy_service, legacy_value in (
             ("prometheus", explicit_prometheus),
             ("grafana", explicit_grafana),
@@ -1049,7 +1069,7 @@ class AtlasStarter:
     def _parse_env_overlay_file(self, overlay_path: Path) -> Dict[str, str]:
         """Parse a user env overlay with the same line semantics as .env."""
         env_vars: Dict[str, str] = {}
-        with open(overlay_path, "r", encoding="utf-8") as f:
+        with open(overlay_path, "r", encoding="utf-8-sig") as f:  # BOM-tolerant (#1391)
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#") or "=" not in line:
@@ -1360,7 +1380,9 @@ class AtlasStarter:
             #   block free                     → keep (durable, incl. cold)
             #   occupied + our containers up   → keep (warm restart)
             #   occupied + no containers of ours → FOREIGN stack: re-resolve
-            in_use = self.port_manager.check_port_range_availability(current_int)
+            in_use = self.port_manager.check_port_range_availability(
+                current_int, _declared_sources(overrides)
+            )
             if not in_use or self._project_has_running_containers(overrides):
                 resolved = current_int  # durable: keep this consumer's block
             else:
@@ -1370,7 +1392,7 @@ class AtlasStarter:
                     f"(the prior block was not ours to keep).",
                     "warning",
                 )
-                resolved = self.port_manager.auto_base_port()
+                resolved = self.port_manager.auto_base_port(source_overrides=_declared_sources(overrides))
                 if resolved is None:
                     self.banner.show_status_message(
                         "BASE_PORT=auto could not find a free port block; keeping "
@@ -1379,7 +1401,7 @@ class AtlasStarter:
                     )
                     resolved = current_int
         else:
-            resolved = self.port_manager.auto_base_port()
+            resolved = self.port_manager.auto_base_port(source_overrides=_declared_sources(overrides))
             if resolved is None:
                 self.banner.show_status_message(
                     "BASE_PORT=auto could not find a free port block; using the "
@@ -1568,6 +1590,20 @@ class AtlasStarter:
             return False
         return True
 
+    def _strip_env_byte_order_mark(self) -> None:
+        """Drop a UTF-8 byte-order mark from .env before any writer runs: the
+        reader ignores it, but the writers' line patterns did not match the
+        first key behind it (#1391)."""
+        path = getattr(self.config_parser, "env_file_path", None)
+        try:
+            data = path.read_bytes() if path is not None else b""
+        except OSError:
+            return
+        if data.startswith(b"\xef\xbb\xbf"):
+            from utils.atomic_write import atomic_write_text
+
+            atomic_write_text(path, data[3:].decode("utf-8"), mode=path.stat().st_mode & 0o777)
+
     def prepare_environment(
         self,
         cold_start: bool,
@@ -1575,6 +1611,7 @@ class AtlasStarter:
         project_name: Optional[str] = None,
     ) -> bool:
         """Clean a cold project before replacing its credential-bearing env file."""
+        self._strip_env_byte_order_mark()
         if cold_start:
             # A fresh clone has no env file for Compose interpolation, and no
             # existing credentials to preserve. Materialize it first. Existing
@@ -5763,7 +5800,7 @@ def _doctor_check_rag_ingestion_profiles(starter: "AtlasStarter") -> dict:
     parser/chunker/target schema, collection collisions); a parse failure surfaces
     as a fail here. This check adds an operational signal: a profile whose vector
     or graph target has ``on_unavailable: fail`` but whose backend endpoint is
-    unset in .env will hard-fail that ingestion at runtime — surface it now.
+    disabled by its SOURCE will hard-fail that ingestion at runtime — surface it now.
     """
     try:
         config = starter.config_parser.load_consumer_config()
@@ -5781,20 +5818,22 @@ def _doctor_check_rag_ingestion_profiles(starter: "AtlasStarter") -> dict:
         )
 
     env_values = starter.config_parser.parse_env_file()
-    # Endpoint env var that gates each target backend (empty = disabled).
-    endpoint_var = {"weaviate": "WEAVIATE_URL", "lightrag": "LIGHTRAG_ENDPOINT"}
+    # SOURCE var that gates each target backend. Its endpoint (WEAVIATE_URL,
+    # LIGHTRAG_ENDPOINT) is only written by a start, so a fresh .env with the
+    # backend enabled read as disabled (#1391).
+    source_var = {"weaviate": "WEAVIATE_SOURCE", "lightrag": "LIGHTRAG_SOURCE"}
     warnings: list[str] = []
     for profile in config.rag_ingestion_profiles:
         targets = [
             (t.backend, t.on_unavailable) for t in profile.vector_targets
         ] + [(t.backend, t.on_unavailable) for t in profile.graph_targets]
         for backend, on_unavailable in targets:
-            var = endpoint_var.get(backend)
-            enabled = bool(env_values.get(var, "").strip()) if var else True
+            var = source_var.get(backend)
+            enabled = _source_enabled(env_values, var) if var else True
             if on_unavailable == "fail" and not enabled:
                 warnings.append(
                     f"profile {profile.name!r} target {backend} is on_unavailable=fail "
-                    f"but {var} is unset — ingestion will hard-fail until it is enabled."
+                    f"but {var} is disabled — ingestion will hard-fail until it is enabled."
                 )
 
     names = [p.name for p in config.rag_ingestion_profiles]
@@ -5814,6 +5853,11 @@ def _doctor_check_rag_ingestion_profiles(starter: "AtlasStarter") -> dict:
     )
 
 
+def _source_enabled(env_values: dict, source_var: str) -> bool:
+    """Whether ``source_var`` runs its service (anything but disabled/empty)."""
+    return (env_values.get(source_var) or "").strip().lower() not in ("", "disabled")
+
+
 def _doctor_check_lightrag_query_profiles(starter: "AtlasStarter") -> dict:
     """Validate consumer-declared LightRAG query profiles to register (#414).
 
@@ -5821,7 +5865,7 @@ def _doctor_check_lightrag_query_profiles(starter: "AtlasStarter") -> dict:
     mode, bounded positive integers, rerank rejection, alias contract); a parse
     failure surfaces as a fail here. This check adds an operational signal: a
     profile can only be *served* when LightRAG itself is reachable, so warn when
-    profiles are declared but ``LIGHTRAG_ENDPOINT`` is unset (the registry mounts
+    profiles are declared but ``LIGHTRAG_SOURCE`` is disabled (the registry mounts
     fine, but every flavor would 5xx at query time until LightRAG is enabled).
     """
     try:
@@ -5845,13 +5889,12 @@ def _doctor_check_lightrag_query_profiles(starter: "AtlasStarter") -> dict:
         {p.litellm_alias for p in config.lightrag_query_profiles if p.litellm_alias}
     )
     env_values = starter.config_parser.parse_env_file()
-    lightrag_enabled = bool(env_values.get("LIGHTRAG_ENDPOINT", "").strip())
-    if not lightrag_enabled:
+    if not _source_enabled(env_values, "LIGHTRAG_SOURCE"):
         return _doctor_result(
             "lightrag-query-profiles",
             "warn",
-            f"{len(names)} LightRAG query profile(s) declared but LIGHTRAG_ENDPOINT is "
-            f"unset — the registry mounts but flavors cannot be served until LightRAG "
+            f"{len(names)} LightRAG query profile(s) declared but LIGHTRAG_SOURCE is "
+            f"disabled — the registry mounts but flavors cannot be served until LightRAG "
             f"is enabled.",
             details={"profiles": names, "owners": owners, "aliases": aliases},
         )
@@ -7259,7 +7302,11 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
     # so a submodule consumer can't silently squat the port a bare atlas binds.
     if base_port == "auto":
         from core.port_manager import PortManager
-        chosen = PortManager().auto_base_port()
+        # The run's --<svc>-source flags are not in .env yet; probe with them
+        # so a service they enable is checked and one they disable is not (#1391).
+        chosen = PortManager().auto_base_port(
+            source_overrides=_cli_source_overrides(ctx.params)
+        )
         if chosen is None:
             click.echo(
                 "start.sh: --base-port auto could not find a wholly-free port "

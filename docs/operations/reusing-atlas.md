@@ -224,7 +224,13 @@ warns if a non-default project is left on it). Three ways, in order of preferenc
   specific, identical port on every host.
 - **`--base-port auto` at launch** — the one-off form: resolves a free block
   **fresh** each time it's passed (good for a quick relocation; for a durable pin
-  prefer the manifest `auto` above).
+  prefer the manifest `auto` above). Ports of a disabled service are not
+  probed. The probe applies this run's `--<svc>-source` flags, a manifest's
+  declared `*_SOURCE` values (for `BASE_PORT: auto`) and the wizard's source
+  answers, but not a profile's sources (#1391).
+  Candidate blocks are 100 ports apart, the highest port offset in use plus one;
+  the `apps` slot band reserves offsets up to 109 for future services, and
+  keeping the step at 100 leaves existing auto blocks where they are (#1391).
 
 **4. Startup ordering.** Run the preflights, then launch — each step guards the
 next:
@@ -1103,7 +1109,7 @@ lightrag_query_profiles:
       litellm_alias: graph-rag-local-wide      # optional: surface this flavor as a LiteLLM model
 ```
 
-On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it into a stable **`revision`**, writes the gitignored `volumes/backend/lightrag-query-profiles.json`, and generates a compose overlay that bind-mounts that file into the backend at `/atlas-consumer-config/lightrag-query-profiles.json` (the same reserved contract directory as §6.3.4) and sets `LIGHTRAG_QUERY_PROFILES_FILE` to it. A backend plugin reads the registry to resolve a flavor by name; `./start.sh doctor` reports the registered profiles (and warns when profiles are declared but `LIGHTRAG_ENDPOINT` is unset, so flavors can't yet be served).
+On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it into a stable **`revision`**, writes the gitignored `volumes/backend/lightrag-query-profiles.json`, and generates a compose overlay that bind-mounts that file into the backend at `/atlas-consumer-config/lightrag-query-profiles.json` (the same reserved contract directory as §6.3.4) and sets `LIGHTRAG_QUERY_PROFILES_FILE` to it. A backend plugin reads the registry to resolve a flavor by name; `./start.sh doctor` reports the registered profiles (and warns when profiles are declared but `LIGHTRAG_SOURCE` is disabled, so flavors can't yet be served).
 
 **How this differs from role-specific model settings.** The `LIGHTRAG_EXTRACT_*` / `LIGHTRAG_KEYWORD_*` / `LIGHTRAG_QUERY_*` env vars pick **which model runs each LightRAG role** for the single deployment-wide default — one active configuration at a time. A query profile is a **named, per-query flavor** you select at call time; many coexist, so you can compare modes/retrieval bounds across the same corpus without editing Atlas-tracked env. Profiles never replace those env defaults — they layer on top of them (see precedence below).
 

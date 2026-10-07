@@ -106,6 +106,13 @@ def _assignment_pattern(var: str) -> str:
     )
 
 
+def _with_source_overrides(sources: Optional[dict], overrides: Optional[dict]) -> dict:
+    """``.env``'s sources with this run's overrides applied. Keys may come as
+    env vars or as ``--<svc>-source`` parameter names (#1391)."""
+    applied = {key.upper(): value for key, value in (overrides or {}).items() if value}
+    return {**(sources or {}), **applied}
+
+
 class PortManager:
     """Manages port validation and assignment for Atlas services."""
 
@@ -220,18 +227,23 @@ class PortManager:
                 return ""
         return (raw or "").strip().rstrip(":").strip("[]")
 
-    def check_port_range_availability(self, base_port: int) -> List[int]:
+    def check_port_range_availability(
+        self, base_port: int, source_overrides: Optional[dict] = None
+    ) -> List[int]:
         """
         Check availability of all ports in the range starting from base_port.
 
         Args:
             base_port: Starting port number
+            source_overrides: ``*_SOURCE`` values this run applies over `.env`
+                (``--<svc>-source`` flags), so a service the run enables is
+                probed and one it disables is not (#1391)
 
         Returns:
             list: List of ports that are in use
         """
         used_ports = []
-        skip = self._disabled_port_vars()
+        skip = self._disabled_port_vars(source_overrides)
 
         for port_var, port in self.port_defaults_for(base_port).items():
             if port_var in skip:
@@ -333,7 +345,7 @@ class PortManager:
 
         return conflicts
 
-    def _disabled_port_vars(self) -> set:
+    def _disabled_port_vars(self, source_overrides: Optional[dict] = None) -> set:
         """Port vars owned by services this `.env` has set to `disabled`.
 
         Nothing will ever bind them, so a foreign process sitting on one must
@@ -351,6 +363,7 @@ class PortManager:
             sources = self.config_parser.parse_service_sources()
         except Exception:  # noqa: BLE001 — unreadable .env: probe everything
             return set()
+        sources = _with_source_overrides(sources, source_overrides)
         if not sources:
             return set()
         try:
@@ -414,7 +427,10 @@ class PortManager:
 
         return None
 
-    def auto_base_port(self, start_from: int = 20000, max_attempts: int = 200) -> Optional[int]:
+    def auto_base_port(
+        self, start_from: int = 20000, max_attempts: int = 200,
+        source_overrides: Optional[dict] = None,
+    ) -> Optional[int]:
         """Find the first wholly-free BASE_PORT block for ``--base-port auto``.
 
         Steps by the topology's full port span (``max offset + 1``) so candidate
@@ -439,6 +455,6 @@ class PortManager:
                 continue
             if not self.validate_base_port(candidate):
                 continue
-            if not self.check_port_range_availability(candidate):
+            if not self.check_port_range_availability(candidate, source_overrides):
                 return candidate
         return None

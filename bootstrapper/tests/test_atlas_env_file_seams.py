@@ -265,3 +265,13 @@ def test_set_env_assignment_appends_only_when_the_key_is_absent():
     assert set_env_assignment("A=1", "B", "2") == "A=1\nB=2\n"
     assert set_env_assignment("  export B = 1\n# B=0\n", "B", "2") == "  export B=2\n# B=0\n"
     assert set_env_assignment("B=1\nexport B=9\n", "B", "2") == "B=2\nexport B=2\n"
+
+
+def test_a_byte_order_mark_does_not_rename_the_first_key(tmp_path, monkeypatch):
+    """`\\ufeffPROJECT_NAME` used to be the first key's name (#1391)."""
+    monkeypatch.delenv("ATLAS_ENV_FILE", raising=False)
+    (tmp_path / ".env").write_bytes("﻿PROJECT_NAME=atlas\nBASE_PORT=63000\n".encode("utf-8"))
+
+    env = ConfigParser(str(tmp_path)).parse_env_file()
+
+    assert list(env) == ["PROJECT_NAME", "BASE_PORT"]

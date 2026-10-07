@@ -497,3 +497,17 @@ def test_first_noop_default_start_still_records_the_applied_marker(tmp_path):
     s = _make_starter(tmp_path, "HOST_BIND_IP=127.0.0.1:\n")
     assert s.apply_profile_overrides("default") is True
     assert _env(tmp_path)["ATLAS_PROFILE_APPLIED"] == "default"
+
+
+def test_an_env_user_source_pin_survives_the_prod_profile(tmp_path, monkeypatch):
+    """prod asserts prometheus: container; a PROMETHEUS_SOURCE pinned in
+    .env.user used to be overwritten (#1391)."""
+    s = _make_starter(tmp_path, "HOST_BIND_IP=\nPROMETHEUS_SOURCE=container\n")
+    (tmp_path / ".env.user").write_text("PROMETHEUS_SOURCE=disabled\n", encoding="utf-8")
+    monkeypatch.setattr(
+        s.config_parser, "load_consumer_config",
+        lambda: NS(profile="prod", profile_overrides={}, env_overrides={}),
+    )
+    assert s.setup_env_file(cold_start=False) is True
+    assert s.apply_profile_overrides("prod") is True
+    assert _env(tmp_path)["PROMETHEUS_SOURCE"] == "disabled"
