@@ -227,6 +227,30 @@ against Ragas metrics (`faithfulness`, `answer_relevancy`, `context_precision`,
 full request/response schema is served at the backend's `/docs` (Swagger)
 endpoint.
 
+Chunking and evaluation run on a Backend pool of their own, so a burst of slow
+evaluations cannot stall job-status, ingestion or other thread-backed routes
+(#1354):
+
+```bash
+BACKEND_HEAVY_WORK_CONCURRENCY=4         # jobs at once; further calls get 503 + Retry-After
+BACKEND_HEAVY_WORK_TIMEOUT_SECONDS=600   # wait per call, then 504; the slot frees when the job ends
+```
+
+Status codes for both routes: `400` for invalid input (including a tokenizer
+or evaluator model the caller named that cannot be loaded), `502` with a fixed
+detail (`Chunking failed`, `RAG evaluation failed`) when the chunker or the
+LiteLLM-backed evaluator fails (the cause is logged, not returned), `503` for a
+missing dependency or a full pool, and `504` past the deadline. `GET /workflows`
+returns `503` when n8n is unreachable and `502` when n8n answers with an error.
+`POST /research/{session_id}/cancel` returns `404` for an unknown or foreign
+session and `409` for one that is not running (both were `400`). A RAG
+ingestion task whose Redis store answers with an error reply that will not
+change (for example `WRONGTYPE`) fails without retrying. Other Redis failures,
+including the replies Redis sends while it recovers (`READONLY`, `OOM`), retry
+with full-jitter backoff capped at 600 s, at most 20 times (about an hour on
+average). When the failure happens after the job record was read, the record ends
+`failed` rather than waiting for a retry that will not come.
+
 ## 4. Architecture & wiring
 
 **Request flow (typical Open WebUI ↔ backend ↔ LiteLLM ↔ Ollama):**
