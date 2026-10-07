@@ -103,6 +103,7 @@ volumes/api/kong-dynamic.yml
 volumes/locks/
 volumes/litellm/config.yaml
 volumes/litellm/consumer-models.yaml
+volumes/litellm/capability-probes.json
 volumes/litellm/*.yml
 volumes/minio/consumer-storage.compose.yml
 volumes/n8n/consumer-workflows/

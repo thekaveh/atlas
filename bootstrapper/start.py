@@ -8239,6 +8239,268 @@ def _bundled_doctor_checks(starter: "AtlasStarter", bundle_path, include_unliste
     return options, sb.run_checks(DOCTOR_CHECKS, starter, options.limits)
 
 
+# ─── model capability probes (#1195) ─────────────────────────────────
+#
+# Catalog capabilities are declarations. These opt-in probes send one fixed
+# request per capability through the LiteLLM gateway and judge a concrete
+# expected answer. Nothing here runs during ./start.sh, and a result never
+# changes model selection: it is reported and stored, nothing more.
+
+PROBE_SUPPORTED, PROBE_UNSUPPORTED, PROBE_UNAVAILABLE = "supported", "unsupported", "unavailable"
+# Probe kind -> the catalog capability it measures.
+PROBE_CAPABILITIES = {"tools": "tools", "json": "structured_output", "vision": "vision", "embedding": "embedding"}
+PROBE_RESULTS_FILE = Path("volumes") / "litellm" / "capability-probes.json"
+# A 32x32 red square: some vision encoders reject images under 28 px.
+_RED_SQUARE_PNG = (
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAJ0lEQVR42u3NsQkA"
+    "AAjAsP7/tF7hIASyp6lTCQQCgUAgEAgEgi/BAjLD/C5w/SM9AAAAAElFTkSuQmCC"
+)
+_UTC_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "get_utc_time",
+        "description": "Return the current UTC time.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
+
+def gateway_post(base_url: str, key: str):
+    """``post(path, body) -> (status | None, payload)`` against LiteLLM;
+    None when the gateway cannot be reached."""
+    import requests  # noqa: PLC0415
+
+    def post(path: str, body: dict):
+        try:
+            response = requests.post(
+                f"{base_url.rstrip('/')}{path}", json=body,
+                headers={"Authorization": f"Bearer {key}"}, timeout=120,
+            )
+        except requests.RequestException:
+            return None, {}
+        try:
+            return response.status_code, response.json()
+        except ValueError:
+            return response.status_code, {}
+
+    return post
+
+
+# Statuses that say nothing about the model's capability: a wrong key, an
+# alias the gateway does not serve, a timeout, a rate limit.
+_PROBE_INCONCLUSIVE_STATUSES = {401, 403, 404, 408, 429}
+
+
+def probe_status_outcome(status) -> "str | None":
+    """The outcome an HTTP status already decides, or None to read the reply."""
+    if status is None or status >= 500 or status in _PROBE_INCONCLUSIVE_STATUSES:
+        return PROBE_UNAVAILABLE
+    return PROBE_UNSUPPORTED if status >= 400 else None
+
+
+def _probe_message(post, body: dict):
+    """(outcome the HTTP status already decides, or None; the reply message)."""
+    status, payload = post("/chat/completions", body)
+    verdict = probe_status_outcome(status)
+    if verdict or not isinstance(payload, dict):
+        return verdict or PROBE_UNSUPPORTED, {}
+    choices = payload.get("choices") or [{}]
+    message = choices[0].get("message") if isinstance(choices[0], dict) else None
+    return None, message if isinstance(message, dict) else {}
+
+
+def _reply_text(message: dict) -> str:
+    """The reply as text, without a reasoning block or a code fence."""
+    content = message.get("content") or ""
+    if isinstance(content, list):  # content parts
+        content = " ".join(str(part.get("text", "")) for part in content if isinstance(part, dict))
+    content = re.sub(r"<think>.*?</think>", "", str(content), flags=re.S)
+    return re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", content.strip())
+
+
+def probe_tools(post, model: str) -> str:
+    """Supported only when the model calls the offered tool."""
+    verdict, message = _probe_message(post, {
+        "model": model, "tools": [_UTC_TOOL],
+        "messages": [{"role": "user", "content": "What time is it in UTC? Use the get_utc_time tool."}],
+    })
+    names = [(call.get("function") or {}).get("name") for call in message.get("tool_calls") or []]
+    return verdict or (PROBE_SUPPORTED if "get_utc_time" in names else PROBE_UNSUPPORTED)
+
+
+def probe_json(post, model: str) -> str:
+    """Supported only when the reply is a JSON object with answer 4."""
+    verdict, message = _probe_message(post, {
+        "model": model, "response_format": {"type": "json_object"},
+        "messages": [{"role": "user", "content": 'What is 2+2? Reply only with the JSON object {"answer": <number>}.'}],
+    })
+    try:
+        parsed = json.loads(_reply_text(message))
+        answered = isinstance(parsed, dict) and float(parsed.get("answer")) == 4
+    except (TypeError, ValueError):
+        answered = False
+    return verdict or (PROBE_SUPPORTED if answered else PROBE_UNSUPPORTED)
+
+
+def probe_vision(post, model: str) -> str:
+    """Supported only when the model names the colour of a red square."""
+    verdict, message = _probe_message(post, {"model": model, "messages": [{"role": "user", "content": [
+        {"type": "text", "text": "What single colour fills this image? Answer with one word."},
+        {"type": "image_url", "image_url": {"url": _RED_SQUARE_PNG}},
+    ]}]})
+    seen = re.search(r"\bred\b", _reply_text(message).lower()) is not None
+    return verdict or (PROBE_SUPPORTED if seen else PROBE_UNSUPPORTED)
+
+
+def _shared_embedding_probe():
+    """lightrag-init's embedding probe, the one implementation (#1195)."""
+    import importlib.util  # noqa: PLC0415
+
+    path = Path(__file__).resolve().parents[1] / "services/lightrag/init/scripts/resolve-models.py"
+    spec = importlib.util.spec_from_file_location("lightrag_resolve_models_probe", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.probe_embedding_dim
+
+
+def _catalog_entry(alias: str):
+    """The catalog entry a gateway alias names (``ollama/<n>`` or a bare name)."""
+    from utils import llm_catalog  # noqa: PLC0415
+    from utils.cloud_providers import CLOUD_PROVIDERS  # noqa: PLC0415
+
+    entries = [*llm_catalog.ollama_entries(), *(e for p in CLOUD_PROVIDERS for e in llm_catalog.cloud_entries(p.key))]
+    return next((e for e in entries if alias in (e.name, f"{e.provider}/{e.name}")), None)
+
+
+def probe_identity(alias: str, entry) -> dict:
+    """What a stored result was measured on: model, provider, gateway alias and
+    catalog revision. A result is reused only for an identical identity."""
+    import dataclasses  # noqa: PLC0415
+    import hashlib  # noqa: PLC0415
+
+    revision = "uncataloged"
+    if entry is not None:
+        row = json.dumps(dataclasses.asdict(entry), sort_keys=True, default=str)
+        revision = hashlib.sha256(row.encode()).hexdigest()[:12]
+    return {
+        "model": entry.name if entry else alias, "provider": entry.provider if entry else "unknown",
+        "alias": alias, "revision": revision,
+    }
+
+
+def _probe_store(root: Path) -> dict:
+    try:
+        return json.loads((root / PROBE_RESULTS_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _declared_kinds(entry) -> list[str]:
+    capabilities = getattr(entry, "capabilities", None) or {}
+    return [kind for kind, capability in PROBE_CAPABILITIES.items() if capabilities.get(capability)]
+
+
+def plan_capability_probes(aliases, kinds, store: dict, refresh: bool) -> list[tuple]:
+    """(alias, kind, identity) still to measure: every requested kind, or the
+    capabilities the catalog declares, minus results stored for the same
+    identity unless ``refresh``."""
+    plan = []
+    for alias in aliases:
+        entry = _catalog_entry(alias)
+        identity = probe_identity(alias, entry)
+        stored = store.get(json.dumps(identity, sort_keys=True), {}).get("results", {})
+        if not kinds and entry is None:
+            print(f"  {alias}: not in the catalog, so nothing is declared; pass --kind to probe it")
+        for kind in kinds or _declared_kinds(entry):
+            # `unavailable` measured nothing, so it is never reused.
+            if refresh or stored.get(kind, PROBE_UNAVAILABLE) == PROBE_UNAVAILABLE:
+                plan.append((alias, kind, identity))
+    return plan
+
+
+def _measure(kind: str, alias: str, gateway: tuple) -> tuple:
+    """(outcome, embedding dimension or None) for one probe."""
+    base_url, key, post = gateway
+    if kind == "embedding":
+        return _shared_embedding_probe()(base_url, key, alias)
+    probe = {"tools": probe_tools, "json": probe_json, "vision": probe_vision}[kind]
+    return probe(post, alias), None
+
+
+def run_capability_probes(root: Path, gateway: tuple, plan: list, max_requests: int) -> int:
+    """Run ``plan`` (one request per probe) against ``gateway`` =
+    (base_url, key, post) and store the results. Refuses (exit 3) a plan
+    larger than ``max_requests``: probes against a cloud model are billed."""
+    print(f"Capability probes: {len(plan)} request(s) through {gateway[0]} (cap {max_requests}).")
+    if len(plan) > max_requests:
+        print(f"Refusing: {len(plan)} requests exceed --max-requests {max_requests}.")
+        return 3
+    store = _probe_store(root)
+    try:
+        for alias, kind, identity in plan:
+            outcome, dim = _measure(kind, alias, gateway)
+            record = store.setdefault(json.dumps(identity, sort_keys=True), {"identity": identity, "results": {}})
+            record["results"][kind] = outcome
+            if dim:
+                record["embedding_dim"] = dim
+    finally:
+        if plan:
+            path = root / PROBE_RESULTS_FILE
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(store, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return 0
+
+
+def report_capability_probes(root: Path, aliases, kinds) -> int:
+    """Print every stored result for ``aliases`` (measured now or earlier);
+    1 when a capability the catalog declares measured unsupported."""
+    store, failed = _probe_store(root), 0
+    for alias in aliases:
+        entry = _catalog_entry(alias)
+        record = store.get(json.dumps(probe_identity(alias, entry), sort_keys=True), {})
+        declared = _declared_kinds(entry)
+        for kind in kinds or declared:
+            outcome = record.get("results", {}).get(kind, "not measured")
+            fail = kind in declared and outcome == PROBE_UNSUPPORTED
+            failed += fail
+            dim = f" ({record['embedding_dim']} dimensions)" if kind == "embedding" and record.get("embedding_dim") else ""
+            print(f"  {alias} {kind}: {outcome}{dim}{'  FAIL: declared by the catalog' if fail else ''}")
+    return 1 if failed else 0
+
+
+@main.group("models")
+def models_group() -> None:
+    """Model commands: opt-in capability probes (#1195)."""
+
+
+@models_group.command("probe")
+@click.option("--model", "models", multiple=True,
+              help="Gateway model to probe (repeatable). Default: the configured default chat, vision and embedding models.")
+@click.option("--kind", "kinds", multiple=True, type=click.Choice(sorted(PROBE_CAPABILITIES)),
+              help="Capability to probe (repeatable). Default: what the catalog declares for the model.")
+@click.option("--max-requests", default=20, show_default=True, type=click.IntRange(min=1),
+              help="Refuse a run that needs more requests; probes against cloud models are billed.")
+@click.option("--refresh", is_flag=True, help="Measure again even when a stored result matches.")
+def models_probe_command(models, kinds, max_requests: int, refresh: bool) -> None:
+    """Measure tool calling, JSON output, vision and embedding dimension end to
+    end through LiteLLM. Results are stored in volumes/litellm/capability-probes.json
+    and never change model selection."""
+    starter = AtlasStarter()
+    env = starter.config_parser.parse_env_file()
+    aliases = list(dict.fromkeys(models or [
+        env.get(key, "").strip() for key in ("LITELLM_DEFAULT_MODEL", "LITELLM_VISION_MODEL", "LITELLM_EMBEDDING_MODEL")
+        if env.get(key, "").strip()
+    ]))
+    # LiteLLM publishes on HOST_BIND_IP (127.0.0.1 unless set) and LITELLM_PORT.
+    host = (env.get("HOST_BIND_IP") or "127.0.0.1:").rstrip(":") or "127.0.0.1"
+    base_url = f"http://{host}:{env.get('LITELLM_PORT', '')}/v1"
+    key = env.get("LITELLM_MASTER_KEY", "")
+    root = Path(starter.config_parser.root_dir)
+    plan = plan_capability_probes(aliases, list(kinds), _probe_store(root), refresh)
+    refused = run_capability_probes(root, (base_url, key, gateway_post(base_url, key)), plan, max_requests)
+    sys.exit(refused or report_capability_probes(root, aliases, list(kinds)))
+
+
 @main.group("endpoints")
 def endpoints_group() -> None:
     """Consumer endpoint export commands (stable machine-readable contract)."""
