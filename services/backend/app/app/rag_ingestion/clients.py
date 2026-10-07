@@ -464,7 +464,9 @@ class ParserAdapter:
         return self._extractor
 
     async def parse(self, file: CorpusFile, parser_order: List[str]) -> ParsedDocument:
-        last_error: Optional[Exception] = None
+        # Every parser's reason, not only the last one: a Docling/Tika size
+        # limit used to surface as plain_text's "not text".
+        errors: List[str] = []
         for parser in parser_order:
             try:
                 if parser == "plain_text":
@@ -485,15 +487,15 @@ class ParserAdapter:
                         text = result.get("content")
                     if text:
                         return ParsedDocument(name=file.name, text=str(text), parser=parser)
-                    last_error = ParserError(f"{parser} returned empty content", service=parser)
+                    errors.append(f"{parser}: returned empty content")
                     continue
                 # crawl4ai and any future parser: not wired yet → fall through.
-                last_error = ParserError(f"parser {parser!r} not available", service=parser)
+                errors.append(f"{parser}: not available")
             except Exception as exc:  # noqa: BLE001 - try the next parser
-                last_error = exc
+                errors.append(f"{parser}: {exc}")
                 continue
         raise ParserError(
-            f"no parser in {parser_order} could extract {file.name!r}: {last_error}"
+            f"no parser in {parser_order} could extract {file.name!r}: {'; '.join(errors)}"
         )
 
 

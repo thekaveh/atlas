@@ -26,6 +26,20 @@ from memory_store import (
 logger = logging.getLogger("memory_service")
 
 
+
+
+class MemoryCapacityError(ValueError):
+    """Restoring a fact would exceed LANGMEM_MAX_FACTS_PER_USER (409)."""
+
+def _fact_confidence(raw) -> float:
+    """An LLM-supplied confidence in [0, 1]. A null, word or NaN value used to
+    raise inside the extraction transaction and discard every fact of it."""
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 0.8
+    return 0.8 if value != value else max(0.0, min(1.0, value))
+
 class _StaleConsolidationAction(Exception):
     """A fact changed after the LLM snapshot; roll back the whole action."""
 
@@ -491,9 +505,7 @@ Extract the facts as JSON:"""
                             "event",
                         ):
                             fact_type = "observation"
-                        confidence = max(
-                            0.0, min(1.0, float(fact_data.get("confidence", 0.8)))
-                        )
+                        confidence = _fact_confidence(fact_data.get("confidence", 0.8))
                         fact_uuid = uuid4()
                         fact_id = str(fact_uuid)
                         inserted = await conn.fetchrow(
@@ -1340,7 +1352,27 @@ Extract the facts as JSON:"""
                 f"WHERE id = ${param_idx} AND user_id = ${param_idx + 1} RETURNING *"
             )
 
-            updated = await conn.fetchrow(query, *params)
+            if updates.get("is_active") is True and not row["is_active"]:
+                # Restoring a fact counts against LANGMEM_MAX_FACTS_PER_USER
+                # under the same per-user lock as extraction; otherwise the
+                # next consolidation expired other, untouched facts.
+                async with conn.transaction():
+                    await conn.execute(
+                        "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+                        str(user_uuid),
+                    )
+                    active = await conn.fetchval(
+                        "SELECT COUNT(*) FROM public.memory_facts WHERE user_id = $1 AND is_active = true",
+                        user_uuid,
+                    )
+                    if active >= self.max_facts:
+                        raise MemoryCapacityError(
+                            f"User has {active} active memories (limit {self.max_facts}); "
+                            "deactivate one before restoring another"
+                        )
+                    updated = await conn.fetchrow(query, *params)
+            else:
+                updated = await conn.fetchrow(query, *params)
             if not updated:
                 return None
 

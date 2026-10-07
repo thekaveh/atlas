@@ -79,7 +79,7 @@ from media_ledger import (
     UnknownCostRejected,
 )
 from uuid import UUID as _UUID, uuid4
-from memory_service import MemoryService
+from memory_service import MemoryCapacityError, MemoryService
 from memory_models import (
     MemoryExtractRequest, MemoryRecallRequest, MemoryConsolidateRequest,
     MemorySummarizeRequest, MemoryUpdateRequest,
@@ -1024,6 +1024,19 @@ def _heavy_work_gate() -> _HeavyWorkGate:
     return _HEAVY_WORK_GATE
 
 
+_RERANK_EXECUTOR = None
+
+
+def _rerank_executor():
+    """Dedicated threads for the blocking TEI rerank calls."""
+    global _RERANK_EXECUTOR
+    if _RERANK_EXECUTOR is None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        _RERANK_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="rerank")
+    return _RERANK_EXECUTOR
+
+
 async def _run_heavy_work(fn, request, operation: str):
     """Run ``fn(request)`` on the bounded pool: 503 + Retry-After when full,
     504 after BACKEND_HEAVY_WORK_TIMEOUT_SECONDS."""
@@ -1140,7 +1153,11 @@ async def lightrag_rerank(request: RerankAdapterRequest):
     ``Authorization: Bearer <LIGHTRAG_RERANK_ADAPTER_TOKEN>``.
     """
     try:
-        return await asyncio.to_thread(rerank_via_tei, request)
+        # Its own bounded pool: a slow TEI held the loop's shared default
+        # executor and stalled every other to_thread route (#1354).
+        return await asyncio.get_running_loop().run_in_executor(
+            _rerank_executor(), rerank_via_tei, request
+        )
     except RerankAdapterDependencyError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -4660,6 +4677,8 @@ async def memory_update(
         return {"success": True, "memory": result}
     except HTTPException:
         raise
+    except MemoryCapacityError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except PoolSaturatedError:
         raise
     except RuntimeError as e:

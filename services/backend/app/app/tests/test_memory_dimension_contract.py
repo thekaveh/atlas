@@ -2316,3 +2316,81 @@ def test_visibility_timeout_outlasts_a_busy_memory_retry():
         cwd=Path(__file__).resolve().parents[1], env=env, capture_output=True, text=True, check=True,
     ).stdout.split()
     assert int(out[0]) > int(out[1])
+
+
+from tests.test_memory_service_owner_scope import _service as _owner_scope_service  # noqa: E402
+
+
+class _RestoreConn:
+    """A memory fact restore: inactive row, then the UPDATE under the lock."""
+
+    def __init__(self, row, active_count):
+        self.row, self.active_count, self.calls, self.update_query = row, active_count, 0, ""
+
+    async def fetchrow(self, query, *_params):
+        self.calls += 1
+        if self.calls == 1:
+            return {**self.row, "is_active": False}
+        self.update_query = query
+        return self.row
+
+    async def fetch(self, _query, *_params):
+        return [self.row]
+
+    async def execute(self, *_args):
+        return "OK"
+
+    async def fetchval(self, *_args):
+        return self.active_count
+
+    def transaction(self):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc):
+        return False
+
+    async def close(self):
+        return None
+
+
+def _restore(monkeypatch, active_count):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from uuid import UUID
+
+    import memory_service
+
+    memory_id, user_id = "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"
+    now = datetime.now(timezone.utc)
+    row = {"id": UUID(memory_id), "user_id": UUID(user_id), "content": "fact", "fact_type": "observation",
+           "confidence": 0.9, "namespace": "default", "is_active": True, "created_at": now,
+           "updated_at": now, "metadata": {}, "weaviate_id": memory_id}
+    conn = _RestoreConn(row, active_count)
+    monkeypatch.setattr(memory_service, "connect_postgres", AsyncMock(return_value=conn))
+    _also_route_acquire(monkeypatch, memory_service, lambda: conn)
+    svc = _owner_scope_service()
+    svc.max_facts = 10
+    svc.store = SimpleNamespace(update_embedding=AsyncMock(return_value=memory_id), deactivate_embedding=AsyncMock())
+    return svc, conn, memory_id, user_id
+
+
+def test_restoring_a_memory_reconciles_its_vector(monkeypatch):
+    svc, conn, memory_id, user_id = _restore(monkeypatch, active_count=3)
+    asyncio.run(svc.update_memory(memory_id, user_id, {"is_active": True}))
+    assert "vector_sync_pending = true" in conn.update_query
+    svc.store.update_embedding.assert_awaited_once()
+
+
+def test_restoring_a_memory_at_the_fact_cap_is_refused(monkeypatch):
+    """A restore ignored LANGMEM_MAX_FACTS_PER_USER; the next consolidation
+    then expired other, untouched facts to get back under it."""
+    import memory_service
+
+    svc, conn, memory_id, user_id = _restore(monkeypatch, active_count=10)
+    with pytest.raises(memory_service.MemoryCapacityError):
+        asyncio.run(svc.update_memory(memory_id, user_id, {"is_active": True}))
+    assert conn.update_query == ""  # no UPDATE was issued

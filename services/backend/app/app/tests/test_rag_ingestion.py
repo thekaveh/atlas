@@ -2667,3 +2667,59 @@ def test_cancel_of_a_record_that_expired_meanwhile_is_404(tmp_path, monkeypatch)
     monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
     resp = TestClient(main.app).post("/api/rag/ingestions/gone/cancel")
     assert resp.status_code == 404, resp.text
+
+
+def _dedup_record(record_id):
+    from rag_ingestion.models import IngestionRecord
+
+    return IngestionRecord(id=record_id, consumer="c", profile="p", revision="r", idempotency_key="same-key")
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_a_resubmit_after_cancel_starts_a_new_ingestion(live_redis):
+    """Dedup folded a resubmit into the cancelled (still running) record, so
+    the explicit resubmit came back as a job that ends cancelled."""
+    import os
+
+    from rag_ingestion.store import InMemoryIngestionStore, RedisIngestionStore
+
+    if live_redis:
+        url = os.environ.get("ATLAS_TEST_REDIS_URL")
+        if not url:
+            pytest.skip("needs ATLAS_TEST_REDIS_URL")
+        store = RedisIngestionStore(url)
+        store._redis.flushdb()
+    else:
+        store = InMemoryIngestionStore()
+    first, created = store.create_if_absent(_dedup_record("first"))
+    assert created
+    assert store.create_if_absent(_dedup_record("dup"))[1] is False  # live job: deduped
+    store.request_cancel(first.id, "2026-10-07T00:00:00Z")
+    second, created = store.create_if_absent(_dedup_record("second"))
+    assert created and second.id == "second"
+
+
+def test_small_memory_and_rag_fixes(monkeypatch):
+    """A null confidence no longer discards an extraction; a 1-char Graphiti
+    namespace is valid; every parser's error is reported."""
+    import asyncio
+
+    import graphiti_experiment
+    from memory_service import _fact_confidence
+
+    main = _reload_main(monkeypatch)
+    from rag_ingestion.clients import CorpusFile, ParserAdapter, ParserError
+
+    assert (_fact_confidence(None), _fact_confidence("high"), _fact_confidence(float("nan")),
+            _fact_confidence(3)) == (0.8, 0.8, 0.8, 1.0)
+    assert graphiti_experiment._slug("a", name="ns") == "a"
+    assert main._rerank_executor() is main._rerank_executor()  # its own pool
+
+    class TooBig:
+        async def extract(self, **_kwargs):
+            raise ValueError("exceeds maximum extraction size")
+
+    adapter = ParserAdapter(TooBig())
+    file = CorpusFile(name="big.pdf", content=b"%PDF" + b"\x00" * 10, content_type="application/pdf")
+    with pytest.raises(ParserError, match="exceeds maximum extraction size"):
+        asyncio.run(adapter.parse(file, ["docling", "tika", "plain_text"]))
