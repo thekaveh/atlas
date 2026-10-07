@@ -882,17 +882,3 @@ def test_get_unknown_ingestion_returns_404(tmp_path, monkeypatch):
 
     client = TestClient(main.app)
     assert client.get("/api/rag/ingestions/nope").status_code == 404
-
-
-def test_cancel_of_a_record_that_expired_meanwhile_is_404(tmp_path, monkeypatch):
-    """request_cancel succeeded, then the terminal record's TTL ran out before
-    the re-read: the route dereferenced None (500)."""
-    main = _reload_main(monkeypatch)
-    from fastapi.testclient import TestClient
-
-    service = _fake_service(tmp_path, monkeypatch)
-    monkeypatch.setattr(service.store, "request_cancel", lambda *_a: True)
-    monkeypatch.setattr(service.store, "get", lambda *_a: None)
-    monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
-    resp = TestClient(main.app).post("/api/rag/ingestions/gone/cancel")
-    assert resp.status_code == 404, resp.text

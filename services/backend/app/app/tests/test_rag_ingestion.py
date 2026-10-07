@@ -2650,3 +2650,20 @@ def test_submission_refuses_an_unreachable_drain_only_on_the_celery_path(
         assert submitted == []
     else:
         assert submitted == [True]
+
+
+from tests.test_rag_ingestion_api import _fake_service, _reload_main  # noqa: E402
+
+
+def test_cancel_of_a_record_that_expired_meanwhile_is_404(tmp_path, monkeypatch):
+    """request_cancel succeeded, then the terminal record's TTL ran out before
+    the re-read: the route dereferenced None (500)."""
+    main = _reload_main(monkeypatch)
+    from fastapi.testclient import TestClient
+
+    service = _fake_service(tmp_path, monkeypatch)
+    monkeypatch.setattr(service.store, "request_cancel", lambda *_a: True)
+    monkeypatch.setattr(service.store, "get", lambda *_a: None)
+    monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
+    resp = TestClient(main.app).post("/api/rag/ingestions/gone/cancel")
+    assert resp.status_code == 404, resp.text
