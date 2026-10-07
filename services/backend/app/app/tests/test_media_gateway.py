@@ -106,7 +106,8 @@ def test_media_generate_submits_fal_image_operation_without_exposing_key(monkeyp
     assert body["license"] == "fal/provider-terms"
     assert body["operation_url"] == "/media/operations/fal-req-1"
     assert "fal-key" not in json.dumps(body)
-    assert calls["init"] == {"api_key": "fal-key", "model": "fal-ai/flux/dev"}
+    assert calls["init"] == {"api_key": "fal-key", "model": "fal-ai/flux/dev",
+                             "start_timeout_seconds": None}
     assert calls["submit"]["modality"] == "image"
     assert calls["submit"]["input"]["prompt"] == "orbital blue glass library"
 
