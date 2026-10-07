@@ -626,10 +626,10 @@ def test_jupyter_does_not_ship_unused_label_studio_sdk() -> None:
 def test_n8n_comfyui_nodes_override_sharp_to_patched_release() -> None:
     package = json.loads(_text("services/n8n/init/config/package.json"))
 
-    assert package["overrides"]["sharp"] == "0.35.4"
+    assert package["overrides"]["sharp"] == "0.35.5"
     assert '"node_modules/sharp"' in _text("services/n8n/init/config/package-lock.json")
-    # 0.35.4 is the release that carries the fix; <0.35.4 is the advisory range.
-    assert '"version": "0.35.4"' in _text(
+    # 0.35.5 is the release that carries the fix; <0.35.5 is the advisory range.
+    assert '"version": "0.35.5"' in _text(
         "services/n8n/init/config/package-lock.json"
     )
 
@@ -639,8 +639,8 @@ def test_asset_worker_toolchain_uses_an_audited_npm_lock() -> None:
     dockerfile = _text("services/asset-worker/app/Dockerfile")
     helper = _text("scripts/gltf-transform-postprocess.sh")
 
-    assert package["dependencies"]["@gltf-transform/cli"] == "4.5.0"
-    assert package["overrides"]["sharp"] == "0.35.4"
+    assert package["dependencies"]["@gltf-transform/cli"] == "4.5.1"
+    assert package["overrides"]["sharp"] == "0.35.5"
     assert "package-lock.json" in dockerfile
     assert "npm ci --omit=dev" in dockerfile
     assert "npm install -g" not in dockerfile

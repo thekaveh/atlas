@@ -353,7 +353,7 @@ services:
       dockerfile: Dockerfile
       args:
         BASE_IMAGE: python:3.12.9-slim
-        GLTF_TRANSFORM_VERSION: 4.5.0
+        GLTF_TRANSFORM_VERSION: 4.5.1
     container_name: atlas-asset-worker
     depends_on:
       minio:
