@@ -17,6 +17,11 @@ class FalSubmissionAmbiguousError(asyncio.TimeoutError):
     """Atlas timed out before FAL returned the accepted request identifier."""
 
 
+class FalUpstreamError(RuntimeError):
+    """FAL answered with something the SDK cannot parse, such as an unknown
+    queue status: a provider fault (502), not a caller error (400)."""
+
+
 _DEFAULT_IMAGE_MODEL = "fal-ai/flux/dev"
 _DEFAULT_IMAGE_TO_IMAGE_MODEL = "fal-ai/flux/dev/image-to-image"
 _FAL_OUTPUT_FORMATS = {"jpeg", "png"}
@@ -140,6 +145,7 @@ class FalClient:
         output_format: Optional[str] = None,
         enable_safety_checker: Optional[bool] = None,
         timeout_seconds: Optional[float] = None,
+        start_timeout_seconds: Optional[float] = None,
     ) -> None:
         self.api_key = (api_key or os.getenv("FAL_API_KEY") or os.getenv("FAL_KEY") or "").strip()
         self.model = (model or os.getenv("FAL_MODEL") or "fal-ai/flux/dev").strip()
@@ -162,12 +168,35 @@ class FalClient:
         else:
             raise ValueError("FAL enable_safety_checker must be a boolean")
         self.license = (os.getenv("FAL_MODEL_LICENSE") or "fal/provider-terms").strip()
+        # FAL's server-side queue-start limit on submit. A longer per-request
+        # deadline extends it; it never drops below the client timeout, which
+        # still bounds each HTTP call (#1358).
+        self.start_timeout_seconds = (
+            self.timeout_seconds
+            if start_timeout_seconds is None
+            else max(self.timeout_seconds, _timeout_seconds(start_timeout_seconds))
+        )
+        # One SDK client per FalClient, closed on exit (#1358).
+        self._sdk_client: Any = None
 
     async def __aenter__(self) -> "FalClient":
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
-        return None
+        await self.aclose()
+
+    async def aclose(self) -> None:
+        """Close the SDK client's cached httpx client. fal-client 1.0's
+        AsyncClient has no close(); it caches the httpx client lazily in its
+        instance dict, so only one that was created is awaited and closed."""
+        client, self._sdk_client = self._sdk_client, None
+        if client is None or "_client" not in vars(client):
+            return
+        try:
+            http = await client._client
+            await http.aclose()
+        except Exception:  # noqa: BLE001 - a close failure must not lose a submitted request id
+            return
 
     async def generate_simple_image(
         self,
@@ -325,9 +354,13 @@ class FalClient:
         if not self.api_key:
             raise ValueError("FAL_API_KEY is required when FAL_SOURCE=enabled")
 
-        status_payload = await self._call_async_with_timeout(
-            self._status, self.model, operation_id
-        )
+        try:
+            status_payload = await self._call_async_with_timeout(
+                self._status, self.model, operation_id
+            )
+        except ValueError as exc:
+            # fal-client raises ValueError("Unknown status: ...") (#1358).
+            raise FalUpstreamError(f"FAL returned a status response the SDK could not parse: {exc}") from exc
         normalized_status = self._normalize_status(status_payload)
         result_payload: Dict[str, Any] = {}
         if normalized_status == "succeeded":
@@ -365,6 +398,10 @@ class FalClient:
                 payload["artifacts"] = artifacts
                 payload["artifact_url"] = artifacts[0]["url"] if artifacts else None
             payload["raw"] = result_payload
+        if (normalized_status, modality) == ("succeeded", "image_to_3d") and not payload.get("artifact_url"):
+            # Completed and billed, but no model: the spend settles as spent
+            # and clients get a machine-readable flag (#1358).
+            payload["provenance"]["glb_missing"] = True
         return payload
 
     def _image_arguments(
@@ -562,12 +599,14 @@ class FalClient:
     async def _sdk_call(self, module, method: str, *args, **kwargs):
         client_type = getattr(module, "AsyncClient", None)
         if client_type is not None:
-            client = client_type(
-                key=self.api_key,
-                default_timeout=float(self.timeout_seconds),
-            )
+            if self._sdk_client is None:
+                self._sdk_client = client_type(
+                    key=self.api_key,
+                    default_timeout=float(self.timeout_seconds),
+                )
+            client = self._sdk_client
             if method == "submit":
-                kwargs.setdefault("start_timeout", self.timeout_seconds)
+                kwargs.setdefault("start_timeout", self.start_timeout_seconds)
             elif method == "subscribe":
                 native_timeout = max(0.001, self.timeout_seconds * 0.9)
                 kwargs.setdefault("start_timeout", native_timeout)
