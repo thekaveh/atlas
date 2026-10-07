@@ -262,9 +262,13 @@ BACKEND_HEAVY_WORK_TIMEOUT_SECONDS=600   # wait per call, then 504; the slot fre
 
 Status codes for both routes: `400` for invalid input (including a tokenizer
 or evaluator model the caller named that cannot be loaded), `502` with a fixed
-detail (`Chunking failed`, `RAG evaluation failed`) when the chunker or the
-LiteLLM-backed evaluator fails (the cause is logged, not returned), `503` for a
-missing dependency or a full pool, and `504` past the deadline. `GET /workflows`
+detail (`Chunking failed`, `RAG evaluation failed`) when the chunker fails or
+the evaluator fails with `raise_exceptions=true` (the cause is logged, not
+returned), `503` for a missing dependency or a full pool, and `504` past the
+deadline. With the default `raise_exceptions=false`, a metric whose evaluator
+call fails does not fail the request: the route returns `200`, that metric's
+score is `null`, and `metadata.metric_errors[<metric>]` names only the
+exception type; the cause is logged. `GET /workflows`
 returns `503` when n8n is unreachable and `502` when n8n answers with an error.
 `POST /research/{session_id}/cancel` returns `404` for an unknown or foreign
 session and `409` for one that is not running (both were `400`). A RAG
@@ -304,7 +308,7 @@ Each Backend process admits at most `RESEARCH_MAX_CONCURRENT` research sessions 
 
 **Init container:** none. The backend has no `backend-init`; one-time setup (DB migrations) is delegated to `supabase-db-init` which runs SQL scripts from `services/supabase/db/scripts/`.
 
-**Downstream plugin seam (`BACKEND_PLUGINS_DIR`):** after mounting its built-in routers, the app scans `$BACKEND_PLUGINS_DIR` (default `/app/plugins`) and imports each subdirectory exposing a FastAPI `router`, installing any package-level `requirements.txt` first. It is a no-op when the directory is absent, so base Atlas is unaffected — the seam exists so a downstream consumer (e.g. one vendoring Atlas as a submodule) can add its own API routes without forking the backend. A plugin whose requirements fail to install or that fails to import is logged and skipped, never crashing the backend. Consumer-side walkthrough: [reusing-atlas.md §6.3](../../docs/operations/reusing-atlas.md#63-adding-backend-api-routes-via-the-plugin-seam).
+**Downstream plugin seam (`BACKEND_PLUGINS_DIR`):** after the Ray router and `/metrics`, and before the remaining built-in routes, the app scans `$BACKEND_PLUGINS_DIR` (default `/app/plugins`) and imports each subdirectory exposing a FastAPI `router`, installing any package-level `requirements.txt` first. It is a no-op when the directory is absent, so base Atlas is unaffected — the seam exists so a downstream consumer (e.g. one vendoring Atlas as a submodule) can add its own API routes without forking the backend. A plugin whose requirements fail to install or that fails to import is logged and skipped, never crashing the backend. Consumer-side walkthrough: [reusing-atlas.md §6.3](../../docs/operations/reusing-atlas.md#63-adding-backend-api-routes-via-the-plugin-seam).
 
 **Optional typed plugin manifest (`plugin.yml`, #402):** a plugin package MAY ship a `plugin.yml` declaring its name, route prefix, an `auth` mode (`inherit` the Backend identity boundary, `key-auth`, or `open`), and optional millisecond `connect_timeout` / `write_timeout` / `read_timeout` overrides for its Kong route; malformed manifests or prefix conflicts skip only the affected plugin. Timed plugins receive dedicated Kong services so their upstream limits do not affect other backend routes. `GET /plugins` is internal-service only. See [reusing-atlas.md §6.3.1](../../docs/operations/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml); canonical schema: [`bootstrapper/schemas/plugin.schema.json`](../../bootstrapper/schemas/plugin.schema.json).
 

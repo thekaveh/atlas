@@ -18,7 +18,22 @@ from fastapi.security import (
 from starlette.requests import HTTPConnection
 
 
-_BEARER = HTTPBearer(auto_error=False)
+class _ConnectionBearer(HTTPBearer):
+    """Extract a bearer token from either HTTP or WebSocket connections.
+
+    The stock ``HTTPBearer.__call__`` takes a ``Request``, which FastAPI
+    never supplies on a WebSocket route, so a plugin WebSocket protected by
+    the default (``auth: inherit``) dependency failed every handshake.
+    """
+
+    async def __call__(self, connection: HTTPConnection) -> HTTPAuthorizationCredentials | None:
+        scheme, _, token = (connection.headers.get("Authorization") or "").partition(" ")
+        if scheme.lower() != "bearer" or not token.strip():
+            return None  # auto_error=False: the caller decides on a missing token
+        return HTTPAuthorizationCredentials(scheme=scheme, credentials=token.strip())
+
+
+_BEARER = _ConnectionBearer(auto_error=False)
 
 
 class _PluginAPIKeyHeader(APIKeyHeader):

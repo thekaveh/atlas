@@ -4,10 +4,13 @@ import asyncio
 import json
 from collections import OrderedDict
 import inspect
+import logging
 import os
 from typing import Annotated, Any, Callable, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 MetricName = Literal[
@@ -262,7 +265,10 @@ async def _score_collection_metrics_async(
         except Exception as exc:
             if raise_exceptions:
                 raise
-            detail = f"{type(exc).__name__}: {exc}"
+            # The response names the failure type only: the message can carry
+            # upstream hosts and provider error bodies. The cause is logged.
+            logger.warning("Ragas metric %s failed: %s: %s", name, type(exc).__name__, exc)
+            detail = type(exc).__name__
             for row in rows:
                 row["scores"][name] = None
                 row["metadata"].setdefault("metric_errors", {})[name] = detail
