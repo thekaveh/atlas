@@ -669,11 +669,57 @@ def test_snapshot_restore_stages_are_private_unique_and_link_safe():
     assert "cleanup_restore_stages" in text
 
 
-def test_weaviate_timeout_cancels_exact_owned_backup():
-    text = SNAPSHOTS.read_text(encoding="utf-8")
-    assert "FINALIZING" in text and "CANCELLING" in text and "CANCELED" in text
-    assert "DELETE" in text
-    assert "/v1/backups/filesystem/${database_weaviate_snapshot_id}" in text
+_FAKE_WGET = r"""#!/bin/sh
+# Records each call. The backup starts, then polls FINALIZING until a DELETE
+# arrives; after it, one CANCELLING and then CANCELED.
+echo "$*" >>"$WGET_LOG"
+out=/dev/null method=GET
+while [ "$#" -gt 1 ]; do
+  case "$1" in -O) out=$2; shift ;; --method=*) method=${1#--method=} ;; --post-data=*) method=POST ;; esac
+  shift
+done
+case "$method:$1" in
+  DELETE:*) : >"$WGET_LOG.cancelled"; printf '{}' >"$out" ;;
+  POST:*) printf '{"status":"STARTED"}' >"$out" ;;
+  GET:*/v1/meta) printf '{"version":"%s"}' "$WEAVIATE_VERSION" >"$out" ;;
+  *) if [ -e "$WGET_LOG.cancelling" ]; then printf '{"status":"CANCELED"}' >"$out"
+     elif [ -e "$WGET_LOG.cancelled" ]; then : >"$WGET_LOG.cancelling"; printf '{"status":"CANCELLING"}' >"$out"
+     else printf '{"status":"FINALIZING"}' >"$out"; fi ;;
+esac
+"""
+
+
+def test_weaviate_timeout_cancels_exact_owned_backup(tmp_path):
+    """A backup still FINALIZING at its deadline is cancelled by DELETE on the
+    snapshot ID this run owns, and the cancel settles (#1388)."""
+    (tmp_path / "bin").mkdir()
+    wget = tmp_path / "bin" / "wget"
+    wget.write_text(_FAKE_WGET)
+    wget.chmod(0o755)
+    version = re.search(r'^EXPECTED_WEAVIATE_VERSION="([^"]+)"', SNAPSHOTS.read_text(), re.M)[1]
+    script = f"""
+. '{SNAPSHOTS}'
+run_bounded() {{ "$@"; }}
+capture_database_snapshots '{tmp_path}' 20260101_000000 {"b" * 32}
+"""
+    result = subprocess.run(
+        ["sh", "-c", script], text=True, capture_output=True, check=False, timeout=60,
+        env={"PATH": f"{tmp_path / 'bin'}:{os.environ.get('PATH', '')}",
+             "WGET_LOG": str(tmp_path / "wget.log"), "WEAVIATE_VERSION": version,
+             "BACKUP_MANIFEST_HMAC_KEY": "5" * 64, "BACKUP_DEPLOYMENT_ID": "atlas-test",
+             "BACKUP_NEO4J_SOURCE": "disabled", "BACKUP_WEAVIATE_SOURCE": "container",
+             "DATABASE_WEAVIATE_SNAPSHOT_ROOT": str(tmp_path / "weaviate"),
+             "BACKUP_COMMAND_TIMEOUT_SECONDS": "0", "BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS": "5"},
+    )
+
+    assert result.returncode == 1, result.stderr
+    # The cancel polled through CANCELLING to CANCELED, so it settled.
+    assert "backup timed out" in result.stderr and "did not settle" not in result.stderr
+    deletes = [c for c in (tmp_path / "wget.log").read_text().splitlines() if "--method=DELETE" in c]
+    assert deletes == [
+        "-q -O /dev/null --method=DELETE "
+        f"http://weaviate:8080/v1/backups/filesystem/atlas-20260101_000000-{'b' * 32}"
+    ]
 
 
 def test_ci_live_database_drill_is_explicit_and_pulls_exact_images():
