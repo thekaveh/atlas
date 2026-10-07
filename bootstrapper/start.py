@@ -5856,6 +5856,153 @@ def _doctor_check_lightrag_role_transport(starter: "AtlasStarter") -> dict:
     )
 
 
+# A corrupt Redis append-only file (AOF) stops Redis loading it, and every
+# service that waits on Redis stays at "Created" (#1343). redis-check-aof opens
+# the files read-write even without --fix, so the probe checks a copy taken
+# from a read-only mount and never changes the volume.
+_REDIS_AOF_MANIFEST = "appendonly.aof.manifest"
+_REDIS_AOF_SCRIPT = (
+    f"[ -f /data/appendonlydir/{_REDIS_AOF_MANIFEST} ] || exit 3; "
+    "cp -a /data/appendonlydir /tmp/aof && cd /tmp/aof "
+    f'&& echo "manifest-last: $(tail -n 1 {_REDIS_AOF_MANIFEST})" '
+    f"&& redis-check-aof {_REDIS_AOF_MANIFEST}"
+)
+# Damage Redis refuses to load. A cut-off last command in the newest incr file
+# is not in this list: with aof-load-truncated (default yes, not overridden in
+# services/redis/compose.yml) Redis drops the partial command and starts.
+_REDIS_AOF_FATAL_MARKERS = ("format error", "not sane", "Cannot open file")
+_REDIS_AOF_MESSAGES = {
+    "running": "Redis is running, so its append-only file loaded; it is "
+    "checked only while Redis is stopped or restarting.",
+    "no-volume": "No Redis data volume yet.",
+    "no-aof": "The Redis data volume holds no append-only file yet.",
+    "ok": "The Redis append-only file is valid.",
+    "truncated": "The last write in the Redis append-only file was cut off. "
+    "Redis loads it anyway (aof-load-truncated) and drops that one command.",
+}
+
+
+def _redis_aof_names(env_values: dict) -> tuple[str, str, str]:
+    """Container, volume and image names from services/redis/compose.yml."""
+    project = (env_values.get("PROJECT_NAME") or "").strip() or DEFAULT_PROJECT_NAME
+    image = (env_values.get("REDIS_IMAGE") or "").strip()
+    return f"{project}-redis", f"{project}-redis-data", image
+
+
+def _docker_text(args: list[str], timeout: int) -> tuple[int, str]:
+    """Run ``docker <args>``; return the exit code and combined output."""
+    try:
+        proc = subprocess.run(
+            ["docker", *args], capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=timeout, check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return -1, str(exc)
+    return proc.returncode, f"{proc.stdout}{proc.stderr}".strip()
+
+
+def _redis_aof_truncated_tail(output: str, invalid_file: str) -> bool:
+    """True when the only damage is a cut-off command at the end of the last
+    incr file, which Redis loads anyway."""
+    if any(marker in output for marker in _REDIS_AOF_FATAL_MARKERS):
+        return False
+    last = re.search(r"manifest-last: file (\S+) .*type i", output)
+    return bool(last) and last.group(1) == invalid_file
+
+
+def _redis_aof_classify(code: int, output: str) -> str:
+    """Map a redis-check-aof run to ok, no-aof, truncated, corrupt-base,
+    corrupt or unavailable."""
+    if code in (0, 3):
+        return "ok" if code == 0 else "no-aof"
+    if code != 1:
+        return "unavailable"
+    if "not sane" in output:
+        return "corrupt-base"
+    invalid = re.search(r"AOF (\S+) is not valid", output)
+    if invalid and _redis_aof_truncated_tail(output, invalid.group(1)):
+        return "truncated"
+    return "corrupt" if invalid or "aborting" in output else "unavailable"
+
+
+def _redis_aof_probe(env_values: dict) -> tuple[str, str]:
+    """Classify the Redis AOF (see ``_redis_aof_classify``, plus running and
+    no-volume), with the checker output."""
+    container, volume, image = _redis_aof_names(env_values)
+    if not image:
+        return "unavailable", "REDIS_IMAGE is not set in .env."
+    code, out = _docker_text(
+        ["inspect", "-f", "{{.State.Running}} {{.State.Restarting}}", container], 10
+    )
+    if code == 0 and out == "true false":
+        return "running", out
+    code, out = _docker_text(["volume", "inspect", volume], 10)
+    if code != 0:
+        return ("no-volume" if "no such volume" in out.lower() else "unavailable"), out
+    # 45 s keeps the probe inside the support bundle's shared check budget.
+    code, out = _docker_text(
+        ["run", "--rm", "--pull", "never", "--network", "none",
+         "-v", f"{volume}:/data:ro", "--entrypoint", "sh", image, "-c", _REDIS_AOF_SCRIPT],
+        45,
+    )
+    return _redis_aof_classify(code, out), out
+
+
+def _redis_aof_repair_steps(volume: str, image: str, state: str) -> list[str]:
+    """Backup-first repair; services/redis/README.md documents the same steps."""
+    backup = (
+        f'docker run --rm -v {volume}:/data -v "$PWD":/backup {image} '
+        "tar czf /backup/redis-aof-backup.tgz -C /data appendonlydir"
+    )
+    if state == "corrupt-base":
+        repair = (
+            "--fix cannot repair the base snapshot: restore appendonlydir from an "
+            f"earlier backup, or run docker volume rm {volume} to start Redis empty"
+        )
+    else:
+        repair = (
+            f"docker run --rm -it -v {volume}:/data -w /data/appendonlydir {image} "
+            f"redis-check-aof --fix {_REDIS_AOF_MANIFEST}"
+        )
+    return ["./stop.sh", backup, repair, "./start.sh"]
+
+
+def _redis_aof_findings(output: str) -> list[str]:
+    """The checker lines that say where the damage is."""
+    return [
+        line.strip() for line in output.splitlines()
+        if (line.startswith(("AOF analyzed:", "0x")) and not line.rstrip().endswith("diff=0"))
+        or "not sane" in line or "Cannot open file" in line
+    ]
+
+
+def _doctor_check_redis_aof(starter: "AtlasStarter") -> dict:
+    """Fail when Redis cannot load its AOF, with the backup-first repair (#1343)."""
+    env_values = starter.config_parser.parse_env_file()
+    _container, volume, image = _redis_aof_names(env_values)
+    state, output = _redis_aof_probe(env_values)
+    if state == "unavailable":
+        return _doctor_result(
+            "redis-aof", "skipped",
+            "Could not check the Redis append-only file: "
+            f"{(output.splitlines() or ['docker unavailable'])[-1]}",
+        )
+    if not state.startswith("corrupt"):
+        return _doctor_result("redis-aof", "pass", _REDIS_AOF_MESSAGES[state])
+    steps = _redis_aof_repair_steps(volume, image, state)
+    findings = _redis_aof_findings(output)
+    numbered = "\n".join(f"  {index}. {step}" for index, step in enumerate(steps, 1))
+    where = "\n".join(f"  {line}" for line in findings)
+    return _doctor_result(
+        "redis-aof", "fail",
+        f"The Redis append-only file in volume {volume} is corrupt. Redis will "
+        "not load it, so every service that waits on Redis stays at Created.\n"
+        f"{where}\nBack it up first: --fix truncates the file at the first bad "
+        f"byte and drops every write after it.\n{numbered}",
+        details={"volume": volume, "state": state, "findings": findings, "repair": steps},
+    )
+
+
 def _doctor_check_endpoints(starter: "AtlasStarter") -> dict:
     env_values = starter.config_parser.parse_env_file()
     endpoints = {
@@ -6340,6 +6487,7 @@ DOCTOR_CHECKS = [
     _doctor_check_vllm_metal,
     _doctor_check_blender_mcp,
     _doctor_check_managed_host_services,
+    _doctor_check_redis_aof,
     _doctor_check_endpoints,
     _doctor_check_submodule_clean,
 ]
