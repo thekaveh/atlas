@@ -20,7 +20,7 @@ _SENTINEL_RE = re.compile(
     r'(?P<suffix>[ \t]*(?:#.*)?)(?P<newline>\r?\n)?$'
 )
 _MODULE_RE = re.compile(
-    r"^(?P<prefix>[ \t]*WEAVIATE_ENABLE_MODULES[ \t]*=[ \t]*)"
+    r"^(?P<prefix>[ \t]*(?:export[ \t]+)?WEAVIATE_ENABLE_MODULES[ \t]*=[ \t]*)"
     r'(?:(?:"(?P<double>[^"\r\n]*)")|(?:\'(?P<single>[^\'\r\n]*)\')|'
     r"(?P<plain>[^#\"'\r\n]*?))"
     r"(?P<suffix>[ \t]*(?:#.*)?)(?P<newline>\r?\n)?$"
@@ -51,7 +51,7 @@ def _add_module(text: str) -> tuple[str, bool]:
     matches = [(index, match) for index, raw in enumerate(lines) if (match := _MODULE_RE.match(raw))]
     assignments = [
         raw for raw in lines
-        if re.match(r"^[ \t]*WEAVIATE_ENABLE_MODULES[ \t]*=", raw)
+        if re.match(r"^[ \t]*(?:export[ \t]+)?WEAVIATE_ENABLE_MODULES[ \t]*=", raw)
     ]
     if len(assignments) != len(matches):
         raise MigrationV5Error("malformed WEAVIATE_ENABLE_MODULES assignment")

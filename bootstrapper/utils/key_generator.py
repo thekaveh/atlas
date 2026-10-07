@@ -12,7 +12,7 @@ from typing import Optional, Dict
 from urllib.parse import quote
 
 from core.config_parser import ConfigParser
-from utils.atomic_write import atomic_write_text, create_private_backup
+from utils.atomic_write import atomic_write_text, create_private_backup, render_env_assignment, set_env_assignment
 
 
 def _cli_safe_token_urlsafe(nbytes: int) -> str:
@@ -363,25 +363,8 @@ class KeyGenerator:
             with open(self.env_file_path, 'r', encoding="utf-8") as f:
                 content = f.read()
             
-            # Check if key already exists
-            pattern = rf'^{re.escape(key_name)}=.*$'
-            if re.search(pattern, content, re.MULTILINE):
-                # Replace existing key. Lambda form so re.sub doesn't
-                # interpret backslash sequences in the value (same guard
-                # as SourceOverrideManager.update_env_file) — current
-                # generators emit [A-Za-z0-9_-] only, but keep the seam
-                # corruption-proof for future value shapes.
-                replacement = f'{key_name}={key_value}'
-                updated_content = re.sub(
-                    pattern, lambda _m, r=replacement: r, content,
-                    flags=re.MULTILINE,
-                )
-            else:
-                # Add new key at the end
-                updated_content = content
-                if not content.endswith('\n'):
-                    updated_content += '\n'
-                updated_content += f'{key_name}={key_value}\n'
+            # Rewrites `export KEY=` lines too, or appends (#1368).
+            updated_content = set_env_assignment(content, key_name, key_value)
             
             atomic_write_text(self.env_file_path, updated_content, mode=0o600)
             
@@ -653,8 +636,9 @@ class KeyGenerator:
         """Generic infrastructure-credential generator. URL-safe, CLI-safe."""
         return _cli_safe_token_urlsafe(nbytes)
 
-    def _project_volume_exists(self, suffixes: set[str]) -> bool:
-        """Best-effort: True when any candidate project-scoped volume exists."""
+    def _project_volume_exists(self, suffixes: set[str], unknown: bool = False) -> bool:
+        """Best-effort: True when any candidate project-scoped volume exists;
+        ``unknown`` when Docker cannot be asked."""
         project = (self.get_current_env_value("PROJECT_NAME") or "").strip()
         if not project:
             return False
@@ -666,11 +650,11 @@ class KeyGenerator:
                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, check=False,
             )
             if result.returncode != 0:
-                return False
+                return unknown
             names = {ln.strip() for ln in result.stdout.splitlines() if ln.strip()}
             return bool(candidates & names)
         except Exception:
-            return False
+            return unknown
 
     def _supabase_db_volume_exists(self) -> bool:
         """Best-effort: True when THIS project's Postgres data volume already
@@ -690,14 +674,14 @@ class KeyGenerator:
         """
         return self._project_volume_exists({"_supabase-db-data", "-supabase-db-data"})
 
-    def _neo4j_db_volume_exists(self) -> bool:
+    def _neo4j_db_volume_exists(self, unknown: bool = False) -> bool:
         """Best-effort: True when THIS project's Neo4j data volume exists.
 
         Neo4j applies `NEO4J_AUTH` on first boot. If the graph data volume
         already exists, rotating `GRAPH_DB_PASSWORD` in `.env` would desync
         clients from the persisted database password.
         """
-        return self._project_volume_exists({"_graph-db-data", "-graph-db-data"})
+        return self._project_volume_exists({"_graph-db-data", "-graph-db-data"}, unknown)
 
     def _warn_db_password_locked(self, var_name: str, service_name: str) -> None:
         """Warn that a placeholder DB password can't be safely rotated because
@@ -753,7 +737,7 @@ class KeyGenerator:
         initialises requires `ALTER USER ... SET PASSWORD` in cypher-shell.
         """
         if not force and not self._is_placeholder_or_empty('GRAPH_DB_PASSWORD'):
-            return True
+            return self.sync_graph_db_auth()
         if not force and self._neo4j_db_volume_exists():
             self._warn_db_password_locked('GRAPH_DB_PASSWORD', 'Neo4j')
             return True
@@ -762,6 +746,42 @@ class KeyGenerator:
             return False
         graph_user = self.get_current_env_value('GRAPH_DB_USER') or 'neo4j'
         return self.update_env_key('GRAPH_DB_AUTH', f'{graph_user}/{new_pw}')
+
+    def sync_graph_db_auth(self) -> bool:
+        """Keep `GRAPH_DB_AUTH` equal to `GRAPH_DB_USER/GRAPH_DB_PASSWORD` (#1368).
+
+        Neo4j reads the composite, while the Backend, Airflow, JupyterHub and
+        the other clients read the password, so a hand edit of the password
+        alone left them disagreeing. With no Neo4j volume yet the composite is
+        rewritten; with one, Neo4j already applied its first-boot password and
+        a rewrite would only hide the mismatch, so Atlas warns instead."""
+        password = self.get_current_env_value('GRAPH_DB_PASSWORD')
+        user = self.get_current_env_value('GRAPH_DB_USER') or 'neo4j'
+        expected = f'{user}/{password}'
+        current = self.get_current_env_value('GRAPH_DB_AUTH')
+        if not password or current == expected or (current or '').lower() == 'none':
+            return True  # in step, nothing to compare, or auth deliberately off
+        if user != 'neo4j' or '/' in password:
+            # The Neo4j image accepts only `neo4j/<password without '/'>`.
+            print(
+                "⚠ GRAPH_DB_AUTH does not match GRAPH_DB_USER/GRAPH_DB_PASSWORD, but Neo4j "
+                "accepts only the user neo4j and a password without '/', so Atlas leaves it unchanged."
+            )
+            return True
+        # Unknown (Docker unavailable) counts as a volume: never overwrite
+        # the only record of the password Neo4j may already hold.
+        if self._neo4j_db_volume_exists(unknown=True):
+            print(
+                "⚠ GRAPH_DB_AUTH does not match GRAPH_DB_USER/GRAPH_DB_PASSWORD, and the "
+                "Neo4j data volume exists (or Docker could not be asked).\n"
+                "   Neo4j applies NEO4J_AUTH only at first boot, so Atlas leaves "
+                "GRAPH_DB_AUTH unchanged. Change the password in cypher-shell "
+                "(ALTER CURRENT USER SET PASSWORD ...), then set both values in .env to match."
+            )
+            return True
+        # Rendered like every written value: a `$`, space or `#` in the
+        # password must reach Neo4j exactly as the clients read it.
+        return self.update_env_key('GRAPH_DB_AUTH', render_env_assignment('GRAPH_DB_AUTH', expected))
 
     def generate_and_update_redis_password(self, force: bool = False) -> bool:
         """Rotate `REDIS_PASSWORD` only when absent or still the `redis_password`

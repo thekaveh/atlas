@@ -192,7 +192,8 @@ def _parse_env(text: str) -> dict[str, str]:
         if "=" in line:
             k, _, v = line.partition("=")
             v, _, _ = v.partition("#")
-            result[k.strip()] = v.strip().strip('"').strip("'")
+            # `export KEY=` is KEY, as for the reader (#1368).
+            result[re.sub(r"^export[ \t]+", "", k.strip())] = v.strip().strip('"').strip("'")
     return result
 
 
@@ -202,9 +203,11 @@ def _replace_or_append(text: str, key: str, value: str) -> str:
     replaced = False
     for raw in env_lines(text, keepends=True):
         stripped = raw.lstrip()
-        if stripped.startswith(f"{key}="):
+        assignment = re.match(rf"((?:export[ \t]+)?){re.escape(key)}[ \t]*=", stripped)
+        if assignment:
+            # Preserve any leading indent and `export` prefix (#1368).
             indent = raw[: len(raw) - len(stripped)]
-            new_lines.append(f"{indent}{key}={value}\n")
+            new_lines.append(f"{indent}{assignment.group(1)}{key}={value}\n")
             replaced = True
         else:
             new_lines.append(raw)

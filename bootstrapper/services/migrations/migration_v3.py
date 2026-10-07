@@ -80,7 +80,8 @@ def _parse_env(text: str) -> dict[str, str]:
             # missed the translation table, and silently dropped the
             # user's model selection.
             v, _, _ = v.partition("#")
-            result[k.strip()] = v.strip().strip('"').strip("'")
+            # `export KEY=` is KEY, as for the reader (#1368).
+            result[re.sub(r"^export[ \t]+", "", k.strip())] = v.strip().strip('"').strip("'")
     return result
 
 
@@ -91,10 +92,8 @@ def _strip_old_var_lines(text: str, var: str) -> str:
     i = 0
     while i < len(lines):
         stripped = lines[i].lstrip()
-        if stripped.startswith(f"{var}=") or (
-            # handle CRLF: the stripped form has the rstrip applied
-            stripped.rstrip("\r\n").startswith(f"{var}=")
-        ):
+        # `export VAR=` lines too (#1368); CRLF lines match the same way.
+        if re.match(rf"(?:export[ \t]+)?{re.escape(var)}[ \t]*=", stripped):
             # drop the preceding inline comment block too
             while out and out[-1].lstrip().startswith("#"):
                 out.pop()
@@ -121,10 +120,11 @@ def _replace_or_append(text: str, key: str, value: str) -> str:
     replaced = False
     for raw in env_lines(text, keepends=True):
         stripped = raw.lstrip()
-        if stripped.startswith(f"{key}="):
-            # Preserve any leading indent the user may have.
+        assignment = re.match(rf"((?:export[ \t]+)?){re.escape(key)}[ \t]*=", stripped)
+        if assignment:
+            # Preserve any leading indent and `export` prefix (#1368).
             indent = raw[: len(raw) - len(stripped)]
-            new_lines.append(f"{indent}{key}={value}\n")
+            new_lines.append(f"{indent}{assignment.group(1)}{key}={value}\n")
             replaced = True
         else:
             new_lines.append(raw)

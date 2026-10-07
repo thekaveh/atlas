@@ -561,12 +561,24 @@ def _list_items(value: str, separator: str) -> list[str]:
     return [item.strip() for item in value.split(separator) if item.strip()]
 
 
+#: Keys Atlas derives from plugins and sidecars, and the `.env` marker listing
+#: which of them the last start wrote. A key whose source disappears is blanked
+#: on the next start only when the marker says Atlas owns it, so a value an
+#: operator set by hand is never cleared (#1368).
+DERIVED_ENV_KEYS = (
+    "BACKEND_PLUGINS_DIR", "COMFYUI_CUSTOM_MODELS_FILE",
+    "COMFYUI_CUSTOM_NODES_FILE", "OLLAMA_CUSTOM_MODELS",
+)
+DERIVED_KEYS_MARKER = "ATLAS_DERIVED_KEYS"
+
+
 def _apply_derived_env(
     env_overrides: dict[str, str], env_origins: dict[str, str], derived: dict[str, str]
 ) -> None:
     """Write plugin/sidecar-derived keys. An env.values entry for one of them
     used to be overwritten without a word (e.g. a pinned Ollama model
     dropped); a different value is now an error naming both places."""
+    owned: list[str] = []
     for key, value in derived.items():
         if not value:
             continue
@@ -578,7 +590,14 @@ def _apply_derived_env(
                 f"{key} is set in {env_origins.get(key, 'env.values')} and also "
                 "derived from the manifest's plugins/sidecars; declare it in one place"
             )
-        env_overrides[key] = value
+        # The same `.env` line guard every other manifest value passes.
+        try:
+            env_overrides[key] = assert_safe_env_assignment(key, value)
+        except ValueError as exc:
+            raise ConsumerManifestError(f"{exc} (derived from plugins/sidecars)") from exc
+        owned.append(key)
+    if owned:
+        env_overrides[DERIVED_KEYS_MARKER] = ",".join(owned)
 
 
 def discover_consumer_manifest_paths(

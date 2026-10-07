@@ -223,3 +223,45 @@ def test_atlas_env_file_takes_precedence_over_genai_alias(tmp_path, monkeypatch,
     assert cp.env_file_path == atlas_env.resolve()
     captured = capsys.readouterr()
     assert "deprecated" not in captured.err
+
+
+# --- every .env writer honours `export KEY=` (#1368) ------------------------
+
+
+def _writers():
+    from services.service_config import ServiceConfig
+    from utils.supabase_keys import SupabaseKeyGenerator
+
+    def key_generator(root):
+        KeyGenerator(str(root)).update_env_key("SUPABASE_JWT_SECRET", "new-value")
+
+    def supabase_keys(root):
+        SupabaseKeyGenerator(str(root)).update_env_file("new-value", "anon", "service")
+
+    def service_config(root):
+        ServiceConfig(ConfigParser(str(root))).update_env_file(
+            {"SUPABASE_JWT_SECRET": "new-value"}, create_backup=False
+        )
+
+    return [key_generator, supabase_keys, service_config]
+
+
+@pytest.mark.parametrize("write", _writers(), ids=lambda w: w.__name__)
+def test_each_writer_rewrites_an_export_line_instead_of_appending(tmp_path, write):
+    env = tmp_path / ".env"
+    env.write_text("PROJECT_NAME=atlas\nexport SUPABASE_JWT_SECRET=old-value\n", encoding="utf-8")
+
+    write(tmp_path)
+
+    text = env.read_text(encoding="utf-8")
+    assignments = [line for line in text.splitlines() if "SUPABASE_JWT_SECRET=" in line]
+    assert assignments == ["export SUPABASE_JWT_SECRET=new-value"]
+    assert ConfigParser(str(tmp_path)).parse_env_file()["SUPABASE_JWT_SECRET"] == "new-value"
+
+
+def test_set_env_assignment_appends_only_when_the_key_is_absent():
+    from utils.atomic_write import set_env_assignment
+
+    assert set_env_assignment("A=1", "B", "2") == "A=1\nB=2\n"
+    assert set_env_assignment("  export B = 1\n# B=0\n", "B", "2") == "  export B=2\n# B=0\n"
+    assert set_env_assignment("B=1\nexport B=9\n", "B", "2") == "B=2\nexport B=2\n"

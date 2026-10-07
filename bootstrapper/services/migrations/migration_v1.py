@@ -120,6 +120,10 @@ def apply(
             continue
         key, _, raw_value = stripped.partition("=")
         key = key.strip()
+        # `export KEY=` is KEY to the reader and Compose; keep the prefix (#1368).
+        export_match = re.match(r"export[ \t]+", key)
+        export_prefix = export_match.group(0) if export_match else ""
+        key = key[len(export_prefix):].strip()
         # Split value vs. trailing inline comment, preserving the
         # whitespace that separated them so the rewritten line keeps
         # the user's formatting (e.g. ``LITELLM_PORT=63012  # label``).
@@ -143,7 +147,7 @@ def apply(
             expected_old = str(base_port + V0_OFFSETS[key])
             new_value = str(new_defaults[key])
             if value == expected_old and new_value != expected_old:
-                out.append(f"{key}={new_value}{comment_tail}{eol}")
+                out.append(f"{export_prefix}{key}={new_value}{comment_tail}{eol}")
                 rewritten[key] = (expected_old, new_value)
                 continue
             if value != expected_old:

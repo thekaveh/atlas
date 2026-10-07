@@ -2420,3 +2420,104 @@ def test_redis_aof_doctor_against_a_real_volume(monkeypatch, damage, status) -> 
         subprocess.run(["docker", "volume", "rm", "-f", volume], capture_output=True)
     assert result["status"] == status, result
     assert before == after
+
+
+# --- derived keys whose source disappears are cleared (#1368) ---------------
+
+
+def test_manifest_records_which_derived_keys_it_wrote(tmp_path):
+    from core.consumer_manifest import DERIVED_KEYS_MARKER, load_consumer_config
+    from tests.test_consumer_manifest import _write_consumer, _write_minimal_root
+
+    _write_minimal_root(tmp_path)
+    config = load_consumer_config(tmp_path, explicit_paths=[str(_write_consumer(tmp_path, "rag-showcase"))])
+
+    owned = set(config.env_overrides[DERIVED_KEYS_MARKER].split(","))
+    assert {"OLLAMA_CUSTOM_MODELS", "COMFYUI_CUSTOM_MODELS_FILE", "BACKEND_PLUGINS_DIR"} <= owned
+
+
+def test_a_removed_ollama_sidecar_clears_its_derived_key_on_the_next_start():
+    import start as start_module
+
+    previous_env = {
+        "ATLAS_DERIVED_KEYS": "BACKEND_PLUGINS_DIR,OLLAMA_CUSTOM_MODELS",
+        "OLLAMA_CUSTOM_MODELS": "llama3.2:latest",
+        "BACKEND_PLUGINS_DIR": "/plugins",
+    }
+    # The manifest no longer declares model_sidecars.ollama.
+    overrides = {"BACKEND_PLUGINS_DIR": "/plugins", "ATLAS_DERIVED_KEYS": "BACKEND_PLUGINS_DIR"}
+
+    merged = start_module._with_stale_derived_keys_cleared(overrides, previous_env)
+
+    assert merged["OLLAMA_CUSTOM_MODELS"] == ""
+    assert merged["ATLAS_DERIVED_KEYS"] == "BACKEND_PLUGINS_DIR"
+    assert merged["BACKEND_PLUGINS_DIR"] == "/plugins"
+
+
+def test_a_hand_set_derived_key_is_never_cleared():
+    import start as start_module
+
+    hand_set = {"OLLAMA_CUSTOM_MODELS": "mistral:7b"}  # no ATLAS_DERIVED_KEYS marker
+    assert start_module._with_stale_derived_keys_cleared({}, hand_set) == {}
+    # A marker naming an unknown key cannot blank arbitrary settings.
+    forged = {"ATLAS_DERIVED_KEYS": "PROJECT_NAME", "PROJECT_NAME": "atlas"}
+    assert start_module._with_stale_derived_keys_cleared({}, forged) == {}
+
+
+def test_removing_every_derived_source_also_clears_the_marker():
+    import start as start_module
+
+    merged = start_module._with_stale_derived_keys_cleared(
+        {}, {"ATLAS_DERIVED_KEYS": "OLLAMA_CUSTOM_MODELS", "OLLAMA_CUSTOM_MODELS": "x"}
+    )
+    assert merged == {"OLLAMA_CUSTOM_MODELS": "", "ATLAS_DERIVED_KEYS": ""}
+
+
+def _start_with_manifest(tmp_path, monkeypatch, manifest_body: str, env_extra: str = ""):
+    import start as start_module
+
+    _write_base_env(tmp_path, env_extra)
+    manifest = tmp_path / "atlas.consumer.yml"
+    manifest.write_text(manifest_body, encoding="utf-8")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    starter = start_module.AtlasStarter()
+    starter.banner.show_status_message = lambda *_a, **_k: None
+    return starter
+
+
+def test_start_clears_ollama_models_after_the_sidecar_is_removed(tmp_path, monkeypatch):
+    """#1368 AC: drop model_sidecars.ollama from the manifest; the next start
+    blanks the OLLAMA_CUSTOM_MODELS an earlier start derived."""
+    starter = _start_with_manifest(
+        tmp_path, monkeypatch, "name: showcase\nmodel_sidecars:\n  ollama:\n    - llama3.2:latest\n"
+    )
+    starter._apply_env_user_overlay()
+    env = starter.config_parser.parse_env_file()
+    assert env["OLLAMA_CUSTOM_MODELS"] == "llama3.2:latest"
+    assert "OLLAMA_CUSTOM_MODELS" in env["ATLAS_DERIVED_KEYS"]
+
+    (tmp_path / "atlas.consumer.yml").write_text("name: showcase\n", encoding="utf-8")
+    applied = starter._apply_env_user_overlay()
+
+    env = starter.config_parser.parse_env_file()
+    assert env["OLLAMA_CUSTOM_MODELS"] == ""
+    assert env["ATLAS_DERIVED_KEYS"] == ""
+    assert "OLLAMA_CUSTOM_MODELS" not in applied  # housekeeping, not an operator pin
+
+
+def test_no_manifest_or_env_user_value_is_never_blanked(tmp_path, monkeypatch):
+    import start as start_module
+
+    marker = "ATLAS_DERIVED_KEYS=OLLAMA_CUSTOM_MODELS\nOLLAMA_CUSTOM_MODELS=llama3.2:latest\n"
+    no_manifest = type("C", (), {"consumers": ()})()
+    env = {"ATLAS_DERIVED_KEYS": "OLLAMA_CUSTOM_MODELS", "OLLAMA_CUSTOM_MODELS": "llama3.2:latest"}
+    # A plain doctor/start without --consumer leaves a consumer stack's keys alone.
+    assert start_module._with_stale_derived_keys_cleared({}, env, no_manifest) == {}
+
+    starter = _start_with_manifest(tmp_path, monkeypatch, "name: showcase\n", marker)
+    (tmp_path / ".env.user").write_text("OLLAMA_CUSTOM_MODELS=mistral:7b\n", encoding="utf-8")
+    monkeypatch.setattr(starter, "_env_user_overlay_path", lambda: tmp_path / ".env.user")
+    starter._apply_env_user_overlay()
+
+    assert starter.config_parser.parse_env_file()["OLLAMA_CUSTOM_MODELS"] == "mistral:7b"

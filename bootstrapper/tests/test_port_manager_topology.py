@@ -233,3 +233,20 @@ def test_auto_base_port_returns_none_when_no_free_block(monkeypatch):
     pm = PortManager(str(_real_root()))
     monkeypatch.setattr(pm, "check_port_availability", lambda port: False)
     assert pm.auto_base_port(start_from=20000, max_attempts=3) is None
+
+
+def test_base_port_change_rewrites_an_export_port_line(tmp_path):
+    """#1368: `export LITELLM_PORT=` kept its old port after --base-port."""
+    from core.config_parser import ConfigParser
+    from core.port_manager import PortManager
+
+    env = tmp_path / ".env"
+    env.write_text("BASE_PORT=63000\nexport LITELLM_PORT=63012\n", encoding="utf-8")
+    manager = PortManager()
+    manager.config_parser = ConfigParser(str(tmp_path))
+
+    assert manager.update_env_ports(64000, create_backup=False)
+
+    text = env.read_text(encoding="utf-8")
+    assert "export LITELLM_PORT=640" in text and "63012" not in text
+    assert ConfigParser(str(tmp_path)).parse_env_file()["LITELLM_PORT"].startswith("640")
