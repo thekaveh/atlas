@@ -92,7 +92,7 @@ CATEGORY_FILLS: dict[str, str] = {
 #                                  Chatterbox/Crawl4AI/Tika/Asset-Baker/
 #                                  Asset-Worker = 11; 9 free)
 #   agents: BASE_PORT + 70..89    (Airflow, Celery/Flower, Hermes×2, n8n, OpenClaw×2, LightRAG,
-#                                  MCP-Servers = 9; 11 free)
+#                                  MCP-Servers, TrueForge = 10; 10 free)
 #   apps:   BASE_PORT + 90..109   (Backend, Open WebUI, JupyterHub, LDR, Zeppelin,
 #                                  Jenkins, Label-Studio, MLflow, LLM-Graph-Builder,
 #                                  Verba = 10; 10 free)

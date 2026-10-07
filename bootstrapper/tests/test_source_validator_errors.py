@@ -104,3 +104,20 @@ def test_retired_source_cleanup_write_failure_stops_repair(tmp_path, monkeypatch
 
     assert validator._migrate_legacy_tts_stt_sources() is False
     assert any("retired TTS/STT" in e for e in validator.validation_errors)
+
+
+def test_a_selected_options_requires_vars_must_be_set():
+    """`requires:` was parsed and documented but never enforced."""
+    from types import SimpleNamespace
+
+    from services.source_validator import _missing_option_requires
+
+    sources = SimpleNamespace(var="FOO_SOURCE", options=[
+        SimpleNamespace(id="cloud", requires=["FOO_API_KEY"]),
+        SimpleNamespace(id="disabled", requires=[]),
+    ])
+    assert _missing_option_requires(sources, {"FOO_SOURCE": "cloud"}, {"FOO_API_KEY": " "}) == [
+        "❌ FOO_SOURCE=cloud requires FOO_API_KEY to be set in .env."]
+    assert _missing_option_requires(sources, {"FOO_SOURCE": "cloud"}, {"FOO_API_KEY": "k"}) == []
+    assert _missing_option_requires(sources, {"FOO_SOURCE": "disabled"}, {}) == []
+    assert _missing_option_requires(None, {}, {}) == []
