@@ -2194,3 +2194,229 @@ def test_doctor_overlay_env_scan_skips_compose_dollar_escapes() -> None:
     assert _doctor_compose_var_refs("curl localhost:$${PORT} ${A:-x} ${B}") == [
         ("A", True), ("B", False),
     ]
+
+
+# --- redis-aof (#1343) -------------------------------------------------------
+
+_REDIS_ENV = {"PROJECT_NAME": "demo", "REDIS_IMAGE": "redis:7.2.14-alpine"}
+_MANIFEST_LAST = "manifest-last: file appendonly.aof.1.incr.aof seq 1 type i\n"
+_CORRUPT_OUTPUT = (
+    _MANIFEST_LAST
+    + "AOF analyzed: filename=appendonly.aof.1.base.rdb, size=89, ok_up_to=89, "
+    "ok_up_to_line=1, diff=0\n"
+    "AOF appendonly.aof.1.incr.aof format error\n"
+    "AOF analyzed: filename=appendonly.aof.1.incr.aof, size=6899, ok_up_to=6370, "
+    "ok_up_to_line=1399, diff=529\n"
+    "AOF appendonly.aof.1.incr.aof is not valid. Use the --fix option to try fixing it."
+)
+# Output captured from redis-check-aof 7.2.14 on a cut-off last command.
+_TRUNCATED_TAIL = (
+    "0x             452: Expected to read 9 bytes, got 8 bytes\n"
+    "AOF analyzed: filename=appendonly.aof.1.incr.aof, size=1114, ok_up_to=1078, "
+    "ok_up_to_line=215, diff=36\n"
+    "AOF appendonly.aof.1.incr.aof is not valid. Use the --fix option to try fixing it."
+)
+
+
+def _scripted_docker(monkeypatch, replies: dict[str, tuple[int, str]]) -> list[list[str]]:
+    import start as start_module
+
+    calls: list[list[str]] = []
+
+    def fake(args, timeout):
+        calls.append(args)
+        return replies[args[0]]
+
+    monkeypatch.setattr(start_module, "_docker_text", fake)
+    return calls
+
+
+class _EnvStarter:
+    def __init__(self, env: dict) -> None:
+        self.config_parser = type("P", (), {"parse_env_file": lambda _self: dict(env)})()
+
+
+@pytest.mark.parametrize(
+    ("replies", "state"),
+    [
+        ({"inspect": (0, "true false")}, "running"),
+        ({"inspect": (1, "No such object"), "volume": (1, "Error: no such volume")}, "no-volume"),
+        ({"inspect": (0, "false true"), "volume": (0, "[]"), "run": (3, "")}, "no-aof"),
+        ({"inspect": (0, "false false"), "volume": (0, "[]"), "run": (0, "valid")}, "ok"),
+        ({"inspect": (0, "false true"), "volume": (0, "[]"), "run": (1, _CORRUPT_OUTPUT)}, "corrupt"),
+        ({"inspect": (0, "false true"), "volume": (0, "[]"),
+          "run": (1, _MANIFEST_LAST + _TRUNCATED_TAIL)}, "truncated"),
+        ({"inspect": (1, "x"), "volume": (1, "Cannot connect to the Docker daemon")}, "unavailable"),
+        ({"inspect": (1, "x"), "volume": (0, "[]"), "run": (125, "No such image")}, "unavailable"),
+    ],
+)
+def test_redis_aof_probe_classifies_docker_replies(monkeypatch, replies, state) -> None:
+    import start as start_module
+
+    _scripted_docker(monkeypatch, replies)
+    assert start_module._redis_aof_probe(_REDIS_ENV)[0] == state
+
+
+def test_redis_aof_probe_checks_a_copy_of_a_read_only_mount(monkeypatch) -> None:
+    import start as start_module
+
+    calls = _scripted_docker(
+        monkeypatch, {"inspect": (1, "x"), "volume": (0, "[]"), "run": (0, "")}
+    )
+    start_module._redis_aof_probe(_REDIS_ENV)
+    run = calls[-1]
+    assert "demo-redis-data:/data:ro" in run
+    assert ["--pull", "never"] == run[2:4] and "--network" in run
+    assert "cp -a /data/appendonlydir /tmp/aof" in run[-1]
+    assert "--fix" not in run[-1]
+    assert calls[0][-1] == "demo-redis"
+
+
+def test_redis_aof_doctor_fails_with_backup_first_repair_steps(monkeypatch) -> None:
+    import start as start_module
+
+    _scripted_docker(
+        monkeypatch,
+        {"inspect": (0, "false true"), "volume": (0, "[]"), "run": (1, _CORRUPT_OUTPUT)},
+    )
+    result = start_module._doctor_check_redis_aof(_EnvStarter(_REDIS_ENV))
+
+    assert result["id"] == "redis-aof"
+    assert result["status"] == "fail"
+    message = result["message"]
+    assert "demo-redis-data" in message
+    order = [message.index(step) for step in (
+        "./stop.sh", "tar czf", "redis-check-aof --fix appendonly.aof.manifest", "./start.sh",
+    )]
+    assert order == sorted(order)
+    assert result["details"]["findings"] == [_CORRUPT_OUTPUT.splitlines()[3]]
+    assert "ok_up_to=6370" in message
+    assert len(result["details"]["repair"]) == 4
+
+
+@pytest.mark.parametrize(
+    ("code", "output", "state"),
+    [
+        (0, "All AOF files and manifest are valid", "ok"),
+        (3, "", "no-aof"),
+        (1, _MANIFEST_LAST + _TRUNCATED_TAIL, "truncated"),
+        # Redis tolerates a cut-off command only in the last incr file.
+        (1, "manifest-last: file appendonly.aof.2.incr.aof seq 2 type i\n" + _TRUNCATED_TAIL,
+         "corrupt"),
+        (1, _CORRUPT_OUTPUT, "corrupt"),
+        (1, "RDB preamble of AOF file is not sane, aborting.", "corrupt-base"),
+        (1, _MANIFEST_LAST + "Cannot open file ./appendonly.aof.1.incr.aof: "
+         "No such file or directory, aborting...", "corrupt"),
+        (1, "cp: can't create directory '/tmp/aof': No space left on device", "unavailable"),
+        (125, "Unable to find image 'redis:7.2.14-alpine' locally", "unavailable"),
+        (-1, "timed out", "unavailable"),
+    ],
+)
+def test_redis_aof_classify_separates_load_failures_from_tolerated_tails(
+    code, output, state
+) -> None:
+    import start as start_module
+
+    assert start_module._redis_aof_classify(code, output) == state
+
+
+def test_redis_aof_doctor_points_a_bad_base_snapshot_at_a_backup(monkeypatch) -> None:
+    import start as start_module
+
+    _scripted_docker(
+        monkeypatch,
+        {"inspect": (1, "x"), "volume": (0, "[]"),
+         "run": (1, "RDB preamble of AOF file is not sane, aborting.")},
+    )
+    result = start_module._doctor_check_redis_aof(_EnvStarter(_REDIS_ENV))
+
+    assert result["status"] == "fail"
+    assert "--fix cannot repair the base snapshot" in result["message"]
+    assert "redis-check-aof --fix" not in result["message"]
+
+
+@pytest.mark.parametrize(
+    ("env", "replies", "status"),
+    [
+        (_REDIS_ENV, {"inspect": (0, "true false")}, "pass"),
+        (_REDIS_ENV, {"inspect": (1, "x"), "volume": (0, "[]"),
+                      "run": (1, _MANIFEST_LAST + _TRUNCATED_TAIL)}, "pass"),
+        (_REDIS_ENV, {"inspect": (1, "x"), "volume": (1, "Cannot connect")}, "skipped"),
+        ({"PROJECT_NAME": "demo"}, {}, "skipped"),
+    ],
+)
+def test_redis_aof_doctor_never_fails_without_a_corrupt_file(
+    monkeypatch, env, replies, status
+) -> None:
+    import start as start_module
+
+    _scripted_docker(monkeypatch, replies)
+    assert start_module._doctor_check_redis_aof(_EnvStarter(env))["status"] == status
+
+
+def test_redis_aof_doctor_is_registered() -> None:
+    import start as start_module
+
+    assert start_module._doctor_check_redis_aof in start_module.DOCTOR_CHECKS
+
+
+def _local_redis_image() -> str | None:
+    import shutil
+    import subprocess
+
+    image = "redis:7.2.14-alpine"
+    if shutil.which("docker") is None:
+        return None
+    try:
+        probe = subprocess.run(
+            ["docker", "image", "inspect", image], capture_output=True, check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return image if probe.returncode == 0 else None
+
+
+_ZERO_GAP = (
+    "head -c 600 /dev/zero >> $f; printf '*1\\r\\n$4\\r\\nPING\\r\\n' >> $f"
+)
+_CUT_TAIL = "s=$(stat -c %s $f); head -c $((s-5)) $f > /tmp/t; cat /tmp/t > $f"
+
+
+@pytest.mark.skipif(_local_redis_image() is None, reason="docker or redis image unavailable")
+@pytest.mark.parametrize(("damage", "status"), [(_ZERO_GAP, "fail"), (_CUT_TAIL, "pass")])
+def test_redis_aof_doctor_against_a_real_volume(monkeypatch, damage, status) -> None:
+    """End to end against a throwaway volume: zeros before a later write are a
+    load failure, a cut-off last command is not, and the volume is untouched."""
+    import subprocess
+    import uuid
+
+    import start as start_module
+
+    image = _local_redis_image()
+    project = f"atlasaoftest{uuid.uuid4().hex[:10]}"
+    volume = f"{project}-redis-data"
+    monkeypatch.undo()  # drop the autouse stub; this test talks to Docker
+    seed = (
+        "redis-server --appendonly yes --daemonize yes >/dev/null; sleep 1; "
+        "for i in 1 2 3 4 5; do redis-cli set k$i v$i >/dev/null; done; "
+        "redis-cli shutdown >/dev/null 2>&1; sleep 1; "
+        f"f=$(ls /data/appendonlydir/*.incr.aof); {damage}; md5sum $f"
+    )
+    subprocess.run(["docker", "volume", "create", volume], check=True, capture_output=True)
+    try:
+        before = subprocess.run(
+            ["docker", "run", "--rm", "-v", f"{volume}:/data", image, "sh", "-c", seed],
+            check=True, capture_output=True, text=True,
+        ).stdout.split()[0]
+        env = {"PROJECT_NAME": project, "REDIS_IMAGE": image}
+        result = start_module._doctor_check_redis_aof(_EnvStarter(env))
+        after = subprocess.run(
+            ["docker", "run", "--rm", "-v", f"{volume}:/data", image, "sh", "-c",
+             "md5sum /data/appendonlydir/*.incr.aof"],
+            check=True, capture_output=True, text=True,
+        ).stdout.split()[0]
+    finally:
+        subprocess.run(["docker", "volume", "rm", "-f", volume], capture_output=True)
+    assert result["status"] == status, result
+    assert before == after

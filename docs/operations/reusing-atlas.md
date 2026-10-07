@@ -233,7 +233,7 @@ next:
 cd infra
 ./start.sh env backfill                                  # fill any new .env keys from .env.example
 ./start.sh compose validate                              # assert the merged compose is well-formed
-./start.sh doctor --format json                          # consumer-manifest + base-port + unpullable-model lints
+./start.sh doctor --format json                          # consumer-manifest + base-port + unpullable-model + Redis AOF lints
 ./start.sh --consumer "$(pwd)/../atlas.consumer.yml" \
   --project myproject [--track <k>] [--detach]   # BASE_PORT + project come from the manifest
 ```
