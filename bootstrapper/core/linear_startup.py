@@ -187,6 +187,10 @@ def _run_linear_startup(
     if not starter.validate_source_configurations():
         return 1
 
+    # Before port configuration, which stops a running stack on a warm start:
+    # a managed host that would refuse to start must not cost that stack (#1342).
+    if not starter.preflight_managed_host_processes():
+        return 1
     starter.unset_port_environment_variables()
     if not starter.handle_port_configuration(options.base_port):
         return 1
