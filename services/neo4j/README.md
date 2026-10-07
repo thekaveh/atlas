@@ -301,7 +301,7 @@ _Rows marked planned are documented or intended, not wired yet._
 ### 14.1. Common Issues
 
 **Container won't start**: Check memory allocation and port conflicts
-**Authentication failures**: Verify `GRAPH_DB_PASSWORD` (and `GRAPH_DB_AUTH`) in `.env`
+**Authentication failures**: Verify `GRAPH_DB_PASSWORD` (and `GRAPH_DB_AUTH`) in `.env`. Each start sets `GRAPH_DB_AUTH` to `GRAPH_DB_USER/GRAPH_DB_PASSWORD` while no Neo4j data volume exists. Once one exists, Neo4j has already applied its first-boot password, so a mismatch only prints a warning: change the password in `cypher-shell` (`ALTER CURRENT USER SET PASSWORD ...`), then set both values to match (#1368)
 **Connection refused**: Ensure ports are not blocked by firewall
 **Out of memory errors**: Increase heap size or reduce dataset size
 

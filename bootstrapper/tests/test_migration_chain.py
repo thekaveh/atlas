@@ -172,3 +172,34 @@ def test_chain_preserves_pristine_v1_backup(tmp_path):
     assert v1_backups[0].read_text(encoding="utf-8") == original
     # Distinct files — no name collision.
     assert v1_backups[0] != v3_backups[0] != v4_backups[0] != v1_backups[0]
+
+
+# --- migrations read and rewrite `export KEY=` lines (#1368) ----------------
+
+
+def test_migration_helpers_treat_an_export_line_as_the_key():
+    from services.migrations import migration_v3, migration_v4, migration_v5
+
+    text = "export COMFYUI_MODEL_SET=sdxl\n  export OTHER=1\n"
+    assert migration_v3._parse_env(text)["COMFYUI_MODEL_SET"] == "sdxl"
+    assert migration_v4._parse_env(text)["OTHER"] == "1"
+    for module in (migration_v3, migration_v4):
+        assert module._replace_or_append(text, "OTHER", "2") == (
+            "export COMFYUI_MODEL_SET=sdxl\n  export OTHER=2\n"
+        )
+    assert migration_v3._strip_old_var_lines("# old\nexport COMFYUI_MODEL_SET=x\nA=1\n",
+                                              "COMFYUI_MODEL_SET") == "A=1\n"
+    updated, changed = migration_v5._add_module("export WEAVIATE_ENABLE_MODULES=text2vec-ollama\n")
+    assert changed and updated.startswith("export WEAVIATE_ENABLE_MODULES=")
+
+
+def test_v1_port_layout_rewrite_keeps_the_export_prefix(tmp_path):
+    from services.migrations import migration_v1
+
+    old_port = 63000 + migration_v1.V0_OFFSETS["LITELLM_PORT"]
+    env = tmp_path / ".env"
+    env.write_text(f"BASE_PORT=63000\nexport LITELLM_PORT={old_port}\n", encoding="utf-8")
+    result = migration_v1.apply(env, {"LITELLM_PORT": old_port + 1}, 63000)
+    lines = [line for line in env.read_text(encoding="utf-8").splitlines() if "LITELLM_PORT=" in line]
+    assert lines == [f"export LITELLM_PORT={old_port + 1}"]
+    assert "LITELLM_PORT" in result.rewritten

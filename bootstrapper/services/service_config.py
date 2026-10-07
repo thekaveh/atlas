@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional
 from urllib.parse import quote
 from core.config_parser import ConfigParser
 from core.endpoints_contract import _expand_interpolation
-from utils.atomic_write import atomic_write_text, render_env_assignment
+from utils.atomic_write import atomic_write_text, render_env_assignment, set_env_assignment
 from utils.system import get_localhost_host, resolve_host_gateway_ip
 
 
@@ -2104,21 +2104,8 @@ class ServiceConfig:
                 # originated in a consumer manifest can arrive here without
                 # having passed the consumer parser.
                 var_value = render_env_assignment(var_name, raw_value)
-                # Use regex to find and replace the variable assignment
-                pattern = rf'^{re.escape(var_name)}=.*$'
-                replacement = f'{var_name}={var_value}'
-
-                if re.search(pattern, updated_content, re.MULTILINE):
-                    # Variable exists, replace it. Lambda bypasses re.sub's
-                    # backslash interpretation in the replacement string
-                    # (matches the source_override_manager.py pattern —
-                    # env values may contain literal backslashes).
-                    updated_content = re.sub(
-                        pattern, lambda _m, r=replacement: r, updated_content, flags=re.MULTILINE
-                    )
-                else:
-                    # Variable doesn't exist, append it
-                    updated_content += f'\n{replacement}'
+                # Rewrites `export KEY=` lines too, or appends (#1368).
+                updated_content = set_env_assignment(updated_content, var_name, var_value)
             
             atomic_write_text(env_file_path, updated_content, mode=0o600)
 
