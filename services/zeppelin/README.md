@@ -129,7 +129,7 @@ ZEPPELIN_PORT=                     # auto-assigned (apps band)
 `services/zeppelin/notebooks/spark_basics.zpln` ships pre-loaded. 5 cells:
 1. Spark version check (`spark.version`)
 2. Markdown intro
-3. MinIO round-trip via S3A (`s3a://spark-history/...`)
+3. MinIO round-trip via S3A (`s3a://<MINIO_BUCKET_SPARK_HISTORY>/...`, default `spark-history`)
 4. Trino JDBC metadata smoke via `%trino` (`SHOW CATALOGS`; `SHOW SCHEMAS FROM lakehouse`) when `TRINO_SOURCE=container`
 5. Postgres JDBC `SELECT version()` against supabase-db (requires the one-time `postgres` interpreter setup in §4; the cell will error with "Interpreter not properly configured" until you complete it)
 
@@ -137,7 +137,9 @@ Use it as a template for your own notebooks.
 
 `services/zeppelin/notebooks/iceberg_advanced_sql.zpln` is the opt-in
 standalone Spark counterpart to JupyterHub's Spark Connect advanced smoke,
-covering Iceberg's MERGE/branching/streaming/maintenance surface. Run it
+covering Iceberg's MERGE/branching/streaming/maintenance surface. Its
+streaming paragraph writes to the buckets named by `MINIO_BUCKET_ICEBERG_LANDING`
+and `MINIO_BUCKET_ICEBERG_CHECKPOINTS` (#1392). Run it
 from the Zeppelin UI or from the repository root:
 
 ```bash

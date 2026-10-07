@@ -164,7 +164,7 @@ def test_python_and_scala_spark_examples_share_runtime_contracts():
 
     for text in (python_spark, scala_spark):
         assert "SPARK_REMOTE" in text
-        assert "s3a://spark-history/" in text
+        assert "MINIO_BUCKET_SPARK_HISTORY" in text  # bucket follows the env (#1392)
     assert "LITELLM_DEFAULT_MODEL" in scala_basics_code
     assert '"ollama/qwen3.8:latest"' not in scala_basics_code
 
@@ -231,3 +231,52 @@ def test_advanced_sql_notebook_follows_the_configured_iceberg_buckets():
         assert f'os.environ.get("{var}"' in code
         assert var in environment
     assert "s3a://landing/" not in code and "s3a://checkpoints/" not in code
+
+
+# ─── bucket names follow MINIO_BUCKET_*; a disabled Weaviate is reported (#1392)
+
+
+def test_notebook_code_names_no_minio_bucket_literally():
+    """A renamed bucket got probe writes to one that does not exist."""
+    literal = re.compile(r"s3a://(spark-history|landing|checkpoints)(?=[/\"'\s]|$)")
+    code = [
+        "".join(cell.get("source", []))
+        for path in NOTEBOOK_DIR.glob("*.ipynb")
+        for cell in json.loads(path.read_text(encoding="utf-8"))["cells"]
+        if cell["cell_type"] == "code"
+    ]
+    zeppelin = ROOT / "services" / "zeppelin" / "notebooks"
+    code += [
+        paragraph.get("text", "")
+        for path in zeppelin.glob("*.zpln")
+        for paragraph in json.loads(path.read_text(encoding="utf-8")).get("paragraphs", [])
+        if not paragraph.get("text", "").lstrip().startswith("%md")
+    ]
+    assert [text for text in code if literal.search(text)] == []
+
+
+def test_the_rag_notebook_reports_a_disabled_weaviate_instead_of_failing(monkeypatch, capsys):
+    import types
+
+    cells = json.loads((NOTEBOOK_DIR / "02_langchain_rag.ipynb").read_text(encoding="utf-8"))["cells"]
+    setup, store, query = ("".join(cells[i]["source"]) for i in (3, 7, 9))
+    monkeypatch.setenv("OPENAI_API_BASE", "http://litellm:4000/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-x")
+    for value in (None, ""):
+        if value is None:
+            monkeypatch.delenv("WEAVIATE_URL", raising=False)
+        else:
+            monkeypatch.setenv("WEAVIATE_URL", value)
+        refuse = types.SimpleNamespace(connect_to_custom=lambda **_kw: (_ for _ in ()).throw(AssertionError))
+        namespace = {"os": __import__("os"), "weaviate": refuse, "documents": [],
+                     "ChatOpenAI": lambda **_kw: None, "OpenAIEmbeddings": lambda **_kw: None}
+        for source in (setup, store, query):
+            exec(compile(source, "02_langchain_rag", "exec"), namespace)  # noqa: S102
+        assert namespace["wv_client"] is None
+        assert "Weaviate not configured" in capsys.readouterr().out
+    # A configured Weaviate is still connected.
+    monkeypatch.setenv("WEAVIATE_URL", "http://weaviate:8080")
+    connected = types.SimpleNamespace(is_ready=lambda: True)
+    namespace["weaviate"] = types.SimpleNamespace(connect_to_custom=lambda **kw: connected)
+    exec(compile(setup, "02_langchain_rag", "exec"), namespace)  # noqa: S102
+    assert namespace["wv_client"] is connected
