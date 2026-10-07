@@ -81,7 +81,9 @@ host port beyond loopback.
 
 A normal `./start.sh` with `VLLM_METAL_SOURCE=managed-localhost` runs
 preflight → install → start at the launch boundary, immediately before
-`docker compose up`. If image build, Compose startup, or a required init
+`docker compose up`. A read-only check runs first, before a warm start stops
+the running stack: if the host would refuse to start, the launch exits with that
+error and the running containers are left as they are (#1342). If image build, Compose startup, or a required init
 container fails, Atlas stops a vLLM process created by that launch; it does not
 stop an instance that was already running. After the stack converges, the host
 process becomes part of the running stack. The process is **host-global** —
