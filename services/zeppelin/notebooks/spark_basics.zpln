@@ -14,7 +14,7 @@
     },
     {
       "title": "MinIO round-trip via S3A",
-      "text": "%spark\nval df = Seq((1, \"alice\"), (2, \"bob\")).toDF(\"id\", \"name\")\ndf.write.mode(\"overwrite\").parquet(\"s3a://spark-history/_test_round_trip\")\nspark.read.parquet(\"s3a://spark-history/_test_round_trip\").show()",
+      "text": "%spark\nval df = Seq((1, \"alice\"), (2, \"bob\")).toDF(\"id\", \"name\")\nval path = s\"s3a://${sys.env.getOrElse(\"MINIO_BUCKET_SPARK_HISTORY\", \"spark-history\")}/_test_round_trip\"\ndf.write.mode(\"overwrite\").parquet(path)\nspark.read.parquet(path).show()",
       "user": "anonymous"
     },
     {
