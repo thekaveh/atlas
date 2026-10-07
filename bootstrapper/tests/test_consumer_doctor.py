@@ -2767,3 +2767,34 @@ def test_a_stray_instances_port_is_not_foreign_and_manual_start_reaps_it(tmp_pat
                         or (SimpleNamespace(to_dict=lambda: {"running": True}), True))
     assert CliRunner().invoke(start_module.main, ["blender-mcp", "start"]).exit_code == 0
     assert calls[0] == ("stop", 1) and ("start", 0) in calls
+
+
+def test_a_cancelled_tui_says_what_the_phase_left(capsys) -> None:
+    """Ctrl+C before the launch said containers keep running; after the
+    wizard's cold cleanup it said no data was deleted."""
+    from types import SimpleNamespace
+
+    import start as start_module
+
+    assert start_module._report_tui_exit(130, SimpleNamespace(tui_launch_started=False)) == 130
+    out = capsys.readouterr().out
+    assert "nothing was started" in out and "keep running" not in out
+    cold = SimpleNamespace(tui_launch_started=True, tui_cold_cleanup_ran=True)
+    start_module._report_tui_exit(130, cold)
+    assert "--cold start was interrupted" in capsys.readouterr().out
+    start_module._report_tui_exit(130, SimpleNamespace(), cold=True)  # CLI --cold
+    assert "--cold start was interrupted" in capsys.readouterr().out
+
+
+def test_wizard_overview_previews_a_typed_localhost_port() -> None:
+    """The typed host port was ignored by the overview, which kept showing
+    the .env port while the launch wrote the typed one."""
+    from types import SimpleNamespace
+
+    from ui.textual.screens.wizard_screen import WizardScreen
+
+    screen = WizardScreen.__new__(WizardScreen)
+    screen._selections = {"__secondary__:OLLAMA_LOCALHOST_PORT": "11500"}
+    localhost = SimpleNamespace(secondary_number=SimpleNamespace(env_var="OLLAMA_LOCALHOST_PORT"))
+    assert screen._typed_host_port(localhost) == "11500"
+    assert screen._typed_host_port(SimpleNamespace(secondary_number=None)) == ""

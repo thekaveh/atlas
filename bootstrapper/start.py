@@ -309,6 +309,7 @@ from core.launch_outcome import (
     ProbeSkipped,
     build_skip_rows,
     cancel_notice,
+    launch_cancelled_notice,
     started_without,
 )
 from utils.localhost_validator import LocalhostValidator
@@ -6831,17 +6832,25 @@ def _export_failed_start_bundle(starter: "AtlasStarter", transcript, exit_code) 
         echo(f"⚠ support bundle not written: {exc}")
 
 
-def _report_tui_exit(rc: int, stopped_previous: bool = False) -> int:
+def _report_tui_exit(rc: int, starter=None, *, cold: bool = False) -> int:
     """Say what a cancelled Textual run left behind, then pass ``rc`` on.
 
     Ctrl+C exits the Textual app with 130 at any point. The alternate screen
     is gone by then, so without this line nothing in the terminal says that
     containers Compose already started are still running and that nothing
     was deleted. Cancelling is never a teardown, and never a deletion
-    (#1032).
+    (#1032) — except that a cold start's cleanup, once it ran, has removed
+    the volumes. ``starter`` carries what the TUI recorded: whether the
+    launch started and whether the wizard's cold cleanup ran; ``cold`` is a
+    CLI --cold, which cleans before the launch screen.
     """
     if rc == 130:
-        print(cancel_notice(stopped_previous))
+        stopped = getattr(starter, "stopped_previous_instance", False)
+        cold = cold or getattr(starter, "tui_cold_cleanup_ran", False)
+        if getattr(starter, "tui_launch_started", True):
+            print(cancel_notice(stopped, cold))
+        else:
+            print(launch_cancelled_notice(cold, stopped))
     return rc
 
 
@@ -7979,6 +7988,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                 # compose log streaming all run inside one App. start.py
                 # exits when the user detaches.
                 from ui.textual.integration import run_setup_flow
+                starter.tui_launch_started = False  # set once the wizard launches
                 rc = run_setup_flow(
                     starter.config_parser, starter.hosts_manager,
                     starter=starter,
@@ -7988,7 +7998,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     no_splash=no_splash,
                     profile=profile,
                 )
-                sys.exit(_report_tui_exit(rc, getattr(starter, "stopped_previous_instance", False)))
+                sys.exit(_report_tui_exit(rc, starter, cold=cold))
 
             # No-TUI fallback (spec §6.2 / §8.6): we're in will_run_wizard mode
             # but is_tui_capable returned False (--no-tui flag or non-TTY /
@@ -8119,7 +8129,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     no_splash=no_splash,
                     profile=profile,
                 )
-                sys.exit(_report_tui_exit(rc, getattr(starter, "stopped_previous_instance", False)))
+                sys.exit(_report_tui_exit(rc, starter, cold=cold))
 
         # Linear (--no-tui / non-TTY) flow from here on — the wizard and
         # CLI-flag TUI branches above both sys.exit() before this point.

@@ -2068,6 +2068,13 @@ class WizardScreen(Screen):
             return self._resolve_port_for_service(row.name, row.source) or ""
         return row.port
 
+    def _typed_host_port(self, opt) -> str:
+        """The host port typed into ``opt``'s inline box, if any: the launch
+        writes it (#1390), so the overview previews it rather than .env's."""
+        secondary = getattr(opt, "secondary_number", None)
+        typed = self._selections.get(f"__secondary__:{secondary.env_var}") if secondary else None
+        return "" if typed in (None, "") else str(typed)
+
     def action_confirm(self) -> None:
         if self._phase != "setup":
             return
@@ -2144,7 +2151,7 @@ class WizardScreen(Screen):
                 # sources should show the host machine's port, container
                 # sources the assigned container port, disabled none.
                 try:
-                    row.port = self._port_for_row(row)
+                    row.port = self._typed_host_port(opt) or self._port_for_row(row)
                 except Exception:  # noqa: BLE001
                     pass
                 # Row position is fixed by canonical topology order — a
@@ -2953,6 +2960,9 @@ class WizardScreen(Screen):
     # ─── transition ──────────────────────────────────────────────────
 
     async def _transition_to_launch(self) -> None:
+        # start.py words a Ctrl+C exit by whether the launch had begun.
+        if self._starter is not None:
+            self._starter.tui_launch_started = True
         # If args were prefilled at construction time (auto-launch mode),
         # honor them. Otherwise resolve from the wizard's selections.
         if self._source_args is None or self._stack_options is None:
@@ -3492,12 +3502,15 @@ class WizardScreen(Screen):
         """
         if not (self._stack_options or {}).get("cold_cleanup_pending"):
             return []
-        return [(
-            "Cold start: remove volumes and recreate .env",
-            lambda: starter.prepare_environment(
+        def cleanup():
+            # Recorded first: an interrupted cleanup may already have
+            # removed volumes, which the cancel notice must say.
+            starter.tui_cold_cleanup_ran = True
+            return starter.prepare_environment(
                 cold_start=True, base_port=base_port, project_name=project_name or None,
-            ),
-        )]
+            )
+
+        return [("Cold start: remove volumes and recreate .env", cleanup)]
 
     async def _run_pipeline_and_stream(self) -> None:
         starter = self._starter
