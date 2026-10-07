@@ -1219,11 +1219,31 @@ async def _claim_rag_dispatch(
     return claimed
 
 
+def _require_drain_within_task_limit(service: RagIngestionService, profile: str) -> None:
+    """Refuse a Celery ingestion whose LightRAG drain alone could not finish
+    inside the task's soft time limit, instead of failing it at the limit
+    (#1352). The earlier phases need time too, so passing is not a guarantee."""
+    from celery_app import load_rag_ingestion_limits
+
+    wait = service.total_graph_wait(profile)
+    soft = load_rag_ingestion_limits()["soft"]
+    if wait >= soft:
+        raise ValueError(
+            f"rag_ingestion profile {profile!r} lets its graph targets wait "
+            f"{wait} s in total (timeout_seconds), which is not below the ingestion "
+            f"task's {soft} s soft time limit (RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS); "
+            "lower timeout_seconds or raise the task limits"
+        )
+
+
 async def _submit_rag_record(
     service: RagIngestionService,
     request: RagIngestionRequest,
     cancellation_seen: asyncio.Event,
+    use_celery: bool = False,
 ) -> tuple[Any, bool]:
+    if use_celery:
+        await asyncio.to_thread(_require_drain_within_task_limit, service, request.profile)
     submit_task = asyncio.create_task(
         asyncio.to_thread(
             service.submit, request.profile, corpus_path=request.corpus_path
@@ -1342,9 +1362,16 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
     """
     service = get_rag_ingestion_service()
     cancellation_seen = asyncio.Event()
+    # Memory state is process-local by definition; never hand an ingestion id
+    # to a worker that cannot observe the Backend process's record.
+    use_celery = (
+        async_job
+        and celery_is_enabled()
+        and backend_state_store_mode() != "memory"
+    )
     try:
         record, created = await _submit_rag_record(
-            service, request, cancellation_seen
+            service, request, cancellation_seen, use_celery
         )
     except ProfileNotFoundError:
         raise HTTPException(
@@ -1356,13 +1383,6 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
 
     await _reconcile_cancelled_rag_submit(
         service, record, created, cancellation_seen
-    )
-    # Memory state is process-local by definition; never hand an ingestion id
-    # to a worker that cannot observe the Backend process's record.
-    use_celery = (
-        async_job
-        and celery_is_enabled()
-        and backend_state_store_mode() != "memory"
     )
     existing = _existing_rag_response(record, created, use_celery)
     if existing is not None:
