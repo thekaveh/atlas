@@ -4647,13 +4647,13 @@ async def memory_delete(
     _validate_uuid_param(memory_id, "memory_id")
     user_id = authorize_user_id(principal, user_id)
     try:
-        success = await memory_service.delete_memory(memory_id, user_id)
-        if not success:
+        report = await memory_service.delete_memory_report(memory_id, user_id)
+        if report is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Memory {memory_id} not found",
             )
-        return {"success": True, "message": "Memory deleted successfully"}
+        return report
     except HTTPException:
         raise
     except PoolSaturatedError:
