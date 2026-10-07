@@ -314,9 +314,9 @@ def test_research_cancel_reports_best_effort_local_cancellation(monkeypatch):
     import main
 
     async def fake_cancel(session_id, owner_user_id=None):
-        return True
+        return "cancelled"
 
-    monkeypatch.setattr(main.research_service, "cancel_research", fake_cancel)
+    monkeypatch.setattr(main.research_service, "cancel_research_outcome", fake_cancel)
     client = TestClient(main.app)
 
     resp = client.post("/research/00000000-0000-4000-8000-000000000001/cancel")
@@ -325,6 +325,24 @@ def test_research_cancel_reports_best_effort_local_cancellation(monkeypatch):
     body = resp.json()
     assert body["status"] == "cancel_requested"
     assert "makes LangGraph cancel the remote run" in body["message"]
+
+
+@pytest.mark.parametrize(("outcome", "code"), [("not_found", 404), ("not_running", 409)])
+def test_research_cancel_separates_unknown_from_finished_sessions(monkeypatch, outcome, code):
+    """#1354: an unknown or foreign session is 404; one that already finished
+    is 409. Both were 400."""
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    import main
+
+    async def fake_cancel(session_id, owner_user_id=None):
+        return outcome
+
+    monkeypatch.setattr(main.research_service, "cancel_research_outcome", fake_cancel)
+
+    resp = TestClient(main.app).post("/research/00000000-0000-4000-8000-000000000001/cancel")
+
+    assert resp.status_code == code
 
 
 def test_research_logs_returns_404_when_session_is_absent(monkeypatch):

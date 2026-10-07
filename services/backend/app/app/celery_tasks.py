@@ -262,6 +262,27 @@ def _rag_recovery_owner(payload: dict[str, Any]) -> Optional[str]:
     return owner
 
 
+# Redis outages are retried with full-jitter backoff capped at 600 s: 20
+# retries wait about an hour on average (two at most) before the task, and
+# the job record, fail instead of retrying forever (#1354).
+_RAG_INFRASTRUCTURE_RETRY_LIMIT = 20
+
+
+def _retry_rag_redis_outage(task, exc, state: "_RagRetryState", owner: str) -> None:
+    """Retry a Redis failure, or re-raise one that cannot succeed: an error
+    reply such as WRONGTYPE, or an outage past the retry limit."""
+    from rag_ingestion import is_permanent_redis_reply
+
+    if is_permanent_redis_reply(exc) or state.infrastructure_attempt >= _RAG_INFRASTRUCTURE_RETRY_LIMIT:
+        raise exc
+    state = replace(
+        state,
+        infrastructure_attempt=state.infrastructure_attempt + 1,
+        recovery_owner=owner,
+    )
+    _schedule_rag_retry(task, exc, state, _rag_retry_countdown(state.infrastructure_attempt - 1))
+
+
 def _rag_retry_countdown(attempt: int) -> int:
     return get_exponential_backoff_interval(
         factor=1,
@@ -308,7 +329,12 @@ def rag_ingestion_task(
             ingestion_id,
             execution_owner=owner,
             execution_recovery_owner=state.recovery_owner,
-            retry_transient=state.phase_attempt < 3,
+            # The last attempt records a transient failure on the job itself,
+            # so the record is terminal instead of "waiting for Celery retry".
+            retry_transient=(
+                state.phase_attempt < 3
+                and state.infrastructure_attempt < _RAG_INFRASTRUCTURE_RETRY_LIMIT
+            ),
         )
     except IngestionExecutionBusy as exc:
         state = replace(state, recovery_owner=None)
@@ -321,17 +347,7 @@ def rag_ingestion_task(
             self, exc, state, ingestion_execution_lease_seconds()
         )
     except RedisError as exc:
-        state = replace(
-            state,
-            infrastructure_attempt=state.infrastructure_attempt + 1,
-            recovery_owner=owner,
-        )
-        _schedule_rag_retry(
-            self,
-            exc,
-            state,
-            _rag_retry_countdown(state.infrastructure_attempt - 1),
-        )
+        _retry_rag_redis_outage(self, exc, state, owner)
     except TRANSIENT_EXCEPTIONS as exc:
         if state.phase_attempt >= 3:
             raise
