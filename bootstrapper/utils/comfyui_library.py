@@ -79,6 +79,22 @@ CATEGORY_TARGET_DIR: dict[str, str] = {
 }
 
 VALID_CATEGORIES = frozenset(CATEGORY_TARGET_DIR.keys())
+# The only folders a model row may write into: the container downloader's
+# closed list (download_models.sh known_target) and the MPS provisioner's
+# containment both rely on it.
+KNOWN_TARGET_DIRS = frozenset(CATEGORY_TARGET_DIR.values())
+
+
+def _checked_target_dir(value: Any, label: str) -> Any:
+    if value is not None and value not in KNOWN_TARGET_DIRS:
+        raise ValueError(f"{label}: target_dir {value!r} is not a known ComfyUI model folder")
+    return value
+
+
+def _checked_filename(value: Any, label: str) -> Any:
+    if value is not None and (str(value) in ("", ".", "..") or any(c in str(value) for c in "/\\")):
+        raise ValueError(f"{label}: filename {value!r} must be a plain file name")
+    return value
 
 # Display groups drive the wizard's filter chips.
 CATEGORY_DISPLAY_GROUPS: dict[str, frozenset[str]] = {
@@ -475,13 +491,14 @@ def _dict_to_model_file(d: dict) -> ComfyUIModelFile:
             raise ValueError("bundle file provisioning_required must be a boolean")
     else:
         file_policy = None
+    label = f"bundle file {d.get('role', '<unknown>')!r}"
     return ComfyUIModelFile(
         role=d["role"],
         category=d["category"],
         url=url,
-        filename=d.get("filename"),
+        filename=_checked_filename(d.get("filename"), label),
         sha256=d.get("sha256"),
-        target_dir=d.get("target_dir"),
+        target_dir=_checked_target_dir(d.get("target_dir"), label),
         size_gb=d.get("size_gb"),
         size_bytes=d.get("size_bytes"),
         precision=d.get("precision"),
@@ -516,7 +533,7 @@ def _dict_to_entry(d: dict, source: str) -> ComfyUILibraryEntry:
         size_gb=d.get("size_gb") or 0.0,
         url=url,
         sha256=d.get("sha256"),
-        target_dir=d.get("target_dir", CATEGORY_TARGET_DIR[cat]),
+        target_dir=_checked_target_dir(d.get("target_dir", CATEGORY_TARGET_DIR[cat]), f"model {d.get('name')!r}"),
         min_vram_gb=d.get("min_vram_gb"),
         cpu_supported=d.get("cpu_supported", True),
         requires_custom_node=tuple(d.get("requires_custom_node") or ()),
@@ -525,7 +542,7 @@ def _dict_to_entry(d: dict, source: str) -> ComfyUILibraryEntry:
         pulled=False,
         cloud_only=bool(d.get("cloud_only", False)),
         notes=d.get("notes"),
-        filename=d.get("filename"),
+        filename=_checked_filename(d.get("filename"), f"model {d.get('name')!r}"),
         essential=bool(d.get("essential", False)),
         precision=d.get("precision"),
         variant=d.get("variant"),

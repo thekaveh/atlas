@@ -1338,7 +1338,15 @@ class ComfyUiMpsManager:
 
     def _provision_dest(self, row: dict) -> Path:
         assert self.models_path is not None
-        return self.models_path / str(row.get("target_dir") or "") / str(row.get("filename"))
+        dest = self.models_path / str(row.get("target_dir") or "") / str(row.get("filename"))
+        # Resolved, not textual: `..` segments pass a relative_to check.
+        root = Path(self.models_path).expanduser().resolve()
+        if root not in dest.expanduser().resolve().parents:
+            raise ComfyUiMpsError(
+                f"model {row.get('name')!r} would be written outside {root}: "
+                f"target_dir {row.get('target_dir')!r}, filename {row.get('filename')!r}"
+            )
+        return dest
 
     @staticmethod
     def _part_path(dest: Path) -> Path:

@@ -2,7 +2,10 @@
 
 The dashboard is intentionally static at generation time: Kong serves the
 HTML from its DB-less config via a pre-function plugin, while the browser
-performs tiny reachability probes to turn active rows healthy/degraded.
+performs tiny reachability probes that mark active rows reachable or
+unreachable. A `no-cors` fetch cannot read the HTTP status, so "reachable"
+means something answered at the URL: through Kong that can be the gateway's
+own 502 for a stopped service. It is not a health check.
 """
 
 from __future__ import annotations
@@ -216,7 +219,8 @@ def _render_card(row: DashboardService, accent: str) -> str:
     status_html = (
         f'<span class="status" data-status="{row.status}"{health_attr}>'
         f'<span class="dot" aria-hidden="true"></span>'
-        f'<span class="status-text">{row.status}</span></span>'
+        # Until the page's probe answers, an enabled row is only "checking".
+        f'<span class="status-text">{"checking" if row.status == "degraded" else row.status}</span></span>'
     )
     desc = escape(row.description) if row.description else ""
     desc_html = f'<p class="card-desc">{desc}</p>' if desc else ""
@@ -425,11 +429,12 @@ __SECTIONS__
       fetch(url, { mode: "no-cors", cache: "no-store" })
         .then(() => {
           el.dataset.status = "healthy";
-          el.querySelector(".status-text").textContent = "healthy";
+          // Answered with some status (a no-cors fetch cannot read it).
+          el.querySelector(".status-text").textContent = "reachable";
         })
         .catch(() => {
           el.dataset.status = "degraded";
-          el.querySelector(".status-text").textContent = "degraded";
+          el.querySelector(".status-text").textContent = "unreachable";
         });
     }
   </script>
