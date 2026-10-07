@@ -334,3 +334,19 @@ def test_launch_blocker_runs_against_each_real_manager(tmp_path, module) -> None
     manager.port = free_port
     problem = start._managed_host_launch_blocker(lambda _env: manager, {}, "host")
     assert problem is None or problem.startswith("preflight failed"), problem
+
+
+def test_both_flows_migrate_ports_before_applying_this_runs_overrides(monkeypatch) -> None:
+    """The linear flow migrated after the overrides; the TUI migrates before
+    its wizard reads .env (#1391)."""
+    from pathlib import Path
+
+    starter = _FakeStarter()
+    monkeypatch.setattr(linear_startup, "warn_if_submodule_pin_drifted", lambda *_a: None)
+    assert linear_startup.run_linear_startup(starter, _options()) == 0
+    calls = starter.calls
+    assert calls.index("backfill_missing_env_vars") < calls.index("run_port_migration")
+    assert calls.index("run_port_migration") < calls.index("apply_source_overrides")
+    source = (Path(__file__).resolve().parents[1] / "ui" / "textual" / "integration.py").read_text()
+    setup = source[source.index("def run_setup_flow("):]
+    assert setup.index("run_port_migration(") < setup.index("WizardScreen(")

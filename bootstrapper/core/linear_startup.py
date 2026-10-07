@@ -159,6 +159,9 @@ def _run_linear_startup(
         return 1
     if not starter.backfill_missing_env_vars():
         return 1
+    # Migrate before this run's overrides, as the Textual flow does before
+    # its wizard (#1391).
+    starter.run_port_migration(options.no_port_migrate)
     if not starter.apply_source_overrides(**options.source_args):
         return 1
     if not starter.apply_profile_overrides(
@@ -173,8 +176,6 @@ def _run_linear_startup(
         return 1
     if not starter.reconcile_default_models():
         return 1
-
-    starter.run_port_migration(options.no_port_migrate)
 
     if options.profile == "prod":
         service_sources = starter.config_parser.parse_service_sources()
