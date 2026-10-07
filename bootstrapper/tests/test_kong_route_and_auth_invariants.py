@@ -178,3 +178,53 @@ def test_the_dashboard_still_serves_the_bare_root(kong_config):
         s for s in kong_config["services"] if s["name"] == "atlas-root-dashboard"
     )
     assert any(_matches(pattern, "/") for pattern, _ in _route_paths(dashboard))
+
+
+def _blocked_routes(service: dict) -> dict:
+    return {
+        tuple(route["paths"]): route["plugins"][0]
+        for route in service["routes"]
+        if route.get("paths") and route.get("plugins")
+    }
+
+
+def _kong_service(monkeypatch, method: str) -> dict:
+    from core.config_parser import ConfigParser
+    from utils.kong_config_generator import KongConfigGenerator
+
+    gen = KongConfigGenerator(ConfigParser("."))
+    env = {"PROMETHEUS_SOURCE": "container", "MINIO_SOURCE": "container"}
+    monkeypatch.setattr(gen, "get_env_value", lambda key, default="": env.get(key, default))
+    return getattr(gen, method)()
+
+
+def _assert_blocks(service: dict, blocked: tuple, allowed: tuple) -> None:
+    """One 403 request-termination route whose (regex) path matches every
+    ``blocked`` path and none of the ``allowed`` ones."""
+    import re
+
+    routes = _blocked_routes(service)
+    assert len(routes) == 1, routes
+    ((rule,), plugin), = routes.items()
+    assert (plugin["name"], plugin["config"]["status_code"]) == ("request-termination", 403)
+    assert [p for p in blocked if not re.match(rule, p)] == []
+    assert [p for p in allowed if re.match(rule, p)] == []
+
+
+def test_prometheus_lifecycle_is_blocked_at_the_gateway(monkeypatch):
+    """#1386: a cross-site POST to /-/quit must not stop Prometheus via Kong."""
+    _assert_blocks(
+        _kong_service(monkeypatch, "generate_prometheus_service"),
+        ("/-/quit", "/-/reload", "/-%2Fquit", "/-%2freload"),
+        ("/-/ready", "/-/healthy", "/graph"),
+    )
+
+
+def test_minio_metrics_are_blocked_at_the_gateway(monkeypatch):
+    """#1386: public MinIO metrics must not be readable via s3.minio.localhost."""
+    _assert_blocks(
+        _kong_service(monkeypatch, "generate_minio_s3_service"),
+        ("/minio/v2/metrics/cluster", "/minio%2Fv2%2Fmetrics/node", "/minio/metrics/v3",
+         "/minio/metrics/v3/system/cpu", "/minio/prometheus/metrics"),
+        ("/minio/health/live", "/bucket/object"),
+    )
