@@ -519,8 +519,11 @@ class ServiceConfig:
         
         env_vars = {}
         
-        # Set scale
-        scale = config.get('scale', 1)  
+        # Set scale. Weaviate is CLIP's only consumer, and CLIP publishes no
+        # host port, so it runs only beside a container Weaviate.
+        scale = config.get('scale', 1)
+        if self.service_sources.get('WEAVIATE_SOURCE', 'container') != 'container':
+            scale = 0
         env_vars['CLIP_SCALE'] = str(scale)
         
         # Set CUDA enable flag

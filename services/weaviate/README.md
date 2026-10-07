@@ -43,7 +43,7 @@ CLIP_INFERENCE_API=http://multi2vec-clip:8080
 MULTI2VEC_CLIP_SIGLIP2_IMAGE=semitechnologies/multi2vec-clip:google-siglip2-so400m-patch16-512-1.5.1
 ```
 
-If you disable the CLIP provider, remove `multi2vec-clip` from `WEAVIATE_ENABLE_MODULES` and leave `CLIP_INFERENCE_API` blank:
+With `MULTI2VEC_CLIP_SOURCE=disabled` the bootstrapper drops `multi2vec-clip` from `WEAVIATE_ENABLE_MODULES` and blanks `CLIP_INFERENCE_API` itself; the resulting values are:
 
 ```bash
 MULTI2VEC_CLIP_SOURCE=disabled
