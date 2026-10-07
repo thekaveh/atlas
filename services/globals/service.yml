@@ -48,6 +48,8 @@ env:
       Zeppelin and mcp-servers always bind 127.0.0.1 (unauthenticated job,
       notebook and database-tool APIs), and the Supabase DB, Docling and
       Parakeet ports fall back to 127.0.0.1 when this value is empty.
+      Kong's Supabase API routes answer only on local Host names: to reach
+      them by the LAN address, add it to KONG_SUPABASE_EXTRA_HOSTS (#1382).
   - name: HOST_GATEWAY_IP
     auto_managed: true
     default: host-gateway
