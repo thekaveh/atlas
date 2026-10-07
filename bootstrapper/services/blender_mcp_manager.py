@@ -209,6 +209,8 @@ class BlenderMcpManager:
             self.state_dir.parent / f".{self.state_dir.name}.launch.lock"
         )
         self._untracked_pid: Optional[int] = None
+        self.pool_index = 0  # position in the managed pool (#851)
+        self.pool_size = 1
 
     # ── resolution ───────────────────────────────────────────────────
     def blender_binary(self) -> Optional[str]:
@@ -239,6 +241,7 @@ class BlenderMcpManager:
                 "set BLENDER_MCP_BLENDER_PATH to its binary. Atlas manages the "
                 "MCP bridge, not the Blender application itself.",
             )
+        self._check_port_range(result)
         if self._bind_is_loopback():
             result.add("bind", _OK, f"loopback bind {self.bind}")
         elif self.allow_remote:
@@ -282,6 +285,11 @@ class BlenderMcpManager:
         else:
             result.add("process", _OK, "port free; not yet running")
         return result
+
+    def _check_port_range(self, result: PreflightResult) -> None:
+        if not 1 <= self.port <= 65535:  # a pool instance's base + index (#851)
+            result.add("port", _FAIL, f"port {self.port} is outside 1-65535 (BLENDER_MCP_LOCALHOST_PORT "
+                       f"+ instance {self.pool_index}); lower the base port or BLENDER_MCP_INSTANCES")
 
     # ── provisioning ─────────────────────────────────────────────────
     def install(self) -> None:
@@ -725,6 +733,131 @@ class BlenderMcpManager:
         return digest.hexdigest()
 
 
+MAX_POOL_INSTANCES = 16
+
+
+def _small_int(raw: str) -> Optional[int]:
+    """ASCII digits as an int, else None (`"²".isdigit()` is true)."""
+    raw = (raw or "").strip()
+    return int(raw) if raw.isascii() and raw.isdigit() else None
+
+
+def pool_size(env: dict[str, str]) -> int:
+    """BLENDER_MCP_INSTANCES as 1..16; anything else is the single instance."""
+    size = _small_int(env.get("BLENDER_MCP_INSTANCES", ""))
+    return size if size is not None and 1 <= size <= MAX_POOL_INSTANCES else 1
+
+
+def _pool_member(base: BlenderMcpManager, index: int) -> BlenderMcpManager:
+    """Instance ``index`` of the pool: its own state dir (pid, launch record,
+    log) and the port Atlas allocates for it, base port + index. Every
+    instance takes the pool's one launch lock, so a start, stop or remove of
+    any instance is serialised with one of the whole pool."""
+    member = BlenderMcpManager(
+        base.state_dir / "instances" / str(index), port=base.port + index, bind=base.bind,
+        blender_path=base.blender_path, addon_ref=base.addon_ref,
+        addon_sha256=base.addon_sha256, addon_file=base.addon_file, allow_remote=base.allow_remote,
+    )
+    member.pool_index = index
+    member.pool_size = base.pool_size
+    member.launch_lock_file = base.launch_lock_file
+    return member
+
+
+def pool_from_env(env: dict[str, str], *, include_strays: bool = False) -> list[BlenderMcpManager]:
+    """The configured pool, instance 0 first."""
+    return pool_members(manager_from_env(env), include_strays=include_strays)
+
+
+def pool_members(base: BlenderMcpManager, *, include_strays: bool = False) -> list[BlenderMcpManager]:
+    """``base`` and the other instances of its pool. ``include_strays`` adds
+    the instances above the configured size that still have a pid file, which
+    a smaller pool leaves behind and which teardown and the next start must
+    still reach."""
+    indices = set(range(1, getattr(base, "pool_size", 1)))
+    state_dir = getattr(base, "state_dir", None)
+    if include_strays and state_dir is not None:
+        pool_dir = Path(state_dir) / "instances"
+        if pool_dir.is_dir():
+            indices |= {
+                index for d in pool_dir.iterdir()
+                if (index := _small_int(d.name)) and (d / "blender-mcp.pid").exists()
+            }
+    return [base] + [_pool_member(base, index) for index in sorted(indices)]
+
+
+def stray_pool_members(env: dict[str, str]) -> list[BlenderMcpManager]:
+    """Instances above the configured pool size that still have a pid file."""
+    pool = pool_from_env(env, include_strays=True)
+    return [m for m in pool if getattr(m, "pool_index", 0) >= getattr(pool[0], "pool_size", 1)]
+
+
+def pool_moves(pool: list[BlenderMcpManager]) -> bool:
+    """Whether a running instance was launched on another port or bind than
+    configured now (#1361). With a shifted base port one instance's new port
+    can be another's old one, so the whole pool restarts together."""
+    from services import launched_with_other_settings
+
+    for member in pool:
+        status = member.status()
+        if status.running and launched_with_other_settings(
+            member._launch_record(), status.pid, {"port": member.port, "bind": member.bind}
+        ):
+            return True
+    return False
+
+
+def pool_held_ports(pool: list[BlenderMcpManager]) -> set[int]:
+    """Ports this pool's own running instances were launched on."""
+    held = set()
+    for member in pool:
+        status = member.status()
+        record = member._launch_record()
+        if status.running and record.get("pid") == status.pid and isinstance(record.get("port"), int):
+            held.add(record["port"])
+    return held
+
+
+def pool_problems(env: dict[str, str]) -> list[str]:
+    """What a doctor should flag about the pool: an invalid size, a stray
+    instance still running above it, and a pool instance's pid file whose
+    process is gone or cannot be verified. Read-only. Instance 0's own pid
+    file is left to the existing single-instance checks."""
+    problems = []
+    raw = (env.get("BLENDER_MCP_INSTANCES", "") or "").strip()
+    if raw and str(pool_size(env)) != raw:
+        problems.append(f"BLENDER_MCP_INSTANCES={raw!r} is not 1 to {MAX_POOL_INSTANCES}; one instance runs")
+    pool = pool_from_env(env, include_strays=True)
+    for member in pool[1:]:
+        pid = member._read_pid()
+        if pid is None:
+            continue
+        stray = member.pool_index >= pool[0].pool_size
+        if not member._pid_alive(pid):
+            problems.append(f"instance {member.pool_index} has a stale pid file ({member.pid_file}); "
+                            "the next start clears it")
+        elif member._pid_is_stranger(pid):
+            problems.append(f"instance {member.pool_index}'s pid file names pid {pid}, which Atlas cannot "
+                            "verify as its Blender; the next start refuses it — check the process, then "
+                            "`./start.sh blender-mcp stop`")
+        elif stray:
+            problems.append(f"instance {member.pool_index} (pid {pid}) is running above "
+                            f"BLENDER_MCP_INSTANCES={pool[0].pool_size}; the next start stops it")
+    return problems
+
+
+def share_verified_addon(pool: list[BlenderMcpManager]) -> None:
+    """Copy instance 0's sha-verified add-on to the other instances so each
+    install finds a matching file instead of downloading it again."""
+    source = pool[0].addon_path
+    if pool[0].addon_file or not source.exists() or pool[0]._sha256(source) != pool[0].addon_sha256:
+        return
+    for member in pool[1:]:
+        if not member.addon_path.exists():
+            member.state_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, member.addon_path)
+
+
 def manager_from_env(env: dict[str, str]) -> BlenderMcpManager:
     def _get(key: str, default: str = "") -> str:
         return (env.get(key, "") or "").strip() or default
@@ -732,7 +865,7 @@ def manager_from_env(env: dict[str, str]) -> BlenderMcpManager:
     raw_port = _get("BLENDER_MCP_LOCALHOST_PORT", "9876")
     if not raw_port.isdigit():  # malformed env must not traceback the launch/CLI
         raw_port = "9876"
-    return BlenderMcpManager(
+    manager = BlenderMcpManager(
         state_dir=_get("BLENDER_MCP_STATE_DIR", "~/.atlas/blender-mcp"),
         port=int(raw_port),
         bind=_get("BLENDER_MCP_BIND", "127.0.0.1"),
@@ -742,3 +875,5 @@ def manager_from_env(env: dict[str, str]) -> BlenderMcpManager:
         addon_file=_get("BLENDER_MCP_ADDON_FILE"),
         allow_remote=_get("BLENDER_MCP_ALLOW_REMOTE", "false").lower() == "true",
     )
+    manager.pool_size = pool_size(env)
+    return manager

@@ -300,32 +300,40 @@ Examples:
                 if self.config_parser.env_file_exists()
                 else {}
             )
-            from services.blender_mcp_manager import manager_from_env
+            from services.blender_mcp_manager import pool_from_env
 
-            manager = manager_from_env(env)
-            before = manager.status()
-            stopped = manager.stop()
-            after = manager.status()
-            if after.running or (
-                not stopped and getattr(manager, "pid_file", None) is not None
-                and manager.pid_file.exists()
-            ):
-                self.banner.show_status_message(
-                    "Managed Blender MCP bridge is still running after stop.",
-                    "warning",
-                )
-                return False
-            if before.running and stopped:
-                self.banner.show_status_message(
-                    "Stopped the managed headless Blender MCP bridge.",
-                    "info",
-                )
-            return True
+            # Every pool instance (#851), including any a smaller pool left behind.
+            results = [self._stop_blender_mcp_instance(m) for m in pool_from_env(env, include_strays=True)]
+            return all(results)  # every instance is tried, whatever an earlier one did
         except Exception as exc:  # noqa: BLE001 — teardown must never break stop
             self.banner.show_status_message(
                 f"Could not stop the managed Blender MCP bridge: {exc}", "warning"
             )
             return False
+
+    def _stop_blender_mcp_instance(self, manager) -> bool:
+        index = getattr(manager, "pool_index", 0)
+        label = f"Managed Blender MCP bridge #{index}" if index else "Managed Blender MCP bridge"
+        try:
+            before = manager.status()
+            stopped = manager.stop()
+            after = manager.status()
+        except Exception as exc:  # noqa: BLE001 — the other instances still stop
+            self.banner.show_status_message(f"Could not stop the {label}: {exc}", "warning")
+            return False
+        if after.running or (
+            not stopped and getattr(manager, "pid_file", None) is not None
+            and manager.pid_file.exists()
+        ):
+            self.banner.show_status_message(f"{label} is still running after stop.", "warning")
+            return False
+        if before.running and stopped:
+            self.banner.show_status_message(
+                "Stopped the managed headless Blender MCP bridge"
+                + (f" #{index}." if index else "."),
+                "info",
+            )
+        return True
 
     def stop_managed_vllm_metal(self) -> bool:
         """Stop the Atlas-managed vLLM Metal host process (#379).
@@ -369,6 +377,31 @@ Examples:
             )
             return False
 
+    def _report_blender_mcp_left_running(self, env: dict) -> None:
+        """The Blender MCP part of the advisory, once per pool instance (#851)."""
+        try:
+            from services.blender_mcp_manager import pool_from_env
+
+            managers = pool_from_env(env, include_strays=True)
+        except Exception:  # noqa: BLE001 — advisory only
+            return
+        for manager in managers:
+            try:
+                _report_managed_host_advisory(
+                    self.banner,
+                    manager,
+                    "Managed Blender MCP bridge left running (host-global, shared "
+                    "across consumers; serves execute_code on loopback). Stop it "
+                    "explicitly with `./stop.sh --stop-managed-hosts` or "
+                    "`./start.sh blender-mcp stop`.",
+                    "Managed Blender MCP tracking evidence remains, but process "
+                    "ownership is unknown and the bridge may still be running. "
+                    "Inspect it or use `./stop.sh --stop-managed-hosts`; Atlas will "
+                    "not silently adopt or signal an unverified process.",
+                )
+            except Exception:  # noqa: BLE001 — advisory only
+                pass
+
     def report_managed_hosts_left_running(self) -> None:
         """Advisory-only counterpart to the managed-host stop methods (#655).
 
@@ -384,23 +417,7 @@ Examples:
             if self.config_parser.env_file_exists()
             else {}
         )
-        try:
-            from services.blender_mcp_manager import manager_from_env as _blender_mfe
-
-            _report_managed_host_advisory(
-                self.banner,
-                _blender_mfe(env),
-                "Managed Blender MCP bridge left running (host-global, shared "
-                "across consumers; serves execute_code on loopback). Stop it "
-                "explicitly with `./stop.sh --stop-managed-hosts` or "
-                "`./start.sh blender-mcp stop`.",
-                "Managed Blender MCP tracking evidence remains, but process "
-                "ownership is unknown and the bridge may still be running. "
-                "Inspect it or use `./stop.sh --stop-managed-hosts`; Atlas will "
-                "not silently adopt or signal an unverified process.",
-            )
-        except Exception:  # noqa: BLE001 — advisory only
-            pass
+        self._report_blender_mcp_left_running(env)
         try:
             from services.comfyui_mps_manager import manager_from_env
 

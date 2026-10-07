@@ -53,6 +53,9 @@ env:
   - name: BLENDER_MCP_STATE_DIR
     default: "~/.atlas/blender-mcp"
     description: "State dir for the managed-localhost source (#759): pinned add-on, generated headless launcher, pid/log files. Removed by `./start.sh blender-mcp remove`."
+  - name: BLENDER_MCP_INSTANCES
+    default: 1
+    description: "Size of the managed-localhost pool (#851; consumer manifest `blender_mcp.instances`). Instance 0 uses BLENDER_MCP_STATE_DIR and BLENDER_MCP_LOCALHOST_PORT; instance i uses <state dir>/instances/i and port BLENDER_MCP_LOCALHOST_PORT+i. Instances above the configured size are stopped at the next start. 1 to 16."
   - name: BLENDER_MCP_BIND
     default: "127.0.0.1"
     description: "Bind address for the managed headless bridge. Loopback-only by default — execute_code runs arbitrary Python inside Blender; any other value is refused unless BLENDER_MCP_ALLOW_REMOTE=true."

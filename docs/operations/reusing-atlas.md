@@ -595,9 +595,19 @@ instead of silently dropping the block and surfacing later as mysterious runtime
 `project_name`, `profile`, `profile_overrides`, `brand`, `env`,
 `compose_overlays`, `backend_plugins`, `model_sidecars`, `custom_nodes`, `storage`,
 `litellm_models`, `n8n_workflows`, `rag_ingestion_profiles`,
-`lightrag_query_profiles`, and `managed_host_services`. Unknown keys inside the
-`brand`, `env`, `model_sidecars`, `custom_nodes`, and `storage` blocks (and each
+`lightrag_query_profiles`, `managed_host_services`, and `blender_mcp`. Unknown keys inside the
+`brand`, `env`, `model_sidecars`, `custom_nodes`, `storage` and `blender_mcp` blocks (and each
 `storage.buckets` entry) are rejected the same way.
+
+`blender_mcp: {instances: N}` (#851, 1 to 16) sizes the Atlas-managed headless
+Blender pool under `BLENDER_MCP_SOURCE=managed-localhost`; it sets
+`BLENDER_MCP_INSTANCES`. Atlas allocates the ports (instance `i` listens on
+`BLENDER_MCP_LOCALHOST_PORT + i`), starts and health-checks every instance,
+stops instances left above N by a smaller pool at the next start, and tears
+them all down with `./stop.sh --stop-managed-hosts`. A multi-agent consumer
+reads the instances from `ATLAS_BLENDER_MCP_HOST_ENDPOINTS` (§6.5) instead of
+running its own Blender supervisor. Omitting the block, or `instances: 1`,
+keeps the single bridge.
 
 #### 6.1.1. Back-compatible `services/_user/` overlay slot
 
@@ -1233,7 +1243,9 @@ that read or stage images on disk don't hardcode the internal layout — see
 [`services/comfyui/README.md`](../../services/comfyui/README.md) for the
 managed-host directory layout. Under a Blender host source the export adds
 `ATLAS_BLENDER_MCP_HOST_ENDPOINT`, which uses a `tcp://` scheme (a raw socket,
-not HTTP) — see
+not HTTP); with a managed pool of more than one instance it also adds
+`ATLAS_BLENDER_MCP_HOST_ENDPOINTS`, every instance's endpoint comma-separated,
+instance 0 first (#851) — see
 [`services/blender-mcp/README.md`](../../services/blender-mcp/README.md) for
 the client contract.
 

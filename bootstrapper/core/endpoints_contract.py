@@ -268,6 +268,19 @@ def _kong_url(env: Mapping[str, str], alias: str) -> str | None:
     return f"http://{alias}:{port}"
 
 
+def _blender_pool_endpoints(env: Mapping[str, str], blender_port: str) -> list[ExportField]:
+    """#851: a managed pool advertises every instance, instance 0 first;
+    instance i listens on the base port + i. Nothing for a single bridge."""
+    instances = env.get("BLENDER_MCP_INSTANCES", "").strip()
+    valid = instances.isascii() and instances.isdigit() and 1 <= int(instances) <= 16
+    pool = int(instances) if valid else 1
+    if env.get("BLENDER_MCP_SOURCE", "").strip() != "managed-localhost" or pool == 1:
+        return []
+    base = int(blender_port) if blender_port.isascii() and blender_port.isdigit() else 9876
+    endpoints = ",".join(f"tcp://localhost:{base + i}" for i in range(pool))
+    return [ExportField("ATLAS_BLENDER_MCP_HOST_ENDPOINTS", endpoints)]
+
+
 def build_export(
     env: Mapping[str, str],
     *,
@@ -378,6 +391,7 @@ def build_export(
                 "ATLAS_BLENDER_MCP_HOST_ENDPOINT", f"tcp://localhost:{blender_port}"
             )
         )
+        out.extend(_blender_pool_endpoints(env, blender_port))
 
     # #795: consumer-declared managed host processes. They never appear in
     # compose, so nothing above can find them — the specs are passed in from
