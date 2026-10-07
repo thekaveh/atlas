@@ -3356,7 +3356,11 @@ async def _time_out_media_operation(
     terminal state (``_cancel_timed_out_fal_operation``); an operator settles
     one that never does with the reconcile route.
     """
-    if operation.get("provider") == "fal" and operation.get("budget_tracked"):
+    provenance = dict(dict(operation.get("last_payload") or {}).get("provenance") or {})
+    # A ledger attach that failed at submit and was recovered later sets only
+    # the provenance flag; the reservation is tracked all the same.
+    tracked = operation.get("budget_tracked") or provenance.get("ledger_attach_completed")
+    if operation.get("provider") == "fal" and tracked:
         return await _cancel_timed_out_fal_operation(operation_id, operation, current_status)
     payload = dict(operation["last_payload"])
     payload["status"] = "timeout"
@@ -3654,11 +3658,14 @@ async def cancel_media_operation(
     return _media_response(dict(final_operation["last_payload"]))
 
 
-def _manual_reconciliation_status(current_status: str, provenance: Dict[str, Any]) -> str:
+def _manual_reconciliation_status(
+    current_status: str, provenance: Dict[str, Any], provider: Any = None
+) -> str:
     """The status an operator may settle by hand: an unknown submission, or a
-    timed-out FAL job holding its reservation that FAL never resolved (job
-    purged, provider disabled, polling stopped)."""
-    if current_status == "cancellation_requested" and provenance.get("timed_out"):
+    FAL job holding its reservation as ``cancellation_requested`` (timed out
+    or cancelled by the user) that FAL never resolved (job purged, provider
+    disabled, key rotated, polling stopped)."""
+    if current_status == "cancellation_requested" and (provenance.get("timed_out") or provider == "fal"):
         return current_status
     return "submission_unknown"
 
@@ -3854,7 +3861,9 @@ async def reconcile_unknown_media_submission(
     current_status = str(last_payload.get("status", ""))
     provenance = dict(last_payload.get("provenance") or {})
     prior_outcome = provenance.get("manual_reconciliation_outcome")
-    expected_manual_status = _manual_reconciliation_status(current_status, provenance)
+    expected_manual_status = _manual_reconciliation_status(
+        current_status, provenance, operation.get("provider")
+    )
     if current_status != expected_manual_status:
         expected_terminal = "succeeded" if request.outcome == "commit" else "failed"
         if prior_outcome == request.outcome and current_status == expected_terminal:
