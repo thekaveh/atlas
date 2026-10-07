@@ -95,6 +95,7 @@ def test_merge_promotions_expand_into_their_develop_commits(history: Path) -> No
         "chore(release): promote plugin Kong timeouts to main (#982)",
         "fix(wizard): promote minimum-terminal usability to main (#1080)",
         "chore(release): reconcile develop into main — wizard fixes (#965)",
+        "merge: bring develop (x) into main",
     ],
 )
 def test_every_promotion_shape_is_recognised(subject: str) -> None:
@@ -375,3 +376,61 @@ def test_required_lint_job_gates_titles_and_the_changelog_block() -> None:
     assert title["if"] == "github.event_name == 'pull_request'"
     assert "python -m scripts.release_notes --check-changelog" in changelog["run"]
     assert "lint" in workflow["jobs"]["required-lint"]["needs"]
+
+
+# --- release merges and squash promotions whose sources are off-range (#1351)
+
+
+@pytest.fixture
+def released(tmp_path: Path) -> Path:
+    """Both gitflow release shapes: a "merge: bring develop" release merge,
+    and a squash promotion naming a develop pull request main never had."""
+    repo = tmp_path / "released"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _commit(repo, "chore: initial")
+    _git(repo, "tag", "-a", "v0.1.0", "-m", "v0.1.0")
+    _git(repo, "checkout", "-q", "-b", "develop")
+    _commit(repo, "fix(stack): keep the cache bounded (#5)")
+    _git(repo, "checkout", "-q", "-b", "release/5-to-main", "main")
+    _git(repo, "merge", "-q", "--no-ff", "-m", "merge: bring develop (#5) into main", "develop")
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "merge", "-q", "--no-ff", "-m", "Merge pull request #6 from thekaveh/release/5-to-main", "release/5-to-main")
+    _git(repo, "tag", "-a", "v0.2.0", "-m", "v0.2.0")
+    _git(repo, "checkout", "-q", "develop")
+    _commit(repo, "feat(rag): rank by recency (#7)")
+    _git(repo, "checkout", "-q", "main")
+    _commit(repo, "chore(release): merge develop into main for #7 (#8)")
+    return repo
+
+
+def test_a_release_merge_expands_into_its_develop_commits(released: Path) -> None:
+    notes = release_notes.collect_notes(released, "v0.1.0..v0.2.0")
+
+    assert [(note.pr, note.bucket, note.subject) for note in notes] == [
+        (5, "Fixes", "keep the cache bounded")
+    ]
+
+
+def test_a_squash_promotion_takes_its_off_range_source_bucket(released: Path) -> None:
+    notes = release_notes.collect_notes(released, "v0.2.0..main")
+
+    assert [(note.pr, note.bucket, note.subject, note.promoted_in) for note in notes] == [
+        (7, "Features", "rank by recency", (8,))
+    ]
+    # A commit naming develop and main is a promotion only as a merge.
+    single = release_notes.Commit("0" * 40, ("a",), "fix: keep develop and main in sync (#9)", "")
+    assert release_notes.classify(single).bucket == "Fixes"
+    # A range that starts after #7 was released does not list it again: a
+    # main->develop sync merge brings in its promotion, which stays counted.
+    _git(released, "checkout", "-q", "develop")
+    _git(released, "tag", "-a", "d1", "-m", "d1")
+    _git(released, "merge", "-q", "-s", "ours", "--no-ff", "-m", "Merge pull request #9 from thekaveh/main", "main")
+    synced = {note.pr: note.bucket for note in release_notes.collect_notes(released, "d1..develop")}
+    assert synced[8] == "Promotions" and 7 not in synced
+    # Without a develop branch to resolve #7, today's single entry stays.
+    _git(released, "checkout", "-q", "main")
+    _git(released, "branch", "-D", "develop")
+    kept = release_notes.collect_notes(released, "v0.2.0..main")
+    assert [(note.pr, note.bucket) for note in kept] == [(8, "Promotions")]
+
