@@ -675,7 +675,7 @@ def _changed_service_images(
     )
     if filename != "compose.yml":
         return set()
-    return select_touched(images, touched_lines)
+    return select_touched(images, touched_lines, variables)
 
 
 def load_changed_image_scans(

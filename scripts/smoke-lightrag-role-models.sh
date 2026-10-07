@@ -2,6 +2,7 @@
 # Precondition: run against a disposable or development Atlas stack.
 # Precondition: .env has LIGHTRAG_SOURCE=container and role model variables set.
 # Precondition: the configured models are available through LiteLLM.
+# LIGHTRAG_SMOKE_WAIT_SECONDS (default 30) is the wait for extraction calls.
 set -euo pipefail
 
 project="${PROJECT_NAME:-atlas}"
@@ -21,6 +22,21 @@ if [ -z "$extract_model" ] || [ -z "$query_model" ]; then
   exit 2
 fi
 
+# One request would satisfy both checks, so equal models prove nothing (#1389).
+if [ "$extract_model" = "$query_model" ]; then
+  echo "LIGHTRAG_EXTRACT_LLM_MODEL and LIGHTRAG_QUERY_LLM_MODEL are both $extract_model; set different models to tell the roles apart." >&2
+  exit 2
+fi
+
+# Whether a log line names exactly this model: `gpt-4o` must not match a
+# `gpt-4o-mini` line (#1389). LiteLLM logs the routed name, such as
+# `model=openai/gpt-4o`, so a provider prefix ending in `/` still counts.
+mentions_model() {
+  local escaped
+  escaped="$(printf '%s' "$2" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
+  printf '%s\n' "$1" | grep -Eq "(^|[^A-Za-z0-9._:-])${escaped}([^A-Za-z0-9._/:-]|\$)"
+}
+
 echo "[smoke] LightRAG URL: $lightrag_url"
 echo "[smoke] expected EXTRACT model: $extract_model"
 echo "[smoke] expected QUERY model: $query_model"
@@ -33,24 +49,34 @@ docker compose -p "$project" exec -T lightrag sh -lc \
 tmp_doc="$(mktemp)"
 upload_response="$(mktemp "${TMPDIR:-/tmp}/lightrag-upload-response.XXXXXX")"
 query_response="$(mktemp "${TMPDIR:-/tmp}/lightrag-query-response.XXXXXX")"
-trap 'rm -f "$tmp_doc"' EXIT
-cat > "$tmp_doc" <<'DOC'
-Atlas is a self-hosted engineering platform. LightRAG is the graph-augmented RAG service. Role-specific LLM configuration lets extraction use a fast model while answers use a stronger model.
+trap 'rm -f "$tmp_doc" "$upload_response" "$query_response"' EXIT
+# LightRAG skips a document whose name or text it already stored, and serves
+# a repeated query from its LLM cache, so a rerun would reach neither model:
+# the file name, the text and the query all carry a per-run nonce (#1389).
+nonce="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+upload_name="atlas-lightrag-role-smoke-${nonce}.txt"
+cat > "$tmp_doc" <<DOC
+Atlas is a self-hosted engineering platform. LightRAG is the graph-augmented RAG service. Role-specific LLM configuration lets extraction use a fast model while answers use a stronger model. Smoke run ${nonce}.
 DOC
 
 echo "[smoke] uploading one small document"
 curl -fsS -X POST "$lightrag_url/documents/upload" \
   -H "Authorization: Bearer $api_key" \
-  -F "file=@${tmp_doc};filename=atlas-lightrag-role-smoke.txt" >"$upload_response"
+  -F "file=@${tmp_doc};filename=${upload_name}" >"$upload_response"
+if ! grep -Eq '"status"[[:space:]]*:[[:space:]]*"success"' "$upload_response"; then
+  echo "[smoke] upload was not accepted for extraction: $(cat "$upload_response")" >&2
+  exit 1
+fi
 
-echo "[smoke] waiting 30 seconds for extraction calls to reach LiteLLM"
-sleep 30
+wait_seconds="${LIGHTRAG_SMOKE_WAIT_SECONDS:-30}"
+echo "[smoke] waiting ${wait_seconds} seconds for extraction calls to reach LiteLLM"
+sleep "$wait_seconds"
 
 echo "[smoke] querying LightRAG"
 curl -fsS -X POST "$lightrag_url/query" \
   -H "Authorization: Bearer $api_key" \
   -H "Content-Type: application/json" \
-  -d '{"query": "/hybrid What does role-specific LightRAG configuration allow Atlas to do?"}' \
+  -d "{\"query\": \"/hybrid What does role-specific LightRAG configuration allow Atlas to do in smoke run ${nonce}?\"}" \
   >"$query_response"
 
 echo "[smoke] recent LiteLLM log lines mentioning expected models:"
@@ -61,16 +87,16 @@ litellm_model_logs="$(
 )"
 printf '%s\n' "$litellm_model_logs"
 
-if ! printf '%s\n' "$litellm_model_logs" | grep -Fq "$extract_model"; then
+if ! mentions_model "$litellm_model_logs" "$extract_model"; then
   echo "[smoke] missing expected EXTRACT model in LiteLLM logs: $extract_model" >&2
   exit 1
 fi
 
-if ! printf '%s\n' "$litellm_model_logs" | grep -Fq "$query_model"; then
+if ! mentions_model "$litellm_model_logs" "$query_model"; then
   echo "[smoke] missing expected QUERY model in LiteLLM logs: $query_model" >&2
   exit 1
 fi
 
-echo "[smoke] upload response: $upload_response"
-echo "[smoke] query response: $query_response"
+echo "[smoke] upload response: $(cat "$upload_response")"
+echo "[smoke] query response: $(cat "$query_response")"
 echo "[smoke] passed: runtime env shows EXTRACT/QUERY values, and LiteLLM logs show requests for both expected models."

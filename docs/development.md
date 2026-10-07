@@ -42,7 +42,7 @@ Pull-request titles must be Conventional Commits subjects (`type(scope)!: summar
 
 `bootstrapper/tests/test_support_route.py` keeps every advertised first-party support destination live: reader-facing pages may not link GitHub Discussions while the feature is disabled on the repository, and the README, documentation map, and troubleshooting guide must route bugs, questions, and security reports separately. A maintainer who enables and moderates Discussions removes that guard in the same change that relinks it.
 
-`scripts/check_doc_links.py` validates relative Markdown links and raw HTML `<a href>` / `<img src>` targets against the repository tree, so canonical pages must link files GitHub can open (`quick-start/index.md`, never the site's `quick-start/`); the generated surfaces translate those targets themselves.
+`scripts/check_doc_links.py` validates relative Markdown links (including links with an empty label and reference-style definitions) and raw HTML `<a href>` / `<img src>` targets against the repository tree, so canonical pages must link files GitHub can open (`quick-start/index.md`, never the site's `quick-start/`); the generated surfaces translate those targets themselves.
 
 ```bash
 uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check

@@ -6,17 +6,26 @@ containers. SOURCE-replaceable services can be container-backed, `localhost`,
 or `disabled`, so consumers should reference them through endpoint environment
 variables and runtime readiness/feature checks instead of static `depends_on`.
 
-Zero-arg checker. Invoke as ``python scripts/check-compose-source-deps.py``.
+Invoke as ``python scripts/check-compose-source-deps.py [--env-file PATH]``.
+Compose is always rendered against ``.env.example`` unless ``--env-file`` names
+another file, so a developer's local ``.env`` cannot change the result (#1389).
+
+A hard edge into any container of a family whose ``sources:`` offer
+``localhost`` or ``disabled``, or that such a source's endpoint names (the
+provider-scaled engines), fails unless the dependent is in the same family,
+the edge is in REQUIRED_DEPENDS_ON, or it is reviewed in
+ALLOWED_REPLACEABLE_DEPENDS_ON (#1389).
 
 Exit codes:
     0  — all PASS
     1  — at least one FAIL line printed
-    2  — internal failure (PyYAML missing, or docker compose config
-         errored with stderr surfaced)
+    2  — usage error, or internal failure (PyYAML missing, or docker compose
+         config errored with stderr surfaced)
 """
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import sys
 
 from bounded_subprocess import (
@@ -35,6 +44,7 @@ except ImportError:  # pragma: no cover - developer environment guard
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_FILE = ROOT / "docker-compose.yml"
+ENV_FILE = ROOT / ".env.example"
 
 # Edges where the dependency target is SOURCE-replaceable and should not be a
 # hard compose startup prerequisite. Keep this list intentionally explicit so
@@ -57,6 +67,34 @@ FORBIDDEN_OPTIONAL_DEPENDS_ON = {
     ("lightrag", "neo4j-graph-db"),
     ("lightrag", "docling-gpu"),
     ("lightrag", "tei-reranker"),
+}
+
+# Reviewed hard edges into SOURCE-replaceable families: each dependent cannot
+# do its job without that dependency, and is only enabled alongside it (#1389).
+ALLOWED_REPLACEABLE_DEPENDS_ON = {
+    ("asset-baker", "minio"),
+    ("asset-baker", "minio-init"),
+    ("asset-worker", "minio"),
+    ("asset-worker", "minio-init"),
+    ("comfyui-init", "ollama-pull"),
+    ("iceberg-rest", "minio-init"),
+    ("jenkins", "minio-init"),
+    ("label-studio-init", "minio-init"),
+    ("langfuse-init", "minio-init"),
+    ("llm-graph-builder-backend", "neo4j-graph-db"),
+    ("local-deep-researcher", "searxng"),
+    ("mcp-servers", "neo4j-graph-db"),
+    ("mcp-servers", "searxng"),
+    ("mlflow-init", "minio-init"),
+    ("otel-collector", "loki"),
+    ("otel-collector", "tempo"),
+    ("spark-init", "minio-init"),
+    ("trino", "iceberg-rest"),
+    ("trino", "minio-init"),
+    ("verba", "weaviate"),
+    ("zeppelin", "minio-init"),
+    ("zeppelin-init", "minio-init"),
+    ("zeppelin-init", "spark-init"),
 }
 
 # Edges that are expected after the SOURCE-safe dependency cleanup. These are
@@ -134,7 +172,53 @@ REQUIRED_DEPENDS_ON = {
 }
 
 
-def load_compose() -> dict:
+def _endpoint_hosts(manifest) -> set[str]:
+    """Hosts the manifest's endpoint variables point at across its sources,
+    such as `speaches` for TTS_PROVIDER_SOURCE's TTS_ENDPOINT."""
+    endpoint_vars = {row.localhost_endpoint_var for row in manifest.rows} - {None}
+    return {
+        host
+        for options in manifest.runtime_sc.values()
+        for option in options.values()
+        for var, value in ((option or {}).get("environment") or {}).items()
+        if var in endpoint_vars
+        for host in re.findall(r"https?://([a-z0-9-]+)[:/]", str(value))
+    }
+
+
+def _source_replaceable(manifest) -> bool:
+    options = manifest.sources.options if manifest.sources else []
+    return any(option.id == "disabled" or "localhost" in option.id for option in options)
+
+
+def replaceable_families() -> dict[str, str]:
+    """Container -> family, for the containers of every family whose
+    ``sources:`` offer ``localhost`` or ``disabled``, and for the containers
+    such a source's endpoint names (provider-scaled engines)."""
+    sys.path.insert(0, str(ROOT / "bootstrapper"))
+    from services.manifests import load_manifests
+
+    manifests = load_manifests(ROOT / "services")
+    families = {container: manifest.name for manifest in manifests for container in manifest.containers}
+    replaceable: set[str] = set()
+    for manifest in filter(_source_replaceable, manifests):
+        replaceable |= set(manifest.containers) | _endpoint_hosts(manifest)
+    return {container: families[container] for container in replaceable if container in families}
+
+
+def forbidden_edges(edges: set[tuple[str, str]], replaceable: dict[str, str]) -> list[tuple[str, str]]:
+    """The listed forbidden edges plus every unreviewed hard edge into another
+    family's SOURCE-replaceable container."""
+    derived = {
+        (service, dependency)
+        for service, dependency in edges
+        if dependency in replaceable and replaceable.get(service) != replaceable[dependency]
+    }
+    reviewed = ALLOWED_REPLACEABLE_DEPENDS_ON | REQUIRED_DEPENDS_ON
+    return sorted((FORBIDDEN_OPTIONAL_DEPENDS_ON & edges) | (derived - reviewed))
+
+
+def load_compose(env_file: Path = ENV_FILE) -> dict:
     """Load the merged compose shape.
 
     The top-level docker-compose.yml uses `include:` to pull in per-service
@@ -142,21 +226,14 @@ def load_compose() -> dict:
     file would only see the empty `services:` block at the top, so we
     delegate to `docker compose config` which renders the merged shape.
 
-    Falls back to `.env.example` when `.env` is missing (matching CI's
-    `cp .env.example .env` step). A missing docker CLI or a `docker compose
+    Renders against ``env_file`` (``.env.example`` by default, what CI
+    copies to ``.env``), never the developer's ``.env``. A missing docker CLI or a `docker compose
     config` that exits non-zero is an audit-script failure (exit 2), not a
     recoverable condition. Silently returning the wrapper's empty `services:` block
     would emit spurious `missing required dependency` lines for every
     edge in REQUIRED_DEPENDS_ON.
     """
-    env_file = ROOT / ".env"
-    env_fallback = ROOT / ".env.example"
-    args = ["docker", "compose"]
-    if env_file.is_file():
-        args.extend(["--env-file", str(env_file)])
-    elif env_fallback.is_file():
-        args.extend(["--env-file", str(env_fallback)])
-    args.extend(["-f", str(COMPOSE_FILE), "config"])
+    args = ["docker", "compose", "--env-file", str(env_file), "-f", str(COMPOSE_FILE), "config"]
     try:
         result = run_bounded(args, cwd=ROOT)
     except CommandLaunchError:
@@ -201,16 +278,32 @@ def dependency_names(service_def: dict) -> set[str]:
     return set()
 
 
-def main() -> int:
-    compose = load_compose()
-    services = compose.get("services") or {}
-    edges = {
+def _env_file_argument(argv: list[str]) -> Path | None:
+    """``--env-file PATH`` or nothing; None for any other arguments."""
+    if not argv:
+        return ENV_FILE
+    if len(argv) == 1 and argv[0].startswith("--env-file="):
+        argv = ["--env-file", argv[0].split("=", 1)[1]]
+    # Resolved against the caller's directory, not the repo root it runs in.
+    return Path(argv[1]).resolve() if len(argv) == 2 and argv[0] == "--env-file" else None
+
+
+def compose_edges(compose: dict) -> set[tuple[str, str]]:
+    return {
         (service_name, dependency)
-        for service_name, service_def in services.items()
+        for service_name, service_def in (compose.get("services") or {}).items()
         for dependency in dependency_names(service_def)
     }
 
-    forbidden = sorted(FORBIDDEN_OPTIONAL_DEPENDS_ON & edges)
+
+def main(argv: list[str] | None = None) -> int:
+    env_file = _env_file_argument(sys.argv[1:] if argv is None else argv)
+    if env_file is None:
+        print("usage: check-compose-source-deps.py [--env-file PATH]", file=sys.stderr)
+        return 2
+    edges = compose_edges(load_compose(env_file))
+
+    forbidden = forbidden_edges(edges, replaceable_families())
     missing_required = sorted(REQUIRED_DEPENDS_ON - edges)
 
     failed = False

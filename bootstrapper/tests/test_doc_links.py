@@ -199,3 +199,23 @@ def test_canonical_landing_html_actions_resolve_on_github():
     text = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
     for target in ("quick-start/index.md", "services.md", "architecture/index.md"):
         assert f'href="{target}"' in text, target
+
+
+def test_validator_flags_empty_label_and_reference_style_links(tmp_path):
+    """`[](./x.md)` and `[ref]: ./x.md` were never checked (#1389)."""
+    (tmp_path / "b.md").write_text("# B\n")
+    (tmp_path / "a.md").write_text(
+        "See [](./missing-empty.md) and [text][gone] and [ok][fine].\n\n"
+        "[gone]: ./missing-ref.md\n"
+        "[fine]: <./b.md>\n"
+        "[spaced]: <./c d.md>\n"
+        "[site]: https://example.com/missing.md\n"
+        "[ftp]: ftp://example.com/x\n"
+        "[^1]: A footnote is not a link.\n"
+    )
+    (tmp_path / "c d.md").write_text("# C\n")
+    result = _run(tmp_path)
+
+    assert result.returncode == 1
+    assert "missing-empty.md" in result.stdout and "missing-ref.md" in result.stdout
+    assert result.stdout.count("broken link [") == 2  # the valid and external refs pass
