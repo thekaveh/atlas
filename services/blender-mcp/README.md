@@ -119,6 +119,7 @@ Use this as a postprocess step for exported Blender assets, ComfyUI-assisted 3D 
 - If `uvx` is not found by a GUI MCP client, configure the absolute path to `uvx` or the installed Blender MCP command in that client.
 - If `scripts/gltf-transform-postprocess.sh` fails before optimization, inspect the validation output first; invalid GLB input should be fixed at the source.
 - If the managed source warns that its pid file "has no start_utc identity stamp", the record predates the managed-host framework: Atlas will not signal a process it cannot prove it launched, so it leaves the old headless Blender running and continues the bring-up (#990). After confirming the pid is that Blender, run the `kill -TERM <pid>` and `rm -f <pid file>` commands the warning prints, then re-run `./start.sh`.
+- If `doctor` warns that the pid file names a pid that "now belongs to a different, younger process", the OS recycled the pid. The record is stale; the next start replaces it and never signals that process (#1341).
 
 ## 9. Capabilities & limitations
 

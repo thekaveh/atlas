@@ -205,6 +205,10 @@ the `kill -TERM <pid>` and `rm -f <pid file>` commands the warning prints once
 you have confirmed the pid is the old vLLM host, then re-run `./start.sh` to
 get a fresh, identity-stamped process.
 
+**Doctor warns the pid "now belongs to a different, younger process"** — the
+OS recycled the pid after the recorded process exited. The record is stale; the
+next start replaces it and never signals that process (#1341).
+
 ## 8. Capabilities & limitations
 
 Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
