@@ -1317,7 +1317,9 @@ managed_host_services:
 ```
 
 `./start.sh doctor` reports a `managed-host-services` row that preflights every
-declared service, and the endpoint contract gains
+declared service (a pid file whose pid the OS has since recycled to a younger
+process shows as a `pid-file` warning; `start` replaces that stale record without
+signalling the process, #1341), and the endpoint contract gains
 `ATLAS_SAM3_SEGMENT_HOST_ENDPOINT` (see [§6.5](#65-exporting-the-endpoint-contract-endpoints-export)).
 The scheme follows the probe: an `http` probe exports `http://`, a `tcp` probe
 exports `tcp://` — a raw-socket service advertised as `http://` would hand you a

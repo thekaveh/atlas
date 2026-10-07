@@ -226,7 +226,7 @@ class BlenderMcpManager:
     # ── preflight (read-only) ────────────────────────────────────────
     def preflight(self) -> PreflightResult:
         result = PreflightResult()
-        add_lifecycle_preflight(result, _lifecycle_support_error(), (_OK, _FAIL))
+        add_lifecycle_preflight(result, _lifecycle_support_error(), (_OK, _FAIL), manager=self)
         binary = self.blender_binary()
         if binary:
             result.add("blender", _OK, f"Blender binary: {binary}")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import ipaddress
 import os
 from pathlib import Path
@@ -111,8 +112,9 @@ def lifecycle_support_error(
     )
 
 
-def add_lifecycle_preflight(result, error: str | None, statuses) -> None:
-    """Add the shared lifecycle-capability verdict to a manager preflight."""
+def add_lifecycle_preflight(result, error: str | None, statuses, manager=None) -> None:
+    """Add the shared lifecycle-capability verdict to a manager preflight, and
+    the stale pid-file warning when ``manager`` is given (#1341)."""
     ok_status, fail_status = statuses
     if error:
         result.add("lifecycle", fail_status, error)
@@ -121,6 +123,8 @@ def add_lifecycle_preflight(result, error: str | None, statuses) -> None:
             "lifecycle", ok_status,
             "cross-process lock and process-group teardown available",
         )
+    if manager is not None:
+        add_recycled_pid_check(result, manager)
 
 
 def require_lifecycle_support(error: str | None, error_type) -> None:
@@ -619,6 +623,10 @@ def refuse_untrusted_tracked_pid(
         return
     if not alive_probe(pid) or not ownership_probe(pid):
         return
+    if tracked_pid_was_recycled(pid, pid_file):
+        # Proven to be a different process (#1341): the record is stale. The
+        # caller replaces it without signalling the process now holding pid.
+        return
     if _is_unstamped_legacy_record(pid, pid_file):
         error = error_type(_legacy_record_refusal(pid, pid_file, description))
         # Marks the one refusal a bring-up may survive (#990): nothing is
@@ -630,6 +638,99 @@ def refuse_untrusted_tracked_pid(
         f"refusing to replace tracked pid {pid} for {description}: ownership is "
         "mismatched or unknown; inspect the pid file and process manually"
     )
+
+
+_LSTART_FORMAT = "%a %b %d %H:%M:%S %Y"
+
+
+def _lstart_is_later(live: str, recorded: str) -> bool:
+    """True when ``live`` parses as a later ``ps lstart`` time than ``recorded``."""
+    try:
+        return datetime.strptime(" ".join(live.split()), _LSTART_FORMAT) > datetime.strptime(
+            " ".join(recorded.split()), _LSTART_FORMAT
+        )
+    except ValueError:
+        return False
+
+
+def _linux_booted_after(recorded: str) -> bool:
+    """True when this Linux host booted after the ``ps lstart`` time ``recorded``.
+
+    Linux renders ``lstart`` from the boot time plus ticks, and the boot time
+    follows the realtime clock, so a clock step moves a live process's
+    ``lstart``. Comparing two ``lstart`` values could then call Atlas's own
+    process recycled. A reboot since the record cannot be faked that way: no
+    process survives it.
+    """
+    try:
+        stat = Path("/proc/stat").read_text(encoding="utf-8")
+        btime = next(int(line.split()[1]) for line in stat.splitlines() if line.startswith("btime "))
+        recorded_at = datetime.strptime(" ".join(recorded.split()), _LSTART_FORMAT)
+    except (OSError, StopIteration, ValueError, IndexError):
+        return False
+    return datetime.fromtimestamp(btime, timezone.utc).replace(tzinfo=None) > recorded_at
+
+
+def _record_names_pid(pid: int, pid_file: Path) -> bool:
+    try:
+        lines = pid_file.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    return bool(lines) and lines[0].strip() == str(pid)
+
+
+def tracked_pid_was_recycled(pid: int, pid_file: Path) -> bool:
+    """True when ``pid_file``'s start stamp proves the live ``pid`` is another process.
+
+    After a reboot or a long uptime the OS hands a crashed host's pid to an
+    unrelated process (#1341). Only a positive answer counts: the record must
+    name ``pid`` and carry a start stamp, the live start identity must be
+    readable in the same representation, and the two must disagree. Linux
+    boot-relative ticks are exact, so any difference is a different process,
+    even across a reboot. A ``ps lstart`` record needs more: on macOS the live
+    time must be later than the record (the start time is fixed at fork), and
+    on Linux, where ``lstart`` moves with the clock, the host must have booted
+    since the record. Anything else stays UNKNOWN and keeps the refusal.
+    """
+    from services.managed_host import read_recorded_start_time
+
+    recorded = read_recorded_start_time(pid_file)
+    if not recorded or not _record_names_pid(pid, pid_file):
+        return False
+    if recorded.startswith("linux-proc-start-v1:"):
+        live = process_start_identity(pid)
+        return bool(live) and live.startswith("linux-proc-start-v1:") and live != recorded
+    live = legacy_process_start_identity(pid)
+    if not live or not _lstart_is_later(live, recorded):
+        return False
+    return not sys.platform.startswith("linux") or _linux_booted_after(recorded)
+
+
+def recycled_pid_warning(pid: int | None, pid_file: Path, alive_probe) -> str | None:
+    """Doctor/preflight detail for a stale pid file whose pid was recycled."""
+    try:
+        if pid is None or not alive_probe(pid) or not tracked_pid_was_recycled(pid, pid_file):
+            return None
+    except Exception:  # noqa: BLE001 - an advisory probe never fails a preflight
+        return None
+    return (
+        f"pid file {pid_file} names pid {pid}, which now belongs to a different, "
+        "younger process; the record is stale and the next start replaces it "
+        f"without signalling pid {pid}"
+    )
+
+
+def add_recycled_pid_check(result, manager) -> None:
+    """Add a ``pid-file`` warning to a managed host's preflight (#1341)."""
+    try:
+        pid = manager._read_pid()
+    except Exception:  # noqa: BLE001 - unreadable records have their own refusal
+        return
+    warning = recycled_pid_warning(pid, manager.pid_file, manager._managed_process_alive)
+    if warning:
+        result.add("pid-file", "warn", warning)
+        # First, so doctor rows that summarise the first warning show it.
+        result.checks.insert(0, result.checks.pop())
 
 
 def _is_unstamped_legacy_record(pid: int, pid_file: Path) -> bool:
