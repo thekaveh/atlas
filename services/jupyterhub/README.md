@@ -81,11 +81,13 @@ Direct notebook calls to Docling and Atlas-managed Parakeet must attach the matc
 
 ## 5. Sample Notebooks
 
+The notebooks read MinIO bucket names from the `MINIO_BUCKET_*` variables (`MINIO_BUCKET_SPARK_HISTORY`, `MINIO_BUCKET_ICEBERG_LANDING`, …), falling back to the default names, so a renamed bucket needs no notebook edit (#1392).
+
 | Notebook | Description |
 |----------|-------------|
 | `00_environment_check.ipynb` | Inspect configured core integrations and run bounded HTTP/database connectivity probes without printing credential-bearing URLs. |
 | `01_litellm_basics.ipynb` | LLM inference via the LiteLLM gateway (Ollama upstream) |
-| `02_langchain_rag.ipynb` | RAG pipeline with Weaviate |
+| `02_langchain_rag.ipynb` | RAG pipeline with Weaviate. With Weaviate disabled it says so and skips the Weaviate cells. |
 | `03_neo4j_graphs.ipynb` | Knowledge graph queries |
 | `04_supabase_data.ipynb` | Database and storage operations |
 | `05_comfyui_images.ipynb` | AI image generation |

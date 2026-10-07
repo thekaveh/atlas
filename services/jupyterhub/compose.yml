@@ -95,6 +95,7 @@ services:
       # Notebook 11 writes here; without it a renamed bucket fell back to
       # `jupyter`, which the scoped account may not create.
       MINIO_BUCKET_JUPYTER: ${MINIO_BUCKET_JUPYTER:-jupyter}
+      MINIO_BUCKET_SPARK_HISTORY: ${MINIO_BUCKET_SPARK_HISTORY:-spark-history}
       # Bucket names notebook 12 writes through Spark Connect.
       MINIO_BUCKET_ICEBERG_LANDING: ${MINIO_BUCKET_ICEBERG_LANDING:-landing}
       MINIO_BUCKET_ICEBERG_CHECKPOINTS: ${MINIO_BUCKET_ICEBERG_CHECKPOINTS:-checkpoints}
