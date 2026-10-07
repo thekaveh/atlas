@@ -1513,9 +1513,10 @@ warm restart. A cold start re-resolves, still skipping occupied blocks. For an
 stay isolated, so everything *looks* healthy — but you get partial binds and
 **silent cross-instance traffic**: the exported `atlas-consumer.env` records,
 say, `LITELLM :63040` while the *other* instance's LiteLLM is what answers there.
-It is not a clean error. The interactive wizard's conflict check catches this;
-scripted / non-interactive launches do not, so choose a distinct base per
-instance up front. Port topology: [ports-and-routes.md](ports-and-routes.md).
+Both front ends refuse a block whose enabled services' ports are already
+taken ("Port conflicts detected", exit 1), but ports of services disabled in
+this instance are not probed, so choose a distinct base per instance up
+front. Port topology: [ports-and-routes.md](ports-and-routes.md).
 
 ### 7.5. Coexist with host-run services (`*-localhost` sources)
 

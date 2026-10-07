@@ -276,7 +276,7 @@ CLIP_INFERENCE_API=http://multi2vec-clip:8080
 MULTI2VEC_CLIP_SIGLIP2_IMAGE=semitechnologies/multi2vec-clip:google-siglip2-so400m-patch16-512-1.5.1
 ```
 
-If `MULTI2VEC_CLIP_SOURCE=disabled`, remove `multi2vec-clip` from `WEAVIATE_ENABLE_MODULES` (leaving `text2vec-openai,text2vec-ollama,generative-openai,generative-ollama,backup-filesystem`; the backup service needs `backup-filesystem` for native Weaviate snapshots) and set `CLIP_INFERENCE_API=` so Weaviate does not advertise a disabled inference endpoint.
+With `MULTI2VEC_CLIP_SOURCE=disabled` the bootstrapper removes `multi2vec-clip` from `WEAVIATE_ENABLE_MODULES` and blanks `CLIP_INFERENCE_API` itself, so Weaviate does not advertise a disabled inference endpoint. CLIP runs only beside a container Weaviate: with `WEAVIATE_SOURCE=localhost` or `disabled` it is scaled to 0, because Weaviate is its only consumer and it publishes no host port.
 
 `MULTI2VEC_CLIP_SIGLIP2_IMAGE` is a documented opt-in alternative to the default `MULTI2VEC_CLIP_IMAGE`. Switching it is a breaking change for existing collections — the default ViT-B/32 image emits 512-d vectors versus 1152-d for SigLIP 2 — so a swap requires recreating or revectorizing/reindexing every collection that uses `multi2vec-clip`. See the [multi2vec-clip service README](../../services/multi2vec-clip/README.md) for the full migration steps.
 
@@ -964,7 +964,9 @@ lsof -i :63096
 cat volumes/api/kong-dynamic.yml
 grep -E '^[A-Z_]+_SOURCE=' .env
 
-# Verify hosts file
+# Check the hosts file (read-only)
+grep localhost /etc/hosts
+# Write the *.localhost entries (sudo) and then start the stack without the wizard
 ./start.sh --setup-hosts
 ```
 

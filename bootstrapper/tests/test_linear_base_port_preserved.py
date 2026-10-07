@@ -92,3 +92,17 @@ def test_a_moved_port_block_stops_the_running_stack_first(tmp_path, monkeypatch)
     stopped.clear()
     assert starter.handle_port_configuration(63000) is True  # unchanged block: no stop
     assert stopped == []
+
+
+def test_a_hand_edited_base_port_is_a_move_too(tmp_path, monkeypatch):
+    """BASE_PORT edited in .env while *_PORT still name the old block: the
+    running stack publishes the old ports and must be stopped first."""
+    from core.config_parser import DEFAULT_BASE_PORT
+
+    starter, _captured = _starter_with_env(tmp_path, monkeypatch, "BASE_PORT=64000\n")
+    old_block = starter.port_manager.calculate_port_assignments(DEFAULT_BASE_PORT)
+    (tmp_path / ".env").write_text("BASE_PORT=64000\n" + "".join(f"{k}={v}\n" for k, v in old_block.items()))
+    assert starter._port_block_moves(64000) is True
+    new_block = starter.port_manager.calculate_port_assignments(64000)
+    (tmp_path / ".env").write_text("BASE_PORT=64000\n" + "".join(f"{k}={v}\n" for k, v in new_block.items()))
+    assert starter._port_block_moves(64000) is False

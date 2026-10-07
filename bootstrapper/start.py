@@ -2468,8 +2468,18 @@ class AtlasStarter:
         return True
 
     def _port_block_moves(self, base_port: int) -> bool:
-        current = (self.config_parser.parse_env_file().get('BASE_PORT', '') or '').strip()
-        return current.isdigit() and int(current) != base_port
+        """Whether `.env`'s ports differ from ``base_port``'s block: a
+        --base-port change, or a hand-edited BASE_PORT whose *_PORT values
+        still name the old block the running containers publish."""
+        env = self.config_parser.parse_env_file()
+        current = (env.get('BASE_PORT', '') or '').strip()
+        if current.isdigit() and int(current) != base_port:
+            return True
+        target = self.port_manager.calculate_port_assignments(base_port)
+        return any(
+            str(env.get(var, '')).strip().isdigit() and int(env[var]) != port
+            for var, port in target.items()
+        )
 
     def run_port_migration(self, no_port_migrate: bool) -> None:
         """Chained .env migrations: v0 → v1 (port-layout), v1 → v2 (URL→PORT),

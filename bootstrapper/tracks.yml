@@ -46,7 +46,7 @@ tracks:
     display_name: Generative AI · Creative
     description: Multimodal generation — image, voice, vision, doc.
     services: [open-webui, comfyui, asset-worker, asset-baker, fal, stt-provider, tts-provider,
-               multi2vec-clip, doc-processor, blender-mcp, langfuse,
+               multi2vec-clip, weaviate, doc-processor, blender-mcp, langfuse,
                otel-collector, tempo, loki, cloudflared]
 
   - key: ml-eng

@@ -1,6 +1,6 @@
 # 6.3. Ports and Routes
 
-Ports and Kong hostnames are derived from `BASE_PORT` in `.env` (default `63000`) and the per-category slot allocator in `bootstrapper/services/topology.py`. Move the whole stack with `./start.sh --base-port <port>` or by editing `BASE_PORT`.
+Ports and Kong hostnames are derived from `BASE_PORT` in `.env` (default `63000`) and the per-category slot allocator in `bootstrapper/services/topology.py`. Move the whole stack with `./start.sh --base-port <port>` or by editing `BASE_PORT`. When the block moves, the next start stops the running stack first (every container is re-published), so expect downtime.
 
 ## 1. Canonical reference
 

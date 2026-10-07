@@ -74,6 +74,7 @@ running containers:
 ./stop.sh --cold                # DELETES every named Atlas project volume (databases, workflows, models)
 ./stop.sh --clean-hosts         # edits /etc/hosts (removes Atlas *.localhost entries)
 ./stop.sh --stop-managed-hosts  # stops Atlas-managed processes running on the host
+./start.sh storage clean        # deletes unselected Ollama/ComfyUI model files (--yes skips the prompt)
 ```
 
 `--no-tui --detach` also accepts `--json` for machine-readable status (see §2).
