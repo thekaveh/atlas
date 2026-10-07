@@ -2,7 +2,8 @@
 """Internal-markdown-link validator.
 
 Scans markdown files for relative `[label](./path.md)` and `[label](path.md)`
-links and asserts every target resolves to an existing file. External links
+links (including empty labels) and reference-style definitions
+(`[ref]: ./path.md`), and asserts every target resolves to an existing file. External links
 (http://, https://, mailto:) are skipped. Anchor fragments (`#section`,
 including pure same-page `#section` links) are validated against the
 target file's GitHub-computed heading slugs and explicit
@@ -36,7 +37,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # Match `[label](target)` where target does NOT start with http://, https://,
 # mailto:, or `#`. Greedy on label; non-greedy avoidance not needed because
 # the link is opaque to label content (we only consume up to the matching `)`).
-_LINK_RE = re.compile(r"\[(?P<label>[^\]]+)\]\((?P<target>(?!https?://|mailto:)[^)]+)\)")
+# The label may be empty: `[](./x.md)` and `![](./x.png)` are links too (#1389).
+_LINK_RE = re.compile(r"\[(?P<label>[^\]]*)\]\((?P<target>(?!https?://|mailto:)[^)]+)\)")
+# Reference-style definitions, `[ref]: ./path.md` or `[ref]: <./a b.md>`,
+# which `[text][ref]` and `[ref]` links point at (#1389). Footnotes
+# (`[^1]: text`) are not links.
+_REF_DEF_RE = re.compile(
+    r"^ {0,3}\[(?P<label>[^\]^][^\]]*)\]:[ \t]*(?:<(?P<angled>[^>\n]+)>|(?P<bare>\S+))",
+    re.MULTILINE,
+)
 
 # Raw HTML navigation: `<a href="…">` and `<img src="…">` with either quote
 # style. External schemes, protocol-relative URLs, and data URIs are skipped
@@ -233,20 +242,24 @@ def _check_file(md: Path) -> list[str]:
     """
     errors: list[str] = []
     text = _strip_fenced_code(md.read_text(encoding="utf-8", errors="replace"))
-    for m in _LINK_RE.finditer(text):
-        target = m.group("target").strip()
+    links = [(m.group("label"), m.group("target")) for m in _LINK_RE.finditer(text)]
+    links += [(m.group("label"), m.group("angled") or m.group("bare")) for m in _REF_DEF_RE.finditer(text)]
+    for label, raw_target in links:
+        target = raw_target.strip()
+        if _is_external_target(target):
+            continue
         file_part, _, fragment = target.partition("#")
         if file_part:
             resolved = _resolve_link_target(md, file_part)
             if not resolved.exists():
-                errors.append(f"{md}: broken link [{m.group('label')}]({target}) → {resolved}")
+                errors.append(f"{md}: broken link [{label}]({target}) → {resolved}")
                 continue
         else:
             resolved = md  # pure `#section` — same-page anchor
         frag = _dead_anchor(md, resolved, fragment)
         if frag is not None:
             errors.append(
-                f"{md}: dead anchor [{m.group('label')}]({target}) — "
+                f"{md}: dead anchor [{label}]({target}) — "
                 f"no heading slug `#{frag}` in {resolved.name}"
             )
     errors.extend(_check_html_targets(md, text))

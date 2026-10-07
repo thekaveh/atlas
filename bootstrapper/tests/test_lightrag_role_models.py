@@ -633,3 +633,57 @@ def test_extract_generation_caps_are_documented():
         any("placeholder" in text for text in (readme, guide)),
         any("defaults to `${LITELLM_MASTER_KEY}`" in text for text in (readme, guide)),
     ) == (True, True, False, False)
+
+
+# --- the smoke proves each role's own request (#1389) ------------------------
+
+_FAKE_DOCKER = """#!/bin/sh
+case "$*" in
+  *" exec "*) echo "EXTRACT_LLM_MODEL=x" ;;
+  *" logs "*) printf '%s\\n' "$FAKE_LITELLM_LOGS" ;;
+esac
+"""
+_FAKE_CURL = """#!/bin/sh
+echo "$*" >>"$CURL_LOG"
+case "$*" in
+  */documents/upload*) printf '{"status":"%s","message":"m"}' "${FAKE_UPLOAD_STATUS:-success}" ;;
+  *) printf '{"response":"r"}' ;;
+esac
+"""
+
+
+def _run_smoke(tmp_path: Path, logs: str, **env):
+    bin_dir, tmp = tmp_path / "bin", tmp_path / "tmp"
+    for path, body in ((bin_dir / "docker", _FAKE_DOCKER), (bin_dir / "curl", _FAKE_CURL)):
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(body)
+        path.chmod(0o755)
+    tmp.mkdir(exist_ok=True)
+    return subprocess.run(
+        ["bash", str(SMOKE_SCRIPT)], text=True, capture_output=True, check=False, timeout=60,
+        env={"PATH": f"{bin_dir}:/usr/bin:/bin", "TMPDIR": str(tmp), "LIGHTRAG_API_KEY": "k",
+             "LIGHTRAG_EXTRACT_LLM_MODEL": "gpt-4o", "LIGHTRAG_QUERY_LLM_MODEL": "qwen3:8b",
+             "LIGHTRAG_SMOKE_WAIT_SECONDS": "0", "FAKE_LITELLM_LOGS": logs,
+             "CURL_LOG": str(tmp_path / "curl.log"), **env},
+    )
+
+
+def test_lightrag_smoke_needs_each_exact_role_model_and_reruns_cleanly(tmp_path: Path) -> None:
+    # LiteLLM logs the routed model name.
+    both = ("litellm.acompletion(model=openai/gpt-4o) 200 OK\n"
+            "litellm.acompletion(model=ollama_chat/qwen3:8b) 200 OK")
+    for _ in range(2):
+        passed = _run_smoke(tmp_path, both)
+        assert passed.returncode == 0, passed.stderr
+    calls = (tmp_path / "curl.log").read_text().splitlines()
+    # A fresh name, text and query per run, so a rerun reaches both models again.
+    assert len({line for line in calls if "upload" in line}) == 2
+    assert len({line for line in calls if "/query" in line}) == 2
+    assert list((tmp_path / "tmp").iterdir()) == []  # every temp file removed
+
+    mini_only = _run_smoke(tmp_path, "model=openai/gpt-4o-mini\nmodel=ollama_chat/qwen3:8b")
+    assert mini_only.returncode == 1 and "missing expected EXTRACT model" in mini_only.stderr
+    same = _run_smoke(tmp_path, both, LIGHTRAG_QUERY_LLM_MODEL="gpt-4o")
+    assert same.returncode == 2 and "set different models" in same.stderr
+    refused = _run_smoke(tmp_path, both, FAKE_UPLOAD_STATUS="failure")
+    assert refused.returncode == 1 and "not accepted for extraction" in refused.stderr

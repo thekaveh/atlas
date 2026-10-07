@@ -1068,3 +1068,44 @@ def test_final_image_scan_passes_when_every_image_is_clean(tmp_path: Path) -> No
     result, scanned, summary = _run_final_image_scan(tmp_path, "")
 
     assert (result.returncode, len(scanned), summary) == (0, 49, ""), result.stderr
+
+
+# --- compose dependency lint: .env.example only, derived edges (#1389) --------
+
+
+def _compose_deps_lint():
+    import importlib.util
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    spec = importlib.util.spec_from_file_location(
+        "check_compose_source_deps", ROOT / "scripts/check-compose-source-deps.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_compose_deps_lint_ignores_a_local_env_file(tmp_path, monkeypatch) -> None:
+    lint = _compose_deps_lint()
+    (tmp_path / ".env").write_text("LOCAL_ONLY=1\n")
+    monkeypatch.setattr(lint, "ROOT", tmp_path)
+    calls = []
+
+    def fake_run(args, **_kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, stdout="services: {}\n", stderr="")
+
+    monkeypatch.setattr(lint, "run_bounded", fake_run)
+    lint.load_compose()
+    assert calls[0][2:4] == ["--env-file", str(ROOT / ".env.example")]
+
+
+def test_compose_deps_lint_flags_unreviewed_edges_into_replaceable_services() -> None:
+    lint = _compose_deps_lint()
+    replaceable = lint.replaceable_families()
+    edges = {("backend", "searxng"), ("backend", "speaches"), ("trino", "iceberg-rest"),
+             ("spark-worker", "spark-master")}
+
+    # New edges fail, including one into a provider-scaled engine (speaches has
+    # no sources: of its own); a reviewed one and a same-family one pass.
+    assert lint.forbidden_edges(edges, replaceable) == [("backend", "searxng"), ("backend", "speaches")]

@@ -129,7 +129,8 @@ Two container-image gates run in `services-lint.yml` on every pull request:
   required check. Despite its name it builds no local Dockerfile: it verifies
   the two commit-pinned remote build contexts against their reviewed
   base-image index digests and Trivy-scans the manifest-owned remote images
-  whose declarations changed in the pull request. Local Dockerfile builds run
+  whose declarations changed in the pull request, including an image a Compose
+  line now names by a different `${VAR}`. Local Dockerfile builds run
   in the Final-image scan below.
 - **`Final-image scan (local Compose and init images)`** builds every local
   Compose and init image and fails on any HIGH or CRITICAL finding. A finding

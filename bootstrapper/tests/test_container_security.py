@@ -182,6 +182,24 @@ def test_container_security_preserves_explicit_single_arch_platforms() -> None:
     } == {"linux/amd64"}
 
 
+def test_swapping_one_image_variable_for_another_schedules_the_new_image() -> None:
+    # `image: ${MINIO_IMAGE}` -> `${MINIO_INIT_IMAGE}` names no resolved
+    # reference, so the literal match scheduled nothing (#1389).
+    scans = container_security.load_changed_image_scans(
+        ROOT / "services",
+        [
+            "diff --git a/services/minio/compose.yml b/services/minio/compose.yml",
+            "-    image: ${MINIO_IMAGE}",
+            "+    image: ${MINIO_INIT_IMAGE}",
+        ],
+    )
+    assert next(
+        row["default"]
+        for row in yaml.safe_load((ROOT / "services/minio/service.yml").read_text(encoding="utf-8"))["images"]
+        if row["var"] == "MINIO_INIT_IMAGE"
+    ) in {scan.image for scan in scans}
+
+
 def test_changed_manifest_schedules_only_images_the_diff_touches() -> None:
     """Scanning follows the image references a diff moves, not the file it lands in.
 
