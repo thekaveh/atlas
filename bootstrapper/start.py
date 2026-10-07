@@ -2477,9 +2477,13 @@ class AtlasStarter:
         if current.isdigit() and int(current) != base_port:
             return True
         target = self.port_manager.calculate_port_assignments(base_port)
+        # A *_PORT pinned in .env.user / a consumer manifest is merged into
+        # .env on every start and reset by update_env_ports; it is not a
+        # move, and counting it tore the stack down on every warm start.
+        pinned = set(getattr(self, "_env_user_keys", None) or ())
         return any(
             str(env.get(var, '')).strip().isdigit() and int(env[var]) != port
-            for var, port in target.items()
+            for var, port in target.items() if var not in pinned
         )
 
     def run_port_migration(self, no_port_migrate: bool) -> None:

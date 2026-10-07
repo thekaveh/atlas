@@ -106,3 +106,16 @@ def test_a_hand_edited_base_port_is_a_move_too(tmp_path, monkeypatch):
     new_block = starter.port_manager.calculate_port_assignments(64000)
     (tmp_path / ".env").write_text("BASE_PORT=64000\n" + "".join(f"{k}={v}\n" for k, v in new_block.items()))
     assert starter._port_block_moves(64000) is False
+
+
+def test_a_port_pinned_by_an_overlay_is_not_a_move(tmp_path, monkeypatch):
+    """An overlay pin of one *_PORT is merged into .env every start and then
+    reset; counting it stopped the running stack on every warm start."""
+    starter, _captured = _starter_with_env(tmp_path, monkeypatch, "BASE_PORT=63000\n")
+    block = starter.port_manager.calculate_port_assignments(63000)
+    pinned = dict(block, KONG_HTTP_PORT=8000)
+    (tmp_path / ".env").write_text("BASE_PORT=63000\n" + "".join(f"{k}={v}\n" for k, v in pinned.items()))
+    starter._env_user_keys = {"KONG_HTTP_PORT"}
+    assert starter._port_block_moves(63000) is False
+    starter._env_user_keys = set()
+    assert starter._port_block_moves(63000) is True
