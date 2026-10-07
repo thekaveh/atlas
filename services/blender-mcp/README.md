@@ -12,7 +12,7 @@ This integration is intentionally conservative. Current Blender MCP workflows de
 |---|---|---|
 | Atlas SOURCE | `BLENDER_MCP_SOURCE=disabled` | Default. No Blender MCP bridge is active. |
 | Host Blender MCP | `BLENDER_MCP_SOURCE=localhost` | Development-only source. Requires host-installed Blender, Blender MCP add-on, and MCP server/client configuration — all user-run (GUI + Connect click). |
-| Managed headless | `BLENDER_MCP_SOURCE=managed-localhost` | Atlas-managed (#759): pinned add-on provisioned (sha256-verified), headless `blender --background` launched + health-checked at start. Requires a host Blender install (`BLENDER_MCP_BLENDER_PATH` to override detection). Lifecycle: `./start.sh blender-mcp preflight\|install\|start\|stop\|status\|health\|remove`. |
+| Managed headless | `BLENDER_MCP_SOURCE=managed-localhost` | Atlas-managed (#759): pinned add-on provisioned (sha256-verified), headless `blender --background` launched + health-checked at start; a read-only check runs before a warm start stops the running stack, so a bridge that would refuse to start leaves the running containers as they are (#1342). Requires a host Blender install (`BLENDER_MCP_BLENDER_PATH` to override detection). Lifecycle: `./start.sh blender-mcp preflight\|install\|start\|stop\|status\|health\|remove`. |
 | Blender socket | `${BLENDER_MCP_HOST}:${BLENDER_MCP_LOCALHOST_PORT}` | Defaults to `localhost:9876`, matching common Blender MCP socket defaults. |
 | Kong | No Kong route | There is no `blender-mcp.localhost` route and no `blender.localhost` route by design. |
 
