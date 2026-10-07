@@ -1131,30 +1131,18 @@ class AtlasStarter:
         return overlay_path.resolve()
 
     def _parse_env_overlay_file(self, overlay_path: Path) -> Dict[str, str]:
-        """Parse a user env overlay with the same line semantics as .env."""
+        """Parse a user env overlay with the same line semantics as .env: the
+        `export ` prefix Compose accepts, and the shared value decoder."""
+        from utils.atomic_write import decode_env_value
+
         env_vars: Dict[str, str] = {}
         with open(overlay_path, "r", encoding="utf-8-sig") as f:  # BOM-tolerant (#1391)
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#") or "=" not in line:
                     continue
-
                 key, value = line.split("=", 1)
-                value = value.strip()
-                if value[:1] in ('"', "'"):
-                    quote = value[0]
-                    end = value.find(quote, 1)
-                    if end != -1:
-                        value = value[1:end]
-                    else:
-                        value = value.strip('"').strip("'")
-                else:
-                    for i, ch in enumerate(value):
-                        if ch == "#" and (i == 0 or value[i - 1] in " \t"):
-                            value = value[:i]
-                            break
-                    value = value.strip()
-                env_vars[key.strip()] = value
+                env_vars[re.sub(r"^export[ \t]+", "", key.strip())] = decode_env_value(value)
         return env_vars
 
     def _apply_single_env_user_overlay(
@@ -2425,8 +2413,10 @@ class AtlasStarter:
             
         # Check for port conflicts
         conflicts = self.port_manager.get_port_conflicts(base_port)
-        if conflicts:
-            # Check if conflicts are from our own project's containers
+        if conflicts or self._port_block_moves(base_port):
+            # Our own containers hold the ports, or the block moves: a moved
+            # block re-publishes every container, and a targeted warm start
+            # would leave a now-disabled service running on its old ports.
             if self.docker_manager.are_project_containers_running():
                 self.banner.show_status_message(
                     "Previous instance detected — stopping existing containers...",
@@ -2476,6 +2466,10 @@ class AtlasStarter:
             return False
 
         return True
+
+    def _port_block_moves(self, base_port: int) -> bool:
+        current = (self.config_parser.parse_env_file().get('BASE_PORT', '') or '').strip()
+        return current.isdigit() and int(current) != base_port
 
     def run_port_migration(self, no_port_migrate: bool) -> None:
         """Chained .env migrations: v0 → v1 (port-layout), v1 → v2 (URL→PORT),
@@ -6855,6 +6849,21 @@ def _report_tui_exit(rc: int, stopped_previous: bool = False) -> int:
 
 
 def _run_linear_with_support_bundle(starter: "AtlasStarter", options) -> int:
+    """``run_linear_startup`` under SIGTERM/SIGHUP cleanup: a terminated or
+    disconnected `--no-tui` start stops the command it is running and rolls
+    back the managed hosts it started, as Ctrl+C does; they run in their own
+    session, so they would otherwise outlive it holding GPU memory and ports."""
+    from core.process_runner import _CommandInterrupted, cleanup_active_processes_on_sigterm
+
+    with cleanup_active_processes_on_sigterm():
+        try:
+            return _run_linear_startup_bundled(starter, options)
+        except _CommandInterrupted:
+            starter.rollback_managed_host_processes()
+            raise
+
+
+def _run_linear_startup_bundled(starter: "AtlasStarter", options) -> int:
     """``run_linear_startup``; with ``--support-bundle`` a failed start also
     leaves a redacted bundle built from what the run printed (#1057)."""
     if starter.support_bundle_path is None:

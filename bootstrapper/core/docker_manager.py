@@ -180,9 +180,9 @@ class DockerManager:
     def _compose_file_args(self, *, include_consumer: bool = True) -> List[str]:
         """Compose ``-f`` arguments.
 
-        Empty by default — Docker Compose auto-discovers ``docker-compose.yml``
-        from ``cwd`` (the repo root), so the default invocation (and the
-        compose byte-equivalence baseline) is unchanged. When a downstream
+        Always names ``docker-compose.yml`` explicitly: without ``-f`` Compose
+        would follow a ``COMPOSE_FILE`` from the caller's shell or from
+        ``.env`` and load another project's model. When a downstream
         consumer has dropped overlay fragments under
         ``services/_user/<name>/compose.yml`` (a gitignored overlay slot),
         return an explicit base + overlay file list so those services are
@@ -224,7 +224,10 @@ class DockerManager:
             and not rag_overlay.exists()
             and not lightrag_query_overlay.exists()
         ):
-            return []
+            # Explicit even without overlays: with no -f, Compose follows a
+            # COMPOSE_FILE from the caller's shell or from .env (--env-file)
+            # and silently loads another project's model under -p <atlas>.
+            return ['-f', 'docker-compose.yml']
         file_args: List[str] = ['-f', 'docker-compose.yml']
         for overlay in overlays:
             file_args.extend(['-f', str(overlay.relative_to(self.root_dir))])
@@ -258,7 +261,7 @@ class DockerManager:
                 f"({type(exc).__name__}); continuing with the base stack."
             )
             return ['-f', 'docker-compose.yml'], None  # None: overlays dropped
-        return file_args, bool(file_args)
+        return file_args, file_args != ['-f', 'docker-compose.yml']  # True: overlays included
 
     def _validated_compose_file_args(
         self, args: List[str], command_prefix: List[str]

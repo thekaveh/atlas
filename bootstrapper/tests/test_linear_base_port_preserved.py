@@ -19,6 +19,7 @@ def _starter_with_env(tmp_path, monkeypatch, env_text: str):
     starter = AtlasStarter()
     starter.config_parser.env_file_path = env
     monkeypatch.setattr(starter.port_manager, "get_port_conflicts", lambda bp: {})
+    monkeypatch.setattr(starter.docker_manager, "are_project_containers_running", lambda: False)
     captured = {}
 
     def _capture(bp):
@@ -75,3 +76,19 @@ def test_update_env_ports_persists_base_port_itself(tmp_path, monkeypatch):
     )
     assert starter.handle_port_configuration(None) is True
     assert captured["bp"] == 64000
+
+
+def test_a_moved_port_block_stops_the_running_stack_first(tmp_path, monkeypatch):
+    """No port conflicts, but the block moves: the running stack is stopped,
+    so a service disabled in the same run does not keep its old ports."""
+    starter, captured = _starter_with_env(tmp_path, monkeypatch, "BASE_PORT=63000\n")
+    stopped = []
+    monkeypatch.setattr(starter.docker_manager, "are_project_containers_running", lambda: True)
+    monkeypatch.setattr(starter.docker_manager, "stop_services",
+                        lambda **kw: stopped.append(kw) or 0)
+    assert starter.handle_port_configuration(64000) is True
+    assert stopped == [{"remove_volumes": False, "remove_orphans": True}]
+    assert captured["base_port"] == 64000
+    stopped.clear()
+    assert starter.handle_port_configuration(63000) is True  # unchanged block: no stop
+    assert stopped == []

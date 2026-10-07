@@ -2701,3 +2701,27 @@ def test_endpoints_export_advertises_every_pool_instance() -> None:
     assert d["ATLAS_BLENDER_MCP_HOST_ENDPOINTS"] == "tcp://localhost:9900,tcp://localhost:9901,tcp://localhost:9902"
     single = {f.name for f in build_export({**env, "BLENDER_MCP_INSTANCES": "1"})}
     assert "ATLAS_BLENDER_MCP_HOST_ENDPOINTS" not in single
+
+
+def test_sigterm_during_a_linear_start_rolls_back_its_managed_hosts(monkeypatch) -> None:
+    """SIGTERM/SIGHUP used to kill the --no-tui start with the default action,
+    leaving managed hosts it started (own session) running."""
+    import os
+    import signal
+    from types import SimpleNamespace
+
+    import start as start_module
+
+    rolled_back = []
+    starter = SimpleNamespace(support_bundle_path=None,
+                              rollback_managed_host_processes=lambda: rolled_back.append(True))
+
+    def terminated(_starter, _options):
+        os.kill(os.getpid(), signal.SIGTERM)
+        return 0
+
+    monkeypatch.setattr(start_module, "run_linear_startup", terminated)
+    with pytest.raises(SystemExit) as exc:
+        start_module._run_linear_with_support_bundle(starter, object())
+    assert exc.value.code == 128 + signal.SIGTERM and rolled_back == [True]
+    assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL or callable(signal.getsignal(signal.SIGTERM))
