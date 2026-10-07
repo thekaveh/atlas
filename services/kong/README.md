@@ -39,6 +39,8 @@ Plain `python3 scripts/check-kong-routes.py` works too if `PyYAML` is on your sy
 - `/pg/` → Supabase Meta service
 - `supabase-studio.localhost` → Supabase Studio dashboard
 
+The path routes above answer only on `localhost`, `127.0.0.1`, `kong-api-gateway` (the in-network name Atlas containers use), `<PROJECT_NAME>-kong-api-gateway` (its container name) and `host.docker.internal`, plus any bare hostname or IPv4 address in `KONG_SUPABASE_EXTRA_HOSTS`: a tunnel hostname, the LAN address when `HOST_BIND_IP` exposes Kong on the network, or the host of a custom `API_EXTERNAL_URL`/`SITE_URL` whose auth links point through Kong. Any other Host gets 404, so a public hostname does not reach Supabase by accident. A Host header with a port still matches; matching is case-sensitive, and IPv6 literals cannot be listed. The key-auth services also carry an `acl` admitting only the `anon` (`SUPABASE_ANON_KEY`) and `admin` (`SUPABASE_SERVICE_KEY`) groups, as upstream Supabase does, so another Kong key such as `BACKEND_KONG_API_KEY` gets 403 there (#1382).
+
 ### 3.2. Dynamic Routes (Based on SOURCE)
 - `comfyui.localhost` → ComfyUI service (if enabled)
 - `n8n.localhost` → n8n service (if enabled)

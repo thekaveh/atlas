@@ -39,6 +39,9 @@ ENV_EXAMPLE = ROOT / ".env.example"
 sys.path.insert(0, str(ROOT / "bootstrapper"))
 
 
+# Must equal KongConfigGenerator.SUPABASE_API_ROUTE_TAG (a test pins it).
+SUPABASE_API_ROUTE_TAG = "atlas-supabase-api"
+
 EXPECTED_HOST_ROUTES = {
     "comfyui.localhost": "http://comfyui:18188/",
     "n8n.localhost": "http://n8n:5678/",
@@ -153,10 +156,14 @@ def generate_default_kong_config(out_dir: Path) -> Path:
 
 
 def host_url_map(config: dict) -> dict[str, str]:
+    """Host -> upstream for every route with hosts, except the Supabase API
+    routes, whose hosts are an allowlist rather than an alias (#1382)."""
     mapping: dict[str, str] = {}
     for service in config.get("services") or []:
         url = service.get("url")
         for route in service.get("routes") or []:
+            if SUPABASE_API_ROUTE_TAG in (route.get("tags") or []):
+                continue
             for host in route.get("hosts") or []:
                 mapping[host] = url
     return mapping
