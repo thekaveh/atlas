@@ -362,3 +362,35 @@ def test_source_conflict_is_reported_not_raised(monkeypatch, capsys):
     )
     assert start.AtlasStarter.generate_service_configuration(starter) is False
     assert capsys.readouterr().out == "ERROR: Spark requires MinIO: --minio-source container\n"
+
+
+def test_hosts_cleanup_reports_only_what_it_removed_and_prunes_backups(tmp_path, monkeypatch):
+    """It listed every alias as removed even when none were present, and left
+    one unpruned /etc/hosts.backup.<second> per run (same-second runs overwrote)."""
+    import utils.hosts_manager as hosts_module
+    from utils.hosts_manager import HostsManager
+
+    hosts = tmp_path / "hosts"
+    hosts.write_text("127.0.0.1\\tlocalhost\\n", encoding="utf-8")
+    monkeypatch.setattr(hosts_module, "is_elevated", lambda: True)
+    manager = HostsManager()
+    manager.hosts_file_path = str(hosts)
+    logged = []
+    monkeypatch.setattr(manager, "_log", lambda message, level="info": logged.append(message))
+    for _ in range(8):
+        assert manager.cleanup_hosts_entries() is True
+    assert not any("were removed" in line for line in logged)
+    assert any("No Atlas hosts entries were present" in line for line in logged)
+    assert len(list(tmp_path.glob("*backup*"))) <= 5
+
+
+def test_a_symlinked_state_dir_is_refused_with_a_clear_message(tmp_path):
+    from services import remove_state_directory
+
+    target = tmp_path / "real-state"
+    target.mkdir()
+    link = tmp_path / "state-link"
+    link.symlink_to(target)
+    with pytest.raises(RuntimeError, match="is a symlink to"):
+        remove_state_directory(link, ("state", RuntimeError))
+    assert target.is_dir() and link.is_symlink()

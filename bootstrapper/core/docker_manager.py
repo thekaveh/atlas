@@ -770,7 +770,31 @@ class DockerManager:
         )
         # Volumes declared only by dropped consumer overlays survive a
         # base-stack `down --volumes`; never report that as a full wipe.
-        return result == 0 and not getattr(self, "teardown_overlays_dropped", False)
+        if result != 0 or getattr(self, "teardown_overlays_dropped", False):
+            return False
+        # Nothing records which consumer manifest started the stack, so a bare
+        # --cold drops overlay-only volumes from the compose model and leaves
+        # them on disk; check the project label instead of trusting `down`.
+        leftover = self._project_volume_names(project_name)
+        if leftover:
+            print(
+                "    ⚠ These project volumes were not removed (declared by a consumer "
+                f"overlay not loaded for this stop?): {', '.join(leftover)}. Re-run with "
+                "--consumer <manifest>, or remove them with docker volume rm."
+            )
+        return not leftover
+
+    def _project_volume_names(self, project_name: str) -> List[str]:
+        """Volumes Compose labelled as this project's; [] when unknown."""
+        try:
+            result = subprocess.run(
+                ["docker", "volume", "ls", "-q", "--filter",
+                 f"label=com.docker.compose.project={project_name}"],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return []
+        return [line for line in result.stdout.split() if line] if result.returncode == 0 else []
     
     def build_services(
         self,

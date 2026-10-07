@@ -516,6 +516,13 @@ def remove_state_directory(path: Path, error_details) -> None:
     Refuses a path that is the working directory, the repository, $HOME, /
     or one of their parents."""
     description, error_type = error_details
+    if Path(path).expanduser().is_symlink():
+        # rmtree refuses a symlink (Python 3.12 reports it as a garbled
+        # "[Errno None]"); say what to do instead.
+        raise error_type(
+            f"refusing to remove {description} {path}: it is a symlink to "
+            f"{Path(path).expanduser().resolve()}; remove the link and its target yourself"
+        )
     reason = _unsafe_state_directory(path)
     if reason:
         raise error_type(f"refusing to remove {description}: {reason}")

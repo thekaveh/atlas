@@ -273,9 +273,22 @@ def test_cold_stop_cleanup_does_not_prune_unrelated_projects(tmp_path, monkeypat
     )
     assert not hasattr(manager, "prune_system")
     monkeypatch.setattr(manager.config_parser, "get_project_name", lambda: "atlas")
+    monkeypatch.setattr(manager, "_project_volume_names", lambda _project: [])
 
     assert manager.perform_cold_stop_cleanup() is True
     assert calls == [(["down", "--volumes", "--remove-orphans"], "atlas")]
+
+
+def test_cold_stop_is_not_reported_complete_while_project_volumes_remain(tmp_path, monkeypatch, capsys):
+    """A bare --cold of a stack started with --consumer left the overlay's
+    volumes on disk and still printed "All data volumes removed"."""
+    manager = DockerManager(str(tmp_path))
+    monkeypatch.setattr(manager, "execute_compose_command", lambda args, project_name=None: 0)
+    monkeypatch.setattr(manager.config_parser, "get_project_name", lambda: "atlas")
+    monkeypatch.setattr(manager, "_project_volume_names", lambda project: ["atlas-app-data"])
+
+    assert manager.perform_cold_stop_cleanup() is False
+    assert "atlas-app-data" in capsys.readouterr().out
 
 
 def test_all_entry_paths_prepare_environment_before_secret_rotation():
