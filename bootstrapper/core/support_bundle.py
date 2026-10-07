@@ -93,8 +93,9 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     ), REDACTED),
     (re.compile(r"\A(?:(?!-----BEGIN ).)*?-----END [A-Z0-9 ]{0,40}PRIVATE KEY-----", re.DOTALL),
      REDACTED),
-    # URL credentials: user:password (the password may contain '/') or a token.
-    (re.compile(r"\b([a-zA-Z][a-zA-Z0-9+.-]{0,31}://)[^/\s@:]{0,256}:[^\s@]{1,256}@"),
+    # URL credentials: user:password (the password may contain '/' or '@',
+    # so the match runs to the last '@' of the token) or a token.
+    (re.compile(r"\b([a-zA-Z][a-zA-Z0-9+.-]{0,31}://)[^/\s@:]{0,256}:\S{1,256}@"),
      rf"\1{REDACTED}@"),
     (re.compile(r"\b([a-zA-Z][a-zA-Z0-9+.-]{0,31}://)[^/\s@:]{1,256}@"), rf"\1{REDACTED}@"),
     (re.compile(

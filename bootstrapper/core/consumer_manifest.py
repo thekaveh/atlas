@@ -771,6 +771,10 @@ def _set_scalar(
     # implementation of that check, shared with every `.env` writer so the
     # parse boundary and the write boundaries cannot drift apart; it is
     # re-raised here as a manifest error so the author gets the origin.
+    if key == "PROJECT_NAME":
+        # Every route, not just `project_name:`: an invalid name reaching
+        # .env through env.values or env.file made ./stop.sh refuse to run.
+        value = _manifest_project_name(value, Path(origin))
     try:
         rendered = assert_safe_env_assignment(key, value)
     except ValueError as exc:
@@ -2648,6 +2652,13 @@ def _validate_rag_ingestion_collisions(profiles: Iterable[RagIngestionProfile]) 
             raise ConsumerManifestError(
                 f"rag_ingestion_profiles name {profile.name!r} declared by multiple consumers "
                 f"({owner[profile.name]} and {profile.consumer})"
+            )
+        if profile.name in owner:
+            # Two manifests of one consumer (the name defaults to the parent
+            # directory): the backend serves only the first, silently.
+            raise ConsumerManifestError(
+                f"duplicate rag_ingestion_profiles name {profile.name!r} for consumer "
+                f"{profile.consumer}"
             )
         owner[profile.name] = profile.consumer
         for target in profile.vector_targets:

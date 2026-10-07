@@ -380,3 +380,17 @@ def test_validate_plugin_env_flags_required_missing_and_masks_secret(tmp_path):
     warnings2 = validate_plugin_env(m, {"TABLEAU_EXECUTION": "banana", "LITELLM_MASTER_KEY": "sk-x"})
     assert any("allowed values" in w for w in warnings2)
     assert "sk-x" not in " ".join(warnings2)
+
+
+def test_schema_names_every_reserved_route_prefix():
+    """The schema is the documented source of the reserved list
+    (reusing-atlas §6.3.1); it listed 11 of the 17 enforced prefixes."""
+    import json
+    from pathlib import Path
+
+    from core.plugin_manifest import RESERVED_ROUTE_PREFIXES
+
+    schema = json.loads((Path(__file__).resolve().parents[1] / "schemas" / "plugin.schema.json").read_text())
+    description = schema["properties"]["route_prefix"]["description"]
+    listed = description[description.index("built-in backend route (") + 24:].split(")")[0]
+    assert {name.strip() for name in listed.split(",")} == set(RESERVED_ROUTE_PREFIXES)

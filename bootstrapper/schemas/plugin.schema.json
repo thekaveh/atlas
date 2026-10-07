@@ -19,7 +19,7 @@
     "route_prefix": {
       "type": "string",
       "pattern": "^/[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*$",
-      "description": "The URL path prefix this plugin's router mounts under (e.g. /tableau). Must be at least one non-empty path segment (bare '/' is rejected — it would match the whole backend). Must not overlap another plugin's prefix (raw-prefix containment) or shadow a built-in backend route (api, comfyui, documents, health, jobs, media, memory, plugins, research, storage, workflows). Drives per-plugin Kong auth composition."
+      "description": "The URL path prefix this plugin's router mounts under (e.g. /tableau). Must be at least one non-empty path segment (bare '/' is rejected — it would match the whole backend). Must not overlap another plugin's prefix (raw-prefix containment) or shadow a built-in backend route (api, comfyui, docs, documents, health, jobs, lightrag, media, memory, metrics, openapi.json, plugins, ready, redoc, research, storage, workflows). Drives per-plugin Kong auth composition."
     },
     "health_path": {
       "type": "string",

@@ -2725,3 +2725,14 @@ def test_sigterm_during_a_linear_start_rolls_back_its_managed_hosts(monkeypatch)
         start_module._run_linear_with_support_bundle(starter, object())
     assert exc.value.code == 128 + signal.SIGTERM and rolled_back == [True]
     assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL or callable(signal.getsignal(signal.SIGTERM))
+
+
+def test_url_credentials_with_an_at_sign_are_fully_redacted() -> None:
+    """The URL pattern stopped at the first '@', half-replacing the password
+    before the known-value pass could match it."""
+    from core.support_bundle import Redactor
+
+    redactor = Redactor({"POSTGRES_PASSWORD": "Xy7@kq9Lmn2"})
+    text = redactor.text("postgresql://postgres:Xy7@kq9Lmn2@db:5432/x")
+    assert "kq9Lmn2" not in text and "Xy7" not in text
+    assert text.endswith("@db:5432/x")
