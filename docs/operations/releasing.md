@@ -190,9 +190,22 @@ procedure in §3 is unchanged, and the block is refreshed as part of its step 1
 the pull request that squashed it into `develop`, the last `(#N)` of its
 subject. Its promotion to `main` is the same change, never a second entry:
 
-- A promotion merge is replaced by the `develop` commits it carries.
+- A promotion merge is replaced by the `develop` commits it carries. Two
+  release shapes are supported (#1351):
+  - **Release merge:** a `release/<slug>-to-main` branch merges `develop` with
+    `merge: bring develop (#N) into main` and lands by a merge-commit pull
+    request. Any merge commit whose subject names `develop` then `main` is a
+    promotion, whatever its type, so both merges are walked to the `develop`
+    commits. While `main` still holds earlier squash promotions, a range on
+    `main` lists those `develop` changes again, without a promotion marker,
+    because they were never its ancestors.
+  - **Release squash:** `chore(release): merge develop into main for #A and #B (#R)`.
 - A release squash names its sources in its title (`… for #A and #B (#R)`), so
-  `#R` is folded into each of those entries and rendered as `(#A, #R)`.
+  `#R` is folded into each of those entries and rendered as `(#A, #R)`. A
+  source outside the range is looked up by its `(#A)` suffix on `origin/develop`
+  when that ref exists, otherwise on `develop`, and takes its own bucket and
+  subject, unless it was released before the range starts. A source merged into
+  `develop` by a merge commit carries no `(#A)` and is not found.
 - The 22 earlier promotion squashes from #509 through #635 repeat the
   `develop` subject under their own number only, such as
   `feat(llm): … (#379) (#509)` for `feat(llm): … (#379) (#507)`.
@@ -202,11 +215,10 @@ subject. Its promotion to `main` is the same change, never a second entry:
   change to the same tree), and each pair renders as one entry, `(#507, #509)`.
 
 Subjects are never matched: #1085 and #1136 carry the same subject and are two
-different digest moves, so they stay two entries. A promotion whose sources are
-not in the range stays one *Promotions* entry. A release squash does not carry
-`develop`'s commits, so a range that ends on `main` shows those changes only as
-their promotion; the changelog block is therefore rendered from a `develop`
-range, where each change lands exactly once. A future promotion that cannot
+different digest moves, so they stay two entries. A promotion stays one
+*Promotions* entry only when a source is neither in the range nor found on
+`develop`. The changelog block is rendered from a `develop` range, where each
+change lands exactly once. A future promotion that cannot
 name its sources gets a reviewed `REVIEWED_PROMOTIONS` entry, not a subject
 rule.
 

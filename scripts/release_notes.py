@@ -44,6 +44,9 @@ _MERGE_RE = re.compile(r"^Merge pull request #(?P<pr>\d+) from (?P<head>\S+)")
 # feature branches synced from main) carry no PR number but only wrap changes
 # that are counted on their own; expanding them lets de-duplication do its job.
 _BRANCH_MERGE_RE = re.compile(r"^Merge (?:remote-tracking )?(?:branch )?'?[^' ]+'? into \S+")
+# A merge commit naming develop then main is a release merge, whatever its
+# subject type: "merge: bring develop (#N) into main" (#1351).
+_DEVELOP_INTO_MAIN_RE = re.compile(r"\bdevelop\b.*\bmain\b")
 # Squash promotions typed as fix/docs/chore still read "promote … to main".
 _PROMOTE_SUBJECT_RE = re.compile(r"^(?:promote|reconcile) .*\b(?:to|into) main\b")
 # Release titles name the develop pull requests they promote:
@@ -62,6 +65,9 @@ REVIEWED_PROMOTIONS: dict[int, tuple[int, ...]] = {
     626: (625,), 629: (628,), 632: (631,), 635: (634,),
 }
 _EXPANSION_DEPTH = 4
+# Where a squash promotion's named sources are looked up when they are not in
+# the range (#1351); the first ref that exists is used.
+_DEVELOP_REFS = ("origin/develop", "develop")
 _RECORD_SEP = "\x1e"
 _FIELD_SEP = "\x1f"
 _CHANGELOG = Path("docs") / "CHANGELOG.md"
@@ -130,12 +136,17 @@ def _git(repo_root: Path, *args: str) -> str:
     return result.stdout
 
 
-def read_commits(repo_root: Path, rev_range: str, *, first_parent: bool = True) -> list[Commit]:
-    """Return the commits in ``rev_range`` newest first, optionally first-parent only."""
+def read_commits(
+    repo_root: Path, rev_range: str, *, first_parent: bool = True, grep: str | None = None
+) -> list[Commit]:
+    """Return the commits in ``rev_range`` newest first, optionally first-parent
+    only and limited to messages containing the fixed string ``grep``."""
     fmt = f"--format=%H{_FIELD_SEP}%P{_FIELD_SEP}%s{_FIELD_SEP}%b{_RECORD_SEP}"
     args = ["log", fmt]
     if first_parent:
         args.append("--first-parent")
+    if grep is not None:
+        args += ["--fixed-strings", f"--grep={grep}"]
     output = _git(repo_root, *args, rev_range, "--")
     commits: list[Commit] = []
     for record in output.split(_RECORD_SEP):
@@ -168,6 +179,8 @@ def classify(commit: Commit) -> Note:
     if merge is not None:
         return Note(commit.sha, int(merge.group("pr")), "Promotions", None, commit.subject)
     if _BRANCH_MERGE_RE.match(commit.subject):
+        return Note(commit.sha, None, "Promotions", None, commit.subject)
+    if len(commit.parents) >= 2 and _DEVELOP_INTO_MAIN_RE.search(commit.subject):
         return Note(commit.sha, None, "Promotions", None, commit.subject)
     match = _SUBJECT_RE.match(commit.subject)
     if match is None:
@@ -242,6 +255,51 @@ def fold_promotions(notes: list[Note]) -> list[Note]:
     return [note for index, note in enumerate(folded) if index not in dropped]
 
 
+def _merged_before(repo_root: Path, sha: str, start: str) -> bool:
+    """Whether ``sha`` is already in the range's start, i.e. released before it."""
+    if not start:
+        return False
+    return run_bounded(["git", "merge-base", "--is-ancestor", sha, start], cwd=repo_root).returncode == 0
+
+
+def _develop_note(repo_root: Path, pr: int, start: str) -> Note | None:
+    """The develop squash commit of pull request ``pr``, classified, unless it
+    is missing or already precedes the range start. The first ref in
+    ``_DEVELOP_REFS`` that exists is searched."""
+    for ref in _DEVELOP_REFS:
+        try:
+            candidates = read_commits(repo_root, ref, grep=f"(#{pr})")
+        except RuntimeError:  # the ref does not exist here
+            continue
+        note = next((note for note in map(classify, candidates) if note.pr == pr), None)
+        return None if note is None or _merged_before(repo_root, note.sha, start) else note
+    return None
+
+
+def _off_range_sources(repo_root: Path, note: Note, present: set[int], start: str) -> list[Note]:
+    """The develop notes of ``note``'s sources outside the range, or none
+    unless every one of them resolves."""
+    missing = [pr for pr in promotion_sources(note) if pr not in present]
+    found = [_develop_note(repo_root, pr, start) for pr in missing]
+    return [source for source in found if source] if all(found) else []
+
+
+def resolve_promoted_sources(repo_root: Path, notes: list[Note], rev_range: str) -> list[Note]:
+    """Bring a squash promotion's named develop sources into the notes when
+    they are outside the range, so it folds into their own buckets (#1351).
+    A promotion keeps its single entry unless every missing source resolves
+    to a develop commit that was not already released before the range."""
+    start = rev_range.split("..", 1)[0] if ".." in rev_range else ""
+    present = {note.pr for note in notes if note.pr is not None}
+    resolved: list[Note] = []
+    for note in notes:
+        sources = _off_range_sources(repo_root, note, present, start)
+        resolved.extend(sources)
+        present.update(source.pr for source in sources if source.pr is not None)
+        resolved.append(note)
+    return resolved
+
+
 def collect_notes(repo_root: Path, rev_range: str) -> list[Note]:
     """Classify a range, expanding promotions and de-duplicating by PR number."""
     notes: list[Note] = []
@@ -254,7 +312,7 @@ def collect_notes(repo_root: Path, rev_range: str) -> list[Note]:
                 continue
             seen.add(key)
             notes.append(note)
-    return fold_promotions(notes)
+    return fold_promotions(resolve_promoted_sources(repo_root, notes, rev_range))
 
 
 def load_overrides(path: Path | None) -> dict[int, dict[str, str]]:
