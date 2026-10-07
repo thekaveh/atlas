@@ -187,7 +187,9 @@
 | CELERY_WORKER_PREFETCH_MULTIPLIER | celery | 1 | Positive prefetch multiplier. The default reduces head-of-line blocking for long tasks; invalid values fail startup. |
 | CELERY_TASK_TIME_LIMIT_SECONDS | celery | 900 | Positive hard per-task limit. Must exceed the soft limit and remain below the broker visibility timeout. |
 | CELERY_TASK_SOFT_TIME_LIMIT_SECONDS | celery | 840 | Positive soft per-task limit. Must be strictly less than the hard limit. |
-| CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS | celery | 3600 | Positive Redis broker visibility timeout. Must be strictly greater than the task hard limit. |
+| CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS | celery | 3600 | Positive Redis broker visibility timeout. Must be strictly greater than the task hard limit. The worker raises it to the rag_ingestion hard limit plus 300 seconds when that is larger, so a running ingestion is never re-delivered (#1352). |
+| RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS | celery |  | Positive soft limit for the rag_ingestion task alone; other tasks keep CELERY_TASK_SOFT_TIME_LIMIT_SECONDS. Empty (default) means the larger of 3840 and CELERY_TASK_SOFT_TIME_LIMIT_SECONDS. A Celery ingestion whose graph targets' timeout_seconds add up to at least this is refused at submission (#1352). |
+| RAG_INGESTION_TASK_TIME_LIMIT_SECONDS | celery |  | Positive hard limit for the rag_ingestion task alone; must exceed the soft limit. Empty (default) means the larger of 3900 and CELERY_TASK_TIME_LIMIT_SECONDS (#1352). |
 | FLOWER_IMAGE | celery | mher/flower:2.0.1 | Container image for `flower`. |
 | CHATTERBOX_PORT | chatterbox | 63059 | Host port for the Chatterbox container (in-container listen port is 4123). |
 | CHATTERBOX_LOCALHOST_PORT | chatterbox | 63044 | Host port for the chatterbox-localhost source variant. URL is derived at compose-render time as http://host.docker.internal:63044. |

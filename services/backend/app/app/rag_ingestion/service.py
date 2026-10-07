@@ -249,6 +249,16 @@ class RagIngestionService:
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
+    def total_graph_wait(self, profile_name: str) -> int:
+        """Seconds the drain may wait in total: each graph target that waits
+        for extraction gets its own timeout_seconds, one after another (0 when
+        none waits)."""
+        profile = self._resolve_profile(profile_name)  # raises ProfileNotFoundError
+        return sum(
+            int(t.get("timeout_seconds", 3600)) for t in profile.graph_targets
+            if t.get("wait_for_extraction", True)
+        )
+
     def submit(self, profile_name: str, corpus_path: Optional[str] = None) -> tuple[IngestionRecord, bool]:
         """Create (or dedup to) an ingestion record. Does NOT run it — the caller
         dispatches the Celery task or runs it synchronously. Returns
