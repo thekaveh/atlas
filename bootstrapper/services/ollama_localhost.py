@@ -29,7 +29,11 @@ from typing import Mapping
 
 _DEFAULT_PORT = "11434"
 _TAGS_TIMEOUT = 5.0
-_PULL_TIMEOUT = 3600.0  # one tag can be tens of GB; per-request ceiling
+# The longest a pull may sit without a byte of progress. It bounds each
+# blocking read of the NDJSON stream, not the whole pull: one tag can be tens
+# of GB, and Ollama sends a progress line every few seconds while it works.
+# A stalled pull is retried once (#1361).
+_PULL_STALL_TIMEOUT = 300.0
 
 
 @dataclass
@@ -103,7 +107,7 @@ def list_host_tags(base_url: str, *, timeout: float = _TAGS_TIMEOUT) -> set[str]
     return tags
 
 
-def _pull_one(base_url: str, tag: str, *, log, timeout: float = _PULL_TIMEOUT) -> None:
+def _pull_one(base_url: str, tag: str, *, log, timeout: float | None = None) -> None:
     """POST /api/pull, streaming NDJSON status lines. Raises on failure.
 
     Progress is coarsened to status transitions (Ollama emits a line per
@@ -115,7 +119,7 @@ def _pull_one(base_url: str, tag: str, *, log, timeout: float = _PULL_TIMEOUT) -
         method="POST",
     )
     last_status = ""
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with urllib.request.urlopen(request, timeout=timeout or _PULL_STALL_TIMEOUT) as response:
         for raw_line in response:
             line = raw_line.decode("utf-8", errors="replace").strip()
             if not line:
@@ -130,6 +134,21 @@ def _pull_one(base_url: str, tag: str, *, log, timeout: float = _PULL_TIMEOUT) -
             if status and status != last_status:
                 last_status = status
                 log(f"  {tag}: {status}")
+
+
+def _pull_with_retry(base_url: str, tag: str, log) -> Exception | None:
+    """Pull ``tag``, once more after a failure such as a stall or a dropped
+    stream; the second failure is returned."""
+    try:
+        _pull_one(base_url, tag, log=log)
+        return None
+    except Exception as exc:  # noqa: BLE001 — per-tag isolation
+        log(f"  {tag}: retrying once after: {exc}")
+    try:
+        _pull_one(base_url, tag, log=log)
+        return None
+    except Exception as exc:  # noqa: BLE001 — per-tag isolation
+        return exc
 
 
 def pull_declared_models(env: Mapping[str, str], *, log=None) -> OllamaPullResult:
@@ -156,9 +175,8 @@ def pull_declared_models(env: Mapping[str, str], *, log=None) -> OllamaPullResul
             result.skipped.append(tag)
             emit(f"✔ {tag} (already present on host, skipped)")
             continue
-        try:
-            _pull_one(base_url, tag, log=emit)
-        except Exception as exc:  # noqa: BLE001 — per-tag isolation
+        exc = _pull_with_retry(base_url, tag, emit)
+        if exc is not None:
             result.failed.append(f"{tag}: {exc}")
             emit(f"✗ {tag} failed: {exc}")
             continue

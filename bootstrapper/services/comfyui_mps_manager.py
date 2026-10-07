@@ -140,6 +140,10 @@ class ComfyUiMpsError(RuntimeError):
         self.surviving_process = surviving_process
 
 
+# _write_status keeps the recorded launch unless a pid is given (#1361).
+_KEEP_LAUNCH = object()
+
+
 class ComfyUiMpsManager:
     def __init__(
         self,
@@ -422,7 +426,7 @@ class ComfyUiMpsManager:
             ("ComfyUI MPS", ComfyUiMpsError),
         )
         existing = self.status()
-        if existing.running:
+        if self._reusable(existing):
             return existing, False  # idempotent — one process per host
         # Not running, but a pidfile may linger from a dead/recycled process.
         # Clear it so we relaunch cleanly instead of leaving a stale pointer
@@ -622,15 +626,39 @@ class ComfyUiMpsManager:
             and self._managed_process_alive(pid)
             and not self._pid_is_stranger(pid)
         )
-        ref = None
-        if self.status_file.exists():
-            try:
-                ref = json.loads(self.status_file.read_text(encoding="utf-8")).get("installed_ref")
-            except (OSError, ValueError):
-                ref = None
+        record = self._launch_record()
+        # A running process reports the port it was launched on, which can
+        # differ from the configured one until start restarts it (#1361).
+        port = record.get("port", self.port) if running and record.get("pid") == pid else self.port
         return ProcessStatus(
-            running=running, pid=pid if running else None, port=self.port,
-            installed_ref=ref, log_file=str(self.log_file),
+            running=running, pid=pid if running else None, port=port,
+            installed_ref=record.get("installed_ref"), log_file=str(self.log_file),
+        )
+
+    def _launch_record(self) -> dict:
+        try:
+            record = json.loads(self.status_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return record if isinstance(record, dict) else {}
+
+    def _reusable(self, existing: ProcessStatus) -> bool:
+        """Whether the running process serves the configured port and listen
+        address. One launched with others is stopped, so it can be relaunched:
+        it would keep serving the old address (#1361)."""
+        if not existing.running or not self._launched_elsewhere(existing.pid):
+            return existing.running
+        if not self._stop_locked():
+            raise ComfyUiMpsError(
+                f"ComfyUI MPS (pid {existing.pid}) runs with an old port or listen "
+                "address and could not be stopped; run `./start.sh comfyui-mps stop`"
+            )
+        return False
+
+    def _launched_elsewhere(self, pid: Optional[int]) -> bool:
+        from services import launched_with_other_settings
+        return launched_with_other_settings(
+            self._launch_record(), pid, {"port": self.port, "listen": self.listen}
         )
 
     def ensure_running(self) -> ProcessStatus:
@@ -649,7 +677,7 @@ class ComfyUiMpsManager:
             )
         with self._launch_guard():
             existing = self.status()
-            if existing.running:
+            if existing.running and not self._launched_elsewhere(existing.pid):
                 return existing, False
             self._install_locked()
             return self._start_locked()
@@ -832,9 +860,12 @@ class ComfyUiMpsManager:
         *,
         installed_ref: Optional[str],
         requirements_sha256: Optional[str] = None,
-        pid: Optional[int] = None,
+        pid: Optional[int] | object = _KEEP_LAUNCH,
         torch_pin: Optional[list[str]] = None,
     ) -> None:
+        """``pid`` records a launch (or None after a stop). Left out, as by
+        install, the running process's recorded pid, port and listen address
+        stay, so a later configuration change is still detected (#1361)."""
         self.state_dir.mkdir(parents=True, exist_ok=True)
         if requirements_sha256 is None and installed_ref and self.repo_dir.exists():
             requirements_sha256 = self._requirements_sha256()
@@ -847,12 +878,16 @@ class ComfyUiMpsManager:
                 ).get("torch_pin")
             except (OSError, ValueError, AttributeError):
                 torch_pin = None
+        launch = {"port": self.port, "listen": self.listen, "pid": pid}
+        recorded = self._launch_record()
+        if pid is _KEEP_LAUNCH:
+            launch = {key: recorded.get(key, launch[key]) for key in launch}
+            launch["pid"] = recorded.get("pid")
         payload = {
             "installed_ref": installed_ref,
             "requirements_sha256": requirements_sha256,
             "torch_pin": torch_pin,
-            "port": self.port,
-            "pid": pid,
+            **launch,
         }
         self.status_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 

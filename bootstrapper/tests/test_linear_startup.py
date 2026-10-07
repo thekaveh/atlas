@@ -246,6 +246,20 @@ def test_launch_blocker_passes_a_startable_or_running_host(tmp_path) -> None:
     assert _blocker(_FakeHost(tmp_path, running=True, port_busy=True)) is None
 
 
+def test_launch_blocker_checks_the_new_port_of_a_host_it_will_restart(tmp_path) -> None:
+    """A running host recorded on another port is restarted on 8188, so a
+    busy 8188 must stop the warm start before the stack is torn down (#1361);
+    a bind-only change keeps the port, which the host itself holds."""
+    def host(recorded_port):
+        moved = _FakeHost(tmp_path, running=True, port_busy=True)
+        moved.status = lambda: type("S", (), {"running": True, "pid": 77})()
+        moved._launch_record = lambda: {"pid": 77, "port": recorded_port}
+        return moved
+
+    assert "port 8188 is already in use" in _blocker(host(8187))
+    assert _blocker(host(8188)) is None
+
+
 def test_launch_blocker_reports_each_fatal_start_refusal(tmp_path) -> None:
     pre = _Pre(ok=False, checks=[{"name": "arch", "status": "fail", "detail": "needs arm64"}])
     assert "preflight failed: arch: needs arm64" in _blocker(_FakeHost(tmp_path, pre=pre))
