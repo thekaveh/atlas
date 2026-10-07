@@ -693,12 +693,27 @@ class ComfyUiMpsManager:
                     "refusing to remove managed ComfyUI state while its tracked "
                     f"{detail} may still be alive"
                 )
-            if self.state_dir.exists():
-                shutil.rmtree(self.state_dir)
+            self._refuse_removing_host_models()
+            from services import remove_state_directory
+            remove_state_directory(self.state_dir, ("managed ComfyUI state directory", ComfyUiMpsError))
+
+    def _refuse_removing_host_models(self) -> None:
+        """The host models dir is never deleted (README §10), even when it was
+        pointed inside the managed state directory."""
+        if not self.models_path:
+            return
+        models = Path(self.models_path).expanduser().resolve()
+        state = self.state_dir.expanduser().resolve()
+        if models == state or state in models.parents:
+            raise ComfyUiMpsError(
+                f"refusing to remove {state}: it contains COMFYUI_MPS_MODELS_PATH ({models}), "
+                "which Atlas never deletes; move the models or point COMFYUI_MPS_MODELS_PATH elsewhere"
+            )
 
     # ── health ───────────────────────────────────────────────────────
     def health(self, *, timeout: float = 3.0) -> dict:
-        url = f"http://{self._probe_host}:{self.port}/system_stats"
+        host = self._probe_host
+        url = f"http://{f'[{host}]' if ':' in host else host}:{self.port}/system_stats"
         try:
             with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310 - loopback only
                 body = resp.read().decode("utf-8")
@@ -767,9 +782,11 @@ class ComfyUiMpsManager:
         return "127.0.0.1" if self.listen in ("", "0.0.0.0", "::") else self.listen
 
     def _port_in_use(self) -> bool:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        host = self._probe_host
+        family = socket.AF_INET6 if ":" in host else socket.AF_INET  # e.g. COMFYUI_MPS_LISTEN=::1
+        with socket.socket(family, socket.SOCK_STREAM) as sock:
             sock.settimeout(0.5)
-            return sock.connect_ex((self._probe_host, self.port)) == 0
+            return sock.connect_ex((host, self.port)) == 0
 
     def _read_pid(self) -> Optional[int]:
         if not self.pid_file.exists():
@@ -1447,7 +1464,7 @@ class ComfyUiMpsManager:
 def manager_from_env(env: dict[str, str]) -> ComfyUiMpsManager:
     """Build a manager from resolved .env values."""
     return ComfyUiMpsManager(
-        state_dir=env.get("COMFYUI_MPS_STATE_DIR", "~/.atlas/comfyui-mps"),
+        state_dir=(env.get("COMFYUI_MPS_STATE_DIR") or "").strip() or "~/.atlas/comfyui-mps",
         port=int(env.get("COMFYUI_MPS_LOCALHOST_PORT", "8188") or "8188"),
         ref=env.get("COMFYUI_MPS_REF", "v0.27.0"),
         models_path=env.get("COMFYUI_MPS_MODELS_PATH") or None,

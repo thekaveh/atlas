@@ -1334,7 +1334,7 @@ managed_host_services:
 ./start.sh managed-host list                    # what is declared, and its endpoint var
 ./start.sh managed-host preflight sam3-segment  # read-only: bind, venv, command, port
 ./start.sh managed-host install   sam3-segment  # create the venv, install deps
-./start.sh managed-host start     sam3-segment  # spawn, wait for the port to open
+./start.sh managed-host start     sam3-segment  # spawn, wait for the port to open; restarts a process launched on another port or bind
 ./start.sh managed-host status    sam3-segment  # pid / running / port-open
 ./start.sh managed-host health    sam3-segment  # run the declared probe
 ./start.sh managed-host stop      sam3-segment  # SIGTERM, then SIGKILL after a grace window
