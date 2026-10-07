@@ -13,6 +13,8 @@ import signal
 import subprocess
 import time
 from typing import Callable, List, Optional
+
+from core.process_runner import poll_one_shots, sleep_unless_stopped
 from pathlib import Path
 from core.config_parser import ConfigParser
 from core.process_runner import run_with_deadline
@@ -58,6 +60,12 @@ class DockerManager:
         self.project_name_override: Optional[str] = None
         self._build_state_to_mark: Optional[dict[str, object]] = None
         self._build_state_capture_attempted = False
+        # A no-argument callable the TUI sets to its cancel request: the
+        # one-shot init wait stops early once it returns True (#1357).
+        self.should_stop: Optional[Callable[[], bool]] = None
+        # True only during the cold teardown: Ctrl+C then stops the start
+        # instead of reading as a failed cleanup (#1357).
+        self._reraise_stream_interrupt = False
 
         # Callback for the "Command: docker compose …" echo. Defaults to
         # builtin print so the legacy linear flow is unchanged. The Live
@@ -730,10 +738,16 @@ class DockerManager:
             self.project_name_override = project_name
         try:
             self._on_command("    - Removing project containers, volumes, and orphans...")
-            result = self.stream_compose(
-                ['down', '--volumes', '--remove-orphans'],
-                on_line=self._on_command,
-            )
+            # Ctrl+C stops the start, rather than reading as a failed cleanup
+            # ("Cold cleanup failed; secrets were not rotated") (#1357).
+            self._reraise_stream_interrupt = True
+            try:
+                result = self.stream_compose(
+                    ['down', '--volumes', '--remove-orphans'],
+                    on_line=self._on_command,
+                )
+            finally:
+                self._reraise_stream_interrupt = False
             # As for a cold stop: a dropped consumer overlay leaves its volumes
             # holding credentials that the cold start is about to rotate.
             return result == 0 and not getattr(self, "teardown_overlays_dropped", False)
@@ -880,64 +894,46 @@ class DockerManager:
         timeout_seconds: float = 60.0,
         poll_interval_seconds: float = 2.0,
     ) -> list[tuple[str, str]]:
-        """Return enabled one-shot services that fail or never finish."""
-        failures: list[tuple[str, str]] = []
-        if not services:
-            return failures
+        """Return enabled one-shot services that fail or never finish.
 
-        pending = set(services)
+        ``self.should_stop`` ends the wait within a fraction of a poll interval;
+        the services still pending are reported as "cancelled" (#1357)."""
+        should_stop = self.should_stop
+        failures: list[tuple[str, str]] = []
+        pending = list(services)
         last_reason = {service: "container not observed yet" for service in services}
         deadline = time.monotonic() + timeout_seconds
-
         while pending:
-            for service in list(pending):
-                rows, error = self._compose_ps_json(service)
-                if error is not None:
-                    failures.append((service, error))
-                    pending.remove(service)
-                    continue
-
-                if not rows:
-                    last_reason[service] = "container not observed yet"
-                    continue
-
-                all_exited_zero = True
-                for row in rows:
-                    exit_code = str(row.get("ExitCode", "")).strip()
-                    state = str(row.get("State", "")).strip().lower()
-                    status = str(row.get("Status", "")).strip()
-                    status_lower = status.lower()
-
-                    if exit_code and exit_code not in {"0", "<nil>", "None"}:
-                        failures.append((service, f"exit {exit_code}: {status or state or 'exited'}"))
-                        pending.remove(service)
-                        all_exited_zero = False
-                        break
-                    if state == "exited":
-                        if exit_code == "0" or "exit 0" in status_lower or "exited (0)" in status_lower:
-                            continue
-                        failures.append((service, status or state))
-                        pending.remove(service)
-                        all_exited_zero = False
-                        break
-
-                    all_exited_zero = False
-                    last_reason[service] = status or state or "not exited yet"
-
-                if service in pending and all_exited_zero:
-                    pending.remove(service)
-
+            poll_one_shots(pending, failures, last_reason, self._compose_ps_json)
             if not pending:
-                return failures
+                break
+            if should_stop is not None and should_stop():
+                return failures + [(service, "cancelled") for service in sorted(pending)]
             if time.monotonic() >= deadline:
-                for service in sorted(pending):
-                    failures.append(
-                        (service, f"timed out waiting for terminal state ({last_reason[service]})")
-                    )
-                return failures
-            time.sleep(min(poll_interval_seconds, max(0.0, deadline - time.monotonic())))
-
+                return failures + [
+                    (service, f"timed out waiting for terminal state ({last_reason[service]})")
+                    for service in sorted(pending)
+                ]
+            sleep_unless_stopped(
+                min(poll_interval_seconds, max(0.0, deadline - time.monotonic())), should_stop
+            )
         return failures
+
+    def one_shot_log_tail(self, service: str, lines: int = 40) -> list[str]:
+        """The last ``lines`` lines of ``docker compose logs <service>``, for a
+        failure message; [] when they cannot be read (#1357)."""
+        try:
+            cmd = self._build_compose_command(
+                ["logs", "--no-color", "--no-log-prefix", f"--tail={lines}", service],
+                top_level_flags=[],
+            )
+            result = subprocess.run(
+                cmd, cwd=str(self.root_dir), capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=20, check=False,
+            )
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return []
+        return [line for line in (result.stdout or "").splitlines() if line.strip()][-lines:]
 
     def compose_ps_json(self) -> tuple[list[dict], str | None]:
         """Inspect all compose services via ``docker compose ps --format json``."""
@@ -1084,7 +1080,10 @@ class DockerManager:
                 on_line(line.rstrip("\n"))
             return proc.wait()
         except KeyboardInterrupt:
-            return self._terminate_subprocess(proc)
+            returncode = self._terminate_subprocess(proc)
+            if self._reraise_stream_interrupt:
+                raise
+            return returncode
         except BaseException:
             self._terminate_subprocess(proc)
             raise
