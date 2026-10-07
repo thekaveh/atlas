@@ -136,6 +136,12 @@ class MemoryFact(BaseModel):
     created_at: str
     updated_at: str
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    # Provenance (#1206): the conversation and messages a fact was extracted
+    # from. Listing and recall fill these; ``origin`` is "not recorded" when
+    # neither was stored, and None only where a response does not report it.
+    source_conversation_id: Optional[str] = None
+    source_message_ids: List[str] = Field(default_factory=list)
+    origin: Optional[str] = None
 
 
 class MemoryExtractResponse(BaseModel):
