@@ -3,9 +3,9 @@
   "private": true,
   "version": "1.0.0",
   "dependencies": {
-    "@gltf-transform/cli": "4.5.0"
+    "@gltf-transform/cli": "4.5.1"
   },
   "overrides": {
-    "sharp": "0.35.4"
+    "sharp": "0.35.5"
   }
 }
