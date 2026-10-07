@@ -241,6 +241,24 @@ def test_cleanup_is_idempotent_on_operator_lines(tmp_path):
     assert hosts.read_text(encoding="utf-8") == original
 
 
+def test_cleanup_removes_the_genai_era_header_and_writes_durably(tmp_path, monkeypatch):
+    """The pre-rename header stayed behind forever; and the write must be
+    fsynced before the rename, or a crash can leave an empty /etc/hosts."""
+    import utils.hosts_manager as hosts_module
+    from utils.hosts_manager import HostsManager
+
+    hosts = tmp_path / "hosts"
+    hosts.write_text("127.0.0.1 localhost\n\n# GenAI Stack subdomains (added by start.py)\n"
+                     "127.0.0.1 n8n.localhost\n", encoding="utf-8")
+    synced = []
+    real_fsync = hosts_module.os.fsync
+    monkeypatch.setattr(hosts_module.os, "fsync", lambda fd: synced.append(fd) or real_fsync(fd))
+    assert HostsManager().remove_hosts_entries_silent(str(hosts)) is True
+    result = hosts.read_text(encoding="utf-8")
+    assert "GenAI Stack subdomains" not in result and "n8n.localhost" not in result
+    assert "127.0.0.1 localhost" in result and synced
+
+
 # The wizard's "set up hosts" answer must not abort an unelevated launch.
 
 def _hosts_starter(missing):

@@ -459,11 +459,15 @@ Atlas recovery is **project-scoped by design**: everything Atlas creates — con
 # existing values, appends newly introduced keys, reports what changed:
 ./start.sh env backfill
 
-# Reset specific service data (destructive for that service only).
+# Reset one volume's data (destructive). Stop the stack first: Docker
+# refuses to remove a volume a container (even a stopped one) still uses.
 # Volume names carry the PROJECT_NAME prefix from .env:
-docker volume rm $(grep '^PROJECT_NAME=' .env | cut -d= -f2-)-supabase-db-data  # Database only
-docker volume rm $(grep '^PROJECT_NAME=' .env | cut -d= -f2-)-n8n-data          # n8n workflows only
+./stop.sh
+docker volume rm $(grep '^PROJECT_NAME=' .env | cut -d= -f2-)-supabase-db-data  # the shared Postgres: every service database
+docker volume rm $(grep '^PROJECT_NAME=' .env | cut -d= -f2-)-n8n-data          # n8n's user folder only
 ```
+
+`supabase-db-data` is not one service's data: the same Postgres holds the Supabase, backend (memory, media ledger), n8n, Open WebUI, LiteLLM, LightRAG, Airflow, Langfuse, MLflow, Label Studio, Iceberg, JupyterHub, Zeppelin and TrueForge databases, so removing it resets all of them. n8n stores its workflows and credentials in that Postgres (`DB_TYPE=postgresdb`), not in `n8n-data`, which holds only its user folder (`/home/node/.n8n`).
 
 Rebuilding `.env` from `.env.example` is **not** a partial reset: freshly generated secrets no longer match the credentials baked into existing volumes, so a from-scratch `.env` requires the full destructive reset in §10.1 (which deletes those volumes and reinitializes both together).
 

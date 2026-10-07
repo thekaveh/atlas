@@ -10,6 +10,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional
+from utils.atomic_write import _fsync_parent_directory
 from utils.system import detect_os, is_elevated, get_hosts_file_path
 
 
@@ -56,6 +57,11 @@ class HostsManager:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(content)
+                # Durable before the rename, as the .env writer does: on a
+                # delayed-allocation filesystem a crash after os.replace could
+                # otherwise leave a zero-length /etc/hosts.
+                f.flush()
+                os.fsync(f.fileno())
             os.chmod(tmp, st.st_mode)
             try:
                 os.chown(tmp, st.st_uid, st.st_gid)
@@ -66,6 +72,7 @@ class HostsManager:
                 # (AttributeError), which used to abort --setup/--clean-hosts.
                 pass
             os.replace(tmp, dst)
+            _fsync_parent_directory(dst)
         except BaseException:
             try:
                 os.unlink(tmp)
@@ -200,8 +207,9 @@ class HostsManager:
             # Filter out Atlas-related lines
             filtered_lines = []
             for line in lines:
-                # Skip the comment line
-                if "# Atlas subdomains" in line:
+                # Skip the comment line, including the header the GenAI-era
+                # layout wrote before the rename (#108).
+                if "# Atlas subdomains" in line or line.strip() == "# GenAI Stack subdomains (added by start.py)":
                     continue
                     
                 # Skip any line with Atlas hostnames. Whole-token
