@@ -8501,6 +8501,254 @@ def models_probe_command(models, kinds, max_requests: int, refresh: bool) -> Non
     sys.exit(refused or report_capability_probes(root, aliases, list(kinds)))
 
 
+# ─── Atlas-owned storage: inventory and model cleanup (#1194) ────────
+#
+# Only the volumes below hold models or generated artifacts; every other
+# declared volume is stateful (databases, workflows, user data) and can never
+# be part of a deletion set. Cleanup removes single model items, never a
+# volume: what `./stop.sh --cold` does wholesale is out of scope.
+MODEL_VOLUMES = {"llm-provider-data": "ollama", "comfyui-models": "comfyui", "comfyui-output": "comfyui"}
+_COMFYUI_MODELS_DIR = "/opt/ComfyUI/models"
+_DOCKER_SIZE_UNITS = {"B": 1, "kB": 1e3, "KB": 1e3, "MB": 1e6, "GB": 1e9, "TB": 1e12}
+
+
+def declared_project_volumes(root: Path) -> set[str]:
+    """Volume suffixes the compose fragments declare as ``${PROJECT_NAME}-<x>``."""
+    pattern = re.compile(r"^\s+name:\s*\$\{PROJECT_NAME\}-([A-Za-z0-9_.-]+)\s*$", re.M)
+    return {m for path in (root / "services").glob("*/compose.yml") for m in pattern.findall(path.read_text())}
+
+
+def parse_docker_size(text: str) -> int:
+    """`docker system df` sizes (``1.5GB``, ``12kB``, ``0B``) as bytes."""
+    match = re.fullmatch(r"\s*([0-9.]+)\s*([A-Za-z]+)\s*", text or "")
+    if not match or match.group(2) not in _DOCKER_SIZE_UNITS:
+        return 0
+    return int(float(match.group(1)) * _DOCKER_SIZE_UNITS[match.group(2)])
+
+
+def docker_volume_sizes() -> dict:
+    """Volume name -> bytes, as `docker system df -v` reports them."""
+    result = subprocess.run(
+        ["docker", "system", "df", "-v", "--format", "{{range .Volumes}}{{.Name}}\t{{.Size}}\n{{end}}"],
+        capture_output=True, text=True, check=False, timeout=120,
+    )
+    if result.returncode != 0:
+        raise OSError(result.stderr.strip() or f"exit {result.returncode}")
+    rows = (line.split("\t", 1) for line in result.stdout.splitlines() if "\t" in line)
+    return {name: parse_docker_size(size) for name, size in rows}
+
+
+def volume_inventory(project: str, declared: set, sizes: dict) -> list[dict]:
+    """Every Docker volume named for this project, with its size. Ownership
+    comes from the declared names: a project-prefixed volume nothing declares
+    (another project whose name starts the same way, a leftover) is unknown."""
+    rows = []
+    for name, size in sorted(sizes.items()):
+        if name.startswith(f"{project}-"):
+            suffix = name[len(project) + 1:]
+            owner = "atlas" if suffix in declared else "unknown"
+            rows.append({"volume": name, "bytes": size, "ownership": owner,
+                         "holds": "models/artifacts" if suffix in MODEL_VOLUMES else "state"})
+    return rows
+
+
+def _retained_comfyui_paths(root: Path) -> set[str]:
+    """``target_dir/filename`` of every row in volumes/comfyui/active-models.tsv.
+    Raises OSError when the file is missing: an unknown active set must never
+    read as "nothing is retained"."""
+    lines = (root / "volumes" / "comfyui" / "active-models.tsv").read_text().splitlines()
+    rows = [line.split("\t") for line in lines if line.strip() and not line.startswith("#")]
+    return {f"{row[5].strip('/')}/{row[2]}" for row in rows if len(row) > 5 and row[2]}
+
+
+def _catalog_comfyui_paths() -> set[str]:
+    from utils.comfyui_library import list_curated  # noqa: PLC0415
+    from utils.comfyui_resolver import _derive_filename  # noqa: PLC0415
+
+    entries = list_curated()
+    files = [f for e in entries for f in (e.files or [])] + [e for e in entries if not e.files]
+    return {f"{(f.target_dir or '').strip('/')}/{_derive_filename(f)}" for f in files}
+
+
+def label_comfyui_files(files: list, root: Path) -> list[dict]:
+    """(relative path, bytes) model files as items: retained when the active
+    set names them, removable when the catalog does, else unknown."""
+    retained, known = _retained_comfyui_paths(root), _catalog_comfyui_paths()
+    label = lambda path: "retained" if path in retained else ("removable" if path in known else "unknown")  # noqa: E731
+    return [{"kind": "comfyui", "volume": "comfyui-models", "path": path, "bytes": size, "label": label(path)}
+            for path, size in files]
+
+
+def label_ollama_models(models: list, env: dict) -> list[dict]:
+    """(name, bytes) pulled Ollama models as items: retained when the resolved
+    active set names them, removable when the catalog does, else unknown."""
+    from utils import llm_catalog  # noqa: PLC0415
+    from utils.model_resolver import _active_ollama  # noqa: PLC0415
+
+    tag = lambda name: name if ":" in name else f"{name}:latest"  # noqa: E731
+    active = {tag(entry.name) for entry in _active_ollama(env, None)}
+    known = {tag(entry.name) for entry in llm_catalog.ollama_entries()}
+    label = lambda name: "retained" if tag(name) in active else ("removable" if tag(name) in known else "unknown")  # noqa: E731
+    return [{"kind": "ollama", "volume": "llm-provider-data", "path": name, "bytes": size, "label": label(name)}
+            for name, size in models]
+
+
+def deletion_set(items: list, named) -> list[dict]:
+    """Items a cleanup removes: every removable one, plus unknown ones named
+    explicitly. Retained items, and anything outside the model volumes,
+    never are."""
+    named = set(named) | {f"{name}:latest" for name in named if ":" not in name}
+    return [
+        item for item in items
+        if item["volume"] in MODEL_VOLUMES and item["label"] != "retained"
+        and (item["label"] == "removable" or item["path"] in named)
+    ]
+
+
+def remove_items(items: list, remove) -> list[dict]:
+    """Remove ``items`` one at a time with ``remove(item)``. Stops at the first
+    failure: each removal is whole, so the inventory taken afterwards is
+    exactly the previous one minus what was removed."""
+    removed = []
+    for item in items:
+        try:
+            remove(item)
+        except Exception as exc:  # noqa: BLE001 - report and stop
+            print(f"  stopped at {item['path']}: {exc}")
+            break
+        removed.append(item)
+        print(f"  removed {item['path']} ({item['bytes']} bytes)")
+    return removed
+
+
+def _exec(project: str, service: str, *argv: str):
+    return subprocess.run(["docker", "exec", f"{project}-{service}", *argv],
+                          capture_output=True, text=True, check=False, timeout=120)
+
+
+def _ollama_volume_items(env: dict, project: str) -> list[dict]:
+    """Models in the Atlas Ollama container's volume, via that container only:
+    a host daemon (ollama-localhost, or anyone's on the default port) is
+    never queried, so its models can never be listed or removed."""
+    if not env.get("LLM_PROVIDER_SOURCE", "ollama-container-cpu").strip().startswith("ollama-container"):
+        print("  Ollama does not run in an Atlas container: its models are not managed here.")
+        return []
+    listing = _exec(project, "ollama", "ollama", "list")
+    if listing.returncode != 0:
+        print("  The Ollama container is not running: its models are not itemized.")
+        return []
+    rows = [line.split() for line in listing.stdout.splitlines()[1:] if line.strip()]
+    return label_ollama_models([(row[0], parse_docker_size("".join(row[2:4]))) for row in rows if len(row) >= 4], env)
+
+
+def _comfyui_volume_items(env: dict, root: Path, project: str) -> list[dict]:
+    """Files in the Atlas ComfyUI container's models volume. Itemized only
+    when the active list exists, so nothing in use can read as removable."""
+    if not env.get("COMFYUI_SOURCE", "container-cpu").strip().startswith("container"):
+        print("  ComfyUI does not run in an Atlas container: its model files are not managed here.")
+        return []
+    try:
+        _retained_comfyui_paths(root)
+    except OSError:
+        print("  volumes/comfyui/active-models.tsv is missing (run ./start.sh first): ComfyUI files are not itemized.")
+        return []
+    listing = _exec(project, "comfyui", "find", _COMFYUI_MODELS_DIR, "-type", "f", "-printf", "%s\t%P\\0")
+    if listing.returncode != 0:
+        print("  The ComfyUI container is not running: its model files are not itemized.")
+        return []
+    rows = [entry.split("\t", 1) for entry in listing.stdout.split("\0") if "\t" in entry]
+    files = [(path, int(size)) for size, path in rows if size.isdigit() and "\n" not in path]
+    return label_comfyui_files(files, root)
+
+
+def _live_model_items(env: dict, root: Path, project: str) -> list[dict]:
+    """Model items a running stack holds in its own model volumes."""
+    return _ollama_volume_items(env, project) + _comfyui_volume_items(env, root, project)
+
+
+def host_model_directories(env: dict) -> list[dict]:
+    """The declared host model directories with their byte size. Reported
+    only: cleanup never touches a host directory."""
+    rows, seen = [], set()
+    for var in ("COMFYUI_LOCAL_MODELS_PATH", "COMFYUI_MPS_MODELS_PATH"):
+        raw = (env.get(var) or "").strip()
+        path = Path(raw).expanduser() if raw else None
+        if path is None or path in seen:
+            continue
+        seen.add(path)
+        size = sum(f.stat().st_size for f in path.rglob("*") if f.is_file() and not f.is_symlink()) if path.is_dir() else None
+        rows.append({"variable": var, "path": str(path), "bytes": size})
+    return rows
+
+
+def _remove_live_item(project: str):
+    def remove(item: dict) -> None:
+        argv = (("ollama", "ollama", "rm", item["path"]) if item["kind"] == "ollama"
+                else ("comfyui", "rm", "-f", "--", f"{_COMFYUI_MODELS_DIR}/{item['path']}"))
+        result = _exec(project, *argv)
+        if result.returncode != 0:
+            raise RuntimeError((result.stderr or result.stdout).strip() or f"exit {result.returncode}")
+
+    return remove
+
+
+def _storage_context():
+    starter = AtlasStarter()
+    env = starter.config_parser.parse_env_file()
+    root = Path(starter.config_parser.root_dir)
+    return env, root, starter.config_parser.get_project_name()
+
+
+@main.group("storage")
+def storage_group() -> None:
+    """Atlas-owned storage: inventory and model cleanup (#1194)."""
+
+
+@storage_group.command("inventory")
+def storage_inventory_command() -> None:
+    """List each project volume with its size and ownership, the declared host
+    model directories, and the model items of a running stack labelled
+    retained, removable or unknown."""
+    env, root, project = _storage_context()
+    try:
+        sizes = docker_volume_sizes()
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"docker system df failed: {exc}")
+        sys.exit(1)
+    volumes = volume_inventory(project, declared_project_volumes(root), sizes)
+    for row in volumes:
+        print(f"{row['volume']:<45} {row['bytes']:>14} bytes  {row['ownership']:<8} {row['holds']}")
+    print(f"total: {sum(row['bytes'] for row in volumes)} bytes")
+    for row in host_model_directories(env):
+        size = "missing" if row["bytes"] is None else f"{row['bytes']} bytes"
+        print(f"host {row['variable']}: {row['path']} {size}")
+    for item in _live_model_items(env, root, project):
+        print(f"  {item['kind']:<8} {item['path']:<60} {item['bytes']:>14} bytes  {item['label']}")
+
+
+@storage_group.command("clean")
+@click.option("--name", "names", multiple=True,
+              help="Also remove this unknown-provenance item (an Ollama model or a ComfyUI model path).")
+@click.option("--yes", is_flag=True, help="Do not ask before removing the previewed items.")
+def storage_clean_command(names, yes: bool) -> None:
+    """Remove model items no active selection uses. The exact items and sizes
+    are shown first; retained items, unknown ones not named, and every
+    stateful volume are never touched."""
+    env, root, project = _storage_context()
+    planned = deletion_set(_live_model_items(env, root, project), names)
+    if not planned:
+        print("Nothing to remove.")
+        return
+    for item in planned:
+        print(f"  will remove {item['kind']} {item['path']} ({item['bytes']} bytes)")
+    print(f"total: {sum(item['bytes'] for item in planned)} bytes")
+    if not yes and not click.confirm("Remove these items?", default=False):
+        print("Nothing removed.")
+        return
+    if len(remove_items(planned, _remove_live_item(project))) < len(planned):
+        sys.exit(1)
+
+
 @main.group("endpoints")
 def endpoints_group() -> None:
     """Consumer endpoint export commands (stable machine-readable contract)."""

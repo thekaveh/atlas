@@ -408,3 +408,151 @@ def test_ctrl_c_during_cold_teardown_propagates(tmp_path, monkeypatch, capsys):
     with pytest.raises(KeyboardInterrupt):
         manager.perform_cold_start_cleanup(project_name="atlas")
     assert manager._reraise_stream_interrupt is False  # only for the teardown
+
+
+# ─── storage inventory and model cleanup (#1194) ─────────────────────────
+
+REPO = Path(__file__).resolve().parents[2]
+
+
+def test_volume_ownership_comes_from_the_declared_names():
+    import start
+
+    declared = start.declared_project_volumes(REPO)
+    sizes = {"atlas-n8n-data": 10, "atlas-comfyui-models": 4_000, "atlas-dev-n8n-data": 7, "other-redis-data": 3}
+    rows = {row["volume"]: row for row in start.volume_inventory("atlas", declared, sizes)}
+
+    assert rows["atlas-n8n-data"]["ownership"] == "atlas"
+    assert rows["atlas-comfyui-models"]["holds"] == "models/artifacts"
+    assert rows["atlas-dev-n8n-data"]["ownership"] == "unknown"  # another project's look-alike
+    assert "other-redis-data" not in rows
+    assert start.parse_docker_size("1.5GB") == 1_500_000_000 and start.parse_docker_size("0B") == 0
+
+
+class _FakeStack:
+    """`docker exec` against an Atlas Ollama + ComfyUI container pair, backed
+    by in-memory model stores; anything else (a host daemon) is a failure."""
+
+    def __init__(self, ollama, comfyui, fail_on=None):
+        self.ollama, self.comfyui, self.fail_on, self.calls = dict(ollama), dict(comfyui), fail_on, []
+
+    def run(self, argv, **_kw):
+        import subprocess
+
+        self.calls.append(argv)
+        assert argv[:2] == ["docker", "exec"], argv
+        container, cmd = argv[2], argv[3:]
+        out, code = "", 0
+        if cmd[:2] == ["ollama", "list"]:
+            out = "NAME ID SIZE MODIFIED\n" + "".join(f"{n} abc {s / 1e9} GB 2 days ago\n" for n, s in self.ollama.items())
+        elif cmd[:1] == ["find"]:
+            out = "".join(f"{size}\t{path}\0" for path, size in self.comfyui.items())
+        elif cmd[:2] == ["ollama", "rm"] or cmd[:1] == ["rm"]:
+            code = self._remove(cmd[0], cmd[-1])
+        assert container in ("atlas-ollama", "atlas-comfyui"), container
+        return subprocess.CompletedProcess(argv, code, out, "boom" if code else "")
+
+    def _remove(self, tool, target):
+        if self.fail_on and target.endswith(self.fail_on):
+            return 1
+        if tool == "ollama":
+            self.ollama.pop(target)
+        else:
+            self.comfyui.pop(target.removeprefix("/opt/ComfyUI/models/"))
+        return 0
+
+
+def _stack_root(tmp_path):
+    (tmp_path / "volumes" / "comfyui").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "volumes" / "comfyui" / "active-models.tsv").write_text(
+        "sd15\tcheckpoint\tv1-5-pruned-emaonly.safetensors\thttps://x\tsha\tcheckpoints\tcurated\trequired\n"
+    )
+    return tmp_path
+
+
+def _stack(fail_on=None):
+    from utils import llm_catalog
+
+    catalog = [e.name for e in llm_catalog.ollama_entries()]
+    env = {"LLM_PROVIDER_SOURCE": "ollama-container-cpu", "OLLAMA_USER_MODELS": catalog[0], "COMFYUI_SOURCE": "container-cpu"}
+    stack = _FakeStack({catalog[0]: 5_000_000_000, catalog[1]: 2_000_000_000, "someone/custom:7b": 1_000_000_000},
+                       {"checkpoints/v1-5-pruned-emaonly.safetensors": 4, "loras/mystery.safetensors": 2}, fail_on)
+    return env, catalog, stack
+
+
+def test_no_cleanup_can_include_a_stateful_volume(tmp_path, monkeypatch):
+    import start
+
+    env, _catalog, stack = _stack()
+    monkeypatch.setattr(start.subprocess, "run", stack.run)
+    items = start._live_model_items(env, _stack_root(tmp_path), "atlas")
+    planned = start.deletion_set(items, named=[item["path"] for item in items])
+    assert {item["volume"] for item in planned} <= set(start.MODEL_VOLUMES)
+    start.remove_items(planned, start._remove_live_item("atlas"))
+    for argv in stack.calls:  # only model removals inside the two model containers
+        assert "volume" not in argv and argv[3] in ("ollama", "find", "rm"), argv
+    assert not set(start.MODEL_VOLUMES) & {"supabase-db-data", "n8n-data", "graph-db-data", "weaviate-data", "minio-data"}
+
+
+def test_host_daemons_and_a_missing_active_list_are_never_cleaned(tmp_path, monkeypatch, capsys):
+    import start
+
+    env, _catalog, stack = _stack()
+    monkeypatch.setattr(start.subprocess, "run", stack.run)
+    for source in ("ollama-localhost", "none", "disabled"):
+        assert start._ollama_volume_items({**env, "LLM_PROVIDER_SOURCE": source}, "atlas") == []
+    for source in ("localhost", "managed-localhost-mps", "disabled"):
+        assert start._comfyui_volume_items({**env, "COMFYUI_SOURCE": source}, _stack_root(tmp_path), "atlas") == []
+    assert start._comfyui_volume_items(env, tmp_path / "fresh-checkout", "atlas") == []
+    assert stack.calls == []  # nothing was even listed
+    assert "active-models.tsv is missing" in capsys.readouterr().out
+
+
+def test_active_models_are_retained_and_unknown_items_need_naming(tmp_path, monkeypatch):
+    import start
+
+    env, catalog, stack = _stack()
+    monkeypatch.setattr(start.subprocess, "run", stack.run)
+    items = start._live_model_items(env, _stack_root(tmp_path), "atlas")
+
+    labels = {item["path"]: item["label"] for item in items}
+    assert labels["checkpoints/v1-5-pruned-emaonly.safetensors"] == "retained"
+    assert labels["loras/mystery.safetensors"] == labels["someone/custom:7b"] == "unknown"
+    assert (labels[catalog[0]], labels[catalog[1]]) == ("retained", "removable")
+    assert [item["path"] for item in start.deletion_set(items, named=[])] == [catalog[1]]
+    named = {item["path"] for item in start.deletion_set(items, named=["someone/custom:7b", catalog[0]])}
+    assert named == {catalog[1], "someone/custom:7b"}  # a retained item stays even when named
+
+
+def test_the_preview_is_what_is_removed_and_an_interruption_stays_consistent(tmp_path, monkeypatch):
+    import start
+    from click.testing import CliRunner
+
+    root = _stack_root(tmp_path)
+    env, catalog, stack = _stack()
+    monkeypatch.setattr(start.subprocess, "run", stack.run)
+    monkeypatch.setattr(start, "_storage_context", lambda: (env, root, "atlas"))
+    before = start._live_model_items(env, root, "atlas")
+    result = CliRunner().invoke(start.main, ["storage", "clean", "--name", "loras/mystery.safetensors", "--yes"])
+    previewed = {line.split()[3] for line in result.output.splitlines() if "will remove" in line}
+    gone = {item["path"] for item in before} - {item["path"] for item in start._live_model_items(env, root, "atlas")}
+    assert result.exit_code == 0 and previewed == gone == {catalog[1], "loras/mystery.safetensors"}
+
+    env, catalog, stack = _stack(fail_on="mystery.safetensors")
+    monkeypatch.setattr(start.subprocess, "run", stack.run)
+    monkeypatch.setattr(start, "_storage_context", lambda: (env, root, "atlas"))
+    result = CliRunner().invoke(start.main, ["storage", "clean", "--name", "loras/mystery.safetensors", "--yes"])
+    assert result.exit_code == 1 and "stopped at loras/mystery.safetensors" in result.output
+    after = {item["path"]: item["label"] for item in start._live_model_items(env, root, "atlas")}
+    assert catalog[1] not in after and after["loras/mystery.safetensors"] == "unknown"  # whole items only
+
+
+def test_host_model_directories_are_sized_not_cleaned(tmp_path):
+    import start
+
+    (tmp_path / "models" / "checkpoints").mkdir(parents=True)
+    (tmp_path / "models" / "checkpoints" / "a.safetensors").write_bytes(b"x" * 10)
+    rows = start.host_model_directories({"COMFYUI_LOCAL_MODELS_PATH": str(tmp_path / "models"),
+                                         "COMFYUI_MPS_MODELS_PATH": str(tmp_path / "gone")})
+    assert [(row["variable"], row["bytes"]) for row in rows] == [
+        ("COMFYUI_LOCAL_MODELS_PATH", 10), ("COMFYUI_MPS_MODELS_PATH", None)]
