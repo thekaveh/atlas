@@ -18,6 +18,8 @@ services:
         condition: service_completed_successfully
     deploy:
       replicas: ${N8N_SCALE:-1}
+    extra_hosts:
+      - "host.docker.internal:${HOST_GATEWAY_IP}"
     environment:
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: ${SUPAVISOR_DB_HOST:-supabase-db}
@@ -147,6 +149,8 @@ services:
         condition: service_healthy
     deploy:
       replicas: ${N8N_WORKER_SCALE:-1}
+    extra_hosts:
+      - "host.docker.internal:${HOST_GATEWAY_IP}"
     environment:
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: ${SUPAVISOR_DB_HOST:-supabase-db}

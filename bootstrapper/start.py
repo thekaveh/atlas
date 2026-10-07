@@ -4954,7 +4954,11 @@ _MANAGED_HOST_SOURCES = (
 def _managed_host_launch_blocker(factory, env: dict, label: str) -> Optional[str]:
     """Why the host start would refuse, or None. Read-only: nothing is
     installed, launched or signalled."""
-    from services import legacy_pid_refusal_file, refuse_untrusted_tracked_pid
+    from services import (
+        launched_with_other_settings,
+        legacy_pid_refusal_file,
+        refuse_untrusted_tracked_pid,
+    )
 
     try:
         manager = factory(env)
@@ -4967,7 +4971,14 @@ def _managed_host_launch_blocker(factory, env: dict, label: str) -> Optional[str
             manager._managed_process_alive, manager._pid_is_stranger,
             (label, RuntimeError),
         )
-        if not manager.status().running and manager._port_in_use():
+        status = manager.status()
+        # A process on an old port is restarted on the configured one (#1361),
+        # which must then be free just as for a fresh launch.
+        record = getattr(manager, "_launch_record", dict)()  # only the built-in hosts keep one
+        moves = status.running and launched_with_other_settings(
+            record, getattr(status, "pid", None), {"port": manager.port}
+        )
+        if (moves or not status.running) and manager._port_in_use():
             return f"port {manager.port} is already in use by an unmanaged process"
     except Exception as exc:  # noqa: BLE001 - the start would fail the same way
         # The stamp-less record from an older pin only warns at start (#990).
