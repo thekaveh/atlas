@@ -40,12 +40,15 @@ def _generate(env_body: str) -> dict:
 
 
 def _hosts_to_service(config: dict) -> dict[str, str]:
-    """Build a {hostname: kong_service_name} index from the config."""
+    """Build a {hostname: kong_service_name} index of host-alias routes."""
+    from utils.kong_config_generator import is_host_alias_route
+
     index: dict[str, str] = {}
     for svc in config["services"]:
         for route in svc.get("routes", []):
-            for host in route.get("hosts") or []:
-                index[host] = svc["name"]
+            if is_host_alias_route(route):
+                for host in route["hosts"]:
+                    index[host] = svc["name"]
     return index
 
 
@@ -721,11 +724,14 @@ def test_tei_reranker_route_omitted_when_disabled():
 
 
 def _hosts_to_service_map(config: dict) -> dict:
+    from utils.kong_config_generator import is_host_alias_route
+
     return {
         host: svc
         for svc in config["services"]
         for route in svc.get("routes", [])
-        for host in route.get("hosts") or []
+        if is_host_alias_route(route)
+        for host in route["hosts"]
     }
 
 

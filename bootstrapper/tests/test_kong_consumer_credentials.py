@@ -164,3 +164,89 @@ def test_defaults_used_when_env_vars_missing(tmp_path: Path):
     creds = gen.get_consumers()[0]["basicauth_credentials"][0]
     assert creds["username"] == "kong_admin"
     assert creds["password"] == "kong_password"
+
+
+# --- Supabase routes: host allowlist and ACL (#1382) -------------------------
+
+
+def _generator(tmp_path: Path, extra: str = "") -> KongConfigGenerator:
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "SUPABASE_ANON_KEY=anon-key\nSUPABASE_SERVICE_KEY=service-key\n"
+        "BACKEND_KONG_AUTH=key-auth\nBACKEND_KONG_API_KEY=backend-key\n" + extra,
+        encoding="utf-8",
+    )
+    cp = ConfigParser(str(tmp_path))
+    cp.env_file_path = env_path
+    cp.parse_env_file()
+    gen = KongConfigGenerator(cp)
+    gen.load_environment_variables()
+    return gen
+
+
+def test_supabase_key_consumers_carry_the_upstream_acl_groups(tmp_path):
+    groups = {c["username"]: [a["group"] for a in c.get("acls", [])]
+              for c in _generator(tmp_path).get_consumers()}
+
+    assert groups["anon"] == ["anon"]
+    assert groups["service_role"] == ["admin"]
+    assert groups["backend_api_user"] == ["backend_api"]
+
+
+def test_every_key_auth_supabase_service_admits_only_anon_and_admin(tmp_path):
+    services = _generator(tmp_path).get_supabase_services()
+    keyed = [s for s in services if any(p["name"] == "key-auth" for p in s["plugins"])]
+
+    assert {s["name"] for s in keyed} == {
+        "auth-v1", "rest-v1", "graphql-v1", "realtime-v1-ws", "realtime-v1-rest", "storage-v1",
+    }
+    for service in keyed:
+        acls = [p for p in service["plugins"] if p["name"] == "acl"]
+        assert [a["config"]["allow"] for a in acls] == [["anon", "admin"]], service["name"]
+
+
+def test_every_supabase_path_route_has_a_host_allowlist(tmp_path):
+    services = _generator(tmp_path, "KONG_SUPABASE_EXTRA_HOSTS=Tunnel.Example.com, bad host:1\n")
+    routes = [(s["name"], r) for s in services.get_supabase_services() for r in s["routes"]]
+
+    for name, route in routes:
+        hosts = route["hosts"]
+        if name == "dashboard":
+            assert hosts == ["supabase-studio.localhost"]
+            continue
+        assert {"localhost", "kong-api-gateway", "127.0.0.1", "host.docker.internal"} <= set(hosts), name
+        assert "tunnel.example.com" in hosts and "bad host:1" not in hosts, name
+    assert {name for name, _ in routes} >= {"meta", "storage-v1-object-public"}
+
+
+def test_keyless_storage_object_routes_stay_keyless(tmp_path):
+    for service in _generator(tmp_path).get_supabase_services():
+        if service["name"].startswith("storage-v1-object-"):
+            assert [p["name"] for p in service["plugins"]] == ["cors"]
+
+
+def test_supabase_hosts_include_the_project_container_name_and_are_tagged(tmp_path):
+    gen = _generator(tmp_path, "PROJECT_NAME=myproject\n")
+    for service in gen.get_supabase_services():
+        for route in service["routes"]:
+            if service["name"] == "dashboard":
+                assert "tags" not in route
+                continue
+            assert "myproject-kong-api-gateway" in route["hosts"], service["name"]
+            assert route["tags"] == [gen.SUPABASE_API_ROUTE_TAG]
+
+
+def test_route_audit_exempts_exactly_the_tagged_supabase_routes():
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "check-kong-routes.py"
+    spec = importlib.util.spec_from_file_location("check_kong_routes", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.SUPABASE_API_ROUTE_TAG == KongConfigGenerator.SUPABASE_API_ROUTE_TAG
+    config = {"services": [
+        {"url": "http://supabase-api:3000/", "routes": [
+            {"paths": ["/rest/v1/"], "hosts": ["localhost"], "tags": [module.SUPABASE_API_ROUTE_TAG]}]},
+        {"url": "http://rogue:1/", "routes": [{"paths": ["/x"], "hosts": ["evil.localhost"]}]},
+    ]}
+    assert module.host_url_map(config) == {"evil.localhost": "http://rogue:1/"}
