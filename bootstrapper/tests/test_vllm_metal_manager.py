@@ -1354,3 +1354,53 @@ def test_declared_managed_host_restarts_when_its_port_moves(tmp_path, monkeypatc
 
     assert stopped == [999] and status.pid == 4242
     assert json.loads(mgr.launch_file.read_text())["port"] == 47812
+
+
+def test_an_install_keeps_the_running_processs_launch_record(tmp_path, monkeypatch):
+    """A reinstall erased the launch record (ComfyUI deleted status.json, vLLM
+    wrote pid=None), so a port change made with it reused the old process."""
+    from services.comfyui_mps_manager import ComfyUiMpsManager
+
+    comfy = ComfyUiMpsManager(tmp_path / "comfy", port=8288, torch_pin="torch==9.9")
+    comfy.venv_python.parent.mkdir(parents=True)
+    comfy.venv_python.write_text("")
+    comfy.repo_dir.mkdir(parents=True)
+    (comfy.repo_dir / "requirements.txt").write_text("torch\n")
+    comfy.pid_file.write_text("999\nstart_utc=x\n")
+    comfy.status_file.write_text(json.dumps({"pid": 999, "port": 8188, "listen": "127.0.0.1",
+                                             "installed_ref": comfy.ref, "torch_pin": ["torch==1"],
+                                             "requirements_sha256": comfy._requirements_sha256()}))
+    monkeypatch.setattr(ComfyUiMpsManager, "_managed_process_alive", lambda s, p: p == 999)
+    monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda s, p: False)
+    monkeypatch.setattr(ComfyUiMpsManager, "_run", lambda s, cmd: None)
+    assert comfy._launched_elsewhere(999)
+    comfy._install_locked()  # a reconcile (the torch pin changed) while it runs
+    assert comfy._launched_elsewhere(999)  # the port move is still seen
+
+    vllm = VllmMetalManager(tmp_path / "vllm", port=8000)
+    vllm.venv_python.parent.mkdir(parents=True)
+    vllm.venv_python.write_text("")
+    vllm.pid_file.write_text("999\nstart_utc=x\n")
+    vllm._write_status(installed_version=vllm.plugin_version, installed_core_version=vllm.core_version, pid=999)
+    monkeypatch.setattr(VllmMetalManager, "_installed_versions_match", lambda s: True)
+    vllm._install_locked()  # `./start.sh vllm-metal install` while it runs
+    moved = VllmMetalManager(tmp_path / "vllm", port=8001)
+    assert moved._launched_elsewhere(999)
+
+
+def test_state_dir_guard_compares_identity_not_spelling(tmp_path, monkeypatch):
+    """On a case-insensitive volume `/users/me` is $HOME though the strings
+    differ; the shared ~/.atlas root is protected too."""
+    from services import remove_state_directory
+
+    home = tmp_path / "home"
+    (home / ".atlas" / "comfyui-mps").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    with pytest.raises(VllmMetalError, match="refusing"):
+        remove_state_directory(home / ".atlas", ("state", VllmMetalError))
+    respelled = tmp_path / "HOME"
+    if not respelled.exists():
+        pytest.skip("case-sensitive filesystem: no second spelling of the same directory")
+    with pytest.raises(VllmMetalError, match="refusing"):
+        remove_state_directory(respelled, ("state", VllmMetalError))
+    assert home.is_dir()

@@ -105,6 +105,9 @@ class ProcessStatus:
         }
 
 
+_KEEP_LAUNCH = object()  # _write_status: keep the recorded launch (#1361)
+
+
 class VllmMetalError(RuntimeError):
     """A managed vLLM-Metal lifecycle failure (unsupported host, install/launch error)."""
 
@@ -851,16 +854,22 @@ class VllmMetalManager:
         *,
         installed_version: Optional[str],
         installed_core_version: Optional[str] = None,
-        pid: Optional[int] = None,
+        pid: Optional[int] | object = _KEEP_LAUNCH,
     ) -> None:
+        """``pid`` records a launch (or None after a stop). Left out, as by
+        install, the running process's recorded pid, port and listen address
+        stay, so a later configuration change is still detected (#1361)."""
         self.state_dir.mkdir(parents=True, exist_ok=True)
+        launch = {"port": self.port, "listen": self.listen, "pid": pid}
+        if pid is _KEEP_LAUNCH:
+            recorded = self._launch_record()
+            launch = {key: recorded.get(key, launch[key]) for key in ("port", "listen")}
+            launch["pid"] = recorded.get("pid")
         payload = {
             "installed_version": installed_version,
             "installed_core_version": installed_core_version,
-            "port": self.port,
-            "listen": self.listen,
+            **launch,
             "model": self.model,
-            "pid": pid,
         }
         self.status_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 

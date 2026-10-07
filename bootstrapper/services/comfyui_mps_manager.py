@@ -334,7 +334,10 @@ class ComfyUiMpsManager:
             # Drop the "installed" marker before touching the venv: a pip
             # failure below must not leave a status that matches on the next
             # start and skips every install step over a half-built venv.
-            self.status_file.unlink(missing_ok=True)
+            # Only the marker goes: the running process's launch record
+            # (pid, port, listen) stays, or a port change made together with
+            # this reinstall would reuse the old process (#1361).
+            self._write_status(installed_ref=None)
         if fresh:
             self._run(["python3", "-m", "venv", str(self.venv_dir)])
             self._run([str(self.venv_python), "-m", "pip", "install", "--upgrade", "pip"])

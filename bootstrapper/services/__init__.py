@@ -15,9 +15,9 @@ import subprocess
 import sys
 
 if __package__ == "bootstrapper.services":
-    from ..utils.atomic_write import atomic_replace_text
+    from ..utils.atomic_write import atomic_replace_text, remove_state_directory  # noqa: F401 - re-export
 else:
-    from utils.atomic_write import atomic_replace_text
+    from utils.atomic_write import atomic_replace_text, remove_state_directory  # noqa: F401 - re-export
 
 
 _LIFECYCLE_LOCK_TIMEOUT_SECONDS = 30.0
@@ -570,41 +570,6 @@ def restart_moved_process(manager, status, settings: dict, refusal):
         message, error_type = refusal
         raise error_type(f"{message} (pid {status.pid})")
     return manager.status()
-
-
-def _unsafe_state_directory(path: Path) -> str | None:
-    """Why ``path`` must never be deleted as a managed state directory, or
-    None. A blank STATE_DIR resolves to ``.`` (the bootstrapper directory
-    under `uv run --directory`), and a typo can name $HOME or a parent."""
-    resolved = Path(path).expanduser().resolve()
-    anchors = (Path.cwd().resolve(), Path.home().resolve(), Path(__file__).resolve().parents[2])
-    if any(resolved == anchor or resolved in anchor.parents for anchor in anchors):
-        return f"{resolved} is the working directory, the repository, $HOME or a parent of one"
-    return None
-
-
-def remove_state_directory(path: Path, error_details) -> None:
-    """Remove managed state idempotently while surfacing real I/O failures.
-    Refuses a path that is the working directory, the repository, $HOME, /
-    or one of their parents."""
-    description, error_type = error_details
-    reason = _unsafe_state_directory(path)
-    if reason:
-        raise error_type(f"refusing to remove {description}: {reason}")
-    try:
-        shutil.rmtree(path)
-    except FileNotFoundError as exc:
-        try:
-            path.lstat()
-        except FileNotFoundError:
-            return
-        except OSError as probe_exc:
-            raise error_type(
-                f"could not verify removal of {description} {path}: {probe_exc}"
-            ) from probe_exc
-        raise error_type(f"could not remove {description} {path}: {exc}") from exc
-    except OSError as exc:
-        raise error_type(f"could not remove {description} {path}: {exc}") from exc
 
 
 def _cleanup_error(exc: BaseException) -> str:
