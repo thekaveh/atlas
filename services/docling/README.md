@@ -34,8 +34,10 @@ plus 30 s for Docling (not Tika's `TIKA_TIMEOUT_SECONDS`), and sends legacy Offi
 (`.doc`, `.xls`, `.ppt`) and `.epub` files to Tika first, because Atlas's Docling
 providers answer an unsupported format with 500 rather than 415. Other limits
 still apply first: Kong's 300 s per-service timeout on `api.localhost` (an HTTP
-client gets a 504 while the conversion continues) and Celery's task time limits
-(`CELERY_TASK_SOFT_TIME_LIMIT_SECONDS` 840 s / `CELERY_TASK_TIME_LIMIT_SECONDS` 900 s).
+client gets a 504 while the conversion continues) and, inside a Celery RAG
+ingestion, that task's own limits (`RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS` /
+`RAG_INGESTION_TASK_TIME_LIMIT_SECONDS`, by default the larger of 3840 / 3900 s and
+the global Celery limits).
 
 ## 2. Dependencies & Integrations
 

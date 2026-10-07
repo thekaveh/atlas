@@ -57,6 +57,41 @@ def _load_worker_limits() -> dict[str, int]:
     return limits
 
 
+def _rag_limit_env(name: str, floor: int, global_name: str, global_default: int) -> int:
+    """An explicit value, or the larger of ``floor`` and the global limit, so an
+    operator who raised the global limits for large corpora keeps them."""
+    if (os.getenv(name) or "").strip():
+        return _positive_int_env(name, floor)
+    return max(floor, _positive_int_env(global_name, global_default))
+
+
+def load_rag_ingestion_limits() -> dict[str, int]:
+    """The rag_ingestion task's own soft/hard limits (#1352).
+
+    One ingestion runs every phase, including the LightRAG drain that waits up
+    to each graph target's timeout_seconds (default 3600), so the global 840 s
+    soft limit cut large corpora short."""
+    limits = {
+        "soft": _rag_limit_env("RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS", 3840,
+                               "CELERY_TASK_SOFT_TIME_LIMIT_SECONDS", 840),
+        "hard": _rag_limit_env("RAG_INGESTION_TASK_TIME_LIMIT_SECONDS", 3900,
+                               "CELERY_TASK_TIME_LIMIT_SECONDS", 900),
+    }
+    if limits["soft"] >= limits["hard"]:
+        raise ValueError(
+            "RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS must be less than "
+            "RAG_INGESTION_TASK_TIME_LIMIT_SECONDS"
+        )
+    return limits
+
+
+def effective_visibility_timeout(configured: int, longest_task: int) -> int:
+    """Never below the longest task's hard limit plus 300 s: the Redis broker
+    re-delivers an unacknowledged (still running) task once this elapses, which
+    would start a second copy of a long ingestion."""
+    return max(configured, longest_task + 300)
+
+
 celery_app = Celery(
     "atlas_backend",
     broker=_redis_url(),
@@ -65,7 +100,10 @@ celery_app = Celery(
 )
 
 _worker_limits = _load_worker_limits()
-_visibility_timeout = _worker_limits["visibility_timeout"]
+_rag_limits = load_rag_ingestion_limits()
+_visibility_timeout = effective_visibility_timeout(
+    _worker_limits["visibility_timeout"], _rag_limits["hard"]
+)
 celery_app.conf.update(
     task_default_queue=os.getenv("CELERY_QUEUE", "atlas"),
     task_serializer="json",
@@ -79,6 +117,12 @@ celery_app.conf.update(
     worker_prefetch_multiplier=_worker_limits["worker_prefetch_multiplier"],
     task_soft_time_limit=_worker_limits["task_soft_time_limit"],
     task_time_limit=_worker_limits["task_time_limit"],
+    task_annotations={
+        "rag_ingestion": {
+            "soft_time_limit": _rag_limits["soft"],
+            "time_limit": _rag_limits["hard"],
+        }
+    },
     broker_transport_options={"visibility_timeout": _visibility_timeout},
     result_backend_transport_options={
         "visibility_timeout": _visibility_timeout,

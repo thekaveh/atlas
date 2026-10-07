@@ -2536,3 +2536,117 @@ def test_unretryable_redis_failure_leaves_a_failed_record_not_a_pending_one(
 
     assert result.status == "failed"
     assert store.get(record.id).status == "failed"
+
+
+# --- rag_ingestion task limits (#1352) ---------------------------------------
+
+
+def test_rag_ingestion_task_has_its_own_limits_and_others_keep_the_global_ones():
+    """Import-time config under the default environment (no reload: other
+    modules hold the configured app)."""
+    import celery_app
+    import celery_tasks
+
+    assert (celery_tasks.rag_ingestion_task.soft_time_limit,
+            celery_tasks.rag_ingestion_task.time_limit) == (3840, 3900)
+    assert celery_tasks.memory_consolidate_task.soft_time_limit is None
+    conf = celery_app.celery_app.conf
+    assert (conf.task_soft_time_limit, conf.task_time_limit) == (840, 900)
+    # Raised past the ingestion hard limit so a running job is never re-delivered.
+    assert conf.broker_transport_options["visibility_timeout"] == 4200
+
+
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        ({}, {"soft": 3840, "hard": 3900}),
+        # Global limits an operator raised for large corpora carry over.
+        ({"CELERY_TASK_SOFT_TIME_LIMIT_SECONDS": "7140", "CELERY_TASK_TIME_LIMIT_SECONDS": "7200"},
+         {"soft": 7140, "hard": 7200}),
+        ({"RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS": "100", "RAG_INGESTION_TASK_TIME_LIMIT_SECONDS": "200"},
+         {"soft": 100, "hard": 200}),
+    ],
+)
+def test_rag_ingestion_limits_default_to_the_larger_of_floor_and_global(monkeypatch, env, expected):
+    import celery_app
+
+    for name in ("RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS", "RAG_INGESTION_TASK_TIME_LIMIT_SECONDS",
+                 "CELERY_TASK_SOFT_TIME_LIMIT_SECONDS", "CELERY_TASK_TIME_LIMIT_SECONDS"):
+        if name in env:
+            monkeypatch.setenv(name, env[name])
+        elif name.startswith("RAG_"):
+            monkeypatch.setenv(name, "")  # compose passes the empty default through
+        else:
+            monkeypatch.delenv(name, raising=False)
+    assert celery_app.load_rag_ingestion_limits() == expected
+
+
+def test_rag_ingestion_limits_must_be_ordered(monkeypatch):
+    import celery_app
+
+    monkeypatch.setenv("RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS", "900")
+    monkeypatch.setenv("RAG_INGESTION_TASK_TIME_LIMIT_SECONDS", "900")
+    with pytest.raises(ValueError, match="must be less than"):
+        celery_app.load_rag_ingestion_limits()
+    assert celery_app.effective_visibility_timeout(9000, 3900) == 9000
+
+
+def test_total_graph_wait_sums_only_draining_targets(tmp_path, monkeypatch):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "x"})
+    graph = [
+        {"backend": "lightrag", "mode": "upload_documents", "wait_for_extraction": True,
+         "timeout_seconds": 2000, "on_unavailable": "skip"},
+        {"backend": "lightrag", "mode": "upload_documents", "wait_for_extraction": True,
+         "timeout_seconds": 1900, "on_unavailable": "skip"},
+        {"backend": "lightrag", "mode": "upload_documents", "wait_for_extraction": False,
+         "timeout_seconds": 9999, "on_unavailable": "skip"},
+    ]
+    svc = RagIngestionService(store=InMemoryIngestionStore(), deps=Deps(),
+                              profiles_path=_profiles_file(tmp_path, graph=graph))
+    assert svc.total_graph_wait("showcase-default") == 3900
+    none = RagIngestionService(store=InMemoryIngestionStore(), deps=Deps(),
+                               profiles_path=_profiles_file(tmp_path, graph=[]))
+    assert none.total_graph_wait("showcase-default") == 0
+
+
+def _main_with_env(monkeypatch):
+    for var, default in (("KONG_URL", "http://kong-api-gateway:8000"),
+                         ("SUPABASE_SERVICE_KEY", "dummy-key"),
+                         ("DATABASE_URL", "postgresql://x:x@localhost/x")):
+        monkeypatch.setenv(var, os.environ.get(var) or default)
+    import main
+
+    return main
+
+
+@pytest.mark.parametrize(("use_celery", "status_code"), [(True, 400), (False, None)])
+def test_submission_refuses_an_unreachable_drain_only_on_the_celery_path(
+    monkeypatch, use_celery, status_code
+):
+    from fastapi import HTTPException
+
+    main = _main_with_env(monkeypatch)
+    monkeypatch.delenv("RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS", raising=False)
+    submitted = []
+
+    class Service:
+        def total_graph_wait(self, _name):
+            return 7200
+
+        def submit(self, *_a, **_k):
+            submitted.append(True)
+            raise RuntimeError("stop after submit")
+
+    monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: Service())
+    monkeypatch.setattr(main, "celery_is_enabled", lambda: use_celery)
+    monkeypatch.setattr(main, "backend_state_store_mode", lambda: "redis")
+    request = main.RagIngestionRequest(profile="big-corpus")
+
+    with pytest.raises((HTTPException, RuntimeError)) as caught:
+        asyncio.run(main.submit_rag_ingestion(request))
+    if status_code:
+        assert caught.value.status_code == 400
+        assert "7200 s" in caught.value.detail and "3840 s" in caught.value.detail
+        assert submitted == []
+    else:
+        assert submitted == [True]
