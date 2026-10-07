@@ -17,6 +17,18 @@ import pytest
 import yaml
 
 
+@pytest.fixture(autouse=True)
+def _no_real_docker_in_redis_aof_doctor(monkeypatch):
+    """Keep the redis-aof doctor probe off the host Docker daemon (#1343).
+
+    Whole-doctor tests run every registered check with PROJECT_NAME=atlas, so
+    a real probe would inspect whatever ``atlas-redis-data`` volume this host
+    has. Tests that exercise the probe replace ``start._docker_text`` again."""
+    monkeypatch.setattr(
+        "start._docker_text", lambda args, timeout: (-1, "docker disabled in tests")
+    )
+
+
 @pytest.fixture
 def services_root(tmp_path: Path) -> Path:
     """An empty services/ root inside tmp_path."""

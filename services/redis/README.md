@@ -113,6 +113,26 @@ _No upstream calls._
 
 **Memory pressure.** With `REDIS_MAXMEMORY=0`, Redis grows until the container's memory limit kills it. Monitor with `docker exec <project>-redis redis-cli -a "$REDIS_PASSWORD" INFO memory`. Set `REDIS_MAXMEMORY` to a deliberate cap; keep `volatile-lru` when only TTL-bearing cache keys may be evicted, or choose another policy only after reviewing queue and session durability.
 
+**Redis crash-loops with `Bad file format reading the append only file`.** An unclean write (for example, the host losing power) left bytes in the append-only file (AOF) that Redis cannot parse. Redis refuses to load it, Compose `--wait` fails, and every service that waits on it stays at `Created`. `./start.sh doctor` reports this as a failed `redis-aof` check, naming the volume and printing the checker lines that give the offset where the valid data ends. The check reads a copy of the volume and never changes it. A last command that was merely cut off is not a failure: Redis drops it and starts (`aof-load-truncated` is on by default), so the check passes. Repair backup-first: `--fix` truncates the file at the first bad byte and drops every write after it, so keep the backup until the stack is verified.
+
+```bash
+./stop.sh
+REDIS_IMAGE=$(grep '^REDIS_IMAGE=' .env | cut -d= -f2-)
+VOLUME=<project>-redis-data
+docker run --rm -v "$VOLUME":/data -v "$PWD":/backup "$REDIS_IMAGE" \
+  tar czf /backup/redis-aof-backup.tgz -C /data appendonlydir
+docker run --rm -it -v "$VOLUME":/data -w /data/appendonlydir "$REDIS_IMAGE" \
+  redis-check-aof --fix appendonly.aof.manifest   # answer y to truncate
+./start.sh
+```
+
+When the doctor reports that the base snapshot is not sane, `--fix` cannot repair it: restore an earlier backup, or remove the volume (`docker volume rm "$VOLUME"`) to start Redis empty, losing its queue, sessions and cache. To restore a backup (the archive is root-owned on Linux, so extract it through the same container):
+
+```bash
+docker run --rm -v "$VOLUME":/data -v "$PWD":/backup "$REDIS_IMAGE" \
+  sh -c 'rm -rf /data/appendonlydir && tar xzf /backup/redis-aof-backup.tgz -C /data'
+```
+
 **Data loss after `./stop.sh --cold`.** Expected — `--cold` deletes the `${PROJECT_NAME}-redis-data` volume, taking the AOF log with it. Use `./stop.sh` (no `--cold`) to preserve queue/session state across restarts.
 
 ```bash
