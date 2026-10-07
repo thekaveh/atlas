@@ -87,15 +87,19 @@ def test_route_returns_400_for_traversal_subfolder(route_client):
     assert r.status_code == 400
 
 
-def test_extract_artifacts_encodes_filename_and_query():
-    from urllib.parse import parse_qs, unquote, urlsplit
+def test_extract_artifacts_keeps_names_out_of_the_url():
+    """#1379: the URL carries only the operation id and an index; the file
+    name and subfolder stay in the stored artifact, so `&`, `#` or a space in
+    them cannot make the URL name a different file."""
+    from urllib.parse import unquote, urlsplit
 
     from comfyui_media_client import ComfyUIMediaClient
 
     entry = {"outputs": {"9": {"images": [
         {"filename": "a b#1.png", "subfolder": "x&y", "type": "output"},
     ]}}}
-    url = ComfyUIMediaClient._extract_artifacts(entry)[0]["url"]
-    parts = urlsplit(url)
-    assert unquote(parts.path) == "/comfyui/image/a b#1.png"
-    assert parse_qs(parts.query) == {"subfolder": ["x&y"], "folder_type": ["output"]}
+    artifact = ComfyUIMediaClient._extract_artifacts(entry, operation_id="p&1 #2")[0]
+    parts = urlsplit(artifact["url"])
+    assert unquote(parts.path) == "/media/operations/p&1 #2/artifacts/0"
+    assert parts.query == "" and parts.fragment == ""
+    assert (artifact["filename"], artifact["subfolder"]) == ("a b#1.png", "x&y")
