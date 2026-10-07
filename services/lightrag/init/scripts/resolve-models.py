@@ -7,6 +7,7 @@ KEY=VALUE lines on stdout for the calling shell to consume.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import shlex
@@ -57,6 +58,38 @@ def fetch_models() -> list[str]:
         return []
 
 
+def probe_embedding_dim(base_url: str, key: str, model: str, timeout: float = 15) -> tuple:
+    """Measure ``model``'s embedding dimension through LiteLLM.
+
+    The one embedding probe: lightrag-init's ``resolve_dim`` and the
+    bootstrapper's ``./start.sh models probe`` both call it (#1195). Returns
+    ``("supported", dim)``; ``("unsupported", None)`` when the gateway answers
+    without a vector (e.g. a 4xx for a model that does not embed); or
+    ``("unavailable", None)`` when the gateway cannot be reached or fails.
+    """
+    req = urllib.request.Request(
+        f"{base_url.rstrip('/')}/embeddings",
+        data=json.dumps({"input": "probe", "model": model}).encode(),
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            payload = json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        # A wrong key, an unknown alias, a timeout or a rate limit says nothing
+        # about the model; only a request the gateway rejects (400/422) does.
+        inconclusive = e.code >= 500 or e.code in (401, 403, 404, 408, 429)
+        return ("unavailable" if inconclusive else "unsupported"), None
+    except (OSError, ValueError, http.client.HTTPException):  # URLError, resets, timeouts, bad JSON
+        return "unavailable", None
+    try:
+        vector = payload["data"][0]["embedding"]
+    except (KeyError, IndexError, TypeError):
+        return "unsupported", None
+    return ("supported", len(vector)) if vector else ("unsupported", None)
+
+
 def resolve_dim(model: str) -> int:
     # Direct hit
     if model in KNOWN_DIMS:
@@ -66,32 +99,19 @@ def resolve_dim(model: str) -> int:
         if key in model:
             return dim
     # Probe embedding fallback
-    try:
-        req = urllib.request.Request(
-            "http://litellm:4000/v1/embeddings",
-            data=json.dumps({"input": "probe", "model": model}).encode(),
-            headers={
-                "Authorization": f"Bearer {MASTER_KEY}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=15) as r:
-            payload = json.loads(r.read().decode("utf-8"))
-        return len(payload["data"][0]["embedding"])
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError, IndexError) as e:
-        # Narrow except so a genuinely unexpected error (bug in this script,
-        # OOM, etc.) crashes lightrag-init loudly. Returning 768 when the
-        # real model has dim 1024 silently writes a dim-768 PGVector index
-        # against a 1024-dim store → every insert at runtime fails with
-        # "dimension mismatch" and no log trail back to this fallback.
-        print(
-            f"# WARN dim probe failed for {model} ({type(e).__name__}: {e});"
-            f" falling back to 768 (nomic-embed-text). Override via"
-            f" LIGHTRAG_EMBEDDING_DIM if your model uses a different size.",
-            file=sys.stderr,
-        )
-        return 768  # safe fallback for nomic-embed-text
+    outcome, dim = probe_embedding_dim("http://litellm:4000/v1", MASTER_KEY, model)
+    if dim:
+        return dim
+    # Returning 768 when the real model has dim 1024 silently writes a dim-768
+    # PGVector index against a 1024-dim store → every insert at runtime fails
+    # with "dimension mismatch" and no log trail back to this fallback.
+    print(
+        f"# WARN dim probe for {model} was {outcome};"
+        f" falling back to 768 (nomic-embed-text). Override via"
+        f" LIGHTRAG_EMBEDDING_DIM if your model uses a different size.",
+        file=sys.stderr,
+    )
+    return 768  # safe fallback for nomic-embed-text
 
 
 def main() -> None:

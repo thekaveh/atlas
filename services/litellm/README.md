@@ -167,6 +167,8 @@ documented as a docstring/schema comment next to the loader in
 namespaced `atlas_model_metadata` block, letting LightRAG and future consumers
 assign roles without provider, model-family, or hardware assumptions.
 
+These `capabilities` are declarations. `./start.sh models probe` measures tool calling, JSON output, vision and embedding dimension through this gateway on demand and reports where a declaration does not hold, without changing model selection (#1195; see [Operations](../../docs/operations/index.md#1-runtime-commands)).
+
 Detailed metadata is available from authenticated `GET /v1/model/info`;
 `GET /v1/models` is the compatibility listing and does not expose the complete
 `model_info` payload:
