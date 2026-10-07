@@ -59,9 +59,15 @@ cat > "$tmp_doc" <<DOC
 Atlas is a self-hosted engineering platform. LightRAG is the graph-augmented RAG service. Role-specific LLM configuration lets extraction use a fast model while answers use a stronger model. Smoke run ${nonce}.
 DOC
 
+# LightRAG authenticates the key as X-API-Key; a Bearer header is parsed as
+# a JWT and rejected with 401 (services/lightrag/README.md). The header goes
+# on curl's stdin (-K-) so `ps` never shows the key.
+lightrag_curl() {
+  printf 'header = "X-API-Key: %s"\n' "$api_key" | curl -fsS -K- "$@"
+}
+
 echo "[smoke] uploading one small document"
-curl -fsS -X POST "$lightrag_url/documents/upload" \
-  -H "Authorization: Bearer $api_key" \
+lightrag_curl -X POST "$lightrag_url/documents/upload" \
   -F "file=@${tmp_doc};filename=${upload_name}" >"$upload_response"
 if ! grep -Eq '"status"[[:space:]]*:[[:space:]]*"success"' "$upload_response"; then
   echo "[smoke] upload was not accepted for extraction: $(cat "$upload_response")" >&2
@@ -73,8 +79,7 @@ echo "[smoke] waiting ${wait_seconds} seconds for extraction calls to reach Lite
 sleep "$wait_seconds"
 
 echo "[smoke] querying LightRAG"
-curl -fsS -X POST "$lightrag_url/query" \
-  -H "Authorization: Bearer $api_key" \
+lightrag_curl -X POST "$lightrag_url/query" \
   -H "Content-Type: application/json" \
   -d "{\"query\": \"/hybrid What does role-specific LightRAG configuration allow Atlas to do in smoke run ${nonce}?\"}" \
   >"$query_response"

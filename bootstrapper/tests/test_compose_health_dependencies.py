@@ -76,11 +76,12 @@ def test_no_compose_probe_or_init_script_puts_a_bearer_secret_on_curl_argv():
     import re
     from pathlib import Path
 
-    services = Path(__file__).resolve().parents[2] / "services"
+    repo = Path(__file__).resolve().parents[2]
+    services = repo / "services"
     pattern = re.compile(r"-H\s*\\?[\"']Authorization: Bearer \$")
     offenders = [
-        str(path.relative_to(services))
-        for path in [*services.glob("*/compose.yml"), *services.glob("*/**/*.sh")]
+        str(path.relative_to(repo))
+        for path in [*services.glob("*/compose.yml"), *services.glob("*/**/*.sh"), *(repo / "scripts").glob("*.sh")]
         if pattern.search(path.read_text(encoding="utf-8", errors="replace"))
     ]
     assert offenders == []
