@@ -72,7 +72,7 @@ def test_live_text2img_produces_png_artifact():
         assert settled["status"] == "succeeded", settled
         assert settled["artifact_url"], "no artifact_url returned"
         # artifact_url is the backend proxy path; the filename must be present.
-        assert "/comfyui/image/" in settled["artifact_url"]
+        assert settled["artifact_url"].startswith(f"/media/operations/{operation_id}/artifacts/")
         assert settled["artifacts"], "no artifacts extracted"
     finally:
         asyncio.run(client.client.aclose())

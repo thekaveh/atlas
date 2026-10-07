@@ -3274,15 +3274,8 @@ async def _time_out_media_operation(
     return _media_response(dict(persisted["last_payload"]))
 
 
-# Terminal media-operation statuses — once reached, polls return the stored
-# payload without re-hitting the provider (a cancelled op must stay cancelled,
-# #518), and _maybe_reconcile_ledger settles the spend exactly once.
-@app.get("/media/operations/{operation_id}", response_model=MediaOperationResponse)
-async def get_media_operation(
-    operation_id: str,
-    principal: BackendPrincipal = Depends(require_backend_principal),
-):
-    """Poll a hosted media generation operation."""
+async def _owned_media_operation(operation_id: str, principal: BackendPrincipal) -> dict:
+    """Load a media operation the caller owns; 404 for missing or foreign ones."""
     try:
         operation = await MEDIA_OPERATION_STORE.get(operation_id)
     except Exception as exc:
@@ -3307,6 +3300,44 @@ async def get_media_operation(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Media operation {operation_id} not found",
         )
+    return operation
+
+
+@app.get("/media/operations/{operation_id}/artifacts/{index}")
+async def get_media_operation_artifact(
+    operation_id: str,
+    index: int,
+    principal: BackendPrincipal = Depends(require_backend_principal),
+):
+    """Serve one ComfyUI artifact of an operation the caller owns (#1379).
+
+    The file is resolved from the stored operation, never from the request, so
+    a caller can reach only outputs of its own operations."""
+    operation = await _owned_media_operation(operation_id, principal)
+    artifacts = (operation.get("last_payload") or {}).get("artifacts") or []
+    artifact = artifacts[index] if operation.get("provider") == "comfyui" and 0 <= index < len(artifacts) else None
+    if not isinstance(artifact, dict) or not artifact.get("filename"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Media operation {operation_id} has no artifact {index}",
+        )
+    filename = str(artifact["filename"])
+    subfolder = str(artifact.get("subfolder") or "")
+    folder_type = str(artifact.get("folder_type") or "output")
+    _validate_comfy_view_params(subfolder, folder_type, filename)
+    return await _comfyui_image_response(filename, subfolder, folder_type)
+
+
+# Terminal media-operation statuses — once reached, polls return the stored
+# payload without re-hitting the provider (a cancelled op must stay cancelled,
+# #518), and _maybe_reconcile_ledger settles the spend exactly once.
+@app.get("/media/operations/{operation_id}", response_model=MediaOperationResponse)
+async def get_media_operation(
+    operation_id: str,
+    principal: BackendPrincipal = Depends(require_backend_principal),
+):
+    """Poll a hosted media generation operation."""
+    operation = await _owned_media_operation(operation_id, principal)
     operation = await _maybe_recover_media_ledger_intent(operation_id, operation)
     # Terminal payloads are stable: never re-poll the provider (a cancelled op
     # must not flip back to the provider's in-flight status, #518).
@@ -4179,6 +4210,14 @@ async def get_generated_image(filename: str, subfolder: str = "", folder_type: s
     # Validate BEFORE the try/except below (the catch-all would otherwise turn a
     # 400 into a 500).
     _validate_comfy_view_params(subfolder, folder_type, filename)
+    return await _comfyui_image_response(filename, subfolder, folder_type)
+
+
+async def _comfyui_image_response(filename: str, subfolder: str, folder_type: str):
+    """Proxy one ComfyUI output file with a safe content type and disposition.
+
+    Shared by the automation route above and the owner-checked operation
+    artifact route (#1379); callers validate the parameters first."""
     try:
         async with ComfyUIClient() as client:
             image_data = await client.get_image_data(filename, subfolder, folder_type)

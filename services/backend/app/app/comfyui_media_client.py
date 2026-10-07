@@ -23,7 +23,7 @@ import os
 import re
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import SplitResult, quote, urlencode, urlsplit
+from urllib.parse import SplitResult, quote, urlsplit
 
 import httpx
 
@@ -606,7 +606,7 @@ class ComfyUIMediaClient:
             raw={"history": entry},
         )
         if normalized == "succeeded":
-            artifacts = self._extract_artifacts(entry)
+            artifacts = self._extract_artifacts(entry, operation_id=operation_id)
             payload["artifacts"] = artifacts
             payload["artifact_url"] = artifacts[0]["url"] if artifacts else None
             payload["raw"]["error"] = None
@@ -793,9 +793,10 @@ class ComfyUIMediaClient:
         return "failed"
 
     @staticmethod
-    def _extract_artifacts(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _extract_artifacts(entry: Dict[str, Any], *, operation_id: str) -> List[Dict[str, Any]]:
         outputs = entry.get("outputs") if isinstance(entry.get("outputs"), dict) else {}
         artifacts: List[Dict[str, Any]] = []
+        base = f"/media/operations/{quote(operation_id, safe='')}/artifacts"
         for node_out in outputs.values():
             if not isinstance(node_out, dict):
                 continue
@@ -805,19 +806,15 @@ class ComfyUIMediaClient:
                 filename = str(image["filename"])
                 subfolder = str(image.get("subfolder") or "")
                 folder_type = str(image.get("type") or "output")
-                # artifact_url is a backend-relative proxy path (Kong-routable,
-                # same GET /comfyui/image/{filename} open-webui/n8n use) — NOT
-                # a fal-style absolute hosted URL. Local consumers are in-network.
-                params = {"subfolder": subfolder, "folder_type": folder_type}
-                # Encoded: a subfolder or filename with `&`, `#`, `?` or a
-                # space otherwise produced a URL that names a different file.
-                query = urlencode({k: v for k, v in params.items() if v})
-                url = f"/comfyui/image/{quote(filename, safe='')}"
-                if query:
-                    url = f"{url}?{query}"
+                # artifact_url is a backend-relative, owner-checked path
+                # (Kong-routable) — NOT a fal-style absolute hosted URL. The
+                # route resolves the file from the stored operation by index,
+                # so the operation's owner can fetch it and nobody can steer it
+                # at another file (#1379). The open-webui/n8n automation route
+                # GET /comfyui/image/{filename} still serves by filename.
                 artifacts.append(
                     {
-                        "url": url,
+                        "url": f"{base}/{len(artifacts)}",
                         "role": "image",
                         "content_type": _content_type_for(filename),
                         "filename": filename,
