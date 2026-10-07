@@ -876,6 +876,18 @@ def _setting(values: dict[str, str], name: str, default: str) -> str:
     return os.environ.get(name) or values.get(name) or default
 
 
+def backup_run_timeout(values: dict[str, str]) -> int:
+    """Whole-run bound for backup-all.sh: three BACKUP_COMMAND_TIMEOUT_SECONDS
+    (the run chains dumps, the Weaviate snapshot wait and uploads, each bounded
+    by one; backup-all.sh sizes its snapshot hold the same way), with a 900 s
+    floor. It followed the 120 s quiesce timeout before, so raising the
+    command timeout never gave a large snapshot more than 15 minutes (#1352)."""
+    text = _setting(values, "BACKUP_COMMAND_TIMEOUT_SECONDS", "900")
+    if not text.isdecimal() or text.startswith("0") or not 1 <= int(text) <= 86400:
+        raise ContractError("BACKUP_COMMAND_TIMEOUT_SECONDS must be a canonical integer from 1 to 86400")
+    return max(3 * int(text), 900)
+
+
 def _validate_docker_name(value: str, label: str) -> str:
     if not NAME_RE.fullmatch(value):
         raise ContractError(f"{label} is not a bounded Docker identifier")
@@ -2051,6 +2063,8 @@ def main(argv: list[str] | None = None) -> int:
     if not timeout_text.isdecimal() or timeout_text.startswith("0") or not 1 <= int(timeout_text) <= 3600:
         raise ContractError("BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS must be a canonical integer from 1 to 3600")
     timeout = int(timeout_text)
+    # Validated before the lock and the Neo4j backup, like the quiesce timeout.
+    backup_timeout = backup_run_timeout(values)
     plan = source_plan(
         _setting(values, "NEO4J_GRAPH_DB_SOURCE", "container"),
         _setting(values, "WEAVIATE_SOURCE", "container"),
@@ -2087,8 +2101,10 @@ def main(argv: list[str] | None = None) -> int:
         if plan.neo4j:
             coordinator.backup_neo4j(timestamp)
         name = coordinator.runner.unique_name("backup")
-        backup_timeout = max(timeout, 900)
-        coordinator.runner.register_container(name, timeout=backup_timeout)
+        # The post-failure registration window keeps its quiesce-based bound:
+        # it polls with interrupts deferred and the lock held, so it must not
+        # grow with the run deadline.
+        coordinator.runner.register_container(name, timeout=max(timeout, 900))
         coordinator.runner.run([
             "docker", "compose", "run", "--pull", "never", "--rm", "--no-deps",
             "--name", name, "--label", f"{OWNER_LABEL}={token}",

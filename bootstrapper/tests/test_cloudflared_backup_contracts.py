@@ -5560,3 +5560,39 @@ def test_seed_docker_tests_skip_only_outside_ci(monkeypatch, available, ci, skip
     monkeypatch.setattr(seed_harness, "docker_available", lambda: available)
     monkeypatch.setenv("CI", ci)
     assert seed_harness.docker_unavailable_locally() is skip
+
+
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        ({}, 2700),
+        ({"BACKUP_COMMAND_TIMEOUT_SECONDS": "3600"}, 10800),
+        ({"BACKUP_COMMAND_TIMEOUT_SECONDS": "60"}, 900),
+        # The quiesce timeout no longer decides the whole-run bound (#1352).
+        ({"BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS": "3000"}, 2700),
+    ],
+)
+def test_backup_run_bound_follows_the_command_timeout(monkeypatch, values, expected):
+    orchestrator = _database_orchestrator_module()
+    for name in ("BACKUP_COMMAND_TIMEOUT_SECONDS", "BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS"):
+        monkeypatch.delenv(name, raising=False)
+    assert orchestrator.backup_run_timeout(values) == expected
+
+
+@pytest.mark.parametrize("raw", ["0", "090", "abc", "86401"])
+def test_backup_run_bound_rejects_a_malformed_command_timeout(monkeypatch, raw):
+    orchestrator = _database_orchestrator_module()
+    monkeypatch.delenv("BACKUP_COMMAND_TIMEOUT_SECONDS", raising=False)
+    with pytest.raises(orchestrator.ContractError):
+        orchestrator.backup_run_timeout({"BACKUP_COMMAND_TIMEOUT_SECONDS": raw})
+
+
+def test_backup_run_uses_the_derived_bound_and_validates_it_before_the_lock():
+    """The run deadline follows the command timeout; the post-failure
+    registration window keeps its quiesce-based bound, since it polls with
+    interrupts deferred and the lock held."""
+    source = DATABASE_ORCHESTRATOR.read_text(encoding="utf-8")
+    main = source[source.index("def main("):]
+    assert main.index("backup_timeout = backup_run_timeout(values)") < main.index("acquire")
+    assert "register_container(name, timeout=max(timeout, 900))" in main
+    assert "], timeout=backup_timeout)" in main
