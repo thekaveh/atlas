@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Optional
 from core.config_parser import ConfigParser
-from utils.atomic_write import atomic_write_text
+from utils.atomic_write import atomic_write_text, set_env_assignment
 
 
 class SupabaseKeyGenerator:
@@ -146,22 +146,8 @@ class SupabaseKeyGenerator:
             
             updated_content = content
             for key, value in keys_to_update.items():
-                # Check if key exists in file
-                import re
-                pattern = rf'^{re.escape(key)}=.*$'
-                replacement = f'{key}={value}'
-                
-                if re.search(pattern, updated_content, re.MULTILINE):
-                    # Key exists, replace it. Lambda bypasses re.sub's
-                    # backslash interpretation in the replacement string
-                    # (matches the other .env writers — see
-                    # source_override_manager.py / service_config.py).
-                    updated_content = re.sub(pattern, lambda _m, r=replacement: r, updated_content, flags=re.MULTILINE)
-                else:
-                    # Key doesn't exist, append it
-                    if updated_content and not updated_content.endswith('\n'):
-                        updated_content += '\n'
-                    updated_content += f'{replacement}\n'
+                # Rewrites `export KEY=` lines too, or appends (#1368).
+                updated_content = set_env_assignment(updated_content, key, value)
             
             atomic_write_text(env_file_path, updated_content, mode=0o600)
 

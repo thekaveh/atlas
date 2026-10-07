@@ -98,7 +98,12 @@ def _assignment_pattern(var: str) -> str:
     bug; the pattern now means what its name says regardless of who calls it.
     """
     horizontal = r'[^\S\n]*'
-    return rf'^({re.escape(var)}{horizontal}={horizontal})([^\s#]*)([ \t]*(?:#.*)?)$'
+    # An `export VAR=` line is VAR to the reader and Compose; group 1 keeps
+    # the prefix so the rewrite does too (#1368).
+    return (
+        rf'^([ \t]*(?:export[ \t]+)?{re.escape(var)}{horizontal}={horizontal})'
+        rf'([^\s#]*)([ \t]*(?:#.*)?)$'
+    )
 
 
 class PortManager:

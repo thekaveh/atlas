@@ -6,7 +6,7 @@ Handles runtime overrides of SERVICE SOURCE configurations.
 from typing import Dict
 import re
 
-from utils.atomic_write import atomic_write_text, render_env_assignment
+from utils.atomic_write import atomic_write_text, render_env_assignment, env_assignment_pattern, set_env_assignment
 
 class SourceOverrideManager:
     """Manages command-line SOURCE overrides for services."""
@@ -246,24 +246,10 @@ class SourceOverrideManager:
                 # `export KEY=` is KEY to Compose and to parse_env_file, so it
                 # is rewritten too (keeping the prefix); otherwise a later
                 # export line would silently win over this override.
-                pattern = rf'^(export[ \t]+)?{re.escape(var_name)}=.*$'
-                replacement = f'{var_name}={var_value}'
-
-                if re.search(pattern, updated_content, re.MULTILINE):
-                    # Variable exists, replace it. Use a lambda so re.sub
-                    # does NOT interpret backslash sequences in the
-                    # replacement (\1, \g<name>) — env values that contain
-                    # literal backslashes (rare but legal in JWT secrets,
-                    # base64-encoded keys, etc.) would otherwise corrupt
-                    # silently.
-                    updated_content = re.sub(
-                        pattern, lambda m, r=replacement: (m.group(1) or "") + r,
-                        updated_content, flags=re.MULTILINE,
-                    )
-                else:
-                    # Variable doesn't exist, append it (shouldn't happen with SOURCE vars)
+                if not env_assignment_pattern(var_name).search(updated_content):
+                    # Shouldn't happen with SOURCE vars.
                     print(f"⚠️  {var_name} not found in .env, appending...")
-                    updated_content += f'\n{replacement}'
+                updated_content = set_env_assignment(updated_content, var_name, var_value)
             
             atomic_write_text(env_file_path, updated_content, mode=0o600)
             
