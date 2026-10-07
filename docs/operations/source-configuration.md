@@ -987,7 +987,7 @@ docker stats
 
 The deployment profile is now a **declarative bundle** defined in `bootstrapper/profiles.yml` (#755). Two platform bundles ship — `default` and `prod` (`dev` is accepted everywhere as an alias for `default`) — and each declares three fields:
 
-- **`sources`** — per-service source selections, each either a concrete option id (e.g. `prod` selects `prometheus: container` + `grafana: container`) or the host-adaptive `auto` sentinel (#753).
+- **`sources`** — per-service source selections, each either a concrete option id (e.g. `prod` selects `prometheus: container` + `grafana: container`) or the host-adaptive `auto` sentinel (#753). A `*_SOURCE` set by a `--<svc>-source` flag, a consumer manifest's `env`, or `.env.user` / `ATLAS_ENV_USER_FILE` wins over the profile (#1391).
 - **`env`** — profile-managed values (e.g. `prod`'s `LOG_MAX_SIZE=10m` / `LOG_MAX_FILE=3`), applied when the variable is unset, empty, still the shipped `.env.example` default, or (on a switch) the value the prior profile wrote for the same key — a key pinned in `.env.user` / `ATLAS_ENV_USER_FILE` or a consumer manifest's `env`, and any other operator-set value, is kept. Keys only the old profile declared are not reset on a switch.
 - **`host_bind_ip`** — the published-port interface prefix: both shipped profiles declare `127.0.0.1:`, so fresh and legacy-blank launches keep ports reachable only from the host (with the public edge fronting Kong). A non-empty operator-set value, including `0.0.0.0:`, is preserved for deliberate remote access.
 

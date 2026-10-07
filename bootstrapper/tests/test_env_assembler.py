@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from pathlib import Path
 
 from services.env_assembler import assemble_env_example
@@ -309,3 +311,28 @@ def test_secret_var_with_manifest_default_emits_placeholder(tmp_path):
     # Empty default still emits blank (auto-generated at runtime).
     assert "DEMO_TRUE_SECRET=" in out
     assert "DEMO_TRUE_SECRET=placeholder" not in out
+
+
+def test_defaults_the_reader_would_change_are_quoted_or_refused():
+    """A ` #` would be read as a comment and a leading quote stripped (#1391)."""
+    from services.env_assembler import _format_default
+    from utils.atomic_write import decode_env_value
+
+    for value in ("plain", "a #b", '"quoted', "  spaced", "x#y"):
+        rendered = _format_default(value)
+        assert decode_env_value(rendered) == value, (value, rendered)
+    with pytest.raises(ValueError):
+        _format_default('both " and # and \'')
+
+
+def test_a_topology_failure_stops_the_assembler(tmp_path, monkeypatch):
+    """Manifest-default ports that disagree with the allocator used to be
+    written with only a warning (#1391)."""
+    import services.env_assembler as assembler
+
+    def overflow(_root):
+        raise ValueError("category apps overflowed its slot band")
+
+    monkeypatch.setattr(assembler, "build_topology", overflow)
+    with pytest.raises(RuntimeError, match="build_topology failed"):
+        assembler.assemble_env_example([], services_root=tmp_path)

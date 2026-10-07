@@ -242,7 +242,9 @@ class ConfigParser:
         if cached is not None:
             return dict(cached)
 
-        with open(self.env_file_path, 'r', encoding="utf-8") as f:
+        # utf-8-sig: a byte-order mark would otherwise become part of the
+        # first key's name (#1391).
+        with open(self.env_file_path, 'r', encoding="utf-8-sig") as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith('#'):

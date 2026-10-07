@@ -29,12 +29,12 @@ Output shape (per service):
 from __future__ import annotations
 
 import re
-import warnings
 from pathlib import Path
 from typing import Iterable
 
 from services.manifests import EnvVarDecl, Manifest
 from services.topology import build_topology
+from utils.atomic_write import render_env_value
 
 
 _HEADER = """\
@@ -88,15 +88,10 @@ def assemble_env_example(
         port_defaults = {}
     except Exception as exc:
         # Real services/ tree present but topology failed (e.g. cycle,
-        # unknown category, slot overflow). Warn so the failure surfaces
-        # in the test log and CI, then degrade gracefully to manifest
-        # defaults. Re-raising would block the assembler entirely; we
-        # prefer a noisy fallback over silent breakage.
-        warnings.warn(
-            f"build_topology failed; port defaults will be empty: {exc}",
-            stacklevel=2,
-        )
-        port_defaults = {}
+        # unknown category, slot overflow). Only tooling calls this — the
+        # .env.example writer and the drift checks — so fail rather than
+        # write manifest-default ports that disagree with the allocator (#1391).
+        raise RuntimeError(f"build_topology failed: {exc}") from exc
 
     ordered = _apply_order(manifests, order)
 
@@ -325,16 +320,19 @@ def _render_env_entry(entry: EnvVarDecl, port_defaults: dict[str, int]) -> str:
         # secret (the LITELLM_MASTER_KEY auto-generation case), it
         # leaves `default: ""` — that empty string flows through here
         # untouched.
-        out.append(f"{entry.name}={_format_default(value)}")
+        out.append(f"{entry.name}={_format_default(value, entry.name)}")
     return "\n".join(out)
 
 
-def _format_default(value: object) -> str:
+def _format_default(value: object, key: str = "default") -> str:
+    """The value as written to .env.example: rendered by the same rule as
+    every .env writer, so a ` #`, a leading quote, edge spaces or a bare `$`
+    is quoted, and a value no encoding preserves is refused (#1391)."""
     if value is None:
         return ""
     if isinstance(value, bool):
         return "true" if value else "false"
-    return str(value)
+    return render_env_value(key, str(value))
 
 
 if __name__ == "__main__":

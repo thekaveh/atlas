@@ -250,3 +250,44 @@ def test_base_port_change_rewrites_an_export_port_line(tmp_path):
     text = env.read_text(encoding="utf-8")
     assert "export LITELLM_PORT=640" in text and "63012" not in text
     assert ConfigParser(str(tmp_path)).parse_env_file()["LITELLM_PORT"].startswith("640")
+
+
+def test_auto_base_port_probes_with_this_runs_source_flags(monkeypatch):
+    """A squatted port on a service .env disables does not block the block,
+    unless this run's --<svc>-source flag enables that service (#1391)."""
+    from core.port_manager import PortManager
+
+    pm = PortManager(str(_real_root()))
+    span = max(pm.port_offsets().values()) + 1
+    monkeypatch.setattr(pm.config_parser, "parse_service_sources", lambda: {"GRAFANA_SOURCE": "disabled"})
+    squatted = pm.calculate_port_assignments(20000)["GRAFANA_PORT"]
+    monkeypatch.setattr(pm, "check_port_availability", lambda port: port != squatted)
+
+    assert pm.auto_base_port(start_from=20000, max_attempts=3) == 20000
+    import start
+
+    enabled = start._cli_source_overrides({"grafana_source": "container", "weaviate_source": None, "cold": True})
+    assert enabled == {"GRAFANA_SOURCE": "container"}
+    assert pm.auto_base_port(start_from=20000, max_attempts=3, source_overrides=enabled) == 20000 + span
+
+
+def test_base_port_change_rewrites_indented_and_byte_order_marked_lines(tmp_path):
+    """The reader strips indentation and a byte-order mark; the writer must
+    still find those assignments (#1391)."""
+    import start
+    from core.config_parser import ConfigParser
+    from core.port_manager import PortManager
+
+    env = tmp_path / ".env"
+    env.write_bytes("\ufeffBASE_PORT=63000\n  LITELLM_PORT=63012\n".encode("utf-8"))
+    starter = start.AtlasStarter()
+    starter.config_parser = ConfigParser(str(tmp_path))
+    starter._strip_env_byte_order_mark()
+    manager = PortManager()
+    manager.config_parser = ConfigParser(str(tmp_path))
+
+    assert manager.update_env_ports(64000, create_backup=False)
+
+    values = ConfigParser(str(tmp_path)).parse_env_file()
+    assert values["BASE_PORT"] == "64000" and values["LITELLM_PORT"].startswith("640")
+    assert not env.read_bytes().startswith(b"\xef\xbb\xbf")
