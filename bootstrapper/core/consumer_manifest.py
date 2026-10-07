@@ -2114,6 +2114,25 @@ def _parse_host_venv(raw: Any, *, name: str, base_dir: Path, origin: str) -> Ven
     )
 
 
+def _apply_blender_mcp_block(data: Mapping[str, Any], env_state: tuple, origin: str) -> None:
+    """``blender_mcp: {instances: N}`` (#851) sets BLENDER_MCP_INSTANCES."""
+    block = data.get("blender_mcp")
+    if block is not None and block != {}:  # an empty block declares nothing
+        env_overrides, env_origins = env_state
+        value = _blender_mcp_instances(data["blender_mcp"], origin)
+        _set_scalar(env_overrides, env_origins, "BLENDER_MCP_INSTANCES", value, origin)
+
+
+def _blender_mcp_instances(raw: Any, origin: str) -> str:
+    block = _host_mapping(raw, frozenset({"instances"}), label="blender_mcp", origin=origin)
+    instances = block.get("instances", 1)
+    if isinstance(instances, bool) or not isinstance(instances, int) or not 1 <= instances <= 16:
+        raise ConsumerManifestError(
+            f"blender_mcp.instances must be an integer from 1 to 16, got {instances!r} ({origin})"
+        )
+    return str(instances)
+
+
 def _host_mapping(raw: Any, allowed: frozenset, *, label: str, origin: str) -> Mapping[str, Any]:
     """Shared shape guard: must be a mapping, may only use known keys."""
     if not isinstance(raw, Mapping):
@@ -3124,6 +3143,7 @@ _CONSUMER_ALLOWED_TOP_LEVEL_KEYS = frozenset(
         "rag_ingestion_profiles",
         "lightrag_query_profiles",
         "managed_host_services",
+        "blender_mcp",
     }
 )
 
@@ -3243,6 +3263,8 @@ def load_consumer_config(
                         if not value_path.is_absolute():
                             value = str((base_dir / value_path).resolve())
                     _set_scalar(env_overrides, env_origins, env_key, value, origin)
+
+        _apply_blender_mcp_block(data, (env_overrides, env_origins), origin)
 
         env_block = data.get("env") or {}
         if env_block:
