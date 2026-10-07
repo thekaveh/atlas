@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import sys
 import os
+import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -26,6 +27,9 @@ import pytest
 # Unit tests deliberately opt into process-local state. Production defaults to
 # Redis; tests must not receive memory state through an implicit fallback.
 os.environ.setdefault("BACKEND_STATE_STORE_MODE", "memory")
+# Importing main runs the plugin seam, which empties its site (#1340): keep
+# test runs away from the default /tmp/atlas-plugins-site a backend may use.
+os.environ.setdefault("BACKEND_PLUGINS_SITE_DIR", tempfile.mkdtemp(prefix="atlas-test-plugin-site-"))
 
 # Ensure ``app/`` is on sys.path so bare imports like ``import ray_client``
 # and ``from main import app`` resolve correctly regardless of where pytest

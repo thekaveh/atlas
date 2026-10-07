@@ -744,3 +744,42 @@ def test_manifest_less_router_cannot_open_with_a_path_parameter():
         return {"plugin": rest}
 
     assert "path parameter" in (plugin_seam._router_path_error(partial, None) or "")
+
+
+def test_a_pin_change_leaves_one_dist_info_per_distribution(tmp_path, monkeypatch):
+    """`pip install --target --upgrade` kept every earlier version's
+    dist-info, so `pip list` reported a version nobody imported (#1340)."""
+    import plugin_seam
+    from fastapi import FastAPI
+
+    site, plugins = tmp_path / "site", tmp_path / "plugins"
+    plugins.mkdir()
+    monkeypatch.setenv("BACKEND_PLUGINS_SITE_DIR", str(site))
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(plugins))
+
+    def fake_pip(cmd, **_kwargs):  # what `pip install --target` leaves behind
+        target = Path(cmd[cmd.index("--target") + 1])
+        version = Path(cmd[-1]).read_text().strip().split("==")[1]
+        (target / f"demo_pkg-{version}.dist-info").mkdir()
+        (target / "demo_pkg").mkdir(exist_ok=True)
+
+    monkeypatch.setattr(plugin_seam.subprocess, "run", fake_pip)
+    for pin in ("demo_pkg==1.0", "demo_pkg==2.0"):
+        (plugins / "requirements.txt").write_text(pin + "\n")
+        plugin_seam.load_plugins(FastAPI())
+
+    assert sorted(p.name for p in site.iterdir() if p.name.endswith(".dist-info")) == [
+        "demo_pkg-2.0.dist-info"
+    ]
+
+    # A failed wipe keeps the targeted site on sys.path.
+    monkeypatch.setattr(plugin_seam, "_reset_plugin_site", lambda _site: (_ for _ in ()).throw(OSError("busy")))
+    assert plugin_seam._ensure_plugin_site() == site and str(site) in sys.path
+    monkeypatch.undo()
+    # A directory the seam did not create is never emptied.
+    foreign = tmp_path / "foreign"
+    foreign.mkdir()
+    (foreign / "keep.txt").write_text("x")
+    monkeypatch.setenv("BACKEND_PLUGINS_SITE_DIR", str(foreign))
+    plugin_seam._ensure_plugin_site()
+    assert (foreign / "keep.txt").exists()
