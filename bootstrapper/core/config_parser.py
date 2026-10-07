@@ -81,6 +81,28 @@ def _read_custom_env_file_var() -> str:
     return ''
 
 
+def project_name_error(value: str) -> str | None:
+    """Why ``value`` can't be the project name, for the wizard step (#1390)."""
+    if value.strip().lower() == "clear":
+        return "`clear` cannot be a project name here; type another, or press Enter to keep the current one"
+    try:
+        normalize_project_name(value)
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
+def launch_base_ports(cli_base_port, env_vars: dict, current_base_port: int):
+    """(base port the overview shows, base port the launch is given).
+
+    With BASE_PORT=auto in .env and no --base-port the launch gets None, so
+    handle_port_configuration resolves a free block; it used to pin the
+    default 63000 that ``current_base_port`` falls back to (#1390)."""
+    shown = int(cli_base_port if cli_base_port is not None else current_base_port)
+    env_auto = (env_vars.get("BASE_PORT") or "").strip().lower() == "auto"
+    return shown, (None if cli_base_port is None and env_auto else shown)
+
+
 class ConfigParser:
     """Configuration parser for Atlas."""
     

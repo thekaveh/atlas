@@ -31,6 +31,15 @@ _THEME_PATH = Path(__file__).parent / "theme.css"
 # loop (selections.get(COMFYUI_MODELS_TITLE)) aligned with what the step
 # registers without duplicating the string literal.
 from tracks import consumer_declared_track_keys, remark_off_track_rows as _remark_off_track_rows
+from core.config_parser import project_name_error
+# The wizard-time warning sink lives in ``wizard`` (the step builders and the
+# screen share it); these names stay importable from here.
+from wizard import (
+    begin_wizard_warnings,
+    flush_pending_wizard_warnings,
+    set_wizard_warn_sink as _set_wizard_warn_sink,
+    wizard_warn as _wizard_warn,
+)
 from wizard.comfyui_steps import COMFYUI_MODELS_TITLE
 from wizard.model.cloud_rules import (
     SECRET_CLEAR,
@@ -41,12 +50,6 @@ from wizard.model.cloud_rules import (
 )
 
 
-# Module-level sink for wizard-time diagnostic warnings (cloud /v1/models
-# fetch failures, etc.). The WizardScreen populates this with a thin
-# adapter around its ``_safe_log`` once the screen exists; the cloud
-# options_provider closures (built BEFORE the screen) read from it.
-# ``None`` until the screen wires it; closures must guard against that.
-_WIZARD_WARN_SINK = None
 
 
 def _support_subtitle(svc) -> str:
@@ -62,25 +65,6 @@ def _support_subtitle(svc) -> str:
         return description
     badge = f"[support: {tier}]"
     return f"{description}  {badge}" if description else badge
-
-
-def _set_wizard_warn_sink(fn) -> None:
-    """Called by WizardScreen.__init__ to register a logger callable
-    of shape ``(msg: str) -> None``. Idempotent; reset to None on
-    screen teardown.
-    """
-    global _WIZARD_WARN_SINK
-    _WIZARD_WARN_SINK = fn
-
-
-def _wizard_warn(msg: str) -> None:
-    fn = _WIZARD_WARN_SINK
-    if fn is None:
-        return
-    try:
-        fn(msg)
-    except Exception:
-        pass
 
 
 # ─── helpers ─────────────────────────────────────────────────────────
@@ -331,6 +315,7 @@ def _build_steps_and_rows(
     profile: str | None = None,
 ):
     """Build the wizard steps + service rows from real config."""
+    begin_wizard_warnings()
     from wizard.model.service_discovery import ServiceDiscovery
     from wizard.model.state_builder import build_app_state
     from core.config_parser import DEFAULT_BASE_PORT, DEFAULT_PROJECT_NAME
@@ -573,6 +558,7 @@ def _build_steps_and_rows(
         default_value=current_project_name,
         service_name="",
         kind="text",
+        text_validator=project_name_error,
     ))
 
     # LLM cluster steps (Ollama variants + cloud secret/multiselect
@@ -1560,10 +1546,14 @@ def run_launch_flow(
 
     # Resolve the effective base port. CLI ``--base-port N`` wins; else
     # whatever's in .env today.
-    base_port = stack_options.get("base_port")
-    if base_port is None:
-        base_port = current_base_port
-    base_port = int(base_port)
+    from core.config_parser import launch_base_ports
+
+    base_port, launch_base_port = launch_base_ports(
+        stack_options.get("base_port"), env_vars, current_base_port,
+    )
+    if launch_base_port is None:
+        # Show the block `auto` would take, as the wizard does (#1390).
+        base_port = _resolve_auto_base_port(current_base_port)
 
     # Build a synthetic env dict that reflects the effective post-launch
     # configuration: container ports re-derived from the chosen base port,
@@ -1667,7 +1657,7 @@ def run_launch_flow(
                 auto_launch=True,
                 prefilled_source_args=dict(source_args),
                 prefilled_stack_options=dict(stack_options,
-                                             base_port=base_port),
+                                             base_port=launch_base_port),
                 prefilled_selections=(
                     _prefilled_launch if _prefilled_launch else None
                 ),

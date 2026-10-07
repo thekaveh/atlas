@@ -542,3 +542,150 @@ def test_labels_come_from_the_options_the_answer_was_chosen_from():
             return {d.title: d.value for d in screen._review_decisions()}[DEFAULT_MODEL]
 
     assert asyncio.run(scenario()) == "llama3 (chat)"
+
+
+# ─── wizard state and display defects (#1390) ───────────────────────────
+
+PROJECT = "Project name  ·  namespace"
+BASE = "Base port  ·  layout"
+
+
+def _run(screen: WizardScreen, keys):
+    async def scenario():
+        async with _App(screen).run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            for key in keys:
+                await pilot.press(key)
+                await pilot.pause()
+            return _rows(pilot.app)
+    return asyncio.run(scenario())
+
+
+def test_an_invalid_project_name_keeps_the_step_with_its_error():
+    from core.config_parser import project_name_error as _project_name_error
+
+    project = PromptStep(title=PROJECT, step_index=1, step_total=1, heading="Name?",
+                         kind="text", default_value="atlas", text_validator=_project_name_error)
+    screen = _screen(steps=[project, _steps()[-1]])
+    _run(screen, [*"Bad Name!", "enter"])
+    assert screen._step_index == 0 and PROJECT not in screen._selections
+    assert "invalid project name" in str(screen._prompt._number_hint.render())
+    # `clear` is the text steps' clear sentinel, which no project name can take.
+    assert "cannot be a project name" in _project_name_error("clear")
+
+
+def test_a_source_change_after_a_base_port_change_uses_the_new_base():
+    base = PromptStep(title=BASE, step_index=1, step_total=1, heading="Base?", kind="number",
+                      default_value="63000", number_min=1024, number_max=65000)
+    row = ServiceRow(name="Weaviate", source="disabled", alias="", port="")
+    screen = WizardScreen(
+        steps=[base, _source_step(WEAVIATE, "Weaviate", "weaviate"), _steps()[-1]],
+        services=[row], brand=BrandInfo(name="Atlas", tagline="t"), no_splash=True,
+        on_base_port_change=lambda new_base, rows: [
+            ServiceRow(name=r.name, source=r.source, alias="", port=str(new_base + 31)) for r in rows],
+        resolve_port_for_service=lambda name, source: "63031",  # .env still holds 63000
+    )
+    _OPEN.append(screen)
+    _run(screen, ["ctrl+u", *"64000", "enter", "enter"])
+    assert screen._services[0].port == "64031"
+
+
+def test_the_summary_names_project_comfyui_models_and_worker_counts():
+    from ui.textual.screens.wizard_screen import _quote_csv
+    from wizard.comfyui_steps import COMFYUI_MODELS_TITLE
+
+    screen = _screen()
+    screen._selections.update({
+        PROJECT: "Proj-2", COMFYUI_MODELS_TITLE: {"sdxl-vae", "flux1-dev"},
+        "__secondary__:RAY_WORKER_COUNT": "3", "__secondary__:SPARK_WORKER_COUNT": "4",
+    })
+    assert screen._project_and_count_flags() == [
+        ("--project", "proj-2"), ("--comfyui-models", _quote_csv("flux1-dev,sdxl-vae")),
+        ("--ray-worker-count", "3"), ("--spark-workers", "4"),
+    ]
+    # A worker count whose Ray step is now hidden is not applied, nor shown.
+    ray = _source_step("Ray  ·  source", "Ray", "ray")
+    ray.options[0].secondary_number = SecondaryNumberInput(
+        env_var="RAY_WORKER_COUNT", description="d", default_value=2, number_min=0, number_max=64)
+    ray.skip_if_prev = lambda _selections: True
+    screen._steps.insert(0, ray)
+    assert ("--ray-worker-count", "3") not in screen._project_and_count_flags()
+
+
+def test_esc_on_the_first_visible_step_exits_when_earlier_steps_are_pinned():
+    pinned = PromptStep(title="Track  ·  pick your workload", step_index=1, step_total=1,
+                        heading="Track?", options=[PromptOption(value="all", label="All")],
+                        skip_if_prev=lambda _selections: True)
+    screen = _screen(steps=[pinned, *_steps()])
+
+    async def scenario():
+        async with _App(screen).run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert screen._step_index == 1
+            await pilot.press("escape")
+            await pilot.pause()
+            return pilot.app.is_running
+    assert asyncio.run(scenario()) is False
+
+
+def test_the_cloud_overview_follows_back_and_a_changed_answer():
+    from ui.textual.widgets.info_box import CloudApiSummary
+    from wizard.llm_steps import cloud_models_title, cloud_secret_title
+    from wizard.model.cloud_rules import SECRET_KEEP
+
+    secret = PromptStep(title=cloud_secret_title("OpenAI"), step_index=1, step_total=1,
+                        heading="Key?", kind="secret", default_value="sk-1")
+    models = PromptStep(title=cloud_models_title("OpenAI"), step_index=1, step_total=1,
+                        heading="Models?", kind="multiselect",
+                        options=[PromptOption(value="gpt-4o", label="gpt-4o")])
+    entry = CloudApiSummary(name="OpenAI", enabled=True, key_set=True)
+    screen = WizardScreen(steps=[secret, models, _steps()[-1]], services=[],
+                          brand=BrandInfo(name="Atlas", tagline="t"), no_splash=True,
+                          cloud_apis=[entry])
+    _OPEN.append(screen)
+    screen._selections.update({secret.title: SECRET_KEEP, models.title: ""})
+    screen._recompute_cloud_apis()
+    assert entry.enabled is False  # every model cleared
+    screen._selections[models.title] = "gpt-4o"  # Back, then reselected
+    screen._recompute_cloud_apis()
+    assert (entry.enabled, entry.key_set) == (True, True)
+
+
+def test_cli_track_overrides_survive_the_wizard():
+    from ui.textual.integration import PICKER_STEP_TITLE
+
+    starter = type("Starter", (), {"active_track_overrides": frozenset({"weaviate"})})()
+    screen = WizardScreen(steps=_steps(), services=[], brand=BrandInfo(name="Atlas", tagline="t"),
+                          no_splash=True, starter=starter,
+                          stack_options_resolver=lambda selections: ({}, {}))
+    _OPEN.append(screen)
+    screen._selections[PICKER_STEP_TITLE] = "gen-ai-rag"
+    screen._launch_phase_started = True
+    screen._source_args = screen._stack_options = None
+
+    async def scenario():
+        async with _App(screen).run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            screen._start_launch_pipeline = lambda: None
+            try:
+                await screen._transition_to_launch()
+            except Exception:  # noqa: BLE001 - only the overrides matter here
+                pass
+    asyncio.run(scenario())
+    assert starter.active_track_overrides == frozenset({"weaviate"})
+
+
+def test_warnings_raised_before_the_screen_reach_its_log_pane(monkeypatch):
+    """Steps are built, and warn, before the screen registers its sink."""
+    from ui.textual import integration
+
+    logged = []
+    monkeypatch.setattr(WizardScreen, "_safe_log", lambda self, msg, **_kw: logged.append(msg))
+    integration._wizard_warn("tracks.yml failed to load; track-picker disabled.")
+    screen = _screen()
+
+    async def scenario():
+        async with _App(screen).run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+    asyncio.run(scenario())
+    assert any("tracks.yml failed to load" in line for line in logged)
