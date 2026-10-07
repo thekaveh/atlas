@@ -459,6 +459,10 @@ class _ThreadedComposeExecutor:
             )
         return returncode
 
+    def cancel_requested(self) -> bool:
+        """True once a cancel was requested; a ``should_stop`` for sync helpers."""
+        return self._cancel_requested.is_set()
+
     async def cancel_and_wait(self) -> None:
         """Cancel only commands submitted by this executor and await cleanup."""
         self._cancel_requested.set()
@@ -1635,6 +1639,12 @@ class WizardScreen(Screen):
                         severity="error",
                         timeout=10,
                     )
+
+    def _mark_launch_succeeded(self) -> None:
+        self._launch_succeeded = True
+        # A finished launch: Ctrl+C from here keeps 0, not 130 (#1357).
+        if self._on_launch_result is not None:
+            self._on_launch_result(0)
 
     def _mark_launch_failed(self) -> None:
         """Record a nonzero CLI result while leaving the error visible in the TUI."""
@@ -3497,6 +3507,9 @@ class WizardScreen(Screen):
             self._safe_log,
         )
         starter.docker_manager.execute_compose_command = compose_executor
+        # Ctrl+C sets the executor's cancel event; the one-shot init wait
+        # polls it and returns within a poll step (#1357).
+        starter.docker_manager.should_stop = compose_executor.cancel_requested
 
         # Resolve the deployment profile from stack_options (set by
         # _selections_to_args from the wizard's PROFILE_STEP_TITLE selection,
@@ -3733,11 +3746,14 @@ class WizardScreen(Screen):
                 self._mark_launch_failed()
                 return
             self._starter.docker_manager.mark_source_built(targets)
-            ok = await asyncio.to_thread(
-                starter.verify_one_shot_init_containers,
-                lambda msg, level="info": self._safe_log(
-                    msg, source="pipeline", level=level,
-                ),
+            # Through the executor, so Ctrl+C sets its cancel event and the
+            # up-to-900 s init wait returns within a poll step (#1357).
+            ok = await compose_executor.run_in_thread(
+                lambda: starter.verify_one_shot_init_containers(
+                    lambda msg, level="info": self._safe_log(
+                        msg, source="pipeline", level=level,
+                    ),
+                )
             )
             if not ok:
                 self._write_status(
@@ -3745,6 +3761,7 @@ class WizardScreen(Screen):
                     style="bold red",
                     source="pipeline",
                 )
+                await self._capture_failure_compose_logs()
                 self._mark_launch_failed()
                 return
             # Same position the linear path uses (start.py: verify ->
@@ -3759,7 +3776,7 @@ class WizardScreen(Screen):
             managed_hosts_pending = False
             self._write_started_status(skipped_builds)
             self._launch_detach_ready = True
-            self._launch_succeeded = True
+            self._mark_launch_succeeded()
 
             self._log_pane.set_title(
                 " Live docker logs ",
