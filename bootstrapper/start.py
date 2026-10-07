@@ -3006,8 +3006,7 @@ class AtlasStarter:
         for var, value, label, module in _MANAGED_HOST_SOURCES:
             if (env.get(var) or "").strip() != value:
                 continue
-            factory = importlib.import_module(module).manager_from_env
-            problem = _managed_host_launch_blocker(factory, env, label)
+            problem = _managed_host_pool_blocker(importlib.import_module(module), env, label)
             if problem:
                 self.banner.show_status_message(
                     f"Managed {label} host cannot start: {problem}. The launch "
@@ -3119,44 +3118,85 @@ class AtlasStarter:
         + launcher and runs `blender --background` with the main-thread queue
         shim, so composition automation needs no GUI and no manual Connect
         click. Fatal on failure (the user explicitly chose this source);
-        no-op for localhost (user-run GUI) and disabled.
+        no-op for localhost (user-run GUI) and disabled. With
+        BLENDER_MCP_INSTANCES=N (#851) every pool instance is started and
+        health-gated on its own allocated port, and instances left above N by
+        a smaller pool are stopped first.
         """
-        from services.blender_mcp_manager import BlenderMcpError, manager_from_env
+        from services.blender_mcp_manager import pool_from_env, pool_moves, share_verified_addon
 
         env = self.config_parser.parse_env_file()
         if (env.get("BLENDER_MCP_SOURCE", "") or "").strip() != "managed-localhost":
             return True
+        pool = pool_from_env(env)
+        count = f" ({len(pool)} instances)" if len(pool) > 1 else ""
         self.banner.show_status_message(
             "  • BLENDER_MCP_SOURCE=managed-localhost — provisioning the pinned "
-            "blender-mcp add-on and launching headless Blender…",
+            f"blender-mcp add-on and launching headless Blender{count}…",
             "info",
         )
+        self._reap_stray_blender_mcp(env)
+        if len(pool) > 1 and pool_moves(pool):
+            # A shifted base port can make one instance's new port another's
+            # old one, so the pool restarts together rather than one by one.
+            for manager in pool:
+                manager.stop()
+        for manager in pool:
+            if getattr(manager, "pool_index", 0) == 1:
+                share_verified_addon(pool)
+            if not self._start_blender_mcp_instance(manager):
+                return False
+        return True
+
+    def _reap_stray_blender_mcp(self, env: dict) -> None:
+        """Stop pool instances above the configured size (#851)."""
+        from services.blender_mcp_manager import stray_pool_members
+
+        for manager in stray_pool_members(env):
+            try:
+                manager.stop()
+                problem = "its pid file remains" if manager.pid_file.exists() else ""
+            except Exception as exc:  # noqa: BLE001 - a stray must not block the start
+                problem = str(exc)
+            if problem:
+                self.banner.show_status_message(
+                    f"Could not stop stray Blender MCP instance {manager.pool_index}: {problem}; "
+                    "check it with `./start.sh blender-mcp status`.", "warning",
+                )
+            else:
+                self.banner.show_status_message(
+                    f"  • Stopped Blender MCP instance {manager.pool_index}: it is "
+                    "above BLENDER_MCP_INSTANCES.", "info",
+                )
+
+    def _start_blender_mcp_instance(self, manager) -> bool:
+        from services.blender_mcp_manager import BlenderMcpError
+
+        index = getattr(manager, "pool_index", 0)
+        label = f"Blender MCP #{index}" if index else "Blender MCP"
         try:
-            manager = manager_from_env(env)
             status, created = manager.ensure_running()
         except BlenderMcpError as exc:
-            if self._leave_legacy_managed_host("Blender MCP", exc):
+            if self._leave_legacy_managed_host(label, exc):
                 return True
             if exc.surviving_process:
-                self._managed_hosts_started_this_run.append(
-                    ("Blender MCP", manager)
-                )
+                self._managed_hosts_started_this_run.append((label, manager))
             self.banner.show_status_message(
-                f"Managed Blender MCP bridge could not start: {exc}", "error"
+                f"Managed {label} bridge could not start: {exc}", "error"
             )
             return False
         if created:
-            self._managed_hosts_started_this_run.append(("Blender MCP", manager))
+            self._managed_hosts_started_this_run.append((label, manager))
         health = manager.health()
         if health.get("reachable"):
             self.banner.show_status_message(
-                f"  • Blender MCP bridge healthy on tcp://{manager.bind}:{manager.port} "
+                f"  • {label} bridge healthy on tcp://{manager.bind}:{manager.port} "
                 f"(scene objects: {health.get('objects')})",
                 "info",
             )
         else:
             self.banner.show_status_message(
-                "  • Blender MCP bridge started but not yet answering commands — "
+                f"  • {label} bridge started but not yet answering commands — "
                 "first load can lag; check `./start.sh blender-mcp health`.",
                 "warning",
             )
@@ -5052,7 +5092,29 @@ _MANAGED_HOST_SOURCES = (
 )
 
 
-def _managed_host_launch_blocker(factory, env: dict, label: str) -> Optional[str]:
+def _managed_host_pool_blocker(module, env: dict, label: str) -> Optional[str]:
+    """The launch blocker for every instance a host module starts: one, or
+    each of a Blender MCP pool (#851). A port the pool's own running
+    instances hold is freed when the pool restarts, so it is not foreign."""
+    pool_from_env = getattr(module, "pool_from_env", None)
+    if pool_from_env is None:
+        return _managed_host_launch_blocker(module.manager_from_env, env, label)
+    pool = pool_from_env(env)
+    held = module.pool_held_ports(pool)
+    for member in pool:
+        name = f"{label} #{member.pool_index}" if member.pool_index else label
+        problem = _managed_host_launch_blocker(lambda _env, m=member: m, env, name, held)
+        if problem:
+            return f"instance {member.pool_index}: {problem}" if len(pool) > 1 else problem
+    return None
+
+
+def _port_held_by_stranger(manager, held_ports) -> bool:
+    """The manager's port is in use, and not by its own pool (#851)."""
+    return manager.port not in held_ports and manager._port_in_use()
+
+
+def _managed_host_launch_blocker(factory, env: dict, label: str, held_ports=frozenset()) -> Optional[str]:
     """Why the host start would refuse, or None. Read-only: nothing is
     installed, launched or signalled."""
     from services import (
@@ -5079,7 +5141,7 @@ def _managed_host_launch_blocker(factory, env: dict, label: str) -> Optional[str
         moves = status.running and launched_with_other_settings(
             record, getattr(status, "pid", None), {"port": manager.port}
         )
-        if (moves or not status.running) and manager._port_in_use():
+        if (moves or not status.running) and _port_held_by_stranger(manager, held_ports):
             return f"port {manager.port} is already in use by an unmanaged process"
     except Exception as exc:  # noqa: BLE001 - the start would fail the same way
         # The stamp-less record from an older pin only warns at start (#990).
@@ -6631,14 +6693,18 @@ def _doctor_check_blender_mcp(starter: "AtlasStarter") -> dict:
         return _doctor_result(
             "blender-mcp", "pass", "BLENDER_MCP_SOURCE is not managed-localhost."
         )
-    from services.blender_mcp_manager import manager_from_env
+    from services.blender_mcp_manager import manager_from_env, pool_problems
 
     try:
         result = manager_from_env(env).preflight()
+        problems = pool_problems(env)
     except Exception as exc:  # pragma: no cover - defensive
         return _doctor_result("blender-mcp", "skipped", f"Could not preflight: {exc}")
     status = {"ok": "pass", "warn": "warn", "fail": "fail"}.get(result.status, "warn")
     summary = "; ".join(f"{c['name']}: {c['detail']}" for c in result.checks)
+    if problems:  # pool instances no live manager accounts for (#851)
+        status = "fail" if status == "fail" else "warn"
+        summary = "; ".join([summary, *problems])
     return _doctor_result("blender-mcp", status, summary, details=result.to_dict())
 
 
@@ -9142,6 +9208,19 @@ def _blender_mcp_manager():
     return manager_from_env(env)
 
 
+def _blender_mcp_pool(*, include_strays: bool = False):
+    """Every pool instance (#851), instance 0 first."""
+    from services.blender_mcp_manager import pool_members
+
+    return pool_members(_blender_mcp_manager(), include_strays=include_strays)
+
+
+def _pool_json(rows: list) -> str:
+    """One instance prints as before; a pool prints one entry per instance."""
+    return json.dumps(rows[0][1] if len(rows) == 1 else
+                      [{"instance": getattr(m, "pool_index", 0), "port": m.port, **row} for m, row in rows], indent=2)
+
+
 @blender_mcp_group.command("preflight")
 def blender_mcp_preflight() -> None:
     """Read-only host probe (Blender binary, bind policy, add-on pin, port)."""
@@ -9167,44 +9246,63 @@ def blender_mcp_install() -> None:
 
 @blender_mcp_group.command("start")
 def blender_mcp_start() -> None:
-    """Launch the headless bridge (installs first if needed)."""
-    from services.blender_mcp_manager import BlenderMcpError
+    """Launch the headless bridge (installs first if needed); every instance
+    of a BLENDER_MCP_INSTANCES pool, each on its allocated port."""
+    from services.blender_mcp_manager import BlenderMcpError, share_verified_addon
 
-    manager = _blender_mcp_manager()
-    try:
-        status, _created = manager.ensure_running()
-    except BlenderMcpError as exc:
-        print(f"start failed: {exc}")
-        sys.exit(1)
-    print(json.dumps(status.to_dict(), indent=2))
+    pool, rows = _blender_mcp_pool(), []
+    for manager in pool:
+        index = getattr(manager, "pool_index", 0)
+        if index == 1:
+            share_verified_addon(pool)
+        try:
+            status, _created = manager.ensure_running()
+        except BlenderMcpError as exc:
+            print(f"start failed (instance {index}): {exc}")
+            sys.exit(1)
+        rows.append((manager, status.to_dict()))
+    print(_pool_json(rows))
 
 
 @blender_mcp_group.command("stop")
 def blender_mcp_stop() -> None:
-    """Stop the managed bridge process."""
-    _stop_managed_host_command(_blender_mcp_manager(), "Blender MCP")
+    """Stop the managed bridge process (every pool instance, including any
+    above BLENDER_MCP_INSTANCES)."""
+    failed = 0
+    for manager in _blender_mcp_pool(include_strays=True):
+        index = getattr(manager, "pool_index", 0)
+        label = f"Blender MCP #{index}" if index else "Blender MCP"
+        try:
+            _stop_managed_host_command(manager, label)
+        except click.exceptions.Exit:
+            failed += 1
+    if failed:
+        raise click.exceptions.Exit(1)
 
 
 @blender_mcp_group.command("status")
 def blender_mcp_status() -> None:
-    """Pid/port status of the managed bridge."""
-    print(json.dumps(_blender_mcp_manager().status().to_dict(), indent=2))
+    """Pid/port status of the managed bridge; one entry per pool instance."""
+    print(_pool_json([(m, m.status().to_dict()) for m in _blender_mcp_pool(include_strays=True)]))
 
 
 @blender_mcp_group.command("health")
 def blender_mcp_health() -> None:
-    """Live JSON round-trip (get_scene_info) through the bridge socket."""
-    health = _blender_mcp_manager().health()
-    print(json.dumps(health, indent=2))
-    if not health.get("reachable"):
+    """Live JSON round-trip (get_scene_info) through the bridge socket of
+    every pool instance."""
+    rows = [(m, m.health()) for m in _blender_mcp_pool()]
+    print(_pool_json(rows))
+    if not all(row.get("reachable") for _m, row in rows):
         sys.exit(1)
 
 
 @blender_mcp_group.command("remove")
 @click.confirmation_option(prompt="Stop the process and delete the managed state directory?")
 def blender_mcp_remove() -> None:
-    """Stop the bridge and delete the state dir (add-on, launcher, logs)."""
-    _blender_mcp_manager().remove()
+    """Stop the bridge and delete the state dir (add-on, launcher, logs),
+    every pool instance's included."""
+    for manager in reversed(_blender_mcp_pool(include_strays=True)):
+        manager.remove()
     print("removed")
 
 
