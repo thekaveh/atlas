@@ -62,6 +62,21 @@ Compose health gates, prints a per-service status summary, and exits instead of
 following logs. Add `--json` for machine-readable status in CI or parent-repo
 wrappers.
 
+**`./start.sh` exit codes and cancelling.** `0` means the stack started, `1`
+that it did not (a failed build, `up` or one-shot init container, whose error
+line ends with its last 40 log lines). `Ctrl+C` differs by front end (#1357):
+
+- In the wizard (TUI), `130` means `Ctrl+C` interrupted a launch still in
+  progress; it prints what was left running and whether this start had already
+  stopped a previously running stack. `Ctrl+C` after the launch finished keeps
+  its result (`0` or `1`). The wait for one-shot init containers (up to 900 s)
+  stops within a few seconds of `Ctrl+C`.
+- With `--no-tui`, `Ctrl+C` during startup exits `1` with the same notice;
+  after a successful start it only stops following the logs and exits `130`.
+  `Ctrl+C` during a `--cold` teardown stops the start and says the teardown may
+  already have removed the project's volumes, instead of reporting a failed
+  cleanup.
+
 ## 3. Headless Validation
 
 Use `./start.sh env backfill` after updating an Atlas submodule pin. It

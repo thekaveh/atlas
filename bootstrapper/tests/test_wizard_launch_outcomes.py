@@ -231,7 +231,7 @@ def test_tui_and_headless_state_the_same_result(fixture, monkeypatch, capsys):
     assert f"Launch result: {expected}" in tui_block[0]
     # Exit behaviour: probes never fail a launch that converged.
     assert code == 0
-    assert tui_codes == [] and succeeded is True
+    assert tui_codes == [0] and succeeded is True
     # Readiness gates retained: both still ran to Compose convergence.
     assert "All services started" in " ".join(statuses)
 
@@ -292,7 +292,7 @@ def test_a_failed_compose_start_still_fails_headless_before_any_result(
 
 def test_a_failed_init_container_still_fails_the_tui_before_any_result():
     starter = _Starter("success")
-    starter.verify_one_shot_init_containers = lambda *_args: False
+    starter.verify_one_shot_init_containers = lambda *_args, **_kwargs: False
     codes, statuses, succeeded = _run_tui("success", starter)
     assert codes == [1] and succeeded is False
     assert not any("Launch result:" in line for line in statuses)
@@ -599,7 +599,7 @@ def test_the_tui_cold_launch_continues_past_an_optional_image(
 ):
     codes, statuses, succeeded, seen, _real = tui_start({"jupyterhub"}, cold=True)
 
-    assert codes == [] and succeeded is True
+    assert codes == [0] and succeeded is True
     assert seen["compose"][0] == ["build", "--no-cache", *_TARGETS]
     assert _up(seen)[3:] == _STARTED
     text = "\n".join(statuses)
@@ -627,7 +627,7 @@ def test_the_tui_still_fails_on_a_required_image(tui_start):
 def test_the_tui_warm_launch_with_current_images_runs_one_up(tui_start):
     codes, _statuses, succeeded, seen, _real = tui_start(set(), cold=False, current=True)
 
-    assert codes == [] and succeeded is True
+    assert codes == [0] and succeeded is True
     assert seen["builds"] == []
     assert seen["compose"][0] == ["up", "-d", "--force-recreate", *_TARGETS]
 
@@ -635,7 +635,7 @@ def test_the_tui_warm_launch_with_current_images_runs_one_up(tui_start):
 def test_the_tui_stale_warm_launch_continues_past_an_optional_image(tui_start):
     codes, statuses, succeeded, seen, real = tui_start({"jupyterhub"}, cold=False)
 
-    assert codes == [] and succeeded is True
+    assert codes == [0] and succeeded is True
     assert seen["compose"][0] == ["build", *_TARGETS]
     assert seen["compose"][1] == ["up", "-d", "--force-recreate", *_STARTED]
     assert seen["builds"] == [_REQUIRED, ["jupyterhub"]]

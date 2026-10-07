@@ -356,12 +356,26 @@ COLD_STOP = LifecycleAction(
 LIFECYCLE_ACTIONS = (DETACH, CANCEL, STOP, COLD_STOP)
 
 
-def cancel_notice() -> str:
-    """What a cancelled startup leaves behind, for the line printed after it."""
-    return (
+def cancel_notice(stopped_previous: bool = False, cold_start: bool = False) -> str:
+    """What a cancelled startup leaves behind, for the line printed after it.
+    ``stopped_previous``: this start had already stopped the running stack.
+    ``cold_start``: a --cold teardown may already have removed volumes."""
+    if cold_start:
+        return (
+            f"{CANCEL.label}: a --cold start was interrupted, and its teardown may "
+            "already have removed this project's volumes and secrets. Run "
+            "./start.sh --cold again to finish a clean start."
+        )
+    notice = (
         f"{CANCEL.label}: {CANCEL.consequences}. "
         "./stop.sh stops them and keeps data."
     )
+    if stopped_previous:
+        notice += (
+            " This start had already stopped the previously running stack to free "
+            "its ports; run ./start.sh again to bring it back."
+        )
+    return notice
 
 
 def launch_cancelled_notice(cold_start: bool = False, stopped_previous: bool = False) -> str:
@@ -386,3 +400,10 @@ def launch_cancelled_notice(cold_start: bool = False, stopped_previous: bool = F
         f"Launch cancelled — nothing was started · {CANCEL.configuration} · "
         f"{CANCEL.data}."
     )
+
+def record_interrupt(state_holder: dict) -> None:
+    """Ctrl+C in the wizard: a finished launch keeps its own result; only an
+    interrupted one becomes a cancel (130, which prints the cancel notice)."""
+    if "launch_result" not in state_holder:
+        state_holder["interrupted"] = True
+        state_holder["exit_code"] = 130

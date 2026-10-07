@@ -644,3 +644,101 @@ def test_non_linux_preflight_reports_missing_lsof(monkeypatch):
         "managed Blender MCP",
     )
     assert error is not None and "lsof" in error
+
+
+# --- cancellable init wait, ps retry, log tail (#1357) -----------------------
+
+
+def test_one_shot_wait_returns_within_a_poll_step_once_stopped(monkeypatch):
+    import time
+
+    from core.docker_manager import DockerManager
+
+    manager = DockerManager(".")
+    monkeypatch.setattr(manager, "_compose_ps_json",
+                        lambda _s: ([{"State": "running", "Status": "Up 3s"}], None))
+    calls = {"n": 0}
+
+    def should_stop():
+        calls["n"] += 1
+        return calls["n"] > 1
+
+    manager.should_stop = should_stop
+    started = time.monotonic()
+    failures = manager.failed_one_shot_services(
+        ["n8n-init"], timeout_seconds=900.0, poll_interval_seconds=5.0,
+    )
+
+    assert time.monotonic() - started < 5.0
+    assert failures == [("n8n-init", "cancelled")]
+
+
+def test_one_transient_ps_error_is_retried_not_reported(monkeypatch):
+    from core.docker_manager import DockerManager
+
+    manager = DockerManager(".")
+    replies = iter([([], "docker compose ps failed (daemon busy)"),
+                    ([{"State": "exited", "ExitCode": 0, "Status": "Exited (0)"}], None)])
+    monkeypatch.setattr(manager, "_compose_ps_json", lambda _s: next(replies))
+    monkeypatch.setattr("core.docker_manager.time.sleep", lambda _s: None)
+
+    assert manager.failed_one_shot_services(["n8n-init"], timeout_seconds=5.0) == []
+
+
+@pytest.mark.parametrize("front_end", ["tui", "no-tui"])
+def test_a_failed_init_reports_its_last_log_lines(monkeypatch, front_end):
+    import start as start_module
+
+    starter = start_module.AtlasStarter()
+    monkeypatch.setattr(starter.config_parser, "parse_env_file", lambda: {"N8N_INIT_SCALE": "1"})
+    monkeypatch.setattr(starter.docker_manager, "failed_one_shot_services",
+                        lambda services, **_kwargs: [("n8n-init", "exit 1: Exited (1)")])
+    monkeypatch.setattr(starter.docker_manager, "one_shot_log_tail",
+                        lambda service, lines=40: ["ERROR: workflow import failed: bad JSON"])
+    lines = []
+    if front_end == "tui":
+        assert starter.verify_one_shot_init_containers(lambda msg, level="info": lines.append(msg)) is False
+    else:
+        monkeypatch.setattr(starter.banner, "show_status_message", lambda msg, _l: lines.append(msg))
+        assert starter.verify_one_shot_init_containers() is False
+
+    assert len(lines) == 1 and "workflow import failed: bad JSON" in lines[0]
+    assert "n8n-init failed after compose up (exit 1" in lines[0]
+
+
+@pytest.mark.parametrize(("launch_result", "expected"), [(0, 0), (1, 1), (None, 130)])
+def test_ctrl_c_keeps_a_finished_launch_result(capsys, launch_result, expected):
+    import start as start_module
+    from core.launch_outcome import record_interrupt
+
+    state = {"exit_code": 0}
+    if launch_result is not None:
+        state.update(exit_code=launch_result, launch_result=launch_result)
+    record_interrupt(state)
+
+    assert start_module._report_tui_exit(state["exit_code"]) == expected
+    printed = capsys.readouterr().out
+    assert ("./stop.sh stops them" in printed) is (expected == 130)
+
+
+def test_cancel_notice_says_when_this_start_stopped_the_previous_stack():
+    from core.launch_outcome import cancel_notice
+
+    assert "previously running stack" in cancel_notice(stopped_previous=True)
+    assert "previously running stack" not in cancel_notice()
+    # An interrupted --cold teardown must not claim no data was deleted.
+    cold = cancel_notice(cold_start=True)
+    assert "may already have removed" in cold and "keeps data" not in cold
+
+
+def test_tui_wires_its_cancel_event_and_success_result():
+    """The wizard hands its cancel event to the init wait and reports a
+    finished launch as 0, so Ctrl+C afterwards keeps it (#1357)."""
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "ui" / "textual" / "screens"
+              / "wizard_screen.py").read_text(encoding="utf-8")
+    assert "starter.docker_manager.should_stop = compose_executor.cancel_requested" in source
+    success = source[source.index("def _mark_launch_succeeded"):][:300]
+    assert "self._on_launch_result(0)" in success
+    assert "self._mark_launch_succeeded()" in source

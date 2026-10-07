@@ -375,3 +375,36 @@ def test_perform_cold_start_cleanup_forwards_project_to_docker_manager():
 
     assert starter.perform_cold_start_cleanup(project_name="new-project") is True
     assert forwarded == ["new-project"]
+
+
+def test_ctrl_c_during_cold_teardown_propagates(tmp_path, monkeypatch, capsys):
+    """#1357: it read as "Cold cleanup failed; secrets were not rotated"."""
+    manager = DockerManager(str(tmp_path))
+    manager._compose_cmd = "docker compose"
+    monkeypatch.setattr(manager.config_parser, "get_project_name", lambda: "atlas")
+    monkeypatch.setattr(manager.config_parser, "env_file_exists", lambda: False)
+
+    class Process:
+        stdout = io.StringIO("")
+        def __iter__(self):
+            return self
+        def send_signal(self, _sent):
+            return None
+        def wait(self, timeout=None):
+            return 130
+
+    class Lines:
+        def __iter__(self):
+            return self
+        def __next__(self):
+            raise KeyboardInterrupt
+        def close(self):
+            return None
+
+    process = Process()
+    process.stdout = Lines()
+    monkeypatch.setattr("core.docker_manager.subprocess.Popen", lambda *_a, **_k: process)
+
+    with pytest.raises(KeyboardInterrupt):
+        manager.perform_cold_start_cleanup(project_name="atlas")
+    assert manager._reraise_stream_interrupt is False  # only for the teardown
