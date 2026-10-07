@@ -895,3 +895,24 @@ def test_summarize_launch_is_front_end_neutral_apart_from_where():
     cli = summarize_launch(probes).lines
     assert tui[:-1] == cli[:-1]
     assert "the Logs tab" in tui[-1] and "the output above" in cli[-1]
+
+
+# ─── BASE_PORT=auto reaches port configuration unresolved (#1390) ─────
+
+
+def test_an_auto_base_port_reaches_port_configuration_as_none():
+    """A CLI-flag TUI launch with BASE_PORT=auto in .env pinned 63000."""
+    from core.config_parser import launch_base_ports
+
+    assert launch_base_ports(None, {"BASE_PORT": "auto"}, 63000) == (63000, None)
+    assert launch_base_ports(64000, {"BASE_PORT": "auto"}, 63000) == (64000, 64000)
+    assert launch_base_ports(None, {"BASE_PORT": "65000"}, 65000) == (65000, 65000)
+
+    class _Recording(_Starter):
+        def handle_port_configuration(self, base_port):
+            self.port_argument = ("called", base_port)
+            return True
+
+    starter = _Recording("success")
+    _run_tui("success", starter, stack_options={"base_port": None})
+    assert starter.port_argument == ("called", None)

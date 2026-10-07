@@ -118,6 +118,13 @@ _FAMILY_FLAG_STEM = {
 }
 
 
+def _model_names(models) -> list[str]:
+    """A multiselect answer (set or CSV) as sorted names."""
+    if isinstance(models, set):
+        return sorted(models)
+    return sorted({name.strip() for name in str(models).split(",") if name.strip()})
+
+
 def _quote_csv(value: str) -> str:
     """Shell-quote a command-summary flag VALUE so the line stays pasteable
     — and safe — when copied into a real shell.
@@ -1214,6 +1221,9 @@ class WizardScreen(Screen):
         # the container port otherwise. Returns "" when no port should
         # be shown (e.g., disabled).
         self._resolve_port_for_service = resolve_port_for_service
+        # The base port confirmed in this wizard; .env still holds the old
+        # one until launch, so later source changes derive from this (#1390).
+        self._preview_base: int | None = None
         self._on_track_change = on_track_change
         # Auto-launch mode: skip the wizard prompts entirely and jump
         # straight to the launch phase. Used when start.py is invoked
@@ -1278,6 +1288,9 @@ class WizardScreen(Screen):
         self._command_summary = CommandSummary()
         self._service_table = ServiceTable(services)
         self._cloud_apis: list[CloudApiSummary] = list(cloud_apis or [])
+        # The overview is recomputed from these on every confirm and Back,
+        # never patched in place (#1390).
+        self._cloud_apis_initial = [(e.enabled, e.key_set) for e in self._cloud_apis]
         self._consumers: list[ConsumerSummary] = list(consumers or [])
         # Pass the service table so the row can align its category legend
         # to the actual 2nd-slot start (cached by ServiceTable on each render).
@@ -1540,6 +1553,13 @@ class WizardScreen(Screen):
         self.query_one("#tab-logs").display = False
         self._brand_panel.set_tabs(BrandPanel.TAB_SETUP, enabled=False)
         self._apply_compact_layout(self.app.size.width, self.app.size.height)
+        # Warnings raised while the steps were built, before this screen
+        # registered its sink, reach the log pane now (#1390).
+        try:
+            from .. import integration as _integration_mod
+            _integration_mod.flush_pending_wizard_warnings()
+        except Exception:  # noqa: BLE001
+            pass
         if self._auto_launch:
             # CLI-flag mode: skip the wizard and jump straight to the
             # launch phase. The Setup tab (prompt panel + command summary)
@@ -2034,9 +2054,19 @@ class WizardScreen(Screen):
                 new_base = int(value)
             except ValueError:
                 return
+        self._preview_base = new_base
         self._services = self._on_base_port_change(new_base, self._services)
         self._service_table.set_rows(self._services)
         self._refresh_info_panel()
+
+    def _port_for_row(self, row) -> str:
+        """A row's port for its current source, on the base port chosen in
+        this wizard when there is one, else as ``.env`` resolves it."""
+        if self._preview_base is not None and self._on_base_port_change is not None:
+            return self._on_base_port_change(self._preview_base, [row])[0].port or ""
+        if self._resolve_port_for_service is not None:
+            return self._resolve_port_for_service(row.name, row.source) or ""
+        return row.port
 
     def action_confirm(self) -> None:
         if self._phase != "setup":
@@ -2099,19 +2129,12 @@ class WizardScreen(Screen):
         except Exception:  # noqa: BLE001
             # A bad track lookup must not block the wizard from advancing.
             pass
-        # Cloud secret step: live-update the Cloud APIs row in the
-        # overview to reflect the user's choice.
-        if step.kind == "secret" and self._cloud_apis:
-            self._apply_secret_step_to_cloud_apis(step, opt.value)
+        # Cloud secret and model steps: recompute the Cloud APIs overview
+        # from every current answer.
+        if step.kind in ("secret", "multiselect") and self._cloud_apis:
+            self._recompute_cloud_apis()
         # fal.ai's secret step decides its service row's source (#1255).
         self._apply_secret_step_to_fal_row(step, opt.value)
-        # Cloud multiselect step: an empty CSV ("0 selected") means
-        # the user explicitly de-selected every model. Match the
-        # _selections_to_args policy ("disable provider + wipe key")
-        # by reflecting the disabled state in the overview now,
-        # instead of waiting until launch to surprise the user.
-        if step.kind == "multiselect" and self._cloud_apis:
-            self._apply_models_step_to_cloud_apis(step, opt.value)
         # Service-source step: update that row's source and refresh.
         for row in self._services:
             if step.service_name and row.name == step.service_name:
@@ -2120,12 +2143,10 @@ class WizardScreen(Screen):
                 # Re-derive the port for the new source — localhost
                 # sources should show the host machine's port, container
                 # sources the assigned container port, disabled none.
-                if self._resolve_port_for_service is not None:
-                    try:
-                        new_port = self._resolve_port_for_service(row.name, row.source)
-                        row.port = new_port or ""
-                    except Exception:  # noqa: BLE001
-                        pass
+                try:
+                    row.port = self._port_for_row(row)
+                except Exception:  # noqa: BLE001
+                    pass
                 # Row position is fixed by canonical topology order — a
                 # source change only updates this row's port/source/alias
                 # values, not its place in the list. (Earlier versions
@@ -2540,9 +2561,25 @@ class WizardScreen(Screen):
             )
         )
 
+    def _recompute_cloud_apis(self) -> None:
+        """The Cloud APIs overview from the initial summaries plus every
+        current answer, in step order. Patching it in place left an earlier
+        "off" in force after Back and a changed answer (#1390)."""
+        for entry, (enabled, key_set) in zip(self._cloud_apis, self._cloud_apis_initial):
+            entry.enabled, entry.key_set = enabled, key_set
+        for idx, step in enumerate(self._steps):
+            value = self._selections.get(step.title)
+            if value is None or self._step_should_skip(idx):
+                continue
+            if step.kind == "secret":
+                self._apply_secret_step_to_cloud_apis(step, value)
+            elif step.kind == "multiselect":
+                self._apply_models_step_to_cloud_apis(step, value)
+        self._cloud_apis_row.set_cloud_apis(self._cloud_apis)
+        self._refresh_info_panel()
+
     def _apply_models_step_to_cloud_apis(self, step: PromptStep, value: str) -> None:
-        """Live-update the Cloud APIs overview block after a cloud
-        multiselect step.
+        """Apply a cloud multiselect answer to the Cloud APIs overview.
 
         Mirrors ``_selections_to_args``: an empty CSV ("0 selected") turns
         the provider off and KEEPS its key (#1183). There is no
@@ -2573,8 +2610,6 @@ class WizardScreen(Screen):
         # clearing the indicator here would tell the user their
         # credential was deleted when it was not.
         target.enabled = False
-        self._cloud_apis_row.set_cloud_apis(self._cloud_apis)
-        self._refresh_info_panel()
 
     def _apply_secret_step_to_fal_row(self, step: PromptStep, value: str) -> None:
         """Reflect fal.ai's secret-step verdict on its service-table row.
@@ -2606,11 +2641,11 @@ class WizardScreen(Screen):
                 return
 
     def _apply_secret_step_to_cloud_apis(self, step: PromptStep, value: str) -> None:
-        """Live-update the Cloud APIs overview block after a secret step.
+        """Apply a secret step's answer to the Cloud APIs overview.
 
         Maps the step title (e.g. ``OpenAI Cloud  ·  API key``) to the
-        matching CloudApiSummary, applies the wizard's sentinel-encoded
-        value, and refreshes the row + footer count line.
+        matching CloudApiSummary and applies the wizard's sentinel-encoded
+        value; ``_recompute_cloud_apis`` refreshes the row + footer.
         """
         # Local imports avoid a hard dependency at module load time.
         from wizard.model.cloud_rules import (
@@ -2651,8 +2686,6 @@ class WizardScreen(Screen):
         else:
             target.enabled = True
             target.key_set = True
-        self._cloud_apis_row.set_cloud_apis(self._cloud_apis)
-        self._refresh_info_panel()
 
     def _refresh_command_summary(self) -> None:
         from wizard.model.cloud_rules import (
@@ -2814,7 +2847,32 @@ class WizardScreen(Screen):
                 flags.append(("--skip-hosts", ""))
             # launch confirm itself never appears as a flag
 
+        flags.extend(self._project_and_count_flags())
         self._command_summary.set_flags(flags)
+
+    def _project_and_count_flags(self) -> list[tuple[str, str]]:
+        """--project, --comfyui-models, --ray-worker-count and --spark-workers,
+        which the loop above never emitted (#1390)."""
+        from wizard.comfyui_steps import COMFYUI_MODELS_TITLE
+        from wizard.model.cloud_rules import SECRET_CLEAR, SECRET_KEEP
+
+        # The selections the launch keeps: a hidden step's answer and its
+        # inline worker count are not applied, so they are not shown either.
+        selections = prune_skip_hidden_selections(self._steps, self._selections, self._pinned_selections)
+        flags: list[tuple[str, str]] = []
+        project = selections.get("Project name  ·  namespace")
+        if project and project not in (SECRET_KEEP, SECRET_CLEAR):
+            flags.append(("--project", str(project).strip().lower()))
+        models = selections.get(COMFYUI_MODELS_TITLE)
+        if models is not None and models != SECRET_KEEP:
+            names = _model_names(models)
+            flags.append(("--comfyui-models", _quote_csv(",".join(names)) if names else '""'))
+        for env_var, flag in (("RAY_WORKER_COUNT", "--ray-worker-count"),
+                              ("SPARK_WORKER_COUNT", "--spark-workers")):
+            count = selections.get(f"__secondary__:{env_var}")
+            if count not in (None, ""):
+                flags.append((flag, str(count)))
+        return flags
 
     def action_back(self) -> None:
         # If the search box has focus, Esc returns focus to the option
@@ -2846,7 +2904,10 @@ class WizardScreen(Screen):
         # from here is the ordinary walk, and going forward again visits
         # every step, so still no answer can be skipped.
         self._review_edit = None
-        if self._step_index > 0:
+        # Steps pre-answered by --track/--profile are skipped, so Back from
+        # the first visible step must exit rather than land on index 0 and
+        # walk forward again (#1390).
+        if any(not self._step_should_skip(i) for i in range(self._step_index)):
             # Walk backwards over any skip_if_prev steps so the user
             # doesn't land on an auto-skipped page when going back.
             self._step_index -= 1
@@ -2859,6 +2920,8 @@ class WizardScreen(Screen):
             # drop its result instead of writing back into the empty cache.
             self._invalidate_provider_cache_from(self._step_index)
             self._advance_past_skipped(direction=-1)
+            if self._cloud_apis:
+                self._recompute_cloud_apis()
             self._load_current_step()
         else:
             self._close_launch_log_tee()
@@ -2908,7 +2971,13 @@ class WizardScreen(Screen):
                         self._starter.active_track = _launch_selections.get(
                             _int_mod.PICKER_STEP_TITLE
                         )
-                        self._starter.active_track_overrides = frozenset()
+                        # The overrides recorded before the wizard (the
+                        # consumer manifest's declared sources, which beat
+                        # any track) stay; clearing them mislabelled those
+                        # services on the Kong dashboard (#1390).
+                        self._starter.active_track_overrides = frozenset(
+                            getattr(self._starter, "active_track_overrides", frozenset())
+                        )
                     except Exception:  # noqa: BLE001
                         pass
             else:
@@ -3433,10 +3502,10 @@ class WizardScreen(Screen):
     async def _run_pipeline_and_stream(self) -> None:
         starter = self._starter
         cold = bool((self._stack_options or {}).get("cold", False))
-        from core.config_parser import DEFAULT_BASE_PORT
-        base_port = int(
-            (self._stack_options or {}).get("base_port") or DEFAULT_BASE_PORT
-        )
+        # None (no --base-port, BASE_PORT=auto in .env) lets
+        # handle_port_configuration resolve a free block (#1390).
+        _base_port = (self._stack_options or {}).get("base_port")
+        base_port = int(_base_port) if _base_port is not None else None
         setup_hosts = bool((self._stack_options or {}).get("setup_hosts", False))
         skip_hosts = bool((self._stack_options or {}).get("skip_hosts", False))
 
