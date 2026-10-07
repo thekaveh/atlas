@@ -226,7 +226,9 @@ def test_fal_disabled_preserves_comfyui_generation_without_key(monkeypatch):
     assert 0 < calls["completion"]["timeout"] < 42
 
 
-def test_comfyui_submission_timeout_returns_truthful_503_within_deadline(monkeypatch):
+def test_comfyui_submission_timeout_returns_non_retryable_504_within_deadline(monkeypatch):
+    """The deadline ran out while the prompt was being queued, so ComfyUI may
+    have queued it: a retryable 503 invited a duplicate render (#676)."""
     main = _fresh_main(monkeypatch, fal_source="disabled", fal_api_key="")
 
     class SlowComfyUIClient:
@@ -254,8 +256,8 @@ def test_comfyui_submission_timeout_returns_truthful_503_within_deadline(monkeyp
     )
     elapsed = time.monotonic() - started
 
-    assert response.status_code == 503
-    assert response.json() == {"detail": "ComfyUI is unavailable"}
+    assert response.status_code == 504
+    assert "may be queued" in response.json()["detail"]
     assert elapsed < 1.5
 
 

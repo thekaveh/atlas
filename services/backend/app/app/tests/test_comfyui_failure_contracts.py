@@ -1579,3 +1579,31 @@ def test_init_image_larger_than_the_side_cap_is_refused():
     cmc._reject_oversized_init_image(png(4096, 64))
     with pytest.raises(ValueError, match="4097x64"):
         cmc._reject_oversized_init_image(png(4097, 64))
+
+
+def test_a_prompt_that_may_have_been_queued_is_not_a_retryable_outage():
+    """A read timeout after sending /prompt can mean ComfyUI queued it; only a
+    connect failure proves it was not delivered (#676)."""
+    import asyncio
+
+    import httpx
+    import pytest
+
+    from comfyui_client import ComfyUIClient, ComfyUISubmissionUnknownError, ComfyUIUnavailableError
+
+    async def run(error):
+        def handler(request):
+            raise error("boom", request=request)
+
+        client = ComfyUIClient()
+        await client.client.aclose()
+        client.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            await client.queue_prompt({"1": {}})
+        finally:
+            await client.client.aclose()
+
+    with pytest.raises(ComfyUISubmissionUnknownError):
+        asyncio.run(run(httpx.ReadTimeout))
+    with pytest.raises(ComfyUIUnavailableError):
+        asyncio.run(run(httpx.ConnectError))

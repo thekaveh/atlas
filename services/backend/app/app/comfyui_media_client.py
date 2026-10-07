@@ -97,11 +97,24 @@ _CFG_MIN = 0.0
 _CFG_MAX = 100.0
 
 
+def _provider_json(resp: httpx.Response) -> Any:
+    """A 2xx ComfyUI body as JSON. A non-JSON body is an upstream fault (502),
+    not the caller's: JSONDecodeError is a ValueError, which the routes map
+    to 400 with the parser's text."""
+    try:
+        return resp.json()
+    except ValueError:
+        raise RuntimeError(
+            f"ComfyUI returned a non-JSON response ({resp.status_code}, "
+            f"{resp.headers.get('content-type', 'no content type')})"
+        ) from None
+
+
 def _bounded_int(payload_value: Any, *, field: str, minimum: int, maximum: int) -> int:
     """Coerce and bound a caller-supplied integer, or raise ValueError (-> 400)."""
     try:
         value = int(payload_value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # 1e400 parses as inf
         raise ValueError(
             f"provider=comfyui {field} must be an integer, got {payload_value!r}"
         ) from None
@@ -582,7 +595,9 @@ class ComfyUIMediaClient:
                 status=status,
                 model=self.model,
                 modality=modality,
-                raw={"history": None, "queue": queue},
+                # Never the upstream /queue body: its items carry every other
+                # caller's prompt graph (text, models, inputs).
+                raw={"history": None},
             )
 
         status_str, error_msg = self._history_status(entry)
@@ -648,8 +663,8 @@ class ComfyUIMediaClient:
                 raise ValueError(f"ComfyUI rejected the prompt: {detail}")
             # A 5xx is a host-side failure → HTTPStatusError → gateway 502.
             raise httpx.HTTPStatusError(detail, request=resp.request, response=resp)
-        body = resp.json()
-        prompt_id = body.get("prompt_id")
+        body = _provider_json(resp)
+        prompt_id = body.get("prompt_id") if isinstance(body, dict) else None
         if not prompt_id:
             raise RuntimeError(f"ComfyUI accepted the prompt but returned no prompt_id: {body}")
         return str(prompt_id)
@@ -659,13 +674,13 @@ class ComfyUIMediaClient:
         if resp.status_code == 404:
             return {}
         self._raise_for_status(resp)
-        body = resp.json()
+        body = _provider_json(resp)
         return body if isinstance(body, dict) else {}
 
     async def _get_queue(self) -> Dict[str, Any]:
         resp = await self.client.get(f"{self.base_url}/queue")
         self._raise_for_status(resp)
-        body = resp.json()
+        body = _provider_json(resp)
         return body if isinstance(body, dict) else {}
 
     async def _upload_init_image(self, source: str) -> str:
@@ -681,8 +696,8 @@ class ComfyUIMediaClient:
         data = {"overwrite": "true", "type": "temp"}
         resp = await self.client.post(f"{self.base_url}/upload/image", files=files, data=data)
         self._raise_for_status(resp)
-        body = resp.json()
-        name = body.get("name") or filename
+        body = _provider_json(resp)
+        name = (body.get("name") if isinstance(body, dict) else None) or filename
         subfolder = body.get("subfolder") or ""
         stored = f"{subfolder}/{name}" if subfolder else str(name)
         return f"{stored} [temp]"

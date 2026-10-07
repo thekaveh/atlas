@@ -28,6 +28,7 @@ from comfyui_client import (
     ComfyUIClient,
     ComfyUIImageTooLargeError,
     ComfyUIResponseError,
+    ComfyUISubmissionUnknownError,
     ComfyUIUpstreamError,
     ComfyUIUnavailableError,
     ComfyUIWorkflowRejectedError,
@@ -148,6 +149,7 @@ from backend_identity import (
     require_memory_principal,
     require_n8n_operator_principal,
     require_research_principal,
+    validate_identity_auth_mode,
     require_service_principal,
     require_stateless_principal,
     research_owner_id,
@@ -195,6 +197,16 @@ def _n8n_gateway_error(operation: str, exc: Exception) -> HTTPException:
     return _unexpected_error(operation, exc)
 
 
+def _comfyui_submission_unknown() -> HTTPException:
+    """504, not a retryable 503: ComfyUI may already have queued the prompt,
+    and a retry would run it twice (#676)."""
+    return HTTPException(
+        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+        detail="ComfyUI did not confirm the prompt in time; it may be queued, so check "
+               "/comfyui/queue before retrying",
+    )
+
+
 def _comfyui_gateway_error(exc: Exception) -> HTTPException:
     """Map typed ComfyUI failures without exposing upstream response data."""
     logger.error("ComfyUI request failed (error_type=%s)", type(exc).__name__)
@@ -203,6 +215,8 @@ def _comfyui_gateway_error(exc: Exception) -> HTTPException:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="ComfyUI is unavailable",
         )
+    if isinstance(exc, ComfyUISubmissionUnknownError):
+        return _comfyui_submission_unknown()
     if isinstance(exc, ComfyUIWorkflowRejectedError):
         return HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -405,6 +419,7 @@ async def _media_ledger_intent_loop() -> None:
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     global _media_budget_prune_task, _media_ledger_intent_task
+    validate_identity_auth_mode()  # a typo must fail startup, not every request
     # Validate recovery bounds before starting maintenance or creating the
     # background task; a bad deployment value must fail startup synchronously.
     media_ledger_recovery_batch_size()
@@ -1476,6 +1491,11 @@ async def cancel_rag_ingestion(ingestion_id: str):
             detail=f"Unknown ingestion id: {ingestion_id!r}",
         )
     record = await asyncio.to_thread(service.store.get, ingestion_id)
+    if record is None:  # a terminal record whose TTL ran out meanwhile
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown ingestion id: {ingestion_id!r}",
+        )
     return RagIngestionRecordResponse(**record.to_dict())
 
 
@@ -2576,11 +2596,8 @@ async def _cancel_media_provider(
 
 
 # ComfyUI API Endpoints
-@app.get(
-    "/comfyui/health",
-    dependencies=[Depends(require_comfy_read_principal)],
-)
-async def comfyui_health_check():
+@app.get("/comfyui/health")
+async def comfyui_health_check(principal: BackendPrincipal = Depends(require_comfy_read_principal)):
     """Health check for the configured image generation provider."""
     if _fal_source_enabled():
         if _fal_api_key():
@@ -2609,6 +2626,10 @@ async def comfyui_health_check():
     try:
         async with ComfyUIClient() as client:
             health = await client.health_check()
+            if not principal.can_delegate:
+                # ComfyUI's raw system_stats (versions, argv, GPU, RAM) is
+                # for the automation callers, not any signed-up user.
+                health = {k: v for k, v in health.items() if k != "system_stats"}
             return {
                 "service": "comfyui",
                 "status": health.get("status", "unknown"),
@@ -4146,10 +4167,9 @@ async def generate_image(request: ComfyUIGenerateRequest):
     except ComfyUIUpstreamError as exc:
         raise _comfyui_gateway_error(exc) from exc
     except asyncio.TimeoutError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="ComfyUI is unavailable",
-        )
+        # The deadline ran out during the queue request (the wait phase maps
+        # its own timeout): the prompt may be queued.
+        raise _comfyui_submission_unknown()
     except Exception as exc:
         raise _unexpected_error("Generate image", exc)
 
@@ -4212,10 +4232,9 @@ async def execute_comfyui_workflow(request: ComfyUIWorkflowRequest):
     except ComfyUIUpstreamError as exc:
         raise _comfyui_gateway_error(exc) from exc
     except asyncio.TimeoutError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="ComfyUI is unavailable",
-        ) from exc
+        # The deadline ran out during the queue request (the wait phase maps
+        # its own timeout): the prompt may be queued.
+        raise _comfyui_submission_unknown() from exc
     except Exception as exc:
         raise _unexpected_error("Execute ComfyUI workflow", exc)
 

@@ -71,6 +71,18 @@ def _unauthorized(detail: str = "Valid backend bearer authentication is required
     )
 
 
+def validate_identity_auth_mode() -> str:
+    """BACKEND_IDENTITY_AUTH as `required` or `disabled`, or ValueError.
+
+    Called at startup: a typo used to surface only per request (503 on every
+    identity-gated route) while /ready, and so the container healthcheck,
+    stayed green."""
+    mode = (os.getenv("BACKEND_IDENTITY_AUTH") or "required").strip().lower()
+    if mode not in {"required", "disabled"}:
+        raise ValueError(f"BACKEND_IDENTITY_AUTH must be required or disabled, got {mode!r}")
+    return mode
+
+
 def _ct_equals(a: str, b: str) -> bool:
     """Constant-time string comparison that tolerates non-ASCII input.
 

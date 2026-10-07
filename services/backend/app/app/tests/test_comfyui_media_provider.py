@@ -1076,3 +1076,33 @@ def test_generation_parameter_bounds_accept_ordinary_values():
     assert cmc._bounded_int("768", field="height", minimum=64, maximum=4096) == 768
     assert cmc._bounded_int(30, field="steps", minimum=1, maximum=150) == 30
     assert cmc._bounded_float("7.5", field="cfg", minimum=0.0, maximum=100.0) == 7.5
+
+
+def test_a_queued_poll_never_returns_other_callers_queue_items():
+    """The poll returned ComfyUI's whole /queue body, whose items carry other
+    callers' prompt graphs (text, models, inputs)."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/history"):
+            return httpx.Response(200, json={})
+        return httpx.Response(200, json={
+            "queue_running": [[1, "someone-else", {"6": {"inputs": {"text": "SECRET other prompt"}}}, {}, []]],
+            "queue_pending": [[2, "mine", {}, {}, []]],
+        })
+
+    payload = _run(handler, lambda c: c.get_media_operation(operation_id="mine", modality="image"))
+    assert payload["status"] == "queued"
+    assert "SECRET" not in json.dumps(payload) and "someone-else" not in json.dumps(payload)
+
+
+def test_non_json_upstream_and_infinite_sizes_are_not_reported_as_parser_text():
+    """A 200 HTML body raised JSONDecodeError (a ValueError → 400 with the
+    parser's text); `1e400` parsed as inf raised OverflowError (→ 502)."""
+    import comfyui_media_client as module
+
+    def html(_request):
+        return httpx.Response(200, text="<html>proxy</html>", headers={"content-type": "text/html"})
+
+    with pytest.raises(RuntimeError, match="non-JSON"):
+        _run(html, lambda c: c._get_queue())
+    with pytest.raises(ValueError, match="width must be an integer"):
+        module._bounded_int(float("inf"), field="width", minimum=64, maximum=2048)
