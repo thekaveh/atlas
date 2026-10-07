@@ -13,6 +13,8 @@ from __future__ import annotations
 import re
 from typing import Sequence
 
+# A compose `image:` line that names a manifest variable, `${MINIO_IMAGE}`.
+_IMAGE_VARIABLE_RE = re.compile(r"\$\{(?P<var>[A-Za-z_][A-Za-z0-9_]*)")
 CHANGED_SERVICE_FILE_RE = re.compile(
     r" b/services/(?P<service>[^/]+)/"
     r"(?P<file>service\.yml|compose\.yml|(?:.*/)?Dockerfile)$"
@@ -49,8 +51,14 @@ def touched_lines_by_file(
     return grouped
 
 
-def select_touched(images: set[str], touched_lines: list[str] | None) -> set[str]:
-    """Keep images whose reference appears in this file's changed lines.
+def select_touched(
+    images: set[str],
+    touched_lines: list[str] | None,
+    variables: dict[str, str] | None = None,
+) -> set[str]:
+    """Keep images whose reference appears in this file's changed lines, or
+    whose manifest variable (``variables``: name -> resolved image) a changed
+    line names, as when `${A_IMAGE}` is swapped for `${B_IMAGE}` (#1389).
 
     An empty or missing list means the diff carried no content for the file — a
     rename or header-only entry — where nothing identifies which images moved,
@@ -58,4 +66,9 @@ def select_touched(images: set[str], touched_lines: list[str] | None) -> set[str
     """
     if not touched_lines:
         return images
-    return {i for i in images if any(i in line for line in touched_lines)}
+    named = {
+        (variables or {}).get(match.group("var"))
+        for line in touched_lines
+        for match in _IMAGE_VARIABLE_RE.finditer(line)
+    }
+    return {i for i in images if i in named or any(i in line for line in touched_lines)}

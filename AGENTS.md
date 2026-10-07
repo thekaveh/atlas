@@ -306,11 +306,11 @@ Operational lint scripts that run outside pytest:
 ```bash
 make docs-check                                                               # three-surface contracts + strict build + wiki dry run
 uv run --project bootstrapper python -m scripts.notebook_reproducibility      # notebook source cleanliness
-uv run --project bootstrapper python scripts/check_doc_links.py                # internal markdown link validator
+uv run --project bootstrapper python scripts/check_doc_links.py                # internal markdown link validator (incl. empty-label and [ref]: links)
 uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check  # docs drift gate (exit 2 on drift)
 uv run --project bootstrapper python scripts/check-docs-drift.py               # docs structure audit
-uv run --project bootstrapper python scripts/check-compose-source-deps.py      # compose depends_on lint
-uv run --project bootstrapper python scripts/check-kong-routes.py              # Kong route generator audit
+uv run --project bootstrapper python scripts/check-compose-source-deps.py      # compose depends_on lint (.env.example only; edges into SOURCE-replaceable families)
+uv run --project bootstrapper python scripts/check-kong-routes.py              # Kong route audit (hosts + every route's paths, strip_path, preserve_host, plugins)
 uv run --project bootstrapper python scripts/validate_research_schema.py --all # docs/research/ schema check
 uv run --project bootstrapper python scripts/check-track-membership.py         # track coverage audit
 uv run --project bootstrapper python -m scripts.docs.license_inventory --check  # supply-chain license inventory vs image/model pins

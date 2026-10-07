@@ -574,14 +574,19 @@ make docs-check
 
 After adding a service, check these allowlists. Skipping them means CI fails on the next push.
 
-### 13.1. `scripts/check-compose-source-deps.py` — two allowlists
+### 13.1. `scripts/check-compose-source-deps.py` — required, forbidden and reviewed edges
+
+The script renders Compose against `.env.example` (or `--env-file PATH`), never your local `.env`, so it gives CI's answer everywhere. Any hard `depends_on` into a container of another family whose manifest `sources:` offer `localhost` or `disabled`, or into an engine such a source's endpoint names (for example `speaches` behind `TTS_PROVIDER_SOURCE`), fails unless it is listed below. Edges inside one family, such as `spark-worker` → `spark-master`, are exempt.
 
 - **`REQUIRED_DEPENDS_ON`** — set of `(service, dependency)` tuples that MUST appear in compose `depends_on`. Add entries here if your compose fragment hard-depends on `litellm`, `redis`, `supabase-db`, `weaviate-init`, etc. The script fails CI if your manifest claims a hard dep that compose doesn't enforce, OR vice versa.
-- **`FORBIDDEN_OPTIONAL_DEPENDS_ON`** — set of edges that MUST NOT exist (depending on a SOURCE-replaceable service via `depends_on` is unsafe because that service may not run as a container). Add entries here if you have an intentional exception with documented justification.
+- **`FORBIDDEN_OPTIONAL_DEPENDS_ON`** — edges that MUST NOT exist even though the rule above does not derive them, such as LightRAG's edges to stores it can replace in-process.
+- **`ALLOWED_REPLACEABLE_DEPENDS_ON`** — reviewed exceptions to the derived rule: the dependent cannot work without that SOURCE-replaceable dependency and is only enabled alongside it (for example `trino` → `iceberg-rest`). Add an entry only with that justification.
 
 ### 13.2. `scripts/check-kong-routes.py` — baseline-default audit
 
 The script runs the Kong route generator against `.env.example` defaults (in a tmp working dir) and verifies the resulting routes match a hardcoded `EXPECTED_HOST_ROUTES` table at the top of the script. If your service publishes a `*.localhost` alias AND its source variant is on-by-default (i.e. `<SVC>_SOURCE`'s default value renders a route), add an entry to `EXPECTED_HOST_ROUTES` mapping the host to the expected upstream URL. Services that are off by default need no entry.
+
+It also compares every default route by name, in both directions, against `EXPECTED_ROUTES`: service, upstream URL, hosts, paths, `strip_path`, `preserve_host`, and service and route plugins, plus the global plugins in `EXPECTED_GLOBAL_PLUGINS`. A path-only route, a dropped `key-auth`, or a flipped `strip_path` fails it. A default-on route you add or change needs its `EXPECTED_ROUTES` entry updated in the same change.
 
 ### 13.3. `.github/dependabot.yml` — `directories:` list
 
