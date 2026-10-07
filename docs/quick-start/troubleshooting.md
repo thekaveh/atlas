@@ -303,6 +303,8 @@ docker compose logs --tail=100 -f redis        # Many services need Redis
 docker compose logs --tail=100 -f supabase-db  # Backend needs database
 ```
 
+If Redis restart-loops with `Bad file format reading the append only file`, its append-only file is corrupt and nothing that depends on Redis will start. Run `./start.sh doctor`: the `redis-aof` check confirms it and prints the backup-first repair, documented in [Redis troubleshooting](../../services/redis/README.md#7-troubleshooting).
+
 ### 7.2. Environment Issues
 
 ```bash
