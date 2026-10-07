@@ -280,3 +280,15 @@ def test_the_rag_notebook_reports_a_disabled_weaviate_instead_of_failing(monkeyp
     namespace["weaviate"] = types.SimpleNamespace(connect_to_custom=lambda **kw: connected)
     exec(compile(setup, "02_langchain_rag", "exec"), namespace)  # noqa: S102
     assert namespace["wv_client"] is connected
+
+
+def test_rag_notebook_stores_documents_idempotently():
+    """Every run inserted the same five documents again with server ids, so
+    a re-run duplicated them and the RAG context repeated one sentence."""
+    import json
+    from pathlib import Path
+
+    nb = json.loads((Path(__file__).resolve().parents[2]
+                     / "services/jupyterhub/build/notebooks/02_langchain_rag.ipynb").read_text())
+    store = next("".join(c["source"]) for c in nb["cells"] if "collection.data.insert" in "".join(c["source"]))
+    assert "generate_uuid5(doc)" in store and "uuid=doc_id" in store and "data.exists(doc_id)" in store

@@ -207,7 +207,7 @@ _No high-confidence opportunities identified._
 
 ## 8. Troubleshooting
 
-- **`airflow-init` fails with "database does not exist"** — Supabase Postgres might not be running yet. `airflow-init` depends_on `supabase-db: service_healthy` so this shouldn't happen, but if it does, `docker logs ${PROJECT_NAME}-airflow-init` shows the psql error.
+- **`airflow-init` fails with "database does not exist"** — the Airflow database is created by `supabase-db-init`. `airflow-init` depends_on `supabase-db-init: service_completed_successfully`, so this points at a failed or skipped db-init: check `docker logs ${PROJECT_NAME}-supabase-db-init`, then `docker logs ${PROJECT_NAME}-airflow-init` for the psql error.
 - **Web UI login rejected** — `AIRFLOW_ADMIN_PASSWORD` in `.env` may have rotated. Check the value; if rotated, `airflow-init` re-runs and re-syncs the admin user on next `./start.sh`.
 - **Deferrable operators never resume** — Atlas runs no `airflow-triggerer` service, so a task using `deferrable=True` or an async sensor defers and stays deferred. Use the non-deferrable form of the operator.
 - **Spark submit stays SUBMITTED / waiting for cores** — the standalone pool is 2 workers × 2 cores by default; Spark Connect holds `SPARK_CONNECT_CORES_MAX` (1) and Zeppelin's interpreter `ZEPPELIN_SPARK_CORES_MAX` (1). A cluster-mode submit needs one core for its driver plus one for an executor, so with `SPARK_WORKER_COUNT=1` it cannot start until another app releases cores.
