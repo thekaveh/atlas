@@ -86,10 +86,10 @@ Each wizard step renders one of five prompt widgets, picked based on the questio
 | Kind | Used for | UX |
 |---|---|---|
 | `options` | Single-select with a small fixed option set — every `*_SOURCE`, the `Cold start` toggle, the `Hosts setup · /etc/hosts` choice, and the three **LLM defaults** pickers (chat / embedding / vision, see §4.6). | Up/Down arrows + Enter; the current `.env` value is pre-highlighted. |
-| `number` | Numeric prompts (`Base port`). | Single-line input. A value outside the step's range, or one that is not a number, is **refused**: the hint under the input becomes the reason and you stay on the step (see §7.2). A bare Enter keeps the displayed default. |
+| `number` | Numeric prompts (`Base port`). | Single-line input. A value outside the step's range, or one that is not a number, is **refused**: the hint under the input becomes the reason and you stay on the step (see §7.2). A bare Enter keeps the displayed default. The overview's ports follow the base you confirm, also for sources you change afterwards (#1390). |
 | `secret` | API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`). | Masked password Input + a live char-count hint as you paste. When a key is already set, the hint shows the source-aware action: press Enter to keep the saved key, type a new key to replace, type `clear` + Enter to remove. No sentinel rows are rendered — the input field IS the prompt. |
 | `multiselect` | Cloud and Ollama model lists. | `[selected]` / `[ ]` rows in a scrollable viewport (capped height; the cursor follows the selection so a 230-row library scrape stays usable). Space toggles, Enter confirms. **Cloud** multiselect: default-active set (intersected with what your account actually returns) is pre-checked on first visit. **Ollama** multiselect: source-aware — container shows the library only, localhost shows a merged `[pulled]` + `[library]` view. Purely additive; the default-active baseline is baked into `services/ollama/models.yaml` with `default: true` and resolved by `model_resolver` on every `docker compose up`. |
-| `text` | Free-text entries — the **Project name** step (Docker Compose namespace, persisted to `PROJECT_NAME`; lower-cased + validated) and the Ollama "additional models to pull" step. | Single-line input; trimmed. The project-name step pre-fills with the current `PROJECT_NAME` and a bare Enter keeps it. |
+| `text` | Free-text entries — the **Project name** step (Docker Compose namespace, persisted to `PROJECT_NAME`; lower-cased + validated) and the Ollama "additional models to pull" step. | Single-line input; trimmed. The project-name step pre-fills with the current `PROJECT_NAME` and a bare Enter keeps it; an invalid name keeps you on the step with the reason shown, instead of silently keeping the old name (#1390). |
 
 Throughout: `Up/Down` to move, `Enter` to confirm, `Space` to toggle multiselect rows, `Esc` returns to the previous step, `Ctrl+C` (or `Ctrl+Q`) quits.
 
@@ -499,7 +499,7 @@ bring that data back; the cancel message says so.
 | `Up/Down` | Navigate between options or rows |
 | `Space` | Toggle a row in a multiselect |
 | `Enter` | Confirm the current selection |
-| `Esc` | Return to the previous step (and from the first step, exit) |
+| `Esc` | Return to the previous step (and from the first visible step, exit, including when `--track`/`--profile` pre-answered the steps before it) |
 | `1` / `2` | Jump to the Setup / Logs tab (Logs only after launch begins) |
 | `Shift+Tab` | Cycle to the previous tab |
 | `Ctrl+R` | Review the full warning on a destructive step (§7.1) |
@@ -529,7 +529,7 @@ The step opens with its current answer selected. Confirm a new answer with **Ent
 3. drops the answers of steps the change hides, such as model picks for an engine you switched off;
 4. returns to the step you opened the overlay from, and reopens the Decisions page with the same search, the same decision highlighted and the same scroll position.
 
-Confirming the answer you already had changes nothing. The command summary updates as each answer is committed, so the command is the same one a straight run through the wizard with the same answers would produce.
+Confirming the answer you already had changes nothing. The command summary updates as each answer is committed, so the command is the same one a straight run through the wizard with the same answers would produce. Besides the base port, track, profile, sources, cloud, Ollama, cold and hosts flags, it names `--project`, `--comfyui-models`, `--ray-worker-count` and `--spark-workers` when you answer those steps (#1390).
 
 While an edit is in progress, **Esc** returns to the Decisions page instead of stepping back through the wizard. Press it on the step you jumped to without confirming, and nothing changes. If your edit cleared an answer, that step has to be answered first: Esc there says so and stays put, and a second Esc leaves the edit and steps back through the wizard as usual. Going forward again then visits every step, so no answer is skipped. To change a different step, open the overlay again and jump to it; you still return to where you first opened it.
 

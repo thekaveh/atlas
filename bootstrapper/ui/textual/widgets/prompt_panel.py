@@ -360,6 +360,11 @@ class PromptStep:
     # fallback; an empty answer used to crash the launch after .env was
     # half-written). On a text step this also refuses the `clear` sentinel.
     number_required: bool = False
+    # Optional ``kind="text"`` check: returns why a typed entry (the `clear`
+    # sentinel included) can't be committed, or None. The confirm keeps the
+    # user on the step with the reason shown (#1390). Empty Enter (keep
+    # current) is not checked.
+    text_validator: "Callable[[str], str | None] | None" = None
     # Optional predicate the wizard screen calls before loading this
     # step. Receives the in-progress ``selections`` dict and returns
     # True if this step should be skipped. Used to skip cloud
@@ -1777,10 +1782,14 @@ class PromptPanel(Container):
         """
         if self._step is None:
             return None
+        raw = self._number_input.value if self._number_input else ""
+        if self._step.kind == "text" and self._step.text_validator is not None:
+            typed = raw.strip()
+            if typed:
+                return self._step.text_validator(typed)
         validated_text = self._step.kind == "text" and self._step.number_required
         if self._step.kind != "number" and not validated_text:
             return None
-        raw = self._number_input.value if self._number_input else ""
         return number_entry_error(raw, self._step)
 
     def current_secondary_error(self) -> str | None:
