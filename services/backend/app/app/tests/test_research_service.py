@@ -866,3 +866,50 @@ def test_research_thread_cleanup_is_best_effort():
 
     client = ResearchClient(base_url="http://127.0.0.1:9")  # discard port
     _asyncio.run(client.delete_thread("thread-1"))  # does not raise
+
+
+def test_execute_research_deletes_the_finished_thread_after_storing_its_result():
+    """Only a completed run's thread is deleted, once, after its result is
+    stored (#1388): the cancel tests above assert the call is absent."""
+    events = []
+    result = object()
+
+    class FakeResearchClient:
+        async def start_research(self, request):
+            return ResearchResponse(
+                session_id="remote-thread-1", status=ResearchStatus.PENDING, message="started",
+            )
+
+        async def wait_for_completion(self, session_id, max_wait_time=300):
+            return ResearchResponse(
+                session_id=session_id, status=ResearchStatus.COMPLETED, message="done",
+            )
+
+        async def get_research_result(self, session_id):
+            return result
+
+        async def delete_thread(self, session_id):
+            events.append(("delete_thread", session_id))
+
+        def discard_pending(self, session_id):
+            events.append(("discard_pending", session_id))
+
+    service = object.__new__(ResearchService)
+    service.research_client = FakeResearchClient()
+
+    async def append_log(*args):
+        return None
+
+    async def store(session_id, research_result):
+        events.append(("store", session_id, research_result is result))
+
+    service._append_research_log = append_log
+    service._store_research_result = store
+
+    asyncio.run(service._execute_research("local-session-1", ResearchRequest(query="atlas")))
+
+    assert events == [
+        ("store", "local-session-1", True),
+        ("delete_thread", "remote-thread-1"),
+        ("discard_pending", "remote-thread-1"),
+    ]

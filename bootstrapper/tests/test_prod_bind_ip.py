@@ -13,15 +13,20 @@ def test_prod_bind_ip_localhost():
     # Render compose with HOST_BIND_IP set; every published port must be 127.0.0.1-bound.
     env = os.environ.copy()
     env["HOST_BIND_IP"] = "127.0.0.1:"
-    # provide minimal required vars by sourcing the committed .env.example
+    # provide minimal required vars by sourcing the committed .env.example.
+    # --profile '*' renders the profile-gated services too (chatterbox,
+    # docling-gpu, parakeet-gpu, speaches), whose ports were never checked (#1388).
     out = subprocess.run(
-        ["docker", "compose", "-f", "docker-compose.yml", "--env-file", ".env.example", "config"],
+        ["docker", "compose", "-f", "docker-compose.yml", "--env-file", ".env.example",
+         "--profile", "*", "config"],
         cwd=REPO,
         env=env,
         capture_output=True,
         text=True,
     )
     assert out.returncode == 0, out.stderr
+    for profiled in ("chatterbox:", "docling-gpu:", "parakeet-gpu:", "speaches:"):
+        assert f"\n  {profiled}\n" in out.stdout, f"{profiled} not rendered"
 
     # Docker Compose renders published ports in expanded form:
     #   - mode: ingress

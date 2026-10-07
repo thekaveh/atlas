@@ -4173,6 +4173,42 @@ def test_restore_requires_external_manifest_key_and_deployment_identity() -> Non
     assert "BACKUP_MANIFEST_HMAC_KEY" in result.stderr
 
 
+@pytest.mark.parametrize(
+    ("deployment_id", "message"),
+    [
+        ("", "must use only letters"),
+        ("bad/id", "must use only letters"),
+        ("a" * 129, "must be at most 128"),
+        ("a" * 128, None),  # the longest accepted ID passes this guard
+    ],
+)
+def test_restore_rejects_an_invalid_deployment_identity(deployment_id: str, message: str) -> None:
+    """With a valid manifest key the deployment-ID guard is what refuses (#1388)."""
+    restore = REPO / "services/backup/init/scripts/restore-postgres.sh"
+    result = subprocess.run(
+        ["sh", str(restore)],
+        env={
+            "PATH": "/usr/bin:/bin",
+            "BACKUP_RESTORE_MAINTENANCE_MODE": "confirmed",
+            "SUPABASE_DB_USER": "postgres",
+            "SUPABASE_DB_PASSWORD": "secret",
+            "SUPABASE_DB_NAME": "postgres",
+            "MINIO_ROOT_USER": "minio",
+            "MINIO_ROOT_PASSWORD": "secret",
+            "BACKUP_MANIFEST_HMAC_KEY": "a" * 64,
+            "BACKUP_DEPLOYMENT_ID": deployment_id,
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if message is None:
+        assert "BACKUP_DEPLOYMENT_ID" not in result.stderr
+        return
+    assert result.returncode == 64
+    assert f"BACKUP_DEPLOYMENT_ID {message}" in result.stderr
+
+
 def test_disabled_backup_runner_fails_before_bootstrap() -> None:
     entrypoint = REPO / "services/backup/init/scripts/entrypoint.sh"
     result = subprocess.run(
