@@ -101,8 +101,13 @@ celery_app = Celery(
 
 _worker_limits = _load_worker_limits()
 _rag_limits = load_rag_ingestion_limits()
+# The longest a delivery may stay unacknowledged: the RAG hard limit, or a
+# busy memory retry's countdown (the task hard limit + 60 s). Below the
+# countdown, the done-marker (same TTL) expired before the retry fired and
+# consolidation ran twice; the broker also redelivered the held ETA message.
 _visibility_timeout = effective_visibility_timeout(
-    _worker_limits["visibility_timeout"], _rag_limits["hard"]
+    _worker_limits["visibility_timeout"],
+    max(_rag_limits["hard"], _worker_limits["task_time_limit"] + 60),
 )
 celery_app.conf.update(
     task_default_queue=os.getenv("CELERY_QUEUE", "atlas"),

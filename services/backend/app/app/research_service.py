@@ -305,22 +305,30 @@ class ResearchService:
         finally:
             await self._release_db_connection(conn)
 
-    async def _write_research_heartbeat(self, session_id: str) -> None:
+    async def _write_research_heartbeat(self, session_id: str) -> bool:
+        """Refresh the heartbeat; False when the session is no longer running."""
         conn = await self._get_db_connection(bounded=False)
         try:
-            await conn.execute("""
+            result = await conn.execute("""
                 UPDATE public.research_sessions
                 SET heartbeat_at = now()
                 WHERE id = $1 AND status = $2
             """, session_id, ResearchStatus.RUNNING.value)
         finally:
             await self._release_db_connection(conn)
+        return not (isinstance(result, str) and result.strip() == "UPDATE 0")
 
     async def _heartbeat_research(self, session_id: str) -> None:
         while True:
             await asyncio.sleep(self.heartbeat_interval)
             try:
-                await self._write_research_heartbeat(session_id)
+                owner = getattr(self, "_active_tasks", {}).get(session_id)
+                if not await self._write_research_heartbeat(session_id) and owner is not None:
+                    # Cancelled (or terminalized) through another replica: stop
+                    # the local run, which closes /runs/stream so LangGraph's
+                    # on_disconnect=cancel stops the remote run too.
+                    owner.cancel()
+                    return
             except Exception as exc:
                 logger.warning(
                     "research heartbeat failed (session_id=%s, error_type=%s)",

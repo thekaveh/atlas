@@ -10,7 +10,7 @@ Set `CELERY_SOURCE=container` from the setup wizard or CLI to run one backend Ce
 
 ## 1. Overview
 
-The worker currently runs memory consolidation and RAG ingestion. `POST /memory/consolidate?async_job=true` returns a Celery job id immediately instead of holding the FastAPI request open while the LangMem consolidation loop performs database reads and LLM calls. RAG ingestion submissions dispatch the phase engine when this tier is enabled. Use `GET /jobs/{job_id}` to inspect pending, running, success, retry, failure, or revoked state.
+The worker currently runs memory consolidation and RAG ingestion. `POST /memory/consolidate?async_job=true` returns a Celery job id immediately instead of holding the FastAPI request open while the LangMem consolidation loop performs database reads and LLM calls. RAG ingestion submissions dispatch the phase engine when this tier is enabled. Use `GET /jobs/{job_id}` to inspect pending, running, success, retry, failure, or revoked state. `pending` is ambiguous: Celery reports it for an id it has never seen and for a result past its expiry (Celery's default `result_expires`, one day), so a mistyped id or a job polled more than a day after it finished reads `pending` indefinitely.
 
 The old synchronous `POST /memory/consolidate` path remains available for compatibility. Research start is deferred because it already has a separate database-backed session lifecycle, and moving it first would mix two lifecycle models in one change.
 

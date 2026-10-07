@@ -2269,3 +2269,50 @@ def test_word_tokenized_filter_properties_force_a_rebuild():
     assert memory_store._needs_field_tokenization({"properties": field}) is False
     field[1] = {"name": "namespace", "tokenization": "word"}
     assert memory_store._needs_field_tokenization({"properties": field}) is True
+
+
+def test_research_heartbeat_stops_a_run_cancelled_on_another_replica():
+    """Cancel on replica B only flipped the row; replica A's run streamed on
+    for up to 30 minutes holding a slot. The heartbeat now sees the session
+    is no longer running and cancels the local run."""
+    from research_service import ResearchService
+
+    service = object.__new__(ResearchService)
+    service.heartbeat_interval = 0.01
+    beats = []
+
+    async def still_running(session_id):
+        beats.append(session_id)
+        return len(beats) < 2  # cancelled elsewhere after the first beat
+
+    service._write_research_heartbeat = still_running
+
+    async def scenario():
+        owner = asyncio.create_task(asyncio.sleep(30))
+        service._active_tasks = {"s1": owner}
+        await asyncio.wait_for(service._heartbeat_research("s1"), timeout=2)
+        await asyncio.sleep(0)
+        return owner.cancelled()
+
+    assert asyncio.run(scenario()) is True
+
+
+def test_visibility_timeout_outlasts_a_busy_memory_retry():
+    """With task_time_limit=5000 and visibility 5001 the busy-retry countdown
+    (5060) outlived the done-marker and the broker visibility window. Run in
+    a subprocess: the values are computed at import."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    env = {**os.environ, "CELERY_TASK_TIME_LIMIT_SECONDS": "5000",
+           "CELERY_TASK_SOFT_TIME_LIMIT_SECONDS": "4900",
+           "CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS": "5001",
+           "RAG_INGESTION_TASK_TIME_LIMIT_SECONDS": "3900",
+           "RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS": "3840"}
+    out = subprocess.run(
+        [sys.executable, "-c", "import celery_app as c; print(c._visibility_timeout, c.memory_execution_lease_seconds())"],
+        cwd=Path(__file__).resolve().parents[1], env=env, capture_output=True, text=True, check=True,
+    ).stdout.split()
+    assert int(out[0]) > int(out[1])
