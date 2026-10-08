@@ -86,6 +86,20 @@ def _has_pending_ledger_intent(operation: dict[str, Any]) -> bool:
     )
 
 
+def _in_flight_budget_tracked(operation: dict[str, Any]) -> bool:
+    """A budget-tracked operation that has not finished keeps its record
+    without a TTL: its ledger row stays SUBMITTED until a poll of this record
+    settles it, and nothing polls in the background. Expiring it left the
+    estimate reserved (or, with retention, a billed job uncommitted) (#1447).
+    The in-memory store never expires records, so both stores agree."""
+    status = str((operation.get("last_payload") or {}).get("status") or "")
+    return bool(
+        operation.get("budget_tracked")
+        and not operation.get("reconciled")
+        and status not in TERMINAL_MEDIA_STATUSES
+    )
+
+
 def _ttl_seconds() -> int:
     try:
         value = int(os.getenv("MEDIA_OPERATION_TTL_SECONDS", str(7 * 24 * 3600)))
@@ -504,6 +518,10 @@ if pending then
     -- A terminal operation is still the durable retry intent until its
     -- ledger row is settled and mark_reconciled reapplies the normal TTL.
     redis.call('SET', KEYS[1], blob)
+elseif not terminal and operation.budget_tracked == true and operation.reconciled ~= true then
+    -- In flight and budget-tracked: its ledger row is SUBMITTED and only a
+    -- poll of this record settles it, so it must not expire first (#1447).
+    redis.call('SET', KEYS[1], blob)
 else
     redis.call('SET', KEYS[1], blob, 'EX', ARGV[2])
 end
@@ -598,7 +616,11 @@ if pending then
     redis.call('SADD', KEYS[2], operation.operation_id)
     if score then redis.call('ZADD', KEYS[3], 'NX', score, operation.operation_id) end
 else
-    redis.call('SET', KEYS[1], blob, 'EX', ARGV[1])
+    if not terminal and operation.budget_tracked == true and operation.reconciled ~= true then
+        redis.call('SET', KEYS[1], blob)  -- in flight, budget-tracked (#1447)
+    else
+        redis.call('SET', KEYS[1], blob, 'EX', ARGV[1])
+    end
     redis.call('SREM', KEYS[2], operation.operation_id)
     redis.call('ZREM', KEYS[3], operation.operation_id)
 end
@@ -718,6 +740,7 @@ return 1
             or provenance.get("ledger_attach_pending")
             or provenance.get("ledger_attach_protection_clear_pending")
             or _has_pending_ledger_intent(operation)
+            or _in_flight_budget_tracked(operation)
         )
         created, persisted_blob = await self._redis.eval(
             self._CREATE_SCRIPT,

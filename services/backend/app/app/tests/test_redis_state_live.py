@@ -526,3 +526,42 @@ def test_media_failed_intent_defers_to_tail_before_later_writer() -> None:
         await store.aclose()
 
     asyncio.run(scenario())
+
+
+def test_in_flight_budget_tracked_media_record_never_expires() -> None:
+    """An attached, budget-tracked operation nobody polls for the TTL lost its
+    record while its ledger row stayed SUBMITTED; nothing settled it (#1447).
+    The in-memory store never expires; the Redis store now agrees."""
+    from media_operation_store import InMemoryMediaOperationStore
+
+    def operation(operation_id: str, budget_tracked: bool) -> dict:
+        return {
+            "operation_id": operation_id, "provider": "fal", "modality": "image",
+            "model": "fal-ai/flux/dev", "owner_scope": "service",
+            "budget_tracked": budget_tracked, "reconciled": False,
+            "last_payload": {"operation_id": operation_id, "status": "queued",
+                             "provenance": {"ledger_attach_protection_clear_pending": True}},
+        }
+
+    async def scenario():
+        redis_store = RedisMediaOperationStore(_REDIS_URL)
+        memory_store = InMemoryMediaOperationStore()
+        tracked, untracked = f"tracked-{uuid.uuid4().hex}", f"untracked-{uuid.uuid4().hex}"
+        for store in (redis_store, memory_store):
+            for operation_id, budget in ((tracked, True), (untracked, False)):
+                await store.create(operation(operation_id, budget))
+                await store.complete_attach_protection_clear(operation_id)
+                await store.transition_payload(operation_id, {"operation_id": operation_id, "status": "running"})
+        redis = redis_store._redis
+        assert await redis.ttl("atlas:media:operations:" + tracked) == -1
+        assert await redis.ttl("atlas:media:operations:" + untracked) > 0
+        assert await memory_store.get(tracked) is not None
+        # Settling restores the normal TTL.
+        for store in (redis_store, memory_store):
+            await store.transition_payload(tracked, {"operation_id": tracked, "status": "succeeded"})
+            await store.mark_reconciled(tracked)
+        assert await redis.ttl("atlas:media:operations:" + tracked) > 0
+        await redis.delete("atlas:media:operations:" + tracked, "atlas:media:operations:" + untracked)
+        await redis_store.aclose()
+
+    asyncio.run(scenario())
