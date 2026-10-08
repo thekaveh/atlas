@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 
@@ -161,3 +162,69 @@ def test_local_deep_researcher_uses_pinned_source_and_cli() -> None:
     )
     assert "uvx" not in script
     assert 'exec "$VENV_DIR/bin/langgraph" dev' in script
+
+
+def test_n8n_custom_node_set_survives_an_offline_restart(tmp_path) -> None:
+    """A custom N8N_INIT_NODES set was wiped and reinstalled on every start,
+    so an offline restart left no nodes and failed n8n-init."""
+    import os
+    import subprocess
+
+    script = REPO_ROOT / "services" / "n8n" / "init" / "scripts" / "install-nodes.sh"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    npm = bin_dir / "npm"
+    npm.write_text(
+        '#!/bin/sh\n[ -f "$NPM_FAIL" ] && exit 1\n'
+        'while [ "$1" != "--prefix" ]; do shift; done; p=$2\n'
+        'mkdir -p "$p/node_modules" && touch "$p/node_modules/.package-lock.json" "$p/package-lock.json"\n'
+    )
+    npm.chmod(0o755)
+    fail = tmp_path / "offline"
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "N8N_USER_FOLDER": str(tmp_path / "n8n"),
+           "N8N_INIT_NODES": "n8n-nodes-x@1.2.3", "NPM_FAIL": str(fail)}
+    run = lambda: subprocess.run(["sh", str(script)], env=env, capture_output=True, text=True)  # noqa: E731
+    assert run().returncode == 0
+    fail.touch()
+    assert run().returncode == 0  # same set, offline: nothing to fetch
+    env["N8N_INIT_NODES"] = "n8n-nodes-y@2.0.0"
+    assert run().returncode != 0  # a new set offline fails, but keeps the old one
+    assert (tmp_path / "n8n" / "nodes" / "node_modules" / ".package-lock.json").is_file()
+
+
+def test_airflow_init_keeps_operator_connections_for_localhost_sources(tmp_path) -> None:
+    """The orphan pass deleted spark/minio/weaviate/neo4j_default on every
+    start, including the ones an operator made for a localhost source."""
+    import os
+    import subprocess
+
+    script = (REPO_ROOT / "services/airflow/init/scripts/init-airflow.sh").read_text(encoding="utf-8")
+    start = script.index("for pair in ")
+    loop = script[start:script.index("done", start) + 4]
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "airflow").write_text(f'#!/bin/sh\necho "$@" >> {tmp_path}/calls\n')
+    (bin_dir / "airflow").chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "SPARK_SOURCE": "disabled",
+           "MINIO_SOURCE": "container", "WEAVIATE_SOURCE": "localhost", "NEO4J_GRAPH_DB_SOURCE": "localhost"}
+    subprocess.run(["sh", "-c", loop], env=env, check=True)
+    calls = (tmp_path / "calls").read_text()
+    assert "delete spark_default" in calls and "delete minio_default" in calls
+    assert "weaviate_default" not in calls and "neo4j_default" not in calls
+
+
+def test_openclaw_init_fails_on_an_unparseable_config(tmp_path) -> None:
+    """`jq … > tmp && mv` hid jq's failure from set -e: invalid JSON exited 0
+    and the gateway started on a broken config."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("jq"):
+        pytest.skip("jq not installed")
+    compose = yaml.safe_load((REPO_ROOT / "services/openclaw/compose.yml").read_text(encoding="utf-8"))
+    script = compose["services"]["openclaw-init"]["entrypoint"][-1].replace("$$", "$")
+    config = tmp_path / "openclaw.json"
+    config.write_text('{"gateway": broken', encoding="utf-8")
+    script = script.replace("/home/node/.openclaw/openclaw.json", str(config)).replace("chown -R 1000:1000 /home/node/.openclaw", "true")
+    assert subprocess.run(["sh", "-c", script], capture_output=True).returncode != 0
+    assert config.read_text(encoding="utf-8") == '{"gateway": broken'

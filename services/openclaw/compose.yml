@@ -25,14 +25,19 @@ services:
         # leave a 0-byte config the gateway chokes on (and re-runs
         # could not self-heal — jq errors on the empty file).
         if [ -s "$$CONFIG" ]; then
-          jq --argjson patch "$$PATCH" '. * $$patch' "$$CONFIG" > "$$CONFIG.tmp" && mv "$$CONFIG.tmp" "$$CONFIG"
+          jq --argjson patch "$$PATCH" '. * $$patch' "$$CONFIG" > "$$CONFIG.tmp" || exit 1
+          mv "$$CONFIG.tmp" "$$CONFIG"
         else
-          echo "$$PATCH" | jq . > "$$CONFIG.tmp" && mv "$$CONFIG.tmp" "$$CONFIG"
+          echo "$$PATCH" | jq . > "$$CONFIG.tmp" || exit 1
+          mv "$$CONFIG.tmp" "$$CONFIG"
         fi
         # The bundled litellm provider reads LITELLM_API_KEY but defaults its
         # base URL to http://localhost:4000 (ECONNREFUSED in this container).
         # Point it at the gateway only when unset, keeping operator values.
-        jq '.models.providers.litellm.baseUrl //= "http://litellm:4000" | .models.providers.litellm.models //= []' "$$CONFIG" > "$$CONFIG.tmp" && mv "$$CONFIG.tmp" "$$CONFIG"
+        # `|| exit 1`, not `&& mv`: set -e ignores a failure on the left of
+        # &&, so invalid JSON exited 0 and the gateway started on it.
+        jq '.models.providers.litellm.baseUrl //= "http://litellm:4000" | .models.providers.litellm.models //= []' "$$CONFIG" > "$$CONFIG.tmp" || exit 1
+        mv "$$CONFIG.tmp" "$$CONFIG"
         chown -R 1000:1000 /home/node/.openclaw
     networks:
       - backend-network

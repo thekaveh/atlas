@@ -80,8 +80,16 @@ add_conn() {
 # `container` from sitting in the metadata DB after the user flips it
 # back to `disabled` — orphan Connections would point at dead DNS names
 # and confuse DAGs that reference them.
-for orphan in spark_default minio_default weaviate_default neo4j_default; do
-  airflow connections delete "$orphan" >/dev/null 2>&1 || true
+#
+# Only a `container` source owns its Connection: for a `localhost` source the
+# operator creates it by hand (see below), and deleting it on every start
+# broke their DAGs with AirflowNotFoundException.
+for pair in "spark_default:${SPARK_SOURCE:-}" "minio_default:${MINIO_SOURCE:-}" \
+            "weaviate_default:${WEAVIATE_SOURCE:-}" "neo4j_default:${NEO4J_GRAPH_DB_SOURCE:-}"; do
+  case "${pair#*:}" in
+    *localhost*) continue ;;
+  esac
+  airflow connections delete "${pair%%:*}" >/dev/null 2>&1 || true
 done
 
 # Gating convention: every gate uses `= "container"` (NOT `!= "disabled"`).
