@@ -305,7 +305,10 @@ class BlenderMcpManager:
             source = Path(self.addon_file).expanduser()
             if not source.exists():
                 raise BlenderMcpError(f"BLENDER_MCP_ADDON_FILE {source} does not exist")
-            shutil.copyfile(source, self.addon_path)
+            # The override may already be the provisioned file; copyfile
+            # raises SameFileError (an OSError traceback) on that.
+            if not (self.addon_path.exists() and source.samefile(self.addon_path)):
+                shutil.copyfile(source, self.addon_path)
         elif not (
             self.addon_path.exists() and self._sha256(self.addon_path) == self.addon_sha256
         ):

@@ -477,15 +477,28 @@ def create_private_backup(
             os.close(fd)
 
 
+def _env_file_state_root(env_file: Path | None = None) -> str:
+    """ATLAS_MANAGED_HOST_STATE_ROOT as the repository's .env sets it. The
+    managers read the root from .env (`default_state_dir`), not from the
+    process environment, so a root set only there was left unprotected."""
+    env_file = env_file or Path(__file__).resolve().parents[2] / ".env"
+    with suppress(OSError, UnicodeDecodeError):
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            key, sep, value = line.strip().removeprefix("export ").partition("=")
+            if sep and key.strip() == "ATLAS_MANAGED_HOST_STATE_ROOT":
+                return value.strip().strip("\"'")
+    return ""
+
+
 def _protected_state_paths() -> list:
     """Directories a managed state dir must never be: the working directory,
     $HOME, the repository and the shared state roots, plus every parent."""
     anchors = [Path.home(), Path(__file__).resolve().parents[2], Path.home() / ".atlas"]
     with suppress(OSError):  # a deleted working directory
         anchors.append(Path.cwd())
-    root = os.environ.get("ATLAS_MANAGED_HOST_STATE_ROOT", "").strip()
-    if root:
-        anchors.append(Path(root).expanduser())
+    for root in (os.environ.get("ATLAS_MANAGED_HOST_STATE_ROOT", ""), _env_file_state_root()):
+        if root.strip():
+            anchors.append(Path(root.strip()).expanduser())
     resolved = [anchor.expanduser().resolve() for anchor in anchors]
     return [*resolved, *(parent for anchor in resolved for parent in anchor.parents)]
 

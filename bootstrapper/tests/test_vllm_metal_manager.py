@@ -1404,3 +1404,58 @@ def test_state_dir_guard_compares_identity_not_spelling(tmp_path, monkeypatch):
     with pytest.raises(VllmMetalError, match="refusing"):
         remove_state_directory(respelled, ("state", VllmMetalError))
     assert home.is_dir()
+
+
+def test_a_state_root_set_only_in_dotenv_is_protected(tmp_path, monkeypatch):
+    """The guard read ATLAS_MANAGED_HOST_STATE_ROOT from the process env, but
+    Atlas reads it from .env: VLLM_METAL_STATE_DIR=<root> deleted every
+    consumer host's state."""
+    from utils import atomic_write
+
+    root = tmp_path / "root"
+    (root / "other-host").mkdir(parents=True)
+    env_file = tmp_path / ".env"
+    env_file.write_text(f'export ATLAS_MANAGED_HOST_STATE_ROOT="{root}"\n', encoding="utf-8")
+    assert atomic_write._env_file_state_root(env_file) == str(root)
+    monkeypatch.delenv("ATLAS_MANAGED_HOST_STATE_ROOT", raising=False)
+    monkeypatch.setattr(atomic_write, "_env_file_state_root", lambda: str(root))
+    manager = VllmMetalManager(root, port=8000)
+    with pytest.raises(VllmMetalError, match="refusing"):
+        manager.remove()
+    assert (root / "other-host").is_dir()
+
+
+@pytest.mark.parametrize("raw", ["8001x", "²", ""])
+def test_a_malformed_port_does_not_break_stop_and_remove(raw):
+    from services import comfyui_mps_manager, vllm_metal_manager
+
+    assert vllm_metal_manager.manager_from_env({"VLLM_METAL_LOCALHOST_PORT": raw}).port == 8000
+    assert comfyui_mps_manager.manager_from_env({"COMFYUI_MPS_LOCALHOST_PORT": raw}).port == 8188
+
+
+def test_comfy_remove_refuses_a_differently_cased_models_path(tmp_path):
+    """The models-path refusal compared text; ~/.Atlas/... on a
+    case-insensitive volume is the state dir, and remove deleted the weights."""
+    from services.comfyui_mps_manager import ComfyUiMpsError, ComfyUiMpsManager
+
+    state = tmp_path / "state"
+    (state / "models").mkdir(parents=True)
+    (state / "models" / "w.safetensors").write_bytes(b"x")
+    variant = tmp_path / "STATE" / "models"
+    if not variant.exists():
+        pytest.skip("case-sensitive filesystem")
+    manager = ComfyUiMpsManager(state_dir=state, models_path=str(variant))
+    with pytest.raises(ComfyUiMpsError, match="never deletes"):
+        manager.remove()
+    assert (state / "models" / "w.safetensors").exists()
+
+
+def test_blender_addon_override_may_be_the_provisioned_file(tmp_path):
+    from services.blender_mcp_manager import BlenderMcpManager
+
+    manager = BlenderMcpManager(tmp_path / "state")
+    manager.state_dir.mkdir(parents=True)
+    manager.addon_path.write_text("addon", encoding="utf-8")
+    manager.addon_file = str(manager.addon_path)
+    manager._install_locked()  # used to raise shutil.SameFileError
+    assert manager.addon_path.read_text(encoding="utf-8") == "addon"

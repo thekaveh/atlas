@@ -874,11 +874,19 @@ class VllmMetalManager:
         self.status_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def _env_port(raw, default: int) -> int:
+    """ASCII digits, else the default: a typo used to traceback every command,
+    including stop and remove of a running host (the Blender factory falls
+    back the same way)."""
+    raw = (raw or "").strip()
+    return int(raw) if raw.isascii() and raw.isdigit() else default
+
+
 def manager_from_env(env: dict[str, str]) -> VllmMetalManager:
     """Build a manager from resolved .env values."""
     return VllmMetalManager(
         state_dir=(env.get("VLLM_METAL_STATE_DIR") or "").strip() or "~/.atlas/vllm-metal",
-        port=int(env.get("VLLM_METAL_LOCALHOST_PORT", "8000") or "8000"),
+        port=_env_port(env.get("VLLM_METAL_LOCALHOST_PORT"), 8000),
         model=env.get("VLLM_METAL_MODEL", "Qwen/Qwen2.5-7B-Instruct"),
         plugin_version=env.get("VLLM_METAL_PLUGIN_VERSION", _DEFAULT_PLUGIN_VERSION) or _DEFAULT_PLUGIN_VERSION,
         core_version=(

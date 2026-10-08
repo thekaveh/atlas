@@ -721,7 +721,15 @@ class ComfyUiMpsManager:
             return
         models = Path(self.models_path).expanduser().resolve()
         state = self.state_dir.expanduser().resolve()
-        if models == state or state in models.parents:
+        # By file identity as well as text: on a case-insensitive volume a
+        # differently-cased models path is the same folder (85b10c48).
+        inside = models == state or state in models.parents
+        if not inside and state.exists():
+            state_stat = state.stat()
+            inside = any(
+                p.exists() and os.path.samestat(p.stat(), state_stat) for p in (models, *models.parents)
+            )
+        if inside:
             raise ComfyUiMpsError(
                 f"refusing to remove {state}: it contains COMFYUI_MPS_MODELS_PATH ({models}), "
                 "which Atlas never deletes; move the models or point COMFYUI_MPS_MODELS_PATH elsewhere"
@@ -1496,11 +1504,19 @@ class ComfyUiMpsManager:
         state[key] = {"sha256": sha, "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
 
 
+def _env_port(raw, default: int) -> int:
+    """ASCII digits, else the default: a typo used to traceback every command,
+    including stop and remove of a running host (the Blender factory falls
+    back the same way)."""
+    raw = (raw or "").strip()
+    return int(raw) if raw.isascii() and raw.isdigit() else default
+
+
 def manager_from_env(env: dict[str, str]) -> ComfyUiMpsManager:
     """Build a manager from resolved .env values."""
     return ComfyUiMpsManager(
         state_dir=(env.get("COMFYUI_MPS_STATE_DIR") or "").strip() or "~/.atlas/comfyui-mps",
-        port=int(env.get("COMFYUI_MPS_LOCALHOST_PORT", "8188") or "8188"),
+        port=_env_port(env.get("COMFYUI_MPS_LOCALHOST_PORT"), 8188),
         ref=env.get("COMFYUI_MPS_REF", "v0.27.0"),
         models_path=env.get("COMFYUI_MPS_MODELS_PATH") or None,
         min_memory_gb=int(env.get("COMFYUI_MPS_MIN_MEMORY_GB", "16") or "16"),
