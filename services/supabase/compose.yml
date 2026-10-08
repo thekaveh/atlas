@@ -129,9 +129,14 @@ services:
       PG_META_DB_USER: ${SUPABASE_META_DB_USER:?SUPABASE_META_DB_USER is required}
       PG_META_DB_PASSWORD: ${SUPABASE_META_DB_PASSWORD:?SUPABASE_META_DB_PASSWORD is required}
       # Decrypts Studio's x-connection-encrypted header; must match Studio's.
-      PG_META_CRYPTO_KEY: ${SUPABASE_META_CRYPTO_KEY:-}
-    ports:
-      - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_META_PORT}:8080"
+      # postgres-meta reads CRYPTO_KEY (PG_META_CRYPTO_KEY is Studio's name);
+      # under the wrong name it fell back to "SAMPLE_KEY" and every Studio
+      # SQL/table-editor request failed to decrypt.
+      CRYPTO_KEY: ${SUPABASE_META_CRYPTO_KEY:-}
+    # Not published on the host: pg-meta runs SQL unauthenticated and answers
+    # any browser origin (CORS *), so even a loopback bind let any web page
+    # the operator opened query auth.users. Studio and Kong's /pg/ route
+    # reach it on backend-network.
     logging:
       driver: json-file
       options:
@@ -348,8 +353,10 @@ services:
       POSTGRES_USER_READ_ONLY: ${SUPABASE_STUDIO_DB_USER_URI:?SUPABASE_STUDIO_DB_USER_URI is required}
       POSTGRES_PASSWORD: ${SUPABASE_META_DB_PASSWORD_URI:?SUPABASE_META_DB_PASSWORD_URI is required}
       HOSTNAME: 0.0.0.0
-    ports:
-      - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_STUDIO_PORT}:3000"
+    # Not published on the host: Studio has no application auth and its
+    # pg-meta proxy takes form-encoded POSTs, so any web page could run SQL
+    # as the meta role through a loopback port. Use the Kong route
+    # supabase-studio.localhost (Basic auth + dashboard_user ACL).
     healthcheck:
       test: ["CMD-SHELL", "node -e 'require(\"net\").createConnection({port:3000,host:\"localhost\"},()=>process.exit(0)).on(\"error\",()=>process.exit(1))'"]
       interval: 30s

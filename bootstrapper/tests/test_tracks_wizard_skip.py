@@ -250,7 +250,7 @@ EXPECTED_IN_TRACK: dict[str, set[str]] = {
     },
     "gen-ai-creative": {
         "open-web-ui", "comfyui", "stt-provider", "tts-provider",
-        "multi2vec-clip", "doc-processor",
+        "multi2vec-clip", "weaviate", "doc-processor",
         "llm-provider", "prometheus", "grafana",
     },
     "ml-eng": {

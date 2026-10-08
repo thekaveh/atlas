@@ -5,11 +5,10 @@ Python implementation of hosts-utils.sh functions.
 """
 
 import os
-import shutil
 import tempfile
-from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional
+from utils.atomic_write import _fsync_parent_directory, create_private_backup
 from utils.system import detect_os, is_elevated, get_hosts_file_path
 
 
@@ -56,6 +55,11 @@ class HostsManager:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(content)
+                # Durable before the rename, as the .env writer does: on a
+                # delayed-allocation filesystem a crash after os.replace could
+                # otherwise leave a zero-length /etc/hosts.
+                f.flush()
+                os.fsync(f.fileno())
             os.chmod(tmp, st.st_mode)
             try:
                 os.chown(tmp, st.st_uid, st.st_gid)
@@ -66,6 +70,7 @@ class HostsManager:
                 # (AttributeError), which used to abort --setup/--clean-hosts.
                 pass
             os.replace(tmp, dst)
+            _fsync_parent_directory(dst)
         except BaseException:
             try:
                 os.unlink(tmp)
@@ -200,8 +205,9 @@ class HostsManager:
             # Filter out Atlas-related lines
             filtered_lines = []
             for line in lines:
-                # Skip the comment line
-                if "# Atlas subdomains" in line:
+                # Skip the comment line, including the header the GenAI-era
+                # layout wrote before the rename (#108).
+                if "# Atlas subdomains" in line or line.strip() == "# GenAI Stack subdomains (added by start.py)":
                     continue
                     
                 # Skip any line with Atlas hostnames. Whole-token
@@ -289,6 +295,14 @@ class HostsManager:
         except OSError:
             return False
 
+    @staticmethod
+    def _hosts_lines(hosts_file_path: str) -> list:
+        try:
+            with open(hosts_file_path, encoding="utf-8") as f:
+                return [line.strip() for line in f if line.strip()]
+        except OSError:
+            return []
+
     def _create_hosts_backup(self, hosts_file_path: str) -> Optional[str]:
         """
         Create a backup of the hosts file with timestamp.
@@ -299,12 +313,13 @@ class HostsManager:
         Returns:
             str: Path to backup file, or None if failed
         """
+        # The .env writers' helper: collision-resistant names (two runs in one
+        # second used to overwrite each other), pruned to the newest few
+        # (they used to pile up in /etc), and a failure is said, not hidden.
         try:
-            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-            backup_path = f"{hosts_file_path}.backup.{timestamp}"
-            shutil.copy2(hosts_file_path, backup_path)
-            return backup_path
-        except OSError:
+            return str(create_private_backup(hosts_file_path))
+        except OSError as exc:
+            self._log(f"  • ⚠ Could not back up {hosts_file_path}: {exc}", "warning")
             return None
     
     def setup_hosts_entries(self) -> bool:
@@ -389,11 +404,17 @@ class HostsManager:
 
         self._log("  • Removing Atlas hosts file entries...", "info")
 
+        before = self._hosts_lines(self.hosts_file_path)
         if self.remove_hosts_entries(self.hosts_file_path):
-            self._log("  • ✅ Hosts entries removed successfully", "success")
-            self._log("    The following entries were removed:", "info")
-            for host in self.get_atlas_hosts():
-                self._log(f"    127.0.0.1 {host}", "info")
+            after = set(self._hosts_lines(self.hosts_file_path))
+            removed = [line for line in before if line not in after and not line.startswith("#")]
+            if removed:
+                self._log("  • ✅ Hosts entries removed successfully", "success")
+                self._log("    The following entries were removed:", "info")
+                for line in removed:
+                    self._log(f"    {line}", "info")
+            else:
+                self._log("  • No Atlas hosts entries were present", "info")
             return True
         else:
             self._log("  • ❌ Failed to remove hosts entries", "error")

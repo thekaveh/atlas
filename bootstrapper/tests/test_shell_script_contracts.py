@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 
@@ -161,3 +162,132 @@ def test_local_deep_researcher_uses_pinned_source_and_cli() -> None:
     )
     assert "uvx" not in script
     assert 'exec "$VENV_DIR/bin/langgraph" dev' in script
+
+
+def test_n8n_custom_node_set_survives_an_offline_restart(tmp_path) -> None:
+    """A custom N8N_INIT_NODES set was wiped and reinstalled on every start,
+    so an offline restart left no nodes and failed n8n-init."""
+    import os
+    import subprocess
+
+    script = REPO_ROOT / "services" / "n8n" / "init" / "scripts" / "install-nodes.sh"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    npm = bin_dir / "npm"
+    npm.write_text(
+        '#!/bin/sh\n[ -f "$NPM_FAIL" ] && exit 1\n'
+        'while [ "$1" != "--prefix" ]; do shift; done; p=$2\n'
+        'mkdir -p "$p/node_modules" && touch "$p/node_modules/.package-lock.json" "$p/package-lock.json"\n'
+    )
+    npm.chmod(0o755)
+    fail = tmp_path / "offline"
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "N8N_USER_FOLDER": str(tmp_path / "n8n"),
+           "N8N_INIT_NODES": "n8n-nodes-x@1.2.3", "NPM_FAIL": str(fail)}
+    run = lambda: subprocess.run(["sh", str(script)], env=env, capture_output=True, text=True)  # noqa: E731
+    assert run().returncode == 0
+    fail.touch()
+    assert run().returncode == 0  # same set, offline: nothing to fetch
+    env["N8N_INIT_NODES"] = "n8n-nodes-y@2.0.0"
+    assert run().returncode != 0  # a new set offline fails, but keeps the old one
+    assert (tmp_path / "n8n" / "nodes" / "node_modules" / ".package-lock.json").is_file()
+
+
+def test_airflow_init_keeps_operator_connections_for_localhost_sources(tmp_path) -> None:
+    """The orphan pass deleted spark/minio/weaviate/neo4j_default on every
+    start, including the ones an operator made for a localhost source."""
+    import os
+    import subprocess
+
+    script = (REPO_ROOT / "services/airflow/init/scripts/init-airflow.sh").read_text(encoding="utf-8")
+    start = script.index("seeded_host() {")
+    loop = script[start:script.index("done", script.index("for pair in ", start)) + 4]
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    # weaviate_default is still the Atlas-seeded in-compose Connection (left
+    # from a `container` run); neo4j_default is the operator's host one.
+    (bin_dir / "airflow").write_text(
+        f'#!/bin/sh\necho "$@" >> {tmp_path}/calls\n'
+        'if [ "$2" = get ]; then case "$3" in\n'
+        '  weaviate_default) echo \'[{"conn_id": "weaviate_default", "host": "weaviate"}]\' ;;\n'
+        '  neo4j_default) echo \'[{"conn_id": "neo4j_default", "host": "host.docker.internal"}]\' ;;\n'
+        'esac; fi\n'
+    )
+    (bin_dir / "airflow").chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "SPARK_SOURCE": "disabled",
+           "MINIO_SOURCE": "container", "WEAVIATE_SOURCE": "localhost", "NEO4J_GRAPH_DB_SOURCE": "localhost"}
+    subprocess.run(["sh", "-c", loop], env=env, check=True)
+    calls = (tmp_path / "calls").read_text()
+    assert "delete spark_default" in calls and "delete minio_default" in calls
+    assert "delete weaviate_default" in calls  # stale seeded Connection removed
+    assert "delete neo4j_default" not in calls  # operator's Connection kept
+
+
+def test_openclaw_init_leaves_a_json5_config_unpatched(tmp_path) -> None:
+    """OpenClaw reads JSON5; failing init on a commented / trailing-comma
+    config kept the gateway from starting (7fe2483e), and the older `&& mv`
+    form also exited 0, but only by accident. Now: warn, leave the file
+    byte-identical, exit 0. A strict-JSON config is still patched."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("jq"):
+        pytest.skip("jq not installed")
+    compose = yaml.safe_load((REPO_ROOT / "services/openclaw/compose.yml").read_text(encoding="utf-8"))
+    script = compose["services"]["openclaw-init"]["entrypoint"][-1].replace("$$", "$")
+    config = tmp_path / "openclaw.json"
+    script = script.replace("/home/node/.openclaw/openclaw.json", str(config)).replace(
+        "chown -R 1000:1000 /home/node/.openclaw", "true")
+    json5 = '{\n  // operator note\n  "agents": {"defaults": {"model": "litellm/gpt-4o"}},\n}\n'
+    config.write_text(json5, encoding="utf-8")
+    result = subprocess.run(["sh", "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0 and "not strict JSON" in result.stdout
+    assert config.read_text(encoding="utf-8") == json5
+    config.write_text('{"agents": {}}', encoding="utf-8")
+    assert subprocess.run(["sh", "-c", script], capture_output=True).returncode == 0
+    patched = config.read_text(encoding="utf-8")
+    assert "dangerouslyAllowHostHeaderOriginFallback" in patched and "litellm:4000" in patched
+
+
+
+def test_returning_to_a_custom_n8n_node_set_reinstalls_it(tmp_path) -> None:
+    """The locked-set install left the custom set's stamp behind, so going
+    back to that custom set skipped its install over the locked node_modules."""
+    import os
+    import subprocess
+
+    script = REPO_ROOT / "services" / "n8n" / "init" / "scripts" / "install-nodes.sh"
+    config = tmp_path / "config"
+    config.mkdir()
+    for name in ("package.json", "package-lock.json"):
+        (config / name).write_text("{}", encoding="utf-8")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "npm").write_text(
+        '#!/bin/sh\nwhile [ "$1" != "--prefix" ]; do shift; done; p=$2\n'
+        'rm -rf "$p/node_modules"; mkdir -p "$p/node_modules" && touch "$p/node_modules/.package-lock.json"\n'
+        'echo "$NPM_MARK" > "$p/node_modules/MARK"\n'
+    )
+    (bin_dir / "npm").chmod(0o755)
+    script_text = script.read_text(encoding="utf-8").replace("/config/", f"{config}/")
+    runner = tmp_path / "install-nodes.sh"
+    runner.write_text(script_text, encoding="utf-8")
+    base = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "N8N_USER_FOLDER": str(tmp_path / "n8n")}
+
+    def run(specs, mark):
+        env = {**base, "NPM_MARK": mark}
+        if specs:
+            env["N8N_INIT_NODES"] = specs
+        assert subprocess.run(["sh", str(runner)], env=env, capture_output=True).returncode == 0
+
+    run("n8n-nodes-x@1.0.0", "custom")
+    run(None, "locked")
+    run("n8n-nodes-x@1.0.0", "custom-again")
+    assert (tmp_path / "n8n" / "nodes" / "node_modules" / "MARK").read_text().strip() == "custom-again"
+
+
+def test_trueforge_init_reads_the_catalog_before_rotating_its_key() -> None:
+    """Minting deletes the stored provider's key; a catalog failure after that
+    left TrueForge holding a deleted key (401) until a later init succeeded."""
+    text = (REPO_ROOT / "services/trueforge/init/scripts/init.mjs").read_text(encoding="utf-8")
+    main = text[text.index("async function main()"):]
+    assert main.index("await fetchModelIds()") < main.index("await mintVirtualKey()")

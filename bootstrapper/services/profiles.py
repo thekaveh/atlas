@@ -59,6 +59,14 @@ class ProfileBundle:
     env: dict[str, str] = field(default_factory=dict)  # ENV_VAR -> value
 
 
+def _env_value_text(value: object) -> str:
+    """YAML booleans as true/false: str(True) wrote "True", which shell checks
+    such as BACKUP_DATABASES reject (consumer env.values agrees)."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return "" if value is None else str(value)
+
+
 def _parse_bundle(name: str, raw: object, *, origin: str) -> ProfileBundle:
     if raw is None:
         return ProfileBundle()
@@ -115,7 +123,7 @@ def _parse_bundle(name: str, raw: object, *, origin: str) -> ProfileBundle:
                 f"{origin}: profile '{name}' env key '{var_s}' is not a valid "
                 f"env var name"
             )
-        env[var_s] = "" if value is None else str(value)
+        env[var_s] = _env_value_text(value)
 
     return ProfileBundle(host_bind_ip=host_bind_ip, sources=sources, env=env)
 
@@ -204,3 +212,59 @@ def profile_source_default(
     """The source a wizard step should default to under ``profile``."""
     value = profile_sources.get(canonical_profile(profile), {}).get(mname)
     return value if value and value != "auto" else fallback
+
+
+def profile_launch_sources(services_info, profile, config_parser, pinned) -> dict:
+    """display name -> the source ``profile`` asserts for each service whose
+    SOURCE is not in ``pinned`` (CLI, consumer manifest, .env.user), as
+    apply_profile_overrides applies it at launch; the CLI-flag overview
+    showed .env's value instead (prod: Prometheus "disabled", then started)."""
+    if not profile:
+        return {}
+    from services.manifests import load_manifests
+
+    root_dir = Path(config_parser.root_dir)
+    try:
+        mname_by_var = {m.sources.var: m.name for m in load_manifests(root_dir / "services") if m.sources is not None}
+    except Exception:  # noqa: BLE001 - manifest errors surface elsewhere
+        return {}
+    sources = _launch_profile_sources(config_parser)
+    out = {}
+    for svc in services_info:
+        var = getattr(svc, "env_var_name", "")
+        value = profile_source_default(sources, mname_by_var.get(var, ""), profile, None)
+        if value and var not in pinned:
+            out[svc.display_name] = value
+    return out
+
+
+def _launch_profile_sources(config_parser) -> dict[str, dict[str, str]]:
+    """The per-profile sources apply_profile_overrides uses: the platform
+    bundles merged with the consumer manifest's profile_overrides (consumer
+    wins per key). The platform map alone showed a source the consumer had
+    overridden (prod Prometheus "container" while the launch kept it off)."""
+    try:
+        overrides = getattr(config_parser.load_consumer_config(), "profile_overrides", None) or {}
+        bundles = merge_consumer_profile_overrides(load_profile_bundles(), overrides)
+    except Exception:  # noqa: BLE001 - malformed manifests surface via doctor
+        return profile_source_map()
+    return {name: dict(bundle.sources) for name, bundle in bundles.items()}
+
+
+def consumer_declared_sources(config_parser) -> frozenset:
+    """Lower-case SOURCE vars a consumer manifest declares in env.values,
+    computed as start.py does for --no-tui. A malformed manifest declares
+    nothing here; it surfaces via `doctor`, not by blocking the wizard."""
+    try:
+        overrides = config_parser.load_consumer_config().env_overrides or {}
+    except Exception:  # noqa: BLE001 — malformed manifests surface via doctor
+        return frozenset()
+    return frozenset(var.lower() for var in overrides if var.endswith("_SOURCE"))
+
+
+def pinned_source_vars(config_parser, starter) -> set:
+    """Upper-case SOURCE vars a consumer manifest or .env.user pins; they beat
+    the profile (apply_profile_overrides)."""
+    pinned = {key.upper() for key in consumer_declared_sources(config_parser)}
+    pinned |= {key for key in (getattr(starter, "_env_user_keys", None) or ()) if key.endswith("_SOURCE")}
+    return pinned

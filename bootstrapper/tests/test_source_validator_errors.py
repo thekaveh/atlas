@@ -104,3 +104,39 @@ def test_retired_source_cleanup_write_failure_stops_repair(tmp_path, monkeypatch
 
     assert validator._migrate_legacy_tts_stt_sources() is False
     assert any("retired TTS/STT" in e for e in validator.validation_errors)
+
+
+def test_a_selected_options_requires_vars_must_be_set():
+    """`requires:` was parsed and documented but never enforced."""
+    from types import SimpleNamespace
+
+    from services.source_validator import _missing_option_requires
+
+    sources = SimpleNamespace(var="FOO_SOURCE", options=[
+        SimpleNamespace(id="cloud", requires=["FOO_API_KEY"]),
+        SimpleNamespace(id="disabled", requires=[]),
+    ])
+    assert _missing_option_requires(sources, {"FOO_SOURCE": "cloud"}, {"FOO_API_KEY": " "}) == [
+        "❌ FOO_SOURCE=cloud requires FOO_API_KEY to be set in .env."]
+    assert _missing_option_requires(sources, {"FOO_SOURCE": "cloud"}, {"FOO_API_KEY": "k"}) == []
+    assert _missing_option_requires(sources, {"FOO_SOURCE": "disabled"}, {}) == []
+    assert _missing_option_requires(None, {}, {}) == []
+
+
+def test_validate_all_sources_enforces_a_selected_options_requires(env_with_overrides, monkeypatch):
+    """The helper above was tested but its wiring was not: making the check
+    a no-op left the whole suite green."""
+    from types import SimpleNamespace
+
+    import services.manifests as manifests_module
+
+    validator = _validator(env_with_overrides({"COMFYUI_SOURCE": "container-cpu"}))
+    real = manifests_module.load_manifests
+    probe = SimpleNamespace(sources=SimpleNamespace(var="COMFYUI_SOURCE", options=[
+        SimpleNamespace(id="container-cpu", requires=["ATLAS_TEST_REQUIRED_KEY"]),
+    ]))
+    assert validator.load_yaml_config()  # the synthesized config, from the real manifests
+    monkeypatch.setattr(validator, "load_yaml_config", lambda: True)
+    monkeypatch.setattr(manifests_module, "load_manifests", lambda *a, **k: [*real(*a, **k), probe])
+    assert validator.validate_all_sources() is False
+    assert any("ATLAS_TEST_REQUIRED_KEY" in error for error in validator.validation_errors), validator.validation_errors

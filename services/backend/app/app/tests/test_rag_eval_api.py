@@ -137,3 +137,23 @@ def test_evaluator_4xx_is_the_callers_error_and_others_are_upstream():
     assert type(_evaluation_error(BadModel("model not found"))).__name__ == "RagEvaluationError"
     assert isinstance(_evaluation_error(Outage("upstream down")), RagEvaluationUpstreamError)
     assert isinstance(_evaluation_error(RuntimeError("boom")), RagEvaluationUpstreamError)
+
+
+def test_evaluator_errors_hide_upstream_text_and_backend_auth_is_upstream():
+    from rag_eval_service import RagEvaluationUpstreamError, _evaluation_error
+
+    class Auth(Exception):
+        status_code = 401
+
+    class BadModel(Exception):
+        status_code = 404
+
+    class InstructorRetryException(Exception):  # keeps the HTTP error as its cause
+        pass
+
+    leaked = BadModel("model gpt-x at http://10.0.0.5:11434 key sk-abc not found")
+    assert "sk-abc" not in str(_evaluation_error(leaked)) and "HTTP 404" in str(_evaluation_error(leaked))
+    assert isinstance(_evaluation_error(Auth("bad key sk-abc")), RagEvaluationUpstreamError)
+    wrapped = InstructorRetryException("retries exhausted")
+    wrapped.__cause__ = BadModel("unknown model")
+    assert type(_evaluation_error(wrapped)).__name__ == "RagEvaluationError"

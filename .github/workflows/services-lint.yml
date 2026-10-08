@@ -74,9 +74,10 @@ jobs:
         run: uv sync --group dev --locked
 
       - name: Pull-request title is a Conventional Commits subject
-        # The squash commit takes its subject from the title, and
-        # scripts/release_notes.py generates the changelog summary from those
-        # subjects (#968). Pushes to develop/main carry no title to check.
+        # scripts/release_notes.py generates the changelog summary from squash
+        # subjects (#968). With squash_merge_commit_title=COMMIT_OR_PR_TITLE a
+        # single-commit PR lands its commit subject, and a title edit does not
+        # re-run this check (#1457). Pushes to develop/main carry no title.
         if: github.event_name == 'pull_request'
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -440,9 +441,9 @@ jobs:
         # check-compose-source-deps.py invokes `docker compose config` to
         # render the merged shape across all per-service fragments (the
         # top-level docker-compose.yml is a thin `include:`-only shell).
-        # Without .env present, compose interpolation fails and the
-        # script falls through to a raw parse that sees zero edges,
-        # producing spurious "missing dependency" failures.
+        # check-compose-source-deps.py renders against .env.example itself
+        # and exits 2 on a compose failure; the track-membership audit below
+        # still builds a ConfigParser over the project .env.
         run: cp .env.example .env
 
       - name: Docs drift gate (regen --all --check)

@@ -85,3 +85,18 @@ def test_no_warning_for_empty_override_set(tmp_path, monkeypatch, capsys):
     mgr = _mgr(tmp_path, monkeypatch, "COMFYUI_SOURCE=container-cpu\n")
     assert mgr.apply_overrides({}) is True
     assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("case", [
+    ('COMFYUI_SOURCE="container-gpu"\n', "container-gpu", False),  # quoted, unchanged
+    ("N8N_SOURCE=container  # pinned\n", "container", False),       # inline comment
+    ("WEAVIATE_SOURCE = container\n", "disabled", True),             # blank before '='
+])
+def test_existing_value_is_read_as_the_env_reader_reads_it(tmp_path, monkeypatch, capsys, case):
+    """The reader had its own regex: quoted or commented values warned for
+    no change, and `KEY = value` changes were overwritten silently."""
+    line, flag, warns = case
+    var = line.split("=", 1)[0].strip()
+    mgr = _mgr(tmp_path, monkeypatch, line)
+    assert mgr.apply_overrides({var: flag}) is True
+    assert ("overridden by" in capsys.readouterr().out) is warns

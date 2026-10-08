@@ -72,11 +72,8 @@ if [ -s "$pgdata/PG_VERSION" ] && [ -f "$hba" ]; then
     refuse_hba_upgrade "md5 rules may serve MD5-only role verifiers; migrate verifiers before requiring SCRAM" "$@"
   fi
 
-  # Keep an exact, permission-preserving recovery copy before validating or
-  # replacing anything. The candidate inherits the original ownership/mode;
-  # only its content is rewritten.
-  cp -p "$hba" "$backup_candidate"
-  mv "$backup_candidate" "$backup"
+  # The candidate inherits the original ownership/mode; only its content is
+  # rewritten.
   cp -p "$hba" "$candidate"
   awk '
     $1 ~ /^host/ && ($5 == "trust" || $5 == "password") {
@@ -86,6 +83,14 @@ if [ -s "$pgdata/PG_VERSION" ] && [ -f "$hba" ]; then
   ' "$hba" > "$rendered"
   cp "$rendered" "$candidate"
   rm -f "$rendered"
+  # Keep an exact, permission-preserving recovery copy before validating or
+  # replacing anything -- but never overwrite an existing one with a file
+  # that will not change: taken on every start, the second start replaced
+  # the pre-upgrade rules with the already converted file.
+  if [ ! -e "$backup" ] || ! cmp -s "$candidate" "$hba"; then
+    cp -p "$hba" "$backup_candidate"
+    mv "$backup_candidate" "$backup"
+  fi
 
   if ! validate_hba "$candidate"; then
     echo "supabase-db: refusing invalid pg_hba.conf replacement; original preserved" >&2

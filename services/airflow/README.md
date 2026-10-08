@@ -48,7 +48,7 @@ Auto-managed (resolved by the bootstrapper from `AIRFLOW_SOURCE`; do not hand-ed
 | `weaviate_default` | weaviate | host `weaviate`, port `8080`, gRPC `weaviate:50051` (via extra) | `WEAVIATE_SOURCE=container` (NOT `localhost` — the in-Compose DNS does not resolve in host-mode) |
 | `neo4j_default` | neo4j | host `neo4j-graph-db`, port `7687`, login `${GRAPH_DB_USER}`, password `${GRAPH_DB_PASSWORD}` (Hook prepends `bolt://`) | `NEO4J_GRAPH_DB_SOURCE=container` (same caveat) |
 
-Connection seeding is idempotent — `airflow-init` deletes-then-adds each Connection on every run, so changes to credentials propagate on the next `./start.sh`.
+Connection seeding is idempotent — `airflow-init` deletes-then-adds each Connection on every run, so changes to credentials propagate on the next `./start.sh`. For a `localhost` source the Connection is yours to create (for example `weaviate_default` pointing at `host.docker.internal`); `airflow-init` leaves it alone and only removes a source-gated Connection when that source is `container` (re-seeded) or `disabled`, or when a `localhost` source still has the in-compose Connection Atlas seeded earlier (host `weaviate` / `neo4j-graph-db`).
 
 **Trusted DAG boundary.** LocalExecutor does not sandbox DAG code: operator-authored DAGs execute in Airflow's scheduler process pool and can read seeded Connections containing MinIO root, LiteLLM master, Neo4j administrator, the scoped Supabase reader role (`AIRFLOW_ATLAS_DB_USER`), and Redis credentials. Only trusted authors may supply DAGs. Atlas does not provide tenant isolation for untrusted DAG code.
 
@@ -207,7 +207,7 @@ _No high-confidence opportunities identified._
 
 ## 8. Troubleshooting
 
-- **`airflow-init` fails with "database does not exist"** — Supabase Postgres might not be running yet. `airflow-init` depends_on `supabase-db: service_healthy` so this shouldn't happen, but if it does, `docker logs ${PROJECT_NAME}-airflow-init` shows the psql error.
+- **`airflow-init` fails with "database does not exist"** — the Airflow database is created by `supabase-db-init`. `airflow-init` depends_on `supabase-db-init: service_completed_successfully`, so this points at a failed or skipped db-init: check `docker logs ${PROJECT_NAME}-supabase-db-init`, then `docker logs ${PROJECT_NAME}-airflow-init` for the psql error.
 - **Web UI login rejected** — `AIRFLOW_ADMIN_PASSWORD` in `.env` may have rotated. Check the value; if rotated, `airflow-init` re-runs and re-syncs the admin user on next `./start.sh`.
 - **Deferrable operators never resume** — Atlas runs no `airflow-triggerer` service, so a task using `deferrable=True` or an async sensor defers and stays deferred. Use the non-deferrable form of the operator.
 - **Spark submit stays SUBMITTED / waiting for cores** — the standalone pool is 2 workers × 2 cores by default; Spark Connect holds `SPARK_CONNECT_CORES_MAX` (1) and Zeppelin's interpreter `ZEPPELIN_SPARK_CORES_MAX` (1). A cluster-mode submit needs one core for its driver plus one for an executor, so with `SPARK_WORKER_COUNT=1` it cannot start until another app releases cores.

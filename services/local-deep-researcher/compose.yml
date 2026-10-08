@@ -38,6 +38,10 @@ services:
       CRAWL4AI_API_TOKEN: ${CRAWL4AI_API_TOKEN:-}
       CRAWL4AI_TIMEOUT_SECONDS: ${CRAWL4AI_TIMEOUT_SECONDS:-30}
       CRAWL4AI_MAX_CHARS: ${CRAWL4AI_MAX_CHARS:-60000}
+      # langgraph-api defaults to CORS * with credentials, so any web page in
+      # the operator's browser could read or delete every user's research
+      # threads through the direct port. The backend calls it server-side.
+      CORS_ALLOW_ORIGINS: http://research.localhost:${KONG_HTTP_PORT}
     ports:
       - "${HOST_BIND_IP-127.0.0.1:}${LOCAL_DEEP_RESEARCHER_PORT}:2024"
     volumes:

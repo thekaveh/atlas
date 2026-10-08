@@ -1245,3 +1245,231 @@ def test_the_pid_file_round_trips_through_its_own_reader(tmp_path):
     for bad in ("0\n", "-1\n", "garbage\n", ""):
         mgr.pid_file.write_text(bad, encoding="utf-8")
         assert mgr._read_pid() is None, bad
+
+
+# ─────────── a changed port or listen restarts the owned process (#1361) ───────────
+@pytest.mark.parametrize("entry", ["start", "ensure_running_with_ownership"])
+def test_start_restarts_an_owned_process_launched_on_another_port(tmp_path, monkeypatch, entry):
+    mgr = _mgr(tmp_path, port=8100)
+    mgr.venv_python.parent.mkdir(parents=True, exist_ok=True)
+    mgr.venv_python.write_text("#!/bin/sh\n")
+    mgr.pid_file.write_text("999")
+    mgr.status_file.write_text(json.dumps({"pid": 999, "port": 8000, "listen": "127.0.0.1"}))
+    alive = {999}
+    monkeypatch.setattr(VllmMetalManager, "_managed_process_alive", lambda self, pid: pid in alive)
+    monkeypatch.setattr(VllmMetalManager, "_pid_is_stranger", lambda self, pid: False)
+    stopped = []
+
+    def stop(self):
+        stopped.append(self._read_pid())
+        alive.discard(999)
+        self._clear_pid()
+        return True
+
+    monkeypatch.setattr(VllmMetalManager, "_stop_locked", stop)
+    monkeypatch.setattr(mod.socket, "socket", lambda *a, **k: _FakeSocket(1))  # port free
+
+    def popen(args, **_kw):
+        if args and args[0] == "ps":
+            return SimpleNamespace(pid=0, returncode=0, stdout="", stderr="")
+        alive.add(4242)
+        return SimpleNamespace(pid=4242)
+
+    monkeypatch.setattr(mod.subprocess, "Popen", popen)
+    monkeypatch.setattr("services.managed_host.ManagedHostManager._process_start_time",
+                        staticmethod(lambda _pid: "Mon Jan  1 00:00:00 2024"))
+    monkeypatch.setattr(VllmMetalManager, "preflight", lambda self: SimpleNamespace(ok=True, checks=[]))
+    # install rewrites the status file without the pid, as the real one does
+    monkeypatch.setattr(VllmMetalManager, "_install_locked",
+                        lambda self: self._write_status(installed_version=self.plugin_version))
+    assert mgr.status().port == 8000  # what the old process actually serves
+
+    result = getattr(mgr, entry)()
+    status = result[0] if isinstance(result, tuple) else result
+
+    assert stopped == [999] and status.pid == 4242 and status.port == 8100
+
+
+def test_blank_state_dir_falls_back_and_removal_never_reaches_cwd_home_or_repo(tmp_path, monkeypatch):
+    from services import comfyui_mps_manager as comfy
+    from services import remove_state_directory
+
+    assert str(mod.manager_from_env({"VLLM_METAL_STATE_DIR": " "}).state_dir).endswith(".atlas/vllm-metal")
+    assert str(comfy.manager_from_env({"COMFYUI_MPS_STATE_DIR": ""}).state_dir).endswith(".atlas/comfyui-mps")
+    work = tmp_path / "work"
+    (work / "keep").mkdir(parents=True)
+    monkeypatch.chdir(work)
+    repo = Path(mod.__file__).resolve().parents[2]
+    for target in (Path("."), work.parent, Path.home(), repo, Path("/")):
+        with pytest.raises(VllmMetalError, match="refusing to remove"):
+            remove_state_directory(target, ("state", VllmMetalError))
+    assert (work / "keep").is_dir()
+    remove_state_directory(work / "keep", ("state", VllmMetalError))  # a real state dir still goes
+    assert not (work / "keep").exists()
+
+
+def test_comfyui_remove_keeps_a_models_dir_inside_the_state_dir(tmp_path):
+    from services.comfyui_mps_manager import ComfyUiMpsError, ComfyUiMpsManager
+
+    state = tmp_path / "state"
+    (state / "ComfyUI" / "models" / "checkpoints").mkdir(parents=True)
+    weights = state / "ComfyUI" / "models" / "checkpoints" / "big.safetensors"
+    weights.write_bytes(b"w")
+    mgr = ComfyUiMpsManager(state, models_path=str(state / "ComfyUI" / "models"))
+    with pytest.raises(ComfyUiMpsError, match="COMFYUI_MPS_MODELS_PATH"):
+        mgr.remove()
+    assert weights.exists()
+
+
+def test_comfyui_port_probe_handles_an_ipv6_listen_address(tmp_path):
+    from services.comfyui_mps_manager import ComfyUiMpsManager
+
+    mgr = ComfyUiMpsManager(tmp_path / "state", port=1, listen="::1")
+    assert mgr._port_in_use() is False  # was socket.gaierror on an AF_INET socket
+
+
+def test_declared_managed_host_restarts_when_its_port_moves(tmp_path, monkeypatch):
+    """The generic manager (consumer `managed_host_services`) follows #1361
+    too. Kept here: the managed-host test modules are at the size ceiling."""
+    from services.managed_host import HostProcessSpec, ManagedHostManager
+
+    mgr = ManagedHostManager(HostProcessSpec(name="svc", command=("sleep", "300"), port=47812), tmp_path)
+    mgr.state_dir.mkdir(parents=True, exist_ok=True)
+    mgr.pid_file.write_text("999\nstart_utc=x\n")
+    mgr.launch_file.write_text(json.dumps({"pid": 999, "port": 47811, "bind": "127.0.0.1"}))
+    alive = {999}
+    monkeypatch.setattr(ManagedHostManager, "_managed_process_alive", lambda self, pid: pid in alive)
+    monkeypatch.setattr(ManagedHostManager, "_pid_alive", staticmethod(lambda pid: pid in alive))
+    monkeypatch.setattr(ManagedHostManager, "_pid_is_stranger", lambda self, pid: False)
+    monkeypatch.setattr(ManagedHostManager, "_read_pid", lambda self: 4242 if 4242 in alive else (999 if 999 in alive else None))
+    stopped = []
+    monkeypatch.setattr(ManagedHostManager, "_stop_locked",
+                        lambda self: stopped.append(999) or alive.discard(999) or True)
+    monkeypatch.setattr(ManagedHostManager, "_port_in_use", lambda self, **_k: False)
+    monkeypatch.setattr(ManagedHostManager, "_spawn", lambda self: alive.add(4242) or SimpleNamespace(pid=4242))
+    monkeypatch.setattr(ManagedHostManager, "_write_pid_file", lambda self, pid: None)
+    monkeypatch.setattr(ManagedHostManager, "_await_port", lambda self, process, timeout: self.status())
+
+    status = mgr.start(wait_timeout=1)
+
+    assert stopped == [999] and status.pid == 4242
+    assert json.loads(mgr.launch_file.read_text())["port"] == 47812
+
+
+def test_an_install_keeps_the_running_processs_launch_record(tmp_path, monkeypatch):
+    """A reinstall erased the launch record (ComfyUI deleted status.json, vLLM
+    wrote pid=None), so a port change made with it reused the old process."""
+    from services.comfyui_mps_manager import ComfyUiMpsManager
+
+    comfy = ComfyUiMpsManager(tmp_path / "comfy", port=8288, torch_pin="torch==9.9")
+    comfy.venv_python.parent.mkdir(parents=True)
+    comfy.venv_python.write_text("")
+    comfy.repo_dir.mkdir(parents=True)
+    (comfy.repo_dir / "requirements.txt").write_text("torch\n")
+    comfy.pid_file.write_text("999\nstart_utc=x\n")
+    comfy.status_file.write_text(json.dumps({"pid": 999, "port": 8188, "listen": "127.0.0.1",
+                                             "installed_ref": comfy.ref, "torch_pin": ["torch==1"],
+                                             "requirements_sha256": comfy._requirements_sha256()}))
+    monkeypatch.setattr(ComfyUiMpsManager, "_managed_process_alive", lambda s, p: p == 999)
+    monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda s, p: False)
+    monkeypatch.setattr(ComfyUiMpsManager, "_run", lambda s, cmd: None)
+    assert comfy._launched_elsewhere(999)
+    comfy._install_locked()  # a reconcile (the torch pin changed) while it runs
+    assert comfy._launched_elsewhere(999)  # the port move is still seen
+
+    vllm = VllmMetalManager(tmp_path / "vllm", port=8000)
+    vllm.venv_python.parent.mkdir(parents=True)
+    vllm.venv_python.write_text("")
+    vllm.pid_file.write_text("999\nstart_utc=x\n")
+    vllm._write_status(installed_version=vllm.plugin_version, installed_core_version=vllm.core_version, pid=999)
+    monkeypatch.setattr(VllmMetalManager, "_installed_versions_match", lambda s: True)
+    vllm._install_locked()  # `./start.sh vllm-metal install` while it runs
+    moved = VllmMetalManager(tmp_path / "vllm", port=8001)
+    assert moved._launched_elsewhere(999)
+
+
+def test_state_dir_guard_compares_identity_not_spelling(tmp_path, monkeypatch):
+    """On a case-insensitive volume `/users/me` is $HOME though the strings
+    differ; the shared ~/.atlas root is protected too."""
+    from services import remove_state_directory
+
+    home = tmp_path / "home"
+    (home / ".atlas" / "comfyui-mps").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    with pytest.raises(VllmMetalError, match="refusing"):
+        remove_state_directory(home / ".atlas", ("state", VllmMetalError))
+    respelled = tmp_path / "HOME"
+    if not respelled.exists():
+        pytest.skip("case-sensitive filesystem: no second spelling of the same directory")
+    with pytest.raises(VllmMetalError, match="refusing"):
+        remove_state_directory(respelled, ("state", VllmMetalError))
+    assert home.is_dir()
+
+
+def test_a_state_root_set_only_in_dotenv_is_protected(tmp_path, monkeypatch):
+    """The guard read ATLAS_MANAGED_HOST_STATE_ROOT from the process env, but
+    Atlas reads it from .env: VLLM_METAL_STATE_DIR=<root> deleted every
+    consumer host's state."""
+    from utils import atomic_write
+
+    root = tmp_path / "root"
+    (root / "other-host").mkdir(parents=True)
+    env_file = tmp_path / ".env"
+    env_file.write_text(f'export ATLAS_MANAGED_HOST_STATE_ROOT="{root}"\n', encoding="utf-8")
+    assert atomic_write._env_file_state_root(env_file) == str(root)
+    monkeypatch.delenv("ATLAS_MANAGED_HOST_STATE_ROOT", raising=False)
+    monkeypatch.setattr(atomic_write, "_env_file_state_root", lambda: str(root))
+    manager = VllmMetalManager(root, port=8000)
+    with pytest.raises(VllmMetalError, match="refusing"):
+        manager.remove()
+    assert (root / "other-host").is_dir()
+
+
+@pytest.mark.parametrize("raw", ["8001x", "²", ""])
+def test_a_malformed_port_does_not_break_stop_and_remove(raw):
+    from services import comfyui_mps_manager, vllm_metal_manager
+
+    assert vllm_metal_manager.manager_from_env({"VLLM_METAL_LOCALHOST_PORT": raw}).port == 8000
+    assert comfyui_mps_manager.manager_from_env({"COMFYUI_MPS_LOCALHOST_PORT": raw}).port == 8188
+
+
+def test_comfy_remove_refuses_a_differently_cased_models_path(tmp_path):
+    """The models-path refusal compared text; ~/.Atlas/... on a
+    case-insensitive volume is the state dir, and remove deleted the weights."""
+    from services.comfyui_mps_manager import ComfyUiMpsError, ComfyUiMpsManager
+
+    state = tmp_path / "state"
+    (state / "models").mkdir(parents=True)
+    (state / "models" / "w.safetensors").write_bytes(b"x")
+    variant = tmp_path / "STATE" / "models"
+    if not variant.exists():
+        pytest.skip("case-sensitive filesystem")
+    manager = ComfyUiMpsManager(state_dir=state, models_path=str(variant))
+    with pytest.raises(ComfyUiMpsError, match="never deletes"):
+        manager.remove()
+    assert (state / "models" / "w.safetensors").exists()
+
+
+def test_blender_addon_override_may_be_the_provisioned_file(tmp_path):
+    from services.blender_mcp_manager import BlenderMcpManager
+
+    manager = BlenderMcpManager(tmp_path / "state")
+    manager.state_dir.mkdir(parents=True)
+    manager.addon_path.write_text("addon", encoding="utf-8")
+    manager.addon_file = str(manager.addon_path)
+    manager._install_locked()  # used to raise shutil.SameFileError
+    assert manager.addon_path.read_text(encoding="utf-8") == "addon"
+
+
+def test_a_malformed_port_refuses_a_launch_but_not_a_stop():
+    """The lenient fallback started the host on 8000 while LiteLLM was told
+    the raw value (dead upstream, start reported success)."""
+    from services import comfyui_mps_manager, vllm_metal_manager
+
+    vllm = vllm_metal_manager.manager_from_env({"VLLM_METAL_LOCALHOST_PORT": "8O01"})
+    with pytest.raises(VllmMetalError, match="not a port number"):
+        vllm.ensure_running_with_ownership()
+    comfy = comfyui_mps_manager.manager_from_env({"COMFYUI_MPS_LOCALHOST_PORT": "81 88"})
+    with pytest.raises(comfyui_mps_manager.ComfyUiMpsError, match="not a port number"):
+        comfy.start_with_ownership()
+    assert vllm_metal_manager.manager_from_env({"VLLM_METAL_LOCALHOST_PORT": "8001"}).__dict__.get("port_error") is None

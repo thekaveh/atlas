@@ -632,3 +632,31 @@ class TestConsumerModelMerge:
         # The non-colliding consumer row is still merged.
         names = [r["model_name"] for r in config["model_list"]]
         assert "safe-consumer-model" in names
+
+
+def test_auto_import_warns_when_the_host_daemon_cannot_be_asked(capsys):
+    """A down host Ollama read as "fetched 0 tags" and the warning branch was
+    unreachable; host-tag defaults then failed at request time unexplained."""
+    init = _load_init_module({
+        "LLM_PROVIDER_SOURCE": "ollama-localhost",
+        "OLLAMA_AUTO_IMPORT_LOCAL_MODELS": "true",
+    })
+    init.LITELLM_OLLAMA_UPSTREAM = "http://127.0.0.1:9"
+    assert init._maybe_fetch_ollama_tags() == []
+    assert "failed to fetch /api/tags" in capsys.readouterr().out
+
+
+def test_an_uncatalogued_openai_model_leaves_mode_to_litellm():
+    """A guessed `mode: chat` overrode LiteLLM's map for Responses-only models
+    (gpt-5-pro, *-codex): every chat call went to /v1/chat/completions."""
+    mod = _load_init_module({
+        "LLM_PROVIDER_SOURCE": "none",
+        "LITELLM_OPENAI_ENABLED": "true",
+        "OPENAI_API_KEY": "sk-test",
+        "OPENAI_USER_MODELS": "gpt-5-pro",
+    })
+    rows = [r for r in mod.fetch_active_models() if r.name == "gpt-5-pro"]
+    assert rows, "gpt-5-pro must be active"
+    entry = next(e for e in mod.render_model_list(rows) if e["model_name"] == "gpt-5-pro")
+    assert "mode" not in entry["model_info"]
+    assert entry["model_info"]["atlas_model_metadata"]["kind"] == "chat"

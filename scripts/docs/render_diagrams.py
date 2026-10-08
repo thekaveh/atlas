@@ -129,7 +129,10 @@ def render_all(
                     f"Committed diagram PNG is stale: {relative}; delete it and "
                     "run `make docs-build` to re-render it"
                 )
-        else:
+        elif png_source_fingerprint(committed_png) != diagram_source_fingerprint(svg):
+            # Only a missing or stale PNG is re-rendered: rendering is not
+            # byte-stable, so re-rendering fresh ones churned every committed
+            # PNG whenever a single one had been deleted.
             svg_to_png(svg, committed_png)
         if wiki_img_dir:
             (wiki_img_dir / committed_png.name).write_bytes(committed_png.read_bytes())

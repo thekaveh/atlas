@@ -5492,6 +5492,31 @@ def test_bulk_volume_steps_use_the_data_timeout():
     assert [kw.get("timeout") for _role, kw in calls] == [900, 900]
 
 
+def test_neo4j_dump_and_load_are_bounded_by_the_data_timeout():
+    """offline-backup/restore bound every dump, load and check with the value
+    passed in, which was the 120 s quiesce timeout: any real-sized graph's
+    backup exited 124 and its restore could never complete."""
+    from types import SimpleNamespace
+
+    from tests.test_database_backup_third_rereview import _coordinator, _module
+
+    module = _module(); coordinator = _coordinator(module)
+    coordinator.timeout = 120
+    commands: list = []
+    coordinator._owned_run = lambda role, command, **kw: commands.append(command)
+    coordinator.runner = SimpleNamespace(
+        create_volume=lambda _n: "vol", unique_name=lambda n: n, register_container=lambda _n: None,
+        run=lambda command, **kw: commands.append(command), scope="s",
+    )
+    coordinator._validate_neo4j_data_volume = lambda *_a: None
+    coordinator.repo = Path("/repo"); coordinator.token = "t"
+    coordinator._service_state = lambda _s: SimpleNamespace(running=False, healthy=False)
+    coordinator._finish_compose_job = lambda *_a, **_k: None
+    coordinator.validate_neo4j_stage("artifacts", "stage")
+    coordinator.backup_neo4j("20261007T000000Z")
+    assert all("BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS=900" in c for c in commands), commands
+
+
 from tests.test_database_role_boundaries import (  # noqa: E402
     TEST_SECRETS as _ROLE_SECRETS,
     disposable_postgres,  # noqa: F401 — shared live-database fixture
@@ -5632,3 +5657,18 @@ def test_backup_run_uses_the_derived_bound_and_validates_it_before_the_lock():
     assert main.index("backup_timeout = backup_run_timeout(values)") < main.index("acquire")
     assert "register_container(name, timeout=max(timeout, 900))" in main
     assert "], timeout=backup_timeout)" in main
+
+
+def test_orchestrator_reads_export_prefixed_env_lines(tmp_path):
+    """`export PROJECT_NAME=myproj` read as the key "export PROJECT_NAME", so
+    the lookup fell back to `atlas` and a restore targeted another project's
+    volumes."""
+    module = _database_orchestrator_module()
+    (tmp_path / ".env").write_text(
+        "export PROJECT_NAME=myproj\nexport NEO4J_GRAPH_DB_SOURCE=disabled\nWEAVIATE_SOURCE=container\n",
+        encoding="utf-8",
+    )
+    values = module._env_file_values(tmp_path)
+    assert values["PROJECT_NAME"] == "myproj"
+    assert values["NEO4J_GRAPH_DB_SOURCE"] == "disabled"
+    assert values["WEAVIATE_SOURCE"] == "container"

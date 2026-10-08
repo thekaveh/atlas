@@ -16,7 +16,7 @@ capabilities:
   - name: "Research endpoint authentication"
     status: not-supported
     verification: tested
-    note: "The host-published LangGraph API and CORS-only research.localhost route have no Atlas authentication; use the authenticated Backend research API or restrict direct ingress."
+    note: "The host-published LangGraph API and CORS-only research.localhost route have no Atlas authentication; use the authenticated Backend research API or restrict direct ingress. Browser access is limited to the research.localhost origin (CORS_ALLOW_ORIGINS), so a web page cannot read threads through the direct port."
   - name: "Research thread persistence"
     status: partial
     verification: tested

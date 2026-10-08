@@ -255,6 +255,9 @@ _OPENAI_DENY_SUBSTRINGS = (
     "dall-e",
     "whisper",
     "tts-",
+    "-tts",          # gpt-4o-mini-tts
+    "transcribe",    # gpt-4o-transcribe, -diarize
+    "search-api",    # gpt-5-search-api
     "gpt-image",
     "realtime-preview",
     "audio-preview",

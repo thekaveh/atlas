@@ -305,7 +305,10 @@ class BlenderMcpManager:
             source = Path(self.addon_file).expanduser()
             if not source.exists():
                 raise BlenderMcpError(f"BLENDER_MCP_ADDON_FILE {source} does not exist")
-            shutil.copyfile(source, self.addon_path)
+            # The override may already be the provisioned file; copyfile
+            # raises SameFileError (an OSError traceback) on that.
+            if not (self.addon_path.exists() and source.samefile(self.addon_path)):
+                shutil.copyfile(source, self.addon_path)
         elif not (
             self.addon_path.exists() and self._sha256(self.addon_path) == self.addon_sha256
         ):
@@ -788,8 +791,13 @@ def pool_members(base: BlenderMcpManager, *, include_strays: bool = False) -> li
 
 def stray_pool_members(env: dict[str, str]) -> list[BlenderMcpManager]:
     """Instances above the configured pool size that still have a pid file."""
-    pool = pool_from_env(env, include_strays=True)
-    return [m for m in pool if getattr(m, "pool_index", 0) >= getattr(pool[0], "pool_size", 1)]
+    return stray_members(manager_from_env(env))
+
+
+def stray_members(base: BlenderMcpManager) -> list[BlenderMcpManager]:
+    """``base``'s pool instances above its size that still have a pid file."""
+    pool = pool_members(base, include_strays=True)
+    return [m for m in pool if getattr(m, "pool_index", 0) >= getattr(base, "pool_size", 1)]
 
 
 def pool_moves(pool: list[BlenderMcpManager]) -> bool:
@@ -863,7 +871,7 @@ def manager_from_env(env: dict[str, str]) -> BlenderMcpManager:
         return (env.get(key, "") or "").strip() or default
 
     raw_port = _get("BLENDER_MCP_LOCALHOST_PORT", "9876")
-    if not raw_port.isdigit():  # malformed env must not traceback the launch/CLI
+    if not (raw_port.isascii() and raw_port.isdigit()):  # malformed env must not traceback the launch/CLI
         raw_port = "9876"
     manager = BlenderMcpManager(
         state_dir=_get("BLENDER_MCP_STATE_DIR", "~/.atlas/blender-mcp"),

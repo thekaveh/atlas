@@ -387,12 +387,44 @@ def active_comfyui_models(
         if entry.name not in seen_names:
             result.append(entry)
             seen_names.add(entry.name)
+    claimed: dict[tuple, tuple] = {}
+    for entry in result:
+        claimed.update(_download_targets(entry))
     for entry in sidecar_entries:
-        if entry.name not in seen_names:
-            result.append(entry)
-            seen_names.add(entry.name)
+        if entry.name in seen_names:
+            continue
+        clash = _conflicting_target(_download_targets(entry), claimed)
+        if clash:
+            # The plan writer refuses two downloads at one path, which aborted
+            # the whole start; a custom entry is skipped alone instead.
+            print(
+                f"⚠️  custom model '{entry.name}' would be saved as {clash[0]}/{clash[1]}, "
+                "which another active model already uses — skipping it; give it a "
+                "distinct `filename:`.",
+                file=sys.stderr,
+                flush=True,
+            )
+            continue
+        claimed.update(_download_targets(entry))
+        result.append(entry)
+        seen_names.add(entry.name)
 
     return result
+
+
+def _download_targets(entry: ComfyUILibraryEntry) -> dict[tuple, tuple]:
+    """(target_dir, filename) → the plan writer's identity fields, per file."""
+    from utils.comfyui_manifest_generator import DOWNLOAD_IDENTITY_FIELDS  # noqa: PLC0415
+
+    rows = [_manifest_row_for_entry(entry, file=f) for f in entry.files] or [_manifest_row_for_entry(entry)]
+    return {
+        (row["target_dir"], row["filename"]): tuple(row.get(field) for field in DOWNLOAD_IDENTITY_FIELDS)
+        for row in rows
+    }
+
+
+def _conflicting_target(targets: dict[tuple, tuple], claimed: dict[tuple, tuple]):
+    return next((key for key, meta in targets.items() if key in claimed and claimed[key] != meta), None)
 
 
 def manifest_dict(entries: list[ComfyUILibraryEntry]) -> dict:

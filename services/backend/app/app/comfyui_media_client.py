@@ -18,6 +18,7 @@ Scope (see issue context): image generation only — text2img + img2img.
 from __future__ import annotations
 
 import io
+import logging
 import math
 import os
 import re
@@ -26,6 +27,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import SplitResult, quote, urlsplit
 
 import httpx
+
+from comfyui_client import ComfyUISubmissionUnknownError
 
 from media_input import (
     ImageInputError,
@@ -97,11 +100,24 @@ _CFG_MIN = 0.0
 _CFG_MAX = 100.0
 
 
+def _provider_json(resp: httpx.Response) -> Any:
+    """A 2xx ComfyUI body as JSON. A non-JSON body is an upstream fault (502),
+    not the caller's: JSONDecodeError is a ValueError, which the routes map
+    to 400 with the parser's text."""
+    try:
+        return resp.json()
+    except ValueError:
+        raise RuntimeError(
+            f"ComfyUI returned a non-JSON response ({resp.status_code}, "
+            f"{resp.headers.get('content-type', 'no content type')})"
+        ) from None
+
+
 def _bounded_int(payload_value: Any, *, field: str, minimum: int, maximum: int) -> int:
     """Coerce and bound a caller-supplied integer, or raise ValueError (-> 400)."""
     try:
         value = int(payload_value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # 1e400 parses as inf
         raise ValueError(
             f"provider=comfyui {field} must be an integer, got {payload_value!r}"
         ) from None
@@ -372,6 +388,8 @@ def _resolve_catalog_model(
 # ────────────────────────────────────────────────────────────────────
 # Client
 # ────────────────────────────────────────────────────────────────────
+_logger = logging.getLogger(__name__)
+
 class ComfyUIMediaClient:
     """Async adapter submitting/polling/cancelling ComfyUI prompt jobs
     behind the gateway media-operation envelope."""
@@ -582,7 +600,9 @@ class ComfyUIMediaClient:
                 status=status,
                 model=self.model,
                 modality=modality,
-                raw={"history": None, "queue": queue},
+                # Never the upstream /queue body: its items carry every other
+                # caller's prompt graph (text, models, inputs).
+                raw={"history": None},
             )
 
         status_str, error_msg = self._history_status(entry)
@@ -603,7 +623,10 @@ class ComfyUIMediaClient:
             status=normalized,
             model=self.model,
             modality=modality,
-            raw={"history": entry},
+            # Never the history entry itself: a failed one carries the server
+            # traceback, file paths, node inputs and private model names, and
+            # the poll answers any caller who owns the operation.
+            raw={"history": None, "status_str": status_str},
         )
         if normalized == "succeeded":
             artifacts = self._extract_artifacts(entry, operation_id=operation_id)
@@ -611,7 +634,10 @@ class ComfyUIMediaClient:
             payload["artifact_url"] = artifacts[0]["url"] if artifacts else None
             payload["raw"]["error"] = None
         elif normalized == "failed":
-            payload["raw"]["error"] = error_msg
+            _logger.warning("ComfyUI prompt %s failed: %.500s", operation_id, error_msg)
+            payload["raw"]["error"] = "ComfyUI execution failed" + (
+                f" ({error_type})" if (error_type := self._error_type(entry)) else ""
+            )
         return payload
 
     async def cancel_media_operation(self, *, operation_id: str, modality: str) -> bool:
@@ -635,21 +661,34 @@ class ComfyUIMediaClient:
     # ── ComfyUI HTTP primitives ─────────────────────────────────────
     async def _queue_prompt(self, workflow: Dict[str, Any]) -> str:
         client_id = str(uuid.uuid4())
-        resp = await self.client.post(
-            f"{self.base_url}/prompt",
-            json={"prompt": workflow, "client_id": client_id},
-        )
+        try:
+            resp = await self.client.post(
+                f"{self.base_url}/prompt",
+                json={"prompt": workflow, "client_id": client_id},
+            )
+        except (httpx.ConnectError, httpx.ConnectTimeout):
+            raise  # not delivered: safe to retry
+        except httpx.TransportError as exc:
+            # A read timeout or dropped response after sending: the prompt
+            # may be queued, and a 502 invited a retry that ran it twice
+            # with no operation record to poll or cancel (#676).
+            raise ComfyUISubmissionUnknownError(
+                "ComfyUI did not confirm the prompt; it may already be queued, so do not resubmit blindly"
+            ) from exc
         if resp.status_code >= 400:
-            detail = self._error_detail(resp)
-            if resp.status_code < 500:
-                # A 4xx is a client error (bad graph / unknown model /
-                # node_errors) → ValueError so the gateway maps it to 400,
-                # not a 502 that implies the host is down.
-                raise ValueError(f"ComfyUI rejected the prompt: {detail}")
-            # A 5xx is a host-side failure → HTTPStatusError → gateway 502.
-            raise httpx.HTTPStatusError(detail, request=resp.request, response=resp)
-        body = resp.json()
-        prompt_id = body.get("prompt_id")
+            # The body is logged, not returned: a proxy's HTML page or raw
+            # node_errors reached any signed-in caller.
+            _logger.warning("ComfyUI /prompt returned %s: %.500s", resp.status_code, self._error_detail(resp))
+            if resp.status_code == 400:
+                # A bad graph / unknown model → ValueError → gateway 400, not
+                # a 502 that implies the host is down.
+                raise ValueError("ComfyUI rejected the prompt (check its node inputs and model names)")
+            # Any other status is upstream-side (413, 404 from a proxy, 5xx).
+            raise httpx.HTTPStatusError(
+                f"ComfyUI /prompt returned {resp.status_code}", request=resp.request, response=resp,
+            )
+        body = _provider_json(resp)
+        prompt_id = body.get("prompt_id") if isinstance(body, dict) else None
         if not prompt_id:
             raise RuntimeError(f"ComfyUI accepted the prompt but returned no prompt_id: {body}")
         return str(prompt_id)
@@ -659,13 +698,13 @@ class ComfyUIMediaClient:
         if resp.status_code == 404:
             return {}
         self._raise_for_status(resp)
-        body = resp.json()
+        body = _provider_json(resp)
         return body if isinstance(body, dict) else {}
 
     async def _get_queue(self) -> Dict[str, Any]:
         resp = await self.client.get(f"{self.base_url}/queue")
         self._raise_for_status(resp)
-        body = resp.json()
+        body = _provider_json(resp)
         return body if isinstance(body, dict) else {}
 
     async def _upload_init_image(self, source: str) -> str:
@@ -681,8 +720,8 @@ class ComfyUIMediaClient:
         data = {"overwrite": "true", "type": "temp"}
         resp = await self.client.post(f"{self.base_url}/upload/image", files=files, data=data)
         self._raise_for_status(resp)
-        body = resp.json()
-        name = body.get("name") or filename
+        body = _provider_json(resp)
+        name = (body.get("name") if isinstance(body, dict) else None) or filename
         subfolder = body.get("subfolder") or ""
         stored = f"{subfolder}/{name}" if subfolder else str(name)
         return f"{stored} [temp]"
@@ -753,6 +792,18 @@ class ComfyUIMediaClient:
         )
 
     # ── status / artifact normalization ────────────────────────────
+    @staticmethod
+    def _error_type(entry: Dict[str, Any]) -> Optional[str]:
+        """The exception class name of a failed entry (e.g. OutOfMemoryError),
+        safe to return; the message and traceback are logged only."""
+        status = entry.get("status") if isinstance(entry.get("status"), dict) else {}
+        for msg in status.get("messages", []) or []:
+            if isinstance(msg, (list, tuple)) and len(msg) >= 2 and msg[0] == "execution_error":
+                name = msg[1].get("exception_type") if isinstance(msg[1], dict) else None
+                if isinstance(name, str) and re.fullmatch(r"[A-Za-z_][\w.]{0,80}", name):
+                    return name
+        return None
+
     @staticmethod
     def _history_status(entry: Dict[str, Any]) -> Tuple[str, Optional[str]]:
         status = entry.get("status") if isinstance(entry.get("status"), dict) else {}

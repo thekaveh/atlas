@@ -380,3 +380,31 @@ def test_validate_plugin_env_flags_required_missing_and_masks_secret(tmp_path):
     warnings2 = validate_plugin_env(m, {"TABLEAU_EXECUTION": "banana", "LITELLM_MASTER_KEY": "sk-x"})
     assert any("allowed values" in w for w in warnings2)
     assert "sk-x" not in " ".join(warnings2)
+
+
+def test_schema_names_every_reserved_route_prefix():
+    """The schema is the documented source of the reserved list
+    (reusing-atlas §6.3.1); it listed 11 of the 17 enforced prefixes."""
+    import json
+    from pathlib import Path
+
+    from core.plugin_manifest import RESERVED_ROUTE_PREFIXES
+
+    schema = json.loads((Path(__file__).resolve().parents[1] / "schemas" / "plugin.schema.json").read_text())
+    description = schema["properties"]["route_prefix"]["description"]
+    listed = description[description.index("built-in backend route (") + 24:].split(")")[0]
+    assert {name.strip() for name in listed.split(",")} == set(RESERVED_ROUTE_PREFIXES)
+
+
+@pytest.mark.parametrize("prefix", ["/x/../api", "/y/..", "/./a", "/a/./b"])
+def test_dot_segments_are_rejected_before_kong_normalizes_them(tmp_path, prefix):
+    """Kong 3.9 normalizes route paths on load: /x/../api became /api, so an
+    auth: open plugin shadowed every built-in route past the key-auth check."""
+    with pytest.raises(PluginManifestError):
+        load_plugin_manifest(_pkg(tmp_path, "pp", f"plugin_manifest_version: 1\nname: pp\nroute_prefix: {prefix}\n"))
+
+
+def test_a_trailing_newline_is_rejected_like_the_backend_does(tmp_path):
+    with pytest.raises(PluginManifestError, match="newline"):
+        load_plugin_manifest(_pkg(tmp_path, "pp", 'plugin_manifest_version: 1\nname: pp\nroute_prefix: "/demo\\n"\n'))
+    assert load_plugin_manifest(_pkg(tmp_path, "qq", "plugin_manifest_version: 1\nname: qq\nroute_prefix: /a.b/c..d\n"))

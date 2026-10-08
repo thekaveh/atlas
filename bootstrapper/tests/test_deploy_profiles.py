@@ -486,6 +486,28 @@ def test_doctor_profile_reports_bundle_and_tiers():
     assert result["details"]["last_applied"] == "prod"
 
 
+def test_doctor_profile_follows_the_applied_profile_without_a_manifest_profile():
+    """After `./start.sh --profile prod` with no manifest `profile:`, doctor
+    reported profile=default and dropped the prod-managed values."""
+    s = start.AtlasStarter.__new__(start.AtlasStarter)
+    s.config_parser = NS(
+        parse_env_file=lambda: {"HOST_BIND_IP": "127.0.0.1:", "PROMETHEUS_SOURCE": "container",
+                                "ATLAS_PROFILE_APPLIED": "prod"},
+        load_consumer_config=lambda: NS(profile=None, profile_overrides={}),
+    )
+    s.root_dir = REPO_ROOT
+    fields = start._doctor_check_profile(s)["details"]["fields"]
+    assert fields["PROMETHEUS_SOURCE"]["tier"] == "profile"
+
+
+@pytest.mark.parametrize("raw", ["6300²", "abc"])
+def test_a_non_ascii_digit_port_does_not_crash_the_move_check(raw):
+    s = start.AtlasStarter.__new__(start.AtlasStarter)
+    s.config_parser = NS(parse_env_file=lambda: {"BASE_PORT": raw, "X_PORT": raw})
+    s.port_manager = NS(calculate_port_assignments=lambda base: {"X_PORT": base + 1})
+    assert s._port_block_moves(63000) is False
+
+
 def test_doctor_profile_registered():
     assert start._doctor_check_profile in start.DOCTOR_CHECKS
 
@@ -511,3 +533,12 @@ def test_an_env_user_source_pin_survives_the_prod_profile(tmp_path, monkeypatch)
     assert s.setup_env_file(cold_start=False) is True
     assert s.apply_profile_overrides("prod") is True
     assert _env(tmp_path)["PROMETHEUS_SOURCE"] == "disabled"
+
+
+def test_profile_override_booleans_are_written_as_env_text():
+    """`BACKUP_DATABASES: true` in profile_overrides was written `True`, which
+    backup-all.sh rejects (exit 64); consumer env.values already wrote true."""
+    from services.profiles import _parse_bundle
+
+    bundle = _parse_bundle("prod", {"env": {"BACKUP_DATABASES": True, "X_OFF": False}}, origin="t")
+    assert bundle.env == {"BACKUP_DATABASES": "true", "X_OFF": "false"}

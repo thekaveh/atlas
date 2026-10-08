@@ -52,7 +52,7 @@ The ruleset also grants the repository admin role an always-on bypass (`bypass_m
 
 Strict mode is enabled, so each PR branch must be up to date with that PR's target branch before merge becomes available. Conversation-resolution is required.
 
-Gitflow integration uses two PRs: branch (typically a dedicated git worktree) → push → PR to `develop` → required checks → squash merge; then `develop` → PR to `main` → required checks → squash merge. Never attempt `git push origin main` or `develop`. Inspect the live rule with `gh api repos/thekaveh/atlas/rulesets`.
+Gitflow integration uses two PRs: branch (typically a dedicated git worktree) → push → PR to `develop` → required checks → squash merge; then cut `release/<slug>-to-main` off `origin/main`, `git merge --no-ff origin/develop`, prove `git diff origin/develop HEAD` is empty, push, PR to `main` → required checks → merge with a **merge commit**, so `develop` stays an ancestor of `main` (a squash here makes the next develop→main PR conflict). Never attempt `git push origin main` or `develop`. Inspect the live rule with `gh api repos/thekaveh/atlas/rulesets`.
 
 ## Key Commands
 

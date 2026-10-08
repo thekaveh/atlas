@@ -10,6 +10,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import re
 import shlex
 import sys
 import urllib.error
@@ -79,7 +80,14 @@ def probe_embedding_dim(base_url: str, key: str, model: str, timeout: float = 15
     except urllib.error.HTTPError as e:
         # A wrong key, an unknown alias, a timeout or a rate limit says nothing
         # about the model; only a request the gateway rejects (400/422) does.
-        inconclusive = e.code >= 500 or e.code in (401, 403, 404, 408, 429)
+        # LiteLLM reports an alias it does not serve as a 400 whose text
+        # names the model as invalid or not found.
+        try:
+            detail = e.read().decode("utf-8", "replace")
+        except (OSError, ValueError):
+            detail = ""
+        unknown = re.search(r"invalid model name|model\b.{0,120}\bnot found|no such model", detail, re.I | re.S)
+        inconclusive = e.code >= 500 or e.code in (401, 403, 404, 408, 429) or unknown is not None
         return ("unavailable" if inconclusive else "unsupported"), None
     except (OSError, ValueError, http.client.HTTPException):  # URLError, resets, timeouts, bad JSON
         return "unavailable", None

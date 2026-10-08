@@ -93,10 +93,14 @@ export LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-}"
 # the two flows in sync; previously the second flow received an empty
 # catalog whenever the operator pinned HERMES_DEFAULT_MODEL.
 litellm_url="${LITELLM_BASE_URL:-http://litellm:4000}"
+# GET a LiteLLM path with the master key on curl's stdin (-K-), never on its
+# argv, where `ps` / `docker top` would show it (#1381).
+litellm_get() {
+  printf 'header = "Authorization: Bearer %s"\n' "${LITELLM_MASTER_KEY}" \
+    | curl -fsS --max-time 15 -K- "${litellm_url}$1"
+}
 log "querying LiteLLM /v1/models"
-models_json=$(curl -fsS --max-time 15 \
-  -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" \
-  "${litellm_url}/v1/models" 2>/dev/null || true)
+models_json=$(litellm_get "/v1/models" 2>/dev/null || true)
 if [[ -n "${models_json}" ]]; then
   available_ids=$(printf '%s' "${models_json}" \
     | jq -r '.data[]?.id' 2>/dev/null || true)
@@ -144,9 +148,7 @@ if [[ -z "${HERMES_DEFAULT_MODEL}" ]]; then
       # graceful "set HERMES_DEFAULT_MODEL" warning below.
       # Name patterns miss embedders like bge-m3 and rerank/image routes, so
       # also drop every id whose LiteLLM model_info.mode is not "chat".
-      non_chat_ids=$(curl -fsS --max-time 15 \
-        -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" \
-        "${litellm_url}/model/info" 2>/dev/null \
+      non_chat_ids=$(litellm_get "/model/info" 2>/dev/null \
         | jq -r '.data[]? | select((.model_info.mode // "chat") != "chat") | .model_name' 2>/dev/null || true)
       HERMES_DEFAULT_MODEL=$(printf '%s\n' "${available_ids}" \
         | NON_CHAT_IDS="${non_chat_ids}" awk 'BEGIN { n = split(ENVIRON["NON_CHAT_IDS"], a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") skip[a[i]] = 1 } !($0 in skip)' \

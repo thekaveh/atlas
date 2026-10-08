@@ -203,3 +203,16 @@ def test_v1_port_layout_rewrite_keeps_the_export_prefix(tmp_path):
     lines = [line for line in env.read_text(encoding="utf-8").splitlines() if "LITELLM_PORT=" in line]
     assert lines == [f"export LITELLM_PORT={old_port + 1}"]
     assert "LITELLM_PORT" in result.rewritten
+
+
+def test_an_export_prefixed_version_line_is_current(tmp_path):
+    """`export BOOTSTRAPPER_PORT_LAYOUT_VERSION=5` read as "no version": all
+    five migrations re-ran and v1 appended a second version line."""
+    from services.migrations import migration_v1
+
+    env = tmp_path / ".env"
+    env.write_text("export BOOTSTRAPPER_PORT_LAYOUT_VERSION=5\nexport A=1\n", encoding="utf-8")
+    assert [needs(env) for needs in (needs_v1, needs_v2, needs_v3, needs_v4, needs_v5)] == [False] * 5
+    env.write_text("export BOOTSTRAPPER_PORT_LAYOUT_VERSION=0\n", encoding="utf-8")
+    migration_v1.stamp_version(env, 1)
+    assert env.read_text(encoding="utf-8") == "export BOOTSTRAPPER_PORT_LAYOUT_VERSION=1\n"

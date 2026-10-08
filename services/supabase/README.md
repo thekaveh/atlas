@@ -30,7 +30,7 @@ The database initialization follows a staged process managed by Docker Compose d
 
 **IMPORTANT**: The `SUPABASE_DB_USER` in your `.env` file must be set to `supabase_admin`. This is required by the base image's internal scripts.
 
-Host connections require SCRAM passwords. PostgreSQL runs with the image's own configuration (`-D /etc/postgresql`: listens on all container interfaces, logical WAL for Realtime, Supabase preload libraries) and its `/etc/postgresql/pg_hba.conf`, which requires `scram-sha-256` for every network range and trusts only in-container connections (loopback, plus the local socket for `supabase_admin` and peer-mapped users), as upstream Supabase does. The image's `/etc/postgresql-custom` lives on the `supabase-db-config` volume: it holds `pgsodium_root.key`, so Vault and pgsodium secrets stay decryptable across container recreation. A database restored into a cluster with a different key cannot decrypt them, so keep that volume with the data volume. The startup wrapper also rewrites legacy `trust`, `md5`, or `password` host rules in the data directory's `pg_hba.conf` to `scram-sha-256`, so that file is safe if it is ever used directly; local socket rules and explicit rejects are preserved. Application containers use dedicated generated roles, while only database initialization and backup/restore retain `SUPABASE_DB_USER`.
+Host connections require SCRAM passwords. PostgreSQL runs with the image's own configuration (`-D /etc/postgresql`: listens on all container interfaces, logical WAL for Realtime, Supabase preload libraries) and its `/etc/postgresql/pg_hba.conf`, which requires `scram-sha-256` for every network range and trusts only in-container connections (loopback, plus the local socket for `supabase_admin` and peer-mapped users), as upstream Supabase does. The image's `/etc/postgresql-custom` lives on the `supabase-db-config` volume: it holds `pgsodium_root.key`, so Vault and pgsodium secrets stay decryptable across container recreation. A database restored into a cluster with a different key cannot decrypt them, so keep that volume with the data volume. The startup wrapper also rewrites legacy `trust` or `password` host rules in the data directory's `pg_hba.conf` to `scram-sha-256`, so that file is safe if it is ever used directly; local socket rules and explicit rejects are preserved. A file with `md5` host rules is left unchanged and reported, because MD5-only role verifiers must be migrated first. Application containers use dedicated generated roles, while only database initialization and backup/restore retain `SUPABASE_DB_USER`.
 
 **Password is baked at initdb (`password authentication failed for user "supabase_admin"`).** The `supabase_admin` role's password is set **once**, when the `supabase-db-data` volume is first created, and is never re-synced afterward. `SUPABASE_DB_PASSWORD` ships as the placeholder `password` and is auto-rotated to a random value on the first `./start.sh`. If the data volume later persists across a `.env` password change (e.g. `.env` regenerated from `.env.example` against a retained volume — `./stop.sh` without `--cold` keeps volumes), clients authenticate with the new value while the role still holds the old one → `password authentication failed`. The bootstrapper now **skips** rotation and warns when it detects an existing `<project>_supabase-db-data` volume, so it won't silently rotate `.env` out of sync. To recover a drifted stack, either set `SUPABASE_DB_PASSWORD` back to the volume's original value, or run `./stop.sh --cold` (removes volumes) then `./start.sh` to reinitialize the role and `.env` together.
 
@@ -128,7 +128,7 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 2. **Client Authentication**: Implement login flow using `/auth/v1/token?grant_type=password`
 3. **Anonymous Access**: Use `SUPABASE_ANON_KEY` for public requests
 4. **Service Role Access**: Use `SUPABASE_SERVICE_KEY` for admin operations (handle securely)
-5. **User Management**: Use the Kong-protected Supabase Studio route at `http://supabase-studio.localhost:${KONG_HTTP_PORT}`. The direct host port bypasses that gate.
+5. **User Management**: Use the Kong-protected Supabase Studio route at `http://supabase-studio.localhost:${KONG_HTTP_PORT}` (Studio's own port is not published).
 
 Supabase Auth identities are synchronized into `public.users` by the
 idempotent `public.handle_auth_user_sync()` trigger in `10-users.sql`. The same
@@ -195,9 +195,9 @@ Realtime creates and manages its own logical replication slots. Database initial
 ### 4.6. Studio Dashboard
 
 **Protected access**: `http://supabase-studio.localhost:${KONG_HTTP_PORT}`
-**Direct access**: `http://localhost:${SUPABASE_STUDIO_PORT}` (default: 63019); this bypasses Kong and Studio has no application authentication
+**Direct access**: none. Studio is not published on the host: it has no application authentication, and its pg-meta proxy accepts form-encoded POSTs a web page can send cross-site, so a loopback port let any page open in your browser run SQL. `SUPABASE_STUDIO_PORT` stays reserved but is not bound.
 **Purpose**: Web-based database management interface
-**Credentials**: `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` protect the Kong `supabase-studio.localhost` route (default user `kong_admin`; the password is auto-generated on first `./start.sh`). Direct `SUPABASE_STUDIO_PORT` access bypasses Kong and does not consume those credentials.
+**Credentials**: `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` protect the Kong `supabase-studio.localhost` route (default user `kong_admin`; the password is auto-generated on first `./start.sh`). Studio is reached only through that route.
 **Features**:
 - Database schema visualization
 - Query editor and runner
@@ -246,13 +246,29 @@ DASHBOARD_PASSWORD=<auto-generated into .env>
 
 ### 5.1. Security note — pg-meta host port
 
-`supabase-meta` (pg-meta) is published on the host at `SUPABASE_META_PORT`
-(default `63014`). pg-meta is an **auth-less HTTP API that executes SQL as
-`supabase_admin`** — anyone who can reach that port owns the database.
-Treat it like the Redis debug port: fine on a trusted dev machine, but on
-any shared network either firewall it or remove the `ports:` publish from
-`services/supabase/compose.yml` (Studio reaches pg-meta over the internal
-Docker network and does not need the host publish).
+`supabase-meta` (pg-meta) is **not published on the host**. It is an
+auth-less HTTP API that executes SQL as a dedicated `dashboard_user` member,
+and it answers any browser origin (CORS `*`), so even a loopback-only publish
+let any web page open in the operator's browser query `auth.users`. Studio
+and the Kong `/pg/` route (Basic authentication + `dashboard_user` ACL)
+reach it over the internal Docker network. `SUPABASE_META_PORT` stays
+reserved in the port block but is not bound.
+
+### 5.2. Security note — writable `public` schema
+
+Open WebUI, LightRAG, pg-meta and Realtime roles can create objects in
+`public`. PostgreSQL resolves an unqualified call to the best type match across
+the search path, so a planted `public` overload can beat a `pg_catalog`
+built-in and run as whoever calls it. Atlas `SECURITY DEFINER` functions
+therefore run with `search_path = pg_catalog, pg_temp` (or empty) and qualify
+`public` objects, and superuser-run slices schema-qualify built-ins called with
+non-exact argument types. Because the slices still call some built-ins
+(`format`, `=`, `<>`) without exact types, `db-init-runner` refuses to run
+while a non-superuser owns a function or operator named like a `pg_catalog`
+one in `public`, `auth` or `extensions`, and names each object: drop them,
+then restart. The backup and restore scripts resolve nothing through `public`
+(`search_path = pg_catalog, pg_temp`). Downstream SQL in `db/_user/` runs as
+the init superuser too: qualify calls the same way (#1456).
 
 ## 6. Integration Points
 
@@ -357,7 +373,7 @@ _No upstream calls._
 
 **Database connection issues**: Verify SUPABASE_DB_USER is set to `supabase_admin`
 **Auth service errors**: Check JWT secret consistency across services
-**Studio access issues**: Verify dashboard credentials for the Kong hostname. The direct host port bypasses the dashboard credential gate and should be loopback-bound, firewalled, or unpublished on shared networks.
+**Studio access issues**: Verify dashboard credentials for the Kong hostname and that `./start.sh --setup-hosts` added `supabase-studio.localhost`; Studio has no direct host port.
 **Initialization failures**: Check supabase-db-init logs for SQL script errors
 
 For more troubleshooting help, see [../quick-start/troubleshooting.md](../../docs/quick-start/troubleshooting.md).
@@ -372,6 +388,6 @@ Support tier: **experimental** — Capability contract declared (#967); no cited
 | Idempotent schema and RLS initialization | supported | tested | Ordered Atlas and downstream SQL runners initialize extensions, service schemas, grants, identity synchronization, and row-level-security policies with failure gating. |
 | Least-privilege application database role | supported | tested | Atlas creates idempotent per-service logins and dedicated database/schema ownership or read grants; application containers do not receive the Supabase owner credential. |
 | Production email authentication | partial | documented | GoTrue issues and validates JWTs, but the stock local-development defaults auto-confirm email and point SMTP at localhost rather than a configured delivery service. |
-| pg-meta administrative access control | partial | documented | The Kong /pg/ route uses Basic authentication and the dashboard_user ACL, while the direct host-published SUPABASE_META_PORT has no application authentication and executes as a dedicated dashboard_user member; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_META_PORT, or remove the supabase-meta ports: publish on shared networks. |
-| Supabase Studio access control | partial | documented | The Kong route uses Basic authentication and the dashboard_user ACL, but the host-published SUPABASE_STUDIO_PORT bypasses that gate because Studio has no application authentication; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_STUDIO_PORT, or remove its ports: publish. |
+| pg-meta administrative access control | supported | tested | The Kong /pg/ route uses Basic authentication and the dashboard_user ACL. pg-meta itself has no application authentication, executes as a dedicated dashboard_user member and allows any browser origin, so it is not published on the host; SUPABASE_META_PORT is reserved but unused. |
+| Supabase Studio access control | supported | tested | The Kong route uses Basic authentication and the dashboard_user ACL. Studio has no application authentication and its pg-meta proxy accepts form-encoded POSTs that a web page can send cross-site, so it is not published on the host; SUPABASE_STUDIO_PORT is reserved but unused. |
 | Authenticated remote PostgreSQL access | supported | tested | Host TCP uses SCRAM-SHA-256 with generated scoped passwords under the image's own pg_hba.conf, plus an upgrade-time HBA rewrite for legacy volumes' data-directory rules; publication remains loopback by default and explicit remote exposure still requires firewall and TLS planning. |

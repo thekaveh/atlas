@@ -144,6 +144,20 @@ class ComfyUiMpsError(RuntimeError):
 _KEEP_LAUNCH = object()
 
 
+def _escapes_models_root(target_dir: str, filename: str) -> bool:
+    """True when ``target_dir/filename`` could leave the models root: an
+    absolute or dot-segment target_dir, or a filename that is not one plain
+    path component."""
+    dir_parts = target_dir.replace("\\", "/").split("/") if target_dir else []
+    return (
+        target_dir.startswith(("/", "\\"))
+        or any(part in ("", ".", "..") for part in dir_parts)
+        or filename in ("", ".", "..")
+        or "/" in filename
+        or "\\" in filename
+    )
+
+
 class ComfyUiMpsManager:
     def __init__(
         self,
@@ -334,7 +348,10 @@ class ComfyUiMpsManager:
             # Drop the "installed" marker before touching the venv: a pip
             # failure below must not leave a status that matches on the next
             # start and skips every install step over a half-built venv.
-            self.status_file.unlink(missing_ok=True)
+            # Only the marker goes: the running process's launch record
+            # (pid, port, listen) stays, or a port change made together with
+            # this reinstall would reuse the old process (#1361).
+            self._write_status(installed_ref=None)
         if fresh:
             self._run(["python3", "-m", "venv", str(self.venv_dir)])
             self._run([str(self.venv_python), "-m", "pip", "install", "--upgrade", "pip"])
@@ -415,6 +432,8 @@ class ComfyUiMpsManager:
 
     def start_with_ownership(self) -> tuple[ProcessStatus, bool]:
         """Start atomically and report whether this call created the process."""
+        if getattr(self, "port_error", None):
+            raise ComfyUiMpsError(self.port_error)
         with self._launch_guard():
             return self._start_locked()
 
@@ -668,6 +687,8 @@ class ComfyUiMpsManager:
 
     def ensure_running_with_ownership(self) -> tuple[ProcessStatus, bool]:
         """Run the full launch path and atomically report process ownership."""
+        if getattr(self, "port_error", None):
+            raise ComfyUiMpsError(self.port_error)
         pre = self.preflight()
         if not pre.ok:
             fails = [c for c in pre.checks if c["status"] == _FAIL]
@@ -693,12 +714,35 @@ class ComfyUiMpsManager:
                     "refusing to remove managed ComfyUI state while its tracked "
                     f"{detail} may still be alive"
                 )
-            if self.state_dir.exists():
-                shutil.rmtree(self.state_dir)
+            self._refuse_removing_host_models()
+            from services import remove_state_directory
+            remove_state_directory(self.state_dir, ("managed ComfyUI state directory", ComfyUiMpsError))
+
+    def _refuse_removing_host_models(self) -> None:
+        """The host models dir is never deleted (README §10), even when it was
+        pointed inside the managed state directory."""
+        if not self.models_path:
+            return
+        models = Path(self.models_path).expanduser().resolve()
+        state = self.state_dir.expanduser().resolve()
+        # By file identity as well as text: on a case-insensitive volume a
+        # differently-cased models path is the same folder (85b10c48).
+        inside = models == state or state in models.parents
+        if not inside and state.exists():
+            state_stat = state.stat()
+            inside = any(
+                p.exists() and os.path.samestat(p.stat(), state_stat) for p in (models, *models.parents)
+            )
+        if inside:
+            raise ComfyUiMpsError(
+                f"refusing to remove {state}: it contains COMFYUI_MPS_MODELS_PATH ({models}), "
+                "which Atlas never deletes; move the models or point COMFYUI_MPS_MODELS_PATH elsewhere"
+            )
 
     # ── health ───────────────────────────────────────────────────────
     def health(self, *, timeout: float = 3.0) -> dict:
-        url = f"http://{self._probe_host}:{self.port}/system_stats"
+        host = self._probe_host
+        url = f"http://{f'[{host}]' if ':' in host else host}:{self.port}/system_stats"
         try:
             with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310 - loopback only
                 body = resp.read().decode("utf-8")
@@ -767,9 +811,11 @@ class ComfyUiMpsManager:
         return "127.0.0.1" if self.listen in ("", "0.0.0.0", "::") else self.listen
 
     def _port_in_use(self) -> bool:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        host = self._probe_host
+        family = socket.AF_INET6 if ":" in host else socket.AF_INET  # e.g. COMFYUI_MPS_LISTEN=::1
+        with socket.socket(family, socket.SOCK_STREAM) as sock:
             sock.settimeout(0.5)
-            return sock.connect_ex((self._probe_host, self.port)) == 0
+            return sock.connect_ex((host, self.port)) == 0
 
     def _read_pid(self) -> Optional[int]:
         if not self.pid_file.exists():
@@ -947,6 +993,11 @@ class ComfyUiMpsManager:
             if not key[1] or key in seen:
                 continue
             seen.add(key)
+            try:
+                self._provision_dest(row)
+            except ComfyUiMpsError as exc:  # one bad row never aborts the rest
+                result.failed.append(str(exc))
+                continue
             precision = str(row.get("precision") or "").lower()
             if precision in _MPS_UNSAFE_PRECISIONS:
                 result.warnings.append(
@@ -1036,7 +1087,11 @@ class ComfyUiMpsManager:
             seen.add(key)
             if str(row.get("precision") or "").lower() in _MPS_UNSAFE_PRECISIONS:
                 continue
-            if not self._provision_dest(row).exists():
+            try:
+                present = self._provision_dest(row).exists()
+            except ComfyUiMpsError:
+                present = False
+            if not present:
                 missing.append(f"{key[0]}/{key[1]}")
         return not missing, missing
 
@@ -1321,7 +1376,16 @@ class ComfyUiMpsManager:
 
     def _provision_dest(self, row: dict) -> Path:
         assert self.models_path is not None
-        return self.models_path / str(row.get("target_dir") or "") / str(row.get("filename"))
+        target_dir, filename = str(row.get("target_dir") or ""), str(row.get("filename"))
+        # Checked by its parts, not by resolving: a model folder symlinked to
+        # another drive (models/checkpoints -> /Volumes/x) is legitimate and
+        # resolved outside the root, which aborted the whole start.
+        if _escapes_models_root(target_dir, filename):
+            raise ComfyUiMpsError(
+                f"model {row.get('name')!r} would be written outside {self.models_path}: "
+                f"target_dir {row.get('target_dir')!r}, filename {row.get('filename')!r}"
+            )
+        return self.models_path / target_dir / filename
 
     @staticmethod
     def _part_path(dest: Path) -> Path:
@@ -1444,14 +1508,33 @@ class ComfyUiMpsManager:
         state[key] = {"sha256": sha, "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
 
 
+def _port_error(raw, key: str):
+    raw = (raw or "").strip()
+    if raw and not (raw.isascii() and raw.isdigit()):
+        return f"{key}={raw!r} is not a port number; fix it in .env"
+    return None
+
+
+def _env_port(raw, default: int) -> int:
+    """ASCII digits, else the default: a typo used to traceback every command,
+    including stop and remove of a running host (the Blender factory falls
+    back the same way)."""
+    raw = (raw or "").strip()
+    return int(raw) if raw.isascii() and raw.isdigit() else default
+
+
 def manager_from_env(env: dict[str, str]) -> ComfyUiMpsManager:
     """Build a manager from resolved .env values."""
-    return ComfyUiMpsManager(
-        state_dir=env.get("COMFYUI_MPS_STATE_DIR", "~/.atlas/comfyui-mps"),
-        port=int(env.get("COMFYUI_MPS_LOCALHOST_PORT", "8188") or "8188"),
+    manager = ComfyUiMpsManager(
+        state_dir=(env.get("COMFYUI_MPS_STATE_DIR") or "").strip() or "~/.atlas/comfyui-mps",
+        port=_env_port(env.get("COMFYUI_MPS_LOCALHOST_PORT"), 8188),
         ref=env.get("COMFYUI_MPS_REF", "v0.27.0"),
         models_path=env.get("COMFYUI_MPS_MODELS_PATH") or None,
         min_memory_gb=int(env.get("COMFYUI_MPS_MIN_MEMORY_GB", "16") or "16"),
         torch_pin=env.get("COMFYUI_MPS_TORCH_PIN") or None,
         listen=env.get("COMFYUI_MPS_LISTEN") or "127.0.0.1",
     )
+    # Stop/status/remove fall back to the default; a launch must not, or the
+    # process listens there while LiteLLM is told the raw value.
+    manager.port_error = _port_error(env.get("COMFYUI_MPS_LOCALHOST_PORT"), "COMFYUI_MPS_LOCALHOST_PORT")
+    return manager

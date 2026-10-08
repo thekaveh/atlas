@@ -166,8 +166,16 @@ def presign_get_url(
     if not split.netloc:
         raise ValueError(f"endpoint must include a host: {endpoint!r}")
 
-    scheme = split.scheme
-    host = split.netloc  # host[:port]
+    scheme = split.scheme.lower()
+    # The Host a browser (and botocore) presents: lowercase, without the
+    # scheme's default port. Signing the endpoint text verbatim made
+    # `https://s3.example.com:443` or `http://LocalHost:63018` fail with
+    # SignatureDoesNotMatch.
+    hostname = split.hostname or ""
+    if ":" in hostname:  # IPv6 literal
+        hostname = f"[{hostname}]"
+    port = split.port
+    host = hostname if port in (None, {"http": 80, "https": 443}.get(scheme)) else f"{hostname}:{port}"
 
     if now is None:
         now = datetime.now(timezone.utc)

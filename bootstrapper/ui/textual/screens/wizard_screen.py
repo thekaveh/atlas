@@ -399,10 +399,15 @@ class _ThreadedComposeExecutor:
         try:
             if self._cancel_requested.is_set():
                 raise asyncio.CancelledError
+            from utils.system import compose_env  # noqa: PLC0415
+
             return await _run_streamed_command(
                 command,
                 cwd=Path(self._manager.root_dir),
-                env={**os.environ, "BUILDKIT_PROGRESS": "plain"},
+                # Same PROJECT_NAME rule as the other compose executors: the
+                # wizard's `up` used the raw shell/.env value while stop and
+                # cold cleanup pinned it, so the two disagreed on volumes.
+                env={**compose_env(command), "BUILDKIT_PROGRESS": "plain"},
                 on_line=self._stream_line,
                 timeout_seconds=_compose_timeout_seconds(args),
                 termination_grace_seconds=_PROCESS_TERMINATION_GRACE_SECONDS,
@@ -2056,6 +2061,7 @@ class WizardScreen(Screen):
                 return
         self._preview_base = new_base
         self._services = self._on_base_port_change(new_base, self._services)
+        self._reapply_typed_host_ports()
         self._service_table.set_rows(self._services)
         self._refresh_info_panel()
 
@@ -2067,6 +2073,30 @@ class WizardScreen(Screen):
         if self._resolve_port_for_service is not None:
             return self._resolve_port_for_service(row.name, row.source) or ""
         return row.port
+
+    def _reapply_typed_host_ports(self) -> None:
+        """A base-port change rebuilds every row from .env, which dropped a
+        localhost row's typed host port from the preview while the launch
+        still wrote it."""
+        rows = {row.name: row for row in self._services}
+        for step in self._steps:
+            row = rows.get(step.service_name or "")
+            answer = self._selections.get(step.title)
+            opt = next((o for o in step.options if o.value == answer), None) if row else None
+            typed = self._typed_host_port(opt) if opt is not None else ""
+            if typed:
+                row.port = typed
+
+    def _typed_host_port(self, opt) -> str:
+        """The host port typed into ``opt``'s inline box, if any: the launch
+        writes it (#1390), so the overview previews it rather than .env's."""
+        secondary = getattr(opt, "secondary_number", None)
+        # Only a host port: worker counts and retention days are inline numbers
+        # too, and the PORT column showed "7" for Prometheus and "2" for Ray.
+        if not secondary or "_LOCALHOST_" not in secondary.env_var or not secondary.env_var.endswith("_PORT"):
+            return ""
+        typed = self._selections.get(f"__secondary__:{secondary.env_var}")
+        return "" if typed in (None, "") else str(typed)
 
     def action_confirm(self) -> None:
         if self._phase != "setup":
@@ -2144,7 +2174,7 @@ class WizardScreen(Screen):
                 # sources should show the host machine's port, container
                 # sources the assigned container port, disabled none.
                 try:
-                    row.port = self._port_for_row(row)
+                    row.port = self._typed_host_port(opt) or self._port_for_row(row)
                 except Exception:  # noqa: BLE001
                     pass
                 # Row position is fixed by canonical topology order — a
@@ -2823,9 +2853,10 @@ class WizardScreen(Screen):
                 if value == SECRET_KEEP:
                     continue  # degraded fetch — selection kept, no flag
                 csv = (value or "").strip()
-                if csv == "":
-                    continue
-                flags.append(("--ollama-models", _quote_csv(csv)))
+                # Empty is an answer (the launch writes OLLAMA_USER_MODELS=""),
+                # as --comfyui-models "" already is; omitting it replayed the
+                # .env.example default set.
+                flags.append(("--ollama-models", _quote_csv(csv) if csv else '""'))
                 continue
             if step.title == OLLAMA_CUSTOM_TITLE:
                 if value in (SECRET_KEEP, "", None):
@@ -2851,8 +2882,8 @@ class WizardScreen(Screen):
         self._command_summary.set_flags(flags)
 
     def _project_and_count_flags(self) -> list[tuple[str, str]]:
-        """--project, --comfyui-models, --ray-worker-count and --spark-workers,
-        which the loop above never emitted (#1390)."""
+        """--project, --comfyui-models, --ray-worker-count, --spark-workers and
+        --prometheus-retention-days, which the loop above never emitted (#1390)."""
         from wizard.comfyui_steps import COMFYUI_MODELS_TITLE
         from wizard.model.cloud_rules import SECRET_CLEAR, SECRET_KEEP
 
@@ -2868,7 +2899,8 @@ class WizardScreen(Screen):
             names = _model_names(models)
             flags.append(("--comfyui-models", _quote_csv(",".join(names)) if names else '""'))
         for env_var, flag in (("RAY_WORKER_COUNT", "--ray-worker-count"),
-                              ("SPARK_WORKER_COUNT", "--spark-workers")):
+                              ("SPARK_WORKER_COUNT", "--spark-workers"),
+                              ("PROMETHEUS_RETENTION_DAYS", "--prometheus-retention-days")):
             count = selections.get(f"__secondary__:{env_var}")
             if count not in (None, ""):
                 flags.append((flag, str(count)))
@@ -2953,6 +2985,9 @@ class WizardScreen(Screen):
     # ─── transition ──────────────────────────────────────────────────
 
     async def _transition_to_launch(self) -> None:
+        # start.py words a Ctrl+C exit by whether the launch had begun.
+        if self._starter is not None:
+            self._starter.tui_launch_started = True
         # If args were prefilled at construction time (auto-launch mode),
         # honor them. Otherwise resolve from the wizard's selections.
         if self._source_args is None or self._stack_options is None:
@@ -3492,12 +3527,15 @@ class WizardScreen(Screen):
         """
         if not (self._stack_options or {}).get("cold_cleanup_pending"):
             return []
-        return [(
-            "Cold start: remove volumes and recreate .env",
-            lambda: starter.prepare_environment(
+        def cleanup():
+            # Recorded first: an interrupted cleanup may already have
+            # removed volumes, which the cancel notice must say.
+            starter.tui_cold_cleanup_ran = True
+            return starter.prepare_environment(
                 cold_start=True, base_port=base_port, project_name=project_name or None,
-            ),
-        )]
+            )
+
+        return [("Cold start: remove volumes and recreate .env", cleanup)]
 
     async def _run_pipeline_and_stream(self) -> None:
         starter = self._starter

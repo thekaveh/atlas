@@ -4,10 +4,13 @@ import asyncio
 import json
 from collections import OrderedDict
 import inspect
+import logging
 import os
 from typing import Annotated, Any, Callable, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 MetricName = Literal[
@@ -43,12 +46,36 @@ class RagEvaluationUpstreamError(RagEvaluationError):
     reason as the dependency error below (#1354)."""
 
 
+# 4xx statuses that report the backend's own credentials or limits, not the
+# caller's request: an upstream failure like a 5xx.
+_EVALUATOR_UPSTREAM_STATUSES = {401, 403, 408, 429}
+
+
+def _evaluator_status(exc: BaseException):
+    """The HTTP status behind ``exc``, looking through retry wrappers
+    (instructor's InstructorRetryException keeps it on the cause)."""
+    for _ in range(5):
+        status_code = getattr(exc, "status_code", None)
+        if isinstance(status_code, int):
+            return status_code
+        nested = getattr(exc, "last_exception", None) or exc.__cause__
+        if nested is None:
+            return None
+        exc = nested
+    return None
+
+
 def _evaluation_error(exc: Exception) -> RagEvaluationError:
     """A 4xx from the evaluator (an unknown caller-chosen model, say) is the
-    caller's error; anything else is an upstream failure (#1354)."""
-    status_code = getattr(exc, "status_code", None)
-    if isinstance(status_code, int) and 400 <= status_code < 500:
-        return RagEvaluationError(str(exc))
+    caller's error; anything else is an upstream failure (#1354). The
+    caller's error carries a fixed message: the upstream text can name
+    internal hosts and keys. The cause is logged."""
+    status_code = _evaluator_status(exc)
+    if isinstance(status_code, int) and 400 <= status_code < 500 and status_code not in _EVALUATOR_UPSTREAM_STATUSES:
+        logger.warning("Ragas evaluator rejected the request: %s: %s", type(exc).__name__, exc)
+        return RagEvaluationError(
+            f"The evaluator rejected the request (HTTP {status_code}); check the evaluator model name"
+        )
     return RagEvaluationUpstreamError(str(exc))
 
 
@@ -262,7 +289,10 @@ async def _score_collection_metrics_async(
         except Exception as exc:
             if raise_exceptions:
                 raise
-            detail = f"{type(exc).__name__}: {exc}"
+            # The response names the failure type only: the message can carry
+            # upstream hosts and provider error bodies. The cause is logged.
+            logger.warning("Ragas metric %s failed: %s: %s", name, type(exc).__name__, exc)
+            detail = type(exc).__name__
             for row in rows:
                 row["scores"][name] = None
                 row["metadata"].setdefault("metric_errors", {})[name] = detail

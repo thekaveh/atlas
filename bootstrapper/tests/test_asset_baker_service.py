@@ -174,3 +174,12 @@ def test_asset_baker_readme_documents_api_and_bake_contract() -> None:
         "ASSET_BAKER_SOURCE=disabled",
     ]:
         assert required in text, required
+
+
+def test_asset_baker_builds_for_amd64_on_any_host() -> None:
+    """The Blender build refuses non-x86_64 architectures; without a compose
+    platform an arm64 host (Apple Silicon) built natively and failed."""
+    import yaml
+
+    compose = yaml.safe_load((ROOT / "services" / "asset-baker" / "compose.yml").read_text())
+    assert compose["services"]["asset-baker"]["platform"] == "${ASSET_BAKER_PLATFORM:-linux/amd64}"

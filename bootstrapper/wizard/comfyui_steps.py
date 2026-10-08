@@ -204,11 +204,11 @@ def _entry_is_pulled(
             for model_file in entry.files
         }
         return bool(filenames) and filenames.issubset(pulled_names)
-    return (
-        entry.name in pulled_names
-        or _filename_of(entry.url) in pulled_names
-        or (entry.filename is not None and entry.filename in pulled_names)
-    )
+    if entry.filename is not None:
+        # The downloader writes the declared name (e.g. a repo-prefixed HF
+        # file); the URL's generic name on disk is some other model's file.
+        return entry.filename in pulled_names
+    return entry.name in pulled_names or _filename_of(entry.url) in pulled_names
 
 
 def _flat_option(

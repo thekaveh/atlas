@@ -93,8 +93,11 @@ def test_key_generator_creates_the_shared_meta_crypto_key(tmp_path: Path) -> Non
     key = ConfigParser(str(tmp_path)).parse_env_file()["SUPABASE_META_CRYPTO_KEY"]
     assert len(key) >= 32
     compose = yaml.safe_load((Path(__file__).resolve().parents[2] / "services/supabase/compose.yml").read_text())
-    for service in ("supabase-meta", "supabase-studio"):
-        assert compose["services"][service]["environment"]["PG_META_CRYPTO_KEY"] == "${SUPABASE_META_CRYPTO_KEY:-}"
+    # Each image's own name: postgres-meta reads CRYPTO_KEY, Studio
+    # PG_META_CRYPTO_KEY. Meta under Studio's name fell back to SAMPLE_KEY.
+    assert compose["services"]["supabase-meta"]["environment"]["CRYPTO_KEY"] == "${SUPABASE_META_CRYPTO_KEY:-}"
+    assert "PG_META_CRYPTO_KEY" not in compose["services"]["supabase-meta"]["environment"]
+    assert compose["services"]["supabase-studio"]["environment"]["PG_META_CRYPTO_KEY"] == "${SUPABASE_META_CRYPTO_KEY:-}"
 
 
 def test_openclaw_init_points_the_bundled_litellm_provider_at_the_gateway() -> None:

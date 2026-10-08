@@ -172,12 +172,12 @@ def test_hung_litellm_endpoint_fails_naming_the_operation() -> None:
         healthy.shutdown()
         hang.close()
 
-    # Key delete/generate time out (warn + master-key fallback, no in-run
-    # retry of the credential write), then the catalog read's failure is
-    # terminal and names the operation.
+    # The catalog read runs first and its failure is terminal and names the
+    # operation; the key is not rotated (deleting it first left TrueForge
+    # holding a deleted key when the catalog read then failed).
     assert result.returncode != 0
     assert "FAILED at litellm model catalog read" in result.stderr
-    assert "falling back to the master key" in result.stderr
+    assert "falling back to the master key" not in result.stderr
     _assert_no_secret_leak(result)
 
 

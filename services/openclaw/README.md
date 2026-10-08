@@ -12,7 +12,7 @@ The OpenClaw service provides an LLM-backed agent that connects to messaging app
 - **GitHub Monitoring**: Monitor repositories, issues, and pull requests
 - **Command Execution**: Execute commands via messaging interface
 - **Web Dashboard**: Browser-based admin panel for configuration and approvals
-- **Multi-Provider LLM**: The container receives the stack's LiteLLM gateway URL and key (Ollama upstream + cloud providers); you point OpenClaw's OpenAI provider at it once during onboarding. Direct Anthropic/OpenAI keys are supported as overrides
+- **Multi-Provider LLM**: The container receives the stack's LiteLLM key (Ollama upstream + cloud providers), and `openclaw-init` points the bundled `litellm` provider at the gateway when its base URL is unset. Direct Anthropic/OpenAI keys are supported as overrides
 
 ## 2. Architecture
 
@@ -23,11 +23,13 @@ OpenClaw runs as a single gateway process that:
 - Stores configuration in `~/.openclaw/` directory
 - Stores workspace files in `~/.openclaw/workspace/`
 
-For LLM access, the container receives the stack's **LiteLLM gateway** credentials (`LITELLM_BASE_URL` + `LITELLM_API_KEY`) — one URL fronts the Ollama upstream and any enabled cloud providers (OpenAI, Anthropic, OpenRouter). OpenClaw's bundled `litellm` provider reads `LITELLM_API_KEY` itself but defaults its base URL to `http://localhost:4000`, which is unreachable inside the container, so `openclaw-init` sets `models.providers.litellm.baseUrl` to `http://litellm:4000` when it is unset (an operator value is kept). `LITELLM_BASE_URL` is not read by OpenClaw. Pick models from the `litellm` provider; its built-in default (`litellm/claude-opus-4-6`) only works if the Atlas catalog serves a model of that name. Alternatively, repurpose the `openai` provider as described in §7. Leave `OPENCLAW_OPENAI_API_KEY` empty when doing so: a real OpenAI key in that override would then be sent to LiteLLM. Direct provider keys (`OPENCLAW_OPENAI_API_KEY`, `OPENCLAW_ANTHROPIC_API_KEY`) remain available as explicit overrides for cases where OpenClaw should bypass LiteLLM; empty override keys keep traffic on the gateway path. The gateway also connects to messaging platforms (WhatsApp, Telegram, etc.) for user interaction.
+For LLM access, the container receives the stack's **LiteLLM gateway** credentials (`LITELLM_BASE_URL` + `LITELLM_API_KEY`) — one URL fronts the Ollama upstream and any enabled cloud providers (OpenAI, Anthropic, OpenRouter). OpenClaw's bundled `litellm` provider reads `LITELLM_API_KEY` itself but defaults its base URL to `http://localhost:4000`, which is unreachable inside the container, so `openclaw-init` sets `models.providers.litellm.baseUrl` to `http://litellm:4000` when it is unset (an operator value is kept; a JSON5 config is left unpatched, see §2). `LITELLM_BASE_URL` is not read by OpenClaw. Pick models from the `litellm` provider; its built-in default (`litellm/claude-opus-4-6`) only works if the Atlas catalog serves a model of that name. Alternatively, repurpose the `openai` provider as described in §7. Leave `OPENCLAW_OPENAI_API_KEY` empty when doing so: a real OpenAI key in that override would then be sent to LiteLLM. Direct provider keys (`OPENCLAW_OPENAI_API_KEY`, `OPENCLAW_ANTHROPIC_API_KEY`) remain available as explicit overrides for cases where OpenClaw should bypass LiteLLM; empty override keys keep traffic on the gateway path. The gateway also connects to messaging platforms (WhatsApp, Telegram, etc.) for user interaction.
 
 **Container Mode Initialization**: When running in container mode, an `openclaw-init` container runs first to:
 - Set correct volume permissions (uid 1000/node) on config and workspace volumes
 - Pre-configure the gateway for non-loopback binding (`gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback`)
+
+A config `jq` cannot parse (JSON5: comments, trailing commas, which OpenClaw itself accepts) is left unpatched with a warning; set `models.providers.litellm.baseUrl` and `gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback` in it yourself.
 
 The gateway container starts with `--bind lan` to listen on all interfaces (required for Docker networking).
 
@@ -237,7 +239,7 @@ No OpenClaw agent (default).
 
 ### 10.2. LLM access
 
-- **LiteLLM gateway** (default): Provides Ollama + cloud providers behind a single OpenAI-compatible URL (`LITELLM_BASE_URL`). Always-on; once OpenClaw's OpenAI provider points at it (base URL plus `LITELLM_API_KEY`), it covers every provider.
+- **LiteLLM gateway** (default): Provides Ollama + cloud providers behind a single OpenAI-compatible URL (`LITELLM_BASE_URL`). Always-on; the bundled `litellm` provider reaches it through the base URL `openclaw-init` sets, and it covers every provider.
 - **Anthropic direct** (override): `OPENCLAW_ANTHROPIC_API_KEY`
 - **OpenAI direct** (override): `OPENCLAW_OPENAI_API_KEY`
 
@@ -255,7 +257,7 @@ No OpenClaw agent (default).
 
 | Service | Category | Status |
 |---|---|---|
-| litellm | llm | optional: an operator sets the provider baseUrl; openclaw-init writes none |
+| litellm | llm | optional: openclaw-init sets models.providers.litellm.baseUrl when unset; an operator value is kept |
 
 ### 12.2. Current — Downstream (services that call this)
 
@@ -352,7 +354,7 @@ Support tier: **experimental** — Capability contract declared (#967); no cited
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| LiteLLM-backed messaging agent gateway | partial | tested | Atlas injects the LiteLLM gateway URL and key, but the operator points OpenClaw's OpenAI provider at it during onboarding; messaging channels and approvals also require onboarding and are not exercised against live platforms. |
+| LiteLLM-backed messaging agent gateway | partial | tested | Atlas injects the LiteLLM key and openclaw-init points the bundled litellm provider at http://litellm:4000 when its baseUrl is unset; messaging channels and approvals require onboarding and are not exercised against live platforms. |
 | Container and operator-host sources | partial | tested | Atlas initializes and runs the container source, while localhost mode only resolves an existing operator-managed gateway and cannot guarantee its version, onboarding, or supervision. |
 | Direct cloud-provider overrides | partial | tested | Optional OpenClaw-specific Anthropic or OpenAI keys can bypass LiteLLM, which also bypasses Atlas gateway accounting and centralized provider routing. |
 | OpenClaw gateway authentication | partial | tested | OPENCLAW_GATEWAY_TOKEN, generated at startup, protects the gateway API and dashboard; the CORS-only Kong route adds no Atlas authentication of its own. Direct gateway ports are loopback-only by default; an operator who deliberately publishes them remotely must secure that exposure separately. |

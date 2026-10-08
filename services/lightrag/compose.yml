@@ -33,6 +33,9 @@ services:
       PORT: 9621
       WORKERS: ${LIGHTRAG_WORKERS:-2}
       LIGHTRAG_API_KEY: ${LIGHTRAG_API_KEY}
+      # LightRAG defaults to CORS *, and /api/* skips the API key, so any web
+      # page could read ingested documents (/context) through the direct port.
+      CORS_ORIGINS: http://lightrag.localhost:${KONG_HTTP_PORT}
       # JWT signing key for /login flow; without this LightRAG warns and
       # falls back to a hardcoded default secret (security risk).
       TOKEN_SECRET: ${LIGHTRAG_TOKEN_SECRET}

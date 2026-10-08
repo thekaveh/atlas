@@ -46,7 +46,11 @@ class _ReconcileHandler(BaseHTTPRequestHandler):
     delete_status = 204
 
     def do_POST(self):
+        # Read the body and send Content-Length: an unread body makes the
+        # close a TCP reset, and a bodiless 200 without a length ends at EOF.
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
         self.send_response(200)
+        self.send_header("Content-Length", "0")
         self.end_headers()
 
     def do_DELETE(self):

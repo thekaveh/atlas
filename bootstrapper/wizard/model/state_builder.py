@@ -213,6 +213,10 @@ def resolve_port(name: str, source: str, port_var: Optional[str], env: dict) -> 
                 return f":{port}" if port else None
         return None
     if port_var:
+        from services.topology import unpublished_port_vars  # noqa: PLC0415
+
+        if port_var in unpublished_port_vars():
+            return None  # reserved slot, not bound on the host (Kong only)
         port = env.get(port_var, "")
         return f":{port}" if port else None
     return None

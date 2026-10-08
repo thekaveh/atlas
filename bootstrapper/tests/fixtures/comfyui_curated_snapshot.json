@@ -650,7 +650,7 @@
       "pulled": false,
       "cloud_only": false,
       "notes": null,
-      "filename": null
+      "filename": "controlnet-canny-sdxl-1.0.safetensors"
     },
     {
       "name": "control_v11p_sd15_openpose",
@@ -668,7 +668,7 @@
       "pulled": false,
       "cloud_only": false,
       "notes": null,
-      "filename": null
+      "filename": "control_v11p_sd15_openpose.safetensors"
     },
     {
       "name": "ip-adapter-plus_sdxl_vit-h",

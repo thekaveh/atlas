@@ -63,6 +63,11 @@ from services import (
     await_spawned_process_readiness,
     compensate_failed_launch,
     lifecycle_support_error,
+    read_launch_record,
+    read_recorded_start_time,
+    restart_moved_process,
+    write_launch_record,
+    write_pid_file_with_identity,
     live_owned_process_pid,
     managed_host_advertised_host,
     process_start_identity,
@@ -250,40 +255,6 @@ def split_command(raw: Any, *, origin: str, field_name: str) -> tuple[str, ...]:
     return tuple(argv)
 
 
-def read_recorded_start_time(pid_file: Path) -> Optional[str]:
-    """The start time stamped into `pid_file` at spawn, if present.
-
-    Module-level so the older ComfyUI-MPS manager can share this exact
-    implementation instead of carrying its own (it matched the process argv,
-    which is not an identity — see `pid_is_stranger`).
-    """
-    try:
-        body = pid_file.read_text(encoding="utf-8")
-    except OSError:
-        return None
-    for line in body.splitlines()[1:]:
-        # Only the normalized key is trusted. A pid file stamped by the first
-        # version of this format used the ambient TZ/locale, so its value is
-        # not comparable against a UTC probe — reading it would make every
-        # already-running managed host look like a stranger exactly once,
-        # which is the failure this guard exists to prevent. An unrecognized
-        # stamp reads as absent, and the guard refuses to authorize signalling.
-        if line.startswith("start_utc="):
-            return line[len("start_utc="):].strip() or None
-    return None
-
-
-def write_pid_file_with_identity(pid_file: Path, pid: int, start_time: Optional[str]) -> None:
-    """Record `(pid, start time)` atomically.
-
-    Atomic because a torn read yields a pid with no stamp, which the guard
-    treats as untrusted. New launch paths require a non-empty start time;
-    ``None`` remains supported only for legacy-format tests and migration.
-    """
-    body = str(pid) if start_time is None else f"{pid}\nstart_utc={start_time}"
-    atomic_replace_text(pid_file, body + "\n")
-
-
 def require_process_start_time(pid: int, probe) -> str:
     """Capture a launch identity, retrying briefly for process visibility."""
     for _attempt in range(3):
@@ -327,11 +298,11 @@ def pid_is_stranger(pid: int, pid_file: Path, probe) -> bool:
 class ManagedHostManager:
     """Generic lifecycle for one :class:`HostProcessSpec`.
 
-    Deliberately duck-type-compatible with the three built-in managers'
-    surface (``status`` / ``ensure_running_with_ownership`` / ``wait_healthy``
-    / ``stop``), because ``start.py`` already orchestrates those by protocol
-    rather than by type — so a declared service reaches the same launch and
-    teardown paths as a built-in without any of them being special-cased.
+    Duck-type-compatible with the three built-in managers' surface
+    (``status`` / ``ensure_running_with_ownership`` / ``wait_healthy`` /
+    ``stop``). Declared services are driven only by the
+    ``./start.sh managed-host …`` commands: ``./start.sh`` and ``./stop.sh``
+    start and stop the three built-ins, not these (docs/operations §8).
     """
 
     def __init__(self, spec: HostProcessSpec, state_dir: Path | str) -> None:
@@ -339,6 +310,8 @@ class ManagedHostManager:
         self.state_dir = Path(state_dir).expanduser()
         self.pid_file = self.state_dir / f"{spec.name}.pid"
         self.log_file = self.state_dir / f"{spec.name}.log"
+        # Port and bind the running process was launched with (#1361).
+        self.launch_file = self.state_dir / f"{spec.name}.launch.json"
         self.venv_dir = self.state_dir / "venv"
         self.lifecycle_lock_file = (
             self.state_dir.parent / f".{self.state_dir.name}.lifecycle.lock"
@@ -562,7 +535,9 @@ class ManagedHostManager:
             self._managed_process_alive, self._pid_is_stranger,
             (repr(self.spec.name), ManagedHostError),
         )
-        status = self.status()
+        status = restart_moved_process(self, self.status(), {"port": self.spec.port, "bind": self.spec.bind}, (
+            f"{self.spec.name!r} runs on an old port or bind and could not be stopped; "
+            f"run `./start.sh managed-host stop {self.spec.name}`", ManagedHostError))
         if status.running:
             return await_owned_process_readiness(
                 self,
@@ -606,9 +581,13 @@ class ManagedHostManager:
                 outcome,
                 (f"{self.spec.name!r} pid file / process identity", ManagedHostError),
             )
+        write_launch_record(self.launch_file, {"pid": process.pid, "port": self.spec.port, "bind": self.spec.bind})
         status = self._await_port(process, wait_timeout)
         self._untracked_pid = None
         return status
+
+    def _launch_record(self) -> dict:
+        return read_launch_record(self.launch_file)
 
     @staticmethod
     def _terminate_untracked(process: subprocess.Popen) -> bool:

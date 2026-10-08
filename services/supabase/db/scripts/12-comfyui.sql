@@ -74,9 +74,9 @@ END $$;
 -- comfyui_generations holds user prompts and output paths.
 --
 -- Scoped to the service_role claim exactly like the memory (14), research
--- (13) and media-ledger (17) tables. The backend and GoTrue connect as
--- supabase_admin, which OWNS these tables and so bypasses RLS — this does not
--- affect them. Re-running the slice is idempotent, so existing deployments
+-- (13) and media-ledger (17) tables. The backend connects as BACKEND_DB_USER
+-- and reaches these tables through the explicit grants and the "Atlas backend
+-- direct role access" policy in 05-scoped-roles.sh, so this does not affect it. Re-running the slice is idempotent, so existing deployments
 -- are repaired on their next start.
 ALTER TABLE public.comfyui_workflows ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.comfyui_generations ENABLE ROW LEVEL SECURITY;

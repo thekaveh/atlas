@@ -28,6 +28,7 @@ from comfyui_client import (
     ComfyUIClient,
     ComfyUIImageTooLargeError,
     ComfyUIResponseError,
+    ComfyUISubmissionUnknownError,
     ComfyUIUpstreamError,
     ComfyUIUnavailableError,
     ComfyUIWorkflowRejectedError,
@@ -78,7 +79,7 @@ from media_ledger import (
     UnknownCostRejected,
 )
 from uuid import UUID as _UUID, uuid4
-from memory_service import MemoryService
+from memory_service import MemoryCapacityError, MemoryService
 from memory_models import (
     MemoryExtractRequest, MemoryRecallRequest, MemoryConsolidateRequest,
     MemorySummarizeRequest, MemoryUpdateRequest,
@@ -145,9 +146,11 @@ from backend_identity import (
     require_comfy_automation_principal,
     require_comfy_read_principal,
     require_memory_automation_principal,
+    require_memory_operator_principal,
     require_memory_principal,
     require_n8n_operator_principal,
     require_research_principal,
+    validate_identity_auth_mode,
     require_service_principal,
     require_stateless_principal,
     research_owner_id,
@@ -195,6 +198,16 @@ def _n8n_gateway_error(operation: str, exc: Exception) -> HTTPException:
     return _unexpected_error(operation, exc)
 
 
+def _comfyui_submission_unknown() -> HTTPException:
+    """504, not a retryable 503: ComfyUI may already have queued the prompt,
+    and a retry would run it twice (#676)."""
+    return HTTPException(
+        status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+        detail="ComfyUI did not confirm the prompt in time; it may be queued, so check "
+               "/comfyui/queue before retrying",
+    )
+
+
 def _comfyui_gateway_error(exc: Exception) -> HTTPException:
     """Map typed ComfyUI failures without exposing upstream response data."""
     logger.error("ComfyUI request failed (error_type=%s)", type(exc).__name__)
@@ -203,6 +216,8 @@ def _comfyui_gateway_error(exc: Exception) -> HTTPException:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="ComfyUI is unavailable",
         )
+    if isinstance(exc, ComfyUISubmissionUnknownError):
+        return _comfyui_submission_unknown()
     if isinstance(exc, ComfyUIWorkflowRejectedError):
         return HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -405,6 +420,7 @@ async def _media_ledger_intent_loop() -> None:
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     global _media_budget_prune_task, _media_ledger_intent_task
+    validate_identity_auth_mode()  # a typo must fail startup, not every request
     # Validate recovery bounds before starting maintenance or creating the
     # background task; a bad deployment value must fail startup synchronously.
     media_ledger_recovery_batch_size()
@@ -1009,6 +1025,19 @@ def _heavy_work_gate() -> _HeavyWorkGate:
     return _HEAVY_WORK_GATE
 
 
+_RERANK_EXECUTOR = None
+
+
+def _rerank_executor():
+    """Dedicated threads for the blocking TEI rerank calls."""
+    global _RERANK_EXECUTOR
+    if _RERANK_EXECUTOR is None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        _RERANK_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="rerank")
+    return _RERANK_EXECUTOR
+
+
 async def _run_heavy_work(fn, request, operation: str):
     """Run ``fn(request)`` on the bounded pool: 503 + Retry-After when full,
     504 after BACKEND_HEAVY_WORK_TIMEOUT_SECONDS."""
@@ -1125,7 +1154,11 @@ async def lightrag_rerank(request: RerankAdapterRequest):
     ``Authorization: Bearer <LIGHTRAG_RERANK_ADAPTER_TOKEN>``.
     """
     try:
-        return await asyncio.to_thread(rerank_via_tei, request)
+        # Its own bounded pool: a slow TEI held the loop's shared default
+        # executor and stalled every other to_thread route (#1354).
+        return await asyncio.get_running_loop().run_in_executor(
+            _rerank_executor(), rerank_via_tei, request
+        )
     except RerankAdapterDependencyError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1476,6 +1509,11 @@ async def cancel_rag_ingestion(ingestion_id: str):
             detail=f"Unknown ingestion id: {ingestion_id!r}",
         )
     record = await asyncio.to_thread(service.store.get, ingestion_id)
+    if record is None:  # a terminal record whose TTL ran out meanwhile
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown ingestion id: {ingestion_id!r}",
+        )
     return RagIngestionRecordResponse(**record.to_dict())
 
 
@@ -1773,6 +1811,18 @@ async def _wait_or_cancel_comfyui(client, prompt_id: str, deadline: float) -> Di
             detail={
                 "message": "ComfyUI did not finish before timeout_seconds; "
                            "cancellation was requested",
+                "prompt_id": prompt_id,
+            },
+        ) from exc
+    except ComfyUIUnavailableError as exc:
+        # Queued, then history polling lost the host: the prompt may still be
+        # rendering, so a retryable 503 without its id invited a duplicate.
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail={
+                "message": "ComfyUI accepted the prompt but its result could not be "
+                           "read; it may still be running, so poll or cancel it "
+                           "before retrying",
                 "prompt_id": prompt_id,
             },
         ) from exc
@@ -2576,11 +2626,8 @@ async def _cancel_media_provider(
 
 
 # ComfyUI API Endpoints
-@app.get(
-    "/comfyui/health",
-    dependencies=[Depends(require_comfy_read_principal)],
-)
-async def comfyui_health_check():
+@app.get("/comfyui/health")
+async def comfyui_health_check(principal: BackendPrincipal = Depends(require_comfy_read_principal)):
     """Health check for the configured image generation provider."""
     if _fal_source_enabled():
         if _fal_api_key():
@@ -2609,6 +2656,10 @@ async def comfyui_health_check():
     try:
         async with ComfyUIClient() as client:
             health = await client.health_check()
+            if not principal.can_delegate:
+                # ComfyUI's raw system_stats (versions, argv, GPU, RAM) is
+                # for the automation callers, not any signed-up user.
+                health = {k: v for k, v in health.items() if k != "system_stats"}
             return {
                 "service": "comfyui",
                 "status": health.get("status", "unknown"),
@@ -2793,9 +2844,10 @@ async def submit_media_generation(
                 prepared_input=prepared_input,
                 timeout_seconds=request.timeout_seconds,
             )
-        except (FalSubmissionAmbiguousError, asyncio.CancelledError) as exc:
-            # FAL may have accepted paid work before the response carrying its
-            # request id was lost. Releasing the reservation would under-count
+        except (FalSubmissionAmbiguousError, ComfyUISubmissionUnknownError, asyncio.CancelledError) as exc:
+            # The provider may have accepted the work before the response
+            # carrying its id was lost (FAL: paid work; ComfyUI: a queued
+            # render a blind retry runs twice, #676). Releasing the reservation would under-count
             # that work, so retain it under Atlas' durable local id and expose
             # an explicit manual-reconciliation record.
             reservation_settled = True
@@ -3356,7 +3408,11 @@ async def _time_out_media_operation(
     terminal state (``_cancel_timed_out_fal_operation``); an operator settles
     one that never does with the reconcile route.
     """
-    if operation.get("provider") == "fal" and operation.get("budget_tracked"):
+    provenance = dict(dict(operation.get("last_payload") or {}).get("provenance") or {})
+    # A ledger attach that failed at submit and was recovered later sets only
+    # the provenance flag; the reservation is tracked all the same.
+    tracked = operation.get("budget_tracked") or provenance.get("ledger_attach_completed")
+    if operation.get("provider") == "fal" and tracked:
         return await _cancel_timed_out_fal_operation(operation_id, operation, current_status)
     payload = dict(operation["last_payload"])
     payload["status"] = "timeout"
@@ -3654,11 +3710,14 @@ async def cancel_media_operation(
     return _media_response(dict(final_operation["last_payload"]))
 
 
-def _manual_reconciliation_status(current_status: str, provenance: Dict[str, Any]) -> str:
+def _manual_reconciliation_status(
+    current_status: str, provenance: Dict[str, Any], provider: Any = None
+) -> str:
     """The status an operator may settle by hand: an unknown submission, or a
-    timed-out FAL job holding its reservation that FAL never resolved (job
-    purged, provider disabled, polling stopped)."""
-    if current_status == "cancellation_requested" and provenance.get("timed_out"):
+    FAL job holding its reservation as ``cancellation_requested`` (timed out
+    or cancelled by the user) that FAL never resolved (job purged, provider
+    disabled, key rotated, polling stopped)."""
+    if current_status == "cancellation_requested" and (provenance.get("timed_out") or provider == "fal"):
         return current_status
     return "submission_unknown"
 
@@ -3854,7 +3913,9 @@ async def reconcile_unknown_media_submission(
     current_status = str(last_payload.get("status", ""))
     provenance = dict(last_payload.get("provenance") or {})
     prior_outcome = provenance.get("manual_reconciliation_outcome")
-    expected_manual_status = _manual_reconciliation_status(current_status, provenance)
+    expected_manual_status = _manual_reconciliation_status(
+        current_status, provenance, operation.get("provider")
+    )
     if current_status != expected_manual_status:
         expected_terminal = "succeeded" if request.outcome == "commit" else "failed"
         if prior_outcome == request.outcome and current_status == expected_terminal:
@@ -4137,10 +4198,9 @@ async def generate_image(request: ComfyUIGenerateRequest):
     except ComfyUIUpstreamError as exc:
         raise _comfyui_gateway_error(exc) from exc
     except asyncio.TimeoutError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="ComfyUI is unavailable",
-        )
+        # The deadline ran out during the queue request (the wait phase maps
+        # its own timeout): the prompt may be queued.
+        raise _comfyui_submission_unknown()
     except Exception as exc:
         raise _unexpected_error("Generate image", exc)
 
@@ -4203,10 +4263,9 @@ async def execute_comfyui_workflow(request: ComfyUIWorkflowRequest):
     except ComfyUIUpstreamError as exc:
         raise _comfyui_gateway_error(exc) from exc
     except asyncio.TimeoutError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="ComfyUI is unavailable",
-        ) from exc
+        # The deadline ran out during the queue request (the wait phase maps
+        # its own timeout): the prompt may be queued.
+        raise _comfyui_submission_unknown() from exc
     except Exception as exc:
         raise _unexpected_error("Execute ComfyUI workflow", exc)
 
@@ -4586,7 +4645,7 @@ async def memory_summarize(
 @app.get("/memory/user/{user_id}", response_model=MemoryListResponse)
 async def memory_list(
     user_id: str,
-    namespace: Optional[str] = Query(default=None, min_length=1, max_length=128),
+    namespace: Optional[str] = Query(default=None, min_length=1, max_length=100),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     principal: BackendPrincipal = Depends(require_memory_principal),
@@ -4632,6 +4691,8 @@ async def memory_update(
         return {"success": True, "memory": result}
     except HTTPException:
         raise
+    except MemoryCapacityError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except PoolSaturatedError:
         raise
     except RuntimeError as e:
@@ -4674,7 +4735,7 @@ async def memory_delete(
 @app.get(
     "/memory/health",
     response_model=MemoryHealthResponse,
-    dependencies=[Depends(require_memory_automation_principal)],
+    dependencies=[Depends(require_memory_operator_principal)],
 )
 async def memory_health_check():
     """Health check for the LangMem memory service."""
@@ -4685,7 +4746,7 @@ async def memory_health_check():
 @app.post(
     "/memory/vector-store/probe",
     response_model=Dict[str, Any],
-    dependencies=[Depends(require_memory_automation_principal)],
+    dependencies=[Depends(require_memory_operator_principal)],
 )
 async def memory_vector_store_probe():
     """Explicitly probe Weaviate and fail back only when readiness succeeds."""

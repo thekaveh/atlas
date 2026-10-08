@@ -6,7 +6,7 @@ Apache Iceberg REST Catalog provides Atlas' table catalog for the data-engineeri
 
 ## 2. Access
 
-In-stack clients use `http://iceberg-rest:8181`. Compose also publishes `ICEBERG_REST_PORT` on the host by default. The Compose-network API is unauthenticated, and the host-published API runs without Atlas authentication. Keep the host publish loopback-bound with `HOST_BIND_IP=127.0.0.1:`, firewall it, or remove the `ports:` entry before exposing the stack on a shared network.
+In-stack clients use `http://iceberg-rest:8181`. Compose also publishes `ICEBERG_REST_PORT` on the host by default. The Compose-network API is unauthenticated, and the host-published API runs without Atlas authentication. Keep the host publish loopback-bound with `HOST_BIND_IP=127.0.0.1:`, firewall it, or remove the `ports:` entry before exposing the stack on a shared network. A loopback bind does not stop a web page open in your browser: the catalog accepts cross-site `text/plain` POSTs (table rename, metadata commits) from any origin, so remove the `ports:` entry when no host client needs it (#1455).
 
 ## 3. Configuration
 

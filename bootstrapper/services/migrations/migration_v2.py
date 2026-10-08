@@ -37,7 +37,7 @@ URL_VAR_TO_PORT_VAR: dict[str, str] = {
 
 # Tolerant sentinel matcher (mirrors migration_v1 conventions).
 _SENTINEL_RE = re.compile(
-    r"""^\s*BOOTSTRAPPER_PORT_LAYOUT_VERSION\s*=\s*
+    r"""^\s*(?:export[ \t]+)?BOOTSTRAPPER_PORT_LAYOUT_VERSION\s*=\s*
         (["']?)(\d*)\1
         \s*(?:\#.*)?\s*$""",
     re.VERBOSE,
@@ -46,7 +46,7 @@ _SENTINEL_RE = re.compile(
 # URL line matcher: captures (var_name, hostname, port).
 # Tolerates http:// or https://, optional trailing path.
 _URL_LINE_RE = re.compile(
-    r"""^(?P<key>[A-Z_]+_LOCALHOST_URL)\s*=\s*
+    r"""^(?:export[ \t]+)?(?P<key>[A-Z_]+_LOCALHOST_URL)\s*=\s*
         (?P<quote>["']?)
         (?:https?://(?P<host>[^:/\s"']+)(?::(?P<port>\d+))?(?P<path>[^\s#"']*))?
         (?P=quote)
@@ -87,7 +87,10 @@ def apply(env_path: Path) -> None:
     for line in lines:
         if not line.strip() or line.lstrip().startswith("#") or "=" not in line:
             continue
-        key = line.split("=", 1)[0].strip()
+        # `export KEY=` is KEY to the reader (#1368); counting it as a
+        # different key appended a second PORT line that won over the
+        # operator's exported one.
+        key = re.sub(r"^export[ \t]+", "", line.split("=", 1)[0].strip())
         existing_keys.add(key)
 
     out: list[str] = []
@@ -167,7 +170,9 @@ def stamp_version(env_path: Path, version: int = 2) -> None:
     found = False
     for i, line in enumerate(lines):
         if _SENTINEL_RE.match(line):
-            lines[i] = f"BOOTSTRAPPER_PORT_LAYOUT_VERSION={version}\n"
+            # Keep an `export ` prefix: readers treat `export KEY=` as KEY (#1368).
+            export = "export " if line.lstrip().startswith("export") else ""
+            lines[i] = f"{export}BOOTSTRAPPER_PORT_LAYOUT_VERSION={version}\n"
             found = True
             break
     if not found:

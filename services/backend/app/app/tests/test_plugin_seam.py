@@ -396,6 +396,46 @@ def test_key_auth_plugin_enforces_websocket_authentication(key_auth_plugin):
             assert exc.value.status_code == 401
 
 
+@pytest.mark.parametrize("manifest", [None, "auth: inherit"])
+def test_default_auth_plugin_websocket_accepts_a_valid_bearer(tmp_path, monkeypatch, manifest):
+    """The default (inherit / manifest-less) dependency must work on a
+    WebSocket handshake too, not only on HTTP routes."""
+    from fastapi import FastAPI
+    from starlette.testclient import TestClient, WebSocketDenialResponse
+    import plugin_seam
+
+    name = f"bearer_socket_plugin_{tmp_path.name.replace('-', '_')}"
+    plugin = tmp_path / name
+    plugin.mkdir()
+    (plugin / "__init__.py").write_text(
+        "from fastapi import APIRouter, WebSocket\n"
+        "router = APIRouter()\n"
+        "@router.websocket('/bearer-socket/ws')\n"
+        "async def websocket_route(websocket: WebSocket):\n"
+        "    await websocket.accept()\n"
+        "    await websocket.send_text('accepted')\n"
+    )
+    if manifest:
+        (plugin / "plugin.yml").write_text(
+            "plugin_manifest_version: 1\nname: bearer-socket\n"
+            f"route_prefix: /bearer-socket\n{manifest}\n", encoding="utf-8")
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "required")
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", "jwt-secret-for-tests-only-0123456789")
+    monkeypatch.setenv("BACKEND_INTERNAL_API_TOKEN", "internal-secret")
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+    app = FastAPI()
+    plugin_seam.load_plugins(app)
+    with TestClient(app) as client:
+        headers = {"Authorization": "Bearer internal-secret"}
+        with client.websocket_connect("/bearer-socket/ws", headers=headers) as websocket:
+            assert websocket.receive_text() == "accepted"
+        for bad in ({}, {"Authorization": "Bearer wrong"}, {"Authorization": "Basic internal-secret"}):
+            with pytest.raises(WebSocketDenialResponse) as exc:
+                with client.websocket_connect("/bearer-socket/ws", headers=bad):
+                    pass
+            assert exc.value.status_code == 401
+
+
 def test_plugin_router_cannot_escape_declared_prefix(tmp_path, monkeypatch):
     _plugin_pkg(
         tmp_path,

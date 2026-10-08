@@ -8,7 +8,7 @@ capabilities:
   - name: "LiteLLM-backed messaging agent gateway"
     status: partial
     verification: tested
-    note: "Atlas injects the LiteLLM gateway URL and key, but the operator points OpenClaw's OpenAI provider at it during onboarding; messaging channels and approvals also require onboarding and are not exercised against live platforms."
+    note: "Atlas injects the LiteLLM key and openclaw-init points the bundled litellm provider at http://litellm:4000 when its baseUrl is unset; messaging channels and approvals require onboarding and are not exercised against live platforms."
   - name: "Container and operator-host sources"
     status: partial
     verification: tested
@@ -153,7 +153,7 @@ data_flow:
   calls:
     - target: litellm
       status: optional
-      condition: an operator sets the provider baseUrl; openclaw-init writes none
+      condition: openclaw-init sets models.providers.litellm.baseUrl when unset; an operator value is kept
       evidence: services/openclaw/README.md
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`

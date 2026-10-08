@@ -1954,6 +1954,62 @@ def test_timed_out_fal_job_keeps_its_reservation_until_settled(monkeypatch):
     assert record.status == main.media_ledger.STATUS_RELEASED
 
 
+def test_operator_can_settle_a_user_cancelled_fal_job_fal_never_resolves(monkeypatch):
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    assert _submit(client).status_code == 202
+    cancelled = client.post("/media/operations/fal-3d-9/cancel")
+    assert cancelled.json()["status"] == "cancellation_requested", cancelled.json()
+
+    async def _unreachable(**_kwargs):
+        raise main.HTTPException(status_code=503, detail="FAL is disabled")
+
+    monkeypatch.setattr(main, "_poll_media_provider", _unreachable)
+    settled = client.post("/media/operations/fal-3d-9/reconcile", json={"outcome": "release"})
+    assert settled.status_code == 200 and settled.json()["status"] == "failed", settled.json()
+    record = asyncio.run(main.MEDIA_BUDGET_ENGINE.store.get("fal-3d-9"))
+    assert record.status == main.media_ledger.STATUS_RELEASED
+
+
+def test_timed_out_fal_job_keeps_its_reservation_after_a_recovered_attach(monkeypatch):
+    """The reservation is tracked once a failed submit-time attach is
+    recovered, although the operation's budget_tracked flag stays False."""
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+    original_attach = main.MEDIA_BUDGET_ENGINE.attach_operation
+
+    async def fail_attach(*_args, **_kwargs):
+        raise RuntimeError("simulated attach failure")
+
+    async def _running(*, provider, operation_id, modality, model):
+        return {"operation_id": operation_id, "provider": provider,
+                "modality": modality, "model": model, "status": "running"}
+
+    monkeypatch.setattr(main.MEDIA_BUDGET_ENGINE, "attach_operation", fail_attach)
+    monkeypatch.setattr(main, "_poll_media_provider", _running)
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    assert _submit(client).status_code == 202
+    monkeypatch.setattr(main.MEDIA_BUDGET_ENGINE, "attach_operation", original_attach)
+    assert client.get("/media/operations/fal-3d-9").json()["status"] == "running"  # recovers the attach
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
+    assert operation["last_payload"]["provenance"].get("ledger_attach_completed") is True
+    assert not operation.get("budget_tracked")
+    monkeypatch.setattr(
+        main.time, "time",
+        lambda: operation["created_at_epoch"] + operation["timeout_seconds"] + 1,
+    )
+
+    polled = client.get("/media/operations/fal-3d-9").json()
+    assert (polled["status"], polled["provenance"]["timed_out"]) == ("cancellation_requested", True)
+    record = asyncio.run(main.MEDIA_BUDGET_ENGINE.store.get("fal-3d-9"))
+    assert record.status != main.media_ledger.STATUS_RELEASED
+
+
 # --- FAL request timeout, SDK client lifetime, unknown status, missing GLB (#1358)
 
 

@@ -48,6 +48,9 @@ env:
     description: "Host port for the asset-baker API (in-container listen port is 8096)."
   - name: ASSET_BAKER_SCALE
     auto_managed: true
+  - name: ASSET_BAKER_PLATFORM
+    default: "linux/amd64"
+    description: "Platform the asset-baker image is built and run for. The Blender build is x86_64-only, so arm64 hosts (Apple Silicon) run it under emulation; keep linux/amd64."
   - name: ASSET_BAKER_ENDPOINT
     auto_managed: true
     description: "In-network URL for the asset-baker API."
