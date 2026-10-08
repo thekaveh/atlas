@@ -316,7 +316,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 | hermes ↔ | agents | current |
 | lightrag ↔ | agents | current |
 | n8n | agents | current |
-| openclaw | agents | optional: an operator sets the provider baseUrl; openclaw-init writes none |
+| openclaw | agents | optional: openclaw-init sets models.providers.litellm.baseUrl when unset; an operator value is kept |
 | trueforge | agents | current |
 | backend | apps | current |
 | jupyterhub | apps | current |

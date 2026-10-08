@@ -29,8 +29,10 @@ Key facts:
   standard Linux servers). Plan-time estimates put it at 2.6 GB; the
   actual size is over 2x that. Plan disk space accordingly.
 - **Bundles 87 default skills** — synced into `/opt/data/skills/` on every
-  container start. Our `creative-comfyui-host-override.md` file is added
-  alongside them and takes precedence per Hermes's skill resolver.
+  container start. `init-hermes.sh` removes the old
+  `creative-comfyui-host-override.md` (Hermes never loaded it) and installs
+  the companion skill `creative/atlas-comfyui-host/SKILL.md`, which tells the
+  agent the in-network ComfyUI host; it is guidance, not an override.
 
 ## 2. Access
 
@@ -158,8 +160,8 @@ With `localhost`, LiteLLM's `hermes-agent` route sends Atlas's `HERMES_API_KEY` 
   `latest` introduces a regression, picking the previous sha tag is a
   one-line rollback.
 - **ComfyUI hardcoded URL** — Hermes's bundled `creative-comfyui` skill
-  defaults to `127.0.0.1:8188`. We override via a skill file dropped under
-  `/opt/data/skills/`. If a workflow ignores the override, the fallback is
+  defaults to `127.0.0.1:8188`. The companion skill `creative/atlas-comfyui-host`
+  under `/opt/data/skills/` gives the in-network host. If a workflow ignores it, the fallback is
   to add a `socat` sidecar mapping `127.0.0.1:8188 → comfyui:18188`.
 - **STT base_url override is undocumented** — Hermes documents `base_url`
   override for the OpenAI TTS provider; STT may need a fallback to
