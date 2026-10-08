@@ -115,6 +115,7 @@ volumes/backend/lightrag-query-profiles.compose.yml
 volumes/comfyui/selected-models.yaml
 volumes/comfyui/active-models.tsv
 volumes/comfyui/active-custom-nodes.tsv
+volumes/comfyui/selected-library-entries.json
 
 # Environment variables file
 .env

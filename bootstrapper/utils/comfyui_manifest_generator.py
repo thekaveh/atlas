@@ -69,6 +69,7 @@ class ComfyUIManifestGenerator:
                 ``COMFYUI_USER_MODELS`` / ``COMFYUI_CUSTOM_MODELS_FILE``.
         """
         self.env = env
+        self.unresolved: list[str] = []
 
     # ------------------------------------------------------------------
     # Public API
@@ -101,7 +102,10 @@ class ComfyUIManifestGenerator:
         # --- resolve active entries (no DB, no network scrape in tests) ---
         from utils import comfyui_resolver
 
-        entries = comfyui_resolver.active_comfyui_models(self.env)
+        remembered = output_dir / comfyui_resolver.REMEMBERED_SELECTIONS_FILE
+        entries = comfyui_resolver.active_comfyui_models(self.env, remembered_path=remembered)
+        # Selected names nothing could resolve; the start reports them (#1448).
+        self.unresolved = comfyui_resolver.unresolved_user_models(self.env, entries)
 
         # Render and validate both TSVs before replacing any file: a row that
         # fails validation used to leave selected-models.yaml (which the
@@ -114,6 +118,7 @@ class ComfyUIManifestGenerator:
         # --- TSVs (shell-consumable views for download_models.sh / nodes) ---
         self._atomic_write(output_dir / "active-models.tsv", models_tsv)
         self._atomic_write(output_dir / "active-custom-nodes.tsv", custom_nodes_tsv)
+        comfyui_resolver.write_remembered_selections(entries, remembered)
         return True
 
     # ------------------------------------------------------------------

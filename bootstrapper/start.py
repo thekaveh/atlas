@@ -3562,6 +3562,13 @@ class AtlasStarter:
                 return True
             self._ensure_volume_dir_writable(manifest_dir)
             generator.write(manifest_dir)
+            if getattr(generator, "unresolved", None):
+                self.banner.show_status_message(
+                    "ComfyUI models in COMFYUI_USER_MODELS not resolvable from the "
+                    "catalog, the custom sidecar or an earlier start, so not staged: "
+                    + ", ".join(generator.unresolved),
+                    "warning",
+                )
             return True
         except Exception as e:
             self.banner.show_status_message(
