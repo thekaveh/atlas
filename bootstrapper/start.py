@@ -2466,8 +2466,9 @@ class AtlasStarter:
                 )
                 self.stopped_previous_instance = True
 
-                # Re-check ports after cleanup
-                conflicts = self.port_manager.get_port_conflicts(base_port)
+                # Re-check ports after cleanup, waiting for Docker to
+                # release the ports it just unpublished (#1438).
+                conflicts = self.port_manager.conflicts_after_release(base_port)
 
             # If conflicts remain, show the original error
             if conflicts:
