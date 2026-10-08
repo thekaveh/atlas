@@ -335,6 +335,7 @@ services:
         max-size: 10m
     networks:
       backend-network: null
+    platform: linux/amd64
     ports:
     - mode: ingress
       host_ip: 127.0.0.1
@@ -1244,8 +1245,8 @@ services:
     healthcheck:
       test:
       - CMD-SHELL
-      - 'curl --fail --silent --show-error -H "Authorization: Bearer $$API_SERVER_KEY"
-        http://127.0.0.1:8642/v1/models >/dev/null'
+      - 'printf ''header = "Authorization: Bearer %s"\n'' "$$API_SERVER_KEY" | curl --fail
+        --silent --show-error -K- http://127.0.0.1:8642/v1/models >/dev/null'
       timeout: 10s
       interval: 30s
       retries: 5
@@ -1641,7 +1642,7 @@ services:
       KONG_NGINX_PROXY_TCP_NODELAY: 'on'
       KONG_NGINX_PROXY_TCP_NOPUSH: 'on'
       KONG_PORT_MAPS: 63000:8000,63001:8443
-      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,rate-limiting,pre-function,prometheus
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,rate-limiting,pre-function,prometheus,request-termination
       KONG_PROXY_ACCESS_LOG: /dev/stdout atlas
       KONG_STATUS_LISTEN: 0.0.0.0:8100
     expose:
@@ -2036,6 +2037,7 @@ services:
     - set -a; [ -f /app/data/.env ] && . /app/data/.env; set +a; exec python /atlas/resolve-role-keys.py
     environment:
       CHUNK_TOP_K: '5'
+      CORS_ORIGINS: http://lightrag.localhost:63000
       DOCLING_ENDPOINT: ''
       EMBEDDING_BINDING: openai
       EMBEDDING_BINDING_API_KEY: ''
@@ -2499,6 +2501,7 @@ services:
     deploy:
       replicas: 1
     environment:
+      CORS_ALLOW_ORIGINS: http://research.localhost:63000
       CRAWL4AI_API_TOKEN: ''
       CRAWL4AI_ENDPOINT: ''
       CRAWL4AI_MAX_CHARS: '60000'
@@ -3430,19 +3433,7 @@ services:
     entrypoint:
     - sh
     - -c
-    - "set -e\nCONFIG=/home/node/.openclaw/openclaw.json\nPATCH='{\"gateway\":{\"controlUi\"\
-      :{\"dangerouslyAllowHostHeaderOriginFallback\":true}}}'\n# Write via tmp + mv on\
-      \ BOTH branches: `> \"$$CONFIG\"` truncates\n# the target before jq runs, so a missing/failed\
-      \ jq used to\n# leave a 0-byte config the gateway chokes on (and re-runs\n# could\
-      \ not self-heal \u2014 jq errors on the empty file).\nif [ -s \"$$CONFIG\" ]; then\n\
-      \  jq --argjson patch \"$$PATCH\" '. * $$patch' \"$$CONFIG\" > \"$$CONFIG.tmp\"\
-      \ && mv \"$$CONFIG.tmp\" \"$$CONFIG\"\nelse\n  echo \"$$PATCH\" | jq . > \"$$CONFIG.tmp\"\
-      \ && mv \"$$CONFIG.tmp\" \"$$CONFIG\"\nfi\n# The bundled litellm provider reads\
-      \ LITELLM_API_KEY but defaults its\n# base URL to http://localhost:4000 (ECONNREFUSED\
-      \ in this container).\n# Point it at the gateway only when unset, keeping operator\
-      \ values.\njq '.models.providers.litellm.baseUrl //= \"http://litellm:4000\" | .models.providers.litellm.models\
-      \ //= []' \"$$CONFIG\" > \"$$CONFIG.tmp\" && mv \"$$CONFIG.tmp\" \"$$CONFIG\"\n\
-      chown -R 1000:1000 /home/node/.openclaw\n"
+    - "set -e\nCONFIG=/home/node/.openclaw/openclaw.json\nPATCH='{\"gateway\":{\"controlUi\":{\"dangerouslyAllowHostHeaderOriginFallback\":true}}}'\n# Write via tmp + mv on BOTH branches: `> \"$$CONFIG\"` truncates\n# the target before jq runs, so a missing/failed jq used to\n# leave a 0-byte config the gateway chokes on (and re-runs\n# could not self-heal \u2014 jq errors on the empty file).\ncommand -v jq >/dev/null 2>&1 || { echo \"openclaw-init: jq is required\" >&2; exit 1; }\n# OpenClaw reads its config as JSON5 (comments, trailing commas); jq\n# cannot. Failing on such a file kept the gateway from starting\n# although OpenClaw would run on it, so leave it unpatched instead.\nif [ -s \"$$CONFIG\" ] && ! jq empty \"$$CONFIG\" >/dev/null 2>&1; then\n  echo \"openclaw-init: $$CONFIG is not strict JSON (JSON5?); leaving it unpatched\"\n  chown -R 1000:1000 /home/node/.openclaw\n  exit 0\nfi\nif [ -s \"$$CONFIG\" ]; then\n  jq --argjson patch \"$$PATCH\" '. * $$patch' \"$$CONFIG\" > \"$$CONFIG.tmp\" || exit 1\n  mv \"$$CONFIG.tmp\" \"$$CONFIG\"\nelse\n  echo \"$$PATCH\" | jq . > \"$$CONFIG.tmp\" || exit 1\n  mv \"$$CONFIG.tmp\" \"$$CONFIG\"\nfi\n# The bundled litellm provider reads LITELLM_API_KEY but defaults its\n# base URL to http://localhost:4000 (ECONNREFUSED in this container).\n# Point it at the gateway only when unset, keeping operator values.\n# `|| exit 1`, not `&& mv`: set -e ignores a failure on the left of\n# &&, so invalid JSON exited 0 and the gateway started on it.\njq '.models.providers.litellm.baseUrl //= \"http://litellm:4000\" | .models.providers.litellm.models //= []' \"$$CONFIG\" > \"$$CONFIG.tmp\" || exit 1\nmv \"$$CONFIG.tmp\" \"$$CONFIG\"\nchown -R 1000:1000 /home/node/.openclaw\n"
     image: atlas-openclaw-init:local
     networks:
       backend-network: null
@@ -4341,10 +4332,10 @@ services:
         condition: service_completed_successfully
         required: true
     environment:
+      CRYPTO_KEY: ''
       PG_META_DB_HOST: supabase-db
       PG_META_DB_NAME: postgres
       PG_META_DB_PASSWORD: atlas-db-password
-      PG_META_CRYPTO_KEY: ''
       PG_META_DB_PORT: '5432'
       PG_META_DB_USER: atlas_meta
       PG_META_PORT: '8080'
@@ -4356,12 +4347,6 @@ services:
         max-size: 10m
     networks:
       backend-network: null
-    ports:
-    - mode: ingress
-      host_ip: 127.0.0.1
-      target: 8080
-      published: '63014'
-      protocol: tcp
     restart: unless-stopped
   supabase-realtime:
     container_name: atlas-supabase-realtime
@@ -4508,12 +4493,6 @@ services:
         max-size: 10m
     networks:
       backend-network: null
-    ports:
-    - mode: ingress
-      host_ip: 127.0.0.1
-      target: 3000
-      published: '63019'
-      protocol: tcp
     restart: unless-stopped
   supavisor:
     command:
@@ -4936,6 +4915,7 @@ services:
       BACKUP_FILESYSTEM_PATH: /var/lib/weaviate/backups
       CLIP_INFERENCE_API: http://multi2vec-clip:8080
       CLUSTER_HOSTNAME: weaviate
+      CORS_ALLOW_ORIGIN: http://weaviate.localhost:63000
       DEFAULT_VECTORIZER_MODULE: none
       ENABLE_MODULES: text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem
       OPENAI_APIKEY: ''

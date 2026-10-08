@@ -716,7 +716,7 @@ Distilled from real audit findings — each entry cites the commit, PR, or memor
 
 ### 14.5. Topology / category gotchas
 
-- **A new service in a near-full category block can trip the category-overflow lint.** The `data` block is 30 slots and `media` is 20; Supabase alone uses 7. Check current utilization before assuming there's room.
+- **A new service in a full category block trips the category-overflow lint.** The `infra` block (10 slots) is already full, so any new infra `*_PORT` needs a new block or a different category. `data` has 30 slots (Supabase alone uses 8) and `media` 20. Check current utilization before assuming there's room: `PYTHONPATH=bootstrapper python -c "from services.topology import get_topology; print(get_topology().port_defaults)"`.
 - **Renaming a `row.display_name` breaks tests that hardcode it.** `test_wizard_app_discovery.py` has an `EXPECTED_DISCOVERED` frozenset; update it when renaming.
 
 ### 14.6. Wizard discovery gotchas

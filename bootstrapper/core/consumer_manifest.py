@@ -5,13 +5,14 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field, replace
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 import yaml
 
 from services.manifests import load_yaml_strict
-from utils.atomic_write import assert_safe_env_assignment, env_lines
+from utils.atomic_write import assert_safe_env_assignment, decode_env_value, env_lines
 
 try:
     from utils.comfyui_custom_nodes import (
@@ -136,6 +137,11 @@ class LitellmModel:
             # LiteLLM resolves ``os.environ/<VAR>`` at request time (same form
             # as the stack hermes-agent row). The secret VALUE never appears here.
             params["api_key"] = f"os.environ/{self.api_key_var}"
+        else:
+            # A keyless openai/* row falls back to the container's
+            # OPENAI_API_KEY, sending the operator's OpenAI key to the plugin;
+            # pin a placeholder as the managed vLLM row does.
+            params["api_key"] = "sk-noauth"
         # Ownership markers first so a consumer-supplied model_info cannot
         # override them (they are filtered out of the user block below).
         info: dict[str, Any] = {"atlas_owner": self.consumer, "atlas_managed": True}
@@ -624,6 +630,9 @@ def discover_consumer_manifest_paths(
     return list(dict.fromkeys(resolved))
 
 
+_EXPORT_PREFIX = re.compile(r"^export[ \t]+")
+
+
 def _read_env_overlay(path: Path) -> dict[str, str]:
     env_vars: dict[str, str] = {}
     # `env_lines`, not `splitlines()`. This is the one `.env`-format reader that
@@ -634,7 +643,9 @@ def _read_env_overlay(path: Path) -> dict[str, str]:
     # Same manifest, same bytes, opposite outcomes. It also silently truncated a
     # legitimate secret containing one of them to its prefix.
     try:
-        text = path.read_text(encoding="utf-8")
+        # utf-8-sig, as the canonical reader: a BOM became part of the first
+        # key and failed the whole manifest.
+        text = path.read_text(encoding="utf-8-sig")
     except UnicodeDecodeError as exc:
         # Every neighbouring failure mode here is a clean ConsumerManifestError;
         # this one escaped as a raw traceback out of `./start.sh`.
@@ -646,21 +657,9 @@ def _read_env_overlay(path: Path) -> dict[str, str]:
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
         key, value = stripped.split("=", 1)
-        value = value.strip()
-        if value[:1] in ('"', "'"):
-            quote = value[0]
-            end = value.find(quote, 1)
-            if end != -1:
-                value = value[1:end]
-            else:
-                value = value.strip('"').strip("'")
-        else:
-            for i, ch in enumerate(value):
-                if ch == "#" and (i == 0 or value[i - 1] in " \t"):
-                    value = value[:i]
-                    break
-            value = value.strip()
-        env_vars[key.strip()] = value
+        # `export KEY=` is accepted as by .env / .env.user (#1391); it used to
+        # become the key "export KEY" and fail the manifest.
+        env_vars[_EXPORT_PREFIX.sub("", key.strip())] = decode_env_value(value)
     return env_vars
 
 
@@ -736,7 +735,8 @@ def _merge_profile_overrides_block(
                     # `services/profiles.py`; `str(None)` produced the literal
                     # string "None", so the load-time validation path and the
                     # apply-time path disagreed about the same manifest.
-                    ks, vs = str(k), ("" if v is None else str(v))
+                    # Booleans spelled for .env, as env.values does (_env_text).
+                    ks, vs = str(k), ("" if v is None else str(_env_text(v)))
                     if ks in sub and sub[ks] != vs:
                         raise ConsumerManifestError(
                             f"profile_overrides.{prof_name}.{fname}.{ks} has "
@@ -771,6 +771,10 @@ def _set_scalar(
     # implementation of that check, shared with every `.env` writer so the
     # parse boundary and the write boundaries cannot drift apart; it is
     # re-raised here as a manifest error so the author gets the origin.
+    if key == "PROJECT_NAME":
+        # Every route, not just `project_name:`: an invalid name reaching
+        # .env through env.values or env.file made ./stop.sh refuse to run.
+        value = _manifest_project_name(value, Path(origin))
     try:
         rendered = assert_safe_env_assignment(key, value)
     except ValueError as exc:
@@ -1308,6 +1312,36 @@ def _resolve_litellm_api_base(raw: str, *, alias: str, origin: str) -> str:
     return resolved.rstrip("/")
 
 
+@lru_cache(maxsize=1)
+def _litellm_container_env_names() -> frozenset[str]:
+    """Env vars the stack's litellm service already sets. The models overlay
+    writes `<api_key_var>: ${<api_key_var>:-}` into that environment, so a
+    reference named DATABASE_URL / REDIS_HOST / UI_PASSWORD blanked it."""
+    compose = Path(__file__).resolve().parents[2] / "services" / "litellm" / "compose.yml"
+    try:
+        service = (yaml.safe_load(compose.read_text(encoding="utf-8")) or {})["services"]["litellm"]
+    except (OSError, KeyError, TypeError, yaml.YAMLError):
+        return frozenset()
+    env = service.get("environment") or {}
+    names = env.keys() if isinstance(env, Mapping) else (str(item).split("=", 1)[0] for item in env)
+    return frozenset(names)
+
+
+def _checked_api_key_var(api_key_var: str, name: str, origin: str) -> str:
+    if not _LITELLM_ENV_VAR_RE.match(api_key_var):
+        raise ConsumerManifestError(
+            f"litellm_models entry {name!r} api_key_var {api_key_var!r} must be an "
+            f"UPPER_SNAKE env var NAME (a reference, not a literal secret) ({origin})"
+        )
+    if api_key_var in _litellm_container_env_names():
+        raise ConsumerManifestError(
+            f"litellm_models entry {name!r} api_key_var {api_key_var!r} is already set on the "
+            f"stack's litellm container; the generated overlay would replace it. Use a "
+            f"consumer-specific name ({origin})"
+        )
+    return api_key_var
+
+
 def _parse_litellm_models_block(
     data: Mapping[str, Any], consumer_name: str, manifest_path: Path
 ) -> list[LitellmModel]:
@@ -1389,12 +1423,7 @@ def _parse_litellm_models_block(
 
         api_key_var = raw.get("api_key_var")
         if api_key_var is not None:
-            api_key_var = str(api_key_var).strip()
-            if not _LITELLM_ENV_VAR_RE.match(api_key_var):
-                raise ConsumerManifestError(
-                    f"litellm_models entry {name!r} api_key_var {api_key_var!r} must be an "
-                    f"UPPER_SNAKE env var NAME (a reference, not a literal secret) ({origin})"
-                )
+            api_key_var = _checked_api_key_var(str(api_key_var).strip(), name, origin)
 
         description = raw.get("description")
         if description is not None:
@@ -1540,6 +1569,7 @@ N8N_CONSUMER_OVERLAY_PATH = Path("volumes/n8n/consumer-workflows.compose.yml")
 # id is prefixed with this so an upsert can never collide with a user/stack
 # workflow — Atlas owns (and may reconcile/delete) exactly the ids under it.
 N8N_SEED_ID_NAMESPACE = "atlas-consumer-"
+_N8N_MAX_WORKFLOW_ID = 36  # n8n workflow_entity.id is varchar(36)
 
 # Top-level workflow fields stripped during normalization: they carry runtime
 # state / pinned execution payloads (a secret-leak carrier) and have no place in
@@ -1645,6 +1675,13 @@ def _parse_n8n_workflows_block(
         if not _N8N_ID_RE.match(wid):
             raise ConsumerManifestError(
                 f"n8n_workflows id {wid!r} must match [a-z0-9][a-z0-9._-]* ({origin})"
+            )
+        if len(N8N_SEED_ID_NAMESPACE + wid) > _N8N_MAX_WORKFLOW_ID:
+            # n8n stores workflow_entity.id as varchar(36); a longer seed id
+            # fails the import, which the seed logs and exits 0 on.
+            raise ConsumerManifestError(
+                f"n8n_workflows id {wid!r} is too long: at most "
+                f"{_N8N_MAX_WORKFLOW_ID - len(N8N_SEED_ID_NAMESPACE)} characters ({origin})"
             )
         if wid == N8N_CONSUMER_PLAN_PATH.stem:
             # <id>.json shares the directory with plan.json, which overwrote
@@ -2648,6 +2685,13 @@ def _validate_rag_ingestion_collisions(profiles: Iterable[RagIngestionProfile]) 
             raise ConsumerManifestError(
                 f"rag_ingestion_profiles name {profile.name!r} declared by multiple consumers "
                 f"({owner[profile.name]} and {profile.consumer})"
+            )
+        if profile.name in owner:
+            # Two manifests of one consumer (the name defaults to the parent
+            # directory): the backend serves only the first, silently.
+            raise ConsumerManifestError(
+                f"duplicate rag_ingestion_profiles name {profile.name!r} for consumer "
+                f"{profile.consumer}"
             )
         owner[profile.name] = profile.consumer
         for target in profile.vector_targets:

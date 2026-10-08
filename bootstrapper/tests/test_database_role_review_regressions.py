@@ -610,3 +610,125 @@ def test_supavisor_pooled_logins_resolve_backend_and_n8n_credentials(
             )
             assert login.returncode == 0, login.stderr
             assert login.stdout == f"{role}\n"
+
+
+def test_a_planted_public_overload_does_not_run_as_superuser(
+    disposable_postgres: DisposablePostgres,
+) -> None:
+    """Roles with CREATE on public (Open WebUI, LightRAG) planted overloads of
+    built-ins the superuser-run init calls with non-exact argument types
+    (hashtextextended, format(text, name), and operators like =); they ran as
+    superuser (CVE-2018-1058 pattern; one captured a plaintext password).
+    Init now refuses while such objects exist, and slice 14's SECURITY
+    DEFINER resolves nothing through public."""
+    db = disposable_postgres
+    owui = TEST_SECRETS["OPEN_WEBUI_DB_USER"]
+    role = dict(user=owui, password=TEST_SECRETS["OPEN_WEBUI_DB_PASSWORD"])
+    backend = dict(user=TEST_SECRETS["BACKEND_DB_USER"], password=TEST_SECRETS["BACKEND_DB_PASSWORD"])
+    body = ("LANGUAGE plpgsql AS $p$ BEGIN "
+            "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'atlas_planted_su') "
+            "THEN EXECUTE 'CREATE ROLE atlas_planted_su SUPERUSER'; END IF; RETURN {ret}; END $p$")
+    plants = [
+        "CREATE OR REPLACE FUNCTION public.hashtextextended(t text, s integer) RETURNS bigint " + body.format(ret="1"),
+        # Behaves like the built-in, so only the guard (not a broken init)
+        # can stop it.
+        "CREATE OR REPLACE FUNCTION public.format(f text, a name) RETURNS text "
+        + body.format(ret="pg_catalog.format(f, a)"),
+    ]
+    cleanup = [
+        "DROP FUNCTION IF EXISTS public.format(text, name)",
+        "DROP FUNCTION IF EXISTS public.hashtextextended(text, integer)",
+    ]
+    planted = "SELECT count(*) FROM pg_roles WHERE rolname = 'atlas_planted_su'"
+    try:
+        for statement in plants:
+            result = db.sql(statement, check=False, **role)
+            assert result.returncode == 0, result.stderr
+        with pytest.raises(subprocess.CalledProcessError):
+            db.run_init()  # refuses, naming the shadowing objects
+        assert db.sql(planted).stdout.strip() == "0", "init ran a planted overload as superuser"
+        for statement in cleanup:
+            db.sql(statement, check=False)
+        db.run_init()
+        # Planted after init: the definer qualifies its built-ins.
+        assert db.sql(plants[0], check=False, **role).returncode == 0
+        state = db.sql(
+            "SELECT pgvector_target_model || ',' || target_dimension || ',' || pgvector_target_generation "
+            "FROM public.memory_embedding_schema_state"
+        ).stdout.strip().split(",")
+        call = db.sql(
+            f"SELECT public.contract_memory_embedding_contract('{state[0]}', {state[1]}, {state[2]})",
+            check=False, **backend,
+        )
+        assert call.returncode == 0, call.stderr
+        assert db.sql(planted).stdout.strip() == "0", "the SECURITY DEFINER ran the planted overload"
+    finally:
+        db.sql("DROP ROLE IF EXISTS atlas_planted_su", check=False)
+        for statement in cleanup:
+            db.sql(statement, check=False)
+
+
+def test_backup_queries_never_resolve_through_public(
+    disposable_postgres: DisposablePostgres,
+) -> None:
+    """backup-all.sh / restore-postgres.sh run catalog queries as the
+    superuser; a planted public.convert_to(name, name) ran in them (and
+    COPY ... TO PROGRAM ran shell commands in supabase-db). Both scripts now
+    pin search_path to pg_catalog, pg_temp."""
+    import re
+
+    for script in ("backup-all.sh", "restore-postgres.sh"):
+        path = REPO / "services/backup/init/scripts" / script
+        text = path.read_text(encoding="utf-8")
+        pin = re.search(r'^export PGOPTIONS="\$\{PGOPTIONS:\+\$PGOPTIONS \}-c search_path=pg_catalog,pg_temp"$',
+                        text, re.M)
+        assert pin and pin.start() < text.index("psql "), script
+        # And it is what the script exports: run its preamble up to the pin.
+        preamble = text[:pin.end()]
+        exported = subprocess.run(["sh", "-c", preamble + '\nprintf %s "$PGOPTIONS"'],
+                                  capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"})
+        assert exported.stdout.endswith("-c search_path=pg_catalog,pg_temp"), (script, exported.stderr)
+    db = disposable_postgres
+    owui = TEST_SECRETS["OPEN_WEBUI_DB_USER"]
+    role = dict(user=owui, password=TEST_SECRETS["OPEN_WEBUI_DB_PASSWORD"])
+    plant = (
+        "CREATE OR REPLACE FUNCTION public.convert_to(a name, b name) RETURNS bytea LANGUAGE plpgsql AS $f$ "
+        "BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'atlas_backup_pwned') "
+        "THEN EXECUTE 'CREATE ROLE atlas_backup_pwned'; END IF; "
+        "RETURN pg_catalog.convert_to(a::text, b); END $f$"
+    )
+    query = ("SELECT count(*) FROM (SELECT encode(convert_to(n.nspname, 'UTF8'), 'hex') "
+             "FROM pg_class AS c JOIN pg_namespace AS n ON n.oid = c.relnamespace) s")
+    try:
+        assert db.sql(plant, check=False, **role).returncode == 0
+        result = subprocess.run(
+            ["docker", "exec", "-e", "PGOPTIONS=-c search_path=pg_catalog,pg_temp", db.container,
+             "psql", "-X", "-w", "-h", "127.0.0.1", "-U", "supabase_admin", "-d", "postgres", "-Atqc", query],
+            env={**__import__("os").environ, "PGPASSWORD": db.admin_password}, capture_output=True, text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert db.sql("SELECT count(*) FROM pg_roles WHERE rolname = 'atlas_backup_pwned'").stdout.strip() == "0"
+    finally:
+        db.sql("DROP ROLE IF EXISTS atlas_backup_pwned", check=False)
+        db.sql("DROP FUNCTION IF EXISTS public.convert_to(name, name)", check=False)
+
+
+def test_init_names_a_planted_operator_and_refuses(
+    disposable_postgres: DisposablePostgres,
+) -> None:
+    """A planted public.=(varchar, varchar) beat pg_catalog's in 12-comfyui."""
+    db = disposable_postgres
+    role = dict(user=TEST_SECRETS["OPEN_WEBUI_DB_USER"], password=TEST_SECRETS["OPEN_WEBUI_DB_PASSWORD"])
+    try:
+        assert db.sql(
+            "CREATE OR REPLACE FUNCTION public.atlas_eq(a varchar, b varchar) RETURNS boolean "
+            "LANGUAGE sql AS 'SELECT a::text = b::text'", check=False, **role).returncode == 0
+        assert db.sql("CREATE OPERATOR public.= (LEFTARG = varchar, RIGHTARG = varchar, FUNCTION = public.atlas_eq)",
+                      check=False, **role).returncode == 0
+        with pytest.raises(subprocess.CalledProcessError) as refused:
+            db.run_init()
+        assert "operator" in str(refused.value.stderr or refused.value.output or "")
+    finally:
+        db.sql("DROP OPERATOR IF EXISTS public.= (varchar, varchar)", check=False)
+        db.sql("DROP FUNCTION IF EXISTS public.atlas_eq(varchar, varchar)", check=False)
+        db.run_init()

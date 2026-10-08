@@ -5,6 +5,7 @@ import importlib.util
 from pathlib import Path
 import re
 import runpy
+import os
 import subprocess
 import sys
 from types import ModuleType
@@ -124,6 +125,16 @@ def test_runtime_helper_reuses_a_healthy_virtual_environment(tmp_path):
 
 
 def test_runtime_helper_recreates_a_corrupt_virtual_environment(tmp_path):
+    import shutil
+
+    # The helper builds a 3.11 venv; uv would otherwise download a Python
+    # into ~/.local/share/uv on a host without one (offline: a false failure).
+    found = shutil.which("uv") and subprocess.run(
+        ["uv", "python", "find", "3.11"], capture_output=True, check=False,
+        env={**os.environ, "UV_PYTHON_DOWNLOADS": "never"},
+    ).returncode == 0
+    if not found:
+        pytest.skip("no local Python 3.11 for uv; the test must not download one")
     venv = tmp_path / "venv"
     python = venv / "bin/python"
     python.parent.mkdir(parents=True)

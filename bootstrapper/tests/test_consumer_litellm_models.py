@@ -121,10 +121,12 @@ def test_model_without_api_key_var_has_no_overlay(tmp_path: Path) -> None:
     )
     config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
     assert config.litellm_models_file is not None
-    # No api_key_var declared → no key injected, no overlay generated.
+    # No api_key_var declared → no key injected, no overlay generated. The
+    # row pins a placeholder: a keyless openai/* row otherwise sent the
+    # container's OPENAI_API_KEY to the plugin.
     assert config.litellm_overlay is None
     row = config.litellm_models[0].to_row()
-    assert "api_key" not in row["litellm_params"]
+    assert row["litellm_params"]["api_key"] == "sk-noauth"
 
 
 # ── multiple consumers / ordering / byte-stability ──────────────────
@@ -639,3 +641,24 @@ def test_consumer_litellm_reload_without_manual_restart_contract():
     )
     dep = compose["services"]["litellm"]["depends_on"]["litellm-init"]
     assert dep["condition"] == "service_completed_successfully"
+
+
+@pytest.mark.parametrize("var", ["DATABASE_URL", "UI_PASSWORD", "FAL_AI_API_KEY"])
+def test_api_key_var_cannot_name_a_litellm_container_variable(tmp_path: Path, var: str) -> None:
+    """The overlay writes `<VAR>: ${<VAR>:-}` into the litellm environment, so
+    naming one the stack sets blanked LiteLLM's DB URL or a provider key."""
+    _write_root(tmp_path)
+    manifest = _write_manifest(
+        tmp_path,
+        "clobber",
+        f"""
+        litellm_models:
+          version: 1
+          models:
+            - name: clobber-model
+              api_base: "${{ATLAS_BACKEND_INTERNAL}}/clobber/v1"
+              api_key_var: {var}
+        """,
+    )
+    with pytest.raises(ConsumerManifestError, match="already set on the stack's litellm container"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])

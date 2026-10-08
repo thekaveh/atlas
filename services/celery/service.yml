@@ -77,7 +77,7 @@ env:
     description: "Positive soft per-task limit. Must be strictly less than the hard limit."
   - name: CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS
     default: 3600
-    description: "Positive Redis broker visibility timeout. Must be strictly greater than the task hard limit. The worker raises it to the rag_ingestion hard limit plus 300 seconds when that is larger, so a running ingestion is never re-delivered (#1352)."
+    description: "Positive Redis broker visibility timeout. Must be strictly greater than the task hard limit. The worker raises it to 300 seconds past the larger of the rag_ingestion hard limit and the global hard limit plus 60 (a memory busy-retry countdown) when that is larger, so a running ingestion or a delayed retry is never re-delivered (#1352)."
   - name: RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS
     default: ""
     description: "Positive soft limit for the rag_ingestion task alone; other tasks keep CELERY_TASK_SOFT_TIME_LIMIT_SECONDS. Empty (default) means the larger of 3840 and CELERY_TASK_SOFT_TIME_LIMIT_SECONDS. A Celery ingestion whose graph targets' timeout_seconds add up to at least this is refused at submission (#1352)."

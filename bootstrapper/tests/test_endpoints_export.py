@@ -323,6 +323,17 @@ def test_with_secrets_refuses_to_resolve_a_reference_to_an_infra_secret() -> Non
     assert "ATLAS_STORE_EVIL_ACCESS_KEY" not in d
 
 
+def test_with_secrets_refuses_the_stacks_own_minio_service_credentials() -> None:
+    """MINIO_BACKEND_SECRET_KEY matches the consumer-credential naming pattern
+    but is an infra secret: it stays a reference."""
+    env = _base_env()
+    env["ATLAS_STORE_X_SECRET_KEY_VAR"] = "MINIO_BACKEND_SECRET_KEY"
+    env["MINIO_BACKEND_SECRET_KEY"] = "infra-secret-should-never-appear"
+    fields = build_export(env, with_secrets=True)
+    assert "infra-secret-should-never-appear" not in render_env(fields) + render_json(fields)
+    assert "ATLAS_STORE_X_SECRET_KEY" not in _as_dict(fields)
+
+
 # ── deterministic / byte-stable output ──────────────────────────────
 
 def test_env_and_json_output_are_byte_stable() -> None:

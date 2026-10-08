@@ -202,7 +202,11 @@ def test_init_script_orphan_cleanup_pass_present():
     a dead host (which a DAG referencing the connection would then hit).
     """
     body = SCRIPT.read_text(encoding="utf-8")
-    assert "for orphan in spark_default minio_default weaviate_default neo4j_default" in body
+    # Every source-gated Connection is in the cleanup pass, which skips a
+    # localhost source (that Connection is the operator's).
+    for conn in ("spark_default", "minio_default", "weaviate_default", "neo4j_default"):
+        assert f'"{conn}:${{' in body, conn
+    assert "*localhost*)" in body and 'seeded_host "$conn"' in body  # keeps operator-made ones
 
 
 def test_init_script_env_refs_match_compose_environment():

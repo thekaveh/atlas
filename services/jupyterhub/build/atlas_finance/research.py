@@ -7,6 +7,8 @@ place orders, or read live exchange credentials.
 
 from __future__ import annotations
 
+import re
+
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -83,14 +85,45 @@ def assert_no_live_exchange_credentials(env: Mapping[str, str | None]) -> None:
         )
 
 
-def assert_public_ccxt_method(method_name: str) -> None:
-    """Allow only public/read-only CCXT method names in notebook examples."""
+PUBLIC_CCXT_METHODS: frozenset[str] = frozenset(
+    {
+        "load_markets",
+        "fetch_markets",
+        "fetch_currencies",
+        "fetch_status",
+        "fetch_time",
+        "fetch_ticker",
+        "fetch_tickers",
+        "fetch_ohlcv",
+        "fetch_order_book",
+        "fetch_l2_order_book",
+        "fetch_trades",
+        "fetch_funding_rate",
+        "fetch_funding_rate_history",
+    }
+)
 
-    normalized = method_name.strip()
-    if normalized in PRIVATE_CCXT_METHODS or normalized.startswith(PRIVATE_CCXT_METHOD_PREFIXES):
+
+def _snake_case(name: str) -> str:
+    """ccxt exposes every method in both spellings (fetchTicker / fetch_ticker)."""
+    return re.sub(r"(?<=[a-z0-9])([A-Z])", r"_\1", name).lower()
+
+
+def assert_public_ccxt_method(method_name: str) -> None:
+    """Allow only public/read-only CCXT method names in notebook examples:
+    an allowlist, in either ccxt spelling. A denylist missed the camelCase
+    names (createOrder, fetchBalance) and private methods it did not list."""
+
+    normalized = _snake_case(method_name.strip())
+    if (
+        normalized not in PUBLIC_CCXT_METHODS
+        or normalized in PRIVATE_CCXT_METHODS
+        or normalized.startswith(PRIVATE_CCXT_METHOD_PREFIXES)
+    ):
         raise ValueError(
-            f"{method_name!r} is a private/trading CCXT method and is blocked "
-            "in this first Atlas financial research slice."
+            f"{method_name!r} is not a listed public/read-only CCXT method; "
+            "private/trading CCXT methods are blocked in this first Atlas "
+            "financial research slice."
         )
 
 

@@ -104,3 +104,25 @@ def test_comments_and_whitespace_in_example_tolerated(tmp_path: Path):
     user_env = {"SPARK_IMAGE": "bitnami/spark:4.1.2"}
     drift = _detect_env_image_drift(user_env, env_example)
     assert drift == [("SPARK_IMAGE", "bitnami/spark:4.1.2", "apache/spark:4.1.2")]
+
+
+from scripts import container_security  # noqa: E402
+from scripts.upstream_drift_watch import load_manifest_image_refs  # noqa: E402
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_a_runtime_only_image_bump_in_a_manifest_is_scheduled() -> None:
+    """TEI's arm64 and Ray's GPU images are chosen by the bootstrapper at
+    runtime and never appear as compose defaults; a manifest bump of one
+    scheduled nothing, so the required PR scan passed it unscanned."""
+    arm64 = next(image for image in load_manifest_image_refs(_REPO_ROOT / "services") if "cpu-arm64-latest" in image)
+    scans = container_security.load_changed_image_scans(
+        _REPO_ROOT / "services",
+        [
+            "diff --git a/services/tei-reranker/service.yml b/services/tei-reranker/service.yml",
+            "-    default: \"ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-latest@sha256:old\"",
+            f"+    default: \"{arm64}\"",
+        ],
+    )
+    assert [(scan.image, scan.platform) for scan in scans] == [(arm64, "linux/arm64")]

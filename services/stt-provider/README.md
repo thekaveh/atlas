@@ -85,7 +85,7 @@ for the whisper.cpp walkthrough and Linux build instructions, or
 | `STT_PROVIDER_PORT` | `63055` | Parakeet container port and wizard display slot; Speaches uses `SPEACHES_PORT`. |
 | `STT_ENDPOINT` | (auto) | Internal URL containers reach STT on. |
 | `STT_PROVIDER_SCALE` | (auto) | 1 when any container variant is active. |
-| `SPEACHES_STT_MODEL` | `Systran/faster-distil-whisper-large-v3` | HuggingFace repo of the model to preload. **Compatibility note:** Open WebUI hardcodes `AUDIO_STT_MODEL: whisper-1`, and Speaches aliases `whisper-1` → `Systran/faster-whisper-large-v3` (the non-distil build), so preload **that** id, not the distil one, to satisfy a `whisper-1` request. |
+| `SPEACHES_STT_MODEL` | `Systran/faster-distil-whisper-large-v3` | Reserved and currently inert: `PRELOAD_MODELS` is hard-coded in the Speaches compose file, so this does not change what is preloaded (#799). **Compatibility note:** Open WebUI hardcodes `AUDIO_STT_MODEL: whisper-1`, and Speaches aliases `whisper-1` → `Systran/faster-whisper-large-v3` (the non-distil build), so preload **that** id, not the distil one, to satisfy a `whisper-1` request. |
 | `PARAKEET_MODEL` | `nvidia/parakeet-tdt-0.6b-v3` | Or `…-v2` for English-only (slightly faster). |
 | `PARAKEET_GPU_IMAGE` | `nvcr.io/nvidia/pytorch:26.06-py3` | Base for the Parakeet GPU Dockerfile. |
 | `PARAKEET_MAX_UPLOAD_BYTES` | `104857600` | Positive maximum audio upload size for Parakeet GPU and localhost APIs; request bodies are capped before multipart parsing with 1 MiB framing overhead, invalid values fail startup, and larger requests return `413`. |

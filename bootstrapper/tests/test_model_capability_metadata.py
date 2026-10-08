@@ -379,6 +379,9 @@ def test_capability_docs_are_synchronized_across_three_surfaces() -> None:
 
 _TOOL_CALL = {"choices": [{"message": {"tool_calls": [{"function": {"name": "get_utc_time"}}]}}]}
 _REPLY = lambda text: {"choices": [{"message": {"content": text}}]}  # noqa: E731
+# What LiteLLM returns for an alias it does not serve: a 400, not a 404.
+_UNKNOWN_ALIAS = {"error": {"message": "400: {'error': '/chat/completions: Invalid model name passed in model=gpt-5'}",
+                            "type": "None", "code": "400"}}
 
 
 @pytest.mark.parametrize(("kind", "good", "bad"), [
@@ -392,7 +395,8 @@ def test_each_probe_tells_supported_unsupported_and_unavailable_apart(kind, good
     probe = {"tools": start.probe_tools, "json": start.probe_json, "vision": start.probe_vision}[kind]
     for reply, expected in (((200, good), "supported"), ((200, bad), "unsupported"),
                             ((400, {}), "unsupported"), ((None, {}), "unavailable"), ((503, {}), "unavailable"),
-                            ((401, {}), "unavailable"), ((429, {}), "unavailable"), ((200, []), "unsupported")):
+                            ((401, {}), "unavailable"), ((429, {}), "unavailable"), ((200, []), "unsupported"),
+                            ((400, _UNKNOWN_ALIAS), "unavailable")):
         assert probe(lambda _path, _body, r=reply: r, "m") == expected, (kind, reply)
 
 
@@ -438,7 +442,11 @@ def test_the_embedding_probe_is_lightrag_inits_own(monkeypatch):
     probe = start._shared_embedding_probe()
     assert probe.__code__.co_filename.endswith("services/lightrag/init/scripts/resolve-models.py")
     namespace = probe.__globals__  # the loaded resolve-models.py module
+    import io
+
+    unknown = io.BytesIO(json.dumps(_UNKNOWN_ALIAS).encode())
     for raised, expected in ((urllib.error.HTTPError("u", 400, "bad", None, None), "unsupported"),
+                             (urllib.error.HTTPError("u", 400, "bad", None, unknown), "unavailable"),
                              (urllib.error.URLError("down"), "unavailable")):
         monkeypatch.setattr(namespace["urllib"].request, "urlopen", lambda *_a, e=raised, **_k: (_ for _ in ()).throw(e))
         assert probe("http://gw/v1", "k", "m") == (expected, None)
@@ -479,3 +487,24 @@ def test_a_stored_result_is_reused_only_for_the_same_identity():
     for field in ("model", "provider", "alias", "revision"):
         changed = {**identity, field: identity[field] + "-other"}
         assert start.plan_capability_probes([alias], ["tools"], stored(changed), refresh=False), field
+
+
+def test_an_unavailable_refresh_keeps_the_real_verdict(tmp_path, monkeypatch, capsys):
+    """`--refresh` with the gateway down overwrote a measured verdict with
+    `unavailable`, and the stale dimension was printed beside it."""
+    import start
+
+    alias = "ollama/nomic-embed-text"
+    identity = start.probe_identity(alias, start._catalog_entry(alias))
+    monkeypatch.setattr(start, "_measure", lambda kind, a, gw: ("supported", 768))
+    start.run_capability_probes(tmp_path, ("u", "k", None), [(alias, "embedding", identity)], 20)
+    monkeypatch.setattr(start, "_measure", lambda kind, a, gw: ("unavailable", None))
+    plan = start.plan_capability_probes([alias], [], start._probe_store(tmp_path), True)
+    start.run_capability_probes(tmp_path, ("u", "k", None), plan, 20)
+    start.report_capability_probes(tmp_path, [alias], [])
+    assert "embedding: supported (768 dimensions)" in capsys.readouterr().out
+    monkeypatch.setattr(start, "_measure", lambda kind, a, gw: ("unsupported", None))
+    start.run_capability_probes(tmp_path, ("u", "k", None), plan, 20)
+    start.report_capability_probes(tmp_path, [alias], [])
+    out = capsys.readouterr().out
+    assert "embedding: unsupported" in out and "dimensions" not in out

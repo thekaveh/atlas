@@ -979,3 +979,42 @@ class TestManifestRoundTrip:
             if l
         }
         assert yaml_names == tsv_names
+
+
+def test_a_failing_row_leaves_every_output_file_untouched(tmp_path, monkeypatch):
+    """selected-models.yaml was replaced before the TSV rows were validated,
+    so a bad row left the YAML (served by the backend) ahead of the TSVs."""
+    import utils.comfyui_resolver as resolver
+
+    good = [_entry("Good", filename="good.safetensors", sha256="a" * 64)]
+    monkeypatch.setattr(resolver, "active_comfyui_models", lambda e, **kw: good)
+    env = {"COMFYUI_SOURCE": "container", "COMFYUI_USER_MODELS": "Good"}
+    assert ComfyUIManifestGenerator(env).write(tmp_path) is True
+    before = {p.name: p.read_bytes() for p in tmp_path.iterdir() if p.is_file()}
+
+    bad = good + [_entry("Bad", filename="bad.safetensors", sha256="A" * 64)]  # not lowercase
+    monkeypatch.setattr(resolver, "active_comfyui_models", lambda e, **kw: bad)
+    with pytest.raises(ValueError):
+        ComfyUIManifestGenerator({**env, "COMFYUI_USER_MODELS": "Good,Bad"}).write(tmp_path)
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir() if p.is_file()} == before
+
+
+def test_sidecar_rows_cannot_escape_the_models_folder(tmp_path, capsys):
+    """target_dir/filename from a sidecar reached the host provisioner as-is;
+    `..` passed a textual relative_to check."""
+    from services.comfyui_mps_manager import ComfyUiMpsError, ComfyUiMpsManager
+    from utils.comfyui_library import load_custom_models
+
+    sidecar = tmp_path / "custom-models.yaml"
+    sidecar.write_text(
+        "models:\n"
+        "  - {name: escape, category: checkpoint, url: 'https://x.test/a', target_dir: '../../.ssh'}\n"
+        "  - {name: subdir, category: checkpoint, url: 'https://x.test/b', filename: 'a/b.safetensors'}\n"
+        "  - {name: fine, category: checkpoint, url: 'https://x.test/c', filename: 'c.safetensors'}\n",
+        encoding="utf-8",
+    )
+    assert [e.name for e in load_custom_models(str(sidecar))] == ["fine"]
+    manager = ComfyUiMpsManager(tmp_path / "state", models_path=str(tmp_path / "models"))
+    with pytest.raises(ComfyUiMpsError, match="outside"):
+        manager._provision_dest({"name": "x", "target_dir": "../../.ssh", "filename": "authorized_keys"})
+    assert manager._provision_dest({"name": "y", "target_dir": "checkpoints", "filename": "c.safetensors"})

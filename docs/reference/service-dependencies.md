@@ -44,7 +44,7 @@ The start-order column is each manifest's `depends_on.required`: it orders start
 | neo4j | supabase | - | - |
 | ollama | supabase, litellm | - | - |
 | open-webui | supabase, redis, litellm | hermes | litellm, supabase, redis, backend, comfyui, stt-provider, tts-provider, local-deep-researcher |
-| openclaw | litellm | - | litellm (optional: an operator sets the provider baseUrl; openclaw-init writes none) |
+| openclaw | litellm | - | litellm (optional: openclaw-init sets models.providers.litellm.baseUrl when unset; an operator value is kept) |
 | otel-collector | tempo, loki | - | tempo, loki |
 | parakeet | litellm | - | - |
 | prometheus | supabase, redis, kong, ray | - | kong, litellm, backend, asset-worker, asset-baker, n8n, weaviate, minio, supabase, redis, grafana |

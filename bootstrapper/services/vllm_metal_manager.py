@@ -105,6 +105,9 @@ class ProcessStatus:
         }
 
 
+_KEEP_LAUNCH = object()  # _write_status: keep the recorded launch (#1361)
+
+
 class VllmMetalError(RuntimeError):
     """A managed vLLM-Metal lifecycle failure (unsupported host, install/launch error)."""
 
@@ -423,6 +426,8 @@ class VllmMetalManager:
 
     def start_with_ownership(self) -> tuple[ProcessStatus, bool]:
         """Start atomically and report whether this call created the process."""
+        if getattr(self, "port_error", None):
+            raise VllmMetalError(self.port_error)
         with self._launch_guard():
             return self._start_locked()
 
@@ -434,7 +439,7 @@ class VllmMetalManager:
             ("vLLM Metal", VllmMetalError),
         )
         existing = self.status()
-        if existing.running:
+        if self._reusable(existing):
             return existing, False  # idempotent — one process per host
         # Not running, but a pidfile may linger from a dead/recycled process.
         # Clear it so we relaunch cleanly instead of leaving a stale pointer that
@@ -645,8 +650,12 @@ class VllmMetalManager:
                 model = payload.get("model") or self.model
             except (OSError, ValueError):
                 version = None
+        record = self._launch_record()
+        # A running process reports the port it was launched on, which can
+        # differ from the configured one until start restarts it (#1361).
+        port = record.get("port", self.port) if running and record.get("pid") == pid else self.port
         return ProcessStatus(
-            running=running, pid=pid if running else None, port=self.port,
+            running=running, pid=pid if running else None, port=port,
             installed_version=version, model=model, log_file=str(self.log_file),
         )
 
@@ -657,6 +666,8 @@ class VllmMetalManager:
 
     def ensure_running_with_ownership(self) -> tuple[ProcessStatus, bool]:
         """Run the full launch path and atomically report process ownership."""
+        if getattr(self, "port_error", None):
+            raise VllmMetalError(self.port_error)
         pre = self.preflight()
         if not pre.ok:
             fails = [c for c in pre.checks if c["status"] == _FAIL]
@@ -665,11 +676,38 @@ class VllmMetalManager:
                 + "; ".join(f"{c['name']}: {c['detail']}" for c in fails)
             )
         with self._launch_guard():
-            existing = self.status()
-            if existing.running:
-                return existing, False
+            # Decide before install: it rewrites the status file without the
+            # pid, which would erase the record of the old port.
+            if self._reusable(self.status()):
+                return self.status(), False
             self._install_locked()
             return self._start_locked()
+
+    def _launch_record(self) -> dict:
+        try:
+            record = json.loads(self.status_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return record if isinstance(record, dict) else {}
+
+    def _launched_elsewhere(self, pid: Optional[int]) -> bool:
+        from services import launched_with_other_settings
+        return launched_with_other_settings(
+            self._launch_record(), pid, {"port": self.port, "listen": self.listen}
+        )
+
+    def _reusable(self, existing: ProcessStatus) -> bool:
+        """Whether the running process serves the configured port and listen
+        address. One launched with others is stopped so it can be relaunched;
+        it would keep serving the old address (#1361)."""
+        if not existing.running or not self._launched_elsewhere(existing.pid):
+            return existing.running
+        if not self._stop_locked():
+            raise VllmMetalError(
+                f"vLLM Metal (pid {existing.pid}) runs with an old port or listen "
+                "address and could not be stopped; run `./start.sh vllm-metal stop`"
+            )
+        return False
 
     def remove(self) -> None:
         """Stop the process and delete the Atlas-owned state directory."""
@@ -682,8 +720,8 @@ class VllmMetalManager:
                     "refusing to remove managed vLLM Metal state while its tracked "
                     f"{detail} may still be alive"
                 )
-            if self.state_dir.exists():
-                shutil.rmtree(self.state_dir)
+            from services import remove_state_directory
+            remove_state_directory(self.state_dir, ("managed vLLM Metal state directory", VllmMetalError))
 
     # ── health ───────────────────────────────────────────────────────
     def health(self, *, timeout: float = 3.0) -> dict:
@@ -820,24 +858,46 @@ class VllmMetalManager:
         *,
         installed_version: Optional[str],
         installed_core_version: Optional[str] = None,
-        pid: Optional[int] = None,
+        pid: Optional[int] | object = _KEEP_LAUNCH,
     ) -> None:
+        """``pid`` records a launch (or None after a stop). Left out, as by
+        install, the running process's recorded pid, port and listen address
+        stay, so a later configuration change is still detected (#1361)."""
         self.state_dir.mkdir(parents=True, exist_ok=True)
+        launch = {"port": self.port, "listen": self.listen, "pid": pid}
+        if pid is _KEEP_LAUNCH:
+            recorded = self._launch_record()
+            launch = {key: recorded.get(key, launch[key]) for key in ("port", "listen")}
+            launch["pid"] = recorded.get("pid")
         payload = {
             "installed_version": installed_version,
             "installed_core_version": installed_core_version,
-            "port": self.port,
+            **launch,
             "model": self.model,
-            "pid": pid,
         }
         self.status_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def _port_error(raw, key: str):
+    raw = (raw or "").strip()
+    if raw and not (raw.isascii() and raw.isdigit()):
+        return f"{key}={raw!r} is not a port number; fix it in .env"
+    return None
+
+
+def _env_port(raw, default: int) -> int:
+    """ASCII digits, else the default: a typo used to traceback every command,
+    including stop and remove of a running host (the Blender factory falls
+    back the same way)."""
+    raw = (raw or "").strip()
+    return int(raw) if raw.isascii() and raw.isdigit() else default
+
+
 def manager_from_env(env: dict[str, str]) -> VllmMetalManager:
     """Build a manager from resolved .env values."""
-    return VllmMetalManager(
-        state_dir=env.get("VLLM_METAL_STATE_DIR", "~/.atlas/vllm-metal"),
-        port=int(env.get("VLLM_METAL_LOCALHOST_PORT", "8000") or "8000"),
+    manager = VllmMetalManager(
+        state_dir=(env.get("VLLM_METAL_STATE_DIR") or "").strip() or "~/.atlas/vllm-metal",
+        port=_env_port(env.get("VLLM_METAL_LOCALHOST_PORT"), 8000),
         model=env.get("VLLM_METAL_MODEL", "Qwen/Qwen2.5-7B-Instruct"),
         plugin_version=env.get("VLLM_METAL_PLUGIN_VERSION", _DEFAULT_PLUGIN_VERSION) or _DEFAULT_PLUGIN_VERSION,
         core_version=(
@@ -848,3 +908,7 @@ def manager_from_env(env: dict[str, str]) -> VllmMetalManager:
         hf_cache_dir=env.get("VLLM_METAL_MODELS_PATH") or None,
         min_memory_gb=int(env.get("VLLM_METAL_MIN_MEMORY_GB", "16") or "16"),
     )
+    # Stop/status/remove fall back to the default; a launch must not, or the
+    # process listens there while LiteLLM is told the raw value.
+    manager.port_error = _port_error(env.get("VLLM_METAL_LOCALHOST_PORT"), "VLLM_METAL_LOCALHOST_PORT")
+    return manager

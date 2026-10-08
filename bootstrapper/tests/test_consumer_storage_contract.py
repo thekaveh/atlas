@@ -306,7 +306,7 @@ def test_docker_manager_includes_storage_overlay_when_present(tmp_path: Path) ->
 
     manager = DockerManager(str(tmp_path))
     # No overlay yet → default auto-discovery (empty -f list).
-    assert manager._compose_file_args() == []
+    assert manager._compose_file_args() == ['-f', 'docker-compose.yml']
 
     overlay = tmp_path / MINIO_STORAGE_OVERLAY_PATH
     overlay.parent.mkdir(parents=True, exist_ok=True)

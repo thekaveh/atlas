@@ -859,7 +859,10 @@ def _env_file_values(repo: Path) -> dict[str, str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        values[key.strip()] = _env_value(value.strip())
+        # Compose reads `export KEY=` as KEY; without this the lookup missed
+        # and PROJECT_NAME fell back to `atlas`, aiming a restore at another
+        # project's volumes.
+        values[re.sub(r"^export[ \t]+", "", key.strip())] = _env_value(value.strip())
     return values
 
 
@@ -1448,7 +1451,9 @@ class DatabaseCoordinator:
             "neo-load",
             [
                 "--network", "none",
-                "-e", f"BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS={self.timeout}",
+                # The script bounds each load/check with this value; the
+                # quiesce timeout (120 s) killed any real-sized graph.
+                "-e", f"BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS={self.data_timeout}",
                 "-v", f"{stage_volume}:/data",
                 "-v", f"{artifact_volume}:/restore:ro",
                 "--tmpfs", "/reports:rw,noexec,nosuid,size=64m",
@@ -1935,7 +1940,8 @@ class DatabaseCoordinator:
                         "--label", f"{SCOPE_LABEL}={self.runner.scope}",
                         "--label", f"{ROLE_LABEL}=neo-backup",
                         "-e", f"BACKUP_TIMESTAMP={timestamp}",
-                        "-e", f"BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS={self.timeout}",
+                        # Bounds each dump/check, which scale with data size.
+                        "-e", f"BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS={self.data_timeout}",
                         "--entrypoint", "bash", service, "/scripts/offline-backup.sh",
                     ],
                     timeout=self.data_timeout,

@@ -69,8 +69,11 @@ def test_cold_start_cleanup_uses_one_project_scoped_compose_down(tmp_path, monke
         ),
     )
 
+    volume_queries = []
+    monkeypatch.setattr(manager, "_project_volume_names", lambda project: volume_queries.append(project) or [])
     assert manager.perform_cold_start_cleanup(project_name="new-project") is True
     assert calls == [(["down", "--volumes", "--remove-orphans"], "new-project")]
+    assert volume_queries == ["new-project"]  # the survivors check uses the overridden project
     assert manager.project_name_override is None
 
 
@@ -273,9 +276,22 @@ def test_cold_stop_cleanup_does_not_prune_unrelated_projects(tmp_path, monkeypat
     )
     assert not hasattr(manager, "prune_system")
     monkeypatch.setattr(manager.config_parser, "get_project_name", lambda: "atlas")
+    monkeypatch.setattr(manager, "_project_volume_names", lambda _project: [])
 
     assert manager.perform_cold_stop_cleanup() is True
     assert calls == [(["down", "--volumes", "--remove-orphans"], "atlas")]
+
+
+def test_cold_stop_is_not_reported_complete_while_project_volumes_remain(tmp_path, monkeypatch, capsys):
+    """A bare --cold of a stack started with --consumer left the overlay's
+    volumes on disk and still printed "All data volumes removed"."""
+    manager = DockerManager(str(tmp_path))
+    monkeypatch.setattr(manager, "execute_compose_command", lambda args, project_name=None: 0)
+    monkeypatch.setattr(manager.config_parser, "get_project_name", lambda: "atlas")
+    monkeypatch.setattr(manager, "_project_volume_names", lambda project: ["atlas-app-data"])
+
+    assert manager.perform_cold_stop_cleanup() is False
+    assert "atlas-app-data" in capsys.readouterr().out
 
 
 def test_all_entry_paths_prepare_environment_before_secret_rotation():
@@ -556,3 +572,95 @@ def test_host_model_directories_are_sized_not_cleaned(tmp_path):
                                          "COMFYUI_MPS_MODELS_PATH": str(tmp_path / "gone")})
     assert [(row["variable"], row["bytes"]) for row in rows] == [
         ("COMFYUI_LOCAL_MODELS_PATH", 10), ("COMFYUI_MPS_MODELS_PATH", None)]
+
+
+def test_cold_start_does_not_rotate_secrets_while_project_volumes_remain(tmp_path, monkeypatch):
+    """The cold stop names surviving overlay volumes; the cold start reported
+    success and then regenerated the credentials those volumes hold."""
+    manager = DockerManager(str(tmp_path))
+    lines = []
+    manager._on_command = lines.append
+    monkeypatch.setattr(manager, "stream_compose", lambda args, on_line=None: 0)
+    monkeypatch.setattr(manager.config_parser, "get_project_name", lambda: "atlas")
+    monkeypatch.setattr(manager, "_project_volume_names", lambda project: ["atlas_consumer-pgdata"])
+
+    assert manager.perform_cold_start_cleanup() is False
+    assert any("atlas_consumer-pgdata" in line for line in lines)
+
+
+def test_compose_children_name_resources_after_their_project(tmp_path, monkeypatch):
+    """`--cold --project foo` ran `down --volumes` under `-p foo` while .env
+    (or the shell) still said PROJECT_NAME=atlas, deleting atlas-* volumes."""
+    import subprocess
+
+    manager = DockerManager(str(tmp_path))
+    monkeypatch.setenv("PROJECT_NAME", "other")
+    seen = {}
+
+    import io
+
+    class Proc:
+        stdout = io.StringIO("")
+
+        def wait(self, timeout=None):
+            return 0
+
+        returncode = 0
+
+    def popen(cmd, **kwargs):
+        seen["env"] = kwargs["env"]
+        seen["cmd"] = cmd
+        return Proc()
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    manager._stream_compose_command(["docker", "compose", "-p", "foo", "down", "--volumes"], lambda _l: None)
+    assert seen["env"]["PROJECT_NAME"] == "foo"
+
+
+@pytest.mark.parametrize("case", [
+    (None, "MyStack", None),        # same project, raw case kept: volumes stay MyStack-*
+    ("other", "atlas", "atlas"),    # a stray export naming another project is overridden
+    (None, "atlas", None),          # consistent: nothing to change
+])
+def test_compose_env_keeps_the_projects_own_spelling(tmp_path, monkeypatch, case):
+    """ccb79508 pinned PROJECT_NAME to the lowercased -p, renaming a
+    hand-edited MyStack's volumes to mystack-* (empty databases, orphaned
+    data); it now only replaces a value that names a different project."""
+    from utils.system import compose_env
+
+    shell, env_file, expected = case
+    env = tmp_path / ".env"
+    env.write_text(f"PROJECT_NAME={env_file}\n", encoding="utf-8")
+    if shell is None:
+        monkeypatch.delenv("PROJECT_NAME", raising=False)
+    else:
+        monkeypatch.setenv("PROJECT_NAME", shell)
+    project = env_file.lower()
+    result = compose_env(["docker", "compose", "-p", project, f"--env-file={env}", "up"])
+    if expected is None:
+        assert result.get("PROJECT_NAME") in (None, shell)
+    else:
+        assert result["PROJECT_NAME"] == expected
+
+
+def test_the_wizard_compose_executor_pins_project_name_too():
+    import inspect
+
+    from ui.textual.screens import wizard_screen
+
+    assert "compose_env(command)" in inspect.getsource(wizard_screen._ThreadedComposeExecutor)
+
+
+def test_execute_compose_command_pins_project_name_for_cold_stop(tmp_path, monkeypatch):
+    """`./stop.sh --cold` runs `down --volumes` through execute_compose_command;
+    its child must name resources after -p, not a stray exported value."""
+    import subprocess
+
+    manager = DockerManager(str(tmp_path))
+    monkeypatch.setenv("PROJECT_NAME", "other")
+    seen = {}
+    monkeypatch.setattr(manager, "_validated_compose_file_args", lambda args, prefix: ([], False))
+    monkeypatch.setattr(manager, "detect_docker_compose_command", lambda: "docker compose")
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: seen.update(kw) or subprocess.CompletedProcess(cmd, 0))
+    assert manager.execute_compose_command(["down", "--volumes"], project_name="foo") == 0
+    assert seen["env"]["PROJECT_NAME"] == "foo"

@@ -17,7 +17,7 @@ GROUP_ID_PATTERN = "atlas:<project>:backend:<namespace>:user:<uuid>"
 
 _PATHLIKE = re.compile(r"[./\\]")
 _MULTI_HYPHEN = re.compile(r"-+")
-_SAFE_SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$")
+_SAFE_SLUG = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")  # 1-64 chars
 
 
 def _env_bool(name: str, default: bool = False) -> bool:

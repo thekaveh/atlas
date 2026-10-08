@@ -92,7 +92,7 @@ Only `BACKEND_N8N_API_TOKEN` is route-scoped. Both n8n web and worker also recei
 **Init flow** (`n8n-init`, pinned n8n image + npm lockfile):
 
 1. Before the n8n web or worker process starts, install the committed exact package set with `npm ci --omit=dev --ignore-scripts` into the shared `/home/node/.n8n/nodes` directory. On a warm restart where the installed `package.json` / `package-lock.json` match the committed ones and npm's completed-install marker (`node_modules/.package-lock.json`) exists, the install is skipped, so restarts need no npm registry access.
-2. Package versions (including the `n8n-workflow` peer dependency) are pinned to avoid drift; the pinning rationale and community-node replacement history are documented as comments near the n8n-init lockfile. `N8N_INIT_NODES` can replace the default set only with comma-separated exact `name@x.y.z` specs.
+2. Package versions (including the `n8n-workflow` peer dependency) are pinned to avoid drift; the pinning rationale and community-node replacement history are documented as comments near the n8n-init lockfile. `N8N_INIT_NODES` can replace the default set only with comma-separated exact `name@x.y.z` specs. A custom set is installed once and skipped on later starts while it is unchanged, so an offline restart keeps it; a changed set is installed into a staging directory and swapped in only when `npm install` succeeds.
 3. Print completion. The seeded workflow template in `services/n8n/init/config/`
    (mounted at `/config/`) is imported **manually** via the n8n UI — `n8n-init`
    does not auto-import workflows.

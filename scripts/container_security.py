@@ -663,9 +663,12 @@ def _changed_service_images(
     if not path.is_file():
         return set()
     if filename == "service.yml":
-        owned = _manifest_owned_images(path) & set(
-            load_compose_image_refs(services_dir)
-        )
+        # The deployed-image inventory, not only compose literals: images the
+        # bootstrapper swaps in at runtime (RAY_GPU_IMAGE, the TEI arm64 and
+        # GPU images) never appear as compose defaults. Local build bases
+        # stay out: their final images are built and scanned instead.
+        builds = set().union(*(build.base_images for build in load_compose_builds(services_dir)))
+        owned = _manifest_owned_images(path) & (set(load_image_inventory(services_dir)) - builds)
         return select_touched(owned, touched_lines)
     compose_path = services_dir / service / "compose.yml"
     if not compose_path.is_file():

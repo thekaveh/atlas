@@ -74,6 +74,11 @@ jobs:
         env:
           IMAGE_REF: ${{ matrix.image }}
           IMAGE_PLATFORM: ${{ matrix.platform }}
+          # As in coverage-remote and the PR scan: a Hub token lifts pulls off
+          # the anonymous per-IP quota; empty when unset, and the script then
+          # falls back to anonymous pulls.
+          TRIVY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          TRIVY_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
         run: bash scripts/run_trivy_remote_scan.sh "$IMAGE_REF" "$IMAGE_PLATFORM"
 
   coverage-remote:

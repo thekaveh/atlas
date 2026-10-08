@@ -79,6 +79,22 @@ CATEGORY_TARGET_DIR: dict[str, str] = {
 }
 
 VALID_CATEGORIES = frozenset(CATEGORY_TARGET_DIR.keys())
+# The only folders a model row may write into: the container downloader's
+# closed list (download_models.sh known_target) and the MPS provisioner's
+# containment both rely on it.
+KNOWN_TARGET_DIRS = frozenset(CATEGORY_TARGET_DIR.values())
+
+
+def _checked_target_dir(value: Any, label: str) -> Any:
+    if value is not None and value not in KNOWN_TARGET_DIRS:
+        raise ValueError(f"{label}: target_dir {value!r} is not a known ComfyUI model folder")
+    return value
+
+
+def _checked_filename(value: Any, label: str) -> Any:
+    if value is not None and (str(value) in ("", ".", "..") or any(c in str(value) for c in "/\\")):
+        raise ValueError(f"{label}: filename {value!r} must be a plain file name")
+    return value
 
 # Display groups drive the wizard's filter chips.
 CATEGORY_DISPLAY_GROUPS: dict[str, frozenset[str]] = {
@@ -276,6 +292,9 @@ def _custom_nodes_from_tags(tags: list[str]) -> tuple[str, ...]:
     return tuple(nodes)
 
 
+_GENERIC_HF_FILENAMES = ("diffusion_pytorch_model.", "model.", "pytorch_model.")
+
+
 def _parse_hf_response(
     raw: list[dict],
     category: str,
@@ -302,6 +321,14 @@ def _parse_hf_response(
             continue
         rfilename = primary["rfilename"]
         url = f"{_HF_RESOLVE_BASE}/{model_id}/resolve/main/{rfilename}"
+        # Diffusers repos all ship the same generic file name, so two models
+        # landed on one path and the plan writer aborted the start; prefix
+        # such names with the repo id.
+        basename = rfilename.rsplit("/", 1)[-1]
+        filename = (
+            f"{model_id.replace('/', '--')}--{basename}"
+            if basename.startswith(_GENERIC_HF_FILENAMES) else None
+        )
         size_bytes = primary.get("size") or 0
         size_gb = round(size_bytes / (1024 ** 3), 2) if size_bytes else 0.0
         tags = item.get("tags") or []
@@ -319,6 +346,7 @@ def _parse_hf_response(
             popularity=int(item.get("downloads") or 0),
             source="huggingface",
             pulled=False,
+            filename=filename,
         ))
     return out
 
@@ -475,13 +503,14 @@ def _dict_to_model_file(d: dict) -> ComfyUIModelFile:
             raise ValueError("bundle file provisioning_required must be a boolean")
     else:
         file_policy = None
+    label = f"bundle file {d.get('role', '<unknown>')!r}"
     return ComfyUIModelFile(
         role=d["role"],
         category=d["category"],
         url=url,
-        filename=d.get("filename"),
+        filename=_checked_filename(d.get("filename"), label),
         sha256=d.get("sha256"),
-        target_dir=d.get("target_dir"),
+        target_dir=_checked_target_dir(d.get("target_dir"), label),
         size_gb=d.get("size_gb"),
         size_bytes=d.get("size_bytes"),
         precision=d.get("precision"),
@@ -516,7 +545,7 @@ def _dict_to_entry(d: dict, source: str) -> ComfyUILibraryEntry:
         size_gb=d.get("size_gb") or 0.0,
         url=url,
         sha256=d.get("sha256"),
-        target_dir=d.get("target_dir", CATEGORY_TARGET_DIR[cat]),
+        target_dir=_checked_target_dir(d.get("target_dir", CATEGORY_TARGET_DIR[cat]), f"model {d.get('name')!r}"),
         min_vram_gb=d.get("min_vram_gb"),
         cpu_supported=d.get("cpu_supported", True),
         requires_custom_node=tuple(d.get("requires_custom_node") or ()),
@@ -525,7 +554,7 @@ def _dict_to_entry(d: dict, source: str) -> ComfyUILibraryEntry:
         pulled=False,
         cloud_only=bool(d.get("cloud_only", False)),
         notes=d.get("notes"),
-        filename=d.get("filename"),
+        filename=_checked_filename(d.get("filename"), f"model {d.get('name')!r}"),
         essential=bool(d.get("essential", False)),
         precision=d.get("precision"),
         variant=d.get("variant"),
@@ -897,9 +926,45 @@ def load_custom_models(path: str) -> list[ComfyUILibraryEntry]:
                   f"'{category}'; skipping.", file=_sys.stderr)
             continue
         try:
-            out.append(_dict_to_entry(d, source="custom"))
+            entry = _dict_to_entry(_lowercase_shas(d), source="custom")
+            _check_download_rows(entry)
         except (KeyError, ValueError) as exc:
             print(f"⚠️  custom-models entry '{name}' construction failed: {exc}",
                   file=_sys.stderr)
             continue
+        out.append(entry)
     return out
+
+
+_DOWNLOAD_URL_RE = _re.compile(r"^https?://[^/\s]+/.+")
+
+
+def _lowercase_shas(d: dict) -> dict:
+    """Civitai shows SHA-256 in upper case; the downloader wants lower."""
+    def lower(item: Any) -> Any:
+        if isinstance(item, dict) and isinstance(item.get("sha256"), str):
+            return {**item, "sha256": item["sha256"].strip().lower()}
+        return item
+    out = lower(d)
+    if isinstance(out.get("files"), list):
+        out = {**out, "files": [lower(f) for f in out["files"]]}
+    return out
+
+
+def _check_download_rows(entry: "ComfyUILibraryEntry") -> None:
+    """Apply comfyui-init's row rules now. One bad sidecar row used to fail the
+    TSV write (aborting the start) or make the init container refuse the whole
+    plan, so ComfyUI never started; it is skipped here instead."""
+    from utils.comfyui_manifest_generator import ComfyUIManifestGenerator
+    from utils.comfyui_resolver import _manifest_row_for_entry
+
+    rows = [_manifest_row_for_entry(entry, file=f) for f in entry.files] or [_manifest_row_for_entry(entry)]
+    for row in rows:
+        name = str(row["name"])
+        if name in ("", ".", "..") or len(name) > 256 or any(c in name for c in "/\\"):
+            raise ValueError(f"name {name!r} must be a plain name of at most 256 characters")
+        if not _DOWNLOAD_URL_RE.match(str(row["download_url"] or "")):
+            raise ValueError(f"url {row['download_url']!r} needs a host and a path")
+        if len(str(row["filename"])) > 255:
+            raise ValueError("filename is longer than 255 characters")
+        ComfyUIManifestGenerator._row_tsv(row)

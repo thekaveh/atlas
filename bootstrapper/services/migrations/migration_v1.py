@@ -33,7 +33,7 @@ from utils.atomic_write import atomic_write_text, create_private_backup
 # comments, and CR-terminated lines (CRLF .env files on Windows-edited
 # checkouts). Group 2 captures the numeric value.
 _SENTINEL_RE = re.compile(
-    r"""^\s*BOOTSTRAPPER_PORT_LAYOUT_VERSION\s*=\s*
+    r"""^\s*(?:export[ \t]+)?BOOTSTRAPPER_PORT_LAYOUT_VERSION\s*=\s*
         (["']?)(\d*)\1
         \s*(?:\#.*)?\s*$""",
     re.VERBOSE,
@@ -191,7 +191,9 @@ def stamp_version(env_path: Path, version: int = 1) -> None:
     found = False
     for i, line in enumerate(lines):
         if _SENTINEL_RE.match(line):
-            lines[i] = f"BOOTSTRAPPER_PORT_LAYOUT_VERSION={version}\n"
+            # Keep an `export ` prefix: readers treat `export KEY=` as KEY (#1368).
+            export = "export " if line.lstrip().startswith("export") else ""
+            lines[i] = f"{export}BOOTSTRAPPER_PORT_LAYOUT_VERSION={version}\n"
             found = True
             break
     if not found:

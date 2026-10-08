@@ -658,3 +658,25 @@ def test_nodes_satisfied_wrong_ref_counts_as_missing(tmp_path):
     assert not ok
     assert missing and "drifted-node" in missing[0]
     assert "wrong ref" in missing[0]
+
+
+def test_a_symlinked_model_folder_is_used_in_place(tmp_path):
+    """Containment compared resolved paths, so models/vae symlinked to another
+    drive counted as "outside" and aborted the whole start."""
+    m = _manager(tmp_path)
+    external = tmp_path / "external-drive-vae"
+    external.mkdir()
+    (m.models_path / "vae").symlink_to(external)
+    result = m.provision_models([_row()])
+    assert result.ok and result.provisioned == ["vae/t.safetensors"]
+    assert (external / "t.safetensors").read_bytes() == PAYLOAD
+    assert m.models_satisfied([_row()]) == (True, [])
+
+
+def test_an_escaping_row_fails_alone(tmp_path):
+    m = _manager(tmp_path)
+    bad = _row(name="bad", target_dir="../../.ssh", filename="authorized_keys")
+    result = m.provision_models([bad, _row()])
+    assert result.provisioned == ["vae/t.safetensors"]
+    assert len(result.failed) == 1 and "outside" in result.failed[0]
+    assert m.models_satisfied([bad])[0] is False

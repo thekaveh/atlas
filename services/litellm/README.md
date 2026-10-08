@@ -50,7 +50,7 @@ services/litellm/models.yaml  ├──► model_resolver.active_models(env) ─
 wizard selections in .env    ─┘
 ```
 
-On every `docker compose up`, **`litellm-init`** calls `model_resolver.active_models()` — which reads the YAML catalogs and the wizard's env vars (`LLM_PROVIDER_SOURCE`, `OLLAMA_USER_MODELS`, `OLLAMA_CUSTOM_MODELS`, `LITELLM_*_ENABLED`, cloud `*_API_KEY`, `*_USER_MODELS`) — and renders `volumes/litellm/config.yaml` with per-provider routing rules baked into the init script (see bullet list below). For `ollama-localhost` sources with `OLLAMA_AUTO_IMPORT_LOCAL_MODELS=true`, `litellm-init` also queries the upstream `/api/tags` and unions any host-pulled models into the active set. The bootstrapper writes only a stub before `docker compose up` to satisfy the bind mount; the real `model_list` is filled in by `services/litellm/init/scripts/init.py` before the LiteLLM proxy starts. No database query is involved in config rendering.
+On every `docker compose up`, **`litellm-init`** calls `model_resolver.active_models()` — which reads the YAML catalogs and the wizard's env vars (`LLM_PROVIDER_SOURCE`, `OLLAMA_USER_MODELS`, `OLLAMA_CUSTOM_MODELS`, `LITELLM_*_ENABLED`, cloud `*_API_KEY`, `*_USER_MODELS`) — and renders `volumes/litellm/config.yaml` with per-provider routing rules baked into the init script (see bullet list below). For `ollama-localhost` sources with `OLLAMA_AUTO_IMPORT_LOCAL_MODELS=true`, `litellm-init` also queries the upstream `/api/tags` and unions any host-pulled models into the active set. If the host daemon cannot be reached within 10 s, the init log prints an `auto-import: failed to fetch /api/tags` warning and host-pulled tags are not registered for this run. The bootstrapper writes only a stub before `docker compose up` to satisfy the bind mount; the real `model_list` is filled in by `services/litellm/init/scripts/init.py` before the LiteLLM proxy starts. No database query is involved in config rendering.
 
 To change which models are exposed, run the wizard (`./start.sh`) or edit the relevant env var in `.env` and restart. To add a model not in the curated catalog, either set `OLLAMA_CUSTOM_MODELS` or add a new entry to the appropriate YAML file. For an **embedding** entry, declare its output dimension with `dim:` — the wizard auto-selects the embedding model whose `dim` matches the backend's required dimension (`memory_facts vector(768)`), and `model_resolver.embedding_dim_warning` flags any non-matching pick.
 
@@ -165,7 +165,9 @@ Catalog rows may declare `metadata_version: 1` — provider-neutral fields cover
 documented as a docstring/schema comment next to the loader in
 `llm_catalog.py`. LiteLLM receives standard `model_info` fields plus a
 namespaced `atlas_model_metadata` block, letting LightRAG and future consumers
-assign roles without provider, model-family, or hardware assumptions.
+assign roles without provider, model-family, or hardware assumptions. A cloud model with no catalog row (for example one picked live from OpenAI) gets no
+top-level `model_info.mode`: LiteLLM's own model map then routes it, so a
+Responses-only model such as `gpt-5-pro` is not forced onto `/v1/chat/completions`.
 
 These `capabilities` are declarations. `./start.sh models probe` measures tool calling, JSON output, vision and embedding dimension through this gateway on demand and reports where a declaration does not hold, without changing model selection (#1195; see [Operations](../../docs/operations/index.md#1-runtime-commands)).
 
@@ -316,7 +318,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 | hermes ↔ | agents | current |
 | lightrag ↔ | agents | current |
 | n8n | agents | current |
-| openclaw | agents | optional: an operator sets the provider baseUrl; openclaw-init writes none |
+| openclaw | agents | optional: openclaw-init sets models.providers.litellm.baseUrl when unset; an operator value is kept |
 | trueforge | agents | current |
 | backend | apps | current |
 | jupyterhub | apps | current |

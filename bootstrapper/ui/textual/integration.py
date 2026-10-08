@@ -30,7 +30,7 @@ _THEME_PATH = Path(__file__).parent / "theme.css"
 # truth lives in wizard/comfyui_steps.py; imported here to keep the drain
 # loop (selections.get(COMFYUI_MODELS_TITLE)) aligned with what the step
 # registers without duplicating the string literal.
-from tracks import consumer_declared_track_keys, remark_off_track_rows as _remark_off_track_rows
+from tracks import consumer_declared_track_keys, consumer_override_keys, remark_off_track_rows as _remark_off_track_rows
 from core.config_parser import project_name_error
 # The wizard-time warning sink lives in ``wizard`` (the step builders and the
 # screen share it); these names stay importable from here.
@@ -306,6 +306,13 @@ def _make_profile_default_provider(profile_sources, mname, cli_profile, fallback
     )
 
 
+def _unless_pinned(provider, svc, pinned_source_vars):
+    """None (keep the .env default) for a SOURCE a consumer manifest or
+    .env.user pins, which beats the profile as on --no-tui; else
+    ``provider``."""
+    return None if getattr(svc, "env_var_name", "") in pinned_source_vars else provider
+
+
 def _build_steps_and_rows(
     config_parser,
     hosts_manager,
@@ -313,8 +320,16 @@ def _build_steps_and_rows(
     track_key: str | None = None,
     overridden_services: frozenset[str] | None = None,
     profile: str | None = None,
+    consumer_declared: frozenset[str] = frozenset(),
+    pinned_source_vars: frozenset[str] = frozenset(),
 ):
-    """Build the wizard steps + service rows from real config."""
+    """Build the wizard steps + service rows from real config.
+
+    ``consumer_declared`` (lower-case SOURCE vars a consumer manifest sets)
+    joins the track-override set; ``pinned_source_vars`` (upper-case SOURCE
+    vars set by a consumer manifest or ``.env.user``) keep their ``.env``
+    value as the step default instead of the profile's, matching
+    ``apply_profile_overrides`` on the --no-tui path."""
     begin_wizard_warnings()
     from wizard.model.service_discovery import ServiceDiscovery
     from wizard.model.state_builder import build_app_state
@@ -414,7 +429,7 @@ def _build_steps_and_rows(
         _always_on = _track_registry.always_on
     else:
         _always_on = frozenset({"llm-provider", "prometheus", "grafana"})
-    _overridden = overridden_services or frozenset()
+    _overridden = (overridden_services or frozenset()) | consumer_override_keys(consumer_declared, services_info)
 
     # Picker step (only shown if the registry loaded). When --track was
     # passed via the CLI (track_key != None), we still add the picker
@@ -742,8 +757,9 @@ def _build_steps_and_rows(
             subtitle=_support_subtitle(svc),
             options=opts, default_value=default, service_name=svc.display_name,
             options_provider=_visible_source_options,
-            default_value_provider=_make_profile_default_provider(
-                _profile_sources, _mname, profile, default,
+            default_value_provider=_unless_pinned(
+                _make_profile_default_provider(_profile_sources, _mname, profile, default),
+                svc, pinned_source_vars,
             ),
             service_key=svc.key,
             # secondary_number REMOVED from PromptStep — config is now
@@ -1358,12 +1374,19 @@ def run_setup_flow(
     if starter is not None:
         starter.run_port_migration(no_port_migrate)
 
+    from services.profiles import consumer_declared_sources  # noqa: PLC0415
+    _consumer_declared_source_keys = consumer_declared_sources(config_parser)
+    _env_user_sources = frozenset(
+        key for key in (getattr(starter, "_env_user_keys", None) or ()) if key.endswith("_SOURCE")
+    )
     steps, rows, services_info, current_base_port, state, cloud_summaries = (
         _build_steps_and_rows(
             config_parser, hosts_manager,
             track_key=track,
             overridden_services=overridden_services or frozenset(),
             profile=profile,
+            consumer_declared=_consumer_declared_source_keys,
+            pinned_source_vars=frozenset(k.upper() for k in _consumer_declared_source_keys) | _env_user_sources,
         )
     )
     from .widgets.info_box import ConsumerSummary as _ConsumerSummary
@@ -1394,25 +1417,9 @@ def run_setup_flow(
     # logic in _selections_to_args has the .env state to compare against.
     _env_snapshot = config_parser.parse_env_file()
 
-    # #783 / #535 followups review finding R1: SOURCE vars a consumer
-    # manifest declares in env.values, computed the same way start.py
-    # computes `consumer_declared_source_keys` for the --no-tui path (see
-    # start.py, search "Track override-set"), so the wizard's own
-    # force-disable pass (inside _selections_to_args) can exempt them the
-    # same way. A malformed consumer manifest degrades to "declares
-    # nothing" -- it surfaces separately via `doctor`, not by blocking the
-    # wizard here.
-    _consumer_declared_source_keys: frozenset = frozenset()
-    try:
-        _cc = config_parser.load_consumer_config()
-        _consumer_declared_source_keys = frozenset(
-            var.lower()
-            for var in (_cc.env_overrides or {})
-            if var.endswith("_SOURCE")
-        )
-    except Exception:  # noqa: BLE001 — malformed manifests surface via doctor
-        pass
-
+    # #783 / #535 followups review finding R1: `_consumer_declared_source_keys`
+    # (computed above as start.py does for --no-tui) also exempts declared
+    # sources from the wizard's own force-disable pass in _selections_to_args.
     def _resolve(selections: dict) -> tuple[dict, dict]:
         return _selections_to_args(
             selections, services_info, current_base_port, _env_snapshot,
@@ -1444,7 +1451,11 @@ def run_setup_flow(
         )
 
     # Re-dims the service table for an interactively picked track (#1032).
-    _remark_rows = _partial(_remark_off_track_rows, services_info=services_info, overridden=overridden_services or frozenset())
+    _remark_rows = _partial(
+        _remark_off_track_rows, services_info=services_info,
+        overridden=(overridden_services or frozenset())
+        | consumer_override_keys(_consumer_declared_source_keys, services_info),
+    )
 
     class _SetupApp(App):
         CSS_PATH = str(_THEME_PATH)
@@ -1581,6 +1592,15 @@ def run_launch_flow(
         v = source_args.get(cli_key)
         if v:
             overrides_by_name[svc.display_name] = v
+    # The launch applies the profile's sources (apply_profile_overrides) to
+    # every source the CLI, a consumer manifest or .env.user does not pin;
+    # the overview showed .env's instead (prod: Prometheus "disabled", then
+    # started). Same rule as the wizard's _unless_pinned.
+    from services.profiles import pinned_source_vars, profile_launch_sources  # noqa: PLC0415
+    for name, value in profile_launch_sources(
+        services_info, profile, config_parser, pinned_source_vars(config_parser, starter),
+    ).items():
+        overrides_by_name.setdefault(name, value)
 
     # Splice CLI overrides onto the rows + re-derive ports + alias_port.
     new_rows = []

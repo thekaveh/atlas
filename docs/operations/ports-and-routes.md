@@ -1,6 +1,6 @@
 # 6.3. Ports and Routes
 
-Ports and Kong hostnames are derived from `BASE_PORT` in `.env` (default `63000`) and the per-category slot allocator in `bootstrapper/services/topology.py`. Move the whole stack with `./start.sh --base-port <port>` or by editing `BASE_PORT`.
+Ports and Kong hostnames are derived from `BASE_PORT` in `.env` (default `63000`) and the per-category slot allocator in `bootstrapper/services/topology.py`. Move the whole stack with `./start.sh --base-port <port>` or by editing `BASE_PORT`. When the block moves, the next start stops the running stack first (every container is re-published), so expect downtime.
 
 ## 1. Canonical reference
 
@@ -101,11 +101,11 @@ HTTP.
 | TCP, no Kong | Neo4j Bolt | `NEO4J_LOCALHOST_BOLT_PORT` | Bolt clients reach the host database directly | No Kong route |
 
 See the generated [port and route reference](../reference/ports-routes.md) for
-the complete host-published inventory and PR #10 / the localhost-port-override
+the complete port-variable inventory (`SUPABASE_META_PORT` and `SUPABASE_STUDIO_PORT` are reserved there but not published; use Kong) and PR #10 / the localhost-port-override
 entry in `docs/CHANGELOG.md` for the design rationale.
 
 ## 5. Advanced overrides
 
-`BASE_PORT` is the only supported mechanism for moving ports. Every `./start.sh` recomputes all `*_PORT` variables from `BASE_PORT` (`port_manager.update_env_ports`), so a hand-edited single `*_PORT` in `.env`, `.env.user` or a consumer manifest's `env.values` is reset on the next start; change `BASE_PORT` (or pass `--base-port`) instead. Localhost-source `*_LOCALHOST_PORT` variables are not derived from `BASE_PORT` and stay as set. The port migration framework (`bootstrapper/services/migrations/`) handles cross-version layout shifts; on a bump like topology v1, your `.env` is auto-rewritten with the new defaults (a backup is taken to `.env.backup.v<N>.<timestamp>.<random>`; user-customized values are preserved). Pass `--no-port-migrate` to opt out. Both the wizard and `--no-tui` migrate before applying the run's source, profile, key and model overrides (#1391).
+`BASE_PORT` is the only supported mechanism for moving ports. Every `./start.sh` recomputes all `*_PORT` variables from `BASE_PORT` (`port_manager.update_env_ports`), so a hand-edited single `*_PORT` in `.env`, `.env.user` or a consumer manifest's `env.values` is reset on the next start; change `BASE_PORT` (or pass `--base-port`) instead. Localhost-source `*_LOCALHOST_PORT` variables are not derived from `BASE_PORT` and stay as set. Each start writes the chosen port into the service's URL in `.env` (for example `WEAVIATE_URL`, `NEO4J_URI`, `COMFYUI_ENDPOINT`), so changing one takes effect on the next `./start.sh`. The port migration framework (`bootstrapper/services/migrations/`) handles cross-version layout shifts; on a bump like topology v1, your `.env` is auto-rewritten with the new defaults (a backup is taken to `.env.backup.v<N>.<timestamp>.<random>`; user-customized values are preserved). Pass `--no-port-migrate` to opt out. Both the wizard and `--no-tui` migrate before applying the run's source, profile, key and model overrides (#1391).
 
 Base-port changes and env migrations snapshot `.env` first, mode `0600`. Supabase JWT key generation (`generate_supabase_keys`, which auto-runs at startup only when all three keys are blank and rewrites all three when run by hand) does not, so copy `.env` yourself before running it by hand. Atlas keeps the five most recent snapshots per migration version and prunes older ones, so a rotated secret does not stay readable on disk indefinitely. `.env.backup.*` is gitignored and never committed.

@@ -79,7 +79,7 @@ def test_fal_health_rejects_missing_or_blank_key(monkeypatch, api_key: str) -> N
     monkeypatch.setenv("FAL_API_KEY", api_key)
     monkeypatch.delenv("FAL_KEY", raising=False)
 
-    result = asyncio.run(main.comfyui_health_check())
+    result = asyncio.run(main.comfyui_health_check(main.BackendPrincipal(kind="n8n", subject="n8n")))
 
     assert result == {
         "service": "fal",
@@ -96,7 +96,7 @@ def test_fal_health_reports_nonempty_unprobed_key_as_configured_not_healthy(
     monkeypatch.setenv("FAL_API_KEY", "unverified-or-invalid-provider-key")
     monkeypatch.setenv("FAL_MODEL", "fal-ai/flux/dev")
 
-    result = asyncio.run(main.comfyui_health_check())
+    result = asyncio.run(main.comfyui_health_check(main.BackendPrincipal(kind="n8n", subject="n8n")))
 
     assert result == {
         "service": "fal",
@@ -129,7 +129,7 @@ def test_comfyui_health_reports_provider_timeout_as_unhealthy(
     monkeypatch.setattr(main, "ComfyUIClient", TimedOutClient)
 
     with caplog.at_level(logging.ERROR):
-        result = asyncio.run(main.comfyui_health_check())
+        result = asyncio.run(main.comfyui_health_check(main.BackendPrincipal(kind="n8n", subject="n8n")))
 
     assert result == {
         "service": "comfyui",
@@ -162,13 +162,18 @@ def test_comfyui_health_reports_fully_healthy_provider(monkeypatch) -> None:
 
     monkeypatch.setattr(main, "ComfyUIClient", HealthyClient)
 
-    result = asyncio.run(main.comfyui_health_check())
+    service = main.BackendPrincipal(kind="n8n", subject="n8n")
+    result = asyncio.run(main.comfyui_health_check(service))
 
     assert result == {
         "service": "comfyui",
         "status": "healthy",
         "details": provider_health,
     }
+    # Any signed-up user gets the status, not ComfyUI's host fingerprint.
+    user = main.BackendPrincipal(kind="user", subject="00000000-0000-4000-8000-000000000001")
+    user_result = asyncio.run(main.comfyui_health_check(user))
+    assert "system_stats" not in user_result["details"] and user_result["status"] == "healthy"
 
 
 def test_media_health_does_not_probe_when_no_provider_is_configured(
@@ -184,7 +189,7 @@ def test_media_health_does_not_probe_when_no_provider_is_configured(
 
     monkeypatch.setattr(main, "ComfyUIClient", UnexpectedClient)
 
-    result = asyncio.run(main.comfyui_health_check())
+    result = asyncio.run(main.comfyui_health_check(main.BackendPrincipal(kind="n8n", subject="n8n")))
 
     assert result == {
         "service": "media",

@@ -392,3 +392,15 @@ def test_empty_image_rejected():
 def test_non_uri_non_url_rejected():
     with pytest.raises(ImageInputError):
         prepare_image_input("just some text", needs_hosted_url=False)
+
+
+def test_an_unreadable_image_does_not_echo_library_internals():
+    """The 400 detail carried Pillow's text, including a heap address."""
+    import base64
+
+    with pytest.raises(media_input.ImageInputError) as exc:
+        prepare_image_input(
+            "data:image/png;base64," + base64.b64encode(b"not an image at all").decode(),
+            needs_hosted_url=False,
+        )
+    assert "BytesIO" not in str(exc.value) and "0x" not in str(exc.value)

@@ -458,3 +458,14 @@ def consumer_declared_track_keys(consumer_declared, services_info) -> frozenset:
         if key in consumer_declared or source_var in consumer_declared:
             keys.add(key)
     return frozenset(keys)
+
+
+def consumer_override_keys(consumer_declared, services_info) -> frozenset:
+    """Track-override keys (normalized folder form, as `start.py` records them
+    for `--track`) of the sources a consumer manifest declares. A track picked
+    in the wizard skipped and dimmed such a service while the launch kept it
+    running (#783 exempts declared sources from the track)."""
+    return frozenset(
+        normalize_service_key(key.removesuffix("_source").replace("_", "-"))
+        for key in consumer_declared_track_keys(consumer_declared, services_info)
+    )

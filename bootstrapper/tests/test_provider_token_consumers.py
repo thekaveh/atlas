@@ -137,7 +137,7 @@ def test_hermes_default_model_fallback_skips_non_chat_routes():
     import subprocess
 
     script = (ROOT / "services/hermes/init/scripts/init-hermes.sh").read_text(encoding="utf-8")
-    assert '"${litellm_url}/model/info"' in script
+    assert 'litellm_get "/model/info"' in script  # the key goes on curl's stdin (-K-)
     assert 'select((.model_info.mode // "chat") != "chat")' in script
     program = re.search(r"awk '(BEGIN \{ n = split\(ENVIRON\[\"NON_CHAT_IDS\"\].*?)'", script).group(1)
     kept = subprocess.run(

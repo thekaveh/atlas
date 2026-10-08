@@ -331,3 +331,11 @@ def test_every_track_service_resolves_via_source_override_manager():
         f"wizard collector lambda — see project memory "
         f"project_cli_source_flag_three_seams.md)."
     )
+
+
+def test_no_track_offers_clip_without_weaviate():
+    """CLIP runs only beside a container Weaviate (its sole consumer); a track
+    that kept CLIP but force-disabled Weaviate offered a choice with no effect."""
+    for track in load_tracks().tracks:
+        if track.services is not None and "multi2vec-clip" in track.services:
+            assert "weaviate" in track.services, track.key

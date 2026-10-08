@@ -187,7 +187,7 @@ def test_entry_overrides_via_kwargs(tmp_path):
         "    category: lora\n"
         "    url: https://e.com/x.safetensors\n"
         "    size_gb: 2.5\n"
-        "    sha256: deadbeef\n"
+        "    sha256: dededededededededededededededededededededededededededededededede\n"
         "    cpu_supported: false\n"
         "    requires_custom_node:\n"
         "      - SomeNode\n"
@@ -199,7 +199,7 @@ def test_entry_overrides_via_kwargs(tmp_path):
     e = entries[0]
     assert e.family == "TestFam"
     assert e.size_gb == 2.5
-    assert e.sha256 == "deadbeef"
+    assert e.sha256 == "de" * 32
     assert e.cpu_supported is False
     assert e.requires_custom_node == ("SomeNode",)
 
@@ -248,3 +248,79 @@ def test_bundle_file_null_provisioning_required_is_rejected_but_omission_inherit
     explicit_null.write_text(base + "        provisioning_required: null\n", encoding="utf-8")
     assert load_custom_models(str(explicit_null)) == []
     assert "bundle file provisioning_required must be a boolean" in capsys.readouterr().err
+
+
+def test_rows_the_downloader_would_refuse_are_skipped_alone(tmp_path, capsys):
+    """One bad sidecar row failed the TSV write (aborting the start) or made
+    comfyui-init refuse the whole plan, so ComfyUI never started. Upper-case
+    SHA-256 (as Civitai shows it) is accepted, lower-cased."""
+    sha = "AB" * 32
+    sidecar = tmp_path / "custom-models.yaml"
+    sidecar.write_text(
+        "models:\n"
+        f"  - {{name: good, category: lora, url: 'https://h/a/good.safetensors', sha256: '{sha}'}}\n"
+        "  - {name: author/my-lora, category: lora, url: 'https://h/a/x.safetensors'}\n"
+        "  - {name: no-path, category: lora, url: 'https://h'}\n"
+        "  - {name: bad-sha, category: lora, url: 'https://h/a/y.safetensors', sha256: 'abc'}\n",
+        encoding="utf-8",
+    )
+    entries = load_custom_models(str(sidecar))
+    assert [e.name for e in entries] == ["good"]
+    assert entries[0].sha256 == sha.lower()
+    assert capsys.readouterr().err.count("construction failed") == 3
+
+
+def test_two_models_never_share_a_download_path(tmp_path, capsys):
+    """Diffusers repos all ship diffusion_pytorch_model.safetensors: two
+    scraped or fallback ControlNets landed on one path and the plan writer
+    aborted ./start.sh; a clashing custom entry did the same."""
+    from utils.comfyui_library import _parse_hf_response, list_fallback
+    from utils.comfyui_resolver import _derive_filename, active_comfyui_models
+
+    item = lambda repo: {"id": repo, "siblings": [{"rfilename": "diffusion_pytorch_model.safetensors"}]}  # noqa: E731
+    scraped = _parse_hf_response([item("a/canny"), item("b/depth")], category="controlnet")
+    assert len({_derive_filename(e) for e in scraped}) == 2
+    fallback = {e.name: e for e in list_fallback()}
+    pair = [fallback["controlnet-canny-sdxl-1.0"], fallback["control_v11p_sd15_openpose"]]
+    assert _derive_filename(pair[0]) != _derive_filename(pair[1])
+
+    sidecar = tmp_path / "custom-models.yaml"
+    sidecar.write_text(
+        "models:\n"
+        "  - {name: canny-custom, category: controlnet, url: 'https://h/a/diffusion_pytorch_model.safetensors'}\n"
+        "  - {name: depth-custom, category: controlnet, url: 'https://h/b/diffusion_pytorch_model.safetensors'}\n",
+        encoding="utf-8",
+    )
+    active = active_comfyui_models({"COMFYUI_USER_MODELS": ""}, catalog=[], sidecar_path=str(sidecar))
+    assert [e.name for e in active] == ["canny-custom"]
+    assert "depth-custom" in capsys.readouterr().err
+
+
+def test_pulled_badge_and_clash_skip_follow_the_download_identity(tmp_path, capsys):
+    """A repo-prefixed HF entry was badged [pulled] by the old generic file on
+    disk (then re-downloaded); a sidecar duplicate differing only in size was
+    kept and aborted the plan write."""
+    from utils.comfyui_library import _parse_hf_response, list_curated
+    from utils.comfyui_resolver import active_comfyui_models
+    from wizard.comfyui_steps import _entry_is_pulled
+
+    entry = _parse_hf_response(
+        [{"id": "a/canny", "siblings": [{"rfilename": "diffusion_pytorch_model.safetensors"}]}], category="controlnet",
+    )[0]
+    assert not _entry_is_pulled(entry, {"diffusion_pytorch_model.safetensors"})
+    assert _entry_is_pulled(entry, {entry.filename})
+
+    curated = list_curated()[0]
+    sidecar = tmp_path / "custom-models.yaml"
+    sidecar.write_text(
+        "models:\n"
+        f"  - {{name: dup-of-curated, category: {curated.category}, url: '{curated.url}'"
+        + (f", sha256: '{curated.sha256}'" if curated.sha256 else "")
+        + (f", filename: '{curated.filename}'" if curated.filename else "") + "}\n",
+        encoding="utf-8",
+    )
+    active = active_comfyui_models({"COMFYUI_USER_MODELS": curated.name}, catalog=[curated], sidecar_path=str(sidecar))
+    names = [e.name for e in active]
+    if curated.size_gb:  # the sidecar row omits size: a plan-writer conflict
+        assert names == [curated.name]
+        assert "dup-of-curated" in capsys.readouterr().err

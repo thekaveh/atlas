@@ -147,7 +147,9 @@ services:
       # ``python3`` binary. ``curl`` is the simplest, dependency-free
       # path. Auth header reads ``API_SERVER_KEY`` from container env
       # to stay consistent with whatever Hermes is configured with.
-      test: ["CMD-SHELL", "curl --fail --silent --show-error -H \"Authorization: Bearer $$API_SERVER_KEY\" http://127.0.0.1:8642/v1/models >/dev/null"]
+      # The key goes to curl on stdin (-K-), never on its argv, where `ps`
+      # and `docker top` would show it on every probe (#1381).
+      test: ["CMD-SHELL", "printf 'header = \"Authorization: Bearer %s\"\\n' \"$$API_SERVER_KEY\" | curl --fail --silent --show-error -K- http://127.0.0.1:8642/v1/models >/dev/null"]
       interval: 30s
       timeout: 10s
       retries: 5

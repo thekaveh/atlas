@@ -124,3 +124,18 @@ def test_hba_guard_leaves_no_temporary_candidate_in_pgdata(tmp_path: Path) -> No
     assert hba_path.read_text(encoding="utf-8") == already_hardened
     leftovers = sorted(child.name for child in hba_path.parent.glob(".pg_hba.conf.atlas.*"))
     assert leftovers == [], f"temporary candidate stranded in PGDATA: {leftovers}"
+
+
+def test_hba_recovery_copy_survives_a_second_start(tmp_path: Path) -> None:
+    """The backup was rewritten on every start, so the second start replaced
+    the pre-upgrade rules with the already converted file."""
+    original = "host all all 127.0.0.1/32 trust\n"
+    result, hba = _run_guard(tmp_path, original)
+    assert result.returncode == 0, result.stderr
+    second = subprocess.run(
+        ["/bin/sh", str(HBA_GUARD)],
+        env={**os.environ, "PGDATA": str(hba.parent), "ATLAS_POSTGRES_ENTRYPOINT": "/usr/bin/true"},
+        text=True, capture_output=True, check=False, timeout=10,
+    )
+    assert second.returncode == 0, second.stderr
+    assert hba.with_name("pg_hba.conf.atlas.bak").read_text(encoding="utf-8") == original

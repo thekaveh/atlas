@@ -365,9 +365,7 @@ def test_collection_metric_failure_is_explicit_unless_raise_exceptions() -> None
         {
             "scores": {"faithfulness": None},
             "metadata": {
-                "metric_errors": {
-                    "faithfulness": "RuntimeError: evaluator unavailable"
-                }
+                "metric_errors": {"faithfulness": "RuntimeError"}  # no upstream text
             },
         }
     ]

@@ -116,3 +116,15 @@ def test_trading_track_is_research_only_and_excludes_live_trading_services() -> 
 
     for service in ("redpanda", "trino", "airflow", "spark"):
         assert not is_in_track(trading, service, always_on=registry.always_on)
+
+
+def test_finance_helper_is_an_allowlist_in_both_ccxt_spellings() -> None:
+    """The denylist let camelCase private methods (createOrder, fetchBalance)
+    and unlisted private fetches through."""
+    helper = _load_helper()
+
+    for method in ("fetchTicker", "fetchOHLCV", "loadMarkets", "fetch_trades"):
+        helper.assert_public_ccxt_method(method)
+    for method in ("createOrder", "fetchBalance", "fetchMyTrades", "fetch_withdrawals", "fetch_deposit_address"):
+        with pytest.raises(ValueError, match="private/trading CCXT method"):
+            helper.assert_public_ccxt_method(method)

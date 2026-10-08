@@ -257,21 +257,29 @@ def test_finalize_warns_on_unreachable_and_failures(monkeypatch):
 def test_a_stalled_pull_fails_at_the_stall_bound_and_is_retried_once(monkeypatch):
     """The read timeout was 3600 s and a failed pull was final (#1361)."""
     import threading
-    import time
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     attempts: list[int] = []
+    released = threading.Event()
 
     class Pull(BaseHTTPRequestHandler):
         def do_POST(self):  # noqa: N802 - http.server API
+            # Read the request body: closing a socket with unread input makes
+            # the kernel send RST, which reset the second (good) attempt.
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
             attempts.append(1)
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b'{"status":"pulling manifest"}\n')
-            self.wfile.flush()
             if len(attempts) == 1:
-                time.sleep(1.0)  # silent past the stall bound
-            self.wfile.write(b'{"status":"success"}\n')
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"status":"pulling manifest"}\n')
+                self.wfile.flush()
+                released.wait(5)  # silent past the stall bound
+                return
+            body = b'{"status":"pulling manifest"}\n{"status":"success"}\n'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
         def log_message(self, *_args):
             pass
@@ -287,6 +295,7 @@ def test_a_stalled_pull_fails_at_the_stall_bound_and_is_retried_once(monkeypatch
             log=logs.append,
         )
     finally:
+        released.set()
         server.shutdown()
 
     assert (result.pulled, result.failed, len(attempts)) == (["tiny:1b"], [], 2)

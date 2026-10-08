@@ -136,7 +136,11 @@ LightRAG's default `WHITELIST_PATHS=/health,/api/*` leaves `/health` and the
 Ollama-compatible `/api/*` chat routes open (Atlas does not override it; the
 LiteLLM `lightrag` alias relies on that path). A Bearer header carrying the API
 key is parsed as a JWT and rejected with 401, even alongside a valid
-`X-API-Key`.
+`X-API-Key`. Browser access is limited to the Kong origin
+(`CORS_ORIGINS=http://lightrag.localhost:${KONG_HTTP_PORT}`): LightRAG's
+default `*` let any web page read ingested documents through `/api/chat` on the
+direct port. A blind cross-site POST that spends model tokens without reading
+the reply remains possible while `/api/*` is open.
 
 Without `LIGHTRAG_TOKEN_SECRET`, LightRAG falls back to a hardcoded default
 JWT key (real security risk in any non-trivial deploy). Both are

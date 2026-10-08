@@ -30,6 +30,12 @@ class ComfyUIWorkflowRejectedError(ComfyUIResponseError):
     """Raised when ComfyUI rejects a submitted workflow (HTTP 400)."""
 
 
+class ComfyUISubmissionUnknownError(ComfyUIUpstreamError):
+    """The /prompt request may have reached ComfyUI (a read timeout or a
+    dropped response after sending), so the prompt may be queued: a retry
+    could run it twice (#676)."""
+
+
 class ComfyUIHistoryUnavailableError(ComfyUIUnavailableError):
     """Raised when ComfyUI history cannot be read."""
 
@@ -190,6 +196,11 @@ class ComfyUIClient:
                 ),
                 operation="Failed to queue ComfyUI prompt",
             )
+        except ComfyUIUnavailableError as exc:
+            # Only a failure to connect proves the prompt was not delivered.
+            if isinstance(exc.__cause__, (httpx.ConnectError, httpx.ConnectTimeout)):
+                raise
+            raise ComfyUISubmissionUnknownError("ComfyUI did not confirm the prompt") from exc
         except ComfyUIResponseError as exc:
             cause = exc.__cause__
             if isinstance(cause, httpx.HTTPStatusError) and cause.response.status_code == 400:

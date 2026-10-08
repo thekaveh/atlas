@@ -18,7 +18,22 @@ from fastapi.security import (
 from starlette.requests import HTTPConnection
 
 
-_BEARER = HTTPBearer(auto_error=False)
+class _ConnectionBearer(HTTPBearer):
+    """Extract a bearer token from either HTTP or WebSocket connections.
+
+    The stock ``HTTPBearer.__call__`` takes a ``Request``, which FastAPI
+    never supplies on a WebSocket route, so a plugin WebSocket protected by
+    the default (``auth: inherit``) dependency failed every handshake.
+    """
+
+    async def __call__(self, connection: HTTPConnection) -> HTTPAuthorizationCredentials | None:
+        scheme, _, token = (connection.headers.get("Authorization") or "").partition(" ")
+        if scheme.lower() != "bearer" or not token.strip():
+            return None  # auto_error=False: the caller decides on a missing token
+        return HTTPAuthorizationCredentials(scheme=scheme, credentials=token.strip())
+
+
+_BEARER = _ConnectionBearer(auto_error=False)
 
 
 class _PluginAPIKeyHeader(APIKeyHeader):
@@ -54,6 +69,18 @@ def _unauthorized(detail: str = "Valid backend bearer authentication is required
         detail=detail,
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+def validate_identity_auth_mode() -> str:
+    """BACKEND_IDENTITY_AUTH as `required` or `disabled`, or ValueError.
+
+    Called at startup: a typo used to surface only per request (503 on every
+    identity-gated route) while /ready, and so the container healthcheck,
+    stayed green."""
+    mode = (os.getenv("BACKEND_IDENTITY_AUTH") or "required").strip().lower()
+    if mode not in {"required", "disabled"}:
+        raise ValueError(f"BACKEND_IDENTITY_AUTH must be required or disabled, got {mode!r}")
+    return mode
 
 
 def _ct_equals(a: str, b: str) -> bool:
@@ -179,6 +206,19 @@ async def require_memory_automation_principal(
 ) -> BackendPrincipal:
     return _authenticate_backend_principal(
         credentials, allowed_scoped_callers=frozenset({"n8n", "open-webui"})
+    )
+
+
+async def require_memory_operator_principal(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_BEARER),
+) -> BackendPrincipal:
+    """Fleet-wide memory surfaces (health counts every user's facts; the
+    probe triggers the global Weaviate failback and rebuild): service
+    callers only, never an end-user JWT."""
+    return _authenticate_backend_principal(
+        credentials,
+        allowed_scoped_callers=frozenset({"n8n", "open-webui"}),
+        allow_users=False,
     )
 
 

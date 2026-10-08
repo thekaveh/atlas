@@ -259,7 +259,9 @@ def _maybe_fetch_ollama_tags() -> list[str] | None:
         return None
     try:
         od = _load_catalog_module("ollama_discovery")
-        tags = od.list_pulled_models(LITELLM_OLLAMA_UPSTREAM)
+        # strict: a down or slow host daemon used to read as "0 tags" and
+        # skip this warning, leaving host-tag defaults unrouted silently.
+        tags = od.list_pulled_models(LITELLM_OLLAMA_UPSTREAM, timeout=10.0, strict=True)
         print(
             f"  ↳ auto-import: fetched {len(tags)} tag(s) from "
             f"{LITELLM_OLLAMA_UPSTREAM}/api/tags",
@@ -292,6 +294,9 @@ def fetch_active_models() -> list[Any]:
     return mr.active_models(os.environ, ollama_tags=tags)
 
 
+_CLOUD_PROVIDERS = frozenset({"openai", "anthropic", "openrouter"})
+
+
 def _model_info(
     row: Any,
     *,
@@ -301,7 +306,14 @@ def _model_info(
 ) -> dict[str, Any]:
     """Render LiteLLM-known flags plus Atlas' versioned metadata namespace."""
     capabilities = dict(getattr(row, "capabilities", {}) or {})
-    info: dict[str, Any] = {"mode": kind}
+    # A guessed `mode` on a cloud row overrode LiteLLM's own model map: it is
+    # written into litellm.model_cost, so a Responses-only model (gpt-5-pro,
+    # *-codex, o3-pro, *-deep-research) lost its `responses` mode and every
+    # chat call went to /v1/chat/completions and was rejected. Only a declared
+    # kind, or a local provider LiteLLM's map does not know, sets it.
+    info: dict[str, Any] = (
+        {} if "kind" in inferred_fields and row.provider in _CLOUD_PROVIDERS else {"mode": kind}
+    )
     known_flags = {
         "tools": "supports_function_calling",
         "vision": "supports_vision",

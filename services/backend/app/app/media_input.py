@@ -381,8 +381,9 @@ def prepare_image_input(
         except ImageInputError:
             raise
         except Exception as exc:
+            logger.warning("Image transparency check failed: %s", exc)
             raise ImageInputError(
-                f"could not inspect image transparency: {exc}"
+                "image input is not a valid PNG, JPEG, or WebP image"
             ) from exc
         if transparent:
             try:
@@ -396,8 +397,9 @@ def prepare_image_input(
             except ImageInputError:
                 raise
             except Exception as exc:
+                logger.warning("Compositing a transparent image input failed: %s", exc)
                 raise ImageInputError(
-                    f"could not composite transparent input: {exc}"
+                    "could not composite the transparent image input"
                 ) from exc
             content_type = "image/png"
             conditioned = True

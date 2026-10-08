@@ -2269,3 +2269,217 @@ def test_word_tokenized_filter_properties_force_a_rebuild():
     assert memory_store._needs_field_tokenization({"properties": field}) is False
     field[1] = {"name": "namespace", "tokenization": "word"}
     assert memory_store._needs_field_tokenization({"properties": field}) is True
+
+
+def test_research_heartbeat_stops_a_run_cancelled_on_another_replica():
+    """Cancel on replica B only flipped the row; replica A's run streamed on
+    for up to 30 minutes holding a slot. The heartbeat now sees the session
+    is no longer running and cancels the local run."""
+    from research_service import ResearchService
+
+    service = object.__new__(ResearchService)
+    service.heartbeat_interval = 0.01
+    beats = []
+
+    async def still_running(session_id):
+        beats.append(session_id)
+        return len(beats) < 2  # cancelled elsewhere after the first beat
+
+    service._write_research_heartbeat = still_running
+
+    async def scenario():
+        owner = asyncio.create_task(asyncio.sleep(30))
+        service._active_tasks = {"s1": owner}
+        await asyncio.wait_for(service._heartbeat_research("s1"), timeout=2)
+        await asyncio.sleep(0)
+        return owner.cancelled()
+
+    assert asyncio.run(scenario()) is True
+
+
+def test_visibility_timeout_outlasts_a_busy_memory_retry():
+    """With task_time_limit=5000 and visibility 5001 the busy-retry countdown
+    (5060) outlived the done-marker and the broker visibility window. Run in
+    a subprocess: the values are computed at import."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    env = {**os.environ, "CELERY_TASK_TIME_LIMIT_SECONDS": "5000",
+           "CELERY_TASK_SOFT_TIME_LIMIT_SECONDS": "4900",
+           "CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS": "5001",
+           "RAG_INGESTION_TASK_TIME_LIMIT_SECONDS": "3900",
+           "RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS": "3840"}
+    out = subprocess.run(
+        [sys.executable, "-c", "import celery_app as c; print(c._visibility_timeout, c.memory_execution_lease_seconds())"],
+        cwd=Path(__file__).resolve().parents[1], env=env, capture_output=True, text=True, check=True,
+    ).stdout.split()
+    assert int(out[0]) > int(out[1])
+
+
+from tests.test_memory_service_owner_scope import _service as _owner_scope_service  # noqa: E402
+
+
+class _RestoreConn:
+    """A memory fact restore: inactive row, then the UPDATE under the lock."""
+
+    def __init__(self, row, active_count):
+        self.row, self.active_count, self.calls, self.update_query = row, active_count, 0, ""
+        self.fresh_active = False
+
+    async def fetchrow(self, query, *_params):
+        self.calls += 1
+        if self.calls == 1:
+            return {**self.row, "is_active": False}
+        self.update_query = query
+        return self.row
+
+    async def fetch(self, _query, *_params):
+        return [self.row]
+
+    async def execute(self, *_args):
+        return "OK"
+
+    async def fetchval(self, query, *_args):
+        if "FOR UPDATE" in query:
+            return self.fresh_active  # the fact's state re-read under the lock
+        return self.active_count
+
+    def transaction(self):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc):
+        return False
+
+    async def close(self):
+        return None
+
+
+def _restore(monkeypatch, active_count):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from uuid import UUID
+
+    import memory_service
+
+    memory_id, user_id = "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"
+    now = datetime.now(timezone.utc)
+    row = {"id": UUID(memory_id), "user_id": UUID(user_id), "content": "fact", "fact_type": "observation",
+           "confidence": 0.9, "namespace": "default", "is_active": True, "created_at": now,
+           "updated_at": now, "metadata": {}, "weaviate_id": memory_id}
+    conn = _RestoreConn(row, active_count)
+    monkeypatch.setattr(memory_service, "connect_postgres", AsyncMock(return_value=conn))
+    _also_route_acquire(monkeypatch, memory_service, lambda: conn)
+    svc = _owner_scope_service()
+    svc.max_facts = 10
+    svc.store = SimpleNamespace(update_embedding=AsyncMock(return_value=memory_id), deactivate_embedding=AsyncMock())
+    return svc, conn, memory_id, user_id
+
+
+def test_restoring_a_memory_reconciles_its_vector(monkeypatch):
+    svc, conn, memory_id, user_id = _restore(monkeypatch, active_count=3)
+    asyncio.run(svc.update_memory(memory_id, user_id, {"is_active": True}))
+    assert "vector_sync_pending = true" in conn.update_query
+    svc.store.update_embedding.assert_awaited_once()
+
+
+def test_restoring_a_memory_at_the_fact_cap_is_refused(monkeypatch):
+    """A restore ignored LANGMEM_MAX_FACTS_PER_USER; the next consolidation
+    then expired other, untouched facts to get back under it."""
+    import memory_service
+
+    svc, conn, memory_id, user_id = _restore(monkeypatch, active_count=10)
+    with pytest.raises(memory_service.MemoryCapacityError):
+        asyncio.run(svc.update_memory(memory_id, user_id, {"is_active": True}))
+    assert conn.update_query == ""  # no UPDATE was issued
+
+
+def test_a_restore_racing_a_delete_is_still_capped(monkeypatch):
+    """The snapshot said active (no cap check), a concurrent delete then
+    deactivated the fact, and the UPDATE reactivated it past the cap."""
+    import memory_service
+
+    svc, conn, memory_id, user_id = _restore(monkeypatch, active_count=10)
+    stale_snapshot = conn.fetchrow
+
+    async def snapshot_says_active(query, *params):
+        row = await stale_snapshot(query, *params)
+        return {**row, "is_active": True} if conn.calls == 1 else row
+
+    conn.fetchrow = snapshot_says_active
+    with pytest.raises(memory_service.MemoryCapacityError):
+        asyncio.run(svc.update_memory(memory_id, user_id, {"is_active": True}))
+    assert conn.update_query == ""
+
+
+def _research_service_with_slow_thread_delete():
+    from research_client import ResearchResponse, ResearchResult, ResearchStatus
+    from research_service import ResearchService
+
+    service = object.__new__(ResearchService)
+    service.heartbeat_interval = 0.05
+    service._cancel_requested_tasks = set()
+    state = {"status": "running", "deleted": False, "failure_recorded": None}
+
+    async def store(_sid, _result):
+        state["status"] = "completed"
+        return True
+
+    async def record_failure(_sid, msg):
+        state["failure_recorded"] = msg
+        return state["status"] in ("pending", "running")
+
+    class Client:
+        async def start_research(self, req):
+            return ResearchResponse(session_id="t1", status=ResearchStatus.PENDING, message="")
+
+        async def wait_for_completion(self, sid, max_wait_time):
+            return ResearchResponse(session_id=sid, status=ResearchStatus.COMPLETED, message="")
+
+        async def get_research_result(self, sid):
+            return ResearchResult(session_id=sid, title="t", summary="s", content="c", sources=[], metadata={})
+
+        async def delete_thread(self, sid):
+            await asyncio.sleep(0.2)  # a slow (<=10 s timeout) DELETE /threads
+            state["deleted"] = True
+
+        def discard_pending(self, sid):
+            pass
+
+    async def ok(*_a):
+        return True
+
+    async def heartbeat(_sid):
+        return state["status"] == "running"
+
+    service._mark_research_running = ok
+    service._write_research_heartbeat = heartbeat
+    service._append_research_log = ok
+    service._store_research_result = store
+    service._record_research_failure = record_failure
+    service.research_client = Client()
+    return service, state
+
+
+def test_a_completed_research_run_is_not_cancelled_by_its_own_heartbeat():
+    """46d995bd made the heartbeat cancel on UPDATE 0; this replica's own
+    COMPLETED write also gives UPDATE 0, so a slow thread delete was cancelled
+    and the LangGraph thread leaked."""
+    service, state = _research_service_with_slow_thread_delete()
+
+    async def scenario():
+        task = asyncio.create_task(service._run_research_background("s1", "q", 1, "searxng", None))
+        service._active_tasks = {"s1": task}
+        try:
+            await task
+        except asyncio.CancelledError:
+            return "cancelled"
+        return "finished"
+
+    outcome = asyncio.run(scenario())
+    assert outcome == "finished" and state["deleted"], (outcome, state)

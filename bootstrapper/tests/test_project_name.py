@@ -514,3 +514,30 @@ def test_root_start_options_before_a_subcommand_are_flagged_not_fatal() -> None:
     quiet = CliRunner().invoke(start_module.main, ["--no-tui", "--json", "doctor", "--help"])
     assert quiet.exit_code == 0
     assert "no effect" not in quiet.output
+
+
+def test_env_user_overlay_reads_export_lines_like_dotenv(tmp_path):
+    """An `export KEY=` line used to become the key "export KEY", which then
+    failed the merge and dropped the whole overlay."""
+    import start
+
+    overlay = tmp_path / ".env.user"
+    overlay.write_text("export OPENAI_API_KEY=sk-1\nFOO='bar baz' # note\n", encoding="utf-8")
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    assert starter._parse_env_overlay_file(overlay) == {"OPENAI_API_KEY": "sk-1", "FOO": "bar baz"}
+
+
+def test_project_name_via_env_values_or_env_file_is_validated(tmp_path):
+    """Only `project_name:` was normalized; env.values / env.file wrote an
+    invalid name to .env, after which ./stop.sh refused to run."""
+    import pytest
+
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    (tmp_path / "bad.env").write_text("PROJECT_NAME=Bad Name\n", encoding="utf-8")
+    for body in ("name: c\nenv:\n  values:\n    PROJECT_NAME: \"My App\"\n",
+                 "name: c\nenv:\n  file: bad.env\n"):
+        manifest = tmp_path / "atlas.consumer.yml"
+        manifest.write_text(body, encoding="utf-8")
+        with pytest.raises(ConsumerManifestError, match="(?i)project"):
+            load_consumer_config(tmp_path, explicit_paths=[str(manifest)])

@@ -32,7 +32,7 @@ class MemoryExtractRequest(BaseModel):
         max_length=100,
         description="Conversation messages in [{role, content}] format"
     )
-    namespace: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    namespace: Optional[str] = Field(default=None, min_length=1, max_length=100)  # memory_facts.namespace VARCHAR(100)
     conversation_id: Optional[str] = None
 
     @field_validator("user_id")
@@ -52,7 +52,7 @@ class MemoryRecallRequest(BaseModel):
     """Request to recall relevant memories for a query."""
     user_id: str
     query: str = Field(min_length=1, max_length=4000)
-    namespace: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    namespace: Optional[str] = Field(default=None, min_length=1, max_length=100)  # memory_facts.namespace VARCHAR(100)
     limit: int = Field(default=10, ge=1, le=100)
     min_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
 
@@ -87,7 +87,7 @@ class MemoryConsolidateRequest(BaseModel):
 class MemorySummarizeRequest(BaseModel):
     """Request to generate a user memory profile summary."""
     user_id: str
-    namespace: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    namespace: Optional[str] = Field(default=None, min_length=1, max_length=100)  # memory_facts.namespace VARCHAR(100)
 
     @field_validator("user_id")
     @classmethod
