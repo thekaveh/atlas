@@ -492,3 +492,20 @@ def test_readme_topology_does_not_list_unpublished_ports_as_reachable():
     assert "| Supabase Studio | — (Kong only) | supabase-studio.localhost |" in block
     assert "| Supabase Meta | — | — |" in block
     assert "| TTS Provider | — " not in block  # virtual manifest: its slot is still shown
+
+
+def test_no_surface_advertises_an_unpublished_port():
+    """The wizard table/tooltip and the --no-tui summary still showed
+    :63019 / :63014 for Studio and pg-meta after they were unpublished."""
+    from services.topology import unpublished_port_vars
+    from wizard.model.state_builder import resolve_port
+
+    assert {"SUPABASE_META_PORT", "SUPABASE_STUDIO_PORT"} <= unpublished_port_vars()
+    assert "TTS_PROVIDER_PORT" not in unpublished_port_vars()  # virtual display slot
+    env = {"SUPABASE_STUDIO_PORT": "63019", "REDIS_PORT": "63025"}
+    assert resolve_port("Supabase Studio", "container", "SUPABASE_STUDIO_PORT", env) is None
+    assert resolve_port("Redis", "container", "REDIS_PORT", env) == ":63025"
+    import start
+
+    assert start._published_port_label("SUPABASE_STUDIO_PORT", env) == "-"  # --no-tui summary
+    assert start._published_port_label("REDIS_PORT", env) == ":63025"

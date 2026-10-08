@@ -6,15 +6,8 @@ Run: uv run --project bootstrapper python -m tools.generate_readme_topology
 from __future__ import annotations
 
 from pathlib import Path
-import re
 
 from services.topology import CATEGORY_LABELS, CATEGORY_ORDER, get_topology
-
-
-def _published_port_vars(services_root: Path) -> set[str]:
-    """Port vars some compose fragment interpolates (i.e. publishes)."""
-    text = "\n".join(path.read_text(encoding="utf-8") for path in services_root.glob("*/compose.yml"))
-    return set(re.findall(r"\$\{([A-Z0-9_]+_PORT)\b", text))
 
 
 def generate_block(services_root: Path) -> str:
@@ -37,12 +30,13 @@ def generate_block(services_root: Path) -> str:
         "| Category | Service | Default port | Alias |",
         "|---|---|---:|---|",
     ]
-    published = _published_port_vars(services_root)
+    from services.topology import unpublished_port_vars
+
+    unpublished = unpublished_port_vars(services_root)
     for cat in CATEGORY_ORDER:
         for r in by_category[cat]:
             port = topology.port_defaults.get(r.port_var or "", "—")
-            own_compose = (services_root / r.manifest / "compose.yml").exists()  # not virtual
-            if r.port_var and port != "—" and own_compose and r.port_var not in published:
+            if port != "—" and r.port_var in unpublished:
                 # Reserved in the port block but not bound on the host
                 # (pg-meta, Studio): listing the number read as reachable.
                 port = "— (Kong only)" if r.alias else "—"

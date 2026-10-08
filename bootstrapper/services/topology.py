@@ -181,6 +181,23 @@ def get_topology(
     return _cached_topology(str(Path(services_root).resolve()), base_port)
 
 
+@functools.lru_cache(maxsize=8)
+def unpublished_port_vars(services_root: Path | None = None) -> frozenset[str]:
+    """Port vars of non-virtual services that no compose fragment
+    interpolates: slots kept in the port block but not bound on the host
+    (pg-meta, Supabase Studio). Surfaces that show a port use this so a dead
+    `localhost:<port>` is never advertised."""
+    import re
+
+    root = Path(services_root) if services_root else Path(__file__).resolve().parent.parent.parent / "services"
+    text = "\n".join(path.read_text(encoding="utf-8") for path in root.glob("*/compose.yml"))
+    published = set(re.findall(r"\$\{([A-Z0-9_]+_PORT)\b", text))
+    return frozenset(
+        r.port_var for r in get_topology(root).rows
+        if r.port_var and r.port_var not in published and (root / r.manifest / "compose.yml").exists()
+    )
+
+
 def invalidate_cache() -> None:
     """Test hook — clear the topology LRU. Call after mutating manifests."""
     _cached_topology.cache_clear()

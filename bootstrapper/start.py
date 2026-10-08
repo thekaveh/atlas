@@ -450,6 +450,16 @@ def _validate_consumer_manifests_early(starter, from_cli: bool) -> None:
         raise click.UsageError(f"invalid {source} manifest: {exc}") from exc
 
 
+def _published_port_label(port_var: str, env_vars: dict) -> str:
+    """":<port>", or "-" for a reserved slot no compose file publishes
+    (pg-meta, Supabase Studio): advertising it read as reachable."""
+    from services.topology import unpublished_port_vars
+
+    if port_var in unpublished_port_vars():
+        return "-"
+    return f":{env_vars.get(port_var, '?')}"
+
+
 def _ascii_int(raw: str):
     """ASCII digits as an int, else None (`"²".isdigit()` is true)."""
     raw = (raw or "").strip()
@@ -4620,7 +4630,7 @@ class AtlasStarter:
             elif 'localhost' in source:
                 port_val = self._get_localhost_port(name, env_vars)
             elif port_var:
-                port_val = f":{env_vars.get(port_var, '?')}"
+                port_val = _published_port_label(port_var, env_vars)
             else:
                 port_val = "-"
 
