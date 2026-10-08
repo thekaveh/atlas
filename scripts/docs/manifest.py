@@ -34,8 +34,10 @@ class Section:
 # surfaces from the repository root.
 _SITE_PATH_OVERRIDES = {
     "docs/README.md": PurePosixPath("documentation-map.md"),
-    "docs/architecture/README.md": PurePosixPath("architecture", "diagram-authoring.md"),
-    "docs/diagrams/README.md": PurePosixPath("diagrams", "catalog.md"),
+    # The generated catalog is the 9.4 Diagram Catalog page and the diagram
+    # authoring guide is 8.13 (#1451); URLs kept, content now matches them.
+    "docs/architecture/README.md": PurePosixPath("diagrams", "catalog.md"),
+    "docs/diagrams/README.md": PurePosixPath("architecture", "diagram-authoring.md"),
     "SECURITY.md": PurePosixPath("security-policy.md"),
     "CONTRIBUTING.md": PurePosixPath("contributing.md"),
 }
