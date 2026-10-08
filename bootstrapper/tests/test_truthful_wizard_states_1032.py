@@ -576,9 +576,24 @@ def test_the_cli_flag_overview_shows_the_profiles_sources_unless_pinned() -> Non
     prometheus = names["PROMETHEUS_SOURCE"]
     from services.profiles import pinned_source_vars, profile_launch_sources
 
-    root = REPO_ROOT
+    root = ConfigParser()
     plain = profile_launch_sources(services_info, "prod", root, set())
     assert plain.get(prometheus) == PROFILES["prod"]["sources"]["prometheus"]
     pins = pinned_source_vars(ConfigParser(), SimpleNamespace(_env_user_keys={"PROMETHEUS_SOURCE"}))
     assert prometheus not in profile_launch_sources(services_info, "prod", root, pins)
     assert profile_launch_sources(services_info, None, root, set()) == {}
+
+
+def test_the_cli_flag_overview_applies_consumer_profile_overrides() -> None:
+    """profile_overrides.prod.sources.prometheus: disabled kept Prometheus off
+    at launch while the overview (platform bundle only) showed it on."""
+    from types import SimpleNamespace
+
+    from services.profiles import profile_launch_sources
+
+    _steps_, _rows, services_info, *_ = I._build_steps_and_rows(ConfigParser(), _HostsManager())
+    prometheus = next(s.display_name for s in services_info if getattr(s, "env_var_name", "") == "PROMETHEUS_SOURCE")
+    parser = ConfigParser()
+    parser.load_consumer_config = lambda: SimpleNamespace(
+        profile_overrides={"prod": {"sources": {"prometheus": "disabled"}}}, env_overrides={})
+    assert profile_launch_sources(services_info, "prod", parser, set()).get(prometheus) == "disabled"

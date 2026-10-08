@@ -214,7 +214,7 @@ def profile_source_default(
     return value if value and value != "auto" else fallback
 
 
-def profile_launch_sources(services_info, profile, root_dir, pinned) -> dict:
+def profile_launch_sources(services_info, profile, config_parser, pinned) -> dict:
     """display name -> the source ``profile`` asserts for each service whose
     SOURCE is not in ``pinned`` (CLI, consumer manifest, .env.user), as
     apply_profile_overrides applies it at launch; the CLI-flag overview
@@ -223,11 +223,12 @@ def profile_launch_sources(services_info, profile, root_dir, pinned) -> dict:
         return {}
     from services.manifests import load_manifests
 
+    root_dir = Path(config_parser.root_dir)
     try:
         mname_by_var = {m.sources.var: m.name for m in load_manifests(root_dir / "services") if m.sources is not None}
     except Exception:  # noqa: BLE001 - manifest errors surface elsewhere
         return {}
-    sources = profile_source_map()
+    sources = _launch_profile_sources(config_parser)
     out = {}
     for svc in services_info:
         var = getattr(svc, "env_var_name", "")
@@ -235,6 +236,19 @@ def profile_launch_sources(services_info, profile, root_dir, pinned) -> dict:
         if value and var not in pinned:
             out[svc.display_name] = value
     return out
+
+
+def _launch_profile_sources(config_parser) -> dict[str, dict[str, str]]:
+    """The per-profile sources apply_profile_overrides uses: the platform
+    bundles merged with the consumer manifest's profile_overrides (consumer
+    wins per key). The platform map alone showed a source the consumer had
+    overridden (prod Prometheus "container" while the launch kept it off)."""
+    try:
+        overrides = getattr(config_parser.load_consumer_config(), "profile_overrides", None) or {}
+        bundles = merge_consumer_profile_overrides(load_profile_bundles(), overrides)
+    except Exception:  # noqa: BLE001 - malformed manifests surface via doctor
+        return profile_source_map()
+    return {name: dict(bundle.sources) for name, bundle in bundles.items()}
 
 
 def consumer_declared_sources(config_parser) -> frozenset:

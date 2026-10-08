@@ -1598,7 +1598,7 @@ def run_launch_flow(
     # started). Same rule as the wizard's _unless_pinned.
     from services.profiles import pinned_source_vars, profile_launch_sources  # noqa: PLC0415
     for name, value in profile_launch_sources(
-        services_info, profile, Path(config_parser.root_dir), pinned_source_vars(config_parser, starter),
+        services_info, profile, config_parser, pinned_source_vars(config_parser, starter),
     ).items():
         overrides_by_name.setdefault(name, value)
 
