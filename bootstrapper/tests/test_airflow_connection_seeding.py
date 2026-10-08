@@ -206,7 +206,7 @@ def test_init_script_orphan_cleanup_pass_present():
     # localhost source (that Connection is the operator's).
     for conn in ("spark_default", "minio_default", "weaviate_default", "neo4j_default"):
         assert f'"{conn}:${{' in body, conn
-    assert "*localhost*) continue" in body
+    assert "*localhost*)" in body and 'seeded_host "$conn"' in body  # keeps operator-made ones
 
 
 def test_init_script_env_refs_match_compose_environment():
