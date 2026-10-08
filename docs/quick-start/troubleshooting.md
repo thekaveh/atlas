@@ -390,7 +390,7 @@ grep -E "(LLM_PROVIDER|COMFYUI|N8N|WEAVIATE|CLOUD|MINIO)[A-Z_]*_SOURCE" .env
 # directly). Inside the Compose network, services resolve by service name:
 docker compose exec backend curl -sf http://litellm:4000/health/liveliness
 docker compose exec litellm python -c "import urllib.request; print(urllib.request.urlopen('http://ollama:11434/api/tags', timeout=5).status)"   # the LiteLLM image has no curl
-docker compose exec kong-api-gateway curl -sf http://supabase-api:3000/   # PostgREST answers its OpenAPI root; /health is not a route
+docker compose exec backend curl -sf http://supabase-api:3000/   # PostgREST answers its OpenAPI root; /health is not a route (the Kong image has no curl)
 
 # Test external access
 curl http://localhost:63096

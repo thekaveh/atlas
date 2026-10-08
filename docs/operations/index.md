@@ -228,7 +228,7 @@ Use `./start.sh endpoints export --format env|json` to emit a stable,
 machine-readable consumer endpoint contract: canonical, distinct
 container/host/Kong/public endpoints and active SOURCE modes per
 consumer-relevant service (Backend, LiteLLM, ComfyUI, Ollama, MinIO, Weaviate,
-Neo4j, n8n, Redis, Supabase), plus every per-consumer `ATLAS_STORE_*` storage
+Neo4j, n8n, Redis, Supabase, Asset Worker), plus every per-consumer `ATLAS_STORE_*` storage
 field. The field names are a compatibility contract. Output is secret-free by
 default (infra secrets are `${VAR}` references); `--with-secrets` resolves only
 consumer-scoped credentials and refuses stdout (requires `--output PATH`).

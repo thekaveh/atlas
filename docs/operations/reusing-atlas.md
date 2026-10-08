@@ -971,7 +971,7 @@ header is preferred and takes precedence if a query parameter is also present:
 
 ```bash
 curl -H "apikey: ${BACKEND_KONG_API_KEY}" \
-  http://api.localhost/plugin-prefix/health
+  http://api.localhost:${KONG_HTTP_PORT}/plugin-prefix/health   # default 63000
 ```
 
 Browser WebSocket APIs cannot set arbitrary request headers, so those clients

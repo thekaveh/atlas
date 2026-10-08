@@ -944,8 +944,9 @@ curl http://localhost:63040/health/liveliness  # LiteLLM gateway (always-on)
 curl http://localhost:8000/           # ComfyUI default localhost URL
 curl http://localhost:8188/           # ComfyUI if you overrode COMFYUI_LOCALHOST_PORT to 8188
 
-# Check service logs
-docker logs ${PROJECT_NAME}-backend -f
+# Check service logs (after the COMPOSE_PROJECT_NAME setup line in
+# troubleshooting.md; PROJECT_NAME is not exported to your shell)
+docker compose logs -f backend
 ```
 
 **Port conflicts**:
@@ -977,9 +978,11 @@ grep localhost /etc/hosts
 grep -E '^(LLM_PROVIDER|COMFYUI|N8N|WEAVIATE)_SOURCE=' .env
 
 # Test service connectivity (LLM goes via LiteLLM, not Ollama directly)
-docker exec ${PROJECT_NAME}-backend curl http://${PROJECT_NAME}-litellm:4000/health/liveliness
-docker exec ${PROJECT_NAME}-litellm curl http://${PROJECT_NAME}-ollama:11434/api/tags
-docker exec ${PROJECT_NAME}-kong-api-gateway curl http://${PROJECT_NAME}-comfyui:18188/
+# Run after the COMPOSE_PROJECT_NAME setup line in troubleshooting.md.
+# The LiteLLM and Kong images ship no curl; probe from backend, which does.
+docker compose exec backend curl -sf http://litellm:4000/health/liveliness
+docker compose exec litellm python -c "import urllib.request; print(urllib.request.urlopen('http://ollama:11434/api/tags', timeout=5).status)"
+docker compose exec backend curl -sf http://comfyui:18188/
 
 # Monitor resource usage
 docker stats

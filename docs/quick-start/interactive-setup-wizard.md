@@ -53,7 +53,7 @@ and inline-image behavior can vary between terminal emulators.
 
 ## 2. Step Order
 
-Service-source steps follow the canonical topology order (`services/topology.py`, the same order as the stack-overview panel beside them), with the LLM cluster spliced in immediately after the LLM Engine step. The shape is roughly:
+Service-source steps follow the canonical topology order (`bootstrapper/services/topology.py`, the same order as the stack-overview panel beside them), with the LLM cluster spliced in immediately after the LLM Engine step. The shape is roughly:
 
 ```
 first  Track (skipped when --track is passed)
