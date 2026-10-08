@@ -294,6 +294,9 @@ def fetch_active_models() -> list[Any]:
     return mr.active_models(os.environ, ollama_tags=tags)
 
 
+_CLOUD_PROVIDERS = frozenset({"openai", "anthropic", "openrouter"})
+
+
 def _model_info(
     row: Any,
     *,
@@ -303,7 +306,14 @@ def _model_info(
 ) -> dict[str, Any]:
     """Render LiteLLM-known flags plus Atlas' versioned metadata namespace."""
     capabilities = dict(getattr(row, "capabilities", {}) or {})
-    info: dict[str, Any] = {"mode": kind}
+    # A guessed `mode` on a cloud row overrode LiteLLM's own model map: it is
+    # written into litellm.model_cost, so a Responses-only model (gpt-5-pro,
+    # *-codex, o3-pro, *-deep-research) lost its `responses` mode and every
+    # chat call went to /v1/chat/completions and was rejected. Only a declared
+    # kind, or a local provider LiteLLM's map does not know, sets it.
+    info: dict[str, Any] = (
+        {} if "kind" in inferred_fields and row.provider in _CLOUD_PROVIDERS else {"mode": kind}
+    )
     known_flags = {
         "tools": "supports_function_calling",
         "vision": "supports_vision",

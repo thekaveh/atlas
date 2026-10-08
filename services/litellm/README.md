@@ -165,7 +165,9 @@ Catalog rows may declare `metadata_version: 1` — provider-neutral fields cover
 documented as a docstring/schema comment next to the loader in
 `llm_catalog.py`. LiteLLM receives standard `model_info` fields plus a
 namespaced `atlas_model_metadata` block, letting LightRAG and future consumers
-assign roles without provider, model-family, or hardware assumptions.
+assign roles without provider, model-family, or hardware assumptions. A cloud model with no catalog row (for example one picked live from OpenAI) gets no
+top-level `model_info.mode`: LiteLLM's own model map then routes it, so a
+Responses-only model such as `gpt-5-pro` is not forced onto `/v1/chat/completions`.
 
 These `capabilities` are declarations. `./start.sh models probe` measures tool calling, JSON output, vision and embedding dimension through this gateway on demand and reports where a declaration does not hold, without changing model selection (#1195; see [Operations](../../docs/operations/index.md#1-runtime-commands)).
 
