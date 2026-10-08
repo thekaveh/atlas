@@ -255,6 +255,12 @@ def test_redis_ingestion_page_keeps_cursor_when_full_migration_yields_no_new_sco
     import redis
 
     class FakeRedis:
+        def scard(self, _key):
+            return 5
+
+        def zintercard(self, _numkeys, _keys):
+            return 3  # two set-only members still to migrate
+
         def eval(self, script, *_args):
             assert "SSCAN" in script
             return [0, "9", 2]
@@ -2723,3 +2729,33 @@ def test_small_memory_and_rag_fixes(monkeypatch):
     file = CorpusFile(name="big.pdf", content=b"%PDF" + b"\x00" * 10, content_type="application/pdf")
     with pytest.raises(ParserError, match="exceeds maximum extraction size"):
         asyncio.run(adapter.parse(file, ["docling", "tika", "plain_text"]))
+
+
+def test_a_fully_migrated_index_lists_in_ceil_n_over_limit_calls():
+    """Writers still SADD the legacy set, so the migration SSCAN never
+    finished and padded traversals with empty pages: 5,000 records at limit
+    10 took 946 calls (#1452). Needs a real Redis (ZINTERCARD)."""
+    import math
+    import os
+
+    from rag_ingestion.models import IngestionRecord
+    from rag_ingestion.store import RedisIngestionStore
+
+    url = os.environ.get("ATLAS_TEST_REDIS_URL")
+    if not url:
+        pytest.skip("needs ATLAS_TEST_REDIS_URL")
+    store = RedisIngestionStore(url)
+    store._redis.flushdb()
+    total, limit = 1000, 10  # > 128: a hash-encoded set, scanned in many SSCAN steps
+    for index in range(total):
+        store.create_if_absent(IngestionRecord(
+            id=f"rec-{index}", consumer="c", profile="p", revision="r", idempotency_key=f"k-{index}"))
+    calls, cursor, seen = 0, None, 0
+    while True:
+        page = store.list_page(cursor=cursor, limit=limit)
+        calls += 1
+        seen += len(page.records)
+        if page.next_cursor is None:
+            break
+        cursor = page.next_cursor
+    assert seen == total and calls == math.ceil(total / limit)

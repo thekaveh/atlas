@@ -742,12 +742,30 @@ return 1
         blob = self._redis.get(_KEY_PREFIX + ingestion_id)
         return IngestionRecord.from_dict(json.loads(blob)) if blob else None
 
+    def _legacy_only_members(self) -> Optional[int]:
+        """Members in the legacy set but not the v2 index (server-side,
+        no round trip per member), or None when the server cannot say
+        (ZINTERCARD needs Redis 7)."""
+        try:
+            return int(self._redis.scard(_INDEX_SET)) - int(
+                self._redis.zintercard(2, [_INDEX_SET, _INDEX_ZSET])
+            )
+        except Exception:  # noqa: BLE001 - fall back to the bounded scan
+            return None
+
     def _migrate_legacy_index(self, limit: int) -> tuple[int, str]:
         """Non-destructively scan legacy members and add missing v2 scores.
 
         Redis treats SSCAN ``COUNT`` as a work hint, not a strict result cap;
         the API record page and MGET remain hard-capped by ``limit``.
         """
+        if self._legacy_only_members() == 0:
+            # Writers still SADD the legacy set (rolling-upgrade
+            # compatibility), so an SSCAN pass never "finished": every list
+            # traversal re-scanned it and padded the listing with empty pages
+            # (#1452). Nothing set-only is left to migrate: skip the scan.
+            self._redis.delete(_INDEX_MIGRATION_CURSOR)
+            return 0, "0"
         migrated, scan_cursor, _scanned = self._redis.eval(
             self._MIGRATE_LEGACY_INDEX_SCRIPT,
             4,
