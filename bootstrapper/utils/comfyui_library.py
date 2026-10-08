@@ -292,6 +292,9 @@ def _custom_nodes_from_tags(tags: list[str]) -> tuple[str, ...]:
     return tuple(nodes)
 
 
+_GENERIC_HF_FILENAMES = ("diffusion_pytorch_model.", "model.", "pytorch_model.")
+
+
 def _parse_hf_response(
     raw: list[dict],
     category: str,
@@ -318,6 +321,14 @@ def _parse_hf_response(
             continue
         rfilename = primary["rfilename"]
         url = f"{_HF_RESOLVE_BASE}/{model_id}/resolve/main/{rfilename}"
+        # Diffusers repos all ship the same generic file name, so two models
+        # landed on one path and the plan writer aborted the start; prefix
+        # such names with the repo id.
+        basename = rfilename.rsplit("/", 1)[-1]
+        filename = (
+            f"{model_id.replace('/', '--')}--{basename}"
+            if basename.startswith(_GENERIC_HF_FILENAMES) else None
+        )
         size_bytes = primary.get("size") or 0
         size_gb = round(size_bytes / (1024 ** 3), 2) if size_bytes else 0.0
         tags = item.get("tags") or []
@@ -335,6 +346,7 @@ def _parse_hf_response(
             popularity=int(item.get("downloads") or 0),
             source="huggingface",
             pulled=False,
+            filename=filename,
         ))
     return out
 

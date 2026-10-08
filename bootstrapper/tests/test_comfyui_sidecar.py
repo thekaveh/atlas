@@ -268,3 +268,29 @@ def test_rows_the_downloader_would_refuse_are_skipped_alone(tmp_path, capsys):
     assert [e.name for e in entries] == ["good"]
     assert entries[0].sha256 == sha.lower()
     assert capsys.readouterr().err.count("construction failed") == 3
+
+
+def test_two_models_never_share_a_download_path(tmp_path, capsys):
+    """Diffusers repos all ship diffusion_pytorch_model.safetensors: two
+    scraped or fallback ControlNets landed on one path and the plan writer
+    aborted ./start.sh; a clashing custom entry did the same."""
+    from utils.comfyui_library import _parse_hf_response, list_fallback
+    from utils.comfyui_resolver import _derive_filename, active_comfyui_models
+
+    item = lambda repo: {"id": repo, "siblings": [{"rfilename": "diffusion_pytorch_model.safetensors"}]}  # noqa: E731
+    scraped = _parse_hf_response([item("a/canny"), item("b/depth")], category="controlnet")
+    assert len({_derive_filename(e) for e in scraped}) == 2
+    fallback = {e.name: e for e in list_fallback()}
+    pair = [fallback["controlnet-canny-sdxl-1.0"], fallback["control_v11p_sd15_openpose"]]
+    assert _derive_filename(pair[0]) != _derive_filename(pair[1])
+
+    sidecar = tmp_path / "custom-models.yaml"
+    sidecar.write_text(
+        "models:\n"
+        "  - {name: canny-custom, category: controlnet, url: 'https://h/a/diffusion_pytorch_model.safetensors'}\n"
+        "  - {name: depth-custom, category: controlnet, url: 'https://h/b/diffusion_pytorch_model.safetensors'}\n",
+        encoding="utf-8",
+    )
+    active = active_comfyui_models({"COMFYUI_USER_MODELS": ""}, catalog=[], sidecar_path=str(sidecar))
+    assert [e.name for e in active] == ["canny-custom"]
+    assert "depth-custom" in capsys.readouterr().err
