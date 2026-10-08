@@ -1459,3 +1459,17 @@ def test_blender_addon_override_may_be_the_provisioned_file(tmp_path):
     manager.addon_file = str(manager.addon_path)
     manager._install_locked()  # used to raise shutil.SameFileError
     assert manager.addon_path.read_text(encoding="utf-8") == "addon"
+
+
+def test_a_malformed_port_refuses_a_launch_but_not_a_stop():
+    """The lenient fallback started the host on 8000 while LiteLLM was told
+    the raw value (dead upstream, start reported success)."""
+    from services import comfyui_mps_manager, vllm_metal_manager
+
+    vllm = vllm_metal_manager.manager_from_env({"VLLM_METAL_LOCALHOST_PORT": "8O01"})
+    with pytest.raises(VllmMetalError, match="not a port number"):
+        vllm.ensure_running_with_ownership()
+    comfy = comfyui_mps_manager.manager_from_env({"COMFYUI_MPS_LOCALHOST_PORT": "81 88"})
+    with pytest.raises(comfyui_mps_manager.ComfyUiMpsError, match="not a port number"):
+        comfy.start_with_ownership()
+    assert vllm_metal_manager.manager_from_env({"VLLM_METAL_LOCALHOST_PORT": "8001"}).__dict__.get("port_error") is None

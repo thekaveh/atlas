@@ -294,3 +294,33 @@ def test_two_models_never_share_a_download_path(tmp_path, capsys):
     active = active_comfyui_models({"COMFYUI_USER_MODELS": ""}, catalog=[], sidecar_path=str(sidecar))
     assert [e.name for e in active] == ["canny-custom"]
     assert "depth-custom" in capsys.readouterr().err
+
+
+def test_pulled_badge_and_clash_skip_follow_the_download_identity(tmp_path, capsys):
+    """A repo-prefixed HF entry was badged [pulled] by the old generic file on
+    disk (then re-downloaded); a sidecar duplicate differing only in size was
+    kept and aborted the plan write."""
+    from utils.comfyui_library import _parse_hf_response, list_curated
+    from utils.comfyui_resolver import active_comfyui_models
+    from wizard.comfyui_steps import _entry_is_pulled
+
+    entry = _parse_hf_response(
+        [{"id": "a/canny", "siblings": [{"rfilename": "diffusion_pytorch_model.safetensors"}]}], category="controlnet",
+    )[0]
+    assert not _entry_is_pulled(entry, {"diffusion_pytorch_model.safetensors"})
+    assert _entry_is_pulled(entry, {entry.filename})
+
+    curated = list_curated()[0]
+    sidecar = tmp_path / "custom-models.yaml"
+    sidecar.write_text(
+        "models:\n"
+        f"  - {{name: dup-of-curated, category: {curated.category}, url: '{curated.url}'"
+        + (f", sha256: '{curated.sha256}'" if curated.sha256 else "")
+        + (f", filename: '{curated.filename}'" if curated.filename else "") + "}\n",
+        encoding="utf-8",
+    )
+    active = active_comfyui_models({"COMFYUI_USER_MODELS": curated.name}, catalog=[curated], sidecar_path=str(sidecar))
+    names = [e.name for e in active]
+    if curated.size_gb:  # the sidecar row omits size: a plan-writer conflict
+        assert names == [curated.name]
+        assert "dup-of-curated" in capsys.readouterr().err

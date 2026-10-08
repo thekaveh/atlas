@@ -432,6 +432,8 @@ class ComfyUiMpsManager:
 
     def start_with_ownership(self) -> tuple[ProcessStatus, bool]:
         """Start atomically and report whether this call created the process."""
+        if getattr(self, "port_error", None):
+            raise ComfyUiMpsError(self.port_error)
         with self._launch_guard():
             return self._start_locked()
 
@@ -685,6 +687,8 @@ class ComfyUiMpsManager:
 
     def ensure_running_with_ownership(self) -> tuple[ProcessStatus, bool]:
         """Run the full launch path and atomically report process ownership."""
+        if getattr(self, "port_error", None):
+            raise ComfyUiMpsError(self.port_error)
         pre = self.preflight()
         if not pre.ok:
             fails = [c for c in pre.checks if c["status"] == _FAIL]
@@ -1504,6 +1508,13 @@ class ComfyUiMpsManager:
         state[key] = {"sha256": sha, "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
 
 
+def _port_error(raw, key: str):
+    raw = (raw or "").strip()
+    if raw and not (raw.isascii() and raw.isdigit()):
+        return f"{key}={raw!r} is not a port number; fix it in .env"
+    return None
+
+
 def _env_port(raw, default: int) -> int:
     """ASCII digits, else the default: a typo used to traceback every command,
     including stop and remove of a running host (the Blender factory falls
@@ -1514,7 +1525,7 @@ def _env_port(raw, default: int) -> int:
 
 def manager_from_env(env: dict[str, str]) -> ComfyUiMpsManager:
     """Build a manager from resolved .env values."""
-    return ComfyUiMpsManager(
+    manager = ComfyUiMpsManager(
         state_dir=(env.get("COMFYUI_MPS_STATE_DIR") or "").strip() or "~/.atlas/comfyui-mps",
         port=_env_port(env.get("COMFYUI_MPS_LOCALHOST_PORT"), 8188),
         ref=env.get("COMFYUI_MPS_REF", "v0.27.0"),
@@ -1523,3 +1534,7 @@ def manager_from_env(env: dict[str, str]) -> ComfyUiMpsManager:
         torch_pin=env.get("COMFYUI_MPS_TORCH_PIN") or None,
         listen=env.get("COMFYUI_MPS_LISTEN") or "127.0.0.1",
     )
+    # Stop/status/remove fall back to the default; a launch must not, or the
+    # process listens there while LiteLLM is told the raw value.
+    manager.port_error = _port_error(env.get("COMFYUI_MPS_LOCALHOST_PORT"), "COMFYUI_MPS_LOCALHOST_PORT")
+    return manager

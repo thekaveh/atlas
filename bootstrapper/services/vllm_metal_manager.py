@@ -426,6 +426,8 @@ class VllmMetalManager:
 
     def start_with_ownership(self) -> tuple[ProcessStatus, bool]:
         """Start atomically and report whether this call created the process."""
+        if getattr(self, "port_error", None):
+            raise VllmMetalError(self.port_error)
         with self._launch_guard():
             return self._start_locked()
 
@@ -664,6 +666,8 @@ class VllmMetalManager:
 
     def ensure_running_with_ownership(self) -> tuple[ProcessStatus, bool]:
         """Run the full launch path and atomically report process ownership."""
+        if getattr(self, "port_error", None):
+            raise VllmMetalError(self.port_error)
         pre = self.preflight()
         if not pre.ok:
             fails = [c for c in pre.checks if c["status"] == _FAIL]
@@ -874,6 +878,13 @@ class VllmMetalManager:
         self.status_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def _port_error(raw, key: str):
+    raw = (raw or "").strip()
+    if raw and not (raw.isascii() and raw.isdigit()):
+        return f"{key}={raw!r} is not a port number; fix it in .env"
+    return None
+
+
 def _env_port(raw, default: int) -> int:
     """ASCII digits, else the default: a typo used to traceback every command,
     including stop and remove of a running host (the Blender factory falls
@@ -884,7 +895,7 @@ def _env_port(raw, default: int) -> int:
 
 def manager_from_env(env: dict[str, str]) -> VllmMetalManager:
     """Build a manager from resolved .env values."""
-    return VllmMetalManager(
+    manager = VllmMetalManager(
         state_dir=(env.get("VLLM_METAL_STATE_DIR") or "").strip() or "~/.atlas/vllm-metal",
         port=_env_port(env.get("VLLM_METAL_LOCALHOST_PORT"), 8000),
         model=env.get("VLLM_METAL_MODEL", "Qwen/Qwen2.5-7B-Instruct"),
@@ -897,3 +908,7 @@ def manager_from_env(env: dict[str, str]) -> VllmMetalManager:
         hf_cache_dir=env.get("VLLM_METAL_MODELS_PATH") or None,
         min_memory_gb=int(env.get("VLLM_METAL_MIN_MEMORY_GB", "16") or "16"),
     )
+    # Stop/status/remove fall back to the default; a launch must not, or the
+    # process listens there while LiteLLM is told the raw value.
+    manager.port_error = _port_error(env.get("VLLM_METAL_LOCALHOST_PORT"), "VLLM_METAL_LOCALHOST_PORT")
+    return manager

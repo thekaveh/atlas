@@ -413,9 +413,14 @@ def active_comfyui_models(
 
 
 def _download_targets(entry: ComfyUILibraryEntry) -> dict[tuple, tuple]:
-    """(target_dir, filename) → (download_url, sha256) for each file of an entry."""
+    """(target_dir, filename) → the plan writer's identity fields, per file."""
+    from utils.comfyui_manifest_generator import DOWNLOAD_IDENTITY_FIELDS  # noqa: PLC0415
+
     rows = [_manifest_row_for_entry(entry, file=f) for f in entry.files] or [_manifest_row_for_entry(entry)]
-    return {(row["target_dir"], row["filename"]): (row["download_url"], row["sha256"]) for row in rows}
+    return {
+        (row["target_dir"], row["filename"]): tuple(row.get(field) for field in DOWNLOAD_IDENTITY_FIELDS)
+        for row in rows
+    }
 
 
 def _conflicting_target(targets: dict[tuple, tuple], claimed: dict[tuple, tuple]):

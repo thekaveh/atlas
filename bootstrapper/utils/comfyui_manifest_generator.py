@@ -46,6 +46,12 @@ from typing import Any, Mapping
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
+
+# Fields two rows at one target_dir/filename must agree on; the resolver
+# skips a clashing custom entry on the same fields (it compared only URL and
+# sha, so a size-only difference still aborted the plan write).
+DOWNLOAD_IDENTITY_FIELDS = ("type", "download_url", "sha256", "file_size_bytes", "file_size_gb")
+
 class ComfyUIManifestGenerator:
     """Writes ``volumes/comfyui/selected-models.yaml``,
     ``volumes/comfyui/active-models.tsv``, and
@@ -264,13 +270,7 @@ class ComfyUIManifestGenerator:
             key = (str(row["target_dir"]), str(row["filename"]))
             previous = seen_paths.get(key)
             if previous is not None:
-                for field in (
-                    "type",
-                    "download_url",
-                    "sha256",
-                    "file_size_bytes",
-                    "file_size_gb",
-                ):
+                for field in DOWNLOAD_IDENTITY_FIELDS:
                     if previous.get(field) != row.get(field):
                         raise ValueError(
                             "Conflicting ComfyUI download metadata for "
