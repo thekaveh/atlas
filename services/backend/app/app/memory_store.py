@@ -1016,22 +1016,27 @@ class MemoryStore:
         user_id: str,
         namespace: str = "default",
         limit: int = 10,
+        min_confidence: float = 0.0,
     ) -> List[Dict[str, Any]]:
-        """Search for semantically similar memories."""
+        """Search for semantically similar memories at or above
+        ``min_confidence``. The threshold is applied inside the vector query:
+        filtering afterwards let low-confidence neighbours take the ``limit``
+        slots, so recall returned fewer hits than qualifying facts existed
+        (#1452)."""
         await self.initialize()
         async with self._transition_lock:
             backend = self.backend
         if backend == "weaviate":
             clean_generation = await self._clean_weaviate_generation()
             if clean_generation is None:
-                return await self._search_pgvector(query, user_id, namespace, limit)
+                return await self._search_pgvector(query, user_id, namespace, limit, min_confidence)
             try:
                 results = await self._search_weaviate(
-                    query, user_id, namespace, limit
+                    query, user_id, namespace, limit, min_confidence
                 )
             except Exception as exc:
                 return await self._search_after_weaviate_failure(
-                    exc, (query, user_id, namespace, limit)
+                    exc, (query, user_id, namespace, limit, min_confidence)
                 )
             if self.manage_schema:
                 rebuild_required, generation = await self._get_weaviate_sync_state(
@@ -1050,10 +1055,10 @@ class MemoryStore:
                     # transition and may be stale. Never expose it. This call
                     # intentionally sits outside the Weaviate exception block.
                     return await self._search_pgvector(
-                        query, user_id, namespace, limit
+                        query, user_id, namespace, limit, min_confidence
                     )
             return results
-        return await self._search_pgvector(query, user_id, namespace, limit)
+        return await self._search_pgvector(query, user_id, namespace, limit, min_confidence)
 
     @staticmethod
     def _escape_graphql_string(value: str) -> str:
@@ -1064,7 +1069,8 @@ class MemoryStore:
         return value.translate({c: f"\\u{c:04x}" for c in (*range(32), 34, 92)})
 
     async def _search_weaviate(
-        self, query: str, user_id: str, namespace: str, limit: int
+        self, query: str, user_id: str, namespace: str, limit: int,
+        min_confidence: float = 0.0,
     ) -> List[Dict[str, Any]]:
         """Search Weaviate for similar memories."""
         safe_query = self._escape_graphql_string(query)
@@ -1080,7 +1086,8 @@ class MemoryStore:
                             operands: [
                                 {{path: ["userId"], operator: Equal, valueText: "{safe_user_id}"}},
                                 {{path: ["namespace"], operator: Equal, valueText: "{safe_namespace}"}},
-                                {{path: ["isActive"], operator: Equal, valueBoolean: true}}
+                                {{path: ["isActive"], operator: Equal, valueBoolean: true}},
+                                {{path: ["confidence"], operator: GreaterThanEqual, valueNumber: {float(min_confidence)!r}}}
                             ]
                         }}
                         limit: {limit}
@@ -1130,7 +1137,8 @@ class MemoryStore:
         return results
 
     async def _search_pgvector(
-        self, query: str, user_id: str, namespace: str, limit: int
+        self, query: str, user_id: str, namespace: str, limit: int,
+        min_confidence: float = 0.0,
     ) -> List[Dict[str, Any]]:
         """Search pgvector for similar memories using cosine similarity."""
         embedding = await self._generate_embedding(query)
@@ -1151,6 +1159,7 @@ class MemoryStore:
                   AND vector_dims(embedding) = {self.embedding_dimension}
                   AND embedding_model = $5
                   AND embedding_generation = {self._pgvector_generation}
+                  AND confidence >= $6
                 ORDER BY {distance}
                 LIMIT $4
                 """,
@@ -1159,6 +1168,7 @@ class MemoryStore:
                 namespace,
                 limit,
                 self.embedding_model,
+                float(min_confidence),
             )
             return [
                 {
