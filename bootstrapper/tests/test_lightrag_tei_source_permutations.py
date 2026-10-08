@@ -246,4 +246,20 @@ def test_lightrag_neo4j_uri_follows_a_host_run_neo4j(env_with_overrides):
     }))
     uri = sc.generate_service_environment()["LIGHTRAG_NEO4J_URI"]
     assert "neo4j-graph-db" not in uri
-    assert uri.startswith("bolt://") and uri.endswith(":${NEO4J_LOCALHOST_BOLT_PORT:-7687}")
+    assert uri.startswith("bolt://") and uri.endswith(":7687")
+
+
+@pytest.mark.parametrize("case", [
+    ("WEAVIATE_SOURCE", "WEAVIATE_LOCALHOST_PORT", ("WEAVIATE_URL",)),
+    ("NEO4J_GRAPH_DB_SOURCE", "NEO4J_LOCALHOST_BOLT_PORT", ("NEO4J_URI", "LIGHTRAG_NEO4J_URI")),
+    ("COMFYUI_SOURCE", "COMFYUI_LOCALHOST_PORT", ("COMFYUI_ENDPOINT",)),
+])
+def test_a_localhost_port_override_reaches_the_url(env_with_overrides, case):
+    """The URL was written as ${PORT:-default}; .env.example puts the port
+    line after the URL line, so Compose substituted the default and the
+    operator's port was ignored."""
+    source_var, port_var, keys = case
+    sc = _sc(env_with_overrides({"LIGHTRAG_SOURCE": "container", source_var: "localhost", port_var: "40999"}))
+    env = sc.generate_service_environment()
+    for key in keys:
+        assert env[key].endswith(":40999") and "${" not in env[key], (key, env[key])

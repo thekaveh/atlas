@@ -741,7 +741,8 @@ def _merge_profile_overrides_block(
                     # `services/profiles.py`; `str(None)` produced the literal
                     # string "None", so the load-time validation path and the
                     # apply-time path disagreed about the same manifest.
-                    ks, vs = str(k), ("" if v is None else str(v))
+                    # Booleans spelled for .env, as env.values does (_env_text).
+                    ks, vs = str(k), ("" if v is None else str(_env_text(v)))
                     if ks in sub and sub[ks] != vs:
                         raise ConsumerManifestError(
                             f"profile_overrides.{prof_name}.{fname}.{ks} has "

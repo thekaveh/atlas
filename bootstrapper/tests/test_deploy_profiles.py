@@ -511,3 +511,12 @@ def test_an_env_user_source_pin_survives_the_prod_profile(tmp_path, monkeypatch)
     assert s.setup_env_file(cold_start=False) is True
     assert s.apply_profile_overrides("prod") is True
     assert _env(tmp_path)["PROMETHEUS_SOURCE"] == "disabled"
+
+
+def test_profile_override_booleans_are_written_as_env_text():
+    """`BACKUP_DATABASES: true` in profile_overrides was written `True`, which
+    backup-all.sh rejects (exit 64); consumer env.values already wrote true."""
+    from services.profiles import _parse_bundle
+
+    bundle = _parse_bundle("prod", {"env": {"BACKUP_DATABASES": True, "X_OFF": False}}, origin="t")
+    assert bundle.env == {"BACKUP_DATABASES": "true", "X_OFF": "false"}

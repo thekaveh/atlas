@@ -59,6 +59,14 @@ class ProfileBundle:
     env: dict[str, str] = field(default_factory=dict)  # ENV_VAR -> value
 
 
+def _env_value_text(value: object) -> str:
+    """YAML booleans as true/false: str(True) wrote "True", which shell checks
+    such as BACKUP_DATABASES reject (consumer env.values agrees)."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return "" if value is None else str(value)
+
+
 def _parse_bundle(name: str, raw: object, *, origin: str) -> ProfileBundle:
     if raw is None:
         return ProfileBundle()
@@ -115,7 +123,7 @@ def _parse_bundle(name: str, raw: object, *, origin: str) -> ProfileBundle:
                 f"{origin}: profile '{name}' env key '{var_s}' is not a valid "
                 f"env var name"
             )
-        env[var_s] = "" if value is None else str(value)
+        env[var_s] = _env_value_text(value)
 
     return ProfileBundle(host_bind_ip=host_bind_ip, sources=sources, env=env)
 
