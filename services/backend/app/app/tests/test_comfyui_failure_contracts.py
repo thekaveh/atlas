@@ -1678,8 +1678,15 @@ def test_media_generate_reports_a_lost_prompt_response_as_maybe_queued(monkeypat
             raise lost("lost after send", request=request)
         return httpx.Response(404)
 
-    response = _post_media(_media_main_with_prompt_handler(monkeypatch, handler))
-    assert response.status_code == 504 and "may be queued" in response.json()["detail"]
+    main = _media_main_with_prompt_handler(monkeypatch, handler)
+    response = _post_media(main)
+    detail = response.json()["detail"]
+    # The 504 pointed at /comfyui/queue (403 for users) and kept no record;
+    # it now returns a durable submission_unknown operation, like FAL's.
+    assert response.status_code == 504 and detail["submission_status"] == "unknown"
+    assert "/comfyui/queue" not in str(detail)
+    stored = asyncio.run(main.MEDIA_OPERATION_STORE.get(detail["local_submission_id"]))
+    assert stored["last_payload"]["status"] == "submission_unknown"
 
 
 @pytest.mark.parametrize("upstream, expected", [

@@ -2564,13 +2564,9 @@ async def _submit_media_provider(
             )
     if provider == "comfyui":
         async with ComfyUIMediaClient(model=model) as client:
-            try:
-                return await client.submit_media_operation(
-                    modality=modality, input_payload=prepared_input, model=model
-                )
-            except ComfyUISubmissionUnknownError:
-                # 504 "may be queued", not the caller's generic 502 (#676).
-                raise _comfyui_submission_unknown() from None
+            return await client.submit_media_operation(
+                modality=modality, input_payload=prepared_input, model=model
+            )
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail=f"Unsupported media provider for submission: {provider}",
@@ -2836,9 +2832,10 @@ async def submit_media_generation(
                 prepared_input=prepared_input,
                 timeout_seconds=request.timeout_seconds,
             )
-        except (FalSubmissionAmbiguousError, asyncio.CancelledError) as exc:
-            # FAL may have accepted paid work before the response carrying its
-            # request id was lost. Releasing the reservation would under-count
+        except (FalSubmissionAmbiguousError, ComfyUISubmissionUnknownError, asyncio.CancelledError) as exc:
+            # The provider may have accepted the work before the response
+            # carrying its id was lost (FAL: paid work; ComfyUI: a queued
+            # render a blind retry runs twice, #676). Releasing the reservation would under-count
             # that work, so retain it under Atlas' durable local id and expose
             # an explicit manual-reconciliation record.
             reservation_settled = True

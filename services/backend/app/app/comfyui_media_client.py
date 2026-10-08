@@ -623,7 +623,10 @@ class ComfyUIMediaClient:
             status=normalized,
             model=self.model,
             modality=modality,
-            raw={"history": entry},
+            # Never the history entry itself: a failed one carries the server
+            # traceback, file paths, node inputs and private model names, and
+            # the poll answers any caller who owns the operation.
+            raw={"history": None, "status_str": status_str},
         )
         if normalized == "succeeded":
             artifacts = self._extract_artifacts(entry, operation_id=operation_id)
@@ -631,7 +634,10 @@ class ComfyUIMediaClient:
             payload["artifact_url"] = artifacts[0]["url"] if artifacts else None
             payload["raw"]["error"] = None
         elif normalized == "failed":
-            payload["raw"]["error"] = error_msg
+            _logger.warning("ComfyUI prompt %s failed: %.500s", operation_id, error_msg)
+            payload["raw"]["error"] = "ComfyUI execution failed" + (
+                f" ({error_type})" if (error_type := self._error_type(entry)) else ""
+            )
         return payload
 
     async def cancel_media_operation(self, *, operation_id: str, modality: str) -> bool:
@@ -666,7 +672,9 @@ class ComfyUIMediaClient:
             # A read timeout or dropped response after sending: the prompt
             # may be queued, and a 502 invited a retry that ran it twice
             # with no operation record to poll or cancel (#676).
-            raise ComfyUISubmissionUnknownError("ComfyUI did not confirm the prompt") from exc
+            raise ComfyUISubmissionUnknownError(
+                "ComfyUI did not confirm the prompt; it may already be queued, so do not resubmit blindly"
+            ) from exc
         if resp.status_code >= 400:
             # The body is logged, not returned: a proxy's HTML page or raw
             # node_errors reached any signed-in caller.
@@ -784,6 +792,18 @@ class ComfyUIMediaClient:
         )
 
     # ── status / artifact normalization ────────────────────────────
+    @staticmethod
+    def _error_type(entry: Dict[str, Any]) -> Optional[str]:
+        """The exception class name of a failed entry (e.g. OutOfMemoryError),
+        safe to return; the message and traceback are logged only."""
+        status = entry.get("status") if isinstance(entry.get("status"), dict) else {}
+        for msg in status.get("messages", []) or []:
+            if isinstance(msg, (list, tuple)) and len(msg) >= 2 and msg[0] == "execution_error":
+                name = msg[1].get("exception_type") if isinstance(msg[1], dict) else None
+                if isinstance(name, str) and re.fullmatch(r"[A-Za-z_][\w.]{0,80}", name):
+                    return name
+        return None
+
     @staticmethod
     def _history_status(entry: Dict[str, Any]) -> Tuple[str, Optional[str]]:
         status = entry.get("status") if isinstance(entry.get("status"), dict) else {}
