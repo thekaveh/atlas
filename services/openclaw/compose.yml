@@ -24,6 +24,15 @@ services:
         # the target before jq runs, so a missing/failed jq used to
         # leave a 0-byte config the gateway chokes on (and re-runs
         # could not self-heal — jq errors on the empty file).
+        command -v jq >/dev/null 2>&1 || { echo "openclaw-init: jq is required" >&2; exit 1; }
+        # OpenClaw reads its config as JSON5 (comments, trailing commas); jq
+        # cannot. Failing on such a file kept the gateway from starting
+        # although OpenClaw would run on it, so leave it unpatched instead.
+        if [ -s "$$CONFIG" ] && ! jq empty "$$CONFIG" >/dev/null 2>&1; then
+          echo "openclaw-init: $$CONFIG is not strict JSON (JSON5?); leaving it unpatched"
+          chown -R 1000:1000 /home/node/.openclaw
+          exit 0
+        fi
         if [ -s "$$CONFIG" ]; then
           jq --argjson patch "$$PATCH" '. * $$patch' "$$CONFIG" > "$$CONFIG.tmp" || exit 1
           mv "$$CONFIG.tmp" "$$CONFIG"

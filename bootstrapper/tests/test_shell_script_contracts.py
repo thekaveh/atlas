@@ -213,9 +213,11 @@ def test_airflow_init_keeps_operator_connections_for_localhost_sources(tmp_path)
     assert "weaviate_default" not in calls and "neo4j_default" not in calls
 
 
-def test_openclaw_init_fails_on_an_unparseable_config(tmp_path) -> None:
-    """`jq … > tmp && mv` hid jq's failure from set -e: invalid JSON exited 0
-    and the gateway started on a broken config."""
+def test_openclaw_init_leaves_a_json5_config_unpatched(tmp_path) -> None:
+    """OpenClaw reads JSON5; failing init on a commented / trailing-comma
+    config kept the gateway from starting (7fe2483e), and the older `&& mv`
+    form also exited 0, but only by accident. Now: warn, leave the file
+    byte-identical, exit 0. A strict-JSON config is still patched."""
     import shutil
     import subprocess
 
@@ -224,10 +226,18 @@ def test_openclaw_init_fails_on_an_unparseable_config(tmp_path) -> None:
     compose = yaml.safe_load((REPO_ROOT / "services/openclaw/compose.yml").read_text(encoding="utf-8"))
     script = compose["services"]["openclaw-init"]["entrypoint"][-1].replace("$$", "$")
     config = tmp_path / "openclaw.json"
-    config.write_text('{"gateway": broken', encoding="utf-8")
-    script = script.replace("/home/node/.openclaw/openclaw.json", str(config)).replace("chown -R 1000:1000 /home/node/.openclaw", "true")
-    assert subprocess.run(["sh", "-c", script], capture_output=True).returncode != 0
-    assert config.read_text(encoding="utf-8") == '{"gateway": broken'
+    script = script.replace("/home/node/.openclaw/openclaw.json", str(config)).replace(
+        "chown -R 1000:1000 /home/node/.openclaw", "true")
+    json5 = '{\n  // operator note\n  "agents": {"defaults": {"model": "litellm/gpt-4o"}},\n}\n'
+    config.write_text(json5, encoding="utf-8")
+    result = subprocess.run(["sh", "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0 and "not strict JSON" in result.stdout
+    assert config.read_text(encoding="utf-8") == json5
+    config.write_text('{"agents": {}}', encoding="utf-8")
+    assert subprocess.run(["sh", "-c", script], capture_output=True).returncode == 0
+    patched = config.read_text(encoding="utf-8")
+    assert "dangerouslyAllowHostHeaderOriginFallback" in patched and "litellm:4000" in patched
+
 
 
 def test_returning_to_a_custom_n8n_node_set_reinstalls_it(tmp_path) -> None:
