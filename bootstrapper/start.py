@@ -446,6 +446,21 @@ def _validate_consumer_manifests_early(starter, from_cli: bool) -> None:
         raise click.UsageError(f"invalid {source} manifest: {exc}") from exc
 
 
+def _ascii_int(raw: str):
+    """ASCII digits as an int, else None (`"²".isdigit()` is true)."""
+    raw = (raw or "").strip()
+    return int(raw) if raw.isascii() and raw.isdigit() else None
+
+
+def _doctor_active_profile(starter, env: dict, declared) -> str:
+    """The profile the stack runs: this run's --profile, else the last
+    applied one, else the consumer `profile:`. Reading only `profile:`
+    reported `default` after `./start.sh --profile prod`."""
+    from services.profiles import canonical_profile
+
+    return canonical_profile(getattr(starter, "profile", None) or _known_applied_profile(env) or declared)
+
+
 def _known_applied_profile(env_vars: dict) -> str:
     """``ATLAS_PROFILE_APPLIED`` canonicalized, or "" when blank/unknown."""
     from services.profiles import canonical_profile, is_known_profile
@@ -2474,7 +2489,9 @@ class AtlasStarter:
         still name the old block the running containers publish."""
         env = self.config_parser.parse_env_file()
         current = (env.get('BASE_PORT', '') or '').strip()
-        if current.isdigit() and int(current) != base_port:
+        # ASCII only: "²".isdigit() is true but int("²") raises, which
+        # crashed the start where handle_port_configuration falls back.
+        if _ascii_int(current) not in (None, base_port):
             return True
         target = self.port_manager.calculate_port_assignments(base_port)
         # A *_PORT pinned in .env.user / a consumer manifest is merged into
@@ -2482,7 +2499,7 @@ class AtlasStarter:
         # move, and counting it tore the stack down on every warm start.
         pinned = set(getattr(self, "_env_user_keys", None) or ())
         return any(
-            str(env.get(var, '')).strip().isdigit() and int(env[var]) != port
+            _ascii_int(str(env.get(var, ''))) not in (None, port)
             for var, port in target.items() if var not in pinned
         )
 
@@ -6626,7 +6643,7 @@ def _doctor_check_profile(starter: "AtlasStarter") -> dict:
         return _doctor_result("profile", "fail", str(exc))
 
     declared = getattr(consumer_config, "profile", None)
-    active = canonical_profile(declared)
+    active = _doctor_active_profile(starter, env, declared)
     applied = (env.get("ATLAS_PROFILE_APPLIED", "") or "").strip()
     bundle = bundles.get(active)
 
