@@ -649,3 +649,18 @@ def test_the_wizard_compose_executor_pins_project_name_too():
     from ui.textual.screens import wizard_screen
 
     assert "compose_env(command)" in inspect.getsource(wizard_screen._ThreadedComposeExecutor)
+
+
+def test_execute_compose_command_pins_project_name_for_cold_stop(tmp_path, monkeypatch):
+    """`./stop.sh --cold` runs `down --volumes` through execute_compose_command;
+    its child must name resources after -p, not a stray exported value."""
+    import subprocess
+
+    manager = DockerManager(str(tmp_path))
+    monkeypatch.setenv("PROJECT_NAME", "other")
+    seen = {}
+    monkeypatch.setattr(manager, "_validated_compose_file_args", lambda args, prefix: ([], False))
+    monkeypatch.setattr(manager, "detect_docker_compose_command", lambda: "docker compose")
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: seen.update(kw) or subprocess.CompletedProcess(cmd, 0))
+    assert manager.execute_compose_command(["down", "--volumes"], project_name="foo") == 0
+    assert seen["env"]["PROJECT_NAME"] == "foo"

@@ -675,10 +675,19 @@ def test_backup_queries_never_resolve_through_public(
     superuser; a planted public.convert_to(name, name) ran in them (and
     COPY ... TO PROGRAM ran shell commands in supabase-db). Both scripts now
     pin search_path to pg_catalog, pg_temp."""
+    import re
+
     for script in ("backup-all.sh", "restore-postgres.sh"):
-        text = (REPO / "services/backup/init/scripts" / script).read_text(encoding="utf-8")
-        pin = text.index("-c search_path=pg_catalog,pg_temp")
-        assert pin < text.index("psql "), script
+        path = REPO / "services/backup/init/scripts" / script
+        text = path.read_text(encoding="utf-8")
+        pin = re.search(r'^export PGOPTIONS="\$\{PGOPTIONS:\+\$PGOPTIONS \}-c search_path=pg_catalog,pg_temp"$',
+                        text, re.M)
+        assert pin and pin.start() < text.index("psql "), script
+        # And it is what the script exports: run its preamble up to the pin.
+        preamble = text[:pin.end()]
+        exported = subprocess.run(["sh", "-c", preamble + '\nprintf %s "$PGOPTIONS"'],
+                                  capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"})
+        assert exported.stdout.endswith("-c search_path=pg_catalog,pg_temp"), (script, exported.stderr)
     db = disposable_postgres
     owui = TEST_SECRETS["OPEN_WEBUI_DB_USER"]
     role = dict(user=owui, password=TEST_SECRETS["OPEN_WEBUI_DB_PASSWORD"])
