@@ -509,3 +509,17 @@ def test_no_surface_advertises_an_unpublished_port():
 
     assert start._published_port_label("SUPABASE_STUDIO_PORT", env) == "-"  # --no-tui summary
     assert start._published_port_label("REDIS_PORT", env) == ":63025"
+
+
+def test_the_service_directory_does_not_link_an_unpublished_port():
+    """The Kong-served directory linked and probed http://localhost:63014 for
+    pg-meta after it was unpublished, so the card always read unreachable."""
+    from types import SimpleNamespace
+
+    from utils.atlas_dashboard import _direct_url
+
+    env = {"SUPABASE_META_PORT": "63014", "REDIS_PORT": "63025"}
+    meta = SimpleNamespace(port_var="SUPABASE_META_PORT", localhost_port_var=None)
+    redis = SimpleNamespace(port_var="REDIS_PORT", localhost_port_var=None)
+    assert _direct_url(meta, "container", env) is None
+    assert _direct_url(redis, "container", env) == "http://localhost:63025"

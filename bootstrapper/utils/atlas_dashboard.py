@@ -457,6 +457,10 @@ def _direct_url(row, source: str, env: dict[str, str]) -> str | None:
     if "localhost" in source and row.localhost_port_var:
         port = env.get(row.localhost_port_var)
     if not port and row.port_var:
+        from services.topology import unpublished_port_vars  # noqa: PLC0415
+
+        if row.port_var in unpublished_port_vars():
+            return None  # reserved slot, not bound on the host (pg-meta, Studio)
         port = env.get(row.port_var)
     if not port:
         return None

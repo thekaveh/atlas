@@ -161,7 +161,7 @@ env:
   - name: SUPABASE_META_CRYPTO_KEY
     default: ""
     secret: true
-    description: "Auto-generated key (PG_META_CRYPTO_KEY) shared by Studio and Postgres Meta to encrypt the connection header Studio sends Meta. Empty falls back to the images' public SAMPLE_KEY constant."
+    description: "Auto-generated key shared by Studio (as PG_META_CRYPTO_KEY) and Postgres Meta (as CRYPTO_KEY) to encrypt the connection header Studio sends Meta. Empty falls back to the images' public SAMPLE_KEY constant."
   - name: SUPABASE_META_DB_USER_URI
     default: atlas_meta
     description: "Bootstrapper-synchronized percent-encoded SUPABASE_META_DB_USER for DSN userinfo."
