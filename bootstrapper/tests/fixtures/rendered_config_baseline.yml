@@ -2037,6 +2037,7 @@ services:
     - set -a; [ -f /app/data/.env ] && . /app/data/.env; set +a; exec python /atlas/resolve-role-keys.py
     environment:
       CHUNK_TOP_K: '5'
+      CORS_ORIGINS: http://lightrag.localhost:63000
       DOCLING_ENDPOINT: ''
       EMBEDDING_BINDING: openai
       EMBEDDING_BINDING_API_KEY: ''
@@ -2500,6 +2501,7 @@ services:
     deploy:
       replicas: 1
     environment:
+      CORS_ALLOW_ORIGINS: http://research.localhost:63000
       CRAWL4AI_API_TOKEN: ''
       CRAWL4AI_ENDPOINT: ''
       CRAWL4AI_MAX_CHARS: '60000'

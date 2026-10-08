@@ -409,3 +409,9 @@ def test_direct_ports_do_not_answer_every_browser_origin():
     assert "ports" not in supabase["services"]["supabase-meta"]
     origin = weaviate["services"]["weaviate"]["environment"]["CORS_ALLOW_ORIGIN"]
     assert origin.startswith("http://weaviate.localhost:") and "*" not in origin
+    # local-deep-researcher (langgraph-api) and LightRAG also defaulted to *.
+    for service, key, host in (("local-deep-researcher", "CORS_ALLOW_ORIGINS", "research"),
+                               ("lightrag", "CORS_ORIGINS", "lightrag")):
+        compose = yaml.safe_load((root / f"services/{service}/compose.yml").read_text(encoding="utf-8"))
+        origin = compose["services"][service]["environment"][key]
+        assert origin.startswith(f"http://{host}.localhost:") and "*" not in origin, service
