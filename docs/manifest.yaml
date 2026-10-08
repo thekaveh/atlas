@@ -574,7 +574,7 @@ sections:
   - id: architecture-authoring
     number: '8.13'
     title: Diagram Authoring
-    source: docs/architecture/README.md
+    source: docs/diagrams/README.md
 - id: development
   number: '9'
   title: Development
@@ -594,7 +594,7 @@ sections:
   - id: diagram-catalog
     number: '9.4'
     title: Diagram Catalog
-    source: docs/diagrams/README.md
+    source: docs/architecture/README.md
   - id: changelog
     number: '9.5'
     title: Changelog
