@@ -23,6 +23,7 @@ def _write_fake_postgres_tools(tmp_path: Path) -> tuple[Path, Path]:
     psql = bin_dir / "psql"
     psql.write_text(
         """#!/bin/sh
+script=""
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "-f" ]; then
     script="$2"
@@ -30,6 +31,8 @@ while [ "$#" -gt 0 ]; do
   fi
   shift
 done
+# The built-in shadowing guard reads its query from stdin: no shadowing.
+if [ -z "$script" ]; then cat >/dev/null; exit 0; fi
 echo "$script" >> "$PSQL_LOG"
 case "$script" in
   *fail*.sql) echo "fake psql failure for $script" >&2; exit 17 ;;
