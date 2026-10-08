@@ -2483,3 +2483,83 @@ def test_a_completed_research_run_is_not_cancelled_by_its_own_heartbeat():
 
     outcome = asyncio.run(scenario())
     assert outcome == "finished" and state["deleted"], (outcome, state)
+
+
+def test_recall_applies_min_confidence_inside_the_vector_query(monkeypatch):
+    """Recall asked the vector store for `limit` hits and dropped low-confidence
+    ones afterwards, so low-confidence neighbours took the slots and recall
+    returned fewer hits than qualifying facts existed (#1452)."""
+    from unittest.mock import AsyncMock
+
+    import httpx
+
+    import memory_store
+
+    store = memory_store.MemoryStore("postgresql://atlas", embedding_dimension=3)
+    monkeypatch.setattr(store, "_generate_embedding", AsyncMock(return_value=[0.1, 0.2, 0.3]))
+    executed = []
+
+    class Conn:
+        async def fetch(self, query, *params):
+            executed.append((query, params))
+            return []
+
+        async def close(self):
+            pass
+
+    _also_route_acquire(monkeypatch, memory_store, Conn)
+    asyncio.run(store._search_pgvector("q", "00000000-0000-4000-8000-000000000009", "default", 5, 0.7))
+    query, params = executed[0]
+    assert "confidence >= $6" in query and params[5] == 0.7
+
+    sent = {}
+
+    class Client:
+        def __init__(self, *_a, **_k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return False
+
+        async def post(self, url, json):
+            sent["query"] = json["query"]
+            return httpx.Response(200, json={"data": {"Get": {memory_store.WEAVIATE_COLLECTION_NAME: []}}},
+                                  request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(memory_store.httpx, "AsyncClient", Client)
+    store.weaviate_url = "http://weaviate:8080"
+    asyncio.run(store._search_weaviate("q", "u", "default", 5, 0.7))
+    assert 'path: ["confidence"], operator: GreaterThanEqual, valueNumber: 0.7' in sent["query"]
+
+
+def test_recall_passes_its_threshold_to_the_store(monkeypatch):
+    import memory_service
+
+    svc = memory_service.MemoryService.__new__(memory_service.MemoryService)
+    svc.enabled, svc._initialized, svc.namespace = True, True, "default"
+    seen = {}
+
+    async def search_similar(**kwargs):
+        seen.update(kwargs)
+        return []
+
+    async def noop(*_a, **_k):
+        return None
+
+    svc.store = SimpleNamespace(search_similar=search_similar)
+    svc._ensure_initialized = noop
+    svc._reconcile_pending_vectors = noop
+
+    class Conn:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            return False
+
+    svc._acquire = lambda: Conn()
+    asyncio.run(svc.recall("00000000-0000-4000-8000-000000000001", "q", min_confidence=0.8))
+    assert seen["min_confidence"] == 0.8

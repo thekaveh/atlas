@@ -695,7 +695,8 @@ Extract the facts as JSON:"""
 
         # Search vector store for semantically similar memories
         similar = await self.store.search_similar(
-            query=query, user_id=user_id, namespace=namespace, limit=limit
+            query=query, user_id=user_id, namespace=namespace, limit=limit,
+            min_confidence=min_confidence,
         )
 
         # Fetch full fact records from PostgreSQL
