@@ -586,3 +586,32 @@ def test_cold_start_does_not_rotate_secrets_while_project_volumes_remain(tmp_pat
 
     assert manager.perform_cold_start_cleanup() is False
     assert any("atlas_consumer-pgdata" in line for line in lines)
+
+
+def test_compose_children_name_resources_after_their_project(tmp_path, monkeypatch):
+    """`--cold --project foo` ran `down --volumes` under `-p foo` while .env
+    (or the shell) still said PROJECT_NAME=atlas, deleting atlas-* volumes."""
+    import subprocess
+
+    manager = DockerManager(str(tmp_path))
+    monkeypatch.setenv("PROJECT_NAME", "other")
+    seen = {}
+
+    import io
+
+    class Proc:
+        stdout = io.StringIO("")
+
+        def wait(self, timeout=None):
+            return 0
+
+        returncode = 0
+
+    def popen(cmd, **kwargs):
+        seen["env"] = kwargs["env"]
+        seen["cmd"] = cmd
+        return Proc()
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    manager._stream_compose_command(["docker", "compose", "-p", "foo", "down", "--volumes"], lambda _l: None)
+    assert seen["env"]["PROJECT_NAME"] == "foo"

@@ -2832,3 +2832,14 @@ def test_a_base_port_change_keeps_the_typed_localhost_port_in_the_overview() -> 
     screen._services = [SimpleNamespace(name="Weaviate", port="8080")]
     screen._reapply_typed_host_ports()
     assert screen._services[0].port == "9999"
+
+
+@pytest.mark.parametrize("text", ["export A_B=1\n", "\ufeffA_B=1\n", "export\tA_B='1'  # note\n"])
+def test_consumer_env_file_reads_like_dotenv(tmp_path, text):
+    """`export KEY=` lines and a BOM, accepted by .env and .env.user, became
+    keys like "export KEY" and failed the whole consumer manifest."""
+    from core.consumer_manifest import _read_env_overlay
+
+    env_file = tmp_path / "atlas.env.user"
+    env_file.write_text(text, encoding="utf-8")
+    assert _read_env_overlay(env_file) == {"A_B": "1"}

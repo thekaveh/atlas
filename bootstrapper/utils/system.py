@@ -178,3 +178,16 @@ def report_surviving_volumes(leftover: list, emit) -> list:
             "--consumer <manifest>, or remove them with docker volume rm."
         )
     return leftover
+
+
+def compose_env(compose_cmd: list) -> dict:
+    """The environment for a compose command, with PROJECT_NAME pinned to its
+    `-p`. Every volume and container is named `${PROJECT_NAME}-…`, which
+    Compose resolves from the shell before --env-file, so a cold
+    `--project foo` (cleanup runs before .env gets foo) or a stray exported
+    PROJECT_NAME ran `down --volumes` under `-p foo` against another
+    project's volumes."""
+    env = os.environ.copy()
+    if "-p" in compose_cmd[:-1]:
+        env["PROJECT_NAME"] = compose_cmd[compose_cmd.index("-p") + 1]
+    return env

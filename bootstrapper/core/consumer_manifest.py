@@ -11,7 +11,7 @@ from typing import Any, Iterable, Mapping
 import yaml
 
 from services.manifests import load_yaml_strict
-from utils.atomic_write import assert_safe_env_assignment, env_lines
+from utils.atomic_write import assert_safe_env_assignment, decode_env_value, env_lines
 
 try:
     from utils.comfyui_custom_nodes import (
@@ -629,6 +629,9 @@ def discover_consumer_manifest_paths(
     return list(dict.fromkeys(resolved))
 
 
+_EXPORT_PREFIX = re.compile(r"^export[ \t]+")
+
+
 def _read_env_overlay(path: Path) -> dict[str, str]:
     env_vars: dict[str, str] = {}
     # `env_lines`, not `splitlines()`. This is the one `.env`-format reader that
@@ -639,7 +642,9 @@ def _read_env_overlay(path: Path) -> dict[str, str]:
     # Same manifest, same bytes, opposite outcomes. It also silently truncated a
     # legitimate secret containing one of them to its prefix.
     try:
-        text = path.read_text(encoding="utf-8")
+        # utf-8-sig, as the canonical reader: a BOM became part of the first
+        # key and failed the whole manifest.
+        text = path.read_text(encoding="utf-8-sig")
     except UnicodeDecodeError as exc:
         # Every neighbouring failure mode here is a clean ConsumerManifestError;
         # this one escaped as a raw traceback out of `./start.sh`.
@@ -651,21 +656,9 @@ def _read_env_overlay(path: Path) -> dict[str, str]:
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
         key, value = stripped.split("=", 1)
-        value = value.strip()
-        if value[:1] in ('"', "'"):
-            quote = value[0]
-            end = value.find(quote, 1)
-            if end != -1:
-                value = value[1:end]
-            else:
-                value = value.strip('"').strip("'")
-        else:
-            for i, ch in enumerate(value):
-                if ch == "#" and (i == 0 or value[i - 1] in " \t"):
-                    value = value[:i]
-                    break
-            value = value.strip()
-        env_vars[key.strip()] = value
+        # `export KEY=` is accepted as by .env / .env.user (#1391); it used to
+        # become the key "export KEY" and fail the manifest.
+        env_vars[_EXPORT_PREFIX.sub("", key.strip())] = decode_env_value(value)
     return env_vars
 
 

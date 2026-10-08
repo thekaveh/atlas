@@ -12,7 +12,7 @@ import re
 import signal
 import subprocess
 
-from utils.system import project_volume_names, report_surviving_volumes
+from utils.system import compose_env, project_volume_names, report_surviving_volumes
 import time
 from typing import Callable, List, Optional
 
@@ -358,7 +358,8 @@ class DockerManager:
                     full_cmd,
                     cwd=str(self.root_dir),
                     stdin=subprocess.DEVNULL,
-                    check=False
+                    check=False,
+                    env=compose_env(full_cmd),
                 ).returncode
             except KeyboardInterrupt:
                 # `docker compose up --build` drives BuildKit inside the Docker
@@ -1076,7 +1077,7 @@ class DockerManager:
     def _stream_compose_command(
         self, full_cmd: List[str], on_line: Callable[[str], None]
     ) -> int:
-        env = os.environ.copy()
+        env = compose_env(full_cmd)
         env['BUILDKIT_PROGRESS'] = 'plain'
         try:
             proc = subprocess.Popen(
