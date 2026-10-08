@@ -80,6 +80,8 @@ as a mirror of a running stack's persisted DB state.
 """
 from __future__ import annotations
 
+import dataclasses
+import json
 import os
 import sys
 import tempfile
@@ -277,11 +279,70 @@ def resolve_sidecar_paths(env: Mapping[str, str], *, warn: bool = True) -> list[
     return [str(host_sidecar)] if host_sidecar is not None else configured_paths
 
 
+REMEMBERED_SELECTIONS_FILE = "selected-library-entries.json"
+
+
+def _default_remembered_path() -> Path | None:
+    """``volumes/comfyui/selected-library-entries.json`` beside ``services/``."""
+    try:
+        return comfyui_library._find_services_dir().parent / "volumes" / "comfyui" / REMEMBERED_SELECTIONS_FILE
+    except FileNotFoundError:
+        return None
+
+
+def load_remembered_selections(path: Path | str | None) -> dict[str, ComfyUILibraryEntry]:
+    """Scraped library entries selected on an earlier start, by name.
+
+    Every start re-scrapes Hugging Face and civitai; a selected model the
+    scrape no longer returns (one scraper down, fell out of the top-N, or
+    picked from the offline fallback) was dropped with no metadata left to
+    download it (#1448). An unreadable file counts as empty.
+    """
+    if path is None or not Path(path).is_file():
+        return {}
+    try:
+        rows = json.loads(Path(path).read_text(encoding="utf-8"))
+        entries = [comfyui_library._dict_to_entry(row, str(row["source"])) for row in rows]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(f"⚠️  ignoring unreadable {path}: {exc}", file=sys.stderr, flush=True)
+        return {}
+    return {entry.name: entry for entry in entries}
+
+
+def write_remembered_selections(entries: list[ComfyUILibraryEntry], path: Path | str) -> None:
+    """Persist the scraped (non-curated, non-sidecar) active entries, so the
+    next start can resolve them when the scrape no longer returns them."""
+    rows = [
+        dataclasses.asdict(entry) for entry in entries
+        if entry.source not in ("curated", "custom")
+    ]
+    out_path = Path(path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(out_path.parent), prefix=out_path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(rows, fh, indent=2, sort_keys=True)
+        os.replace(tmp, str(out_path))
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def unresolved_user_models(env: Mapping[str, str], entries: list[ComfyUILibraryEntry]) -> list[str]:
+    """``COMFYUI_USER_MODELS`` names that resolved to no active entry."""
+    active = {entry.name for entry in entries}
+    return [name for name in _csv(env.get("COMFYUI_USER_MODELS", "")) if name not in active]
+
+
 def active_comfyui_models(
     env: Mapping[str, str],
     *,
     catalog: list[ComfyUILibraryEntry] | None = None,
     sidecar_path: str | None = None,
+    remembered_path: Path | str | None = None,
 ) -> list[ComfyUILibraryEntry]:
     """Return the active ComfyUI entries (with full metadata) for the given env.
 
@@ -340,8 +401,13 @@ def active_comfyui_models(
     }
 
     # ── 3. Resolve catalog ───────────────────────────────────────────────
+    # A live scrape also consults the selections remembered from earlier
+    # starts (#1448); a caller-supplied catalog does only when asked to.
     if catalog is None:
         catalog = comfyui_library.assemble_wizard_catalog()
+        if remembered_path is None:
+            remembered_path = _default_remembered_path()
+    remembered = load_remembered_selections(remembered_path)
 
     # ── 4. Parse COMFYUI_USER_MODELS ────────────────────────────────────
     user_models: list[str] = _csv(env.get("COMFYUI_USER_MODELS", ""))
@@ -355,23 +421,29 @@ def active_comfyui_models(
 
     if user_models:
         # Non-empty CSV: activate exactly the named entries in CATALOG ORDER
-        # (stable, regardless of CSV order) — see module docstring.
-        # Names not in either catalog or sidecar are dropped with a warning.
+        # (stable, regardless of CSV order) — see module docstring. A name the
+        # scrape no longer returns keeps its remembered entry, appended in CSV
+        # order; a name with neither is dropped with a warning, and the start
+        # reports it (unresolved_user_models).
         user_model_set = set(user_models)
-        # Warn about names absent from both catalog and sidecar.
+        recalled: list[ComfyUILibraryEntry] = []
         for name in user_models:
-            if name not in catalog_by_name and name not in sidecar_by_name:
-                print(
-                    f"⚠️  COMFYUI_USER_MODELS entry '{name}' not found in "
-                    "catalog or sidecar — skipping (no download metadata).",
-                    file=sys.stderr,
-                    flush=True,
-                )
+            if name in catalog_by_name or name in sidecar_by_name:
+                continue
+            if name in remembered:
+                recalled.append(remembered[name])
+                continue
+            print(
+                f"⚠️  COMFYUI_USER_MODELS entry '{name}' not found in "
+                "catalog, sidecar or earlier selections — skipping (no download metadata).",
+                file=sys.stderr,
+                flush=True,
+            )
         # Preserve catalog order (iterate catalog, keep only those in the set).
         active_catalog: list[ComfyUILibraryEntry] = [
             e for e in catalog
             if e.name in user_model_set and e.name not in sidecar_by_name
-        ]
+        ] + recalled
     else:
         # Empty CSV: activate essential entries.
         active_catalog = [
