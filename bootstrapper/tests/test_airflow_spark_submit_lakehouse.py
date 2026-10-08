@@ -239,7 +239,11 @@ def test_airflow_compose_exposes_lakehouse_spark_submit_environment() -> None:
 def test_airflow_init_seeds_spark_default_for_cluster_spark_submit() -> None:
     body = INIT_SCRIPT.read_text(encoding="utf-8")
 
-    assert "for orphan in spark_default minio_default weaviate_default neo4j_default" in body
+    # Every source-gated Connection is in the cleanup pass, which skips a
+    # localhost source (that Connection is the operator's).
+    for conn in ("spark_default", "minio_default", "weaviate_default", "neo4j_default"):
+        assert f'"{conn}:${{' in body, conn
+    assert "*localhost*) continue" in body
     assert "--conn-type spark" in body
     assert "--conn-host spark-master" in body
     assert "--conn-port 7077" in body
