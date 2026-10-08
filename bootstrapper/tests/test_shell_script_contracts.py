@@ -199,18 +199,27 @@ def test_airflow_init_keeps_operator_connections_for_localhost_sources(tmp_path)
     import subprocess
 
     script = (REPO_ROOT / "services/airflow/init/scripts/init-airflow.sh").read_text(encoding="utf-8")
-    start = script.index("for pair in ")
-    loop = script[start:script.index("done", start) + 4]
+    start = script.index("seeded_host() {")
+    loop = script[start:script.index("done", script.index("for pair in ", start)) + 4]
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    (bin_dir / "airflow").write_text(f'#!/bin/sh\necho "$@" >> {tmp_path}/calls\n')
+    # weaviate_default is still the Atlas-seeded in-compose Connection (left
+    # from a `container` run); neo4j_default is the operator's host one.
+    (bin_dir / "airflow").write_text(
+        f'#!/bin/sh\necho "$@" >> {tmp_path}/calls\n'
+        'if [ "$2" = get ]; then case "$3" in\n'
+        '  weaviate_default) echo \'[{"conn_id": "weaviate_default", "host": "weaviate"}]\' ;;\n'
+        '  neo4j_default) echo \'[{"conn_id": "neo4j_default", "host": "host.docker.internal"}]\' ;;\n'
+        'esac; fi\n'
+    )
     (bin_dir / "airflow").chmod(0o755)
     env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "SPARK_SOURCE": "disabled",
            "MINIO_SOURCE": "container", "WEAVIATE_SOURCE": "localhost", "NEO4J_GRAPH_DB_SOURCE": "localhost"}
     subprocess.run(["sh", "-c", loop], env=env, check=True)
     calls = (tmp_path / "calls").read_text()
     assert "delete spark_default" in calls and "delete minio_default" in calls
-    assert "weaviate_default" not in calls and "neo4j_default" not in calls
+    assert "delete weaviate_default" in calls  # stale seeded Connection removed
+    assert "delete neo4j_default" not in calls  # operator's Connection kept
 
 
 def test_openclaw_init_leaves_a_json5_config_unpatched(tmp_path) -> None:

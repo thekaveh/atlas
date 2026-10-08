@@ -81,15 +81,30 @@ add_conn() {
 # back to `disabled` — orphan Connections would point at dead DNS names
 # and confuse DAGs that reference them.
 #
-# Only a `container` source owns its Connection: for a `localhost` source the
-# operator creates it by hand (see below), and deleting it on every start
-# broke their DAGs with AirflowNotFoundException.
+# For a `localhost` source the operator creates the Connection by hand (see
+# below): deleting it on every start broke their DAGs. But the one Atlas
+# seeded while the source was `container` (host `weaviate` /
+# `neo4j-graph-db`) is still removed, or it outlived the switch pointing at a
+# dead name and blocked the operator's `connections add`.
+seeded_host() {
+  case "$1" in
+    weaviate_default) echo weaviate ;;
+    neo4j_default) echo neo4j-graph-db ;;
+  esac
+}
 for pair in "spark_default:${SPARK_SOURCE:-}" "minio_default:${MINIO_SOURCE:-}" \
             "weaviate_default:${WEAVIATE_SOURCE:-}" "neo4j_default:${NEO4J_GRAPH_DB_SOURCE:-}"; do
+  conn="${pair%%:*}"
   case "${pair#*:}" in
-    *localhost*) continue ;;
+    *localhost*)
+      host="$(seeded_host "$conn")"
+      if [ -z "$host" ] || ! airflow connections get "$conn" -o json 2>/dev/null \
+          | grep -Eq "\"host\": *\"$host\""; then
+        continue
+      fi
+      ;;
   esac
-  airflow connections delete "${pair%%:*}" >/dev/null 2>&1 || true
+  airflow connections delete "$conn" >/dev/null 2>&1 || true
 done
 
 # Gating convention: every gate uses `= "container"` (NOT `!= "disabled"`).
