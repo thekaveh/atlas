@@ -615,3 +615,37 @@ def test_compose_children_name_resources_after_their_project(tmp_path, monkeypat
     monkeypatch.setattr(subprocess, "Popen", popen)
     manager._stream_compose_command(["docker", "compose", "-p", "foo", "down", "--volumes"], lambda _l: None)
     assert seen["env"]["PROJECT_NAME"] == "foo"
+
+
+@pytest.mark.parametrize("case", [
+    (None, "MyStack", None),        # same project, raw case kept: volumes stay MyStack-*
+    ("other", "atlas", "atlas"),    # a stray export naming another project is overridden
+    (None, "atlas", None),          # consistent: nothing to change
+])
+def test_compose_env_keeps_the_projects_own_spelling(tmp_path, monkeypatch, case):
+    """ccb79508 pinned PROJECT_NAME to the lowercased -p, renaming a
+    hand-edited MyStack's volumes to mystack-* (empty databases, orphaned
+    data); it now only replaces a value that names a different project."""
+    from utils.system import compose_env
+
+    shell, env_file, expected = case
+    env = tmp_path / ".env"
+    env.write_text(f"PROJECT_NAME={env_file}\n", encoding="utf-8")
+    if shell is None:
+        monkeypatch.delenv("PROJECT_NAME", raising=False)
+    else:
+        monkeypatch.setenv("PROJECT_NAME", shell)
+    project = env_file.lower()
+    result = compose_env(["docker", "compose", "-p", project, f"--env-file={env}", "up"])
+    if expected is None:
+        assert result.get("PROJECT_NAME") in (None, shell)
+    else:
+        assert result["PROJECT_NAME"] == expected
+
+
+def test_the_wizard_compose_executor_pins_project_name_too():
+    import inspect
+
+    from ui.textual.screens import wizard_screen
+
+    assert "compose_env(command)" in inspect.getsource(wizard_screen._ThreadedComposeExecutor)

@@ -399,10 +399,15 @@ class _ThreadedComposeExecutor:
         try:
             if self._cancel_requested.is_set():
                 raise asyncio.CancelledError
+            from utils.system import compose_env  # noqa: PLC0415
+
             return await _run_streamed_command(
                 command,
                 cwd=Path(self._manager.root_dir),
-                env={**os.environ, "BUILDKIT_PROGRESS": "plain"},
+                # Same PROJECT_NAME rule as the other compose executors: the
+                # wizard's `up` used the raw shell/.env value while stop and
+                # cold cleanup pinned it, so the two disagreed on volumes.
+                env={**compose_env(command), "BUILDKIT_PROGRESS": "plain"},
                 on_line=self._stream_line,
                 timeout_seconds=_compose_timeout_seconds(args),
                 termination_grace_seconds=_PROCESS_TERMINATION_GRACE_SECONDS,
