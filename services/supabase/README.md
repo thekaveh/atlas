@@ -259,14 +259,18 @@ reserved in the port block but is not bound.
 Open WebUI, LightRAG, pg-meta and Realtime roles can create objects in
 `public`. PostgreSQL resolves an unqualified call to the best type match across
 the search path, so a planted `public` overload can beat a `pg_catalog`
-built-in and run as whoever calls it. Atlas `SECURITY DEFINER` functions
-therefore run with `search_path = pg_catalog, pg_temp` (or empty) and qualify
-`public` objects, and superuser-run slices schema-qualify built-ins called with
-non-exact argument types. Because the slices still call some built-ins
-(`format`, `=`, `<>`) without exact types, `db-init-runner` refuses to run
-while a non-superuser owns a function or operator named like a `pg_catalog`
-one in `public`, `auth` or `extensions`, and names each object: drop them,
-then restart. The backup and restore scripts resolve nothing through `public`
+built-in and run as whoever calls it. Every `SECURITY DEFINER` function in
+the database runs with a `search_path` that excludes `public`. Atlas's own use
+`pg_catalog, pg_temp` (or empty) and qualify `public` objects, and
+`01-extensions.sql` pins PostGIS's `ST_EstimatedExtent` the same way: call its
+schema-qualified three-argument form, because the two-argument form no longer
+finds a table by search path. Superuser-run slices schema-qualify built-ins
+called with non-exact argument types. Because the slices still call some
+routines (`format`, `=`, `<>`, and extension routines such as `vector_dims`)
+without exact types, `db-init-runner` refuses to run while a non-superuser owns
+a function or operator named like a superuser-owned one in `pg_catalog`,
+`public`, `auth` or `extensions`, and names each object: drop them, then
+restart. The backup and restore scripts resolve nothing through `public`
 (`search_path = pg_catalog, pg_temp`). Downstream SQL in `db/_user/` runs as
 the init superuser too: qualify calls the same way (#1456).
 
