@@ -37,6 +37,9 @@ if [ "$REQUESTED_SPECS" = "$LOCKED_SPECS" ] || [ "$REQUESTED_SPECS" = "$LEGACY_D
     echo "n8n-init: Atlas' locked community package set is already installed."
   else
     echo "n8n-init: Installing Atlas' lockfile-backed community package set."
+    # The custom set's stamp no longer describes node_modules; left behind,
+    # returning to that same custom set skipped its install.
+    rm -f "$NODES_DIR/.atlas-requested-specs"
     cp /config/package.json "$NODES_DIR/package.json"
     cp /config/package-lock.json "$NODES_DIR/package-lock.json"
     npm ci \

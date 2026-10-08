@@ -228,3 +228,47 @@ def test_openclaw_init_fails_on_an_unparseable_config(tmp_path) -> None:
     script = script.replace("/home/node/.openclaw/openclaw.json", str(config)).replace("chown -R 1000:1000 /home/node/.openclaw", "true")
     assert subprocess.run(["sh", "-c", script], capture_output=True).returncode != 0
     assert config.read_text(encoding="utf-8") == '{"gateway": broken'
+
+
+def test_returning_to_a_custom_n8n_node_set_reinstalls_it(tmp_path) -> None:
+    """The locked-set install left the custom set's stamp behind, so going
+    back to that custom set skipped its install over the locked node_modules."""
+    import os
+    import subprocess
+
+    script = REPO_ROOT / "services" / "n8n" / "init" / "scripts" / "install-nodes.sh"
+    config = tmp_path / "config"
+    config.mkdir()
+    for name in ("package.json", "package-lock.json"):
+        (config / name).write_text("{}", encoding="utf-8")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "npm").write_text(
+        '#!/bin/sh\nwhile [ "$1" != "--prefix" ]; do shift; done; p=$2\n'
+        'rm -rf "$p/node_modules"; mkdir -p "$p/node_modules" && touch "$p/node_modules/.package-lock.json"\n'
+        'echo "$NPM_MARK" > "$p/node_modules/MARK"\n'
+    )
+    (bin_dir / "npm").chmod(0o755)
+    script_text = script.read_text(encoding="utf-8").replace("/config/", f"{config}/")
+    runner = tmp_path / "install-nodes.sh"
+    runner.write_text(script_text, encoding="utf-8")
+    base = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "N8N_USER_FOLDER": str(tmp_path / "n8n")}
+
+    def run(specs, mark):
+        env = {**base, "NPM_MARK": mark}
+        if specs:
+            env["N8N_INIT_NODES"] = specs
+        assert subprocess.run(["sh", str(runner)], env=env, capture_output=True).returncode == 0
+
+    run("n8n-nodes-x@1.0.0", "custom")
+    run(None, "locked")
+    run("n8n-nodes-x@1.0.0", "custom-again")
+    assert (tmp_path / "n8n" / "nodes" / "node_modules" / "MARK").read_text().strip() == "custom-again"
+
+
+def test_trueforge_init_reads_the_catalog_before_rotating_its_key() -> None:
+    """Minting deletes the stored provider's key; a catalog failure after that
+    left TrueForge holding a deleted key (401) until a later init succeeded."""
+    text = (REPO_ROOT / "services/trueforge/init/scripts/init.mjs").read_text(encoding="utf-8")
+    main = text[text.index("async function main()"):]
+    assert main.index("await fetchModelIds()") < main.index("await mintVirtualKey()")
