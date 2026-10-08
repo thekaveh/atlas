@@ -68,7 +68,7 @@ class FakeWeaviate:
         self.source_of = {}
     def available(self):
         return self._available
-    async def ensure_class(self, class_name):
+    async def ensure_class(self, class_name, embedding=None):
         self.classes.append(class_name)
     async def write_objects(self, class_name, objects):
         self.written.extend(objects)
@@ -2759,3 +2759,67 @@ def test_a_fully_migrated_index_lists_in_ceil_n_over_limit_calls():
             break
         cursor = page.next_cursor
     assert seen == total and calls == math.ceil(total / limit)
+
+
+def test_a_new_embedding_model_rebuilds_the_class_instead_of_appending(monkeypatch):
+    """ensure_class accepted any existing class, so vectors of a new model or
+    size were appended to the old one (#1364)."""
+    schema = {}
+    calls = []
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, url):
+            calls.append(("GET", url))
+            if "Rag" in schema:
+                return httpx.Response(200, json=schema["Rag"], request=httpx.Request("GET", url))
+            return httpx.Response(404, request=httpx.Request("GET", url))
+
+        async def delete(self, url):
+            calls.append(("DELETE", url))
+            schema.pop("Rag", None)
+            return httpx.Response(200, request=httpx.Request("DELETE", url))
+
+        async def post(self, url, json):
+            calls.append(("POST", url))
+            schema[json["class"]] = json
+            return httpx.Response(200, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
+    client = WeaviateClient("http://weaviate")
+    asyncio.run(client.ensure_class("Rag", embedding=("ollama/nomic-embed-text", 768)))
+    asyncio.run(client.ensure_class("Rag", embedding=("ollama/nomic-embed-text", 768)))
+    assert [c[0] for c in calls] == ["GET", "POST", "GET"]  # same identity: kept
+
+    calls.clear()
+    asyncio.run(client.ensure_class("Rag", embedding=("openai/text-embedding-3-large", 3072)))
+    assert [c[0] for c in calls] == ["GET", "DELETE", "POST"]
+    assert schema["Rag"]["description"] == WeaviateClient.embedding_identity(
+        "openai/text-embedding-3-large", 3072)
+
+
+def test_an_unchanged_corpus_under_a_new_embedding_model_is_a_new_job():
+    from types import SimpleNamespace
+
+    from rag_ingestion.service import RagIngestionService
+
+    profile = SimpleNamespace(consumer="c", name="p", revision="r")
+    old = RagIngestionService._idempotency_key(profile, {"path": "x"}, "fp", "ollama/nomic-embed-text")
+    new = RagIngestionService._idempotency_key(profile, {"path": "x"}, "fp", "openai/text-embedding-3-large")
+    assert old != new
+
+
+def test_two_profiles_never_produce_the_same_object_id():
+    from types import SimpleNamespace
+
+    from rag_ingestion.service import RagIngestionService
+
+    chunks = [{"content": "t", "source": "doc.md", "index": 0, "vector": [0.1]}]
+    first = RagIngestionService._weaviate_objects("Docs_a_b", SimpleNamespace(name="a-b"), chunks)
+    second = RagIngestionService._weaviate_objects("Docs_a_b", SimpleNamespace(name="a.b"), chunks)
+    assert first[0]["id"] != second[0]["id"]
