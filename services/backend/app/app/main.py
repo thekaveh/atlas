@@ -1814,6 +1814,18 @@ async def _wait_or_cancel_comfyui(client, prompt_id: str, deadline: float) -> Di
                 "prompt_id": prompt_id,
             },
         ) from exc
+    except ComfyUIUnavailableError as exc:
+        # Queued, then history polling lost the host: the prompt may still be
+        # rendering, so a retryable 503 without its id invited a duplicate.
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail={
+                "message": "ComfyUI accepted the prompt but its result could not be "
+                           "read; it may still be running, so poll or cancel it "
+                           "before retrying",
+                "prompt_id": prompt_id,
+            },
+        ) from exc
 
 
 class ComfyUIGenerateRequest(BaseModel):

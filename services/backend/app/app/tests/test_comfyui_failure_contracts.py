@@ -274,7 +274,7 @@ def test_generate_omitted_defaults_are_concrete_and_seed_null_remains_optional(
 
 
 @pytest.mark.parametrize("route", ["/comfyui/generate", "/comfyui/workflow"])
-def test_legacy_polling_history_outage_returns_503(
+def test_legacy_polling_history_outage_names_the_queued_prompt(
     fastapi_client, monkeypatch, route
 ):
     import comfyui_client
@@ -318,8 +318,10 @@ def test_legacy_polling_history_outage_returns_503(
 
     response = fastapi_client.post(route, json=payload)
 
-    assert response.status_code == 503
-    assert response.json() == {"detail": "ComfyUI is unavailable"}
+    # Queued, then history polling failed: the prompt may still render, so a
+    # retryable 503 without its id invited a duplicate (#676).
+    assert response.status_code == 504
+    assert response.json()["detail"]["prompt_id"] == "prompt-poll"
     assert "SENTINEL_COMFY_POLL_SECRET" not in response.text
 
 
