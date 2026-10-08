@@ -2843,3 +2843,18 @@ def test_consumer_env_file_reads_like_dotenv(tmp_path, text):
     env_file = tmp_path / "atlas.env.user"
     env_file.write_text(text, encoding="utf-8")
     assert _read_env_overlay(env_file) == {"A_B": "1"}
+
+
+def test_only_a_typed_host_port_replaces_the_overview_port() -> None:
+    """Retention days and worker counts are inline numbers too; the overview
+    showed "7" as Prometheus's port and "2" as Ray's."""
+    from types import SimpleNamespace
+
+    from ui.textual.screens.wizard_screen import WizardScreen
+
+    screen = WizardScreen.__new__(WizardScreen)
+    screen._selections = {"__secondary__:PROMETHEUS_RETENTION_DAYS": "7", "__secondary__:WEAVIATE_LOCALHOST_PORT": "9999"}
+    retention = SimpleNamespace(secondary_number=SimpleNamespace(env_var="PROMETHEUS_RETENTION_DAYS"))
+    host_port = SimpleNamespace(secondary_number=SimpleNamespace(env_var="WEAVIATE_LOCALHOST_PORT"))
+    assert screen._typed_host_port(retention) == ""
+    assert screen._typed_host_port(host_port) == "9999"

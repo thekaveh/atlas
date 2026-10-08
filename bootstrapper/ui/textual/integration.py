@@ -30,7 +30,7 @@ _THEME_PATH = Path(__file__).parent / "theme.css"
 # truth lives in wizard/comfyui_steps.py; imported here to keep the drain
 # loop (selections.get(COMFYUI_MODELS_TITLE)) aligned with what the step
 # registers without duplicating the string literal.
-from tracks import consumer_declared_track_keys, remark_off_track_rows as _remark_off_track_rows
+from tracks import consumer_declared_track_keys, consumer_override_keys, remark_off_track_rows as _remark_off_track_rows
 from core.config_parser import project_name_error
 # The wizard-time warning sink lives in ``wizard`` (the step builders and the
 # screen share it); these names stay importable from here.
@@ -313,19 +313,6 @@ def _unless_pinned(provider, svc, pinned_source_vars):
     return None if getattr(svc, "env_var_name", "") in pinned_source_vars else provider
 
 
-def _consumer_override_keys(consumer_declared, services_info) -> frozenset:
-    """Track-override keys (normalized folder form, as `start.py` records them
-    for `--track`) of the sources a consumer manifest declares. A track picked
-    in the wizard skipped and dimmed such a service while the launch kept it
-    running (#783 exempts declared sources from the track)."""
-    from tracks import normalize_service_key as _norm  # noqa: PLC0415
-
-    return frozenset(
-        _norm(key.removesuffix("_source").replace("_", "-"))
-        for key in consumer_declared_track_keys(consumer_declared, services_info)
-    )
-
-
 def _build_steps_and_rows(
     config_parser,
     hosts_manager,
@@ -442,7 +429,7 @@ def _build_steps_and_rows(
         _always_on = _track_registry.always_on
     else:
         _always_on = frozenset({"llm-provider", "prometheus", "grafana"})
-    _overridden = (overridden_services or frozenset()) | _consumer_override_keys(consumer_declared, services_info)
+    _overridden = (overridden_services or frozenset()) | consumer_override_keys(consumer_declared, services_info)
 
     # Picker step (only shown if the registry loaded). When --track was
     # passed via the CLI (track_key != None), we still add the picker
@@ -1364,17 +1351,6 @@ def _run_app_with_process_cleanup(app) -> None:
         app.run()
 
 
-def _consumer_declared_sources(config_parser) -> frozenset:
-    """Lower-case SOURCE vars a consumer manifest declares in env.values,
-    computed as start.py does for --no-tui. A malformed manifest declares
-    nothing here; it surfaces via `doctor`, not by blocking the wizard."""
-    try:
-        overrides = config_parser.load_consumer_config().env_overrides or {}
-    except Exception:  # noqa: BLE001 — malformed manifests surface via doctor
-        return frozenset()
-    return frozenset(var.lower() for var in overrides if var.endswith("_SOURCE"))
-
-
 def run_setup_flow(
     config_parser, hosts_manager, *,
     starter=None,
@@ -1398,7 +1374,8 @@ def run_setup_flow(
     if starter is not None:
         starter.run_port_migration(no_port_migrate)
 
-    _consumer_declared_source_keys = _consumer_declared_sources(config_parser)
+    from services.profiles import consumer_declared_sources  # noqa: PLC0415
+    _consumer_declared_source_keys = consumer_declared_sources(config_parser)
     _env_user_sources = frozenset(
         key for key in (getattr(starter, "_env_user_keys", None) or ()) if key.endswith("_SOURCE")
     )
@@ -1477,7 +1454,7 @@ def run_setup_flow(
     _remark_rows = _partial(
         _remark_off_track_rows, services_info=services_info,
         overridden=(overridden_services or frozenset())
-        | _consumer_override_keys(_consumer_declared_source_keys, services_info),
+        | consumer_override_keys(_consumer_declared_source_keys, services_info),
     )
 
     class _SetupApp(App):
@@ -1615,6 +1592,15 @@ def run_launch_flow(
         v = source_args.get(cli_key)
         if v:
             overrides_by_name[svc.display_name] = v
+    # The launch applies the profile's sources (apply_profile_overrides) to
+    # every source the CLI, a consumer manifest or .env.user does not pin;
+    # the overview showed .env's instead (prod: Prometheus "disabled", then
+    # started). Same rule as the wizard's _unless_pinned.
+    from services.profiles import pinned_source_vars, profile_launch_sources  # noqa: PLC0415
+    for name, value in profile_launch_sources(
+        services_info, profile, Path(config_parser.root_dir), pinned_source_vars(config_parser, starter),
+    ).items():
+        overrides_by_name.setdefault(name, value)
 
     # Splice CLI overrides onto the rows + re-derive ports + alias_port.
     new_rows = []

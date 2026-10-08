@@ -559,6 +559,26 @@ def test_a_consumer_declared_source_is_neither_skipped_nor_dimmed_by_a_wizard_tr
         pytest.skip("gen-ai-rag now includes MinIO; pick another off-track service")
     minio = next(s for s in steps if s.title.startswith("MinIO"))
     assert minio.skip_if_prev({I.PICKER_STEP_TITLE: "gen-ai-rag"}) is False
-    overridden = I._consumer_override_keys(declared, services_info)
+    from tracks import consumer_override_keys
+
+    overridden = consumer_override_keys(declared, services_info)
     marked = remark_off_track_rows("gen-ai-rag", rows, services_info=services_info, overridden=overridden)
     assert not next(r for r in marked if r.name.startswith("MinIO")).off_track
+
+
+def test_the_cli_flag_overview_shows_the_profiles_sources_unless_pinned() -> None:
+    """`./start.sh --profile prod <flags>` showed Prometheus/Grafana from .env
+    (disabled) while apply_profile_overrides then started them."""
+    from types import SimpleNamespace
+
+    _steps_, _rows, services_info, *_ = I._build_steps_and_rows(ConfigParser(), _HostsManager())
+    names = {s.env_var_name: s.display_name for s in services_info if getattr(s, "env_var_name", "")}
+    prometheus = names["PROMETHEUS_SOURCE"]
+    from services.profiles import pinned_source_vars, profile_launch_sources
+
+    root = REPO_ROOT
+    plain = profile_launch_sources(services_info, "prod", root, set())
+    assert plain.get(prometheus) == PROFILES["prod"]["sources"]["prometheus"]
+    pins = pinned_source_vars(ConfigParser(), SimpleNamespace(_env_user_keys={"PROMETHEUS_SOURCE"}))
+    assert prometheus not in profile_launch_sources(services_info, "prod", root, pins)
+    assert profile_launch_sources(services_info, None, root, set()) == {}

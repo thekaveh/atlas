@@ -2086,7 +2086,11 @@ class WizardScreen(Screen):
         """The host port typed into ``opt``'s inline box, if any: the launch
         writes it (#1390), so the overview previews it rather than .env's."""
         secondary = getattr(opt, "secondary_number", None)
-        typed = self._selections.get(f"__secondary__:{secondary.env_var}") if secondary else None
+        # Only a host port: worker counts and retention days are inline numbers
+        # too, and the PORT column showed "7" for Prometheus and "2" for Ray.
+        if not secondary or "_LOCALHOST_" not in secondary.env_var or not secondary.env_var.endswith("_PORT"):
+            return ""
+        typed = self._selections.get(f"__secondary__:{secondary.env_var}")
         return "" if typed in (None, "") else str(typed)
 
     def action_confirm(self) -> None:
@@ -2844,9 +2848,10 @@ class WizardScreen(Screen):
                 if value == SECRET_KEEP:
                     continue  # degraded fetch — selection kept, no flag
                 csv = (value or "").strip()
-                if csv == "":
-                    continue
-                flags.append(("--ollama-models", _quote_csv(csv)))
+                # Empty is an answer (the launch writes OLLAMA_USER_MODELS=""),
+                # as --comfyui-models "" already is; omitting it replayed the
+                # .env.example default set.
+                flags.append(("--ollama-models", _quote_csv(csv) if csv else '""'))
                 continue
             if step.title == OLLAMA_CUSTOM_TITLE:
                 if value in (SECRET_KEEP, "", None):

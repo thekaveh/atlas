@@ -212,3 +212,45 @@ def profile_source_default(
     """The source a wizard step should default to under ``profile``."""
     value = profile_sources.get(canonical_profile(profile), {}).get(mname)
     return value if value and value != "auto" else fallback
+
+
+def profile_launch_sources(services_info, profile, root_dir, pinned) -> dict:
+    """display name -> the source ``profile`` asserts for each service whose
+    SOURCE is not in ``pinned`` (CLI, consumer manifest, .env.user), as
+    apply_profile_overrides applies it at launch; the CLI-flag overview
+    showed .env's value instead (prod: Prometheus "disabled", then started)."""
+    if not profile:
+        return {}
+    from services.manifests import load_manifests
+
+    try:
+        mname_by_var = {m.sources.var: m.name for m in load_manifests(root_dir / "services") if m.sources is not None}
+    except Exception:  # noqa: BLE001 - manifest errors surface elsewhere
+        return {}
+    sources = profile_source_map()
+    out = {}
+    for svc in services_info:
+        var = getattr(svc, "env_var_name", "")
+        value = profile_source_default(sources, mname_by_var.get(var, ""), profile, None)
+        if value and var not in pinned:
+            out[svc.display_name] = value
+    return out
+
+
+def consumer_declared_sources(config_parser) -> frozenset:
+    """Lower-case SOURCE vars a consumer manifest declares in env.values,
+    computed as start.py does for --no-tui. A malformed manifest declares
+    nothing here; it surfaces via `doctor`, not by blocking the wizard."""
+    try:
+        overrides = config_parser.load_consumer_config().env_overrides or {}
+    except Exception:  # noqa: BLE001 — malformed manifests surface via doctor
+        return frozenset()
+    return frozenset(var.lower() for var in overrides if var.endswith("_SOURCE"))
+
+
+def pinned_source_vars(config_parser, starter) -> set:
+    """Upper-case SOURCE vars a consumer manifest or .env.user pins; they beat
+    the profile (apply_profile_overrides)."""
+    pinned = {key.upper() for key in consumer_declared_sources(config_parser)}
+    pinned |= {key for key in (getattr(starter, "_env_user_keys", None) or ()) if key.endswith("_SOURCE")}
+    return pinned
