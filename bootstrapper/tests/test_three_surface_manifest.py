@@ -212,3 +212,21 @@ def test_canonical_repository_index_links_each_authoritative_section_index_direc
 
     assert expected - direct_targets == set()
     assert [source for source in direct_order if source in expected] == expected_order
+
+
+def test_diagram_pages_carry_the_content_their_titles_name():
+    """8.13 "Diagram Authoring" served the generated catalog, 9.4 "Diagram
+    Catalog" the authoring guide, and 8.1 repeated the catalog without its
+    diagram (#1451). Nav titles elsewhere are deliberately shorter than their
+    H1s, so this checks these pages' content, not literal title equality."""
+    root = Path(__file__).resolve().parents[2]
+    manifest = load_manifest(root / "docs" / "manifest.yaml", root)
+    by_title = {page.title: page for page in manifest.pages}
+    catalog = (root / by_title["Diagram Catalog"].source).read_text(encoding="utf-8")
+    authoring = (root / by_title["Diagram Authoring"].source).read_text(encoding="utf-8")
+    platform = (root / by_title["Platform Architecture"].source).read_text(encoding="utf-8")
+    assert catalog.startswith("# 9.4. Diagram Catalog") and "Generated Diagram Index" in catalog
+    assert authoring.startswith("# 8.13. Diagram Authoring") and "Updating the top-level diagram" in authoring
+    assert platform.startswith("# 8.1. Platform Architecture") and "diagrams/img/atlas-platform.png" in platform
+    catalogs = [p for p in (root / "docs").rglob("*.md") if "## 1. Generated Diagram Index" in p.read_text(encoding="utf-8")]
+    assert len(catalogs) == 1, catalogs  # a single catalog page

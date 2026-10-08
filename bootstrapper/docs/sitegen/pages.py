@@ -1058,13 +1058,25 @@ def architecture_pages(model: DocsModel) -> dict[Path, str]:
 
 """
         rows.append([f"[{title}]({slug}.md)", description])
-    catalog = (
-        "# Architecture Diagram Catalog\n\n## 1. Generated Diagram Index\n\n"
+    # One catalog page (#1451); the platform page shows its own diagram and
+    # links to it instead of repeating the table.
+    pages[arch / "README.md"] = (
+        "# Diagram Catalog\n\n## 1. Generated Diagram Index\n\n"
         "Generated catalog of split Atlas architecture perspectives.\n\n"
         + table(["Diagram", "Purpose"], rows)
     )
-    pages[arch / "README.md"] = catalog
-    pages[arch / "index.md"] = catalog
+    pages[arch / "index.md"] = (
+        "# Platform Architecture\n\n"
+        "The platform's major tiers and runtime call direction, from user entrypoints "
+        "through Kong to apps, agents, the LLM core and the data stores.\n\n"
+        "## 1. Diagram\n\n"
+        "![Atlas platform architecture diagram](../diagrams/img/atlas-platform.png)\n\n"
+        "[Open the full-size diagram](../diagrams/architecture.html).\n\n"
+        "## 2. Perspectives\n\n"
+        "Each split perspective (bootstrapper lifecycle, SOURCE model, tracks, routing, "
+        "data and RAG flow, LLM providers, and more) has its own page; the "
+        "[Diagram Catalog](README.md) lists them.\n"
+    )
     return pages
 
 

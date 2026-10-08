@@ -1,4 +1,4 @@
-# 9.4. Architecture Diagrams
+# 8.13. Diagram Authoring
 
 The top-level architecture diagram presents the platform's major tiers and
 runtime call direction. Its source artifacts are:
