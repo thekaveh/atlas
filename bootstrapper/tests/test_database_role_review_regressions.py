@@ -610,3 +610,41 @@ def test_supavisor_pooled_logins_resolve_backend_and_n8n_credentials(
             )
             assert login.returncode == 0, login.stderr
             assert login.stdout == f"{role}\n"
+
+
+def test_a_planted_public_overload_does_not_run_as_superuser(
+    disposable_postgres: DisposablePostgres,
+) -> None:
+    """A role with CREATE on public (Open WebUI, LightRAG) planted
+    public.hashtextextended(text, integer); slice 14 called the unqualified
+    hashtextextended('…', 0) as the init superuser and inside a SECURITY
+    DEFINER, where that overload beats pg_catalog's (text, bigint), so the
+    planted body ran with superuser rights (CVE-2018-1058 pattern)."""
+    db = disposable_postgres
+    owui = TEST_SECRETS["OPEN_WEBUI_DB_USER"]
+    role = dict(user=owui, password=TEST_SECRETS["OPEN_WEBUI_DB_PASSWORD"])
+    backend = dict(user=TEST_SECRETS["BACKEND_DB_USER"], password=TEST_SECRETS["BACKEND_DB_PASSWORD"])
+    plant = (
+        "CREATE OR REPLACE FUNCTION public.hashtextextended(t text, s integer) RETURNS bigint "
+        "LANGUAGE plpgsql AS $p$ BEGIN "
+        "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'atlas_planted_su') "
+        "THEN EXECUTE 'CREATE ROLE atlas_planted_su SUPERUSER'; END IF; RETURN 1; END $p$"
+    )
+    planted = "SELECT count(*) FROM pg_roles WHERE rolname = 'atlas_planted_su'"
+    try:
+        assert db.sql(plant, check=False, **role).returncode == 0
+        db.run_init()
+        assert db.sql(planted).stdout.strip() == "0", "slice 14 ran the planted overload as superuser"
+        state = db.sql(
+            "SELECT pgvector_target_model || ',' || target_dimension || ',' || pgvector_target_generation "
+            "FROM public.memory_embedding_schema_state"
+        ).stdout.strip().split(",")
+        call = db.sql(
+            f"SELECT public.contract_memory_embedding_contract('{state[0]}', {state[1]}, {state[2]})",
+            check=False, **backend,
+        )
+        assert call.returncode == 0, call.stderr
+        assert db.sql(planted).stdout.strip() == "0", "the SECURITY DEFINER ran the planted overload"
+    finally:
+        db.sql("DROP ROLE IF EXISTS atlas_planted_su", check=False)
+        db.sql("DROP FUNCTION IF EXISTS public.hashtextextended(text, integer)", check=False)

@@ -16,7 +16,12 @@
 \endif
 
 BEGIN;
-SELECT pg_advisory_xact_lock(hashtextextended('atlas.memory.embedding.schema', 0));
+-- Schema-qualified with exact argument types: roles with CREATE on public
+-- (Open WebUI, LightRAG) could plant public.hashtextextended(text, integer),
+-- a better match for ('…', 0) than pg_catalog's (text, bigint), and this runs
+-- as the init superuser.
+SELECT pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('atlas.memory.embedding.schema'::text, 0::bigint));
 SELECT set_config(
     'atlas.memory_embedding_dim', :'atlas_memory_embedding_dim', true
 );
@@ -399,7 +404,7 @@ CREATE OR REPLACE FUNCTION public.contract_memory_embedding_dimension(
 ) RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, pg_temp
 AS $legacy_contract$
 BEGIN
     RAISE EXCEPTION
@@ -419,7 +424,7 @@ CREATE OR REPLACE FUNCTION public.contract_memory_embedding_contract(
 ) RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, pg_temp
 AS $contract$
 DECLARE
     target integer;
@@ -433,7 +438,8 @@ BEGIN
     IF expected_dimension < 1 OR expected_dimension > 4000 THEN
         RAISE EXCEPTION 'invalid memory embedding dimension %', expected_dimension;
     END IF;
-    PERFORM pg_advisory_xact_lock(hashtextextended('atlas.memory.embedding.schema', 0));
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended('atlas.memory.embedding.schema'::text, 0::bigint));
     SELECT target_dimension, pgvector_target_model, pgvector_target_generation
       INTO target, target_model, target_generation
       FROM public.memory_embedding_schema_state
@@ -450,7 +456,7 @@ BEGIN
     SELECT count(*) INTO mismatches
       FROM public.memory_facts
      WHERE embedding IS NULL
-        OR vector_dims(embedding) <> expected_dimension
+        OR public.vector_dims(embedding) <> expected_dimension
         OR embedding_model IS DISTINCT FROM expected_model
         OR embedding_generation <> expected_generation;
     IF mismatches <> 0 THEN
@@ -477,7 +483,7 @@ CREATE OR REPLACE FUNCTION public.mark_memory_weaviate_dirty()
 RETURNS bigint
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, pg_temp
 AS $mark_weaviate$
 DECLARE
     generation bigint;
@@ -505,7 +511,7 @@ CREATE OR REPLACE FUNCTION public.ensure_memory_weaviate_identity(
 ) RETURNS bigint
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, pg_temp
 AS $ensure_weaviate_identity$
 DECLARE
     state public.memory_embedding_schema_state%ROWTYPE;
@@ -563,7 +569,7 @@ CREATE OR REPLACE FUNCTION public.set_memory_weaviate_rebuild_required(
 ) RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, pg_temp
 AS $legacy_mark_weaviate$
 BEGIN
     IF NOT required THEN
@@ -583,7 +589,7 @@ CREATE OR REPLACE FUNCTION public.complete_memory_weaviate_rebuild(
 ) RETURNS boolean
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, pg_temp
 AS $legacy_complete_weaviate$
 BEGIN
     RAISE EXCEPTION
@@ -603,7 +609,7 @@ CREATE OR REPLACE FUNCTION public.complete_memory_weaviate_rebuild(
 ) RETURNS boolean
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, pg_temp
 AS $complete_weaviate_identity$
 DECLARE
     completed boolean;

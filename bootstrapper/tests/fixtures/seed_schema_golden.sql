@@ -409,7 +409,7 @@ ALTER FUNCTION pgbouncer.get_auth(p_usename text) OWNER TO supabase_admin;
 
 CREATE FUNCTION public.complete_memory_weaviate_rebuild(expected_generation bigint) RETURNS boolean
     LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'pg_catalog', 'public'
+    SET search_path TO 'pg_catalog', 'pg_temp'
     AS $$
 BEGIN
     RAISE EXCEPTION
@@ -421,7 +421,7 @@ ALTER FUNCTION public.complete_memory_weaviate_rebuild(expected_generation bigin
 
 CREATE FUNCTION public.complete_memory_weaviate_rebuild(expected_generation bigint, expected_model text, expected_dimension integer) RETURNS boolean
     LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'pg_catalog', 'public'
+    SET search_path TO 'pg_catalog', 'pg_temp'
     AS $$
 DECLARE
     completed boolean;
@@ -449,7 +449,7 @@ ALTER FUNCTION public.complete_memory_weaviate_rebuild(expected_generation bigin
 
 CREATE FUNCTION public.contract_memory_embedding_contract(expected_model text, expected_dimension integer, expected_generation bigint) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'pg_catalog', 'public'
+    SET search_path TO 'pg_catalog', 'pg_temp'
     AS $$
 DECLARE
     target integer;
@@ -463,7 +463,8 @@ BEGIN
     IF expected_dimension < 1 OR expected_dimension > 4000 THEN
         RAISE EXCEPTION 'invalid memory embedding dimension %', expected_dimension;
     END IF;
-    PERFORM pg_advisory_xact_lock(hashtextextended('atlas.memory.embedding.schema', 0));
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended('atlas.memory.embedding.schema'::text, 0::bigint));
     SELECT target_dimension, pgvector_target_model, pgvector_target_generation
       INTO target, target_model, target_generation
       FROM public.memory_embedding_schema_state
@@ -480,7 +481,7 @@ BEGIN
     SELECT count(*) INTO mismatches
       FROM public.memory_facts
      WHERE embedding IS NULL
-        OR vector_dims(embedding) <> expected_dimension
+        OR public.vector_dims(embedding) <> expected_dimension
         OR embedding_model IS DISTINCT FROM expected_model
         OR embedding_generation <> expected_generation;
     IF mismatches <> 0 THEN
@@ -502,7 +503,7 @@ ALTER FUNCTION public.contract_memory_embedding_contract(expected_model text, ex
 
 CREATE FUNCTION public.contract_memory_embedding_dimension(expected_dimension integer) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'pg_catalog', 'public'
+    SET search_path TO 'pg_catalog', 'pg_temp'
     AS $$
 BEGIN
     RAISE EXCEPTION
@@ -514,7 +515,7 @@ ALTER FUNCTION public.contract_memory_embedding_dimension(expected_dimension int
 
 CREATE FUNCTION public.ensure_memory_weaviate_identity(expected_model text, expected_dimension integer) RETURNS bigint
     LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'pg_catalog', 'public'
+    SET search_path TO 'pg_catalog', 'pg_temp'
     AS $$
 DECLARE
     state public.memory_embedding_schema_state%ROWTYPE;
@@ -601,7 +602,7 @@ ALTER FUNCTION public.health() OWNER TO supabase_admin;
 
 CREATE FUNCTION public.mark_memory_weaviate_dirty() RETURNS bigint
     LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'pg_catalog', 'public'
+    SET search_path TO 'pg_catalog', 'pg_temp'
     AS $$
 DECLARE
     generation bigint;
@@ -623,7 +624,7 @@ ALTER FUNCTION public.mark_memory_weaviate_dirty() OWNER TO supabase_admin;
 
 CREATE FUNCTION public.set_memory_weaviate_rebuild_required(required boolean) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'pg_catalog', 'public'
+    SET search_path TO 'pg_catalog', 'pg_temp'
     AS $$
 BEGIN
     IF NOT required THEN

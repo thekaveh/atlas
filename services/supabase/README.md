@@ -254,6 +254,17 @@ and the Kong `/pg/` route (Basic authentication + `dashboard_user` ACL)
 reach it over the internal Docker network. `SUPABASE_META_PORT` stays
 reserved in the port block but is not bound.
 
+### 5.2. Security note — writable `public` schema
+
+Open WebUI, LightRAG, pg-meta and Realtime roles can create objects in
+`public`. PostgreSQL resolves an unqualified call to the best type match across
+the search path, so a planted `public` overload can beat a `pg_catalog`
+built-in and run as whoever calls it. Atlas `SECURITY DEFINER` functions
+therefore run with `search_path = pg_catalog, pg_temp` (or empty) and qualify
+`public` objects, and superuser-run slices schema-qualify built-ins called with
+non-exact argument types. Downstream SQL in `db/_user/` runs as the init
+superuser too: qualify calls the same way (#1456).
+
 ## 6. Integration Points
 
 **Backend API**: Uses Supabase for data persistence and user management

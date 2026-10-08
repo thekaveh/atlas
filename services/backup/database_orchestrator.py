@@ -1451,7 +1451,9 @@ class DatabaseCoordinator:
             "neo-load",
             [
                 "--network", "none",
-                "-e", f"BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS={self.timeout}",
+                # The script bounds each load/check with this value; the
+                # quiesce timeout (120 s) killed any real-sized graph.
+                "-e", f"BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS={self.data_timeout}",
                 "-v", f"{stage_volume}:/data",
                 "-v", f"{artifact_volume}:/restore:ro",
                 "--tmpfs", "/reports:rw,noexec,nosuid,size=64m",
@@ -1938,7 +1940,8 @@ class DatabaseCoordinator:
                         "--label", f"{SCOPE_LABEL}={self.runner.scope}",
                         "--label", f"{ROLE_LABEL}=neo-backup",
                         "-e", f"BACKUP_TIMESTAMP={timestamp}",
-                        "-e", f"BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS={self.timeout}",
+                        # Bounds each dump/check, which scale with data size.
+                        "-e", f"BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS={self.data_timeout}",
                         "--entrypoint", "bash", service, "/scripts/offline-backup.sh",
                     ],
                     timeout=self.data_timeout,
