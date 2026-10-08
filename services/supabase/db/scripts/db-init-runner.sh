@@ -77,6 +77,41 @@ run_sql_directory() {
   rm -f "$list_file"
 }
 
+# Superuser-run SQL below calls built-ins (format, convert_to, =, <>) whose
+# argument types are not always exact, and co-tenant roles (Open WebUI,
+# LightRAG, pg-meta, Realtime) can CREATE in public, which is on the
+# superuser's search_path. A planted public.format(text, name) or
+# public.=(varchar, varchar) then beat pg_catalog's and ran as superuser (one
+# captured a plaintext role password). Refuse to run while any non-superuser
+# owns a function or operator named like a pg_catalog one in a schema on that
+# path; dropping them is the operator's call. (#1456 tracks qualifying every
+# call instead.)
+shadowing="$(PGOPTIONS="-c search_path=pg_catalog,pg_temp" psql -X -At -v ON_ERROR_STOP=1 \
+  --host "$PGHOST" --username "$PGUSER" --dbname "$PGDATABASE" <<'SQL'
+SELECT n.nspname || '.' || p.proname || '(' || pg_catalog.pg_get_function_identity_arguments(p.oid) || ') owned by ' || r.rolname
+  FROM pg_catalog.pg_proc AS p
+  JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace
+  JOIN pg_catalog.pg_roles AS r ON r.oid = p.proowner
+ WHERE n.nspname IN ('public', 'auth', 'extensions') AND NOT r.rolsuper
+   AND EXISTS (SELECT 1 FROM pg_catalog.pg_proc AS b
+                WHERE b.pronamespace = 'pg_catalog'::pg_catalog.regnamespace AND b.proname = p.proname)
+UNION ALL
+SELECT n.nspname || '.' || o.oprname || ' operator owned by ' || r.rolname
+  FROM pg_catalog.pg_operator AS o
+  JOIN pg_catalog.pg_namespace AS n ON n.oid = o.oprnamespace
+  JOIN pg_catalog.pg_roles AS r ON r.oid = o.oprowner
+ WHERE n.nspname IN ('public', 'auth', 'extensions') AND NOT r.rolsuper
+   AND EXISTS (SELECT 1 FROM pg_catalog.pg_operator AS b
+                WHERE b.oprnamespace = 'pg_catalog'::pg_catalog.regnamespace AND b.oprname = o.oprname);
+SQL
+)"
+if [ -n "$shadowing" ]; then
+  echo "db-init-runner: ERROR - non-superuser objects shadow PostgreSQL built-ins that init runs as superuser:" >&2
+  printf '  %s\n' "$shadowing" >&2
+  echo "db-init-runner: drop them (they would execute with superuser rights), then restart." >&2
+  exit 1
+fi
+
 echo "db-init-runner: Database is ready. Running Atlas post-initialization scripts from $ATLAS_SQL_DIR..."
 run_sql_directory "$ATLAS_SQL_DIR" "Atlas" "true" "/tmp/_db_init_atlas_sql_files"
 

@@ -262,8 +262,13 @@ the search path, so a planted `public` overload can beat a `pg_catalog`
 built-in and run as whoever calls it. Atlas `SECURITY DEFINER` functions
 therefore run with `search_path = pg_catalog, pg_temp` (or empty) and qualify
 `public` objects, and superuser-run slices schema-qualify built-ins called with
-non-exact argument types. Downstream SQL in `db/_user/` runs as the init
-superuser too: qualify calls the same way (#1456).
+non-exact argument types. Because the slices still call some built-ins
+(`format`, `=`, `<>`) without exact types, `db-init-runner` refuses to run
+while a non-superuser owns a function or operator named like a `pg_catalog`
+one in `public`, `auth` or `extensions`, and names each object: drop them,
+then restart. The backup and restore scripts resolve nothing through `public`
+(`search_path = pg_catalog, pg_temp`). Downstream SQL in `db/_user/` runs as
+the init superuser too: qualify calls the same way (#1456).
 
 ## 6. Integration Points
 
