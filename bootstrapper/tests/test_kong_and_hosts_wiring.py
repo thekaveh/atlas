@@ -479,3 +479,16 @@ def test_supabase_studio_is_not_published_and_meta_reads_its_crypto_key():
     meta_env = compose["services"]["supabase-meta"]["environment"]
     studio_env = compose["services"]["supabase-studio"]["environment"]
     assert meta_env["CRYPTO_KEY"] == studio_env["PG_META_CRYPTO_KEY"] == "${SUPABASE_META_CRYPTO_KEY:-}"
+
+
+def test_readme_topology_does_not_list_unpublished_ports_as_reachable():
+    """pg-meta and Studio keep port slots but are not published; the README
+    table still showed 63014/63019 as their default ports."""
+    from pathlib import Path
+
+    from tools.generate_readme_topology import generate_block
+
+    block = generate_block(Path(__file__).resolve().parents[2] / "services")
+    assert "| Supabase Studio | — (Kong only) | supabase-studio.localhost |" in block
+    assert "| Supabase Meta | — | — |" in block
+    assert "| TTS Provider | — " not in block  # virtual manifest: its slot is still shown

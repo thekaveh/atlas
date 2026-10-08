@@ -101,7 +101,7 @@ HTTP.
 | TCP, no Kong | Neo4j Bolt | `NEO4J_LOCALHOST_BOLT_PORT` | Bolt clients reach the host database directly | No Kong route |
 
 See the generated [port and route reference](../reference/ports-routes.md) for
-the complete host-published inventory and PR #10 / the localhost-port-override
+the complete port-variable inventory (`SUPABASE_META_PORT` and `SUPABASE_STUDIO_PORT` are reserved there but not published; use Kong) and PR #10 / the localhost-port-override
 entry in `docs/CHANGELOG.md` for the design rationale.
 
 ## 5. Advanced overrides

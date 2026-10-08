@@ -82,12 +82,12 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Infra | OpenTelemetry Collector | — | — |
 | Data | Redpanda Console | 63011 | redpanda.localhost |
 | Data | Supabase DB | 63012 | — |
-| Data | Supabase Meta | 63014 | — |
+| Data | Supabase Meta | — | — |
 | Data | Supabase Storage | 63015 | — |
 | Data | Supabase Auth | 63016 | — |
 | Data | Supabase API | 63017 | — |
 | Data | Supabase Realtime | 63018 | — |
-| Data | Supabase Studio | 63019 | supabase-studio.localhost |
+| Data | Supabase Studio | — (Kong only) | supabase-studio.localhost |
 | Data | MinIO Console | 63021 | minio.localhost |
 | Data | Apache Iceberg REST Catalog | 63022 | — |
 | Data | Neo4j Graph DB | 63024 | graph.localhost |
