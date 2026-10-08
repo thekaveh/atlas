@@ -104,7 +104,9 @@ def _load_yaml_strict(text: str) -> Any:
 # (jsonschema) validators accept/reject the exact same set. A drift here is an
 # auth-bypass vector (#402 review B2): at least one non-empty segment, so a bare
 # "/" (which would match the whole backend) is rejected.
-_PATH_RE = re.compile(r"/[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*")
+# No "." / ".." segment: Kong normalizes route paths on load, so /x/../api
+# became /api and an auth: open plugin shadowed the built-in routes.
+_PATH_RE = re.compile(r"/(?!\.\.?(?:/|$))[A-Za-z0-9._~-]+(?:/(?!\.\.?(?:/|$))[A-Za-z0-9._~-]+)*")
 
 # Built-in backend route prefixes a plugin must not shadow. Kept as the first
 # path segment (``/api/ray`` reserves ``api``). Mirrors main.py's routers plus

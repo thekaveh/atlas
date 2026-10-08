@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field, replace
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -1311,6 +1312,36 @@ def _resolve_litellm_api_base(raw: str, *, alias: str, origin: str) -> str:
     return resolved.rstrip("/")
 
 
+@lru_cache(maxsize=1)
+def _litellm_container_env_names() -> frozenset[str]:
+    """Env vars the stack's litellm service already sets. The models overlay
+    writes `<api_key_var>: ${<api_key_var>:-}` into that environment, so a
+    reference named DATABASE_URL / REDIS_HOST / UI_PASSWORD blanked it."""
+    compose = Path(__file__).resolve().parents[2] / "services" / "litellm" / "compose.yml"
+    try:
+        service = (yaml.safe_load(compose.read_text(encoding="utf-8")) or {})["services"]["litellm"]
+    except (OSError, KeyError, TypeError, yaml.YAMLError):
+        return frozenset()
+    env = service.get("environment") or {}
+    names = env.keys() if isinstance(env, Mapping) else (str(item).split("=", 1)[0] for item in env)
+    return frozenset(names)
+
+
+def _checked_api_key_var(api_key_var: str, name: str, origin: str) -> str:
+    if not _LITELLM_ENV_VAR_RE.match(api_key_var):
+        raise ConsumerManifestError(
+            f"litellm_models entry {name!r} api_key_var {api_key_var!r} must be an "
+            f"UPPER_SNAKE env var NAME (a reference, not a literal secret) ({origin})"
+        )
+    if api_key_var in _litellm_container_env_names():
+        raise ConsumerManifestError(
+            f"litellm_models entry {name!r} api_key_var {api_key_var!r} is already set on the "
+            f"stack's litellm container; the generated overlay would replace it. Use a "
+            f"consumer-specific name ({origin})"
+        )
+    return api_key_var
+
+
 def _parse_litellm_models_block(
     data: Mapping[str, Any], consumer_name: str, manifest_path: Path
 ) -> list[LitellmModel]:
@@ -1392,12 +1423,7 @@ def _parse_litellm_models_block(
 
         api_key_var = raw.get("api_key_var")
         if api_key_var is not None:
-            api_key_var = str(api_key_var).strip()
-            if not _LITELLM_ENV_VAR_RE.match(api_key_var):
-                raise ConsumerManifestError(
-                    f"litellm_models entry {name!r} api_key_var {api_key_var!r} must be an "
-                    f"UPPER_SNAKE env var NAME (a reference, not a literal secret) ({origin})"
-                )
+            api_key_var = _checked_api_key_var(str(api_key_var).strip(), name, origin)
 
         description = raw.get("description")
         if description is not None:

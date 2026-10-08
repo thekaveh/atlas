@@ -394,3 +394,17 @@ def test_schema_names_every_reserved_route_prefix():
     description = schema["properties"]["route_prefix"]["description"]
     listed = description[description.index("built-in backend route (") + 24:].split(")")[0]
     assert {name.strip() for name in listed.split(",")} == set(RESERVED_ROUTE_PREFIXES)
+
+
+@pytest.mark.parametrize("prefix", ["/x/../api", "/y/..", "/./a", "/a/./b"])
+def test_dot_segments_are_rejected_before_kong_normalizes_them(tmp_path, prefix):
+    """Kong 3.9 normalizes route paths on load: /x/../api became /api, so an
+    auth: open plugin shadowed every built-in route past the key-auth check."""
+    with pytest.raises(PluginManifestError):
+        load_plugin_manifest(_pkg(tmp_path, "pp", f"plugin_manifest_version: 1\nname: pp\nroute_prefix: {prefix}\n"))
+
+
+def test_a_trailing_newline_is_rejected_like_the_backend_does(tmp_path):
+    with pytest.raises(PluginManifestError, match="newline"):
+        load_plugin_manifest(_pkg(tmp_path, "pp", 'plugin_manifest_version: 1\nname: pp\nroute_prefix: "/demo\\n"\n'))
+    assert load_plugin_manifest(_pkg(tmp_path, "qq", "plugin_manifest_version: 1\nname: qq\nroute_prefix: /a.b/c..d\n"))
