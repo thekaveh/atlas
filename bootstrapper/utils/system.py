@@ -153,3 +153,28 @@ def get_hosts_file_path() -> str:
         return "C:/Windows/System32/drivers/etc/hosts"
     else:
         return ""
+
+
+def project_volume_names(project_name: str) -> list:
+    """Volumes Compose labelled as this project's; [] when unknown."""
+    try:
+        result = subprocess.run(
+            ["docker", "volume", "ls", "-q", "--filter",
+             f"label=com.docker.compose.project={project_name}"],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [line for line in result.stdout.split() if line] if result.returncode == 0 else []
+
+
+def report_surviving_volumes(leftover: list, emit) -> list:
+    """Name project volumes `down --volumes` left behind (a consumer overlay
+    not loaded for this run), with the remedy."""
+    if leftover:
+        emit(
+            "    ⚠ These project volumes were not removed (declared by a consumer "
+            f"overlay not loaded for this run?): {', '.join(leftover)}. Re-run with "
+            "--consumer <manifest>, or remove them with docker volume rm."
+        )
+    return leftover

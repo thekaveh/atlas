@@ -275,22 +275,26 @@ def _run_privileged_hosts_setup(non_interactive: bool = False) -> bool:
     )
     if not non_interactive:
         print("  • --setup-hosts needs to edit your hosts file; requesting sudo for that write only.")
-    result = subprocess.run(
-        [
-            "sudo",
-            *(["-n"] if non_interactive else []),
-            "env",
-            f"PYTHONPATH={env['PYTHONPATH']}",
-            "PYTHONDONTWRITEBYTECODE=1",
-            sys.executable,
-            "-c",
-            helper,
-        ],
-        cwd=repo_root,
-        env=env,
-        check=False,
-        capture_output=non_interactive,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "sudo",
+                *(["-n"] if non_interactive else []),
+                "env",
+                f"PYTHONPATH={env['PYTHONPATH']}",
+                "PYTHONDONTWRITEBYTECODE=1",
+                sys.executable,
+                "-c",
+                helper,
+            ],
+            cwd=repo_root,
+            env=env,
+            check=False,
+            capture_output=non_interactive,
+        )
+    except OSError as exc:  # no sudo binary: hosts setup is never fatal
+        print(f"  • Could not launch sudo for hosts setup: {exc}")
+        return False
     return result.returncode == 0
 
 # Add the current directory to the path so we can import our modules

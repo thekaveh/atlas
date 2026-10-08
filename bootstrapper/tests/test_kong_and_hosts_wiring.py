@@ -423,3 +423,43 @@ def test_direct_ports_do_not_answer_every_browser_origin():
         compose = yaml.safe_load((root / f"services/{service}/compose.yml").read_text(encoding="utf-8"))
         origin = compose["services"][service]["environment"][key]
         assert origin.startswith(f"http://{host}.localhost:") and "*" not in origin, service
+
+
+def test_hosts_setup_without_sudo_is_not_fatal(monkeypatch):
+    """No sudo binary (minimal Linux, dev containers) raised FileNotFoundError
+    and failed the launch; stop's twin already reported it."""
+    import start as start_module
+
+    monkeypatch.setattr(start_module, "is_elevated", lambda: False, raising=False)
+
+    def no_sudo(*_args, **_kwargs):
+        raise FileNotFoundError("sudo")
+
+    monkeypatch.setattr(start_module.subprocess, "run", no_sudo)
+    assert start_module._run_privileged_hosts_setup() is False
+
+
+@pytest.mark.parametrize("env_text", [
+    "ATLAS_MANAGED_HOST_STATE_ROOT={root}  # shared\n",
+    "ATLAS_MANAGED_HOST_STATE_ROOT=/elsewhere\nATLAS_MANAGED_HOST_STATE_ROOT={root}\n",
+    "﻿ATLAS_MANAGED_HOST_STATE_ROOT={root}\n",
+])
+def test_the_state_root_guard_reads_dotenv_like_the_managers(tmp_path, env_text):
+    """The guard's own parser missed inline comments, last-wins duplicates and
+    a BOM, so the root it meant to protect stayed deletable."""
+    from utils import atomic_write
+
+    root = tmp_path / "root"
+    root.mkdir()
+    env_file = tmp_path / ".env"
+    env_file.write_text(env_text.format(root=root), encoding="utf-8")
+    assert atomic_write._env_file_state_root(env_file) == str(root)
+
+
+def test_the_state_root_guard_follows_atlas_env_file(tmp_path, monkeypatch):
+    from utils import atomic_write
+
+    env_file = tmp_path / "atlas.env"
+    env_file.write_text(f"ATLAS_MANAGED_HOST_STATE_ROOT={tmp_path / 'r'}\n", encoding="utf-8")
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env_file))
+    assert atomic_write._env_file_state_root() == str(tmp_path / "r")

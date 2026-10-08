@@ -478,15 +478,17 @@ def create_private_backup(
 
 
 def _env_file_state_root(env_file: Path | None = None) -> str:
-    """ATLAS_MANAGED_HOST_STATE_ROOT as the repository's .env sets it. The
-    managers read the root from .env (`default_state_dir`), not from the
-    process environment, so a root set only there was left unprotected."""
-    env_file = env_file or Path(__file__).resolve().parents[2] / ".env"
-    with suppress(OSError, UnicodeDecodeError):
-        for line in env_file.read_text(encoding="utf-8").splitlines():
-            key, sep, value = line.strip().removeprefix("export ").partition("=")
-            if sep and key.strip() == "ATLAS_MANAGED_HOST_STATE_ROOT":
-                return value.strip().strip("\"'")
+    """ATLAS_MANAGED_HOST_STATE_ROOT as the managers resolve it: through the
+    canonical .env reader (ATLAS_ENV_FILE, last assignment wins, inline
+    comments, BOM). A private parser missed all four, leaving the root
+    unprotected exactly where f8cf2d1e meant to protect it."""
+    with suppress(Exception):  # a missing or unreadable .env protects nothing extra
+        from core.config_parser import ConfigParser
+
+        parser = ConfigParser(str(Path(__file__).resolve().parents[2]))
+        if env_file is not None:
+            parser.env_file_path = Path(env_file)
+        return (parser.parse_env_file().get("ATLAS_MANAGED_HOST_STATE_ROOT") or "").strip()
     return ""
 
 

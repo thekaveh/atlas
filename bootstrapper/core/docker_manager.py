@@ -11,6 +11,8 @@ import json
 import re
 import signal
 import subprocess
+
+from utils.system import project_volume_names, report_surviving_volumes
 import time
 from typing import Callable, List, Optional
 
@@ -753,7 +755,11 @@ class DockerManager:
                 self._reraise_stream_interrupt = False
             # As for a cold stop: a dropped consumer overlay leaves its volumes
             # holding credentials that the cold start is about to rotate.
-            return result == 0 and not getattr(self, "teardown_overlays_dropped", False)
+            if result != 0 or getattr(self, "teardown_overlays_dropped", False):
+                return False
+            return not self._report_surviving_volumes(
+                self.project_name_override or self.config_parser.get_project_name(), self._on_command,
+            )
         finally:
             self.project_name_override = previous_project
     
@@ -775,26 +781,13 @@ class DockerManager:
         # Nothing records which consumer manifest started the stack, so a bare
         # --cold drops overlay-only volumes from the compose model and leaves
         # them on disk; check the project label instead of trusting `down`.
-        leftover = self._project_volume_names(project_name)
-        if leftover:
-            print(
-                "    ⚠ These project volumes were not removed (declared by a consumer "
-                f"overlay not loaded for this stop?): {', '.join(leftover)}. Re-run with "
-                "--consumer <manifest>, or remove them with docker volume rm."
-            )
-        return not leftover
+        return not self._report_surviving_volumes(project_name, print)
+
+    def _report_surviving_volumes(self, project_name: str, emit) -> List[str]:
+        return report_surviving_volumes(self._project_volume_names(project_name), emit)
 
     def _project_volume_names(self, project_name: str) -> List[str]:
-        """Volumes Compose labelled as this project's; [] when unknown."""
-        try:
-            result = subprocess.run(
-                ["docker", "volume", "ls", "-q", "--filter",
-                 f"label=com.docker.compose.project={project_name}"],
-                capture_output=True, text=True, timeout=30, check=False,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return []
-        return [line for line in result.stdout.split() if line] if result.returncode == 0 else []
+        return project_volume_names(project_name)
     
     def build_services(
         self,

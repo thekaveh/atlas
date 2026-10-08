@@ -69,8 +69,11 @@ def test_cold_start_cleanup_uses_one_project_scoped_compose_down(tmp_path, monke
         ),
     )
 
+    volume_queries = []
+    monkeypatch.setattr(manager, "_project_volume_names", lambda project: volume_queries.append(project) or [])
     assert manager.perform_cold_start_cleanup(project_name="new-project") is True
     assert calls == [(["down", "--volumes", "--remove-orphans"], "new-project")]
+    assert volume_queries == ["new-project"]  # the survivors check uses the overridden project
     assert manager.project_name_override is None
 
 
@@ -569,3 +572,17 @@ def test_host_model_directories_are_sized_not_cleaned(tmp_path):
                                          "COMFYUI_MPS_MODELS_PATH": str(tmp_path / "gone")})
     assert [(row["variable"], row["bytes"]) for row in rows] == [
         ("COMFYUI_LOCAL_MODELS_PATH", 10), ("COMFYUI_MPS_MODELS_PATH", None)]
+
+
+def test_cold_start_does_not_rotate_secrets_while_project_volumes_remain(tmp_path, monkeypatch):
+    """The cold stop names surviving overlay volumes; the cold start reported
+    success and then regenerated the credentials those volumes hold."""
+    manager = DockerManager(str(tmp_path))
+    lines = []
+    manager._on_command = lines.append
+    monkeypatch.setattr(manager, "stream_compose", lambda args, on_line=None: 0)
+    monkeypatch.setattr(manager.config_parser, "get_project_name", lambda: "atlas")
+    monkeypatch.setattr(manager, "_project_volume_names", lambda project: ["atlas_consumer-pgdata"])
+
+    assert manager.perform_cold_start_cleanup() is False
+    assert any("atlas_consumer-pgdata" in line for line in lines)
