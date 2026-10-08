@@ -2326,6 +2326,7 @@ class _RestoreConn:
 
     def __init__(self, row, active_count):
         self.row, self.active_count, self.calls, self.update_query = row, active_count, 0, ""
+        self.fresh_active = False
 
     async def fetchrow(self, query, *_params):
         self.calls += 1
@@ -2340,7 +2341,9 @@ class _RestoreConn:
     async def execute(self, *_args):
         return "OK"
 
-    async def fetchval(self, *_args):
+    async def fetchval(self, query, *_args):
+        if "FOR UPDATE" in query:
+            return self.fresh_active  # the fact's state re-read under the lock
         return self.active_count
 
     def transaction(self):
@@ -2394,3 +2397,89 @@ def test_restoring_a_memory_at_the_fact_cap_is_refused(monkeypatch):
     with pytest.raises(memory_service.MemoryCapacityError):
         asyncio.run(svc.update_memory(memory_id, user_id, {"is_active": True}))
     assert conn.update_query == ""  # no UPDATE was issued
+
+
+def test_a_restore_racing_a_delete_is_still_capped(monkeypatch):
+    """The snapshot said active (no cap check), a concurrent delete then
+    deactivated the fact, and the UPDATE reactivated it past the cap."""
+    import memory_service
+
+    svc, conn, memory_id, user_id = _restore(monkeypatch, active_count=10)
+    stale_snapshot = conn.fetchrow
+
+    async def snapshot_says_active(query, *params):
+        row = await stale_snapshot(query, *params)
+        return {**row, "is_active": True} if conn.calls == 1 else row
+
+    conn.fetchrow = snapshot_says_active
+    with pytest.raises(memory_service.MemoryCapacityError):
+        asyncio.run(svc.update_memory(memory_id, user_id, {"is_active": True}))
+    assert conn.update_query == ""
+
+
+def _research_service_with_slow_thread_delete():
+    from research_client import ResearchResponse, ResearchResult, ResearchStatus
+    from research_service import ResearchService
+
+    service = object.__new__(ResearchService)
+    service.heartbeat_interval = 0.05
+    service._cancel_requested_tasks = set()
+    state = {"status": "running", "deleted": False, "failure_recorded": None}
+
+    async def store(_sid, _result):
+        state["status"] = "completed"
+        return True
+
+    async def record_failure(_sid, msg):
+        state["failure_recorded"] = msg
+        return state["status"] in ("pending", "running")
+
+    class Client:
+        async def start_research(self, req):
+            return ResearchResponse(session_id="t1", status=ResearchStatus.PENDING, message="")
+
+        async def wait_for_completion(self, sid, max_wait_time):
+            return ResearchResponse(session_id=sid, status=ResearchStatus.COMPLETED, message="")
+
+        async def get_research_result(self, sid):
+            return ResearchResult(session_id=sid, title="t", summary="s", content="c", sources=[], metadata={})
+
+        async def delete_thread(self, sid):
+            await asyncio.sleep(0.2)  # a slow (<=10 s timeout) DELETE /threads
+            state["deleted"] = True
+
+        def discard_pending(self, sid):
+            pass
+
+    async def ok(*_a):
+        return True
+
+    async def heartbeat(_sid):
+        return state["status"] == "running"
+
+    service._mark_research_running = ok
+    service._write_research_heartbeat = heartbeat
+    service._append_research_log = ok
+    service._store_research_result = store
+    service._record_research_failure = record_failure
+    service.research_client = Client()
+    return service, state
+
+
+def test_a_completed_research_run_is_not_cancelled_by_its_own_heartbeat():
+    """46d995bd made the heartbeat cancel on UPDATE 0; this replica's own
+    COMPLETED write also gives UPDATE 0, so a slow thread delete was cancelled
+    and the LangGraph thread leaked."""
+    service, state = _research_service_with_slow_thread_delete()
+
+    async def scenario():
+        task = asyncio.create_task(service._run_research_background("s1", "q", 1, "searxng", None))
+        service._active_tasks = {"s1": task}
+        try:
+            await task
+        except asyncio.CancelledError:
+            return "cancelled"
+        return "finished"
+
+    outcome = asyncio.run(scenario())
+    assert outcome == "finished" and state["deleted"], (outcome, state)

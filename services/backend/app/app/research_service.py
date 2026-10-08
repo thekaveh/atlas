@@ -264,6 +264,7 @@ class ResearchService:
                 type(e).__name__,
             )
             try:
+                self._mark_finalizing(session_id)
                 await self._record_research_failure(
                     session_id, _PUBLIC_RESEARCH_FAILURE
                 )
@@ -279,6 +280,7 @@ class ResearchService:
             if heartbeat_task is not None:
                 heartbeat_task.cancel()
                 await asyncio.gather(heartbeat_task, return_exceptions=True)
+            self.__dict__.get("_finalizing", set()).discard(session_id)
             # Clean up task reference
             if session_id in self._active_tasks:
                 del self._active_tasks[session_id]
@@ -305,6 +307,12 @@ class ResearchService:
         finally:
             await self._release_db_connection(conn)
 
+    def _mark_finalizing(self, session_id: str) -> None:
+        """This run is writing its own terminal status: its heartbeat's
+        UPDATE 0 is not a cancel from another replica (46d995bd cancelled a
+        completed run mid thread-delete, and a failed one before its log)."""
+        self.__dict__.setdefault("_finalizing", set()).add(session_id)
+
     async def _write_research_heartbeat(self, session_id: str) -> bool:
         """Refresh the heartbeat; False when the session is no longer running."""
         conn = await self._get_db_connection(bounded=False)
@@ -324,6 +332,10 @@ class ResearchService:
             try:
                 owner = getattr(self, "_active_tasks", {}).get(session_id)
                 if not await self._write_research_heartbeat(session_id) and owner is not None:
+                    if session_id in self.__dict__.get("_finalizing", ()):
+                        # This replica wrote the terminal status itself and is
+                        # finishing (thread delete, failure log): do not cancel.
+                        return
                     # Cancelled (or terminalized) through another replica: stop
                     # the local run, which closes /runs/stream so LangGraph's
                     # on_disconnect=cancel stops the remote run too.
@@ -488,6 +500,7 @@ class ResearchService:
 
                 if research_result:
                     # Store the results
+                    self._mark_finalizing(session_id)
                     await self._store_research_result(session_id, research_result)
                     # langgraph dev keeps every thread (and its checkpoints) in
                     # memory. Only a finished run's thread is deleted: on a

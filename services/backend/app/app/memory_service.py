@@ -1299,6 +1299,28 @@ Extract the facts as JSON:"""
             }
 
 
+    async def _check_restore_capacity(self, conn, memory_uuid, user_uuid) -> None:
+        """Under the extraction's per-user lock, refuse to reactivate a fact
+        that is inactive now (re-read, not the pre-lock snapshot) when the
+        user is at LANGMEM_MAX_FACTS_PER_USER."""
+        await conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+            str(user_uuid),
+        )
+        currently_active = await conn.fetchval(
+            "SELECT is_active FROM public.memory_facts WHERE id = $1 AND user_id = $2 FOR UPDATE",
+            memory_uuid, user_uuid,
+        )
+        active = 0 if currently_active else await conn.fetchval(
+            "SELECT COUNT(*) FROM public.memory_facts WHERE user_id = $1 AND is_active = true",
+            user_uuid,
+        )
+        if active >= self.max_facts:
+            raise MemoryCapacityError(
+                f"User has {active} active memories (limit {self.max_facts}); "
+                "deactivate one before restoring another"
+            )
+
     async def update_memory(
         self, memory_id: str, user_id: str, updates: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
@@ -1352,24 +1374,15 @@ Extract the facts as JSON:"""
                 f"WHERE id = ${param_idx} AND user_id = ${param_idx + 1} RETURNING *"
             )
 
-            if updates.get("is_active") is True and not row["is_active"]:
+            if updates.get("is_active") is True:
                 # Restoring a fact counts against LANGMEM_MAX_FACTS_PER_USER
                 # under the same per-user lock as extraction; otherwise the
-                # next consolidation expired other, untouched facts.
+                # next consolidation expired other, untouched facts. Whether
+                # this is a restore is re-read under the lock: the snapshot
+                # above can say "active" while a concurrent delete or
+                # supersede has already deactivated the fact.
                 async with conn.transaction():
-                    await conn.execute(
-                        "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
-                        str(user_uuid),
-                    )
-                    active = await conn.fetchval(
-                        "SELECT COUNT(*) FROM public.memory_facts WHERE user_id = $1 AND is_active = true",
-                        user_uuid,
-                    )
-                    if active >= self.max_facts:
-                        raise MemoryCapacityError(
-                            f"User has {active} active memories (limit {self.max_facts}); "
-                            "deactivate one before restoring another"
-                        )
+                    await self._check_restore_capacity(conn, memory_uuid, user_uuid)
                     updated = await conn.fetchrow(query, *params)
             else:
                 updated = await conn.fetchrow(query, *params)
