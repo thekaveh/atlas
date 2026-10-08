@@ -54,7 +54,7 @@ class _FakeWeaviate:
     def available(self):
         return True
 
-    async def ensure_class(self, class_name):
+    async def ensure_class(self, class_name, embedding=None):
         return None
 
     async def write_objects(self, class_name, objects):

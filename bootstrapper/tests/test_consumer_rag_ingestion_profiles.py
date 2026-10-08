@@ -510,3 +510,17 @@ def test_more_than_one_graph_target_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(ConsumerManifestError, match="more than one graph_target"):
         load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+def test_profile_names_that_sanitize_to_one_class_are_rejected(tmp_path: Path) -> None:
+    """`a-b` and `a.b` both map to class `{prefix}_a_b` with the same chunk
+    ids, so one profile's ingestion overwrote the other's (#1364)."""
+    _write_root(tmp_path)
+    body = "".join(
+        f"    - name: {name}\n      corpus: {{source: mount, path: {path}}}\n"
+        "      vector_targets: [{backend: weaviate, collection_prefix: Docs, on_unavailable: skip}]\n"
+        for name, path in (("a-b", "x"), ("a.b", "y"))
+    )
+    manifest = _write_consumer(tmp_path, "alpha", "rag_ingestion_profiles:\n  version: 1\n  profiles:\n" + body)
+    with pytest.raises(ConsumerManifestError, match="Weaviate collection 'Docs_a_b' declared by two profiles"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])

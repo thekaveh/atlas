@@ -512,6 +512,10 @@ class Embedder:
     def available(self) -> bool:
         return bool(self._base_url.strip())
 
+    @property
+    def model(self) -> str:
+        return self._model
+
     # One request per batch: a whole corpus in one call outran the 60s
     # timeout on CPU embedders and was retried in full each time.
     _BATCH_SIZE = 128
@@ -557,17 +561,35 @@ class WeaviateClient:
     def available(self) -> bool:
         return bool(self._url.strip())
 
-    async def ensure_class(self, class_name: str) -> None:
+    @staticmethod
+    def embedding_identity(model: str, dimension: int) -> str:
+        """Class ``description`` naming the vectors it holds (#1364)."""
+        return f"atlas-rag-ingestion embedding_model={model} dimension={dimension}"
+
+    async def ensure_class(
+        self, class_name: str, embedding: Optional[tuple[str, int]] = None
+    ) -> None:
+        """Create ``class_name`` if absent. With ``embedding`` (model,
+        dimension), a class recorded for other vectors (or created before the
+        identity was recorded) is dropped and recreated: appending vectors of
+        another model or size failed or mixed incompatible spaces (#1364). The
+        run rewrites the profile's corpus, so nothing current is lost."""
         import httpx
 
+        description = self.embedding_identity(*embedding) if embedding else None
         async with httpx.AsyncClient(timeout=30.0) as client:
             existing = await client.get(f"{self._url}/v1/schema/{class_name}")
             if existing.status_code == 200:
-                return
+                if description is None or existing.json().get("description") == description:
+                    return
+                dropped = await client.delete(f"{self._url}/v1/schema/{class_name}")
+                if dropped.status_code not in (200, 404):
+                    dropped.raise_for_status()
             resp = await client.post(
                 f"{self._url}/v1/schema",
                 json={
                     "class": class_name,
+                    **({"description": description} if description else {}),
                     "vectorizer": "none",
                     "properties": [
                         {"name": "content", "dataType": ["text"]},
