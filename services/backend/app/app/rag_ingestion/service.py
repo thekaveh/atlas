@@ -236,8 +236,12 @@ class RagIngestionService:
 
     @staticmethod
     def _idempotency_key(
-        profile: LoadedProfile, corpus: Dict[str, Any], corpus_fingerprint: str
+        profile: LoadedProfile, corpus: Dict[str, Any], corpus_fingerprint: str,
+        embedding_model: str = "",
     ) -> str:
+        # The embedding model is part of the job identity: an unchanged corpus
+        # resubmitted after LITELLM_EMBEDDING_MODEL changes must re-embed, not
+        # return the old job (#1364).
         payload = "|".join(
             [
                 profile.consumer,
@@ -246,6 +250,7 @@ class RagIngestionService:
                 json.dumps(corpus, sort_keys=True, separators=(",", ":")),
                 corpus_fingerprint,
             ]
+            + ([f"embedding_model={embedding_model}"] if embedding_model else [])
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -273,7 +278,9 @@ class RagIngestionService:
         corpus_fingerprint = self.deps.corpus.fingerprint(
             corpus, corpus.get("path")
         )
-        key = self._idempotency_key(profile, corpus, corpus_fingerprint)
+        key = self._idempotency_key(
+            profile, corpus, corpus_fingerprint, str(getattr(self.deps.embedder, "model", "") or "")
+        )
 
         record = IngestionRecord(
             id=str(uuid.uuid4()),
@@ -804,17 +811,24 @@ class RagIngestionService:
         record.counts["vectors_written"] = 0
         record.add_error(IngestionError(phase="vector_write", message=message))
 
+    def _embedding_of(self, state) -> tuple[str, int]:
+        """(model, dimension) of this run's vectors: the class identity (#1364)."""
+        return (str(getattr(self.deps.embedder, "model", "") or ""), len(state["chunks"][0]["vector"]))
+
     @staticmethod
     def _weaviate_objects(class_name: str, profile, chunks) -> list:
         """Weaviate payloads for this run's chunks.
 
-        The id is `uuid5(class|source|index)`, so re-running the same corpus
-        overwrites rather than duplicating — and `source` is carried as a
-        property so the reconcile can preserve per-document.
+        The id is `uuid5(class|profile|source|index)`, so re-running the same
+        corpus overwrites rather than duplicating, and two profiles never share
+        an id (#1364) — and `source` is carried as a property so the
+        reconcile can preserve per-document.
         """
         return [
             {
-                "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{class_name}|{c['source']}|{c['index']}")),
+                "id": str(uuid.uuid5(
+                    uuid.NAMESPACE_URL, f"{class_name}|{profile.name}|{c['source']}|{c['index']}"
+                )),
                 "properties": {
                     "content": c["content"], "source": c["source"],
                     "profile": profile.name, "chunkIndex": c["index"],
@@ -909,7 +923,7 @@ class RagIngestionService:
                 return
             class_name = weaviate_class_name(target['collection_prefix'], profile.name)
             try:
-                await self.deps.weaviate.ensure_class(class_name)
+                await self.deps.weaviate.ensure_class(class_name, embedding=self._embedding_of(state))
                 objects = self._weaviate_objects(class_name, profile, state["chunks"])
                 total += await self.deps.weaviate.write_objects(class_name, objects)
                 # Reconcile PER SOURCE. The deletion pass treats "not in this
