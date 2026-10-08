@@ -2815,3 +2815,20 @@ def test_n8n_workflow_ids_fit_n8n_id_column(tmp_path, wid, ok):
     else:
         with pytest.raises(ConsumerManifestError, match="too long"):
             _parse_n8n_workflows_block(data, "acme", tmp_path, manifest)
+
+
+def test_a_base_port_change_keeps_the_typed_localhost_port_in_the_overview() -> None:
+    """Re-confirming the base port rebuilt every row from .env, so a
+    localhost row showed :8080 while the launch wrote the typed 9999."""
+    from types import SimpleNamespace
+
+    from ui.textual.screens.wizard_screen import WizardScreen
+
+    screen = WizardScreen.__new__(WizardScreen)
+    localhost = SimpleNamespace(value="localhost", secondary_number=SimpleNamespace(env_var="WEAVIATE_LOCALHOST_PORT"))
+    step = SimpleNamespace(title="Weaviate  ·  source", service_name="Weaviate", options=[localhost])
+    screen._steps = [step, SimpleNamespace(title="Base port", service_name=None, options=[])]
+    screen._selections = {step.title: "localhost", "__secondary__:WEAVIATE_LOCALHOST_PORT": "9999"}
+    screen._services = [SimpleNamespace(name="Weaviate", port="8080")]
+    screen._reapply_typed_host_ports()
+    assert screen._services[0].port == "9999"

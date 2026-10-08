@@ -2056,6 +2056,7 @@ class WizardScreen(Screen):
                 return
         self._preview_base = new_base
         self._services = self._on_base_port_change(new_base, self._services)
+        self._reapply_typed_host_ports()
         self._service_table.set_rows(self._services)
         self._refresh_info_panel()
 
@@ -2067,6 +2068,19 @@ class WizardScreen(Screen):
         if self._resolve_port_for_service is not None:
             return self._resolve_port_for_service(row.name, row.source) or ""
         return row.port
+
+    def _reapply_typed_host_ports(self) -> None:
+        """A base-port change rebuilds every row from .env, which dropped a
+        localhost row's typed host port from the preview while the launch
+        still wrote it."""
+        rows = {row.name: row for row in self._services}
+        for step in self._steps:
+            row = rows.get(step.service_name or "")
+            answer = self._selections.get(step.title)
+            opt = next((o for o in step.options if o.value == answer), None) if row else None
+            typed = self._typed_host_port(opt) if opt is not None else ""
+            if typed:
+                row.port = typed
 
     def _typed_host_port(self, opt) -> str:
         """The host port typed into ``opt``'s inline box, if any: the launch
@@ -2858,8 +2872,8 @@ class WizardScreen(Screen):
         self._command_summary.set_flags(flags)
 
     def _project_and_count_flags(self) -> list[tuple[str, str]]:
-        """--project, --comfyui-models, --ray-worker-count and --spark-workers,
-        which the loop above never emitted (#1390)."""
+        """--project, --comfyui-models, --ray-worker-count, --spark-workers and
+        --prometheus-retention-days, which the loop above never emitted (#1390)."""
         from wizard.comfyui_steps import COMFYUI_MODELS_TITLE
         from wizard.model.cloud_rules import SECRET_CLEAR, SECRET_KEEP
 
@@ -2875,7 +2889,8 @@ class WizardScreen(Screen):
             names = _model_names(models)
             flags.append(("--comfyui-models", _quote_csv(",".join(names)) if names else '""'))
         for env_var, flag in (("RAY_WORKER_COUNT", "--ray-worker-count"),
-                              ("SPARK_WORKER_COUNT", "--spark-workers")):
+                              ("SPARK_WORKER_COUNT", "--spark-workers"),
+                              ("PROMETHEUS_RETENTION_DAYS", "--prometheus-retention-days")):
             count = selections.get(f"__secondary__:{env_var}")
             if count not in (None, ""):
                 flags.append((flag, str(count)))

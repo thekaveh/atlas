@@ -531,3 +531,34 @@ def test_filtered_source_value_falls_back_to_the_manifest_default() -> None:
     # svc.options[0] is "container" for TIKA, but the declared default is not.
     assert manifest_source_default(manifests, "TIKA_SOURCE") == "disabled"
     assert manifest_source_default(manifests, "NO_SUCH_SOURCE") is None
+
+
+def test_a_pinned_source_keeps_its_env_default_under_the_prod_profile() -> None:
+    """A consumer manifest (or .env.user) that set PROMETHEUS_SOURCE=disabled
+    under profile: prod got `container` as the wizard default, so Enter
+    started Prometheus; --no-tui kept the declared value."""
+    steps, *_ = I._build_steps_and_rows(
+        ConfigParser(), _HostsManager(), pinned_source_vars=frozenset({"PROMETHEUS_SOURCE"}),
+    )
+    step = next(s for s in steps if s.title.startswith("Prometheus"))
+    assert step.default_value_provider is None
+    assert _step_titled("Grafana").default_value_provider is not None
+
+
+def test_a_consumer_declared_source_is_neither_skipped_nor_dimmed_by_a_wizard_track() -> None:
+    """Picked in the wizard, gen-ai-rag skipped and dimmed a MinIO the
+    consumer declared, while the launch kept it running (#783)."""
+    from tracks import load_tracks
+
+    declared = frozenset({"minio_source"})
+    steps, rows, services_info, *_ = I._build_steps_and_rows(
+        ConfigParser(), _HostsManager(), consumer_declared=declared,
+    )
+    registry = load_tracks()
+    if "minio" in registry.by_key["gen-ai-rag"].services:
+        pytest.skip("gen-ai-rag now includes MinIO; pick another off-track service")
+    minio = next(s for s in steps if s.title.startswith("MinIO"))
+    assert minio.skip_if_prev({I.PICKER_STEP_TITLE: "gen-ai-rag"}) is False
+    overridden = I._consumer_override_keys(declared, services_info)
+    marked = remark_off_track_rows("gen-ai-rag", rows, services_info=services_info, overridden=overridden)
+    assert not next(r for r in marked if r.name.startswith("MinIO")).off_track
