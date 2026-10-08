@@ -194,9 +194,15 @@ DISABLED_SOURCES = frozenset({"disabled", "none", ""})
 
 
 def _is_scoped_cred_target(var_name: str) -> bool:
-    """True iff ``var_name`` is a consumer-scoped MinIO credential var."""
-    return var_name.startswith(_STORAGE_CRED_TARGET_PREFIX) and var_name.endswith(
-        _STORAGE_CRED_VALUE_SUFFIXES
+    """True iff ``var_name`` is a consumer-scoped MinIO credential var. The
+    stack's own service-account credentials (MINIO_BACKEND_SECRET_KEY, ...)
+    share the naming pattern and are excluded by name."""
+    from core.consumer_manifest import _stack_minio_reservations  # noqa: PLC0415 - cycle
+
+    return (
+        var_name.startswith(_STORAGE_CRED_TARGET_PREFIX)
+        and var_name.endswith(_STORAGE_CRED_VALUE_SUFFIXES)
+        and var_name not in _stack_minio_reservations()[0]
     )
 
 

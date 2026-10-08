@@ -30,9 +30,16 @@ def generate_block(services_root: Path) -> str:
         "| Category | Service | Default port | Alias |",
         "|---|---|---:|---|",
     ]
+    from services.topology import unpublished_port_vars
+
+    unpublished = unpublished_port_vars(services_root)
     for cat in CATEGORY_ORDER:
         for r in by_category[cat]:
             port = topology.port_defaults.get(r.port_var or "", "—")
+            if port != "—" and r.port_var in unpublished:
+                # Reserved in the port block but not bound on the host
+                # (pg-meta, Studio): listing the number read as reachable.
+                port = "— (Kong only)" if r.alias else "—"
             alias = r.alias or "—"
             lines.append(f"| {CATEGORY_LABELS[cat]} | {r.display_name} | {port} | {alias} |")
     lines.append("<!-- TOPOLOGY:END -->")

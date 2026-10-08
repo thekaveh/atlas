@@ -92,7 +92,7 @@ CATEGORY_FILLS: dict[str, str] = {
 #                                  Chatterbox/Crawl4AI/Tika/Asset-Baker/
 #                                  Asset-Worker = 11; 9 free)
 #   agents: BASE_PORT + 70..89    (Airflow, Celery/Flower, Hermes×2, n8n, OpenClaw×2, LightRAG,
-#                                  MCP-Servers = 9; 11 free)
+#                                  MCP-Servers, TrueForge = 10; 10 free)
 #   apps:   BASE_PORT + 90..109   (Backend, Open WebUI, JupyterHub, LDR, Zeppelin,
 #                                  Jenkins, Label-Studio, MLflow, LLM-Graph-Builder,
 #                                  Verba = 10; 10 free)
@@ -179,6 +179,23 @@ def get_topology(
     if services_root is None:
         services_root = Path(__file__).resolve().parent.parent.parent / "services"
     return _cached_topology(str(Path(services_root).resolve()), base_port)
+
+
+@functools.lru_cache(maxsize=8)
+def unpublished_port_vars(services_root: Path | None = None) -> frozenset[str]:
+    """Port vars of non-virtual services that no compose fragment
+    interpolates: slots kept in the port block but not bound on the host
+    (pg-meta, Supabase Studio). Surfaces that show a port use this so a dead
+    `localhost:<port>` is never advertised."""
+    import re
+
+    root = Path(services_root) if services_root else Path(__file__).resolve().parent.parent.parent / "services"
+    text = "\n".join(path.read_text(encoding="utf-8") for path in root.glob("*/compose.yml"))
+    published = set(re.findall(r"\$\{([A-Z0-9_]+_PORT)\b", text))
+    return frozenset(
+        r.port_var for r in get_topology(root).rows
+        if r.port_var and r.port_var not in published and (root / r.manifest / "compose.yml").exists()
+    )
 
 
 def invalidate_cache() -> None:

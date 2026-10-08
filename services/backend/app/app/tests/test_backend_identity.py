@@ -408,6 +408,7 @@ def test_every_builtin_backend_route_has_an_explicit_identity_boundary(
         "require_comfy_automation_principal",
         "require_comfy_read_principal",
         "require_memory_automation_principal",
+        "require_memory_operator_principal",
         "require_memory_principal",
         "require_n8n_operator_principal",
         "require_plugin_gateway_key",
@@ -645,3 +646,18 @@ def test_unset_identity_auth_mode_fails_closed(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         backend_identity._authenticate_backend_principal(None)
     assert exc.value.status_code == 401
+
+
+def test_an_invalid_identity_mode_fails_startup_not_every_request(monkeypatch):
+    """A BACKEND_IDENTITY_AUTH typo used to surface only as a 503 per request
+    while /ready (and the healthcheck) stayed green."""
+    import pytest
+
+    from backend_identity import validate_identity_auth_mode
+
+    for good in ("required", "disabled", " Required "):
+        monkeypatch.setenv("BACKEND_IDENTITY_AUTH", good)
+        assert validate_identity_auth_mode() in {"required", "disabled"}
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "requried")
+    with pytest.raises(ValueError, match="BACKEND_IDENTITY_AUTH"):
+        validate_identity_auth_mode()

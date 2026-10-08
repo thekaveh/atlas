@@ -5,6 +5,7 @@ Python implementation of functions from hosts-utils.sh and start.sh.
 """
 
 import os
+from pathlib import Path
 import platform
 import ctypes
 import subprocess
@@ -152,4 +153,74 @@ def get_hosts_file_path() -> str:
     elif os_type == "windows":
         return "C:/Windows/System32/drivers/etc/hosts"
     else:
+        return ""
+
+
+def project_volume_names(project_name: str) -> list:
+    """Volumes Compose labelled as this project's; [] when unknown."""
+    try:
+        result = subprocess.run(
+            ["docker", "volume", "ls", "-q", "--filter",
+             f"label=com.docker.compose.project={project_name}"],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [line for line in result.stdout.split() if line] if result.returncode == 0 else []
+
+
+def report_surviving_volumes(leftover: list, emit) -> list:
+    """Name project volumes `down --volumes` left behind (a consumer overlay
+    not loaded for this run), with the remedy."""
+    if leftover:
+        emit(
+            "    ⚠ These project volumes were not removed (declared by a consumer "
+            f"overlay not loaded for this run?): {', '.join(leftover)}. Re-run with "
+            "--consumer <manifest>, or remove them with docker volume rm."
+        )
+    return leftover
+
+
+def compose_env(compose_cmd: list) -> dict:
+    """The environment for a compose command, with PROJECT_NAME naming the
+    same project as its `-p`. Every volume and container is named
+    `${PROJECT_NAME}-…`, which Compose resolves from the shell before
+    --env-file, so a cold `--project foo` (cleanup runs before .env gets foo)
+    or a stray exported PROJECT_NAME ran `down --volumes` under `-p foo`
+    against another project's volumes.
+
+    The value Compose would resolve is kept when it already names this
+    project (a hand-edited `MyStack` is project `mystack`, and its volumes
+    are `MyStack-*`; lowercasing it renamed them and orphaned the data); it
+    is replaced with `-p` only when it names a different project."""
+    env = os.environ.copy()
+    if "-p" not in compose_cmd[:-1]:
+        return env
+    project = compose_cmd[compose_cmd.index("-p") + 1]
+    resolved = env.get("PROJECT_NAME") or _env_file_project_name(compose_cmd)
+    if not resolved or _normalized_project(resolved) != project:
+        env["PROJECT_NAME"] = project
+    return env
+
+
+def _env_file_project_name(compose_cmd: list) -> str:
+    env_file = next((arg.split("=", 1)[1] for arg in compose_cmd if arg.startswith("--env-file=")), "")
+    if not env_file:
+        return ""
+    try:
+        from core.config_parser import ConfigParser
+
+        parser = ConfigParser()
+        parser.env_file_path = Path(env_file)
+        return (parser.parse_env_file().get("PROJECT_NAME") or "").strip()
+    except Exception:  # noqa: BLE001 - unreadable .env: pin to -p
+        return ""
+
+
+def _normalized_project(raw: str) -> str:
+    from core.config_parser import normalize_project_name
+
+    try:
+        return normalize_project_name(raw)
+    except ValueError:
         return ""

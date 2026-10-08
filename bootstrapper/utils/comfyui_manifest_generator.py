@@ -46,6 +46,12 @@ from typing import Any, Mapping
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
+
+# Fields two rows at one target_dir/filename must agree on; the resolver
+# skips a clashing custom entry on the same fields (it compared only URL and
+# sha, so a size-only difference still aborted the plan write).
+DOWNLOAD_IDENTITY_FIELDS = ("type", "download_url", "sha256", "file_size_bytes", "file_size_gb")
+
 class ComfyUIManifestGenerator:
     """Writes ``volumes/comfyui/selected-models.yaml``,
     ``volumes/comfyui/active-models.tsv``, and
@@ -97,18 +103,17 @@ class ComfyUIManifestGenerator:
 
         entries = comfyui_resolver.active_comfyui_models(self.env)
 
+        # Render and validate both TSVs before replacing any file: a row that
+        # fails validation used to leave selected-models.yaml (which the
+        # backend serves) updated beside the previous TSV plan.
+        models_tsv = self._tsv_text(entries)
+        custom_nodes_tsv = self._custom_nodes_tsv_text(entries, output_dir)
+
         # --- write YAML manifest (canonical SoT, read by backend C4) ---
-        yaml_path = output_dir / "selected-models.yaml"
-        comfyui_resolver.write_manifest(entries, str(yaml_path))
-
-        # --- write TSV (shell-consumable view for download_models.sh) ---
-        tsv_path = output_dir / "active-models.tsv"
-        self._write_tsv(entries, tsv_path)
-
-        # --- write custom-node TSV (shell-consumable install plan) ---
-        custom_nodes_tsv_path = output_dir / "active-custom-nodes.tsv"
-        self._write_custom_nodes_tsv(entries, custom_nodes_tsv_path)
-
+        comfyui_resolver.write_manifest(entries, str(output_dir / "selected-models.yaml"))
+        # --- TSVs (shell-consumable views for download_models.sh / nodes) ---
+        self._atomic_write(output_dir / "active-models.tsv", models_tsv)
+        self._atomic_write(output_dir / "active-custom-nodes.tsv", custom_nodes_tsv)
         return True
 
     # ------------------------------------------------------------------
@@ -234,12 +239,12 @@ class ComfyUIManifestGenerator:
                 pass
             raise
 
-    def _write_tsv(
-        self,
-        entries: list[Any],
-        tsv_path: Path,
-    ) -> None:
-        """Write the tab-separated active-models file atomically.
+    def _write_tsv(self, entries: list[Any], tsv_path: Path) -> None:
+        """Write the tab-separated active-models file atomically."""
+        self._atomic_write(tsv_path, self._tsv_text(entries))
+
+    def _tsv_text(self, entries: list[Any]) -> str:
+        """The tab-separated active-models file, validated.
 
         The file has no header row — ``download_models.sh`` reads each row and
         splits it with ``cut -f`` (which preserves empty interior fields such as
@@ -265,13 +270,7 @@ class ComfyUIManifestGenerator:
             key = (str(row["target_dir"]), str(row["filename"]))
             previous = seen_paths.get(key)
             if previous is not None:
-                for field in (
-                    "type",
-                    "download_url",
-                    "sha256",
-                    "file_size_bytes",
-                    "file_size_gb",
-                ):
+                for field in DOWNLOAD_IDENTITY_FIELDS:
                     if previous.get(field) != row.get(field):
                         raise ValueError(
                             "Conflicting ComfyUI download metadata for "
@@ -288,53 +287,32 @@ class ComfyUIManifestGenerator:
                 continue
             seen_paths[key] = row
             download_rows.append(row)
+        return "".join(self._row_tsv(row) + "\n" for row in download_rows)
 
-        tsv_path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(
-            dir=str(tsv_path.parent),
-            prefix=tsv_path.name + ".",
-            suffix=".tmp",
-        )
-        # mkstemp is 0600; the backend (appuser) reads these via a bind mount.
-        os.fchmod(fd, 0o644)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                for row in download_rows:
-                    fh.write(self._row_tsv(row) + "\n")
-            os.replace(tmp, str(tsv_path))
-        except BaseException:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
-
-    def _write_custom_nodes_tsv(
-        self,
-        entries: list[Any],
-        tsv_path: Path,
-    ) -> None:
+    def _write_custom_nodes_tsv(self, entries: list[Any], tsv_path: Path) -> None:
         """Write the tab-separated active custom-node install plan atomically."""
+        self._atomic_write(tsv_path, self._custom_nodes_tsv_text(entries, tsv_path.parent))
+
+    def _custom_nodes_tsv_text(self, entries: list[Any], output_dir: Path) -> str:
+        """The custom-node install plan, validated; copies each node's lock
+        file next to it."""
         from utils import comfyui_custom_nodes
 
         nodes = comfyui_custom_nodes.active_custom_nodes(entries, self.env)
-
         for node in nodes:
-            self._copy_custom_node_lock(node, tsv_path.parent)
+            self._copy_custom_node_lock(node, output_dir)
+        return "".join(self._custom_node_row_tsv(node) + "\n" for node in nodes)
 
-        tsv_path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(
-            dir=str(tsv_path.parent),
-            prefix=tsv_path.name + ".",
-            suffix=".tmp",
-        )
+    @staticmethod
+    def _atomic_write(path: Path, text: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
         # mkstemp is 0600; the backend (appuser) reads these via a bind mount.
         os.fchmod(fd, 0o644)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                for node in nodes:
-                    fh.write(self._custom_node_row_tsv(node) + "\n")
-            os.replace(tmp, str(tsv_path))
+                fh.write(text)
+            os.replace(tmp, str(path))
         except BaseException:
             try:
                 os.unlink(tmp)

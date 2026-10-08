@@ -77,6 +77,11 @@ services:
       # below, internal-only). Scraped by the observability bundle's
       # Prometheus when PROMETHEUS_SOURCE=container.
       PROMETHEUS_MONITORING_ENABLED: 'true'
+      # Weaviate defaults to Access-Control-Allow-Origin: *, and anonymous
+      # access is on, so any web page in the operator's browser could read
+      # or DELETE collections through the loopback port. Only the Kong host
+      # is a browser origin.
+      CORS_ALLOW_ORIGIN: http://weaviate.localhost:${KONG_HTTP_PORT}
     entrypoint: ["/scripts/configure-weaviate.sh", "/bin/weaviate", "--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]
     ports:
       - "${HOST_BIND_IP-127.0.0.1:}${WEAVIATE_PORT}:8080"

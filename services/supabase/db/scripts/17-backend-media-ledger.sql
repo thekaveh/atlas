@@ -87,8 +87,9 @@ CREATE INDEX IF NOT EXISTS idx_media_spend_ledger_scope
 -- WITHOUT RLS any holder of the public anon key could read the entire spend
 -- ledger and any authenticated user could DELETE rows or zero final_cost_usd to
 -- evade the budget cap. Scope all access to the service_role claim like the
--- memory (14) / research (13) tables; the backend's direct supabase_admin
--- connection bypasses RLS (owner) and is unaffected.
+-- memory (14) / research (13) tables; the backend connects as
+-- BACKEND_DB_USER through the "Atlas backend direct role access" policy in
+-- 05-scoped-roles.sh and is unaffected.
 ALTER TABLE public.media_spend_ledger ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Service role can access all media spend ledger" ON public.media_spend_ledger;

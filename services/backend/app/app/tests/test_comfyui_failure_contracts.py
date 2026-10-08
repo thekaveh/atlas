@@ -274,7 +274,7 @@ def test_generate_omitted_defaults_are_concrete_and_seed_null_remains_optional(
 
 
 @pytest.mark.parametrize("route", ["/comfyui/generate", "/comfyui/workflow"])
-def test_legacy_polling_history_outage_returns_503(
+def test_legacy_polling_history_outage_names_the_queued_prompt(
     fastapi_client, monkeypatch, route
 ):
     import comfyui_client
@@ -318,8 +318,10 @@ def test_legacy_polling_history_outage_returns_503(
 
     response = fastapi_client.post(route, json=payload)
 
-    assert response.status_code == 503
-    assert response.json() == {"detail": "ComfyUI is unavailable"}
+    # Queued, then history polling failed: the prompt may still render, so a
+    # retryable 503 without its id invited a duplicate (#676).
+    assert response.status_code == 504
+    assert response.json()["detail"]["prompt_id"] == "prompt-poll"
     assert "SENTINEL_COMFY_POLL_SECRET" not in response.text
 
 
@@ -1579,3 +1581,149 @@ def test_init_image_larger_than_the_side_cap_is_refused():
     cmc._reject_oversized_init_image(png(4096, 64))
     with pytest.raises(ValueError, match="4097x64"):
         cmc._reject_oversized_init_image(png(4097, 64))
+
+
+def test_a_prompt_that_may_have_been_queued_is_not_a_retryable_outage():
+    """A read timeout after sending /prompt can mean ComfyUI queued it; only a
+    connect failure proves it was not delivered (#676)."""
+    import asyncio
+
+    import httpx
+    import pytest
+
+    from comfyui_client import ComfyUIClient, ComfyUISubmissionUnknownError, ComfyUIUnavailableError
+
+    async def run(error):
+        def handler(request):
+            raise error("boom", request=request)
+
+        client = ComfyUIClient()
+        await client.client.aclose()
+        client.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            await client.queue_prompt({"1": {}})
+        finally:
+            await client.client.aclose()
+
+    with pytest.raises(ComfyUISubmissionUnknownError):
+        asyncio.run(run(httpx.ReadTimeout))
+    with pytest.raises(ComfyUIUnavailableError):
+        asyncio.run(run(httpx.ConnectError))
+
+
+def test_a_queued_poll_never_returns_other_callers_queue_items():
+    """The poll returned ComfyUI's whole /queue body, whose items carry other
+    callers' prompt graphs (text, models, inputs)."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/history"):
+            return httpx.Response(200, json={})
+        return httpx.Response(200, json={
+            "queue_running": [[1, "someone-else", {"6": {"inputs": {"text": "SECRET other prompt"}}}, {}, []]],
+            "queue_pending": [[2, "mine", {}, {}, []]],
+        })
+
+    payload = _provider_run(handler, lambda c: c.get_media_operation(operation_id="mine", modality="image"))
+    assert payload["status"] == "queued"
+    assert "SECRET" not in __import__('json').dumps(payload) and "someone-else" not in __import__('json').dumps(payload)
+
+
+def test_non_json_upstream_and_infinite_sizes_are_not_reported_as_parser_text():
+    """A 200 HTML body raised JSONDecodeError (a ValueError → 400 with the
+    parser's text); `1e400` parsed as inf raised OverflowError (→ 502)."""
+    import comfyui_media_client as module
+
+    def html(_request):
+        return httpx.Response(200, text="<html>proxy</html>", headers={"content-type": "text/html"})
+
+    with pytest.raises(RuntimeError, match="non-JSON"):
+        _provider_run(html, lambda c: c._get_queue())
+    with pytest.raises(ValueError, match="width must be an integer"):
+        module._bounded_int(float("inf"), field="width", minimum=64, maximum=2048)
+
+
+from tests.test_async_jobs import _reload_main as _reload_async_main  # noqa: E402
+from tests.test_backend_identity import _user_headers as _identity_user_headers  # noqa: E402
+
+
+def _media_main_with_prompt_handler(monkeypatch, handler):
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "disabled")
+    monkeypatch.setenv("FAL_SOURCE", "disabled")
+    monkeypatch.setenv("COMFYUI_SOURCE", "container-cpu")
+    main = _reload_async_main(monkeypatch)
+    import comfyui_media_client as cmc
+
+    original_init = cmc.ComfyUIMediaClient.__init__
+
+    def init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        self.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(cmc.ComfyUIMediaClient, "__init__", init)
+    monkeypatch.setattr(main, "ComfyUIMediaClient", cmc.ComfyUIMediaClient)
+    return main
+
+
+def _post_media(main):
+    from fastapi.testclient import TestClient
+
+    return TestClient(main.app).post("/media/generate", json={
+        "modality": "image", "provider": "comfyui", "model": "x.safetensors", "input": {"prompt": "cat"},
+    })
+
+
+@pytest.mark.parametrize("lost", [httpx.ReadTimeout, httpx.RemoteProtocolError])
+def test_media_generate_reports_a_lost_prompt_response_as_maybe_queued(monkeypatch, lost):
+    """A read timeout or dropped response after /prompt was sent returned a
+    retryable 502 with no operation record; the retry rendered twice (#676)."""
+    def handler(request):
+        if request.url.path == "/prompt":
+            raise lost("lost after send", request=request)
+        return httpx.Response(404)
+
+    main = _media_main_with_prompt_handler(monkeypatch, handler)
+    response = _post_media(main)
+    detail = response.json()["detail"]
+    # The 504 pointed at /comfyui/queue (403 for users) and kept no record;
+    # it now returns a durable submission_unknown operation, like FAL's.
+    assert response.status_code == 504 and detail["submission_status"] == "unknown"
+    assert "/comfyui/queue" not in str(detail)
+    stored = asyncio.run(main.MEDIA_OPERATION_STORE.get(detail["local_submission_id"]))
+    assert stored["last_payload"]["status"] == "submission_unknown"
+
+
+@pytest.mark.parametrize("upstream, expected", [
+    (lambda: httpx.Response(400, json={"error": {"message": "failed validation"},
+                                       "node_errors": {"1": "ckpt SECRET_internal_model.safetensors"}}), 400),
+    (lambda: httpx.Response(413, text="<html>nginx internal-host comfy-gpu-01.corp</html>"), 502),
+])
+def test_media_generate_does_not_echo_comfyui_error_bodies(monkeypatch, upstream, expected):
+    """The 4xx body (a proxy's HTML page, raw node_errors with private model
+    names) reached any signed-in caller; a non-400 4xx is upstream-side."""
+    def handler(request):
+        return upstream() if request.url.path == "/prompt" else httpx.Response(404)
+
+    response = _post_media(_media_main_with_prompt_handler(monkeypatch, handler))
+    assert response.status_code == expected
+    assert "SECRET_internal" not in response.text and "corp" not in response.text
+
+
+def test_user_jwts_cannot_reach_fleet_wide_memory_operator_routes(monkeypatch):
+    """/memory/health counted every user's facts and /memory/vector-store/probe
+    forced the global Weaviate failback, for any self-registered user."""
+    from fastapi.testclient import TestClient
+
+    main = _reload_async_main(monkeypatch)
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "required")
+    monkeypatch.setenv("BACKEND_INTERNAL_API_TOKEN", "internal-secret")
+    calls = []
+
+    async def probe():
+        calls.append("probe")
+        return {}
+
+    monkeypatch.setattr(main.memory_service, "probe_weaviate", probe)
+    client = TestClient(main.app)
+    headers = _identity_user_headers(monkeypatch, "00000000-0000-4000-8000-000000000001")
+    assert client.post("/memory/vector-store/probe", headers=headers).status_code == 403
+    assert client.get("/memory/health", headers=headers).status_code == 403
+    assert calls == []

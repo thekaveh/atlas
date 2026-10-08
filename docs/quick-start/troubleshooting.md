@@ -390,7 +390,7 @@ grep -E "(LLM_PROVIDER|COMFYUI|N8N|WEAVIATE|CLOUD|MINIO)[A-Z_]*_SOURCE" .env
 # directly). Inside the Compose network, services resolve by service name:
 docker compose exec backend curl -sf http://litellm:4000/health/liveliness
 docker compose exec litellm python -c "import urllib.request; print(urllib.request.urlopen('http://ollama:11434/api/tags', timeout=5).status)"   # the LiteLLM image has no curl
-docker compose exec kong-api-gateway curl -sf http://supabase-api:3000/   # PostgREST answers its OpenAPI root; /health is not a route
+docker compose exec backend curl -sf http://supabase-api:3000/   # PostgREST answers its OpenAPI root; /health is not a route (the Kong image has no curl)
 
 # Test external access
 curl http://localhost:63096
@@ -440,7 +440,7 @@ Atlas recovery is **project-scoped by design**: everything Atlas creates — con
 
 ### 10.1. Complete Reset (destructive — deletes this project's data)
 
-`./stop.sh --cold` stops the stack and **deletes every named Atlas project volume**: databases, n8n workflows, downloaded models, generated artifacts. There is no undo. Take a backup first (§10.3), and note that with the default `BACKUP_S3_MODE=local` the backup itself lives in this project's MinIO volume (and the Neo4j/Weaviate snapshot volumes), so `--cold` deletes it too: use `BACKUP_S3_MODE=external` or copy the bucket off the host before resetting. `./start.sh --cold` then rebuilds `.env` from `.env.example`; it saves the previous file next to it as `.env.backup.cold.<YYYYmmddTHHMMSS>.<random>` (owner-only; the five most recent cold copies are kept, separately from the routine `.env.backup.*` start-up copies), but keep your own copy of `BACKUP_MANIFEST_HMAC_KEY` and `BACKUP_DEPLOYMENT_ID`, since a backup cannot be restored without them.
+`./stop.sh --cold` stops the stack and **deletes every named Atlas project volume**: databases, n8n workflows, downloaded models, generated artifacts. There is no undo. A stack started with `--consumer <manifest>` must be stopped with the same `--consumer`: volumes declared only by its compose overlays are outside the base model otherwise, and the cold stop names them and exits non-zero instead of reporting a full wipe. `./start.sh --cold` checks the same way and stops before rotating any secret. Take a backup first (§10.3), and note that with the default `BACKUP_S3_MODE=local` the backup itself lives in this project's MinIO volume (and the Neo4j/Weaviate snapshot volumes), so `--cold` deletes it too: use `BACKUP_S3_MODE=external` or copy the bucket off the host before resetting. `./start.sh --cold` then rebuilds `.env` from `.env.example`; it saves the previous file next to it as `.env.backup.cold.<YYYYmmddTHHMMSS>.<random>` (owner-only; the five most recent cold copies are kept, separately from the routine `.env.backup.*` start-up copies), but keep your own copy of `BACKUP_MANIFEST_HMAC_KEY` and `BACKUP_DEPLOYMENT_ID`, since a backup cannot be restored without them.
 
 ```bash
 # Full project reset — removes THIS project's containers, network, and
@@ -459,11 +459,15 @@ Atlas recovery is **project-scoped by design**: everything Atlas creates — con
 # existing values, appends newly introduced keys, reports what changed:
 ./start.sh env backfill
 
-# Reset specific service data (destructive for that service only).
+# Reset one volume's data (destructive). Stop the stack first: Docker
+# refuses to remove a volume a container (even a stopped one) still uses.
 # Volume names carry the PROJECT_NAME prefix from .env:
-docker volume rm $(grep '^PROJECT_NAME=' .env | cut -d= -f2-)-supabase-db-data  # Database only
-docker volume rm $(grep '^PROJECT_NAME=' .env | cut -d= -f2-)-n8n-data          # n8n workflows only
+./stop.sh
+docker volume rm $(grep '^PROJECT_NAME=' .env | cut -d= -f2-)-supabase-db-data  # the shared Postgres: every service database
+docker volume rm $(grep '^PROJECT_NAME=' .env | cut -d= -f2-)-n8n-data          # n8n's user folder only
 ```
+
+`supabase-db-data` is not one service's data: the same Postgres holds the Supabase, backend (memory, media ledger), n8n, Open WebUI, LiteLLM, LightRAG, Airflow, Langfuse, MLflow, Label Studio, Iceberg, JupyterHub, Zeppelin and TrueForge databases, so removing it resets all of them. n8n stores its workflows and credentials in that Postgres (`DB_TYPE=postgresdb`), not in `n8n-data`, which holds only its user folder (`/home/node/.n8n`).
 
 Rebuilding `.env` from `.env.example` is **not** a partial reset: freshly generated secrets no longer match the credentials baked into existing volumes, so a from-scratch `.env` requires the full destructive reset in §10.1 (which deletes those volumes and reinitializes both together).
 

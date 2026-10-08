@@ -647,3 +647,36 @@ def test_wizard_cold_start_carries_kept_key_and_source_forward():
     del selections["Cold start  ·  rebuild"]
     _, warm = _selections_to_args(selections, services_info=[], current_base_port=63000, env_vars=env)
     assert _P.api_key_var not in warm["cloud_api_keys"]
+
+
+def test_an_empty_ollama_selection_is_in_the_summary():
+    """Deselecting every Ollama model writes OLLAMA_USER_MODELS="", but the
+    summary emitted no flag, so a replay restored the .env.example set."""
+    import asyncio
+
+    from textual.app import App
+    from ui.textual.screens.wizard_screen import WizardScreen
+    from wizard.llm_steps import OLLAMA_MODELS_TITLE
+
+    step = PromptStep(title=OLLAMA_MODELS_TITLE, step_index=1, step_total=1, heading="H",
+                      subtitle="", kind="multiselect")
+    screen = WizardScreen(steps=[step], services=[], no_splash=True)
+
+    class _App(App):
+        def on_mount(self) -> None:
+            self.push_screen(screen)
+
+    async def scenario():
+        async with _App().run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            screen._selections[OLLAMA_MODELS_TITLE] = ""
+            screen._refresh_command_summary()
+            await pilot.pause()
+            return list(screen._command_summary.flags)
+
+    try:
+        assert ("--ollama-models", '""') in asyncio.run(scenario())
+    finally:
+        screen._close_launch_log_tee()
+        if screen._launch_log_path is not None:
+            screen._launch_log_path.unlink(missing_ok=True)

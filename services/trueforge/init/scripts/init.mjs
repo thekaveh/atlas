@@ -275,8 +275,11 @@ async function reconcileDisabledMcpConnector() {
 async function main() {
   await waitForHealthz();
 
-  const apiKey = await mintVirtualKey();
+  // Read the catalog first: minting deletes the stored provider's key, and a
+  // catalog failure after that left TrueForge holding a deleted key (401 on
+  // every agent call) until a later init succeeded.
   const modelIds = await fetchModelIds();
+  const apiKey = await mintVirtualKey();
   const taken = new Set();
   await putSettings("model-providers", {
     type: "custom",

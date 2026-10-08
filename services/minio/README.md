@@ -193,7 +193,7 @@ _No high-confidence opportunities identified._
 ## 11. Troubleshooting
 
 - **`SignatureDoesNotMatch`** — most often clock skew between host and container. Sync your host clock.
-- **Browser-based S3 client fails with CORS** — MinIO's default CORS config rejects unrecognized origins. Configure via `mc admin config` if browser uploads are required.
+- **Browser-based S3 client fails with CORS** — Atlas sets no MinIO CORS policy and MinIO reflects any origin by default, so a CORS failure usually comes from the client or a proxy in between (check the request's `Origin` and the Kong route); restrict origins with `mc admin config` if you need to.
 - **`403 AccessDenied`** — confirm the consumer credential's scoped policy matches the target bucket. Use root credentials to inspect: `mc admin policy info local <consumer>-policy`.
 - **Cross-path-style failures** — MinIO requires path-style addressing. In boto3 use `Config(s3={"addressing_style": "path"})`.
 - **`minio` container restart-loops** — typically `MINIO_ROOT_PASSWORD` is empty. Confirm `.env` has it populated; if blank, delete the line and re-run `./start.sh` (the bootstrapper will regenerate).

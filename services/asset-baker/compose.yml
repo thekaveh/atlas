@@ -8,6 +8,10 @@ services:
         BLENDER_VERSION: ${ASSET_BAKER_BLENDER_VERSION:-4.3.2}
         BLENDER_SHA256: ${ASSET_BAKER_BLENDER_SHA256:-4da1c956673c0485e63054e563ee69198cc8f80d8157dd7592dffc8a6a5592e6}
     image: ${PROJECT_NAME}-asset-baker:local
+    # The Dockerfile's Blender build is x86_64-only and refuses other
+    # architectures; on an arm64 host (Apple Silicon) it builds and runs
+    # under emulation, as ComfyUI does.
+    platform: ${ASSET_BAKER_PLATFORM:-linux/amd64}
     container_name: ${PROJECT_NAME}-asset-baker
     restart: unless-stopped
     deploy:

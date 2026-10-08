@@ -305,19 +305,33 @@ class SourceValidator:
 
         # No-upstream guard: if the local engine is `none` AND every cloud
         # provider is disabled, LiteLLM has nothing to serve. Refuse to start.
-        if not self._validate_litellm_has_upstream(service_sources):
-            all_valid = False
-
-        if not self._validate_fal_key_present(service_sources):
-            all_valid = False
-
-        if not self._validate_cloudflared_token_present(service_sources):
-            all_valid = False
-
-        if not self._validate_graph_builder_gcp_config(service_sources):
-            all_valid = False
+        # Every check runs, so all their errors are reported together.
+        for check in (
+            self._validate_litellm_has_upstream,
+            self._validate_fal_key_present,
+            self._validate_cloudflared_token_present,
+            self._validate_graph_builder_gcp_config,
+            self._validate_option_requires,
+        ):
+            if not check(service_sources):
+                all_valid = False
 
         return all_valid
+
+    def _validate_option_requires(self, service_sources: Dict[str, str]) -> bool:
+        """A selected source option's ``requires:`` env vars must be
+        non-empty (service.schema.json, docs/CONTRIBUTING-services.md)."""
+        from services.manifests import load_manifests
+
+        try:
+            manifests = load_manifests(Path(self.config_parser.root_dir) / "services")
+        except Exception:  # noqa: BLE001 - manifest errors are reported by their own lint
+            return True
+        env_vars = self.config_parser.parse_env_file()
+        errors = [error for manifest in manifests
+                  for error in _missing_option_requires(manifest.sources, service_sources, env_vars)]
+        self.validation_errors.extend(errors)
+        return not errors
 
     def enforce_runtime_invariants(self) -> bool:
         """Repair-style step: rewrite .env to a runnable shape.
@@ -811,3 +825,13 @@ class SourceValidator:
 
         valid_sources = self.get_valid_sources_for_service(service_key)
         return sorted(list(valid_sources))
+
+
+def _missing_option_requires(sources, service_sources: Dict[str, str], env_vars: Dict[str, str]) -> List[str]:
+    """Errors for the selected option's ``requires:`` vars left empty."""
+    selected = service_sources.get(sources.var) if sources is not None else None
+    option = next((o for o in (sources.options if selected else ()) if o.id == selected), None)
+    missing = [var for var in (option.requires if option else ()) if not (env_vars.get(var) or "").strip()]
+    if not missing:
+        return []
+    return [f"❌ {sources.var}={selected} requires {', '.join(missing)} to be set in .env."]

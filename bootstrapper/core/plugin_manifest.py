@@ -158,6 +158,7 @@ def load_plugin_manifest(plugin_dir: Path) -> PluginManifest | None:
     if errors:
         details = "; ".join(_format_jsonschema_error(e) for e in errors)
         raise PluginManifestError(hint, f"schema violation(s): {details}")
+    _reject_trailing_newlines(raw, hint)
     return PluginManifest(
         name=raw["name"],
         route_prefix=raw["route_prefix"],
@@ -209,6 +210,17 @@ def discover_plugin_manifests(plugin_dirs: list[Path]) -> DiscoveryResult:
                 continue
             result.manifests.append(manifest)
     return result
+
+
+def _reject_trailing_newlines(raw: dict, hint) -> None:
+    """jsonschema matches patterns with re.search, where `$` also matches
+    before a final newline, so "/demo\n" passed here while the backend's
+    fullmatch rejected it: doctor said valid, Kong got an open route that
+    never matches, and the backend skipped the plugin."""
+    for field_name in ("name", "route_prefix", "health_path"):
+        value = raw.get(field_name)
+        if isinstance(value, str) and "\n" in value:
+            raise PluginManifestError(hint, f"schema violation(s): {field_name}: must not contain a newline")
 
 
 def _conflict(

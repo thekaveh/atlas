@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import ipaddress
+import json
 import os
 from pathlib import Path
 import shlex
@@ -14,9 +15,9 @@ import subprocess
 import sys
 
 if __package__ == "bootstrapper.services":
-    from ..utils.atomic_write import atomic_replace_text
+    from ..utils.atomic_write import atomic_replace_text, remove_state_directory  # noqa: F401 - re-export
 else:
-    from utils.atomic_write import atomic_replace_text
+    from utils.atomic_write import atomic_replace_text, remove_state_directory  # noqa: F401 - re-export
 
 
 _LIFECYCLE_LOCK_TIMEOUT_SECONDS = 30.0
@@ -509,23 +510,66 @@ def acquire_lifecycle_lock(
             clock.sleep(0.1)
 
 
-def remove_state_directory(path: Path, error_details) -> None:
-    """Remove managed state idempotently while surfacing real I/O failures."""
-    description, error_type = error_details
+def read_recorded_start_time(pid_file: Path) -> str | None:
+    """The start time stamped into `pid_file` at spawn, if present.
+
+    Module-level so the older ComfyUI-MPS manager can share this exact
+    implementation instead of carrying its own (it matched the process argv,
+    which is not an identity — see `pid_is_stranger`).
+    """
     try:
-        shutil.rmtree(path)
-    except FileNotFoundError as exc:
-        try:
-            path.lstat()
-        except FileNotFoundError:
-            return
-        except OSError as probe_exc:
-            raise error_type(
-                f"could not verify removal of {description} {path}: {probe_exc}"
-            ) from probe_exc
-        raise error_type(f"could not remove {description} {path}: {exc}") from exc
-    except OSError as exc:
-        raise error_type(f"could not remove {description} {path}: {exc}") from exc
+        body = pid_file.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    for line in body.splitlines()[1:]:
+        # Only the normalized key is trusted. A pid file stamped by the first
+        # version of this format used the ambient TZ/locale, so its value is
+        # not comparable against a UTC probe — reading it would make every
+        # already-running managed host look like a stranger exactly once,
+        # which is the failure this guard exists to prevent. An unrecognized
+        # stamp reads as absent, and the guard refuses to authorize signalling.
+        if line.startswith("start_utc="):
+            return line[len("start_utc="):].strip() or None
+    return None
+
+
+def write_pid_file_with_identity(pid_file: Path, pid: int, start_time: str | None) -> None:
+    """Record `(pid, start time)` atomically.
+
+    Atomic because a torn read yields a pid with no stamp, which the guard
+    treats as untrusted. New launch paths require a non-empty start time;
+    ``None`` remains supported only for legacy-format tests and migration.
+    """
+    body = str(pid) if start_time is None else f"{pid}\nstart_utc={start_time}"
+    atomic_replace_text(pid_file, body + "\n")
+
+
+def read_launch_record(path: Path) -> dict:
+    """The port/bind record a managed process was launched with (#1361)."""
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return record if isinstance(record, dict) else {}
+
+
+def write_launch_record(path: Path, payload: dict) -> None:
+    try:
+        atomic_replace_text(path, json.dumps(payload) + "\n")
+    except OSError:
+        pass  # without a record a changed port is not detected, as before
+
+
+def restart_moved_process(manager, status, settings: dict, refusal):
+    """Stop an owned process launched with other ``settings`` (port, bind)
+    than configured now, so the caller relaunches it there (#1361); it would
+    keep serving the old address. ``refusal`` is (message, error type)."""
+    if not status.running or not launched_with_other_settings(manager._launch_record(), status.pid, settings):
+        return status
+    if not manager._stop_locked():
+        message, error_type = refusal
+        raise error_type(f"{message} (pid {status.pid})")
+    return manager.status()
 
 
 def _cleanup_error(exc: BaseException) -> str:
@@ -704,7 +748,6 @@ def tracked_pid_was_recycled(pid: int, pid_file: Path) -> bool:
     on Linux, where ``lstart`` moves with the clock, the host must have booted
     since the record. Anything else stays UNKNOWN and keeps the refusal.
     """
-    from services.managed_host import read_recorded_start_time
 
     recorded = read_recorded_start_time(pid_file)
     if not recorded or not _record_names_pid(pid, pid_file):

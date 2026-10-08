@@ -241,6 +241,28 @@ def test_cleanup_is_idempotent_on_operator_lines(tmp_path):
     assert hosts.read_text(encoding="utf-8") == original
 
 
+def test_cleanup_removes_the_genai_era_header_and_writes_durably(tmp_path, monkeypatch):
+    """The pre-rename header stayed behind forever; and the write must be
+    fsynced before the rename, or a crash can leave an empty /etc/hosts."""
+    import utils.hosts_manager as hosts_module
+    from utils.hosts_manager import HostsManager
+
+    hosts = tmp_path / "hosts"
+    hosts.write_text("127.0.0.1 localhost\n\n# GenAI Stack subdomains (added by start.py)\n"
+                     "127.0.0.1 n8n.localhost\n", encoding="utf-8")
+    import stat
+
+    synced = []
+    real_fsync = hosts_module.os.fsync
+    monkeypatch.setattr(hosts_module.os, "fsync", lambda fd: synced.append(
+        "dir" if stat.S_ISDIR(hosts_module.os.fstat(fd).st_mode) else "file") or real_fsync(fd))
+    assert HostsManager().remove_hosts_entries_silent(str(hosts)) is True
+    result = hosts.read_text(encoding="utf-8")
+    assert "GenAI Stack subdomains" not in result and "n8n.localhost" not in result
+    # Both: the temp file before the rename, and its directory after it.
+    assert "127.0.0.1 localhost" in result and sorted(synced) == ["dir", "file"]
+
+
 # The wizard's "set up hosts" answer must not abort an unelevated launch.
 
 def _hosts_starter(missing):
@@ -344,3 +366,160 @@ def test_source_conflict_is_reported_not_raised(monkeypatch, capsys):
     )
     assert start.AtlasStarter.generate_service_configuration(starter) is False
     assert capsys.readouterr().out == "ERROR: Spark requires MinIO: --minio-source container\n"
+
+
+def test_hosts_cleanup_reports_only_what_it_removed_and_prunes_backups(tmp_path, monkeypatch):
+    """It listed every alias as removed even when none were present, and left
+    one unpruned /etc/hosts.backup.<second> per run (same-second runs overwrote)."""
+    import utils.hosts_manager as hosts_module
+    from utils.hosts_manager import HostsManager
+
+    hosts = tmp_path / "hosts"
+    hosts.write_text("127.0.0.1\\tlocalhost\\n", encoding="utf-8")
+    monkeypatch.setattr(hosts_module, "is_elevated", lambda: True)
+    manager = HostsManager()
+    manager.hosts_file_path = str(hosts)
+    logged = []
+    monkeypatch.setattr(manager, "_log", lambda message, level="info": logged.append(message))
+    for _ in range(8):
+        assert manager.cleanup_hosts_entries() is True
+    assert not any("were removed" in line for line in logged)
+    assert any("No Atlas hosts entries were present" in line for line in logged)
+    from utils.atomic_write import BACKUP_RETENTION
+
+    # Eight runs in one second: unique names keep the newest five (the old
+    # one-second timestamps overwrote each other down to one file).
+    assert len(list(tmp_path.glob("*backup*"))) == BACKUP_RETENTION
+
+
+def test_a_symlinked_state_dir_is_refused_with_a_clear_message(tmp_path):
+    from services import remove_state_directory
+
+    target = tmp_path / "real-state"
+    target.mkdir()
+    link = tmp_path / "state-link"
+    link.symlink_to(target)
+    with pytest.raises(RuntimeError, match="is a symlink to"):
+        remove_state_directory(link, ("state", RuntimeError))
+    assert target.is_dir() and link.is_symlink()
+
+
+def test_direct_ports_do_not_answer_every_browser_origin():
+    """pg-meta (SQL, unauthenticated, CORS *) and Weaviate (anonymous, CORS *)
+    were reachable from any web page through their loopback ports."""
+    from pathlib import Path
+
+    import yaml
+
+    root = Path(__file__).resolve().parents[2]
+    supabase = yaml.safe_load((root / "services/supabase/compose.yml").read_text(encoding="utf-8"))
+    weaviate = yaml.safe_load((root / "services/weaviate/compose.yml").read_text(encoding="utf-8"))
+    assert "ports" not in supabase["services"]["supabase-meta"]
+    origin = weaviate["services"]["weaviate"]["environment"]["CORS_ALLOW_ORIGIN"]
+    assert origin.startswith("http://weaviate.localhost:") and "*" not in origin
+    # local-deep-researcher (langgraph-api) and LightRAG also defaulted to *.
+    for service, key, host in (("local-deep-researcher", "CORS_ALLOW_ORIGINS", "research"),
+                               ("lightrag", "CORS_ORIGINS", "lightrag")):
+        compose = yaml.safe_load((root / f"services/{service}/compose.yml").read_text(encoding="utf-8"))
+        origin = compose["services"][service]["environment"][key]
+        assert origin.startswith(f"http://{host}.localhost:") and "*" not in origin, service
+
+
+def test_hosts_setup_without_sudo_is_not_fatal(monkeypatch):
+    """No sudo binary (minimal Linux, dev containers) raised FileNotFoundError
+    and failed the launch; stop's twin already reported it."""
+    import start as start_module
+
+    monkeypatch.setattr(start_module, "is_elevated", lambda: False, raising=False)
+
+    def no_sudo(*_args, **_kwargs):
+        raise FileNotFoundError("sudo")
+
+    monkeypatch.setattr(start_module.subprocess, "run", no_sudo)
+    assert start_module._run_privileged_hosts_setup() is False
+
+
+@pytest.mark.parametrize("env_text", [
+    "ATLAS_MANAGED_HOST_STATE_ROOT={root}  # shared\n",
+    "ATLAS_MANAGED_HOST_STATE_ROOT=/elsewhere\nATLAS_MANAGED_HOST_STATE_ROOT={root}\n",
+    "﻿ATLAS_MANAGED_HOST_STATE_ROOT={root}\n",
+])
+def test_the_state_root_guard_reads_dotenv_like_the_managers(tmp_path, env_text):
+    """The guard's own parser missed inline comments, last-wins duplicates and
+    a BOM, so the root it meant to protect stayed deletable."""
+    from utils import atomic_write
+
+    root = tmp_path / "root"
+    root.mkdir()
+    env_file = tmp_path / ".env"
+    env_file.write_text(env_text.format(root=root), encoding="utf-8")
+    assert atomic_write._env_file_state_root(env_file) == str(root)
+
+
+def test_the_state_root_guard_follows_atlas_env_file(tmp_path, monkeypatch):
+    from utils import atomic_write
+
+    env_file = tmp_path / "atlas.env"
+    env_file.write_text(f"ATLAS_MANAGED_HOST_STATE_ROOT={tmp_path / 'r'}\n", encoding="utf-8")
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env_file))
+    assert atomic_write._env_file_state_root() == str(tmp_path / "r")
+
+
+def test_supabase_studio_is_not_published_and_meta_reads_its_crypto_key():
+    """Studio's pg-meta proxy accepted form-encoded SQL POSTs from any web page
+    through its loopback port; and pg-meta read CRYPTO_KEY while Atlas set
+    PG_META_CRYPTO_KEY, so it decrypted with SAMPLE_KEY and Studio's SQL and
+    table editors failed on every generated stack."""
+    from pathlib import Path
+
+    import yaml
+
+    compose = yaml.safe_load((Path(__file__).resolve().parents[2] / "services/supabase/compose.yml").read_text())
+    assert "ports" not in compose["services"]["supabase-studio"]
+    meta_env = compose["services"]["supabase-meta"]["environment"]
+    studio_env = compose["services"]["supabase-studio"]["environment"]
+    assert meta_env["CRYPTO_KEY"] == studio_env["PG_META_CRYPTO_KEY"] == "${SUPABASE_META_CRYPTO_KEY:-}"
+
+
+def test_readme_topology_does_not_list_unpublished_ports_as_reachable():
+    """pg-meta and Studio keep port slots but are not published; the README
+    table still showed 63014/63019 as their default ports."""
+    from pathlib import Path
+
+    from tools.generate_readme_topology import generate_block
+
+    block = generate_block(Path(__file__).resolve().parents[2] / "services")
+    assert "| Supabase Studio | — (Kong only) | supabase-studio.localhost |" in block
+    assert "| Supabase Meta | — | — |" in block
+    assert "| TTS Provider | — " not in block  # virtual manifest: its slot is still shown
+
+
+def test_no_surface_advertises_an_unpublished_port():
+    """The wizard table/tooltip and the --no-tui summary still showed
+    :63019 / :63014 for Studio and pg-meta after they were unpublished."""
+    from services.topology import unpublished_port_vars
+    from wizard.model.state_builder import resolve_port
+
+    assert {"SUPABASE_META_PORT", "SUPABASE_STUDIO_PORT"} <= unpublished_port_vars()
+    assert "TTS_PROVIDER_PORT" not in unpublished_port_vars()  # virtual display slot
+    env = {"SUPABASE_STUDIO_PORT": "63019", "REDIS_PORT": "63025"}
+    assert resolve_port("Supabase Studio", "container", "SUPABASE_STUDIO_PORT", env) is None
+    assert resolve_port("Redis", "container", "REDIS_PORT", env) == ":63025"
+    import start
+
+    assert start._published_port_label("SUPABASE_STUDIO_PORT", env) == "-"  # --no-tui summary
+    assert start._published_port_label("REDIS_PORT", env) == ":63025"
+
+
+def test_the_service_directory_does_not_link_an_unpublished_port():
+    """The Kong-served directory linked and probed http://localhost:63014 for
+    pg-meta after it was unpublished, so the card always read unreachable."""
+    from types import SimpleNamespace
+
+    from utils.atlas_dashboard import _direct_url
+
+    env = {"SUPABASE_META_PORT": "63014", "REDIS_PORT": "63025"}
+    meta = SimpleNamespace(port_var="SUPABASE_META_PORT", localhost_port_var=None)
+    redis = SimpleNamespace(port_var="REDIS_PORT", localhost_port_var=None)
+    assert _direct_url(meta, "container", env) is None
+    assert _direct_url(redis, "container", env) == "http://localhost:63025"

@@ -11,6 +11,8 @@ import json
 import re
 import signal
 import subprocess
+
+from utils.system import compose_env, project_volume_names, report_surviving_volumes
 import time
 from typing import Callable, List, Optional
 
@@ -180,9 +182,9 @@ class DockerManager:
     def _compose_file_args(self, *, include_consumer: bool = True) -> List[str]:
         """Compose ``-f`` arguments.
 
-        Empty by default — Docker Compose auto-discovers ``docker-compose.yml``
-        from ``cwd`` (the repo root), so the default invocation (and the
-        compose byte-equivalence baseline) is unchanged. When a downstream
+        Always names ``docker-compose.yml`` explicitly: without ``-f`` Compose
+        would follow a ``COMPOSE_FILE`` from the caller's shell or from
+        ``.env`` and load another project's model. When a downstream
         consumer has dropped overlay fragments under
         ``services/_user/<name>/compose.yml`` (a gitignored overlay slot),
         return an explicit base + overlay file list so those services are
@@ -224,7 +226,10 @@ class DockerManager:
             and not rag_overlay.exists()
             and not lightrag_query_overlay.exists()
         ):
-            return []
+            # Explicit even without overlays: with no -f, Compose follows a
+            # COMPOSE_FILE from the caller's shell or from .env (--env-file)
+            # and silently loads another project's model under -p <atlas>.
+            return ['-f', 'docker-compose.yml']
         file_args: List[str] = ['-f', 'docker-compose.yml']
         for overlay in overlays:
             file_args.extend(['-f', str(overlay.relative_to(self.root_dir))])
@@ -258,7 +263,7 @@ class DockerManager:
                 f"({type(exc).__name__}); continuing with the base stack."
             )
             return ['-f', 'docker-compose.yml'], None  # None: overlays dropped
-        return file_args, bool(file_args)
+        return file_args, file_args != ['-f', 'docker-compose.yml']  # True: overlays included
 
     def _validated_compose_file_args(
         self, args: List[str], command_prefix: List[str]
@@ -353,7 +358,8 @@ class DockerManager:
                     full_cmd,
                     cwd=str(self.root_dir),
                     stdin=subprocess.DEVNULL,
-                    check=False
+                    check=False,
+                    env=compose_env(full_cmd),
                 ).returncode
             except KeyboardInterrupt:
                 # `docker compose up --build` drives BuildKit inside the Docker
@@ -750,7 +756,11 @@ class DockerManager:
                 self._reraise_stream_interrupt = False
             # As for a cold stop: a dropped consumer overlay leaves its volumes
             # holding credentials that the cold start is about to rotate.
-            return result == 0 and not getattr(self, "teardown_overlays_dropped", False)
+            if result != 0 or getattr(self, "teardown_overlays_dropped", False):
+                return False
+            return not self._report_surviving_volumes(
+                self.project_name_override or self.config_parser.get_project_name(), self._on_command,
+            )
         finally:
             self.project_name_override = previous_project
     
@@ -767,7 +777,18 @@ class DockerManager:
         )
         # Volumes declared only by dropped consumer overlays survive a
         # base-stack `down --volumes`; never report that as a full wipe.
-        return result == 0 and not getattr(self, "teardown_overlays_dropped", False)
+        if result != 0 or getattr(self, "teardown_overlays_dropped", False):
+            return False
+        # Nothing records which consumer manifest started the stack, so a bare
+        # --cold drops overlay-only volumes from the compose model and leaves
+        # them on disk; check the project label instead of trusting `down`.
+        return not self._report_surviving_volumes(project_name, print)
+
+    def _report_surviving_volumes(self, project_name: str, emit) -> List[str]:
+        return report_surviving_volumes(self._project_volume_names(project_name), emit)
+
+    def _project_volume_names(self, project_name: str) -> List[str]:
+        return project_volume_names(project_name)
     
     def build_services(
         self,
@@ -1056,7 +1077,7 @@ class DockerManager:
     def _stream_compose_command(
         self, full_cmd: List[str], on_line: Callable[[str], None]
     ) -> int:
-        env = os.environ.copy()
+        env = compose_env(full_cmd)
         env['BUILDKIT_PROGRESS'] = 'plain'
         try:
             proc = subprocess.Popen(

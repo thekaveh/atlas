@@ -119,7 +119,7 @@ _No high-confidence opportunities identified._
 
 ## 6. Troubleshooting
 
-- **Targets show `DOWN` for services that are running** — most likely the service hasn't enabled its `/metrics` endpoint (check the per-service flag: `N8N_METRICS=true`, `PROMETHEUS_MONITORING_ENABLED=true`, etc.). Visit `http://prometheus.localhost/targets` to see the `lastError` for each failing job.
+- **Targets show `DOWN` for services that are running** — most likely the service hasn't enabled its `/metrics` endpoint (check the per-service flag: `N8N_METRICS=true`, `PROMETHEUS_MONITORING_ENABLED=true`, etc.). Visit `http://prometheus.localhost:${KONG_HTTP_PORT}/targets` (default port 63000) to see the `lastError` for each failing job.
 - **No metrics for postgres / redis** — the sidecar exporters scale=0 when `PROMETHEUS_SOURCE=disabled` (they're useless without a scraper). Confirm `PROMETHEUS_SOURCE=container` is set in `.env` and re-run `./start.sh`.
 - **Disk pressure** — `prometheus-data` named volume grows roughly linearly with retention × scrape rate × series count. Lower `PROMETHEUS_RETENTION_DAYS` or trim scrape jobs in `config/prometheus.yml`.
 - **cAdvisor or node-exporter unable to start on macOS** — `/proc` and host-level filesystem mounts behave differently inside Docker Desktop's VM than on bare Linux. Some node-exporter collectors degrade gracefully; cAdvisor mostly produces container-level metrics that are platform-agnostic. Host-level metrics on macOS are best-effort.

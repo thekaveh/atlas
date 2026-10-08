@@ -101,7 +101,7 @@ _No high-confidence opportunities identified._
 - **Admin login rejected** — check `GRAFANA_ADMIN_PASSWORD` in `.env`. The bootstrapper only auto-generates it on FIRST run (empty value). Grafana reads the value only when it first creates its database in the `grafana-data` volume, so editing `.env` afterwards does not change the stored password. Apply a new one with `docker exec ${PROJECT_NAME}-grafana grafana cli admin reset-admin-password "$GRAFANA_ADMIN_PASSWORD"` after updating `.env`, or remove the `grafana-data` volume to start over.
 - **Stack Overview "Targets DOWN" is never 0** — Prometheus scrapes a static target list, so services that are disabled on this stack (by default `asset-worker` and `asset-baker`; on narrower tracks also n8n, Weaviate, MinIO …) count as down. Check which jobs are down in Prometheus' Targets page before treating the number as an outage.
 - **Dashboards missing** — Grafana's provisioner watches the directory every 30s (`updateIntervalSeconds: 30`). If a dashboard JSON has a syntax error, Grafana logs it under "Provisioning errors" and skips the file.
-- **Redirect URL contains internal `grafana` hostname instead of `grafana.localhost`** — Kong's `preserve_host: True` flag must be set on the Grafana route. The route generator handles this; verify with `curl -I http://grafana.localhost`.
+- **Redirect URL contains internal `grafana` hostname instead of `grafana.localhost`** — Kong's `preserve_host: True` flag must be set on the Grafana route. The route generator handles this; verify with `curl -I http://grafana.localhost:${KONG_HTTP_PORT}` (default 63000).
 
 ## 7. Capabilities & limitations
 

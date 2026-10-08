@@ -265,6 +265,20 @@ def test_duplicate_name_across_consumers_rejected(tmp_path: Path) -> None:
         load_consumer_config(tmp_path, explicit_paths=[str(a), str(b)])
 
 
+def test_duplicate_name_across_manifests_of_one_consumer_rejected(tmp_path: Path) -> None:
+    """Two manifests with one consumer name (it defaults to the parent dir)
+    both declaring a profile: the backend would serve only the first."""
+    _write_root(tmp_path)
+    profile = ("rag_ingestion_profiles:\n  version: 1\n  profiles:\n    - name: shared\n"
+               "      corpus: {{source: mount, path: {p}}}\n"
+               "      vector_targets: [{{backend: weaviate, collection_prefix: {c}, on_unavailable: skip}}]\n")
+    a = _write_consumer(tmp_path, "alpha", profile.format(p="a", c="A"))
+    b = a.parent / "second.consumer.yml"
+    b.write_text("name: alpha\n" + profile.format(p="b", c="B"), encoding="utf-8")
+    with pytest.raises(ConsumerManifestError, match="duplicate rag_ingestion_profiles name"):
+        load_consumer_config(tmp_path, explicit_paths=[str(a), str(b)])
+
+
 def test_duplicate_weaviate_collection_rejected(tmp_path: Path) -> None:
     # Two profiles whose {prefix}_{name} collapse to the same class must be rejected.
     _write_root(tmp_path)

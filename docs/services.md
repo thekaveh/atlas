@@ -53,7 +53,7 @@ The *Support* column is each family's declared support tier (`stable`, `experime
 | [supabase](../services/supabase/README.md) | Supabase (db, auth, api, storage, realtime, studio, meta) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | SUPABASE_DB_SOURCE, SUPABASE_DB_INIT_SOURCE, SUPABASE_META_SOURCE, SUPABASE_STORAGE_SOURCE, SUPABASE_AUTH_SOURCE, SUPABASE_API_SOURCE, SUPABASE_REALTIME_SOURCE, SUPABASE_STUDIO_SOURCE | container | container, disabled | - |
 | [supavisor](../services/supavisor/README.md) | Supavisor (Postgres transaction pooler) | experimental | all, data-eng, gen-ai-eng, gen-ai-rag, ml-eng | SUPAVISOR_SOURCE | disabled | container, disabled | supabase |
 | [trino](../services/trino/README.md) | Trino | experimental | all, data-eng | TRINO_SOURCE | disabled | container, disabled | minio, iceberg-rest |
-| [weaviate](../services/weaviate/README.md) | Weaviate (vector database) | experimental | all, data-eng, gen-ai-rag | WEAVIATE_SOURCE, WEAVIATE_INIT_SOURCE, MULTI2VEC_CLIP_SOURCE | container, container-cpu | container, localhost, disabled, container-cpu, container-gpu | supabase, litellm |
+| [weaviate](../services/weaviate/README.md) | Weaviate (vector database) | experimental | all, data-eng, gen-ai-creative, gen-ai-rag | WEAVIATE_SOURCE, WEAVIATE_INIT_SOURCE, MULTI2VEC_CLIP_SOURCE | container, container-cpu | container, localhost, disabled, container-cpu, container-gpu | supabase, litellm |
 
 ### 1.5. infra
 

@@ -21,15 +21,28 @@ import urllib.error
 import urllib.request
 
 
-def list_pulled_models(upstream_url: str, timeout: float = 2.0) -> list[str]:
+def list_pulled_models(
+    upstream_url: str, timeout: float = 2.0, *, strict: bool = False,
+) -> list[str]:
     """GET ``{upstream_url}/api/tags`` and return the model names.
 
     Returns an empty list on any failure (connection refused, timeout,
     bad JSON, server unreachable). The caller should treat an empty
-    return as "discovery failed; fall back."
+    return as "discovery failed; fall back." With ``strict=True`` a failed
+    fetch raises OSError instead, so a caller can tell "no tags" from
+    "could not ask" (litellm-init warns on the latter).
     """
     if not upstream_url:
         return []
+    try:
+        return _pulled_models(upstream_url, timeout)
+    except OSError:
+        if strict:
+            raise
+        return []
+
+
+def _pulled_models(upstream_url: str, timeout: float) -> list[str]:
     base = upstream_url.rstrip("/")
     url = f"{base}/api/tags"
     try:
@@ -37,15 +50,15 @@ def list_pulled_models(upstream_url: str, timeout: float = 2.0) -> list[str]:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read().decode("utf-8", errors="replace")
     except (urllib.error.URLError, socket.timeout, ConnectionError, OSError,
-            http.client.HTTPException):
-        return []
+            http.client.HTTPException) as exc:
+        raise OSError(f"GET {url} failed: {exc}") from exc
     try:
         data = json.loads(body)
-    except (ValueError, TypeError):
-        return []
+    except (ValueError, TypeError) as exc:
+        raise OSError(f"GET {url} returned invalid JSON") from exc
     models = data.get("models") if isinstance(data, dict) else None
     if not isinstance(models, list):
-        return []
+        raise OSError(f"GET {url} returned no 'models' list")
     out: list[str] = []
     for entry in models:
         if isinstance(entry, dict):

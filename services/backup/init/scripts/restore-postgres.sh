@@ -1,6 +1,12 @@
 #!/bin/sh
 # Failure-atomic Postgres restore from a given (or latest) S3 backup timestamp.
 set -eu
+# Every query here runs as the superuser in databases where co-tenant roles
+# (Open WebUI, LightRAG, pg-meta, Realtime) can CREATE in public: a planted
+# public.convert_to(name, name) beat pg_catalog's and ran as superuser (and
+# COPY ... TO PROGRAM ran shell commands in supabase-db). These scripts only
+# use catalog objects, so resolve nothing through public.
+export PGOPTIONS="${PGOPTIONS:+$PGOPTIONS }-c search_path=pg_catalog,pg_temp"
 : "${SUPABASE_DB_USER:?required}"; : "${SUPABASE_DB_PASSWORD:?required}"; : "${SUPABASE_DB_NAME:?required}"
 # libpq reads PGPASSWORD from the environment. Exported once rather than
 # passed as `env PGPASSWORD=...` per command, which put the password in the

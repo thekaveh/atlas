@@ -38,10 +38,12 @@ ON CONFLICT DO NOTHING;
 -- supabase_auth_admin. In the pinned supabase/postgres:17.6.1.139 image that
 -- role has neither rolsuper nor rolbypassrls (supabase_admin has both;
 -- service_role has rolbypassrls), so it does not bypass this policy by role
--- attribute. Its access here rests on table ownership instead. Re-verify that
--- ownership against a live GoTrue before changing the grant chain or adding
--- FORCE ROW LEVEL SECURITY -- losing access returns GoTrue to the crash-loop
--- this slice exists to prevent.
+-- attribute. On a fresh install this table is created (and owned) by the
+-- init role before GoTrue starts, so GoTrue's access comes from the explicit
+-- grant and the "Atlas upstream migration roles" policy in
+-- 05-scoped-roles.sh, not from ownership. Re-verify against a live GoTrue
+-- before changing that grant chain or adding FORCE ROW LEVEL SECURITY --
+-- losing access returns GoTrue to the crash-loop this slice exists to prevent.
 ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Service role can access the gotrue migration tracker" ON public.schema_migrations;

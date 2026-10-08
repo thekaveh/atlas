@@ -531,3 +531,69 @@ def test_filtered_source_value_falls_back_to_the_manifest_default() -> None:
     # svc.options[0] is "container" for TIKA, but the declared default is not.
     assert manifest_source_default(manifests, "TIKA_SOURCE") == "disabled"
     assert manifest_source_default(manifests, "NO_SUCH_SOURCE") is None
+
+
+def test_a_pinned_source_keeps_its_env_default_under_the_prod_profile() -> None:
+    """A consumer manifest (or .env.user) that set PROMETHEUS_SOURCE=disabled
+    under profile: prod got `container` as the wizard default, so Enter
+    started Prometheus; --no-tui kept the declared value."""
+    steps, *_ = I._build_steps_and_rows(
+        ConfigParser(), _HostsManager(), pinned_source_vars=frozenset({"PROMETHEUS_SOURCE"}),
+    )
+    step = next(s for s in steps if s.title.startswith("Prometheus"))
+    assert step.default_value_provider is None
+    assert _step_titled("Grafana").default_value_provider is not None
+
+
+def test_a_consumer_declared_source_is_neither_skipped_nor_dimmed_by_a_wizard_track() -> None:
+    """Picked in the wizard, gen-ai-rag skipped and dimmed a MinIO the
+    consumer declared, while the launch kept it running (#783)."""
+    from tracks import load_tracks
+
+    declared = frozenset({"minio_source"})
+    steps, rows, services_info, *_ = I._build_steps_and_rows(
+        ConfigParser(), _HostsManager(), consumer_declared=declared,
+    )
+    registry = load_tracks()
+    if "minio" in registry.by_key["gen-ai-rag"].services:
+        pytest.skip("gen-ai-rag now includes MinIO; pick another off-track service")
+    minio = next(s for s in steps if s.title.startswith("MinIO"))
+    assert minio.skip_if_prev({I.PICKER_STEP_TITLE: "gen-ai-rag"}) is False
+    from tracks import consumer_override_keys
+
+    overridden = consumer_override_keys(declared, services_info)
+    marked = remark_off_track_rows("gen-ai-rag", rows, services_info=services_info, overridden=overridden)
+    assert not next(r for r in marked if r.name.startswith("MinIO")).off_track
+
+
+def test_the_cli_flag_overview_shows_the_profiles_sources_unless_pinned() -> None:
+    """`./start.sh --profile prod <flags>` showed Prometheus/Grafana from .env
+    (disabled) while apply_profile_overrides then started them."""
+    from types import SimpleNamespace
+
+    _steps_, _rows, services_info, *_ = I._build_steps_and_rows(ConfigParser(), _HostsManager())
+    names = {s.env_var_name: s.display_name for s in services_info if getattr(s, "env_var_name", "")}
+    prometheus = names["PROMETHEUS_SOURCE"]
+    from services.profiles import pinned_source_vars, profile_launch_sources
+
+    root = ConfigParser()
+    plain = profile_launch_sources(services_info, "prod", root, set())
+    assert plain.get(prometheus) == PROFILES["prod"]["sources"]["prometheus"]
+    pins = pinned_source_vars(ConfigParser(), SimpleNamespace(_env_user_keys={"PROMETHEUS_SOURCE"}))
+    assert prometheus not in profile_launch_sources(services_info, "prod", root, pins)
+    assert profile_launch_sources(services_info, None, root, set()) == {}
+
+
+def test_the_cli_flag_overview_applies_consumer_profile_overrides() -> None:
+    """profile_overrides.prod.sources.prometheus: disabled kept Prometheus off
+    at launch while the overview (platform bundle only) showed it on."""
+    from types import SimpleNamespace
+
+    from services.profiles import profile_launch_sources
+
+    _steps_, _rows, services_info, *_ = I._build_steps_and_rows(ConfigParser(), _HostsManager())
+    prometheus = next(s.display_name for s in services_info if getattr(s, "env_var_name", "") == "PROMETHEUS_SOURCE")
+    parser = ConfigParser()
+    parser.load_consumer_config = lambda: SimpleNamespace(
+        profile_overrides={"prod": {"sources": {"prometheus": "disabled"}}}, env_overrides={})
+    assert profile_launch_sources(services_info, "prod", parser, set()).get(prometheus) == "disabled"

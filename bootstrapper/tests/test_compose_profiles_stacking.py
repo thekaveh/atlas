@@ -135,3 +135,24 @@ def test_open_webui_image_generation_follows_comfyui_source(env_with_overrides, 
     # No image toggle aimed at a ComfyUI host that does not exist.
     sc = _sc(env_with_overrides({"COMFYUI_SOURCE": comfyui_source}))
     assert sc.generate_service_environment()["OPEN_WEB_UI_ENABLE_IMAGE_GENERATION"] == expected
+
+
+@pytest.mark.parametrize(("weaviate", "clip_scale"), [("container", "1"), ("localhost", "0"), ("disabled", "0")])
+def test_clip_runs_only_beside_a_container_weaviate(tmp_path, weaviate, clip_scale):
+    """Weaviate is CLIP's only consumer and CLIP has no host port: without a
+    container Weaviate it loaded its model for nothing on every start."""
+    from pathlib import Path
+
+    from core.config_parser import ConfigParser
+    from services.service_config import ServiceConfig
+
+    repo = Path(__file__).resolve().parents[2]
+    over = {"WEAVIATE_SOURCE": weaviate, "MULTI2VEC_CLIP_SOURCE": "container-cpu"}
+    lines = [line for line in (repo / ".env.example").read_text().splitlines() if line.split("=", 1)[0] not in over]
+    env_path = tmp_path / ".env"
+    env_path.write_text("\n".join(lines + [f"{k}={v}" for k, v in over.items()]) + "\n")
+    parser = ConfigParser(str(repo))
+    parser.env_file_path = env_path
+    config = ServiceConfig(parser)
+    config.load_config()
+    assert config.generate_service_environment()["CLIP_SCALE"] == clip_scale

@@ -23,6 +23,7 @@ def _write_fake_postgres_tools(tmp_path: Path) -> tuple[Path, Path]:
     psql = bin_dir / "psql"
     psql.write_text(
         """#!/bin/sh
+script=""
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "-f" ]; then
     script="$2"
@@ -30,6 +31,8 @@ while [ "$#" -gt 0 ]; do
   fi
   shift
 done
+# The built-in shadowing guard reads its query from stdin: no shadowing.
+if [ -z "$script" ]; then cat >/dev/null; exit 0; fi
 echo "$script" >> "$PSQL_LOG"
 case "$script" in
   *fail*.sql) echo "fake psql failure for $script" >&2; exit 17 ;;
@@ -132,6 +135,9 @@ def test_db_init_runner_runs_user_sql_after_all_atlas_sql(tmp_path: Path) -> Non
         "ROLE_PROVISIONER",
         str(user_dir / "00-user.sql"),
         str(user_dir / "99-user.sql"),
+        # Client grants re-applied after user scripts, so a user table
+        # without RLS is not published to anon/authenticated meanwhile.
+        str(atlas_dir / "06-permissions.sql"),
     ]
 
 

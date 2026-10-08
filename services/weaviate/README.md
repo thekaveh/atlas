@@ -15,6 +15,8 @@ Vector database used for semantic search, RAG, embeddings, n8n workflows, Backen
 | Direct | http://localhost:63030 (REST) / 63031 (gRPC) | Works when the service is enabled in container mode and the port is exposed. |
 | Kong | http://weaviate.localhost:63000 | Requires `./start.sh --setup-hosts`; only available for services with Kong routes. |
 
+Anonymous access is on, so browser access is limited to the Kong origin: `CORS_ALLOW_ORIGIN` is `http://weaviate.localhost:${KONG_HTTP_PORT}`. Weaviate's default (`*`) let any web page open in the operator's browser read or delete collections through the direct port. Server-side clients are unaffected.
+
 See the canonical port table at [Ports and Routes](../../docs/reference/ports-routes.md).
 
 ## 3. Configuration
@@ -43,7 +45,7 @@ CLIP_INFERENCE_API=http://multi2vec-clip:8080
 MULTI2VEC_CLIP_SIGLIP2_IMAGE=semitechnologies/multi2vec-clip:google-siglip2-so400m-patch16-512-1.5.1
 ```
 
-If you disable the CLIP provider, remove `multi2vec-clip` from `WEAVIATE_ENABLE_MODULES` and leave `CLIP_INFERENCE_API` blank:
+With `MULTI2VEC_CLIP_SOURCE=disabled` the bootstrapper drops `multi2vec-clip` from `WEAVIATE_ENABLE_MODULES` and blanks `CLIP_INFERENCE_API` itself; the resulting values are:
 
 ```bash
 MULTI2VEC_CLIP_SOURCE=disabled

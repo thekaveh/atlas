@@ -598,10 +598,13 @@ def test_the_summary_names_project_comfyui_models_and_worker_counts():
     screen._selections.update({
         PROJECT: "Proj-2", COMFYUI_MODELS_TITLE: {"sdxl-vae", "flux1-dev"},
         "__secondary__:RAY_WORKER_COUNT": "3", "__secondary__:SPARK_WORKER_COUNT": "4",
+        "__secondary__:PROMETHEUS_RETENTION_DAYS": "30",
     })
+    # Retention was written to .env but missing from the replay command.
     assert screen._project_and_count_flags() == [
         ("--project", "proj-2"), ("--comfyui-models", _quote_csv("flux1-dev,sdxl-vae")),
         ("--ray-worker-count", "3"), ("--spark-workers", "4"),
+        ("--prometheus-retention-days", "30"),
     ]
     # A worker count whose Ray step is now hidden is not applied, nor shown.
     ray = _source_step("Ray  ·  source", "Ray", "ray")

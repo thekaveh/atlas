@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from contextlib import suppress
 import errno
 import glob as _glob
@@ -474,3 +475,83 @@ def create_private_backup(
     finally:
         if fd >= 0:
             os.close(fd)
+
+
+def _env_file_state_root(env_file: Path | None = None) -> str:
+    """ATLAS_MANAGED_HOST_STATE_ROOT as the managers resolve it: through the
+    canonical .env reader (ATLAS_ENV_FILE, last assignment wins, inline
+    comments, BOM). A private parser missed all four, leaving the root
+    unprotected exactly where f8cf2d1e meant to protect it."""
+    with suppress(Exception):  # a missing or unreadable .env protects nothing extra
+        from core.config_parser import ConfigParser
+
+        parser = ConfigParser(str(Path(__file__).resolve().parents[2]))
+        if env_file is not None:
+            parser.env_file_path = Path(env_file)
+        return (parser.parse_env_file().get("ATLAS_MANAGED_HOST_STATE_ROOT") or "").strip()
+    return ""
+
+
+def _protected_state_paths() -> list:
+    """Directories a managed state dir must never be: the working directory,
+    $HOME, the repository and the shared state roots, plus every parent."""
+    anchors = [Path.home(), Path(__file__).resolve().parents[2], Path.home() / ".atlas"]
+    with suppress(OSError):  # a deleted working directory
+        anchors.append(Path.cwd())
+    for root in (os.environ.get("ATLAS_MANAGED_HOST_STATE_ROOT", ""), _env_file_state_root()):
+        if root.strip():
+            anchors.append(Path(root.strip()).expanduser())
+    resolved = [anchor.expanduser().resolve() for anchor in anchors]
+    return [*resolved, *(parent for anchor in resolved for parent in anchor.parents)]
+
+
+def _unsafe_state_directory(path: Path) -> str | None:
+    """Why ``path`` must never be deleted as a managed state directory, or
+    None. A blank STATE_DIR resolves to ``.`` (the bootstrapper directory
+    under `uv run --directory`), and a typo can name $HOME or a parent.
+    Compared by file identity, not by text: on a case-insensitive volume
+    (macOS default) `/users/me` is $HOME although the strings differ."""
+    resolved = Path(path).expanduser().resolve()
+    protected = _protected_state_paths()
+    same = resolved in protected
+    if not same and resolved.exists():
+        target = resolved.stat()
+        same = any(
+            candidate.exists() and os.path.samestat(target, candidate.stat())
+            for candidate in protected
+        )
+    if same:
+        return (f"{resolved} is the working directory, the repository, $HOME, a shared "
+                "state root or a parent of one")
+    return None
+
+
+def remove_state_directory(path: Path, error_details) -> None:
+    """Remove managed state idempotently while surfacing real I/O failures.
+    Refuses a path that is the working directory, the repository, $HOME, /
+    or one of their parents."""
+    description, error_type = error_details
+    if Path(path).expanduser().is_symlink():
+        # rmtree refuses a symlink (Python 3.12 reports it as a garbled
+        # "[Errno None]"); say what to do instead.
+        raise error_type(
+            f"refusing to remove {description} {path}: it is a symlink to "
+            f"{Path(path).expanduser().resolve()}; remove the link and its target yourself"
+        )
+    reason = _unsafe_state_directory(path)
+    if reason:
+        raise error_type(f"refusing to remove {description}: {reason}")
+    try:
+        shutil.rmtree(path)
+    except FileNotFoundError as exc:
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            return
+        except OSError as probe_exc:
+            raise error_type(
+                f"could not verify removal of {description} {path}: {probe_exc}"
+            ) from probe_exc
+        raise error_type(f"could not remove {description} {path}: {exc}") from exc
+    except OSError as exc:
+        raise error_type(f"could not remove {description} {path}: {exc}") from exc

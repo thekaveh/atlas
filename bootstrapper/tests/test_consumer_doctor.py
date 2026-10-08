@@ -2623,6 +2623,23 @@ def test_blender_mcp_status_lists_every_pool_instance(tmp_path, monkeypatch) -> 
     assert set(again) == {"running", "pid", "port_open"}
 
 
+def test_manual_pool_start_restarts_a_moved_pool_together(tmp_path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    import start as start_module
+    from services import blender_mcp_manager as bm
+
+    calls = []
+    env = _blender_pool_env(tmp_path, 2)
+    monkeypatch.setattr(start_module, "_blender_mcp_manager", lambda: bm.manager_from_env(env))
+    monkeypatch.setattr(bm, "pool_moves", lambda _pool: True)
+    monkeypatch.setattr(bm.BlenderMcpManager, "stop", lambda self: calls.append(("stop", self.port)) or True)
+    monkeypatch.setattr(bm.BlenderMcpManager, "ensure_running", lambda self: calls.append(("start", self.port))
+                        or (SimpleNamespace(to_dict=lambda: {"running": True}), True))
+    assert CliRunner().invoke(start_module.main, ["blender-mcp", "start"]).exit_code == 0
+    assert calls == [("stop", 9900), ("stop", 9901), ("start", 9900), ("start", 9901)]
+
+
 def test_launch_blocker_checks_every_pool_instance_before_the_stack_stops(tmp_path, monkeypatch) -> None:
     from types import SimpleNamespace
 
@@ -2684,3 +2701,160 @@ def test_endpoints_export_advertises_every_pool_instance() -> None:
     assert d["ATLAS_BLENDER_MCP_HOST_ENDPOINTS"] == "tcp://localhost:9900,tcp://localhost:9901,tcp://localhost:9902"
     single = {f.name for f in build_export({**env, "BLENDER_MCP_INSTANCES": "1"})}
     assert "ATLAS_BLENDER_MCP_HOST_ENDPOINTS" not in single
+
+
+def test_sigterm_during_a_linear_start_rolls_back_its_managed_hosts(monkeypatch) -> None:
+    """SIGTERM/SIGHUP used to kill the --no-tui start with the default action,
+    leaving managed hosts it started (own session) running."""
+    import os
+    import signal
+    from types import SimpleNamespace
+
+    import start as start_module
+
+    rolled_back = []
+    starter = SimpleNamespace(support_bundle_path=None,
+                              rollback_managed_host_processes=lambda: rolled_back.append(True))
+
+    def terminated(_starter, _options):
+        os.kill(os.getpid(), signal.SIGTERM)
+        return 0
+
+    monkeypatch.setattr(start_module, "run_linear_startup", terminated)
+    with pytest.raises(SystemExit) as exc:
+        start_module._run_linear_with_support_bundle(starter, object())
+    assert exc.value.code == 128 + signal.SIGTERM and rolled_back == [True]
+    assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL or callable(signal.getsignal(signal.SIGTERM))
+
+
+def test_url_credentials_with_an_at_sign_are_fully_redacted() -> None:
+    """The URL pattern stopped at the first '@', half-replacing the password
+    before the known-value pass could match it."""
+    from core.support_bundle import Redactor
+
+    redactor = Redactor({"POSTGRES_PASSWORD": "Xy7@kq9Lmn2"})
+    text = redactor.text("postgresql://postgres:Xy7@kq9Lmn2@db:5432/x")
+    assert "kq9Lmn2" not in text and "Xy7" not in text
+    assert text.endswith("@db:5432/x")
+
+
+def test_a_stray_instances_port_is_not_foreign_and_manual_start_reaps_it(tmp_path, monkeypatch) -> None:
+    """A pool shrunk 2→1 with its base moved onto the stray's port was refused
+    as an "unmanaged process", and `blender-mcp start` left the stray running."""
+    from types import SimpleNamespace
+
+    import start as start_module
+    from services import blender_mcp_manager as bm
+
+    env = {**_blender_pool_env(tmp_path, 1), "BLENDER_MCP_LOCALHOST_PORT": "9901"}
+    base = bm.manager_from_env(env)
+    stray = bm._pool_member(base, 1)
+    for member, pid, port in ((base, 1111, 9900), (stray, 2222, 9901)):
+        member.state_dir.mkdir(parents=True, exist_ok=True)
+        member.pid_file.write_text(f"{pid}\n")
+        member.launch_file.write_text(json.dumps({"pid": pid, "port": port, "bind": "127.0.0.1"}))
+    monkeypatch.setattr(bm.BlenderMcpManager, "preflight", lambda self: SimpleNamespace(ok=True, checks=[]))
+    monkeypatch.setattr(bm.BlenderMcpManager, "_pid_alive", staticmethod(lambda pid: True))
+    monkeypatch.setattr(bm.BlenderMcpManager, "_managed_process_alive", lambda self, pid: True)
+    monkeypatch.setattr(bm.BlenderMcpManager, "_pid_is_stranger", lambda self, pid: False)
+    monkeypatch.setattr(bm.BlenderMcpManager, "_port_in_use", lambda self: self.port in {9900, 9901})
+    assert start_module._managed_host_pool_blocker(bm, env, "Blender MCP") is None
+
+    calls = []
+    monkeypatch.setattr(start_module, "_blender_mcp_manager", lambda: bm.manager_from_env(env))
+    monkeypatch.setattr(bm.BlenderMcpManager, "stop", lambda self: calls.append(("stop", self.pool_index)) or True)
+    monkeypatch.setattr(bm.BlenderMcpManager, "ensure_running", lambda self: calls.append(("start", self.pool_index))
+                        or (SimpleNamespace(to_dict=lambda: {"running": True}), True))
+    assert CliRunner().invoke(start_module.main, ["blender-mcp", "start"]).exit_code == 0
+    assert calls[0] == ("stop", 1) and ("start", 0) in calls
+
+
+def test_a_cancelled_tui_says_what_the_phase_left(capsys) -> None:
+    """Ctrl+C before the launch said containers keep running; after the
+    wizard's cold cleanup it said no data was deleted."""
+    from types import SimpleNamespace
+
+    import start as start_module
+
+    assert start_module._report_tui_exit(130, SimpleNamespace(tui_launch_started=False)) == 130
+    out = capsys.readouterr().out
+    assert "nothing was started" in out and "keep running" not in out
+    cold = SimpleNamespace(tui_launch_started=True, tui_cold_cleanup_ran=True)
+    start_module._report_tui_exit(130, cold)
+    assert "--cold start was interrupted" in capsys.readouterr().out
+    start_module._report_tui_exit(130, SimpleNamespace(), cold=True)  # CLI --cold
+    assert "--cold start was interrupted" in capsys.readouterr().out
+
+
+def test_wizard_overview_previews_a_typed_localhost_port() -> None:
+    """The typed host port was ignored by the overview, which kept showing
+    the .env port while the launch wrote the typed one."""
+    from types import SimpleNamespace
+
+    from ui.textual.screens.wizard_screen import WizardScreen
+
+    screen = WizardScreen.__new__(WizardScreen)
+    screen._selections = {"__secondary__:OLLAMA_LOCALHOST_PORT": "11500"}
+    localhost = SimpleNamespace(secondary_number=SimpleNamespace(env_var="OLLAMA_LOCALHOST_PORT"))
+    assert screen._typed_host_port(localhost) == "11500"
+    assert screen._typed_host_port(SimpleNamespace(secondary_number=None)) == ""
+
+
+@pytest.mark.parametrize("wid,ok", [("a" * 21, True), ("a" * 22, False)])
+def test_n8n_workflow_ids_fit_n8n_id_column(tmp_path, wid, ok):
+    """n8n stores workflow ids as varchar(36); a longer atlas-consumer-<id>
+    failed the import, which the seed logs and exits 0 on, so the workflow
+    was silently missing."""
+    from core.consumer_manifest import ConsumerManifestError, _parse_n8n_workflows_block
+
+    (tmp_path / "wf.json").write_text('{"name": "w", "nodes": [], "connections": {}}', encoding="utf-8")
+    data = {"n8n_workflows": {"version": 1, "workflows": [{"id": wid, "path": "wf.json"}]}}
+    manifest = tmp_path / "atlas.consumer.yml"
+    if ok:
+        _parse_n8n_workflows_block(data, "acme", tmp_path, manifest)
+    else:
+        with pytest.raises(ConsumerManifestError, match="too long"):
+            _parse_n8n_workflows_block(data, "acme", tmp_path, manifest)
+
+
+def test_a_base_port_change_keeps_the_typed_localhost_port_in_the_overview() -> None:
+    """Re-confirming the base port rebuilt every row from .env, so a
+    localhost row showed :8080 while the launch wrote the typed 9999."""
+    from types import SimpleNamespace
+
+    from ui.textual.screens.wizard_screen import WizardScreen
+
+    screen = WizardScreen.__new__(WizardScreen)
+    localhost = SimpleNamespace(value="localhost", secondary_number=SimpleNamespace(env_var="WEAVIATE_LOCALHOST_PORT"))
+    step = SimpleNamespace(title="Weaviate  ·  source", service_name="Weaviate", options=[localhost])
+    screen._steps = [step, SimpleNamespace(title="Base port", service_name=None, options=[])]
+    screen._selections = {step.title: "localhost", "__secondary__:WEAVIATE_LOCALHOST_PORT": "9999"}
+    screen._services = [SimpleNamespace(name="Weaviate", port="8080")]
+    screen._reapply_typed_host_ports()
+    assert screen._services[0].port == "9999"
+
+
+@pytest.mark.parametrize("text", ["export A_B=1\n", "\ufeffA_B=1\n", "export\tA_B='1'  # note\n"])
+def test_consumer_env_file_reads_like_dotenv(tmp_path, text):
+    """`export KEY=` lines and a BOM, accepted by .env and .env.user, became
+    keys like "export KEY" and failed the whole consumer manifest."""
+    from core.consumer_manifest import _read_env_overlay
+
+    env_file = tmp_path / "atlas.env.user"
+    env_file.write_text(text, encoding="utf-8")
+    assert _read_env_overlay(env_file) == {"A_B": "1"}
+
+
+def test_only_a_typed_host_port_replaces_the_overview_port() -> None:
+    """Retention days and worker counts are inline numbers too; the overview
+    showed "7" as Prometheus's port and "2" as Ray's."""
+    from types import SimpleNamespace
+
+    from ui.textual.screens.wizard_screen import WizardScreen
+
+    screen = WizardScreen.__new__(WizardScreen)
+    screen._selections = {"__secondary__:PROMETHEUS_RETENTION_DAYS": "7", "__secondary__:WEAVIATE_LOCALHOST_PORT": "9999"}
+    retention = SimpleNamespace(secondary_number=SimpleNamespace(env_var="PROMETHEUS_RETENTION_DAYS"))
+    host_port = SimpleNamespace(secondary_number=SimpleNamespace(env_var="WEAVIATE_LOCALHOST_PORT"))
+    assert screen._typed_host_port(retention) == ""
+    assert screen._typed_host_port(host_port) == "9999"

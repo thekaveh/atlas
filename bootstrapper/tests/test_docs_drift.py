@@ -35,7 +35,7 @@ _REVIEWED_README_CONTRACTS = {
     "supabase": {
         "contains": (
             "DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` protect the Kong",
-            "Direct `SUPABASE_STUDIO_PORT` access bypasses Kong",
+            "Studio is reached only through that route",
         )
     },
     "iceberg-rest": {

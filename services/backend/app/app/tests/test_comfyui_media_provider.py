@@ -401,7 +401,9 @@ def test_submit_maps_comfyui_4xx_to_valueerror_for_gateway_400():
             await client.submit_media_operation(
                 modality="image", input_payload={"prompt": "x"}, model="missing.safetensors"
             )
-        assert "node_errors" in str(excinfo.value)
+        # The body is logged, not echoed to the caller (it carried private
+        # model names and proxy pages).
+        assert "node_errors" not in str(excinfo.value) and "Bad graph" not in str(excinfo.value)
 
     _run(handler, body)
 
@@ -460,14 +462,23 @@ def test_poll_failed_on_error_status():
         if request.url.path.endswith("/history/pid-err"):
             return httpx.Response(200, json={"pid-err": {
                 "outputs": {},
-                "status": {"status_str": "error", "messages": [["execution_error", {"exception_message": "OOM"}]]},
+                "status": {"status_str": "error", "messages": [["execution_error", {
+                    "exception_message": "OOM at /opt/ComfyUI/SECRET_path",
+                    "exception_type": "torch.OutOfMemoryError",
+                    "traceback": ["  File \"/opt/ComfyUI/execution.py\""],
+                    "current_inputs": {"ckpt_name": "private-model.safetensors"},
+                }]]},
             }})
         return httpx.Response(200, json={})
 
     async def body(client):
         payload = await client.get_media_operation(operation_id="pid-err", modality="image")
         assert payload["status"] == "failed"
-        assert payload["raw"]["error"] == "OOM"
+        # The class name only: the message, traceback, inputs and history
+        # entry stay in the log (they reached any operation owner).
+        assert payload["raw"]["error"] == "ComfyUI execution failed (torch.OutOfMemoryError)"
+        text = str(payload)
+        assert "SECRET_path" not in text and "execution.py" not in text and "private-model" not in text
 
     _run(handler, body)
 

@@ -195,3 +195,22 @@ def test_apply_noop_creates_no_backup(tmp_path):
     p = _write_env(tmp_path, "SOME_PORT=63000\n")
     apply_v2(p)
     assert not list(tmp_path.glob(".env.backup.v2.*"))
+
+
+def test_exported_lines_are_migrated_and_respected(tmp_path):
+    """`export KEY=` is KEY to the reader: an exported URL was never migrated
+    (its port lost), and an exported PORT was shadowed by an appended one."""
+    from core.config_parser import ConfigParser
+
+    p = _write_env(tmp_path,
+        "export HERMES_LOCALHOST_URL=http://host.docker.internal:9999\n"
+        "OPENCLAW_LOCALHOST_URL=http://host.docker.internal:7777\n"
+        "export OPENCLAW_LOCALHOST_PORT=5555\n"
+    )
+    apply_v2(p)
+    parser = ConfigParser(str(tmp_path))
+    parser.env_file_path = p
+    env = parser.parse_env_file()
+    assert env.get("HERMES_LOCALHOST_PORT") == "9999"
+    assert "HERMES_LOCALHOST_URL" not in env  # commented out
+    assert env.get("OPENCLAW_LOCALHOST_PORT") == "5555"

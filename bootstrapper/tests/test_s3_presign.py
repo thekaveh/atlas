@@ -289,3 +289,21 @@ def test_signature_is_deterministic():
         **CREDS,
     )
     assert presign_get_url(**kwargs) == presign_get_url(**kwargs)
+
+
+@pytest.mark.parametrize(("given", "canonical"), [
+    ("https://s3.example.com:443", "https://s3.example.com"),
+    ("http://localhost:80", "http://localhost"),
+    ("http://LocalHost:63018", "http://localhost:63018"),
+    ("HTTP://[::1]:9000", "http://[::1]:9000"),
+])
+def test_signed_host_is_what_the_browser_sends(given, canonical):
+    """Browsers and botocore send Host lowercased and without the scheme's
+    default port; signing the endpoint text verbatim failed every request."""
+    from datetime import datetime, timezone
+
+    from utils.s3_presign import presign_get_url
+
+    args = dict(region="us-east-1", access_key="AKIA", secret_key="s", bucket="b", key="k.png",
+                now=datetime(2026, 1, 1, tzinfo=timezone.utc))
+    assert presign_get_url(endpoint=given, **args) == presign_get_url(endpoint=canonical, **args)

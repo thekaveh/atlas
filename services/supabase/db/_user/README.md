@@ -17,6 +17,13 @@ failing user SQL file stops `supabase-db-init`, which also prevents downstream
 services that depend on `supabase-db-init` from starting against a partially
 prepared database.
 
+PostgREST publishes the `public` schema. After the user scripts run,
+`supabase-db-init` re-applies Atlas's client grants: a `public` table with row
+level security enabled is granted to `anon` (SELECT) and `authenticated` (ALL)
+and gated by its policies, and a `public` table without RLS gets no `anon` or
+`authenticated` access. Enable RLS and write policies for any table clients
+should reach; put service-internal tables in their own schema.
+
 This upstream directory ignores local SQL files by default. Downstream projects
 that intentionally version their own migrations can either force-add files here
 or mount their own replacement directory in their consumer compose layer.

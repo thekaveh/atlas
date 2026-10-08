@@ -1044,3 +1044,13 @@ def test_pip_audit_does_not_retry_a_malformed_report(
         "svc/requirements-locked.txt: invalid pip-audit JSON:"
     )
     assert len(attempts) == 1
+
+
+def test_mlflow_lock_is_checked_for_the_images_python() -> None:
+    """The gate resolved the MLflow lock for 3.10 after the v3.16.1 base
+    moved to Python 3.11 (#1323): a pin without a cp311 wheel would pass
+    the gate and fail in the image. The two move together."""
+    env_example = (Path(check_runtime_locks.__file__).parents[1] / ".env.example").read_text(encoding="utf-8")
+    assert "MLFLOW_IMAGE=ghcr.io/mlflow/mlflow:v3.16.1" in env_example
+    spec = next(item for item in check_runtime_locks.RUNTIME_LOCKS if "mlflow" in item.requirements)
+    assert spec.python_version == "3.11"

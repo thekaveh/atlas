@@ -301,3 +301,28 @@ def test_validate_env_never_echoes_secret_value(tmp_path):
     assert warnings  # mismatch flagged
     assert "not-a-number-leak" not in " ".join(warnings)
     assert "***" in " ".join(warnings)
+
+
+def test_dot_segments_never_reach_kong_from_the_backend_validator():
+    """Same grammar as the host schema: Kong normalizes /x/../api to /api."""
+    import json
+    import re
+    from pathlib import Path
+
+    from plugin_manifest import _PATH_RE
+
+    for prefix in ("/x/../api", "/y/..", "/./a", "/a/./b"):
+        assert not _PATH_RE.fullmatch(prefix), prefix
+    for prefix in ("/a", "/a.b/c..d", "/v1/x_y-z~"):
+        assert _PATH_RE.fullmatch(prefix), prefix
+    # The repo copy (absent in the backend image). parents[4] was services/,
+    # so this check silently never ran.
+    schema = next((parent / "bootstrapper/schemas/plugin.schema.json"
+                   for parent in Path(__file__).resolve().parents
+                   if (parent / "bootstrapper/schemas/plugin.schema.json").exists()), None)
+    if schema is not None:
+        properties = json.loads(schema.read_text())["properties"]
+        pattern = properties["route_prefix"]["pattern"]
+        assert pattern == f"^{_PATH_RE.pattern}$"
+        assert properties["health_path"]["pattern"] == pattern  # same grammar for health_path
+        assert re.compile(pattern).search("/x/../api") is None

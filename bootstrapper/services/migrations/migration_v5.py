@@ -15,7 +15,7 @@ WEAVIATE_DEFAULT_MODULES = (
     "generative-openai,generative-ollama,backup-filesystem"
 )
 _SENTINEL_RE = re.compile(
-    r'^(?P<prefix>[ \t]*BOOTSTRAPPER_PORT_LAYOUT_VERSION[ \t]*=[ \t]*)'
+    r'^(?P<prefix>[ \t]*(?:export[ \t]+)?BOOTSTRAPPER_PORT_LAYOUT_VERSION[ \t]*=[ \t]*)'
     r'(?P<quote>["\']?)(?P<version>\d*)(?P=quote)'
     r'(?P<suffix>[ \t]*(?:#.*)?)(?P<newline>\r?\n)?$'
 )

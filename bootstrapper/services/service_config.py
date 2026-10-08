@@ -406,7 +406,7 @@ class ServiceConfig:
         
         # Set endpoint
         endpoint = config.get('environment', {}).get('COMFYUI_ENDPOINT', 'http://comfyui:18188')
-        endpoint = endpoint.replace('host.docker.internal', self.localhost_host)
+        endpoint = self._resolved_host_url(endpoint)
         env_vars['COMFYUI_ENDPOINT'] = endpoint
         
         # Set deployment resources
@@ -466,7 +466,7 @@ class ServiceConfig:
         
         # Set URL
         weaviate_url = config.get('environment', {}).get('WEAVIATE_URL', 'http://weaviate:8080')
-        weaviate_url = weaviate_url.replace('host.docker.internal', self.localhost_host)
+        weaviate_url = self._resolved_host_url(weaviate_url)
         env_vars['WEAVIATE_URL'] = weaviate_url
         
         # Weaviate's text2vec-openai / generative-openai modules talk to LiteLLM.
@@ -519,8 +519,11 @@ class ServiceConfig:
         
         env_vars = {}
         
-        # Set scale
-        scale = config.get('scale', 1)  
+        # Set scale. Weaviate is CLIP's only consumer, and CLIP publishes no
+        # host port, so it runs only beside a container Weaviate.
+        scale = config.get('scale', 1)
+        if self.service_sources.get('WEAVIATE_SOURCE', 'container') != 'container':
+            scale = 0
         env_vars['CLIP_SCALE'] = str(scale)
         
         # Set CUDA enable flag
@@ -1704,7 +1707,7 @@ class ServiceConfig:
         
         # Set Neo4j URI
         neo4j_uri = neo4j_config.get('environment', {}).get('NEO4J_URI', 'bolt://neo4j-graph-db:7687')
-        neo4j_uri = neo4j_uri.replace('host.docker.internal', self.localhost_host)
+        neo4j_uri = self._resolved_host_url(neo4j_uri)
         env_vars['NEO4J_URI'] = neo4j_uri
         
         # Initialization service scales - conditional based on parent service sources
@@ -1793,7 +1796,14 @@ class ServiceConfig:
         neo4j_uri = self.get_service_config('neo4j-graph-db', neo4j_source).get(
             'environment', {}
         ).get('NEO4J_URI') or 'bolt://neo4j-graph-db:7687'
-        return neo4j_uri.replace('host.docker.internal', self.localhost_host)
+        return self._resolved_host_url(neo4j_uri)
+
+    def _resolved_host_url(self, url: str) -> str:
+        """Resolve ``${*_LOCALHOST_PORT:-default}`` now, as the LLM/STT/TTS
+        endpoints do: Compose's .env parser substitutes the default when the
+        port line comes after the URL line, ignoring the operator's port."""
+        url = _expand_interpolation(url, self.config_parser.parse_env_file())
+        return url.replace('host.docker.internal', self.localhost_host)
 
     def _generate_adaptive_services_config(self, all_env_vars: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         """Generate configuration for adaptive services."""

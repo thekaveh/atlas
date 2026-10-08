@@ -275,22 +275,26 @@ def _run_privileged_hosts_setup(non_interactive: bool = False) -> bool:
     )
     if not non_interactive:
         print("  • --setup-hosts needs to edit your hosts file; requesting sudo for that write only.")
-    result = subprocess.run(
-        [
-            "sudo",
-            *(["-n"] if non_interactive else []),
-            "env",
-            f"PYTHONPATH={env['PYTHONPATH']}",
-            "PYTHONDONTWRITEBYTECODE=1",
-            sys.executable,
-            "-c",
-            helper,
-        ],
-        cwd=repo_root,
-        env=env,
-        check=False,
-        capture_output=non_interactive,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "sudo",
+                *(["-n"] if non_interactive else []),
+                "env",
+                f"PYTHONPATH={env['PYTHONPATH']}",
+                "PYTHONDONTWRITEBYTECODE=1",
+                sys.executable,
+                "-c",
+                helper,
+            ],
+            cwd=repo_root,
+            env=env,
+            check=False,
+            capture_output=non_interactive,
+        )
+    except OSError as exc:  # no sudo binary: hosts setup is never fatal
+        print(f"  • Could not launch sudo for hosts setup: {exc}")
+        return False
     return result.returncode == 0
 
 # Add the current directory to the path so we can import our modules
@@ -309,6 +313,7 @@ from core.launch_outcome import (
     ProbeSkipped,
     build_skip_rows,
     cancel_notice,
+    launch_cancelled_notice,
     started_without,
 )
 from utils.localhost_validator import LocalhostValidator
@@ -443,6 +448,31 @@ def _validate_consumer_manifests_early(starter, from_cli: bool) -> None:
     except Exception as exc:  # ConsumerManifestError + I/O failures
         source = "--consumer" if from_cli else "ATLAS_CONSUMER_MANIFEST"
         raise click.UsageError(f"invalid {source} manifest: {exc}") from exc
+
+
+def _published_port_label(port_var: str, env_vars: dict) -> str:
+    """":<port>", or "-" for a reserved slot no compose file publishes
+    (pg-meta, Supabase Studio): advertising it read as reachable."""
+    from services.topology import unpublished_port_vars
+
+    if port_var in unpublished_port_vars():
+        return "-"
+    return f":{env_vars.get(port_var, '?')}"
+
+
+def _ascii_int(raw: str):
+    """ASCII digits as an int, else None (`"²".isdigit()` is true)."""
+    raw = (raw or "").strip()
+    return int(raw) if raw.isascii() and raw.isdigit() else None
+
+
+def _doctor_active_profile(starter, env: dict, declared) -> str:
+    """The profile the stack runs: this run's --profile, else the last
+    applied one, else the consumer `profile:`. Reading only `profile:`
+    reported `default` after `./start.sh --profile prod`."""
+    from services.profiles import canonical_profile
+
+    return canonical_profile(getattr(starter, "profile", None) or _known_applied_profile(env) or declared)
 
 
 def _known_applied_profile(env_vars: dict) -> str:
@@ -1131,30 +1161,18 @@ class AtlasStarter:
         return overlay_path.resolve()
 
     def _parse_env_overlay_file(self, overlay_path: Path) -> Dict[str, str]:
-        """Parse a user env overlay with the same line semantics as .env."""
+        """Parse a user env overlay with the same line semantics as .env: the
+        `export ` prefix Compose accepts, and the shared value decoder."""
+        from utils.atomic_write import decode_env_value
+
         env_vars: Dict[str, str] = {}
         with open(overlay_path, "r", encoding="utf-8-sig") as f:  # BOM-tolerant (#1391)
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#") or "=" not in line:
                     continue
-
                 key, value = line.split("=", 1)
-                value = value.strip()
-                if value[:1] in ('"', "'"):
-                    quote = value[0]
-                    end = value.find(quote, 1)
-                    if end != -1:
-                        value = value[1:end]
-                    else:
-                        value = value.strip('"').strip("'")
-                else:
-                    for i, ch in enumerate(value):
-                        if ch == "#" and (i == 0 or value[i - 1] in " \t"):
-                            value = value[:i]
-                            break
-                    value = value.strip()
-                env_vars[key.strip()] = value
+                env_vars[re.sub(r"^export[ \t]+", "", key.strip())] = decode_env_value(value)
         return env_vars
 
     def _apply_single_env_user_overlay(
@@ -2425,8 +2443,10 @@ class AtlasStarter:
             
         # Check for port conflicts
         conflicts = self.port_manager.get_port_conflicts(base_port)
-        if conflicts:
-            # Check if conflicts are from our own project's containers
+        if conflicts or self._port_block_moves(base_port):
+            # Our own containers hold the ports, or the block moves: a moved
+            # block re-publishes every container, and a targeted warm start
+            # would leave a now-disabled service running on its old ports.
             if self.docker_manager.are_project_containers_running():
                 self.banner.show_status_message(
                     "Previous instance detected — stopping existing containers...",
@@ -2476,6 +2496,26 @@ class AtlasStarter:
             return False
 
         return True
+
+    def _port_block_moves(self, base_port: int) -> bool:
+        """Whether `.env`'s ports differ from ``base_port``'s block: a
+        --base-port change, or a hand-edited BASE_PORT whose *_PORT values
+        still name the old block the running containers publish."""
+        env = self.config_parser.parse_env_file()
+        current = (env.get('BASE_PORT', '') or '').strip()
+        # ASCII only: "²".isdigit() is true but int("²") raises, which
+        # crashed the start where handle_port_configuration falls back.
+        if _ascii_int(current) not in (None, base_port):
+            return True
+        target = self.port_manager.calculate_port_assignments(base_port)
+        # A *_PORT pinned in .env.user / a consumer manifest is merged into
+        # .env on every start and reset by update_env_ports; it is not a
+        # move, and counting it tore the stack down on every warm start.
+        pinned = set(getattr(self, "_env_user_keys", None) or ())
+        return any(
+            _ascii_int(str(env.get(var, ''))) not in (None, port)
+            for var, port in target.items() if var not in pinned
+        )
 
     def run_port_migration(self, no_port_migrate: bool) -> None:
         """Chained .env migrations: v0 → v1 (port-layout), v1 → v2 (URL→PORT),
@@ -3150,24 +3190,9 @@ class AtlasStarter:
 
     def _reap_stray_blender_mcp(self, env: dict) -> None:
         """Stop pool instances above the configured size (#851)."""
-        from services.blender_mcp_manager import stray_pool_members
+        from services.blender_mcp_manager import manager_from_env
 
-        for manager in stray_pool_members(env):
-            try:
-                manager.stop()
-                problem = "its pid file remains" if manager.pid_file.exists() else ""
-            except Exception as exc:  # noqa: BLE001 - a stray must not block the start
-                problem = str(exc)
-            if problem:
-                self.banner.show_status_message(
-                    f"Could not stop stray Blender MCP instance {manager.pool_index}: {problem}; "
-                    "check it with `./start.sh blender-mcp status`.", "warning",
-                )
-            else:
-                self.banner.show_status_message(
-                    f"  • Stopped Blender MCP instance {manager.pool_index}: it is "
-                    "above BLENDER_MCP_INSTANCES.", "info",
-                )
+        reap_stray_blender_mcp(manager_from_env(env), self.banner.show_status_message)
 
     def _start_blender_mcp_instance(self, manager) -> bool:
         from services.blender_mcp_manager import BlenderMcpError
@@ -4605,7 +4630,7 @@ class AtlasStarter:
             elif 'localhost' in source:
                 port_val = self._get_localhost_port(name, env_vars)
             elif port_var:
-                port_val = f":{env_vars.get(port_var, '?')}"
+                port_val = _published_port_label(port_var, env_vars)
             else:
                 port_val = "-"
 
@@ -4818,12 +4843,10 @@ class AtlasStarter:
         services_to_check = [
             ("supabase-db", "5432", env_vars.get("SUPABASE_DB_PORT", ""), None, None),
             ("redis", "6379", env_vars.get("REDIS_PORT", ""), None, None),
-            ("supabase-meta", "8080", env_vars.get("SUPABASE_META_PORT", ""), None, None),
             ("supabase-storage", "5000", env_vars.get("SUPABASE_STORAGE_PORT", ""), None, None),
             ("supabase-auth", "9999", env_vars.get("SUPABASE_AUTH_PORT", ""), None, None),
             ("supabase-api", "3000", env_vars.get("SUPABASE_API_PORT", ""), None, None),
             ("supabase-realtime", "4000", env_vars.get("SUPABASE_REALTIME_PORT", ""), None, None),
-            ("supabase-studio", "3000", env_vars.get("SUPABASE_STUDIO_PORT", ""), None, None),
             ("neo4j-graph-db", "7687", env_vars.get("GRAPH_DB_PORT", ""), "NEO4J_GRAPH_DB_SOURCE", "NEO4J_SCALE"),
             ("weaviate", "8080", env_vars.get("WEAVIATE_PORT", ""), "WEAVIATE_SOURCE", "WEAVIATE_SCALE"),
             ("local-deep-researcher", "2024", env_vars.get("LOCAL_DEEP_RESEARCHER_PORT", ""), "LOCAL_DEEP_RESEARCHER_SOURCE", "LOCAL_DEEP_RESEARCHER_SCALE"),
@@ -5100,7 +5123,9 @@ def _managed_host_pool_blocker(module, env: dict, label: str) -> Optional[str]:
     if pool_from_env is None:
         return _managed_host_launch_blocker(module.manager_from_env, env, label)
     pool = pool_from_env(env)
-    held = module.pool_held_ports(pool)
+    # Strays above the pool size are stopped before the start, so the
+    # ports they hold are not foreign either.
+    held = module.pool_held_ports(pool_from_env(env, include_strays=True))
     for member in pool:
         name = f"{label} #{member.pool_index}" if member.pool_index else label
         problem = _managed_host_launch_blocker(lambda _env, m=member: m, env, name, held)
@@ -6631,7 +6656,7 @@ def _doctor_check_profile(starter: "AtlasStarter") -> dict:
         return _doctor_result("profile", "fail", str(exc))
 
     declared = getattr(consumer_config, "profile", None)
-    active = canonical_profile(declared)
+    active = _doctor_active_profile(starter, env, declared)
     applied = (env.get("ATLAS_PROFILE_APPLIED", "") or "").strip()
     bundle = bundles.get(active)
 
@@ -6840,21 +6865,44 @@ def _export_failed_start_bundle(starter: "AtlasStarter", transcript, exit_code) 
         echo(f"⚠ support bundle not written: {exc}")
 
 
-def _report_tui_exit(rc: int, stopped_previous: bool = False) -> int:
+def _report_tui_exit(rc: int, starter=None, *, cold: bool = False) -> int:
     """Say what a cancelled Textual run left behind, then pass ``rc`` on.
 
     Ctrl+C exits the Textual app with 130 at any point. The alternate screen
     is gone by then, so without this line nothing in the terminal says that
     containers Compose already started are still running and that nothing
     was deleted. Cancelling is never a teardown, and never a deletion
-    (#1032).
+    (#1032) — except that a cold start's cleanup, once it ran, has removed
+    the volumes. ``starter`` carries what the TUI recorded: whether the
+    launch started and whether the wizard's cold cleanup ran; ``cold`` is a
+    CLI --cold, which cleans before the launch screen.
     """
     if rc == 130:
-        print(cancel_notice(stopped_previous))
+        stopped = getattr(starter, "stopped_previous_instance", False)
+        cold = cold or getattr(starter, "tui_cold_cleanup_ran", False)
+        if getattr(starter, "tui_launch_started", True):
+            print(cancel_notice(stopped, cold))
+        else:
+            print(launch_cancelled_notice(cold, stopped))
     return rc
 
 
 def _run_linear_with_support_bundle(starter: "AtlasStarter", options) -> int:
+    """``run_linear_startup`` under SIGTERM/SIGHUP cleanup: a terminated or
+    disconnected `--no-tui` start stops the command it is running and rolls
+    back the managed hosts it started, as Ctrl+C does; they run in their own
+    session, so they would otherwise outlive it holding GPU memory and ports."""
+    from core.process_runner import _CommandInterrupted, cleanup_active_processes_on_sigterm
+
+    with cleanup_active_processes_on_sigterm():
+        try:
+            return _run_linear_startup_bundled(starter, options)
+        except _CommandInterrupted:
+            starter.rollback_managed_host_processes()
+            raise
+
+
+def _run_linear_startup_bundled(starter: "AtlasStarter", options) -> int:
     """``run_linear_startup``; with ``--support-bundle`` a failed start also
     leaves a redacted bundle built from what the run printed (#1057)."""
     if starter.support_bundle_path is None:
@@ -7973,6 +8021,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                 # compose log streaming all run inside one App. start.py
                 # exits when the user detaches.
                 from ui.textual.integration import run_setup_flow
+                starter.tui_launch_started = False  # set once the wizard launches
                 rc = run_setup_flow(
                     starter.config_parser, starter.hosts_manager,
                     starter=starter,
@@ -7982,7 +8031,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     no_splash=no_splash,
                     profile=profile,
                 )
-                sys.exit(_report_tui_exit(rc, getattr(starter, "stopped_previous_instance", False)))
+                sys.exit(_report_tui_exit(rc, starter, cold=cold))
 
             # No-TUI fallback (spec §6.2 / §8.6): we're in will_run_wizard mode
             # but is_tui_capable returned False (--no-tui flag or non-TTY /
@@ -8113,7 +8162,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     no_splash=no_splash,
                     profile=profile,
                 )
-                sys.exit(_report_tui_exit(rc, getattr(starter, "stopped_previous_instance", False)))
+                sys.exit(_report_tui_exit(rc, starter, cold=cold))
 
         # Linear (--no-tui / non-TTY) flow from here on — the wizard and
         # CLI-flag TUI branches above both sys.exit() before this point.
@@ -8355,11 +8404,16 @@ def gateway_post(base_url: str, key: str):
 # Statuses that say nothing about the model's capability: a wrong key, an
 # alias the gateway does not serve, a timeout, a rate limit.
 _PROBE_INCONCLUSIVE_STATUSES = {401, 403, 404, 408, 429}
+# LiteLLM answers an alias it does not serve (provider disabled, model not
+# pulled) with a 400, not a 404; the error text is what identifies it.
+_UNKNOWN_MODEL_TEXT = re.compile(r"invalid model name|model\b.{0,120}\bnot found|no such model", re.I | re.S)
 
 
-def probe_status_outcome(status) -> "str | None":
+def probe_status_outcome(status, payload=None) -> "str | None":
     """The outcome an HTTP status already decides, or None to read the reply."""
     if status is None or status >= 500 or status in _PROBE_INCONCLUSIVE_STATUSES:
+        return PROBE_UNAVAILABLE
+    if status >= 400 and _UNKNOWN_MODEL_TEXT.search(json.dumps(payload or {})):
         return PROBE_UNAVAILABLE
     return PROBE_UNSUPPORTED if status >= 400 else None
 
@@ -8367,7 +8421,7 @@ def probe_status_outcome(status) -> "str | None":
 def _probe_message(post, body: dict):
     """(outcome the HTTP status already decides, or None; the reply message)."""
     status, payload = post("/chat/completions", body)
-    verdict = probe_status_outcome(status)
+    verdict = probe_status_outcome(status, payload)
     if verdict or not isinstance(payload, dict):
         return verdict or PROBE_UNSUPPORTED, {}
     choices = payload.get("choices") or [{}]
@@ -8493,6 +8547,20 @@ def _measure(kind: str, alias: str, gateway: tuple) -> tuple:
     return probe(post, alias), None
 
 
+def _record_probe(record: dict, kind: str, outcome: str, dim) -> None:
+    """Store one outcome. ``unavailable`` measured nothing, so it never
+    replaces an earlier real verdict (a --refresh while the gateway is down);
+    a dimension is kept only beside a supported embedding."""
+    if outcome == PROBE_UNAVAILABLE and record["results"].get(kind) in (PROBE_SUPPORTED, PROBE_UNSUPPORTED):
+        return
+    record["results"][kind] = outcome
+    if kind == "embedding":
+        if dim and outcome == PROBE_SUPPORTED:
+            record["embedding_dim"] = dim
+        else:
+            record.pop("embedding_dim", None)
+
+
 def run_capability_probes(root: Path, gateway: tuple, plan: list, max_requests: int) -> int:
     """Run ``plan`` (one request per probe) against ``gateway`` =
     (base_url, key, post) and store the results. Refuses (exit 3) a plan
@@ -8506,9 +8574,7 @@ def run_capability_probes(root: Path, gateway: tuple, plan: list, max_requests: 
         for alias, kind, identity in plan:
             outcome, dim = _measure(kind, alias, gateway)
             record = store.setdefault(json.dumps(identity, sort_keys=True), {"identity": identity, "results": {}})
-            record["results"][kind] = outcome
-            if dim:
-                record["embedding_dim"] = dim
+            _record_probe(record, kind, outcome, dim)
     finally:
         if plan:
             path = root / PROBE_RESULTS_FILE
@@ -8529,7 +8595,8 @@ def report_capability_probes(root: Path, aliases, kinds) -> int:
             outcome = record.get("results", {}).get(kind, "not measured")
             fail = kind in declared and outcome == PROBE_UNSUPPORTED
             failed += fail
-            dim = f" ({record['embedding_dim']} dimensions)" if kind == "embedding" and record.get("embedding_dim") else ""
+            shown = kind == "embedding" and outcome == PROBE_SUPPORTED and record.get("embedding_dim")
+            dim = f" ({record['embedding_dim']} dimensions)" if shown else ""
             print(f"  {alias} {kind}: {outcome}{dim}{'  FAIL: declared by the catalog' if fail else ''}")
     return 1 if failed else 0
 
@@ -9200,6 +9267,26 @@ def blender_mcp_group() -> None:
     execute_code runs arbitrary Python inside Blender."""
 
 
+def reap_stray_blender_mcp(base, report) -> None:
+    """Stop the instances of ``base``'s pool above its configured size
+    (#851); ``report`` is (message, level). Shared by ./start.sh and
+    `blender-mcp start`."""
+    from services.blender_mcp_manager import stray_members
+
+    for manager in stray_members(base):
+        try:
+            manager.stop()
+            problem = "its pid file remains" if manager.pid_file.exists() else ""
+        except Exception as exc:  # noqa: BLE001 - a stray must not block the start
+            problem = str(exc)
+        if problem:
+            report(f"Could not stop stray Blender MCP instance {manager.pool_index}: {problem}; "
+                   "check it with `./start.sh blender-mcp status`.", "warning")
+        else:
+            report(f"  • Stopped Blender MCP instance {manager.pool_index}: it is "
+                   "above BLENDER_MCP_INSTANCES.", "info")
+
+
 def _blender_mcp_manager():
     starter = AtlasStarter()
     env = starter.config_parser.parse_env_file()
@@ -9248,9 +9335,15 @@ def blender_mcp_install() -> None:
 def blender_mcp_start() -> None:
     """Launch the headless bridge (installs first if needed); every instance
     of a BLENDER_MCP_INSTANCES pool, each on its allocated port."""
-    from services.blender_mcp_manager import BlenderMcpError, share_verified_addon
+    from services.blender_mcp_manager import BlenderMcpError, pool_moves, share_verified_addon
 
     pool, rows = _blender_mcp_pool(), []
+    reap_stray_blender_mcp(pool[0], lambda message, _level: print(message))
+    if len(pool) > 1 and pool_moves(pool):
+        # As at ./start.sh: a shifted base port can make one instance's new
+        # port another's old one, so the pool restarts together.
+        for manager in pool:
+            manager.stop()
     for manager in pool:
         index = getattr(manager, "pool_index", 0)
         if index == 1:

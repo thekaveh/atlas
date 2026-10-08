@@ -37,6 +37,9 @@ if [ "$REQUESTED_SPECS" = "$LOCKED_SPECS" ] || [ "$REQUESTED_SPECS" = "$LEGACY_D
     echo "n8n-init: Atlas' locked community package set is already installed."
   else
     echo "n8n-init: Installing Atlas' lockfile-backed community package set."
+    # The custom set's stamp no longer describes node_modules; left behind,
+    # returning to that same custom set skipped its install.
+    rm -f "$NODES_DIR/.atlas-requested-specs"
     cp /config/package.json "$NODES_DIR/package.json"
     cp /config/package-lock.json "$NODES_DIR/package-lock.json"
     npm ci \
@@ -63,17 +66,34 @@ else
     validate_exact_spec "$spec"
   done
 
-  echo "n8n-init: Installing operator-supplied exact community package set."
-  rm -rf "$NODES_DIR/node_modules" "$NODES_DIR/package.json" "$NODES_DIR/package-lock.json"
-  printf '%s\n' '{"name":"atlas-n8n-community-nodes","private":true}' > "$NODES_DIR/package.json"
-  npm install \
-    --prefix "$NODES_DIR" \
-    --save-exact \
-    --omit=dev \
-    --ignore-scripts \
-    --no-audit \
-    --no-fund \
-    "$@"
+  # Same contract as the locked set: skip when exactly this set is already
+  # installed, and install into a staging dir swapped in only on success.
+  # Wiping first and reinstalling on every start meant an offline restart
+  # left no nodes and failed n8n-init, so n8n never started.
+  STAMP="$NODES_DIR/.atlas-requested-specs"
+  if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$REQUESTED_SPECS" ] \
+    && [ -f "$NODES_DIR/node_modules/.package-lock.json" ]; then
+    echo "n8n-init: The operator-supplied community package set is already installed."
+  else
+    echo "n8n-init: Installing operator-supplied exact community package set."
+    STAGE="$N8N_USER_FOLDER/.nodes-staging"
+    rm -rf "$STAGE"
+    mkdir -p "$STAGE"
+    printf '%s\n' '{"name":"atlas-n8n-community-nodes","private":true}' > "$STAGE/package.json"
+    npm install \
+      --prefix "$STAGE" \
+      --save-exact \
+      --omit=dev \
+      --ignore-scripts \
+      --no-audit \
+      --no-fund \
+      "$@"
+    rm -rf "$NODES_DIR/node_modules" "$NODES_DIR/package.json" "$NODES_DIR/package-lock.json"
+    mv "$STAGE/node_modules" "$STAGE/package.json" "$NODES_DIR/"
+    if [ -f "$STAGE/package-lock.json" ]; then mv "$STAGE/package-lock.json" "$NODES_DIR/"; fi
+    rm -rf "$STAGE"
+    printf '%s' "$REQUESTED_SPECS" > "$STAMP"
+  fi
 fi
 
 echo "n8n-init: Community packages installed successfully."

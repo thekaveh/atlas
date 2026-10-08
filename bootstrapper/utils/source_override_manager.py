@@ -4,9 +4,8 @@ Handles runtime overrides of SERVICE SOURCE configurations.
 """
 
 from typing import Dict
-import re
 
-from utils.atomic_write import atomic_write_text, render_env_assignment, env_assignment_pattern, set_env_assignment
+from utils.atomic_write import atomic_write_text, decode_env_value, render_env_assignment, env_assignment_pattern, set_env_assignment
 
 class SourceOverrideManager:
     """Manages command-line SOURCE overrides for services."""
@@ -180,11 +179,13 @@ class SourceOverrideManager:
             return {}
         current: Dict[str, str] = {}
         for var_name in var_names:
-            matches = re.findall(
-                rf'^(?:export[ \t]+)?{re.escape(var_name)}=(.*)$', content, re.MULTILINE
-            )
+            # The shared reader semantics: blanks before `=`, quotes and
+            # inline comments decode as the writer and Compose see them, so
+            # an unchanged quoted value is not a "change" and a changed
+            # `KEY = value` line is not silently missed.
+            matches = list(env_assignment_pattern(var_name).finditer(content))
             if matches:
-                current[var_name] = matches[-1].strip()
+                current[var_name] = decode_env_value(matches[-1].group(0).split("=", 1)[1])
         return current
 
     def _warn_on_source_changes(self, overrides: Dict[str, str]) -> None:

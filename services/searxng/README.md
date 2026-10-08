@@ -16,7 +16,7 @@ Image: `searxng/searxng:2026.6.28-357662d86`. Container port: `8080`. Source var
 |---|---|---|
 | Direct | `http://localhost:${SEARXNG_PORT}` (default `63056`) | Web UI + `/search` API. |
 | Kong | `http://search.localhost:${KONG_HTTP_PORT}` | Browser-friendly; needs `./start.sh --setup-hosts`. |
-| Internal | `http://searxng:8080/search` | What sibling containers call (LDR, n8n, Hermes, Open WebUI). |
+| Internal | `http://searxng:8080/search` | What sibling containers call (LDR, n8n, Hermes). |
 | JSON API | `GET /search?q=…&format=json` | Enabled in `settings.yml`; used by every machine consumer. |
 
 Canonical port table: [Ports and Routes](../../docs/reference/ports-routes.md).
@@ -51,7 +51,7 @@ Inherited from the default (no longer forked here): the full engine list with co
 
 ## 4. Architecture & wiring
 
-**Request flow:** caller (LDR, Hermes, n8n, Open WebUI, or browser) → `http://searxng:8080/search?q=…&format=json` → SearXNG dispatches to enabled engines in parallel → aggregates and de-duplicates → JSON array of `{url, title, content, engine, score}` back to caller.
+**Request flow:** caller (LDR, Hermes, n8n, or browser) → `http://searxng:8080/search?q=…&format=json` → SearXNG dispatches to enabled engines in parallel → aggregates and de-duplicates → JSON array of `{url, title, content, engine, score}` back to caller.
 
 **No per-engine API keys required** for the default set (DuckDuckGo, Bing, Brave, Wikipedia, Stack Exchange, GitHub). Some engines (Google search) need cookies SearXNG manages internally; some (Google Scholar) work without.
 
@@ -106,7 +106,7 @@ _No upstream calls._
 
 ## 6. Troubleshooting
 
-**`/search?format=json` returns HTML.** This happens only if `json` was removed from the `server.formats:` list in `settings.yml` (the shipped default already includes it: `[html, json]`). Restore it, or rebuild from `services/searxng/config/settings.yml`.
+**`/search?format=json` returns HTML.** This happens only if `json` was removed from the `search.formats:` list in `settings.yml` (the shipped default already includes it: `[html, json]`). Restore it, or rebuild from `services/searxng/config/settings.yml`.
 
 **`429 Too Many Requests` from a single upstream engine.** Engine-side rate-limit, not SearXNG's. The aggregator silently drops that engine for the query; results shrink. Either wait or disable the offending engine in `settings.yml`.
 
@@ -126,13 +126,13 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 
 ## 7. Operations
 
-**Add or remove an engine.** Edit the `engines:` block in `services/searxng/config/settings.yml` and restart SearXNG. Each engine row supports `disabled: true/false`, per-engine `timeout:`, `categories:`, and engine-specific options (e.g. `language:` for Wikipedia).
+**Add or remove an engine.** `settings.yml` is a thin `use_default_settings` override: drop an engine with `use_default_settings.engines.remove` (or `keep_only`), or add an `engines:` list entry naming it to override its options, then restart SearXNG. Each engine row supports `disabled: true/false`, per-engine `timeout:`, `categories:`, and engine-specific options (e.g. `language:` for Wikipedia).
 
 **Pin engines per query.** Pass `engines=duckduckgo,brave` in the URL. Callers (LDR, Hermes, Open WebUI) currently don't, which lets a slow engine drag the p99; pinning to two fast engines per call shaves latency dramatically.
 
 **Inspect the live engine selection.** `GET /preferences` returns the current per-engine state. Useful when a result set looks too narrow.
 
-**Rotate the secret.** Delete `SEARXNG_SECRET` from `.env` and re-run `./start.sh` — the bootstrapper regenerates it and rewrites `settings.yml`. Existing user-saved preferences (cookies signed by the old secret) are invalidated.
+**Rotate the secret.** Delete `SEARXNG_SECRET` from `.env` and re-run `./start.sh` — the bootstrapper regenerates it in `.env`; SearXNG reads it from the environment on restart. Existing user-saved preferences (cookies signed by the old secret) are invalidated.
 
 **Public-instance mode.** SearXNG's upstream `public_instance: true` setting turns on additional anti-abuse defaults (engine throttling, captcha hints) intended for instances that face the open internet. Edit `config/settings.yml` directly to enable it (see §3 Note about why the matching env var is not wired today). Leave off for stack-internal use.
 

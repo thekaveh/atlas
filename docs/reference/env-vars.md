@@ -30,6 +30,7 @@
 | ASSET_BAKER_SOURCE | asset-baker | disabled | Deployment mode for the Blender HP→LP bake worker. container-cpu runs deterministic Cycles-CPU bakes (GPU-optional, deferred). |
 | ASSET_BAKER_PORT | asset-baker | 63052 | Host port for the asset-baker API (in-container listen port is 8096). |
 | ASSET_BAKER_SCALE | asset-baker |  | - |
+| ASSET_BAKER_PLATFORM | asset-baker | linux/amd64 | Platform the asset-baker image is built and run for. The Blender build is x86_64-only, so arm64 hosts (Apple Silicon) run it under emulation; keep linux/amd64. |
 | ASSET_BAKER_ENDPOINT | asset-baker |  | In-network URL for the asset-baker API. |
 | ASSET_BAKER_API_TOKEN | asset-baker |  | Auto-generated bearer token required by all Asset Baker data and processing routes; /health remains unauthenticated. |
 | ASSET_BAKER_ALLOWED_INPUT_BUCKETS | asset-baker |  | Optional comma- or space-separated reference-route bucket allowlist; blank follows MINIO_BUCKET_ASSET_INPUTS. |
@@ -188,7 +189,7 @@
 | CELERY_WORKER_PREFETCH_MULTIPLIER | celery | 1 | Positive prefetch multiplier. The default reduces head-of-line blocking for long tasks; invalid values fail startup. |
 | CELERY_TASK_TIME_LIMIT_SECONDS | celery | 900 | Positive hard per-task limit. Must exceed the soft limit and remain below the broker visibility timeout. |
 | CELERY_TASK_SOFT_TIME_LIMIT_SECONDS | celery | 840 | Positive soft per-task limit. Must be strictly less than the hard limit. |
-| CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS | celery | 3600 | Positive Redis broker visibility timeout. Must be strictly greater than the task hard limit. The worker raises it to the rag_ingestion hard limit plus 300 seconds when that is larger, so a running ingestion is never re-delivered (#1352). |
+| CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS | celery | 3600 | Positive Redis broker visibility timeout. Must be strictly greater than the task hard limit. The worker raises it to 300 seconds past the larger of the rag_ingestion hard limit and the global hard limit plus 60 (a memory busy-retry countdown) when that is larger, so a running ingestion or a delayed retry is never re-delivered (#1352). |
 | RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS | celery |  | Positive soft limit for the rag_ingestion task alone; other tasks keep CELERY_TASK_SOFT_TIME_LIMIT_SECONDS. Empty (default) means the larger of 3840 and CELERY_TASK_SOFT_TIME_LIMIT_SECONDS. A Celery ingestion whose graph targets' timeout_seconds add up to at least this is refused at submission (#1352). |
 | RAG_INGESTION_TASK_TIME_LIMIT_SECONDS | celery |  | Positive hard limit for the rag_ingestion task alone; must exceed the soft limit. Empty (default) means the larger of 3900 and CELERY_TASK_TIME_LIMIT_SECONDS (#1352). |
 | FLOWER_IMAGE | celery | mher/flower:2.0.1 | Container image for `flower`. |
@@ -223,7 +224,7 @@
 | COMFYUI_MPS_MODELS_PATH | comfyui | ~/Documents/ComfyUI/models | Existing host models directory the managed MPS process reuses (via extra_model_paths) so no weights are duplicated. Shared with COMFYUI_LOCAL_MODELS_PATH by default. Also the provisioning destination under managed-localhost-mps: the host provisioner (#754) downloads declared COMFYUI_USER_MODELS here at start — not just a reuse path. |
 | COMFYUI_MPS_MIN_MEMORY_GB | comfyui | 16 | Minimum unified-memory headroom (GiB) the managed MPS preflight requires before launching ComfyUI; below this the preflight warns. |
 | COMFYUI_MPS_TORCH_PIN | comfyui | torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 | Pinned Torch/vision/audio pip spec the managed MPS install applies, so fresh installs are reproducible against the same COMFYUI_MPS_REF instead of pulling whatever Torch is newest that day. Space-separated pip requirement specifiers; bump alongside COMFYUI_MPS_REF. macOS/arm64 torch wheels carry Metal/MPS. |
-| COMFYUI_MPS_LISTEN | comfyui | 127.0.0.1 | Bind address the managed MPS ComfyUI host process listens on. Default 127.0.0.1 (loopback) works on Docker Desktop/macOS where host.docker.internal forwards to host loopback. On Linux container engines, host.docker.internal maps via host-gateway to a bridge address that cannot reach a loopback listener — set 0.0.0.0 there so containers can reach the host process. Local health/port probes stay on 127.0.0.1 regardless. |
+| COMFYUI_MPS_LISTEN | comfyui | 127.0.0.1 | Bind address the managed MPS ComfyUI host process listens on. Default 127.0.0.1 (loopback) works on Docker Desktop/macOS where host.docker.internal forwards to host loopback. On Linux container engines, host.docker.internal maps via host-gateway to a bridge address that cannot reach a loopback listener — set 0.0.0.0 there so containers can reach the host process. Local health/port probes use 127.0.0.1 for 0.0.0.0 or ::, and the bind address itself otherwise. |
 | COMFYUI_BASE_URL | comfyui | http://comfyui:18188 | In-container default. Runtime value is COMFYUI_ENDPOINT computed by hook. |
 | COMFYUI_KONG_URL | comfyui | http://kong-api-gateway:8000/comfyui | - |
 | COMFYUI_ARGS | comfyui | --listen | - |
@@ -330,7 +331,7 @@
 | HERMES_DASHBOARD_PORT | hermes | 63073 | Host port for the Hermes Agent web dashboard (in-container listen port is 9119). |
 | HERMES_MEMORY_LIMIT | hermes | 4g | - |
 | HERMES_CPU_LIMIT | hermes | 2.0 | - |
-| HERMES_API_KEY | hermes |  | Auto-generated by bootstrapper. Forwarded to LiteLLM via API_SERVER_KEY. |
+| HERMES_API_KEY | hermes |  | Auto-generated by bootstrapper. Hermes's API server bearer key, passed to Hermes as API_SERVER_KEY; LiteLLM's hermes-agent row reads the same value as HERMES_API_KEY. |
 | HERMES_DEFAULT_MODEL | hermes |  | Empty = hermes-init picks from LiteLLM /v1/models priority list. |
 | HERMES_CONTEXT_LENGTH | hermes | 65536 | - |
 | HERMES_DASHBOARD_ENABLED | hermes | true | - |
@@ -863,7 +864,7 @@
 | SUPABASE_REALTIME_DB_PASSWORD | supabase | atlas-db-password | Auto-generated password for the replication-scoped Realtime role. |
 | SUPABASE_META_DB_USER | supabase | atlas_meta | - |
 | SUPABASE_META_DB_PASSWORD | supabase | atlas-db-password | Auto-generated password for the dashboard metadata role used by Meta and Studio. |
-| SUPABASE_META_CRYPTO_KEY | supabase |  | Auto-generated key (PG_META_CRYPTO_KEY) shared by Studio and Postgres Meta to encrypt the connection header Studio sends Meta. Empty falls back to the images' public SAMPLE_KEY constant. |
+| SUPABASE_META_CRYPTO_KEY | supabase |  | Auto-generated key shared by Studio (as PG_META_CRYPTO_KEY) and Postgres Meta (as CRYPTO_KEY) to encrypt the connection header Studio sends Meta. Empty falls back to the images' public SAMPLE_KEY constant. |
 | SUPABASE_META_DB_USER_URI | supabase | atlas_meta | Bootstrapper-synchronized percent-encoded SUPABASE_META_DB_USER for DSN userinfo. |
 | SUPABASE_META_DB_PASSWORD_URI | supabase | atlas-db-password | Bootstrapper-synchronized percent-encoded SUPABASE_META_DB_PASSWORD for DSN userinfo. |
 | SUPABASE_STUDIO_DB_USER | supabase | atlas_studio_readonly | Read-only SQL-editor identity used by Studio; it shares Studio's single password interface with Meta but has no Meta admin authority. |
