@@ -11,7 +11,8 @@ echo "minio-init: starting MinIO provisioning..."
 # Wait for MinIO server (depends_on healthcheck should already guarantee this, but be defensive)
 echo "minio-init: waiting for MinIO at http://minio:9000..."
 i=0
-until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null 2>&1; do
+# Keys on stdin, not argv: argv is world-readable in /proc while this runs.
+until printf '%s\n%s\n' "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" | mc alias set local http://minio:9000 >/dev/null 2>&1; do
     i=$((i + 1))
     if [ "$i" -gt 30 ]; then
         echo "minio-init: ERROR — could not reach MinIO after 30 attempts; aborting" >&2
@@ -193,6 +194,7 @@ EOF
     # either).
     if mc admin user svcacct info local "$access" >/dev/null 2>&1; then
         echo "minio-init: service account '$access' exists - refreshing secret + policy..."
+        # mc has no stdin form for --secret-key; this argv exposure is #1381.
         mc admin user svcacct edit local "$access" \
             --secret-key "$secret" \
             --policy "$policy_file"

@@ -4812,7 +4812,6 @@ class AtlasStarter:
         services_to_check = [
             ("supabase-db", "5432", env_vars.get("SUPABASE_DB_PORT", ""), None, None),
             ("redis", "6379", env_vars.get("REDIS_PORT", ""), None, None),
-            ("supabase-meta", "8080", env_vars.get("SUPABASE_META_PORT", ""), None, None),
             ("supabase-storage", "5000", env_vars.get("SUPABASE_STORAGE_PORT", ""), None, None),
             ("supabase-auth", "9999", env_vars.get("SUPABASE_AUTH_PORT", ""), None, None),
             ("supabase-api", "3000", env_vars.get("SUPABASE_API_PORT", ""), None, None),

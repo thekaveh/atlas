@@ -291,3 +291,14 @@ def test_docs_cover_parent_owned_minio_extra_consumers() -> None:
     ):
         assert "MINIO_EXTRA_CONSUMERS" in text
         assert "daydreams:MINIO_BUCKET_DAYDREAMS" in text
+
+
+def test_minio_root_password_is_never_an_mc_argument():
+    """`mc alias set local URL USER PASSWORD` put the root password in
+    /proc/*/cmdline on every start; the keys go on stdin."""
+    import re
+    from pathlib import Path
+
+    script = (Path(__file__).resolve().parents[2] / "services/minio/init/scripts/init-minio.sh").read_text(encoding="utf-8")
+    mc_lines = [line for line in script.splitlines() if re.search(r"\bmc\b", line) and not line.lstrip().startswith("#")]
+    assert not [line for line in mc_lines if "MINIO_ROOT_PASSWORD" in line.split("| mc", 1)[-1]]

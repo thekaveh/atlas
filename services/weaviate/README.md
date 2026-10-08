@@ -15,6 +15,8 @@ Vector database used for semantic search, RAG, embeddings, n8n workflows, Backen
 | Direct | http://localhost:63030 (REST) / 63031 (gRPC) | Works when the service is enabled in container mode and the port is exposed. |
 | Kong | http://weaviate.localhost:63000 | Requires `./start.sh --setup-hosts`; only available for services with Kong routes. |
 
+Anonymous access is on, so browser access is limited to the Kong origin: `CORS_ALLOW_ORIGIN` is `http://weaviate.localhost:${KONG_HTTP_PORT}`. Weaviate's default (`*`) let any web page open in the operator's browser read or delete collections through the direct port. Server-side clients are unaffected.
+
 See the canonical port table at [Ports and Routes](../../docs/reference/ports-routes.md).
 
 ## 3. Configuration

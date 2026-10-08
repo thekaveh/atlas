@@ -394,3 +394,18 @@ def test_a_symlinked_state_dir_is_refused_with_a_clear_message(tmp_path):
     with pytest.raises(RuntimeError, match="is a symlink to"):
         remove_state_directory(link, ("state", RuntimeError))
     assert target.is_dir() and link.is_symlink()
+
+
+def test_direct_ports_do_not_answer_every_browser_origin():
+    """pg-meta (SQL, unauthenticated, CORS *) and Weaviate (anonymous, CORS *)
+    were reachable from any web page through their loopback ports."""
+    from pathlib import Path
+
+    import yaml
+
+    root = Path(__file__).resolve().parents[2]
+    supabase = yaml.safe_load((root / "services/supabase/compose.yml").read_text(encoding="utf-8"))
+    weaviate = yaml.safe_load((root / "services/weaviate/compose.yml").read_text(encoding="utf-8"))
+    assert "ports" not in supabase["services"]["supabase-meta"]
+    origin = weaviate["services"]["weaviate"]["environment"]["CORS_ALLOW_ORIGIN"]
+    assert origin.startswith("http://weaviate.localhost:") and "*" not in origin

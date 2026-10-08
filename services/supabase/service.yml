@@ -29,9 +29,9 @@ capabilities:
     verification: documented
     note: "GoTrue issues and validates JWTs, but the stock local-development defaults auto-confirm email and point SMTP at localhost rather than a configured delivery service."
   - name: "pg-meta administrative access control"
-    status: partial
-    verification: documented
-    note: "The Kong /pg/ route uses Basic authentication and the dashboard_user ACL, while the direct host-published SUPABASE_META_PORT has no application authentication and executes as a dedicated dashboard_user member; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_META_PORT, or remove the supabase-meta ports: publish on shared networks."
+    status: supported
+    verification: tested
+    note: "The Kong /pg/ route uses Basic authentication and the dashboard_user ACL. pg-meta itself has no application authentication, executes as a dedicated dashboard_user member and allows any browser origin, so it is not published on the host; SUPABASE_META_PORT is reserved but unused."
   - name: "Supabase Studio access control"
     status: partial
     verification: documented

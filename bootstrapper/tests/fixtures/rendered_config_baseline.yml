@@ -4357,12 +4357,6 @@ services:
         max-size: 10m
     networks:
       backend-network: null
-    ports:
-    - mode: ingress
-      host_ip: 127.0.0.1
-      target: 8080
-      published: '63014'
-      protocol: tcp
     restart: unless-stopped
   supabase-realtime:
     container_name: atlas-supabase-realtime
@@ -4937,6 +4931,7 @@ services:
       BACKUP_FILESYSTEM_PATH: /var/lib/weaviate/backups
       CLIP_INFERENCE_API: http://multi2vec-clip:8080
       CLUSTER_HOSTNAME: weaviate
+      CORS_ALLOW_ORIGIN: http://weaviate.localhost:63000
       DEFAULT_VECTORIZER_MODULE: none
       ENABLE_MODULES: text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem
       OPENAI_APIKEY: ''

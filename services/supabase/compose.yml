@@ -130,8 +130,10 @@ services:
       PG_META_DB_PASSWORD: ${SUPABASE_META_DB_PASSWORD:?SUPABASE_META_DB_PASSWORD is required}
       # Decrypts Studio's x-connection-encrypted header; must match Studio's.
       PG_META_CRYPTO_KEY: ${SUPABASE_META_CRYPTO_KEY:-}
-    ports:
-      - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_META_PORT}:8080"
+    # Not published on the host: pg-meta runs SQL unauthenticated and answers
+    # any browser origin (CORS *), so even a loopback bind let any web page
+    # the operator opened query auth.users. Studio and Kong's /pg/ route
+    # reach it on backend-network.
     logging:
       driver: json-file
       options:
