@@ -914,9 +914,45 @@ def load_custom_models(path: str) -> list[ComfyUILibraryEntry]:
                   f"'{category}'; skipping.", file=_sys.stderr)
             continue
         try:
-            out.append(_dict_to_entry(d, source="custom"))
+            entry = _dict_to_entry(_lowercase_shas(d), source="custom")
+            _check_download_rows(entry)
         except (KeyError, ValueError) as exc:
             print(f"⚠️  custom-models entry '{name}' construction failed: {exc}",
                   file=_sys.stderr)
             continue
+        out.append(entry)
     return out
+
+
+_DOWNLOAD_URL_RE = _re.compile(r"^https?://[^/\s]+/.+")
+
+
+def _lowercase_shas(d: dict) -> dict:
+    """Civitai shows SHA-256 in upper case; the downloader wants lower."""
+    def lower(item: Any) -> Any:
+        if isinstance(item, dict) and isinstance(item.get("sha256"), str):
+            return {**item, "sha256": item["sha256"].strip().lower()}
+        return item
+    out = lower(d)
+    if isinstance(out.get("files"), list):
+        out = {**out, "files": [lower(f) for f in out["files"]]}
+    return out
+
+
+def _check_download_rows(entry: "ComfyUILibraryEntry") -> None:
+    """Apply comfyui-init's row rules now. One bad sidecar row used to fail the
+    TSV write (aborting the start) or make the init container refuse the whole
+    plan, so ComfyUI never started; it is skipped here instead."""
+    from utils.comfyui_manifest_generator import ComfyUIManifestGenerator
+    from utils.comfyui_resolver import _manifest_row_for_entry
+
+    rows = [_manifest_row_for_entry(entry, file=f) for f in entry.files] or [_manifest_row_for_entry(entry)]
+    for row in rows:
+        name = str(row["name"])
+        if name in ("", ".", "..") or len(name) > 256 or any(c in name for c in "/\\"):
+            raise ValueError(f"name {name!r} must be a plain name of at most 256 characters")
+        if not _DOWNLOAD_URL_RE.match(str(row["download_url"] or "")):
+            raise ValueError(f"url {row['download_url']!r} needs a host and a path")
+        if len(str(row["filename"])) > 255:
+            raise ValueError("filename is longer than 255 characters")
+        ComfyUIManifestGenerator._row_tsv(row)

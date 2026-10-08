@@ -187,7 +187,7 @@ def test_entry_overrides_via_kwargs(tmp_path):
         "    category: lora\n"
         "    url: https://e.com/x.safetensors\n"
         "    size_gb: 2.5\n"
-        "    sha256: deadbeef\n"
+        "    sha256: dededededededededededededededededededededededededededededededede\n"
         "    cpu_supported: false\n"
         "    requires_custom_node:\n"
         "      - SomeNode\n"
@@ -199,7 +199,7 @@ def test_entry_overrides_via_kwargs(tmp_path):
     e = entries[0]
     assert e.family == "TestFam"
     assert e.size_gb == 2.5
-    assert e.sha256 == "deadbeef"
+    assert e.sha256 == "de" * 32
     assert e.cpu_supported is False
     assert e.requires_custom_node == ("SomeNode",)
 
@@ -248,3 +248,23 @@ def test_bundle_file_null_provisioning_required_is_rejected_but_omission_inherit
     explicit_null.write_text(base + "        provisioning_required: null\n", encoding="utf-8")
     assert load_custom_models(str(explicit_null)) == []
     assert "bundle file provisioning_required must be a boolean" in capsys.readouterr().err
+
+
+def test_rows_the_downloader_would_refuse_are_skipped_alone(tmp_path, capsys):
+    """One bad sidecar row failed the TSV write (aborting the start) or made
+    comfyui-init refuse the whole plan, so ComfyUI never started. Upper-case
+    SHA-256 (as Civitai shows it) is accepted, lower-cased."""
+    sha = "AB" * 32
+    sidecar = tmp_path / "custom-models.yaml"
+    sidecar.write_text(
+        "models:\n"
+        f"  - {{name: good, category: lora, url: 'https://h/a/good.safetensors', sha256: '{sha}'}}\n"
+        "  - {name: author/my-lora, category: lora, url: 'https://h/a/x.safetensors'}\n"
+        "  - {name: no-path, category: lora, url: 'https://h'}\n"
+        "  - {name: bad-sha, category: lora, url: 'https://h/a/y.safetensors', sha256: 'abc'}\n",
+        encoding="utf-8",
+    )
+    entries = load_custom_models(str(sidecar))
+    assert [e.name for e in entries] == ["good"]
+    assert entries[0].sha256 == sha.lower()
+    assert capsys.readouterr().err.count("construction failed") == 3

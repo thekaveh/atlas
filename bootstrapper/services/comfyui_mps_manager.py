@@ -144,6 +144,20 @@ class ComfyUiMpsError(RuntimeError):
 _KEEP_LAUNCH = object()
 
 
+def _escapes_models_root(target_dir: str, filename: str) -> bool:
+    """True when ``target_dir/filename`` could leave the models root: an
+    absolute or dot-segment target_dir, or a filename that is not one plain
+    path component."""
+    dir_parts = target_dir.replace("\\", "/").split("/") if target_dir else []
+    return (
+        target_dir.startswith(("/", "\\"))
+        or any(part in ("", ".", "..") for part in dir_parts)
+        or filename in ("", ".", "..")
+        or "/" in filename
+        or "\\" in filename
+    )
+
+
 class ComfyUiMpsManager:
     def __init__(
         self,
@@ -967,6 +981,11 @@ class ComfyUiMpsManager:
             if not key[1] or key in seen:
                 continue
             seen.add(key)
+            try:
+                self._provision_dest(row)
+            except ComfyUiMpsError as exc:  # one bad row never aborts the rest
+                result.failed.append(str(exc))
+                continue
             precision = str(row.get("precision") or "").lower()
             if precision in _MPS_UNSAFE_PRECISIONS:
                 result.warnings.append(
@@ -1056,7 +1075,11 @@ class ComfyUiMpsManager:
             seen.add(key)
             if str(row.get("precision") or "").lower() in _MPS_UNSAFE_PRECISIONS:
                 continue
-            if not self._provision_dest(row).exists():
+            try:
+                present = self._provision_dest(row).exists()
+            except ComfyUiMpsError:
+                present = False
+            if not present:
                 missing.append(f"{key[0]}/{key[1]}")
         return not missing, missing
 
@@ -1341,15 +1364,16 @@ class ComfyUiMpsManager:
 
     def _provision_dest(self, row: dict) -> Path:
         assert self.models_path is not None
-        dest = self.models_path / str(row.get("target_dir") or "") / str(row.get("filename"))
-        # Resolved, not textual: `..` segments pass a relative_to check.
-        root = Path(self.models_path).expanduser().resolve()
-        if root not in dest.expanduser().resolve().parents:
+        target_dir, filename = str(row.get("target_dir") or ""), str(row.get("filename"))
+        # Checked by its parts, not by resolving: a model folder symlinked to
+        # another drive (models/checkpoints -> /Volumes/x) is legitimate and
+        # resolved outside the root, which aborted the whole start.
+        if _escapes_models_root(target_dir, filename):
             raise ComfyUiMpsError(
-                f"model {row.get('name')!r} would be written outside {root}: "
+                f"model {row.get('name')!r} would be written outside {self.models_path}: "
                 f"target_dir {row.get('target_dir')!r}, filename {row.get('filename')!r}"
             )
-        return dest
+        return self.models_path / target_dir / filename
 
     @staticmethod
     def _part_path(dest: Path) -> Path:
