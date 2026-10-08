@@ -83,9 +83,9 @@ run_sql_directory() {
 # superuser's search_path. A planted public.format(text, name) or
 # public.=(varchar, varchar) then beat pg_catalog's and ran as superuser (one
 # captured a plaintext role password). Refuse to run while any non-superuser
-# owns a function or operator named like a pg_catalog one in a schema on that
-# path; dropping them is the operator's call. (#1456 tracks qualifying every
-# call instead.)
+# owns a function or operator named like a superuser-owned one in pg_catalog
+# or a schema on that path (extension routines such as vector_dims live in
+# public, #1456); dropping them is the operator's call.
 shadowing="$(PGOPTIONS="-c search_path=pg_catalog,pg_temp" psql -X -At -v ON_ERROR_STOP=1 \
   --host "$PGHOST" --username "$PGUSER" --dbname "$PGDATABASE" <<'SQL'
 SELECT n.nspname || '.' || p.proname || '(' || pg_catalog.pg_get_function_identity_arguments(p.oid) || ') owned by ' || r.rolname
@@ -94,7 +94,10 @@ SELECT n.nspname || '.' || p.proname || '(' || pg_catalog.pg_get_function_identi
   JOIN pg_catalog.pg_roles AS r ON r.oid = p.proowner
  WHERE n.nspname IN ('public', 'auth', 'extensions') AND NOT r.rolsuper
    AND EXISTS (SELECT 1 FROM pg_catalog.pg_proc AS b
-                WHERE b.pronamespace = 'pg_catalog'::pg_catalog.regnamespace AND b.proname = p.proname)
+                 JOIN pg_catalog.pg_namespace AS bn ON bn.oid = b.pronamespace
+                 JOIN pg_catalog.pg_roles AS br ON br.oid = b.proowner
+                WHERE bn.nspname IN ('pg_catalog', 'public', 'auth', 'extensions')
+                  AND br.rolsuper AND b.proname = p.proname)
 UNION ALL
 SELECT n.nspname || '.' || o.oprname || ' operator owned by ' || r.rolname
   FROM pg_catalog.pg_operator AS o
@@ -102,7 +105,10 @@ SELECT n.nspname || '.' || o.oprname || ' operator owned by ' || r.rolname
   JOIN pg_catalog.pg_roles AS r ON r.oid = o.oprowner
  WHERE n.nspname IN ('public', 'auth', 'extensions') AND NOT r.rolsuper
    AND EXISTS (SELECT 1 FROM pg_catalog.pg_operator AS b
-                WHERE b.oprnamespace = 'pg_catalog'::pg_catalog.regnamespace AND b.oprname = o.oprname);
+                 JOIN pg_catalog.pg_namespace AS bn ON bn.oid = b.oprnamespace
+                 JOIN pg_catalog.pg_roles AS br ON br.oid = b.oprowner
+                WHERE bn.nspname IN ('pg_catalog', 'public', 'auth', 'extensions')
+                  AND br.rolsuper AND b.oprname = o.oprname);
 SQL
 )"
 if [ -n "$shadowing" ]; then

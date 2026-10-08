@@ -732,3 +732,40 @@ def test_init_names_a_planted_operator_and_refuses(
         db.sql("DROP OPERATOR IF EXISTS public.= (varchar, varchar)", check=False)
         db.sql("DROP FUNCTION IF EXISTS public.atlas_eq(varchar, varchar)", check=False)
         db.run_init()
+
+
+def test_every_security_definer_pins_a_search_path_without_public(
+    disposable_postgres: DisposablePostgres,
+) -> None:
+    """PostGIS's ST_EstimatedExtent definers had no search_path and resolved
+    names through public, where co-tenants create objects (#1456)."""
+    loose = disposable_postgres.sql(
+        "SELECT p.oid::regprocedure FROM pg_proc AS p WHERE p.prosecdef AND NOT EXISTS ("
+        "SELECT 1 FROM unnest(coalesce(p.proconfig, '{}')) AS c "
+        "WHERE c LIKE 'search_path=%' AND c NOT LIKE '%public%')"
+    ).stdout.split("\n")
+    assert [row for row in loose if row] == []
+
+
+def test_init_refuses_an_overload_of_a_superuser_owned_extension_routine(
+    disposable_postgres: DisposablePostgres,
+) -> None:
+    """The guard covered only names in pg_catalog; vector and PostGIS
+    routines live in public, so a co-tenant overload such as
+    public.vector_dims(text) could resolve first in a superuser-run slice
+    (#1456)."""
+    db = disposable_postgres
+    role = dict(user=TEST_SECRETS["OPEN_WEBUI_DB_USER"], password=TEST_SECRETS["OPEN_WEBUI_DB_PASSWORD"])
+    drop = "DROP FUNCTION IF EXISTS public.vector_dims(text)"
+    try:
+        planted = db.sql(
+            "CREATE FUNCTION public.vector_dims(v text) RETURNS integer LANGUAGE sql AS 'SELECT 1'",
+            check=False, **role,
+        )
+        assert planted.returncode == 0, planted.stderr
+        with pytest.raises(subprocess.CalledProcessError) as refused:
+            db.run_init()
+        assert "public.vector_dims(v text)" in (refused.value.stderr or "") + (refused.value.stdout or "")
+    finally:
+        db.sql(drop, check=False)
+    db.run_init()
