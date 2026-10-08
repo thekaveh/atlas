@@ -1516,7 +1516,9 @@ say, `LITELLM :63040` while the *other* instance's LiteLLM is what answers there
 Both front ends refuse a block whose enabled services' ports are already
 taken ("Port conflicts detected", exit 1), but ports of services disabled in
 this instance are not probed, so choose a distinct base per instance up
-front. Port topology: [ports-and-routes.md](ports-and-routes.md).
+front. On a warm start that first stops this instance's own containers, the
+re-check waits up to 15 seconds for Docker to release the ports it just
+unpublished, so only a port still held after that wait is reported (#1438). Port topology: [ports-and-routes.md](ports-and-routes.md).
 
 ### 7.5. Coexist with host-run services (`*-localhost` sources)
 

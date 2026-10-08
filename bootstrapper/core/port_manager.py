@@ -12,6 +12,7 @@ call to ``port_defaults_for`` is effectively free after the first.
 import os
 import errno
 import socket
+import time
 from contextlib import ExitStack, suppress
 import re
 from typing import Optional, Dict, List
@@ -343,6 +344,28 @@ class PortManager:
             if not self.check_port_availability(port):
                 conflicts[port_var] = port
 
+        return conflicts
+
+    def conflicts_after_release(
+        self, base_port: int, timeout_s: float = 15.0, interval_s: float = 0.5
+    ) -> Dict[str, int]:
+        """Port conflicts once a just-stopped stack's ports are released.
+
+        Right after ``compose down`` Docker Desktop's port forwarder frees the
+        published ports a moment later, so an immediate probe reported the
+        stack's own port as in use and the warm start aborted with every
+        container down (#1438). Re-probe only the conflicting ports until they
+        clear or ``timeout_s`` passes; a genuinely foreign listener still
+        conflicts after the wait.
+        """
+        conflicts = self.get_port_conflicts(base_port)
+        deadline = time.monotonic() + timeout_s
+        while conflicts and time.monotonic() < deadline:
+            time.sleep(interval_s)
+            conflicts = {
+                port_var: port for port_var, port in conflicts.items()
+                if not self.check_port_availability(port)
+            }
         return conflicts
 
     def _disabled_port_vars(self, source_overrides: Optional[dict] = None) -> set:
