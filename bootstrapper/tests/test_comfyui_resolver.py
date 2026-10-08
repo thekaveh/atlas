@@ -604,3 +604,58 @@ def test_wizard_and_resolver_share_sidecar_resolution(tmp_path):
     assert resolve_sidecar_paths(env, warn=False) == [str(a), str(b)]
     steps = (Path(__file__).resolve().parents[1] / "wizard" / "comfyui_steps.py").read_text()
     assert "resolve_sidecar_paths(env_vars, warn=False)" in steps
+
+
+def _scraped(name: str, source: str) -> "ComfyUILibraryEntry":
+    from utils.comfyui_library import ComfyUILibraryEntry
+
+    return ComfyUILibraryEntry(
+        name=name, family=name, category="checkpoint", size_gb=2.0,
+        url=f"https://huggingface.co/org/{name}/resolve/main/{name}.safetensors",
+        sha256=None, target_dir="checkpoints", min_vram_gb=None, cpu_supported=True,
+        requires_custom_node=(), popularity=10, source=source, pulled=False,
+        notes="earlier metadata",
+    )
+
+
+def test_selection_survives_a_scrape_that_no_longer_returns_it(tmp_path, monkeypatch):
+    """A Hugging Face model selected on an earlier start stayed active only
+    while the scrape returned it: with HF down and civitai up it was dropped
+    with a warning and readiness still said ready (#1448)."""
+    import requests
+
+    from utils import comfyui_library, comfyui_manifest_generator, comfyui_resolver
+
+    hf_model, civ_model = _scraped("hf-model", "huggingface"), _scraped("civ-lora", "civitai")
+    monkeypatch.setattr(comfyui_library, "list_curated", lambda: [])
+    monkeypatch.setattr(comfyui_library, "list_civitai_loras", lambda: [civ_model])
+    monkeypatch.setattr(comfyui_library, "list_huggingface_models", lambda: [hf_model])
+    env = {"COMFYUI_SOURCE": "container-cpu", "COMFYUI_USER_MODELS": "hf-model,civ-lora",
+           "COMFYUI_CUSTOM_MODELS_FILE": str(tmp_path / "none.yaml")}
+
+    first = comfyui_manifest_generator.ComfyUIManifestGenerator(env)
+    assert first.write(tmp_path) and first.unresolved == []
+
+    def hf_down():
+        raise requests.ConnectionError("huggingface down")
+
+    monkeypatch.setattr(comfyui_library, "list_huggingface_models", hf_down)
+    second = comfyui_manifest_generator.ComfyUIManifestGenerator(env)
+    assert second.write(tmp_path) and second.unresolved == []
+    entries = comfyui_resolver.active_comfyui_models(
+        env, remembered_path=tmp_path / comfyui_resolver.REMEMBERED_SELECTIONS_FILE)
+    by_name = {entry.name: entry for entry in entries}
+    assert by_name["hf-model"].notes == "earlier metadata"
+    assert by_name["hf-model"].source == "huggingface"
+    assert "hf-model" in (tmp_path / "active-models.tsv").read_text()
+
+
+def test_an_unresolvable_selection_is_reported_by_name(tmp_path, monkeypatch):
+    from utils import comfyui_library, comfyui_manifest_generator
+
+    monkeypatch.setattr(comfyui_library, "assemble_wizard_catalog", lambda: [])
+    env = {"COMFYUI_SOURCE": "container-cpu", "COMFYUI_USER_MODELS": "gone-model",
+           "COMFYUI_CUSTOM_MODELS_FILE": str(tmp_path / "none.yaml")}
+    generator = comfyui_manifest_generator.ComfyUIManifestGenerator(env)
+    assert generator.write(tmp_path)
+    assert generator.unresolved == ["gone-model"]
