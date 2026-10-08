@@ -55,7 +55,7 @@ RUNTIME_LOCKS = (
     RuntimeLock(
         "services/mlflow/build/requirements.txt",
         "services/mlflow/build/requirements-locked.txt",
-        "3.10",
+        "3.11",  # ghcr.io/mlflow/mlflow:v3.16.1 runs Python 3.11 (was 3.10 before #1323)
         ("x86_64-manylinux_2_28", "aarch64-manylinux_2_28"),
     ),
     RuntimeLock(
