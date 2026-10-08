@@ -33,9 +33,9 @@ capabilities:
     verification: tested
     note: "The Kong /pg/ route uses Basic authentication and the dashboard_user ACL. pg-meta itself has no application authentication, executes as a dedicated dashboard_user member and allows any browser origin, so it is not published on the host; SUPABASE_META_PORT is reserved but unused."
   - name: "Supabase Studio access control"
-    status: partial
-    verification: documented
-    note: "The Kong route uses Basic authentication and the dashboard_user ACL, but the host-published SUPABASE_STUDIO_PORT bypasses that gate because Studio has no application authentication; set HOST_BIND_IP=127.0.0.1:, firewall SUPABASE_STUDIO_PORT, or remove its ports: publish."
+    status: supported
+    verification: tested
+    note: "The Kong route uses Basic authentication and the dashboard_user ACL. Studio has no application authentication and its pg-meta proxy accepts form-encoded POSTs that a web page can send cross-site, so it is not published on the host; SUPABASE_STUDIO_PORT is reserved but unused."
   - name: "Authenticated remote PostgreSQL access"
     status: supported
     verification: tested

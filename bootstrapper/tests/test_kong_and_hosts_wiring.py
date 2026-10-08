@@ -463,3 +463,19 @@ def test_the_state_root_guard_follows_atlas_env_file(tmp_path, monkeypatch):
     env_file.write_text(f"ATLAS_MANAGED_HOST_STATE_ROOT={tmp_path / 'r'}\n", encoding="utf-8")
     monkeypatch.setenv("ATLAS_ENV_FILE", str(env_file))
     assert atomic_write._env_file_state_root() == str(tmp_path / "r")
+
+
+def test_supabase_studio_is_not_published_and_meta_reads_its_crypto_key():
+    """Studio's pg-meta proxy accepted form-encoded SQL POSTs from any web page
+    through its loopback port; and pg-meta read CRYPTO_KEY while Atlas set
+    PG_META_CRYPTO_KEY, so it decrypted with SAMPLE_KEY and Studio's SQL and
+    table editors failed on every generated stack."""
+    from pathlib import Path
+
+    import yaml
+
+    compose = yaml.safe_load((Path(__file__).resolve().parents[2] / "services/supabase/compose.yml").read_text())
+    assert "ports" not in compose["services"]["supabase-studio"]
+    meta_env = compose["services"]["supabase-meta"]["environment"]
+    studio_env = compose["services"]["supabase-studio"]["environment"]
+    assert meta_env["CRYPTO_KEY"] == studio_env["PG_META_CRYPTO_KEY"] == "${SUPABASE_META_CRYPTO_KEY:-}"

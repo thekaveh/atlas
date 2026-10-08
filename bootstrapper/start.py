@@ -4837,7 +4837,6 @@ class AtlasStarter:
             ("supabase-auth", "9999", env_vars.get("SUPABASE_AUTH_PORT", ""), None, None),
             ("supabase-api", "3000", env_vars.get("SUPABASE_API_PORT", ""), None, None),
             ("supabase-realtime", "4000", env_vars.get("SUPABASE_REALTIME_PORT", ""), None, None),
-            ("supabase-studio", "3000", env_vars.get("SUPABASE_STUDIO_PORT", ""), None, None),
             ("neo4j-graph-db", "7687", env_vars.get("GRAPH_DB_PORT", ""), "NEO4J_GRAPH_DB_SOURCE", "NEO4J_SCALE"),
             ("weaviate", "8080", env_vars.get("WEAVIATE_PORT", ""), "WEAVIATE_SOURCE", "WEAVIATE_SCALE"),
             ("local-deep-researcher", "2024", env_vars.get("LOCAL_DEEP_RESEARCHER_PORT", ""), "LOCAL_DEEP_RESEARCHER_SOURCE", "LOCAL_DEEP_RESEARCHER_SCALE"),

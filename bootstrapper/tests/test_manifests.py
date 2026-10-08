@@ -1492,7 +1492,9 @@ def test_supabase_studio_contract_matches_compose_and_kong_boundaries():
     )
     capability = _capability_named(manifest, "Supabase Studio access control")
     assert {
-        "ports": studio["ports"],
+        # Not published: a page could POST form-encoded SQL to the
+        # loopback port (Studio's pg-meta proxy takes simple requests).
+        "ports": studio.get("ports"),
         "dashboard_env": {
             name for name in studio["environment"] if name.startswith("DASHBOARD_")
         },
@@ -1502,20 +1504,17 @@ def test_supabase_studio_contract_matches_compose_and_kong_boundaries():
         "acl": acl["config"]["allow"],
         "capability": (capability.status, capability.verification),
     } == {
-        "ports": ["${HOST_BIND_IP-127.0.0.1:}${SUPABASE_STUDIO_PORT}:3000"],
+        "ports": None,
         "dashboard_env": set(),
         "route_hosts": ["supabase-studio.localhost"],
         "required_plugins": True,
         "acl": ["dashboard_user"],
-        "capability": ("partial", "documented"),
+        "capability": ("supported", "tested"),
     }
     _assert_text_contract(capability.note, contains=(
         "Kong route uses Basic authentication and the dashboard_user ACL",
-        "host-published SUPABASE_STUDIO_PORT bypasses that gate",
         "Studio has no application authentication",
-        "HOST_BIND_IP=127.0.0.1:",
-        "firewall SUPABASE_STUDIO_PORT",
-        "remove its ports: publish",
+        "not published on the host",
     ))
 
 

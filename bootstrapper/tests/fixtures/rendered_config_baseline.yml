@@ -4332,10 +4332,10 @@ services:
         condition: service_completed_successfully
         required: true
     environment:
+      CRYPTO_KEY: ''
       PG_META_DB_HOST: supabase-db
       PG_META_DB_NAME: postgres
       PG_META_DB_PASSWORD: atlas-db-password
-      PG_META_CRYPTO_KEY: ''
       PG_META_DB_PORT: '5432'
       PG_META_DB_USER: atlas_meta
       PG_META_PORT: '8080'
@@ -4493,12 +4493,6 @@ services:
         max-size: 10m
     networks:
       backend-network: null
-    ports:
-    - mode: ingress
-      host_ip: 127.0.0.1
-      target: 3000
-      published: '63019'
-      protocol: tcp
     restart: unless-stopped
   supavisor:
     command:
