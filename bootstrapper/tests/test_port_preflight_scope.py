@@ -214,3 +214,34 @@ def test_listener_on_the_configured_host_bind_ip_is_a_conflict(tmp_path):
         assert manager.check_port_availability(live.getsockname()[1]) is False
     finally:
         live.close()
+
+
+def test_a_just_released_port_does_not_abort_the_warm_start(tmp_path, monkeypatch):
+    """Right after compose down, Docker Desktop frees published ports a moment
+    later; the immediate re-probe reported the stack's own BACKEND_PORT as in
+    use and the start aborted with every container down (#1438)."""
+    import core.port_manager as port_manager_module
+
+    manager = _manager(tmp_path, "")
+    backend_port = manager.calculate_port_assignments(63000)["BACKEND_PORT"]
+    probes = {"count": 0}
+
+    def available(port):
+        if port != backend_port:
+            return True
+        probes["count"] += 1
+        return probes["count"] > 3  # released on the fourth probe
+
+    manager.check_port_availability = available
+    monkeypatch.setattr(port_manager_module.time, "sleep", lambda _s: None)
+    assert manager.conflicts_after_release(63000) == {}
+
+    # A foreign listener still conflicts once the wait runs out.
+    manager.check_port_availability = lambda port: port != backend_port
+    assert manager.conflicts_after_release(63000, timeout_s=0.0) == {"BACKEND_PORT": backend_port}
+
+
+def test_the_warm_start_rechecks_ports_through_the_release_wait():
+    source = (REPO_ROOT / "bootstrapper" / "start.py").read_text(encoding="utf-8")
+    stop = source.index("Previous instance stopped successfully")
+    assert "self.port_manager.conflicts_after_release(base_port)" in source[stop:stop + 600]
