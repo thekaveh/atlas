@@ -209,6 +209,19 @@ async def require_memory_automation_principal(
     )
 
 
+async def require_memory_operator_principal(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_BEARER),
+) -> BackendPrincipal:
+    """Fleet-wide memory surfaces (health counts every user's facts; the
+    probe triggers the global Weaviate failback and rebuild): service
+    callers only, never an end-user JWT."""
+    return _authenticate_backend_principal(
+        credentials,
+        allowed_scoped_callers=frozenset({"n8n", "open-webui"}),
+        allow_users=False,
+    )
+
+
 async def require_comfy_read_principal(
     credentials: HTTPAuthorizationCredentials | None = Depends(_BEARER),
 ) -> BackendPrincipal:

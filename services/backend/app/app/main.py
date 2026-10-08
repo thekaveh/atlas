@@ -146,6 +146,7 @@ from backend_identity import (
     require_comfy_automation_principal,
     require_comfy_read_principal,
     require_memory_automation_principal,
+    require_memory_operator_principal,
     require_memory_principal,
     require_n8n_operator_principal,
     require_research_principal,
@@ -2563,9 +2564,13 @@ async def _submit_media_provider(
             )
     if provider == "comfyui":
         async with ComfyUIMediaClient(model=model) as client:
-            return await client.submit_media_operation(
-                modality=modality, input_payload=prepared_input, model=model
-            )
+            try:
+                return await client.submit_media_operation(
+                    modality=modality, input_payload=prepared_input, model=model
+                )
+            except ComfyUISubmissionUnknownError:
+                # 504 "may be queued", not the caller's generic 502 (#676).
+                raise _comfyui_submission_unknown() from None
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail=f"Unsupported media provider for submission: {provider}",
@@ -4721,7 +4726,7 @@ async def memory_delete(
 @app.get(
     "/memory/health",
     response_model=MemoryHealthResponse,
-    dependencies=[Depends(require_memory_automation_principal)],
+    dependencies=[Depends(require_memory_operator_principal)],
 )
 async def memory_health_check():
     """Health check for the LangMem memory service."""
@@ -4732,7 +4737,7 @@ async def memory_health_check():
 @app.post(
     "/memory/vector-store/probe",
     response_model=Dict[str, Any],
-    dependencies=[Depends(require_memory_automation_principal)],
+    dependencies=[Depends(require_memory_operator_principal)],
 )
 async def memory_vector_store_probe():
     """Explicitly probe Weaviate and fail back only when readiness succeeds."""

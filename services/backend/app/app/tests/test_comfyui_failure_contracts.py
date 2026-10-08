@@ -1637,3 +1637,84 @@ def test_non_json_upstream_and_infinite_sizes_are_not_reported_as_parser_text():
         _provider_run(html, lambda c: c._get_queue())
     with pytest.raises(ValueError, match="width must be an integer"):
         module._bounded_int(float("inf"), field="width", minimum=64, maximum=2048)
+
+
+from tests.test_async_jobs import _reload_main as _reload_async_main  # noqa: E402
+from tests.test_backend_identity import _user_headers as _identity_user_headers  # noqa: E402
+
+
+def _media_main_with_prompt_handler(monkeypatch, handler):
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "disabled")
+    monkeypatch.setenv("FAL_SOURCE", "disabled")
+    monkeypatch.setenv("COMFYUI_SOURCE", "container-cpu")
+    main = _reload_async_main(monkeypatch)
+    import comfyui_media_client as cmc
+
+    original_init = cmc.ComfyUIMediaClient.__init__
+
+    def init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        self.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(cmc.ComfyUIMediaClient, "__init__", init)
+    monkeypatch.setattr(main, "ComfyUIMediaClient", cmc.ComfyUIMediaClient)
+    return main
+
+
+def _post_media(main):
+    from fastapi.testclient import TestClient
+
+    return TestClient(main.app).post("/media/generate", json={
+        "modality": "image", "provider": "comfyui", "model": "x.safetensors", "input": {"prompt": "cat"},
+    })
+
+
+@pytest.mark.parametrize("lost", [httpx.ReadTimeout, httpx.RemoteProtocolError])
+def test_media_generate_reports_a_lost_prompt_response_as_maybe_queued(monkeypatch, lost):
+    """A read timeout or dropped response after /prompt was sent returned a
+    retryable 502 with no operation record; the retry rendered twice (#676)."""
+    def handler(request):
+        if request.url.path == "/prompt":
+            raise lost("lost after send", request=request)
+        return httpx.Response(404)
+
+    response = _post_media(_media_main_with_prompt_handler(monkeypatch, handler))
+    assert response.status_code == 504 and "may be queued" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("upstream, expected", [
+    (lambda: httpx.Response(400, json={"error": {"message": "failed validation"},
+                                       "node_errors": {"1": "ckpt SECRET_internal_model.safetensors"}}), 400),
+    (lambda: httpx.Response(413, text="<html>nginx internal-host comfy-gpu-01.corp</html>"), 502),
+])
+def test_media_generate_does_not_echo_comfyui_error_bodies(monkeypatch, upstream, expected):
+    """The 4xx body (a proxy's HTML page, raw node_errors with private model
+    names) reached any signed-in caller; a non-400 4xx is upstream-side."""
+    def handler(request):
+        return upstream() if request.url.path == "/prompt" else httpx.Response(404)
+
+    response = _post_media(_media_main_with_prompt_handler(monkeypatch, handler))
+    assert response.status_code == expected
+    assert "SECRET_internal" not in response.text and "corp" not in response.text
+
+
+def test_user_jwts_cannot_reach_fleet_wide_memory_operator_routes(monkeypatch):
+    """/memory/health counted every user's facts and /memory/vector-store/probe
+    forced the global Weaviate failback, for any self-registered user."""
+    from fastapi.testclient import TestClient
+
+    main = _reload_async_main(monkeypatch)
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "required")
+    monkeypatch.setenv("BACKEND_INTERNAL_API_TOKEN", "internal-secret")
+    calls = []
+
+    async def probe():
+        calls.append("probe")
+        return {}
+
+    monkeypatch.setattr(main.memory_service, "probe_weaviate", probe)
+    client = TestClient(main.app)
+    headers = _identity_user_headers(monkeypatch, "00000000-0000-4000-8000-000000000001")
+    assert client.post("/memory/vector-store/probe", headers=headers).status_code == 403
+    assert client.get("/memory/health", headers=headers).status_code == 403
+    assert calls == []

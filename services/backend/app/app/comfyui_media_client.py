@@ -18,6 +18,7 @@ Scope (see issue context): image generation only — text2img + img2img.
 from __future__ import annotations
 
 import io
+import logging
 import math
 import os
 import re
@@ -26,6 +27,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import SplitResult, quote, urlsplit
 
 import httpx
+
+from comfyui_client import ComfyUISubmissionUnknownError
 
 from media_input import (
     ImageInputError,
@@ -385,6 +388,8 @@ def _resolve_catalog_model(
 # ────────────────────────────────────────────────────────────────────
 # Client
 # ────────────────────────────────────────────────────────────────────
+_logger = logging.getLogger(__name__)
+
 class ComfyUIMediaClient:
     """Async adapter submitting/polling/cancelling ComfyUI prompt jobs
     behind the gateway media-operation envelope."""
@@ -650,19 +655,30 @@ class ComfyUIMediaClient:
     # ── ComfyUI HTTP primitives ─────────────────────────────────────
     async def _queue_prompt(self, workflow: Dict[str, Any]) -> str:
         client_id = str(uuid.uuid4())
-        resp = await self.client.post(
-            f"{self.base_url}/prompt",
-            json={"prompt": workflow, "client_id": client_id},
-        )
+        try:
+            resp = await self.client.post(
+                f"{self.base_url}/prompt",
+                json={"prompt": workflow, "client_id": client_id},
+            )
+        except (httpx.ConnectError, httpx.ConnectTimeout):
+            raise  # not delivered: safe to retry
+        except httpx.TransportError as exc:
+            # A read timeout or dropped response after sending: the prompt
+            # may be queued, and a 502 invited a retry that ran it twice
+            # with no operation record to poll or cancel (#676).
+            raise ComfyUISubmissionUnknownError("ComfyUI did not confirm the prompt") from exc
         if resp.status_code >= 400:
-            detail = self._error_detail(resp)
-            if resp.status_code < 500:
-                # A 4xx is a client error (bad graph / unknown model /
-                # node_errors) → ValueError so the gateway maps it to 400,
-                # not a 502 that implies the host is down.
-                raise ValueError(f"ComfyUI rejected the prompt: {detail}")
-            # A 5xx is a host-side failure → HTTPStatusError → gateway 502.
-            raise httpx.HTTPStatusError(detail, request=resp.request, response=resp)
+            # The body is logged, not returned: a proxy's HTML page or raw
+            # node_errors reached any signed-in caller.
+            _logger.warning("ComfyUI /prompt returned %s: %.500s", resp.status_code, self._error_detail(resp))
+            if resp.status_code == 400:
+                # A bad graph / unknown model → ValueError → gateway 400, not
+                # a 502 that implies the host is down.
+                raise ValueError("ComfyUI rejected the prompt (check its node inputs and model names)")
+            # Any other status is upstream-side (413, 404 from a proxy, 5xx).
+            raise httpx.HTTPStatusError(
+                f"ComfyUI /prompt returned {resp.status_code}", request=resp.request, response=resp,
+            )
         body = _provider_json(resp)
         prompt_id = body.get("prompt_id") if isinstance(body, dict) else None
         if not prompt_id:

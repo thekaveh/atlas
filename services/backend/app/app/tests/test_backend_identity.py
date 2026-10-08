@@ -408,6 +408,7 @@ def test_every_builtin_backend_route_has_an_explicit_identity_boundary(
         "require_comfy_automation_principal",
         "require_comfy_read_principal",
         "require_memory_automation_principal",
+        "require_memory_operator_principal",
         "require_memory_principal",
         "require_n8n_operator_principal",
         "require_plugin_gateway_key",

@@ -401,7 +401,9 @@ def test_submit_maps_comfyui_4xx_to_valueerror_for_gateway_400():
             await client.submit_media_operation(
                 modality="image", input_payload={"prompt": "x"}, model="missing.safetensors"
             )
-        assert "node_errors" in str(excinfo.value)
+        # The body is logged, not echoed to the caller (it carried private
+        # model names and proxy pages).
+        assert "node_errors" not in str(excinfo.value) and "Bad graph" not in str(excinfo.value)
 
     _run(handler, body)
 
