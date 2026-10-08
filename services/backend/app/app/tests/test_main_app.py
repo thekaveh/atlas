@@ -568,3 +568,21 @@ def test_memory_delete_returns_the_store_by_store_report(monkeypatch):
     for key in ("deletion", "postgres", "weaviate", "pgvector", "retained", "recall", "re_extraction"):
         assert key in body
     assert body["weaviate"]["object_removed"] is False and body["pgvector"]["embedding_cleared"] is False
+
+
+def test_lifespan_rejects_an_invalid_identity_auth_mode(monkeypatch):
+    """validate_identity_auth_mode is only useful if startup calls it: a typo
+    otherwise failed every request with 503 while /ready stayed green."""
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    import main
+
+    async def no_op():
+        return None
+
+    monkeypatch.setattr(main.research_service, "start_maintenance", no_op)
+    monkeypatch.setattr(main.memory_service, "_ensure_initialized", no_op)
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "requried")
+    with pytest.raises(ValueError, match="BACKEND_IDENTITY_AUTH"):
+        with TestClient(main.app):
+            pass

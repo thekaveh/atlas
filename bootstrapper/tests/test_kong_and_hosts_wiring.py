@@ -250,13 +250,17 @@ def test_cleanup_removes_the_genai_era_header_and_writes_durably(tmp_path, monke
     hosts = tmp_path / "hosts"
     hosts.write_text("127.0.0.1 localhost\n\n# GenAI Stack subdomains (added by start.py)\n"
                      "127.0.0.1 n8n.localhost\n", encoding="utf-8")
+    import stat
+
     synced = []
     real_fsync = hosts_module.os.fsync
-    monkeypatch.setattr(hosts_module.os, "fsync", lambda fd: synced.append(fd) or real_fsync(fd))
+    monkeypatch.setattr(hosts_module.os, "fsync", lambda fd: synced.append(
+        "dir" if stat.S_ISDIR(hosts_module.os.fstat(fd).st_mode) else "file") or real_fsync(fd))
     assert HostsManager().remove_hosts_entries_silent(str(hosts)) is True
     result = hosts.read_text(encoding="utf-8")
     assert "GenAI Stack subdomains" not in result and "n8n.localhost" not in result
-    assert "127.0.0.1 localhost" in result and synced
+    # Both: the temp file before the rename, and its directory after it.
+    assert "127.0.0.1 localhost" in result and sorted(synced) == ["dir", "file"]
 
 
 # The wizard's "set up hosts" answer must not abort an unelevated launch.
@@ -381,7 +385,11 @@ def test_hosts_cleanup_reports_only_what_it_removed_and_prunes_backups(tmp_path,
         assert manager.cleanup_hosts_entries() is True
     assert not any("were removed" in line for line in logged)
     assert any("No Atlas hosts entries were present" in line for line in logged)
-    assert len(list(tmp_path.glob("*backup*"))) <= 5
+    from utils.atomic_write import BACKUP_RETENTION
+
+    # Eight runs in one second: unique names keep the newest five (the old
+    # one-second timestamps overwrote each other down to one file).
+    assert len(list(tmp_path.glob("*backup*"))) == BACKUP_RETENTION
 
 
 def test_a_symlinked_state_dir_is_refused_with_a_clear_message(tmp_path):
