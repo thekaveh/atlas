@@ -632,3 +632,15 @@ class TestConsumerModelMerge:
         # The non-colliding consumer row is still merged.
         names = [r["model_name"] for r in config["model_list"]]
         assert "safe-consumer-model" in names
+
+
+def test_auto_import_warns_when_the_host_daemon_cannot_be_asked(capsys):
+    """A down host Ollama read as "fetched 0 tags" and the warning branch was
+    unreachable; host-tag defaults then failed at request time unexplained."""
+    init = _load_init_module({
+        "LLM_PROVIDER_SOURCE": "ollama-localhost",
+        "OLLAMA_AUTO_IMPORT_LOCAL_MODELS": "true",
+    })
+    init.LITELLM_OLLAMA_UPSTREAM = "http://127.0.0.1:9"
+    assert init._maybe_fetch_ollama_tags() == []
+    assert "failed to fetch /api/tags" in capsys.readouterr().out

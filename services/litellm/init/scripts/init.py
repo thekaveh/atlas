@@ -259,7 +259,9 @@ def _maybe_fetch_ollama_tags() -> list[str] | None:
         return None
     try:
         od = _load_catalog_module("ollama_discovery")
-        tags = od.list_pulled_models(LITELLM_OLLAMA_UPSTREAM)
+        # strict: a down or slow host daemon used to read as "0 tags" and
+        # skip this warning, leaving host-tag defaults unrouted silently.
+        tags = od.list_pulled_models(LITELLM_OLLAMA_UPSTREAM, timeout=10.0, strict=True)
         print(
             f"  ↳ auto-import: fetched {len(tags)} tag(s) from "
             f"{LITELLM_OLLAMA_UPSTREAM}/api/tags",

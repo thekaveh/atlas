@@ -515,3 +515,16 @@ def test_anthropic_listing_requests_the_full_page(monkeypatch):
     monkeypatch.setattr(urllib.request, "urlopen", _recording)
     cm.discover_anthropic_models("sk-ant-test")
     assert urls == ["https://api.anthropic.com/v1/models?limit=1000"]
+
+
+@pytest.mark.parametrize("model_id", [
+    "gpt-4o-mini-tts", "gpt-4o-transcribe", "gpt-4o-mini-transcribe",
+    "gpt-4o-transcribe-diarize", "gpt-5-search-api",
+])
+def test_openai_speech_and_search_models_are_not_chat_picks(model_id):
+    """They passed the filter and were registered as mode: chat, failing
+    every chat call (and eligible as the default model)."""
+    from utils.cloud_models import _openai_pass_filter
+
+    assert _openai_pass_filter(model_id) is False
+    assert _openai_pass_filter("gpt-5") is True
