@@ -108,6 +108,20 @@ def weaviate_class_name(collection_prefix: str, profile_name: str) -> str:
     return f"{collection_prefix}_{safe_name}"
 
 
+def _renewal_retry_wait(ingestion_id: str, deadline: float, interval: float) -> Optional[float]:
+    """Seconds before retrying a renewal that raised, or None once the lease
+    would expire (cycle 12 of the 2026-10-08 run)."""
+    remaining = deadline - time.monotonic()
+    logger.exception(
+        "RAG execution lease renewal failed for ingestion %s (%.1fs of lease left)",
+        ingestion_id,
+        remaining,
+    )
+    if remaining <= 1.0:
+        return None
+    return min(interval, max(0.5, remaining / 3))
+
+
 class PhaseFatal(RuntimeError):
     """A phase failure that aborts the remaining phases and fails the job (a
     capability ``on_unavailable: fail`` target, or a drain timeout)."""
@@ -360,9 +374,14 @@ class RagIngestionService:
         lease_lost: asyncio.Event,
     ) -> None:
         interval = max(1.0, lease_seconds / 3)
+        # The lease stays valid until this deadline; a renewal that raises
+        # (one slow Redis reply) is retried until then instead of discarding
+        # the whole run at the first error (2026-10-08 run, cycle 12).
+        deadline = time.monotonic() + lease_seconds
+        wait = interval
         while True:
             try:
-                await asyncio.wait_for(stop.wait(), timeout=interval)
+                await asyncio.wait_for(stop.wait(), timeout=wait)
                 return
             except asyncio.TimeoutError:
                 try:
@@ -373,12 +392,11 @@ class RagIngestionService:
                         lease_seconds,
                     )
                 except Exception:
-                    logger.exception(
-                        "RAG execution lease renewal failed for ingestion %s",
-                        ingestion_id,
-                    )
-                    lease_lost.set()
-                    return
+                    wait = _renewal_retry_wait(ingestion_id, deadline, interval)
+                    if wait is None:
+                        lease_lost.set()
+                        return
+                    continue
                 if not renewed:
                     logger.warning(
                         "RAG execution lease ownership lost for ingestion %s",
@@ -386,6 +404,8 @@ class RagIngestionService:
                     )
                     lease_lost.set()
                     return
+                deadline = time.monotonic() + lease_seconds
+                wait = interval
 
     async def _run_phase_with_lease(
         self,

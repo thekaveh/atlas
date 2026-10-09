@@ -2937,3 +2937,56 @@ def test_legacy_only_count_is_atomic_against_a_concurrent_writer(monkeypatch):
     finally:
         client.delete(store_module._INDEX_SET, store_module._INDEX_ZSET)
         writer.close()
+
+
+def test_one_failed_lease_renewal_does_not_discard_the_run():
+    """The first renewal that raised (one slow Redis reply) set lease_lost
+    and threw the whole ingestion away while the lease still had two thirds
+    of its term (2026-10-08 run, cycle 12)."""
+    from rag_ingestion.service import RagIngestionService
+
+    calls = []
+
+    class Store:
+        def renew_execution(self, *_args):
+            calls.append(1)
+            if len(calls) == 1:
+                raise TimeoutError("slow redis")
+            return True
+
+    service = RagIngestionService.__new__(RagIngestionService)
+    service.store = Store()
+
+    async def scenario():
+        stop, lost = asyncio.Event(), asyncio.Event()
+        beat = asyncio.create_task(service._heartbeat_execution("i", "o", 3, stop, lost))
+        await asyncio.sleep(2.6)
+        stop.set()
+        await beat
+        return lost.is_set()
+
+    assert asyncio.run(scenario()) is False
+    assert len(calls) >= 2
+
+
+def test_a_lost_lease_at_the_infrastructure_limit_is_not_retried_again(monkeypatch):
+    """Lease-lost retries never counted against any limit, so a recurring
+    renewal blip looped the job forever with its record still "running"
+    (2026-10-08 run, cycle 12)."""
+    import celery_tasks
+    import rag_ingestion
+
+    def lose_lease(*_args, **_kwargs):
+        raise rag_ingestion.IngestionExecutionLeaseLost("lost")
+
+    def never_retry(**_kwargs):
+        raise AssertionError("must not retry past the limit")
+
+    monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", lose_lease)
+    monkeypatch.setattr(celery_tasks.rag_ingestion_task, "retry", never_retry)
+    with pytest.raises(rag_ingestion.IngestionExecutionLeaseLost):
+        celery_tasks.rag_ingestion_task.run(
+            "ingestion-1",
+            retry_state={"phase_attempt": 0,
+                         "infrastructure_attempt": celery_tasks._RAG_INFRASTRUCTURE_RETRY_LIMIT},
+        )

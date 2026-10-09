@@ -342,7 +342,13 @@ def rag_ingestion_task(
             self, exc, state, ingestion_execution_lease_seconds()
         )
     except IngestionExecutionLeaseLost as exc:
-        state = replace(state, recovery_owner=owner)
+        # Counted like a Redis outage: an unbounded lease-lost loop kept the
+        # record "running" forever (2026-10-08 run, cycle 12).
+        if state.infrastructure_attempt >= _RAG_INFRASTRUCTURE_RETRY_LIMIT:
+            raise
+        state = replace(
+            state, recovery_owner=owner, infrastructure_attempt=state.infrastructure_attempt + 1
+        )
         _schedule_rag_retry(
             self, exc, state, ingestion_execution_lease_seconds()
         )

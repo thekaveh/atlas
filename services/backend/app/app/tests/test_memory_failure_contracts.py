@@ -1022,3 +1022,53 @@ def test_memory_namespace_cannot_exceed_the_column_width():
                   lambda ns: MemorySummarizeRequest(user_id=user, namespace=ns)):
         with pytest.raises(ValidationError):
             build("x" * 101)
+
+
+@pytest.mark.asyncio
+async def test_rejected_rows_do_not_stall_the_next_pass(monkeypatch):
+    """Rows the embedder rejected stayed first in the oldest-first page of
+    100, so 100 of them blocked every later row (a delete never reached
+    Weaviate). The next pass excludes them until they change (2026-10-08
+    run, cycle 12)."""
+    import httpx
+
+    import memory_service as mod
+
+    request = httpx.Request("GET", "http://x")
+
+    class Store:
+        backend = "weaviate"
+
+        async def initialize(self):
+            return None
+
+        async def update_embedding(self, fact_id=None, **kwargs):
+            raise httpx.HTTPStatusError("bad", request=request, response=httpx.Response(400, request=request))
+
+        async def deactivate_embedding(self, *a, **k):
+            return None
+
+    rows = _pending_rows(3)
+    seen = []
+
+    class FakeConn:
+        async def fetch(self, _query, ids, stamps):
+            seen.append(dict(zip(ids, stamps)))
+            return rows
+
+        async def execute(self, *_a, **_k):
+            return "UPDATE 1"
+
+        async def close(self):
+            return None
+
+    svc = mod.MemoryService.__new__(mod.MemoryService)
+    svc.store = Store()
+    svc.database_url = "postgresql://x"
+    monkeypatch.setattr(mod, "connect_postgres", AsyncMock(return_value=FakeConn()))
+    _also_route_acquire(monkeypatch, mod, FakeConn)
+
+    await svc._reconcile_pending_vectors()
+    await svc._reconcile_pending_vectors()
+    assert seen[0] == {}
+    assert seen[1] == {row["id"]: row["updated_at"] for row in rows}

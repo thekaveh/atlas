@@ -236,6 +236,12 @@ def _deletion_report(state, store=None) -> Dict[str, Any]:
     }
 
 
+def _remember_rejected(rejected: dict, row, target_signal: bool) -> None:
+    """Skip a row the target rejected on its own until it changes (bounded)."""
+    if not target_signal and len(rejected) < 10_000:
+        rejected[row["id"]] = row["updated_at"]
+
+
 class MemoryService:
     """LangMem-inspired persistent memory service."""
 
@@ -819,6 +825,12 @@ Extract the facts as JSON:"""
             weaviate_id=row.get("weaviate_id"),
         )
 
+    def _rejected_rows(self) -> dict:
+        rejected = getattr(self, "_rejected_vector_rows", None)
+        if rejected is None:
+            rejected = self._rejected_vector_rows = {}
+        return rejected
+
     async def _reconcile_pending_vectors(
         self,
         conn=None,
@@ -836,16 +848,27 @@ Extract the facts as JSON:"""
             conn = await connect_postgres(self.database_url)
         reconciled = 0
         target_failures_since_progress = 0
+        # Rows the target rejected on their own (a 4xx) stayed first in this
+        # oldest-first page, so 100 of them stalled every later row: deletes
+        # never reached Weaviate (2026-10-08 run, cycle 12). Skip them here
+        # until their updated_at changes; a restart retries them once.
+        rejected = self._rejected_rows()
         try:
             rows = await conn.fetch(
                 """
                 SELECT id, user_id, namespace, content, fact_type, confidence,
                        is_active, weaviate_id, updated_at
-                FROM public.memory_facts
+                FROM public.memory_facts AS f
                 WHERE vector_sync_pending = true
+                  AND NOT EXISTS (
+                      SELECT 1 FROM unnest($1::uuid[], $2::timestamptz[]) AS r(id, ts)
+                      WHERE r.id = f.id AND r.ts = f.updated_at
+                  )
                 ORDER BY updated_at
                 LIMIT 100
-                """
+                """,
+                list(rejected),
+                list(rejected.values()),
             )
             for row in rows:
                 new_weaviate_id = None
@@ -862,6 +885,7 @@ Extract the facts as JSON:"""
                         type(exc).__name__,
                     )
                     if not _counts_toward_reconcile_halt(exc, target_signal):
+                        _remember_rejected(rejected, row, target_signal)
                         # A row-specific failure says nothing about the
                         # target's health, so it must not COUNT toward the
                         # streak — and it must not RESET it either. Resetting
