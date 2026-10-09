@@ -742,3 +742,27 @@ def test_tui_wires_its_cancel_event_and_success_result():
     success = source[source.index("def _mark_launch_succeeded"):][:300]
     assert "self._on_launch_result(0)" in success
     assert "self._mark_launch_succeeded()" in source
+
+
+def test_port_verification_skips_disabled_supabase_subservices(monkeypatch):
+    """The port check listed every Supabase sub-service unconditionally, so a
+    consumer that disabled one got a port-mapping error line (#1462)."""
+    import start as start_module
+
+    starter = start_module.AtlasStarter()
+    env = _minimal_port_env(
+        SUPABASE_STORAGE_PORT="63010", SUPABASE_STORAGE_SOURCE="disabled", SUPABASE_STORAGE_SCALE="0",
+        SUPABASE_AUTH_PORT="63011",
+    )
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(starter.config_parser, "parse_env_file", lambda: env)
+    monkeypatch.setattr(
+        starter.docker_manager,
+        "get_service_port",
+        lambda service, port: calls.append((service, port)) or "",
+    )
+
+    starter.show_container_status_and_verify_ports(on_line=lambda _msg, _level: None)
+
+    assert ("supabase-storage", "5000") not in calls
+    assert ("supabase-auth", "9999") in calls

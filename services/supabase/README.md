@@ -148,6 +148,8 @@ execute privilege is revoked from public API roles despite its required
 
 ## 4. Individual Services
 
+`SUPABASE_{META,STORAGE,AUTH,API,REALTIME,STUDIO}_SOURCE=disabled` scales that container to 0 (the bootstrapper writes the matching `SUPABASE_<X>_SCALE`), and the port check skips it. Kong and Realtime depend on those sub-services optionally (`required: false`), so they start without the ones a stack does not use; routes to a disabled one return 502 (#1462). The database (`SUPABASE_DB_SOURCE`) stays required.
+
 ### 4.1. PostgreSQL Database
 
 **Access**: Direct connection via standard PostgreSQL client

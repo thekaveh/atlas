@@ -311,6 +311,9 @@ class ServiceConfig:
         prom_config = self._generate_prometheus_config(prometheus_source)
         env_vars.update(prom_config)
 
+        # Supabase sub-service toggles (#1462)
+        env_vars.update(self._generate_supabase_subservice_scales())
+
         # Generate Grafana configuration
         grafana_source = self.service_sources.get("GRAFANA_SOURCE", "disabled")
         grafana_config = self._generate_grafana_config(grafana_source)
@@ -1613,6 +1616,27 @@ class ServiceConfig:
             "POSTGRES_EXPORTER_SCALE": on,
             "REDIS_EXPORTER_SCALE": on,
             "PROMETHEUS_ENDPOINT": endpoint,
+        }
+
+    # (scale var, source var); spelled out so each writer is greppable.
+    _SUPABASE_SUBSERVICES = (
+        ("SUPABASE_META_SCALE", "SUPABASE_META_SOURCE"),
+        ("SUPABASE_STORAGE_SCALE", "SUPABASE_STORAGE_SOURCE"),
+        ("SUPABASE_AUTH_SCALE", "SUPABASE_AUTH_SOURCE"),
+        ("SUPABASE_API_SCALE", "SUPABASE_API_SOURCE"),
+        ("SUPABASE_REALTIME_SCALE", "SUPABASE_REALTIME_SOURCE"),
+        ("SUPABASE_STUDIO_SCALE", "SUPABASE_STUDIO_SOURCE"),
+    )
+
+    def _generate_supabase_subservice_scales(self) -> Dict[str, str]:
+        """SUPABASE_<X>_SCALE from SUPABASE_<X>_SOURCE: ``disabled`` → 0.
+
+        The sources were documented with a ``disabled`` option, but nothing
+        mapped them to a replica count, so the setting did nothing (#1462).
+        """
+        return {
+            scale_var: "0" if self.service_sources.get(source_var, "container") == "disabled" else "1"
+            for scale_var, source_var in self._SUPABASE_SUBSERVICES
         }
 
     def _generate_grafana_config(self, source_value: str) -> dict:

@@ -353,3 +353,24 @@ def test_published_ports_default_to_loopback_and_allow_explicit_remote_bind() ->
         encoding="utf-8",
     )
     assert set(render_host_ips(remote_env)["supabase-db"]) == {"0.0.0.0"}
+
+
+def test_a_disabled_supabase_subservice_starts_no_container(monkeypatch):
+    """SUPABASE_*_SOURCE=disabled was documented but wired to nothing, and
+    Kong / Realtime hard-depended on every sub-service (#1462)."""
+    from services.service_config import ServiceConfig
+
+    sc = ServiceConfig.__new__(ServiceConfig)
+    sc.service_sources = {"SUPABASE_STUDIO_SOURCE": "disabled", "SUPABASE_META_SOURCE": "container"}
+    scales = sc._generate_supabase_subservice_scales()
+    assert scales["SUPABASE_STUDIO_SCALE"] == "0" and scales["SUPABASE_META_SCALE"] == "1"
+
+    monkeypatch.setitem(_BASELINE_OVERRIDES, "SUPABASE_STUDIO_SCALE", "0")
+    rendered = _render(COMPOSE)["services"]
+    assert rendered["supabase-studio"]["deploy"]["replicas"] == 0
+    for dependent, upstreams in (
+        ("kong-api-gateway", ("supabase-auth", "supabase-api", "supabase-meta", "supabase-realtime", "supabase-storage")),
+        ("supabase-realtime", ("supabase-auth", "supabase-api")),
+    ):
+        for upstream in upstreams:
+            assert rendered[dependent]["depends_on"][upstream]["required"] is False, (dependent, upstream)
