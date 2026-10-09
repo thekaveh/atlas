@@ -91,6 +91,7 @@ def _run(scenario):
 def _launched_screen_with(stopper: _FakeStopper) -> WizardScreen:
     scr = _screen()
     scr._stopper_factory = lambda: stopper
+    scr._launched_project = "atlas"  # a real launch pins the name it used
     return scr
 
 
@@ -356,3 +357,103 @@ def test_a_second_stop_is_refused_while_one_is_running():
     calls, later = _run(scenario)
     assert calls == [(False, calls[0][1])], calls
     assert [cold for cold, _ in later] == [False, True], later
+
+
+def test_quit_and_interrupt_are_refused_while_a_stop_runs():
+    """Ctrl+Q / Ctrl+C during a stop exited the app while compose down kept
+    running unseen, with no result reported (2026-10-08 run, cycle 48)."""
+    import threading
+
+    release = threading.Event()
+
+    class _SlowStopper(_FakeStopper):
+        def stop_services(self, cold_stop: bool, project_name: str) -> bool:
+            self.calls.append((cold_stop, project_name))
+            release.wait(5)
+            return True
+
+    stopper = _SlowStopper()
+    scr = _launched_screen_with(stopper)
+    exits = []
+
+    async def scenario():
+        app = _App(scr)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            scr._phase = "launch"
+            scr._launch_succeeded = True
+            scr._launch_detach_ready = True
+            app.exit = lambda *a, **k: exits.append(a)  # type: ignore[method-assign]
+            scr.action_stop_stack()
+            scr.action_stop_stack()
+            for _ in range(100):
+                await asyncio.sleep(0.02)
+                if scr._teardown_running:
+                    break
+            scr.action_quit_wizard()
+            refused = scr.refuse_exit_during_teardown()
+            release.set()
+            for _ in range(100):
+                await asyncio.sleep(0.05)
+                if not scr._teardown_running:
+                    break
+            return refused
+
+    assert _run(scenario) is True
+    assert exits == [], "quit must not exit while the stop runs"
+
+
+def test_the_stop_targets_the_launched_project_not_a_later_env_edit():
+    """The name was re-read from .env at stop time; a `./stop.sh -p atlas`
+    in another terminal redirected a cold stop to another stack (cycle 48)."""
+    from types import SimpleNamespace
+
+    stopper = _FakeStopper()
+    scr = _launched_screen_with(stopper)
+    names = iter(["rag", "atlas"])
+    scr._starter = SimpleNamespace(config_parser=SimpleNamespace(get_project_name=lambda: next(names)))
+    scr._launched_project = scr._starter.config_parser.get_project_name()  # pinned at launch: rag
+
+    async def scenario():
+        async with _App(scr).run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            scr._phase = "launch"
+            scr._launch_succeeded = True
+            scr.action_stop_stack_cold()
+            scr.action_stop_stack_cold()
+            await pilot.pause()
+            await asyncio.sleep(0.1)
+            return stopper.calls
+
+    assert _run(scenario) == [(True, "rag")]
+
+
+def test_teardown_compose_output_reaches_the_log_pane_not_the_terminal(tmp_path, monkeypatch):
+    """The stopper's compose child inherited the terminal fds Textual draws
+    on, and its surviving-volume warning went to a discarded print
+    (2026-10-08 run, cycle 48)."""
+    import subprocess
+
+    from core.docker_manager import DockerManager
+
+    manager = DockerManager(str(tmp_path))
+    logged = []
+    scr = _screen()
+    monkeypatch.setattr(scr, "_safe_log", lambda message, **_k: logged.append(message))
+    scr._route_teardown_output(manager)
+    seen = {}
+
+    def fake_run(cmd, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(cmd, 0, "Container x  Removed\n", None)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    from utils.system import run_compose_child
+
+    assert run_compose_child(["docker", "compose", "-p", "atlas", "down"], str(tmp_path), manager.output_sink) == 0
+    assert seen["stdout"] is subprocess.PIPE
+    assert "Container x  Removed" in logged
+    manager._report_surviving_volumes = lambda project, emit: emit("survivor warning") or ["v"]
+    monkeypatch.setattr(manager, "execute_compose_command", lambda *a, **k: 0)
+    assert manager.perform_cold_stop_cleanup() is False
+    assert "survivor warning" in logged

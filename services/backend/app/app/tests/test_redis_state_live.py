@@ -610,3 +610,32 @@ def test_a_recovered_ledger_attach_keeps_the_in_flight_record() -> None:
         await redis_store.aclose()
 
     asyncio.run(scenario())
+
+
+def test_an_adopted_reconciliation_that_is_no_longer_pending_keeps_a_ttl() -> None:
+    """The adopt script always dropped the TTL; with mark_reconciled failing,
+    the next sweep removed the id from the index and the record never
+    expired (2026-10-08 run, cycle 49)."""
+    async def scenario():
+        store = RedisMediaOperationStore(_REDIS_URL)
+        operation_id = f"adopt-{uuid.uuid4().hex}"
+        key = "atlas:media:operations:" + operation_id
+        await store.create({
+            "operation_id": operation_id, "provider": "fal", "modality": "image",
+            "model": "fal-ai/flux/dev", "owner_scope": "service",
+            "budget_tracked": False, "reconciled": False,
+            "last_payload": {"operation_id": operation_id, "status": "succeeded", "provenance": {
+                "manual_reconciliation_outcome": "committed", "ledger_reconciliation_pending": True}},
+        })
+        _, changed = await store.adopt_ledger_reconciliation(
+            operation_id, "committed",
+            {"operation_id": operation_id, "status": "succeeded",
+             "provenance": {"manual_reconciliation_outcome": "committed"}})
+        ttl = await store._redis.ttl(key)
+        await store._redis.delete(key)
+        await store.aclose()
+        return changed, ttl
+
+    changed, ttl = asyncio.run(scenario())
+    assert changed is True
+    assert ttl > 0

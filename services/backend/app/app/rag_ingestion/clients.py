@@ -501,6 +501,20 @@ class ParserAdapter:
 
 # ─── embedding ───────────────────────────────────────────────────────
 
+class EmbedderUnavailable(ConnectionError):
+    """A 5xx, 408 or 429 from the embedding endpoint: it clears by itself
+    (a model loading, a rate limit), so it is retried like a connection
+    error. As a plain HTTPStatusError the job failed on its first attempt
+    (2026-10-08 run, cycle 50)."""
+
+
+def _raise_for_embedding_status(resp) -> None:
+    status = resp.status_code
+    if status >= 500 or status in (408, 429):
+        raise EmbedderUnavailable(f"embedding endpoint answered HTTP {status}")
+    resp.raise_for_status()
+
+
 class Embedder:
     """Client-side embeddings via the LiteLLM OpenAI-compatible endpoint."""
 
@@ -535,7 +549,7 @@ class Embedder:
                     headers=headers,
                     json={"model": self._model, "input": batch},
                 )
-                resp.raise_for_status()
+                _raise_for_embedding_status(resp)
                 rows = resp.json().get("data", [])
                 if len(rows) != len(batch):
                     # zip() downstream would silently drop the missing chunks.

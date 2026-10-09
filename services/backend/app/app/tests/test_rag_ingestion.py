@@ -3096,3 +3096,51 @@ def test_a_successful_renewal_restarts_the_lease_deadline():
 
     assert _run_heartbeat(_heartbeat_service(renew), 3, 4.5) is False
     assert len(calls) >= 4
+
+
+@pytest.mark.parametrize(("status", "transient"), [(503, True), (500, True), (429, True), (408, True),
+                                                   (400, False), (404, False)])
+def test_an_embedder_outage_is_retried_but_a_bad_request_is_not(monkeypatch, status, transient):
+    """A 503 while the embedding model loads was a plain HTTPStatusError, not
+    in TRANSIENT_EXCEPTIONS, so the job failed on its first attempt
+    (2026-10-08 run, cycle 50)."""
+    from rag_ingestion.clients import Embedder
+    from rag_ingestion.service import TRANSIENT_EXCEPTIONS
+
+    def handler(request):
+        return httpx.Response(status, json={"error": "x"}, request=request)
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient",
+                        lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
+    embedder = Embedder.__new__(Embedder)
+    embedder._base_url, embedder._api_key, embedder._model = "http://litellm:4000/v1", "", "m"
+    with pytest.raises(Exception) as raised:
+        asyncio.run(embedder.embed(["text"]))
+    assert isinstance(raised.value, TRANSIENT_EXCEPTIONS) is transient, raised.value
+
+
+def test_the_last_renewal_attempt_ends_before_the_lease_expires():
+    """A renewal can block for the store's socket timeout; with a 1 s margin
+    the last failing call returned after expiry (2026-10-08 run, cycle 50)."""
+    import time as _time
+
+    class SlowStore:
+        call_timeout_seconds = 1.5
+
+        def renew_execution(self, *_args):
+            _time.sleep(1.5)
+            raise TimeoutError("redis stalled")
+
+    started = _time.monotonic()
+    service = _heartbeat_service(lambda: None)
+    service.store = SlowStore()
+
+    async def scenario():
+        stop, lost = asyncio.Event(), asyncio.Event()
+        beat = asyncio.create_task(service._heartbeat_execution("i", "o", 4, stop, lost))
+        await asyncio.wait_for(beat, 10)
+        return lost.is_set(), _time.monotonic() - started
+
+    lost, elapsed = asyncio.run(scenario())
+    assert lost and elapsed < 4.0, elapsed

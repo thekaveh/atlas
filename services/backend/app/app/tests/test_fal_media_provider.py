@@ -1241,3 +1241,17 @@ def test_submitted_handle_is_persistable_with_the_real_sdk_handle():
     assert raw["request_id"] == "fal-req-1" and "client" not in raw
     json.dumps(copy.deepcopy(raw))
 
+
+
+def test_secondary_glb_keys_stay_in_provider_fields(monkeypatch):
+    """Tripo returns model_mesh, pbr_model and base_model; all three were
+    consumed but only the first kept, so the others vanished from artifacts
+    and provider_fields (2026-10-08 run, cycle 49)."""
+    from fal_media_client import FalClient
+
+    payload = {"model_mesh": {"url": "https://cdn.example/m.glb"},
+               "pbr_model": {"url": "https://cdn.example/p.glb"},
+               "base_model": "https://cdn.example/b.glb"}
+    artifacts, provider_fields = FalClient(api_key="k", model="tripo")._extract_glb_artifacts(payload, "unregistered/tripo")
+    kept = {a.get("source_key") for a in artifacts} | set(provider_fields)
+    assert {"model_mesh", "pbr_model", "base_model"} <= kept

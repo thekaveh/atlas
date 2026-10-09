@@ -108,16 +108,20 @@ def weaviate_class_name(collection_prefix: str, profile_name: str) -> str:
     return f"{collection_prefix}_{safe_name}"
 
 
-def _renewal_retry_wait(ingestion_id: str, deadline: float, interval: float) -> Optional[float]:
+def _renewal_retry_wait(
+    ingestion_id: str, deadline: float, interval: float, call_bound: float,
+) -> Optional[float]:
     """Seconds before retrying a renewal that raised, or None once the lease
-    would expire (cycle 12 of the 2026-10-08 run)."""
+    would expire (cycle 12 of the 2026-10-08 run). ``call_bound`` is how long
+    one renewal can block: with a 1 s margin the last call returned after
+    the lease had expired, and the phase kept writing unleased (cycle 50)."""
     remaining = deadline - time.monotonic()
     logger.exception(
         "RAG execution lease renewal failed for ingestion %s (%.1fs of lease left)",
         ingestion_id,
         remaining,
     )
-    if remaining <= 1.0:
+    if remaining <= call_bound + 1.0:
         return None
     return min(interval, max(0.5, remaining / 3))
 
@@ -392,7 +396,9 @@ class RagIngestionService:
                         lease_seconds,
                     )
                 except Exception:
-                    wait = _renewal_retry_wait(ingestion_id, deadline, interval)
+                    wait = _renewal_retry_wait(
+                        ingestion_id, deadline, interval, getattr(self.store, "call_timeout_seconds", 0.0),
+                    )
                     if wait is None:
                         lease_lost.set()
                         return

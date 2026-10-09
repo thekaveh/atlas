@@ -2146,6 +2146,24 @@ def test_an_over_long_attribution_header_is_rejected(monkeypatch):
     assert resp.status_code == 400
 
 
+
+def test_a_nul_in_an_attribution_label_is_rejected_not_retried(monkeypatch):
+    """Postgres rejects 0x00, so a NUL project failed every ledger write as a
+    retryable 503, on submit and on /media/spend (2026-10-08 run, cycle 49)."""
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    monkeypatch.setattr(main, "FalClient", _ExplodingFalClient, raising=False)
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    resp = client.post(
+        "/media/generate",
+        json={"modality": "image_to_3d", "provider": "fal", "model": "trellis",
+              "input": {"image": "https://cdn.example/sprite.png"}, "consumer": "acme", "project": "a\u0000"},
+    )
+    assert resp.status_code == 400 and "control characters" in resp.json()["detail"]
+    assert client.get("/media/spend", params={"consumer": "acme", "project": "a\x00b"}).status_code == 400
+
+
 def test_the_legacy_fal_route_honours_the_kill_switch(monkeypatch):
     """/comfyui/generate called FAL with no kill-switch check (cycle 23)."""
     monkeypatch.setenv("MEDIA_DISABLED_PROVIDERS", "fal")
@@ -2186,3 +2204,66 @@ def test_the_legacy_comfyui_routes_honour_the_kill_switch(monkeypatch, path, bod
 
     response = TestClient(main.app).post(path, json=body)
     assert response.status_code == 403, response.text
+
+
+def test_a_streaming_plugin_route_authenticates_before_reading_the_body(monkeypatch):
+    """The streaming exemption skipped the middleware, and FastAPI reads the
+    whole body before the route's auth dependency: 40 MiB was read before
+    a 401 (2026-10-08 run, cycle 46). The plugin's own mode now runs first."""
+    import asyncio
+
+    for var, default in (("KONG_URL", "http://kong-api-gateway:8000"), ("SUPABASE_SERVICE_KEY", "dummy-key"),
+                         ("DATABASE_URL", "postgresql://x:x@localhost/x")):
+        if not os.environ.get(var):
+            monkeypatch.setenv(var, default)
+    import main
+    import plugin_seam
+    from media_request_limit import RequestLimitMiddleware
+
+    inventory = [
+        {"route_prefix": "/inh", "status": "loaded", "auth": "inherit", "kong_route": {"request_buffering": False}},
+        {"route_prefix": "/key", "status": "loaded", "auth": "key-auth", "kong_route": {"request_buffering": False}},
+        {"route_prefix": "/open", "status": "loaded", "auth": "open", "kong_route": {"request_buffering": False}},
+    ]
+    assert plugin_seam.streaming_auth_modes(inventory) == {"/inh": "inherit", "/key": "key-auth", "/open": "open"}
+    from fastapi import HTTPException
+
+    async def deny(_scope):  # the suite's autouse fixture disables identity auth
+        raise HTTPException(status_code=401, detail="no principal")
+
+    monkeypatch.setitem(main._STREAMING_AUTHENTICATORS, "inherit", deny)
+    policy = main._request_limit_policy(inventory)
+    assert set(policy.streaming_auth) == {"/inh", "/key"}
+
+    reached, read = [], []
+
+    async def app(scope, receive, send):
+        reached.append(scope["path"])
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    async def no_auth(_scope):
+        return None
+
+    middleware = RequestLimitMiddleware(app, policy=policy, authenticate=no_auth)
+
+    async def receive():
+        read.append(1)
+        return {"type": "http.request", "body": b"x" * 1024, "more_body": False}
+
+    async def call(path):
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+
+        await middleware({"type": "http", "method": "POST", "path": path, "headers": [],
+                          "query_string": b""}, receive, send)
+        return sent[0]["status"]
+
+    monkeypatch.setenv("BACKEND_KONG_API_KEY", "k")
+    assert asyncio.run(call("/inh/upload")) == 401
+    assert asyncio.run(call("/key/upload")) == 401
+    assert read == [] and reached == []
+    assert asyncio.run(call("/open/upload")) == 200 and reached == ["/open/upload"]
+

@@ -2961,6 +2961,19 @@ class WizardScreen(Screen):
             self._close_launch_log_tee()
             self.app.exit()
 
+    def refuse_exit_during_teardown(self) -> bool:
+        """True (and say so) while a stop runs. Exiting cancelled the worker
+        but not its thread: compose down (or down -v) went on unseen and its
+        outcome was never reported (2026-10-08 run, cycle 48)."""
+        if not getattr(self, "_teardown_running", False):
+            return False
+        self.notify(
+            "A stop is running; wait for its result before quitting.",
+            severity="warning",
+            timeout=6,
+        )
+        return True
+
     def action_quit_wizard(self) -> None:
         if self._phase == "launch" and not self._launch_detach_ready:
             # Cancelling is not a teardown: say what it leaves (#1032).
@@ -2976,6 +2989,8 @@ class WizardScreen(Screen):
                 severity="warning",
                 timeout=6,
             )
+            return
+        if self.refuse_exit_during_teardown():
             return
         # Close the tee on a setup-phase quit so the wizard-time
         # warnings flushed earlier aren't left in a still-open fh
@@ -3302,7 +3317,7 @@ class WizardScreen(Screen):
         self._pending_teardown_deadline = now + 8
         if cold:
             warning = (
-                f"Cold stop for project {self._resolve_project_name()}: removes "
+                f"Cold stop for project {self._resolve_project_name() or '(unknown)'}: removes "
                 "containers and Compose-managed named/attached anonymous volumes. "
                 "Data LOST in those volumes includes database records, object "
                 "files, workflow/chat history, models and caches. "
@@ -3342,7 +3357,13 @@ class WizardScreen(Screen):
             stopper.banner = _NullBanner(
                 sink=lambda message, level: self._safe_log(message, source="teardown", level=level)
             )
+            # Compose output and the surviving-volume warning go to the log
+            # pane, not across the screen or into a discarded print
+            # (2026-10-08 run, cycle 48).
+            self._route_teardown_output(getattr(stopper, "docker_manager", None))
             project = self._resolve_project_name()
+            if project is None:
+                raise RuntimeError("the launched project name is unreadable; run ./stop.sh -p <name>")
             ok = await asyncio.to_thread(stopper.stop_services, cold, project)
             # Managed ComfyUI-MPS, vLLM-Metal, and Blender MCP runtimes are host-global
             # singletons shared by every Atlas consumer, so a
@@ -3374,15 +3395,24 @@ class WizardScreen(Screen):
 
         return AtlasStopper()
 
-    def _resolve_project_name(self) -> str:
+    def _route_teardown_output(self, docker_manager) -> None:
+        if docker_manager is not None:
+            docker_manager.set_command_echo_callback(lambda m: self._safe_log(m, source="teardown"))
+            docker_manager.output_sink = lambda m: self._safe_log(m, source="teardown")
+
+    def _resolve_project_name(self) -> str | None:
+        """The project this screen launched. Re-reading .env at stop time
+        followed a `./stop.sh -p other` from another terminal, and an
+        unreadable name fell back to "atlas": a cold stop could delete
+        another stack's volumes (2026-10-08 run, cycle 48). None refuses."""
         opts = self._stack_options or {}
-        name = (opts.get("project_name") or "").strip()
+        name = (opts.get("project_name") or "").strip() or getattr(self, "_launched_project", "")
         if name:
             return name
         try:
             return self._starter.config_parser.get_project_name()
         except Exception:  # noqa: BLE001
-            return "atlas"
+            return None
 
     def action_copy_logs(self) -> None:
         # a/e/w/i/s all gate on _phase == "launch"; this is the same
@@ -3589,7 +3619,8 @@ class WizardScreen(Screen):
         # ``supabase-db`` and don't appear as duplicate sources in the
         # filter dropdown next to the bare names.
         try:
-            set_project_prefix(starter.config_parser.get_project_name())
+            self._launched_project = starter.config_parser.get_project_name()
+            set_project_prefix(self._launched_project)
         except Exception:  # noqa: BLE001
             pass
 

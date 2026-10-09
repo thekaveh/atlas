@@ -19,6 +19,13 @@ class RayDisabledError(Exception):
     """Raised by RayClient methods when Ray is not configured."""
 
 
+class RayUnavailableError(RayDisabledError):
+    """The Ray dashboard did not answer; no job request was sent. A 503 like
+    a disabled cluster: the SDK constructor probe ran outside the timeout
+    mapping, so an unreachable or stalled dashboard answered 500
+    (2026-10-08 run, cycle 51)."""
+
+
 #: Transport deadlines (#1170). The pinned Ray 2.56.0 SDK forwards extra
 #: keyword arguments from ``SubmissionClient._do_request`` straight into
 #: ``requests.request()`` and sets NO default timeout, so an unresponsive
@@ -185,7 +192,10 @@ class RayClient:
             # /api/ray call. RAY_API_SERVER_ADDRESS outranks RAY_ADDRESS there
             # (2026-10-08 run, cycle 33).
             os.environ.setdefault("RAY_API_SERVER_ADDRESS", self._addr)
-            client = _bounded_submission_client(self._addr)
+            try:
+                client = _bounded_submission_client(self._addr)
+            except OSError as exc:  # requests timeouts/connection errors and builtin ConnectionError
+                raise RayUnavailableError(f"Ray dashboard at {self._addr} did not answer") from exc
             _bind_transport_deadline(client)
             self._client = client
         return self._client
@@ -248,5 +258,8 @@ class RayClient:
         # (/api/ray/jobs/submit runs an arbitrary shell entrypoint on the cluster).
         import urllib.request, json
         self._ensure_client()
-        with urllib.request.urlopen(f"{self._addr}/api/cluster_status", timeout=5) as resp:
-            return json.loads(resp.read())
+        try:
+            with urllib.request.urlopen(f"{self._addr}/api/cluster_status", timeout=5) as resp:
+                return json.loads(resp.read())
+        except OSError as exc:
+            raise RayUnavailableError(f"Ray dashboard at {self._addr} did not answer") from exc

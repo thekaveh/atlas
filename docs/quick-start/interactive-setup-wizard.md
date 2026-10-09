@@ -469,8 +469,11 @@ that Compose-managed named volumes and attached anonymous volumes are removed:
 database records, object files, workflow/chat history, models and caches stored
 there are lost. Bind mounts, external volumes, `.env` and managed host processes
 remain; unlike cold start, cold stop does not regenerate configuration.
-While a stop runs, a second stop or cold stop is refused with a warning. Wait for
-the first stop to report its result.
+While a stop runs, a second stop or cold stop is refused with a warning, and so
+are `Ctrl+Q` and `Ctrl+C`. Wait for the first stop to report its result. The stop
+acts on the project this screen started, even if `.env` changes meanwhile. Its
+Compose output goes to the log pane. If Docker cannot list the project's volumes
+afterwards, the cold stop reports a problem instead of success.
 
 Both actions require pressing the **same key twice within eight seconds**. A
 different action re-arms its own confirmation; an expired confirmation requires

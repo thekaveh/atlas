@@ -387,6 +387,10 @@ class InMemoryIngestionStore(IngestionStore):
 
 
 class RedisIngestionStore(IngestionStore):
+    # One call can block this long (socket_timeout below); the heartbeat stops
+    # retrying a renewal early enough that its last call ends before expiry.
+    call_timeout_seconds = 3.0
+
     def __init__(self, url: str) -> None:
         import redis  # lazy — keeps main.py import closure redis-free
 

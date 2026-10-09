@@ -283,3 +283,29 @@ def test_the_sdk_is_pointed_at_the_dashboard_not_ray_client(monkeypatch):
     ray_client.RayClient()._ensure_client()
     assert seen["address"] == seen["api_server"] == "http://ray-head:8265"
     assert seen["timeout"] is not None
+
+
+@pytest.mark.parametrize("failure", ["read-timeout", "connect-timeout", "refused"])
+def test_an_unanswering_dashboard_is_503_not_500(monkeypatch, failure):
+    """The SDK constructor probe ran outside the timeout mapping: a stalled or
+    unreachable dashboard answered 500 on every /api/ray route
+    (2026-10-08 run, cycle 51)."""
+    import requests
+
+    import ray_client
+
+    errors = {"read-timeout": requests.ReadTimeout("slow"), "connect-timeout": requests.ConnectTimeout("no route"),
+              "refused": ConnectionError("Failed to connect to Ray")}
+
+    class FakeSDK:
+        def __init__(self, address):
+            raise errors[failure]
+
+    monkeypatch.setenv("RAY_ADDRESS", "ray://ray-head:10001")
+    monkeypatch.delenv("RAY_DASHBOARD_URL", raising=False)
+    monkeypatch.setattr("ray.job_submission.JobSubmissionClient", FakeSDK)
+    ray_client.RayClient._instance = None
+    client = ray_client.RayClient()
+    for call in (lambda: client.get_job_status("j"), client.cluster_status, lambda: client.stop_job("j")):
+        with pytest.raises(ray_client.RayDisabledError):
+            call()

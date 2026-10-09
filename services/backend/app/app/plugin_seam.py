@@ -257,8 +257,31 @@ def _register_manifest(
     return None
 
 
-def _router_path_error(router, manifest: PluginManifest | None) -> str | None:
-    """Reject routes that escape a manifest or shadow built-ins."""
+_NO_MANIFEST = " (no plugin.yml)"
+
+
+def _claim_manifestless_paths(router, seen_prefixes: dict[str, str], name: str) -> None:
+    """Record a mounted manifest-less plugin's paths, so a later manifest
+    cannot declare a prefix over them (2026-10-08 run, cycle 52)."""
+    for route in getattr(router, "routes", []):
+        seen_prefixes.setdefault(str(getattr(route, "path", "")), name + _NO_MANIFEST)
+
+
+def _declared_prefix_conflict(path: str, seen_prefixes: dict[str, str]) -> str | None:
+    """A declared prefix that a manifest-less path would sit under. Its auth
+    and streaming policy would then apply to another plugin's route: an
+    `open` streaming prefix let an unauthenticated caller push an unbounded
+    body into an `inherit` route (2026-10-08 run, cycle 52)."""
+    return next((
+        f"manifest-less router path {path!r} overlaps prefix {prefix!r} claimed by {owner!r}"
+        for prefix, owner in seen_prefixes.items()
+        if not owner.endswith(_NO_MANIFEST) and prefixes_overlap(path, prefix)
+    ), None)
+
+
+def _router_path_error(router, manifest: PluginManifest | None, seen_prefixes: dict[str, str]) -> str | None:
+    """Reject routes that escape a manifest, shadow built-ins, or sit under
+    another plugin's declared prefix."""
     paths = [str(getattr(route, "path", "")) for route in getattr(router, "routes", [])]
     if manifest is not None:
         prefix = manifest.route_prefix.rstrip("/")
@@ -280,6 +303,9 @@ def _router_path_error(router, manifest: PluginManifest | None) -> str | None:
             return f"manifest-less router path {path!r} has a path parameter in its first segment"
         if head in RESERVED_ROUTE_PREFIXES:
             return f"manifest-less router path {path!r} shadows built-in prefix {head!r}"
+        conflict = _declared_prefix_conflict(path, seen_prefixes)
+        if conflict is not None:
+            return conflict
     return None
 
 
@@ -354,7 +380,7 @@ def _load_plugins_from_dir(
             module = importlib.import_module(entry.name)
             router = getattr(module, "router", None)
             if router is not None:
-                path_error = _router_path_error(router, manifest)
+                path_error = _router_path_error(router, manifest, seen_prefixes)
                 if path_error is not None:
                     _log.error("plugin seam: %s; skipping plugin %r", path_error, entry.name)
                     name = manifest.name if manifest else entry.name
@@ -371,6 +397,8 @@ def _load_plugins_from_dir(
                 elif auth_mode == "key-auth":
                     dependencies = [Depends(require_plugin_gateway_key)]
                 app.include_router(router, dependencies=dependencies)
+                if manifest is None:
+                    _claim_manifestless_paths(router, seen_prefixes, entry.name)
                 _log.info("plugin seam: loaded plugin %r", entry.name)
             name = manifest.name if manifest else entry.name
             PLUGIN_INVENTORY.append(_inventory_entry(name, "loaded", manifest=manifest))
@@ -399,6 +427,13 @@ def load_plugins(app) -> list[dict]:
     for plugins_dir in _plugin_roots():
         _load_plugins_from_dir(app, plugins_dir, installed_requirements, seen_names, seen_prefixes)
     return list(PLUGIN_INVENTORY)
+
+
+def streaming_auth_modes(inventory: list[dict]) -> dict[str, str]:
+    """Auth mode (inherit | key-auth | open) of each streaming prefix, so the
+    request-limit middleware can authenticate before the body is read."""
+    return {entry["route_prefix"]: entry.get("auth") or "inherit"
+            for entry in inventory if entry["route_prefix"] in streaming_prefixes([entry])}
 
 
 def streaming_prefixes(inventory: list[dict]) -> list[str]:

@@ -793,7 +793,7 @@ def test_manifest_less_router_cannot_open_with_a_path_parameter():
     def catch_all(slug: str):
         return {"plugin": slug}
 
-    error = plugin_seam._router_path_error(router, None)
+    error = plugin_seam._router_path_error(router, None, {})
     assert error and "path parameter" in error
 
     partial = APIRouter()
@@ -802,7 +802,7 @@ def test_manifest_less_router_cannot_open_with_a_path_parameter():
     def partial_catch_all(rest: str):
         return {"plugin": rest}
 
-    assert "path parameter" in (plugin_seam._router_path_error(partial, None) or "")
+    assert "path parameter" in (plugin_seam._router_path_error(partial, None, {}) or "")
 
 
 def test_a_pin_change_leaves_one_dist_info_per_distribution(tmp_path, monkeypatch):
@@ -904,3 +904,27 @@ def test_main_wires_loaded_streaming_plugins_into_the_request_limit(monkeypatch)
     installed = next(m for m in main.app.user_middleware if m.cls is RequestLimitMiddleware)
     expected = main._request_limit_policy(main.PLUGIN_INVENTORY)
     assert installed.kwargs["policy"].streaming_prefixes == expected.streaming_prefixes
+
+
+@pytest.mark.parametrize("names", [("aa_plain", "up_declared"), ("up_declared", "zz_plain")])
+def test_a_manifest_less_route_cannot_sit_under_a_declared_prefix(tmp_path, monkeypatch, names):
+    """A manifest-less route under an `open` streaming prefix got that
+    prefix's (no) auth and no body cap, then FastAPI read 64 MiB before its
+    own `inherit` 401; loaded first, it also shadowed the plugin's route
+    (2026-10-08 run, cycle 52). Rejected in both load orders."""
+    from fastapi import FastAPI
+
+    import plugin_seam
+
+    first, second = names
+    plain = first if first.endswith("_plain") else second
+    declared = second if plain == first else first
+    _plugin_pkg(tmp_path, declared, "/up/open",
+                "plugin_manifest_version: 1\nname: up\nroute_prefix: /up\nauth: open\nrequest_buffering: false\n")
+    _plugin_pkg(tmp_path, plain, "/up/admin")
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+    inventory = {e["name"]: e for e in plugin_seam.load_plugins(FastAPI())}
+    statuses = sorted(e["status"] for e in inventory.values())
+    assert statuses == ["loaded", "skipped"], inventory
+    skipped = next(e for e in inventory.values() if e["status"] == "skipped")
+    assert "overlaps" in skipped["error"]

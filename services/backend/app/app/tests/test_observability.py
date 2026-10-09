@@ -170,3 +170,24 @@ def test_the_server_span_masks_a_query_string_apikey():
     redact_span_apikey(span, {})
     assert "SECRET" not in repr(span.attributes)
     assert span.attributes["url.query"] == "apikey=***&x=1"
+
+
+def test_a_key_with_an_encoded_ampersand_is_masked_in_full():
+    """http.url carries the decoded query, so `?apikey=SEC%26RET2` split at
+    the decoded `&` and exported `RET2` (2026-10-08 run, cycle 46)."""
+    from observability import redact_span_apikey
+
+    class Span:
+        def __init__(self):
+            self.attributes = {"http.url": "http://t/p/x?apikey=SEC&RET2", "url.query": "apikey=SEC%26RET2"}
+
+        def is_recording(self):
+            return True
+
+        def set_attribute(self, key, value):
+            self.attributes[key] = value
+
+    span = Span()
+    redact_span_apikey(span, {"query_string": b"apikey=SEC%26RET2"})
+    assert "RET2" not in repr(span.attributes) and "SEC" not in repr(span.attributes)
+    assert span.attributes["http.url"] == "http://t/p/x?apikey=***"

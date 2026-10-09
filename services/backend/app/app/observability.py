@@ -88,6 +88,19 @@ def configure_otel(app: Any) -> bool:
 _URL_ATTRIBUTES = ("http.url", "url.full", "http.target")
 
 
+def _raw_query(scope) -> str:
+    return ((scope or {}).get("query_string") or b"").decode("latin-1")
+
+
+def _redacted_url(value: str, raw_query: str) -> str:
+    """``value`` with its query replaced by the masked raw one when known."""
+    from access_log import _redact_apikey_query_values
+
+    if not raw_query:
+        return _redact_apikey_query_values(value)
+    return f"{value.split('?', 1)[0]}?{_redact_apikey_query_values('?' + raw_query)[1:]}"
+
+
 def redact_span_apikey(span, _scope) -> None:
     """Mask a query-string ``apikey`` in the server span's URL attributes.
 
@@ -95,18 +108,20 @@ def redact_span_apikey(span, _scope) -> None:
     header on a WebSocket handshake); the access log masks it, but the span
     recorded the full URL and exported the key to the collector
     (2026-10-08 run, cycle 11)."""
-    from access_log import _redact_apikey_query_values
-
     if span is None or not span.is_recording():
         return
     attributes = getattr(span, "attributes", None) or {}
+    # The URL attributes carry the DECODED query, so a key holding `%26`
+    # split at the decoded `&` and its tail was exported (2026-10-08 run,
+    # cycle 46); mask the raw query from the scope instead.
+    raw = _raw_query(_scope)
     for key in _URL_ATTRIBUTES:
         value = attributes.get(key)
         if isinstance(value, str) and "?" in value:
-            span.set_attribute(key, _redact_apikey_query_values(value))
+            span.set_attribute(key, _redacted_url(value, raw))
     query = attributes.get("url.query")
     if isinstance(query, str) and query:
-        span.set_attribute("url.query", _redact_apikey_query_values("?" + query)[1:])
+        span.set_attribute("url.query", _redacted_url("?" + query, "")[1:])
 
 
 def configure_celery_otel(*, service_name: str) -> bool:

@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from tempfile import SpooledTemporaryFile
 from typing import Any, Awaitable, Callable, Dict, Mapping, Optional, Sequence
 
@@ -105,6 +105,11 @@ class LimitPolicy:
     # ``request_buffering: false`` stream their uploads and own their cap
     # (#1454); the 16 MiB default made any larger upload impossible.
     streaming_prefixes: Sequence[str] = ()
+    # Header authentication per streaming prefix, run before the body is
+    # handed on: FastAPI reads the whole body before a route's auth
+    # dependency, so an unauthenticated caller could push an unbounded one
+    # (2026-10-08 run, cycle 46). A prefix with no entry is an `open` plugin.
+    streaming_auth: Mapping[str, Callable[[Dict[str, Any]], Awaitable[Any]]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.default_max_bytes is not None and self.default_max_bytes <= 0:
@@ -131,9 +136,24 @@ class RequestLimitMiddleware:
         self.default_max_bytes = policy.default_max_bytes
         self._rules = {(rule.method, rule.path): rule for rule in policy.rules}
         self._streaming_prefixes = tuple(p.rstrip("/") for p in policy.streaming_prefixes)
+        self._streaming_auth = {p.rstrip("/"): fn for p, fn in policy.streaming_auth.items()}
 
     def _streams(self, path: str) -> bool:
-        return any(path == p or path.startswith(p + "/") for p in self._streaming_prefixes)
+        return self._stream_prefix(path) is not None
+
+    def _stream_prefix(self, path: str) -> Optional[str]:
+        return next((p for p in self._streaming_prefixes if path == p or path.startswith(p + "/")), None)
+
+    async def _authenticated(self, authenticate, scope, send) -> bool:
+        """Run a header check before any body byte is read; reject on failure."""
+        if authenticate is None:
+            return True
+        try:
+            await authenticate(scope)
+        except HTTPException as exc:
+            await self._reject(send, exc.status_code, exc.detail, exc.headers)
+            return False
+        return True
 
     async def __call__(self, scope: Dict[str, Any], receive, send) -> None:
         if scope.get("type") != "http" or scope.get("method") not in _BODY_METHODS:
@@ -141,8 +161,10 @@ class RequestLimitMiddleware:
             return
 
         rule = self._rules.get((scope["method"], scope.get("path", "")))
-        if rule is None and (self.default_max_bytes is None or self._streams(scope.get("path", ""))):
-            await self.app(scope, receive, send)
+        prefix = None if rule is not None else self._stream_prefix(scope.get("path", ""))
+        if rule is None and (self.default_max_bytes is None or prefix is not None):
+            if prefix is None or await self._authenticated(self._streaming_auth.get(prefix), scope, send):
+                await self.app(scope, receive, send)
             return
         max_bytes = rule.max_bytes if rule else self.default_max_bytes
         too_large_detail = (
@@ -155,10 +177,7 @@ class RequestLimitMiddleware:
         )
 
         if rule is not None and rule.authenticate:
-            try:
-                await self.authenticate(scope)
-            except HTTPException as exc:
-                await self._reject(send, exc.status_code, exc.detail, exc.headers)
+            if not await self._authenticated(self.authenticate, scope, send):
                 return
 
         headers = {key.lower(): value for key, value in scope.get("headers", [])}

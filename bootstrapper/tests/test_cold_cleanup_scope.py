@@ -766,3 +766,31 @@ def test_live_model_items_keep_a_model_only_the_rendered_litellm_config_routes(m
     env = {"LLM_PROVIDER_SOURCE": "ollama-container-cpu", "COMFYUI_SOURCE": "disabled"}
     items = start._live_model_items(env, tmp_path, "atlas")
     assert [(i["path"], i["label"]) for i in items] == [("routed-chat:latest", "retained")]
+
+
+def test_compose_env_replaces_an_exported_empty_project_name(tmp_path, monkeypatch):
+    """Compose gives an exported empty PROJECT_NAME precedence over .env, so
+    every name became `-supabase-db`; it was read as unset and left in
+    place when .env named the -p project (cycle 47)."""
+    from utils.system import compose_env
+
+    env = tmp_path / ".env"
+    env.write_text("PROJECT_NAME=atlas\n")
+    monkeypatch.setenv("PROJECT_NAME", "")
+    result = compose_env(["docker", "compose", "-p", "atlas", f"--env-file={env}", "up"])
+    assert result["PROJECT_NAME"] == "atlas"
+
+
+def test_an_unlistable_volume_set_does_not_confirm_a_cold_cleanup(tmp_path, monkeypatch):
+    """docker volume ls failing read as "no survivors", so the cold start
+    rotated secrets while volumes with the old ones may remain (cycle 48)."""
+    import subprocess
+
+    from utils import system
+
+    monkeypatch.setattr(system.subprocess, "run",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 1, "", "daemon error"))
+    assert system.project_volume_names("atlas") is None
+    seen = []
+    assert system.report_surviving_volumes(None, seen.append)
+    assert seen and "not confirmed" in seen[0]

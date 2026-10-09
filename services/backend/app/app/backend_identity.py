@@ -293,6 +293,11 @@ async def require_service_principal(
     return _authenticate_backend_principal(credentials, allow_users=False)
 
 
+async def authenticate_plugin_key_scope(scope: dict[str, Any]) -> str:
+    """require_plugin_gateway_key for an ASGI scope, without reading its body."""
+    return await require_plugin_gateway_key(await _PLUGIN_API_KEY(HTTPConnection(scope)))  # type: ignore[arg-type]
+
+
 async def require_plugin_gateway_key(
     api_key: str | None = Depends(_PLUGIN_API_KEY),
 ) -> str:

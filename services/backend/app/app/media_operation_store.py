@@ -646,16 +646,32 @@ if operation.reconciled == true
     return {0, blob}
 end
 local next_payload = cjson.decode(ARGV[2])
-local score, score_error = reserve_score(
-    KEYS[2], KEYS[3], KEYS[4], operation.operation_id, true)
-if score_error then return redis.error_reply(score_error) end
 operation.last_payload = next_payload
 operation.state_version = tonumber(operation.state_version or 0) + 1
 blob = cjson.encode(operation)
--- Keep the repaired winner durable until mark_reconciled reapplies the TTL.
-redis.call('SET', KEYS[1], blob)
-redis.call('SADD', KEYS[2], operation.operation_id)
-if score then redis.call('ZADD', KEYS[3], 'NX', score, operation.operation_id) end
+-- Pending as the other scripts judge it. A winner that is no longer pending
+-- kept no TTL and left the index on the next sweep when mark_reconciled
+-- failed, so it never expired (2026-10-08 run, cycle 49).
+local next_provenance = next_payload.provenance or {}
+local pending = operation.budget_tracked == true
+   or next_provenance.ledger_reconciliation_pending == true
+   or next_provenance.ledger_attach_completed == true
+   or next_provenance.ledger_cleanup_pending == true
+   or next_provenance.ledger_attach_pending == true
+   or next_provenance.ledger_attach_protection_clear_pending == true
+local score, score_error = reserve_score(
+    KEYS[2], KEYS[3], KEYS[4], operation.operation_id, pending)
+if score_error then return redis.error_reply(score_error) end
+if pending then
+    -- Keep the repaired winner durable until mark_reconciled reapplies the TTL.
+    redis.call('SET', KEYS[1], blob)
+    redis.call('SADD', KEYS[2], operation.operation_id)
+    if score then redis.call('ZADD', KEYS[3], 'NX', score, operation.operation_id) end
+else
+    redis.call('SET', KEYS[1], blob, 'EX', ARGV[3])
+    redis.call('SREM', KEYS[2], operation.operation_id)
+    redis.call('ZREM', KEYS[3], operation.operation_id)
+end
 return {1, blob}
 """
 
@@ -939,6 +955,7 @@ return 1
             _PENDING_LEDGER_SEQUENCE,
             expected_outcome,
             json.dumps(payload),
+            self._ttl,
         )
         return (json.loads(blob) if blob else None), bool(changed)
 

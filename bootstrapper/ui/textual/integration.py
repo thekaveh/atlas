@@ -1488,6 +1488,8 @@ def run_setup_flow(
             ))
 
         def action_interrupt(self) -> None:
+            if getattr(self.screen, "refuse_exit_during_teardown", lambda: False)():
+                return
             _record_interrupt(state_holder)
             self.exit()
 
@@ -1688,6 +1690,8 @@ def run_launch_flow(
             ))
 
         def action_interrupt(self) -> None:
+            if getattr(self.screen, "refuse_exit_during_teardown", lambda: False)():
+                return
             _record_interrupt(state_holder)
             self.exit()
 
