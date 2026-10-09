@@ -17,6 +17,7 @@ import httpx
 
 from db_connection import acquire_conn, connect_postgres
 from memory_store import (
+    _VECTORIZER_SYSTEMATIC_TEXT,
     MemoryStore,
     _to_uuid,
     _weaviate_vectorizer_failure,
@@ -236,9 +237,30 @@ def _deletion_report(state, store=None) -> Dict[str, Any]:
     }
 
 
-def _remember_rejected(rejected: dict, row, target_signal: bool) -> None:
+def _is_row_rejection(exc: BaseException) -> bool:
+    """A failure caused by this row's content: a 4xx from the embedder or the
+    target that is not auth, missing model, timeout or back-pressure. Database
+    restarts, a not-yet-registered model or a superseded write hit every row
+    and recover by themselves, so remembering them hid rows until a restart
+    (2026-10-08 run, cycle 24)."""
+    if _weaviate_vectorizer_failure(exc):
+        return _weaviate_vectorizer_row_rejection(exc)
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return False
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    if status is None or not 400 <= status < 500 or status in {401, 403, 404, 408, 429}:
+        return False
+    try:
+        body = response.text
+    except Exception:  # noqa: BLE001 - unreadable body: not classifiable
+        return False
+    return not _VECTORIZER_SYSTEMATIC_TEXT.search(body or "")
+
+
+def _remember_rejected(rejected: dict, row, exc: BaseException) -> None:
     """Skip a row the target rejected on its own until it changes (bounded)."""
-    if not target_signal and len(rejected) < 10_000:
+    if _is_row_rejection(exc) and len(rejected) < 10_000:
         rejected[row["id"]] = row["updated_at"]
 
 
@@ -885,7 +907,7 @@ Extract the facts as JSON:"""
                         type(exc).__name__,
                     )
                     if not _counts_toward_reconcile_halt(exc, target_signal):
-                        _remember_rejected(rejected, row, target_signal)
+                        _remember_rejected(rejected, row, exc)
                         # A row-specific failure says nothing about the
                         # target's health, so it must not COUNT toward the
                         # streak — and it must not RESET it either. Resetting

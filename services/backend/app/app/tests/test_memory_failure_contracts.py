@@ -1072,3 +1072,4 @@ async def test_rejected_rows_do_not_stall_the_next_pass(monkeypatch):
     await svc._reconcile_pending_vectors()
     assert seen[0] == {}
     assert seen[1] == {row["id"]: row["updated_at"] for row in rows}
+
