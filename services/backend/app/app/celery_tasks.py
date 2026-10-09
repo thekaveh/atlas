@@ -283,6 +283,16 @@ def _retry_rag_redis_outage(task, exc, state: "_RagRetryState", owner: str) -> N
     _schedule_rag_retry(task, exc, state, _rag_retry_countdown(state.infrastructure_attempt - 1))
 
 
+def _fail_abandoned_rag(ingestion_id: str, owner: str, reason: str) -> None:
+    """Best effort: leave the job terminal, not "running", when giving up."""
+    from rag_ingestion import fail_abandoned_ingestion
+
+    try:
+        fail_abandoned_ingestion(ingestion_id, recovery_owner=owner, reason=reason)
+    except Exception:  # noqa: BLE001 - the original error is re-raised by the caller
+        logger.exception("Could not mark abandoned RAG ingestion %s failed", ingestion_id)
+
+
 def _rag_retry_countdown(attempt: int) -> int:
     return get_exponential_backoff_interval(
         factor=1,
@@ -345,6 +355,7 @@ def rag_ingestion_task(
         # Counted like a Redis outage: an unbounded lease-lost loop kept the
         # record "running" forever (2026-10-08 run, cycle 12).
         if state.infrastructure_attempt >= _RAG_INFRASTRUCTURE_RETRY_LIMIT:
+            _fail_abandoned_rag(ingestion_id, owner, "execution lease lost on every retry")
             raise
         state = replace(
             state, recovery_owner=owner, infrastructure_attempt=state.infrastructure_attempt + 1

@@ -494,3 +494,29 @@ def test_stream_research_logs_does_not_start_duplicate_langgraph_run(monkeypatch
         }
     ]
     assert FakeAsyncClient.calls == []
+
+
+@pytest.mark.parametrize("events", [
+    ["event: metadata", 'data: {"run_id": "r1", "attempt": 1}'],
+    ["event: metadata", 'data: {"run_id": "r1"}', "event: values", 'data: {"research_topic": "atlas"}'],
+])
+def test_a_stream_without_a_summary_is_failed_not_completed(monkeypatch, events):
+    """The opening metadata event (and an input-only values event) became the
+    "final values", so an empty run was COMPLETED with no content
+    (2026-10-08 run, cycle 30)."""
+    import research_client
+
+    class MetadataOnlyClient(FakeAsyncClient):
+        def stream(self, method, url, **kwargs):
+            self.calls.append((method, url, kwargs))
+            return FakeStreamResponse(events)
+
+    monkeypatch.setattr(research_client.httpx, "AsyncClient", MetadataOnlyClient)
+    client = ResearchClient(base_url="http://local-deep-researcher:2024")
+
+    async def scenario():
+        start = await client.start_research(ResearchRequest(query="atlas", max_loops=2, search_api="searxng"))
+        return await client.wait_for_completion(start.session_id)
+
+    done = asyncio.run(scenario())
+    assert done.status == ResearchStatus.FAILED

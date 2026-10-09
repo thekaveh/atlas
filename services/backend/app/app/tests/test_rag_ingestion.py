@@ -2990,3 +2990,27 @@ def test_a_lost_lease_at_the_infrastructure_limit_is_not_retried_again(monkeypat
             retry_state={"phase_attempt": 0,
                          "infrastructure_attempt": celery_tasks._RAG_INFRASTRUCTURE_RETRY_LIMIT},
         )
+
+
+def test_an_abandoned_run_is_marked_failed_so_a_resubmit_starts_fresh(tmp_path, monkeypatch):
+    """At the retry limit the task re-raised and the record stayed "running",
+    a dedup status, so every resubmit got the dead job back until the TTL
+    (2026-10-08 run, cycle 30). A live owner's run is left alone."""
+    from rag_ingestion.store import ExecutionClaim
+
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    store = InMemoryIngestionStore()
+    service = RagIngestionService(store=store, deps=Deps(), profiles_path=_profiles_file(tmp_path))
+    record, _ = service.submit("showcase-default")
+    record.status = "running"
+    store.save(record)
+
+    assert store.claim_execution(record.id, ExecutionClaim("live-worker", 60))
+    assert asyncio.run(service.fail_abandoned(record.id, "dead-worker", "lease lost")) is False
+    assert store.get(record.id).status == "running"
+    store.release_execution(record.id, "live-worker")
+
+    assert asyncio.run(service.fail_abandoned(record.id, "dead-worker", "lease lost")) is True
+    assert store.get(record.id).status == "failed"
+    resubmitted, created = service.submit("showcase-default")
+    assert created and resubmitted.id != record.id

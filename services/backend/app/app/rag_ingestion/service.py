@@ -598,6 +598,25 @@ class RagIngestionService:
                 ingestion_id=ingestion_id,
             )
 
+    async def fail_abandoned(self, ingestion_id: str, recovery_owner: str, reason: str) -> bool:
+        """Mark a run the worker gave up on as failed. Without this the record
+        kept its last status, "running", which the create script treats as a
+        dedup hit, so every resubmit got the dead job back until the TTL
+        (2026-10-08 run, cycle 30). Fenced: the claim fails while another
+        live worker holds the lease, and that run is left alone."""
+        owner = f"abandon:{uuid.uuid4()}"
+        claim = ExecutionClaim(owner, ingestion_execution_lease_seconds(), recovery_owner)
+        if not await asyncio.to_thread(self.store.claim_execution, ingestion_id, claim):
+            return False
+        try:
+            record = await asyncio.to_thread(self.store.get, ingestion_id)
+            if record is None or record.is_terminal:
+                return False
+            await self._record_unexpected_failure(record, RuntimeError(reason), owner)
+            return True
+        finally:
+            await asyncio.to_thread(self.store.release_execution, ingestion_id, owner)
+
     async def _record_unexpected_failure(
         self, record: IngestionRecord, exc: Exception, owner: str
     ) -> None:
