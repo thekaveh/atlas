@@ -2114,3 +2114,71 @@ def test_remove_keeps_generated_images_and_saved_workflows(tmp_path):
     with pytest.raises(mod.ComfyUiMpsError, match="generated image"):
         mgr.remove()
     assert out.exists()
+
+
+@pytest.mark.parametrize("recorded", [{"installed_ref": None, "requirements_sha256": None},
+                                      {"installed_ref": "v0.26.0", "requirements_sha256": "abc"}])
+def test_start_carries_the_recorded_install_marker_forward(tmp_path, monkeypatch, recorded):
+    """start wrote self.ref and the current requirements digest, restoring a
+    marker a failed reconcile had dropped (2026-10-08 run, cycles 68 and 74)."""
+    import json
+
+    mgr = _mgr(tmp_path)
+    _install_stub(mgr)
+    mgr.status_file.write_text(json.dumps(recorded))
+    monkeypatch.setattr(mod.socket, "socket", lambda *a, **k: _FakeSocket(1))
+    monkeypatch.setattr(mod.subprocess, "Popen", lambda args, **k: SimpleNamespace(
+        pid=0 if args and args[0] == "ps" else 4242, returncode=0, stdout="", stderr=""))
+    monkeypatch.setattr("services.managed_host.ManagedHostManager._process_start_time",
+                        staticmethod(lambda _pid: "Mon Jan  1 00:00:00 2024"))
+    mgr.start_with_ownership()
+    status = json.loads(mgr.status_file.read_text())
+    assert (status["installed_ref"], status["requirements_sha256"]) == (
+        recorded["installed_ref"], recorded["requirements_sha256"])
+
+
+@pytest.mark.parametrize("path", ["output/_draft_00001_.png", "user/default/workflows/client/flow.json",
+                                  "user/default/subgraphs/x.json", "input/my_upload.png",
+                                  "user/default/workflows/flow.json"])
+def test_remove_refuses_every_kind_of_user_work(tmp_path, path):
+    """A '_' prefix, nested workflow folders, subgraphs and uploads were
+    deleted by remove (2026-10-08 run, cycle 72)."""
+    mgr = _mgr(tmp_path)
+    (mgr.repo_dir / "input").mkdir(parents=True)
+    (mgr.repo_dir / "input" / "example.png").write_bytes(b"x")  # ComfyUI ships it
+    target = mgr.repo_dir / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"work")
+    with pytest.raises(mod.ComfyUiMpsError, match="refusing to remove"):
+        mgr.remove()
+    assert target.exists()
+
+
+def test_provisioning_rejects_empty_bodies_checks_room_and_leaves_no_validator(tmp_path, monkeypatch):
+    """An empty 200 was published and then skipped as present; a replacement
+    downloaded with no space check; validators outlived dropped parts
+    (2026-10-08 run, cycle 72)."""
+    from services import comfyui_mps_manager as module
+
+    m = _ProvisionManager(state_dir=tmp_path / "state", models_path=tmp_path / "models")
+
+    def empty(url, part, chunk_size=1 << 20):
+        part.write_bytes(b"")
+        module._validator_path(part).write_text('"v"')
+
+    m._fetch_to_part = empty
+    result = m.provision_models([_row(sha256="")])
+    assert result.failed and "empty response" in result.failed[0] and not _dest(m).exists()
+    assert not list(m.models_path.rglob("*.validator"))
+
+    _dest(m).write_bytes(b"user weights")  # sha mismatch → a replacement is needed
+    monkeypatch.setattr(module.shutil, "disk_usage", lambda _p: SimpleNamespace(free=10))
+    result = m.provision_models([_row(file_size_bytes=10_000)])
+    assert result.failed and "insufficient disk space" in result.failed[0]
+    assert _dest(m).read_bytes() == b"user weights"
+
+    part = tmp_path / "w.part"
+    part.write_bytes(b"x")
+    module._validator_path(part).write_text('"v"')
+    module._drop_part(part)
+    assert not part.exists() and not module._validator_path(part).exists()

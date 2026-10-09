@@ -305,7 +305,13 @@ services:
       # Reuse SUPABASE_JWT_SECRET — same posture as JWT_SECRET / SECRET_KEY_BASE.
       METRICS_JWT_SECRET: ${SUPABASE_JWT_SECRET}
       RLIMIT_NOFILE: 65536
-      ERL_AFLAGS: "-proto_dist inet_tcp"
+      # Single node: epmd, Erlang distribution and gen_rpc listen on loopback
+      # only. They otherwise bind 0.0.0.0 and accept the cookie baked into the
+      # public image, so any backend-network co-tenant could run code here as
+      # root and read SUPABASE_JWT_SECRET (2026-10-08 run, cycle 80).
+      ERL_AFLAGS: "-proto_dist inet_tcp -kernel inet_dist_use_interface {127,0,0,1}"
+      ERL_EPMD_ADDRESS: 127.0.0.1
+      GEN_RPC_SOCKET_IP: 127.0.0.1
       HOSTNAME: supabase-realtime
       # The upstream image hardcodes ``Cluster.Strategy.DNSPoll`` (the
       # ``fly6pn`` topology) and ignores ``LIBCLUSTER_*`` overrides.

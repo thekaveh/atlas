@@ -125,3 +125,23 @@ def test_a_port_pinned_by_an_overlay_is_not_a_move(tmp_path, monkeypatch):
     assert starter._port_block_moves(63000) is False
     starter._env_user_keys = set()
     assert starter._port_block_moves(63000) is True
+
+
+def test_an_auto_block_is_chosen_again_with_the_launch_sources(tmp_path, monkeypatch):
+    """`--base-port auto --profile prod` probed before the profile enabled
+    Grafana; its port on the chosen block was foreign-held, so the launch
+    stopped the running stack and then refused the block (2026-10-08 run,
+    cycle 75)."""
+    starter, captured = _starter_with_env(tmp_path, monkeypatch, "BASE_PORT=20000\n")
+    monkeypatch.setattr(
+        starter.port_manager, "check_port_range_availability",
+        lambda bp, *_a: [20009] if bp == 20000 else [],
+    )
+    monkeypatch.setattr(starter.port_manager, "auto_base_port", lambda *_a, **_k: 20090)
+
+    assert starter.handle_port_configuration(20000) is True
+    assert captured["base_port"] == 20000  # an explicit, non-auto block is kept
+
+    starter.base_port_auto_chosen = True
+    assert starter.handle_port_configuration(20000) is True
+    assert captured["base_port"] == 20090

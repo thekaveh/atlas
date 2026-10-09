@@ -4381,7 +4381,9 @@ services:
       DB_PORT: '5432'
       DB_USER: atlas_realtime
       DNS_NODES: supabase-realtime-noop.invalid
-      ERL_AFLAGS: -proto_dist inet_tcp
+      ERL_AFLAGS: -proto_dist inet_tcp -kernel inet_dist_use_interface {127,0,0,1}
+      ERL_EPMD_ADDRESS: 127.0.0.1
+      GEN_RPC_SOCKET_IP: 127.0.0.1
       HOSTNAME: supabase-realtime
       IP_VERSION: ipv4
       JWT_ROLE: service_role

@@ -471,6 +471,26 @@ class _ThreadedComposeExecutor:
             )
         return returncode
 
+    def stream(self, args: list[str], on_line=None, use_env_file: bool = True) -> int:
+        """The ``stream_compose`` seam (cold-start ``down --volumes``), bounded
+        and cancellable like every other command; output goes to the log pane.
+        A raw Popen there outlived Ctrl+C on a wedged daemon (2026-10-08 run,
+        cycle 76)."""
+        return self(args, use_env_file=use_env_file)
+
+    def bridge_stream(self):
+        """Route the manager's ``stream_compose`` through ``stream``; returns
+        the restore callable."""
+        original = getattr(self._manager, "stream_compose", None)
+        if original is None:
+            return lambda: None
+        self._manager.stream_compose = self.stream
+
+        def restore() -> None:
+            self._manager.stream_compose = original
+
+        return restore
+
     def cancel_requested(self) -> bool:
         """True once a cancel was requested; a ``should_stop`` for sync helpers."""
         return self._cancel_requested.is_set()
@@ -3674,6 +3694,7 @@ class WizardScreen(Screen):
             self._safe_log,
         )
         starter.docker_manager.execute_compose_command = compose_executor
+        restore_stream = compose_executor.bridge_stream()
         # Ctrl+C sets the executor's cancel event; the one-shot init wait
         # polls it and returns within a poll step (#1357).
         starter.docker_manager.should_stop = compose_executor.cancel_requested
@@ -4034,6 +4055,7 @@ class WizardScreen(Screen):
                 pass
             try:
                 starter.docker_manager.execute_compose_command = original_execute
+                restore_stream()
             except Exception:  # noqa: BLE001
                 pass
             sys.stdout, sys.stderr = old_stdout, old_stderr

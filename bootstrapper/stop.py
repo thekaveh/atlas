@@ -107,6 +107,8 @@ class AtlasStopper:
         for this invocation."""
         if not project_name or not self.config_parser.env_file_exists():
             return True
+        if self.config_parser.stored_project_name_matches(project_name):
+            return True
         from utils.source_override_manager import SourceOverrideManager
         return SourceOverrideManager(self.config_parser).update_env_file(
             {"PROJECT_NAME": project_name}

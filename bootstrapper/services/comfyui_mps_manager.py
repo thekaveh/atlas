@@ -132,6 +132,18 @@ class ProvisionResult:
         }
 
 
+def _drop_part(part: Path) -> None:
+    """Remove a partial download and its resume validator together: the
+    validator alone was left as a stray dotfile in the user's models tree
+    (2026-10-08 run, cycle 72)."""
+    part.unlink(missing_ok=True)
+    _validator_path(part).unlink(missing_ok=True)
+
+
+def _files(root: Path) -> list[Path]:
+    return [p for p in root.rglob("*") if p.is_file()] if root.is_dir() else []
+
+
 def _device_entries(stats) -> list[dict]:
     devices = stats.get("devices") if isinstance(stats, dict) else None
     return [d for d in devices if isinstance(d, dict)] if isinstance(devices, list) else []
@@ -786,14 +798,18 @@ class ComfyUiMpsManager:
         """Generated images (ComfyUI/output) and saved workflows (ComfyUI/user/
         .../workflows) live in the checkout; remove deleted them with the venv
         (2026-10-08 run, cycle 68). ComfyUI's own placeholders start with '_'."""
-        output = self.repo_dir / "output"
-        kept = [p for p in output.rglob("*") if p.is_file() and not p.name.startswith("_")] if output.is_dir() else []
-        user = self.repo_dir / "user"
-        kept += [p for p in user.rglob("workflows/*") if p.is_file()] if user.is_dir() else []
+        # Only the files ComfyUI ships are exempt; a '_' prefix, a nested
+        # workflow folder, subgraphs and uploaded inputs are user work too
+        # (cycle 72).
+        output, user, inputs = (self.repo_dir / name for name in ("output", "user", "input"))
+        kept = [p for p in _files(output) if p.name != "_output_images_will_be_put_here"]
+        kept += [p for p in _files(user) if {"workflows", "subgraphs"} & set(p.relative_to(user).parts)]
+        kept += [p for p in _files(inputs) if p.name != "example.png"]
         if kept:
             raise ComfyUiMpsError(
-                f"refusing to remove {self.state_dir}: it holds {len(kept)} generated image(s) or saved "
-                f"workflow(s), for example {kept[0]}; move {output} and {user} aside first"
+                f"refusing to remove {self.state_dir}: it holds {len(kept)} generated image(s), saved "
+                f"workflow(s) or uploaded input(s), for example {kept[0]}; move {output}, {user} and "
+                f"{inputs} aside first"
             )
 
     def _refuse_removing_host_models(self) -> None:
@@ -1523,7 +1539,8 @@ class ComfyUiMpsManager:
                 # whenever the download then failed (2026-10-08 run, cycle 68).
                 emit(f"↻ {state_key}: sha256 mismatch — fetching a verified replacement")
                 state.pop(state_key, None)
-            else:
+                self._require_room_for(row, state_key)
+            elif dest.stat().st_size > 0:
                 return "skipped"  # no checksum declared: presence is a hit
 
         url = str(row.get("download_url") or "").strip()
@@ -1532,10 +1549,15 @@ class ComfyUiMpsManager:
         dest.parent.mkdir(parents=True, exist_ok=True)
         part = self._part_path(dest)
         self._fetch_to_part(url, part)
+        if part.stat().st_size == 0:
+            # download_models.sh rejects an empty body; published, a 0-byte
+            # weight was then skipped as present forever (cycle 72).
+            _drop_part(part)
+            raise ComfyUiMpsError(f"empty response fetching {url}")
         if sha:
             actual = self._sha256_file(part)
             if actual != sha:
-                part.unlink(missing_ok=True)  # poisoned bytes: no resume
+                _drop_part(part)  # poisoned bytes: no resume
                 raise ComfyUiMpsError(
                     f"sha256 mismatch after download (expected {sha[:12]}…, got "
                     f"{actual[:12]}…) — partial removed; re-run to retry"
@@ -1545,6 +1567,22 @@ class ComfyUiMpsManager:
         if sha:
             self._record_state(state, state_key, dest, sha)
         return "provisioned"
+
+    def _require_room_for(self, row: dict, state_key: str) -> None:
+        """A replacement downloads next to the kept file, which the run's
+        disk preflight (missing files only) does not count (cycle 72)."""
+        size = row.get("file_size_bytes")
+        if not isinstance(size, (int, float)):
+            return
+        try:
+            free = shutil.disk_usage(self.models_path).free
+        except OSError:
+            return
+        if free < size * self._DISK_HEADROOM:
+            raise ComfyUiMpsError(
+                f"insufficient disk space to fetch a replacement for {state_key} "
+                f"({size / 1e9:.1f} GB needed, {free / 1e9:.1f} GB free); the existing file is kept"
+            )
 
     def _fetch_to_part(self, url: str, part: Path, *, chunk_size: int = 1 << 20) -> None:
         """Stream ``url`` into ``part`` with HTTP-Range resume.
@@ -1577,7 +1615,7 @@ class ComfyUiMpsManager:
         if resume_from and not _validator_path(part).is_file():
             # Nothing proves the remote file is the one the part came from: a
             # re-published file was spliced onto the old bytes (cycle 55).
-            part.unlink()
+            _drop_part(part)
             resume_from = 0
         response = self._open_range(url, part, resume_from)
         if response is not None and getattr(response, "status", 200) == 206 and not _resumes_at(response, resume_from):
@@ -1585,7 +1623,7 @@ class ComfyUiMpsManager:
             # tail to append nor the whole file: written as the file, it
             # published a tail-only weight (2026-10-08 run, cycle 63).
             response.close()
-            part.unlink(missing_ok=True)
+            _drop_part(part)
             response = self._open_range(url, part, 0)
         return response
 
@@ -1602,7 +1640,7 @@ class ComfyUiMpsManager:
         except urllib.error.HTTPError as exc:
             if exc.code == 416 and resume_from and _range_total(exc) == resume_from:
                 return None
-            part.unlink(missing_ok=True)
+            _drop_part(part)
             if exc.code == 416 and resume_from:
                 return self._open_range(url, part, 0)
             raise ComfyUiMpsError(f"HTTP {exc.code} fetching {url}") from exc

@@ -194,6 +194,8 @@ execute privilege is revoked from public API roles despite its required
 **Purpose**: Live database change notifications
 **Status**: not functional yet. Realtime v2.112 serves only tenants it has seeded, and Atlas does not seed one (`SEED_SELF_HOST`, `API_JWT_SECRET` and `DB_ENC_KEY` are not set, and the tenant is chosen from the request host's first label, which the Kong and direct URLs do not carry), so every connection is refused as an unknown tenant. Nothing in the stack subscribes today; enabling it is tracked as follow-up work.
 
+Realtime is an Erlang node. The image ships one fixed release cookie, so Atlas binds its epmd, Erlang distribution and gen_rpc listeners to the container's loopback (`ERL_AFLAGS` `inet_dist_use_interface`, `ERL_EPMD_ADDRESS`, `GEN_RPC_SOCKET_IP`). Other containers on `backend-network` reach only the HTTP/WebSocket port 4000. A single Realtime node needs no cluster traffic.
+
 Realtime creates and manages its own logical replication slots. Database initialization no longer creates a separate `supabase_realtime_slot` (Realtime never used it, so it only retained WAL) and drops that slot on startup when it is idle.
 
 ### 4.6. Studio Dashboard

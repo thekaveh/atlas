@@ -728,3 +728,29 @@ def test_retention_prune_reclaims_unprotected_legacy_reservation():
     pruned, retained = asyncio.run(run())
     assert pruned == 1
     assert retained is None
+
+
+def test_a_free_request_is_admitted_after_spend_passes_the_cap():
+    """Committed spend can exceed the cap (an operator settles an unknown-cost
+    job, or lowers the cap); a $0 ComfyUI render still spends nothing
+    (2026-10-08 run, cycle 78)."""
+    engine = _engine(default_cap_usd=1.0)
+    seen_caps = []
+
+    async def run():
+        await _reserve(engine, "resv-1", 0.9)
+        await engine.attach_operation("resv-1", "prov-1")
+        await engine.reconcile(operation_id="prov-1", status="succeeded", final_cost_usd=1.5)
+        await _reserve(engine, "free-1", 0.0, provider="comfyui", model="sdxl", modality="text_to_image")
+        with pytest.raises(BudgetExceeded):
+            await _reserve(engine, "paid-1", 0.01)
+
+        async def store_reserve(record, cap):
+            seen_caps.append(cap)
+            return True
+
+        engine.store.reserve_within_cap = store_reserve
+        await _reserve(engine, "free-2", 0.0, provider="comfyui", model="sdxl", modality="text_to_image")
+
+    asyncio.run(run())
+    assert seen_caps == [None]

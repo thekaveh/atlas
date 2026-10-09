@@ -691,6 +691,9 @@ class AtlasStarter:
         # Set when the port check stopped this project's running stack, so a
         # later decline/failure can say it is down (the stop is not undone).
         self.stopped_previous_instance: bool = False
+        # True when this run chose BASE_PORT with `auto` (CLI flag or a fresh
+        # manifest resolution) rather than reusing a block.
+        self.base_port_auto_chosen: bool = False
         # True once this run's cold cleanup has taken the project down; its
         # ports may still be held for a moment afterwards (#1438).
         self.project_stopped_this_run: bool = False
@@ -1131,6 +1134,9 @@ class AtlasStarter:
         """
         if not project_name:
             return True
+        if self.config_parser.stored_project_name_matches(project_name):
+            self.docker_manager.project_name_override = project_name
+            return True
         if self.source_override_manager.update_env_file({"PROJECT_NAME": project_name}):
             self.docker_manager.project_name_override = project_name
             self.banner.show_status_message(
@@ -1478,6 +1484,7 @@ class AtlasStarter:
                     "warning",
                 )
                 resolved = self.port_manager.auto_base_port(source_overrides=_declared_sources(overrides))
+                self.base_port_auto_chosen = resolved is not None
                 if resolved is None:
                     self.banner.show_status_message(
                         "BASE_PORT=auto could not find a free port block; keeping "
@@ -1487,6 +1494,7 @@ class AtlasStarter:
                     resolved = current_int
         else:
             resolved = self.port_manager.auto_base_port(source_overrides=_declared_sources(overrides))
+            self.base_port_auto_chosen = resolved is not None
             if resolved is None:
                 self.banner.show_status_message(
                     "BASE_PORT=auto could not find a free port block; using the "
@@ -2433,6 +2441,8 @@ class AtlasStarter:
                 except ValueError:
                     base_port = DEFAULT_BASE_PORT
 
+        base_port = self._reresolve_auto_block(base_port)
+
         # Validate base port
         if not self.port_manager.validate_base_port(base_port):
             offsets = self.port_manager.port_offsets()
@@ -2505,6 +2515,26 @@ class AtlasStarter:
             return False
 
         return True
+
+    def _reresolve_auto_block(self, base_port: int) -> int:
+        """An `auto` block was probed before the profile, the consumer
+        manifest and the CLI flags had all written their *_SOURCE values. If a
+        service they enable now finds its port taken, choose again with the
+        sources in .env, before a running stack is stopped for a block this
+        launch would then refuse (2026-10-08 run, cycle 75)."""
+        if not self.base_port_auto_chosen:
+            return base_port
+        if not self.port_manager.check_port_range_availability(base_port):
+            return base_port
+        fresh = self.port_manager.auto_base_port()
+        if fresh is None or fresh == base_port:
+            return base_port
+        self.banner.show_status_message(
+            f"BASE_PORT=auto: block {base_port} has a port in use by a service "
+            f"this launch enables; using {fresh} instead.",
+            "warning",
+        )
+        return fresh
 
     def _port_block_moves(self, base_port: int) -> bool:
         """Whether `.env`'s ports differ from ``base_port``'s block: a
@@ -7525,7 +7555,8 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
     # so every downstream path (Textual + linear + setup_env_file) sees a plain
     # int. auto scans below the ephemeral range and never returns the default,
     # so a submodule consumer can't silently squat the port a bare atlas binds.
-    if base_port == "auto":
+    base_port_auto = base_port == "auto"
+    if base_port_auto:
         from core.port_manager import PortManager
         # The run's --<svc>-source flags are not in .env yet; probe with them
         # so a service they enable is checked and one they disable is not (#1391).
@@ -7676,6 +7707,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
 
     starter = AtlasStarter()
     starter.support_bundle_path = _invoker_path(support_bundle)
+    starter.base_port_auto_chosen = base_port_auto
 
     try:
         # Consumer manifests (--consumer or ATLAS_CONSUMER_MANIFEST) are user

@@ -381,3 +381,50 @@ def test_mlflow_serve_does_not_launch_when_the_schema_upgrade_fails(
 ) -> None:
     with pytest.raises(subprocess.CalledProcessError):
         _serve_against_stores(monkeypatch, [_OUTDATED], upgrade_fails=True)
+
+
+@pytest.mark.parametrize(
+    "case",
+    (
+        ("POST", "/api/2.0/mlflow/experiments/create", b"http://localhost:8080", False),
+        ("OPTIONS", "/api/2.0/mlflow/experiments/delete", b"http://127.0.0.1:3000", False),
+        ("GET", "/ajax-api/2.0/mlflow/experiments/search", b"http://localhost:8080", False),
+        ("POST", "/graphql", b"null", False),
+        ("POST", "/api/2.0/mlflow/experiments/create", b"http://localhost:5000", True),
+        ("POST", "/api/2.0/mlflow/experiments/create", None, True),
+        ("GET", "/static-files/app.js", b"http://localhost:8080", True),
+    ),
+)
+def test_origin_guard_holds_mlflow_to_the_exact_allowed_origins(
+    monkeypatch: pytest.MonkeyPatch, case: tuple
+) -> None:
+    """MLflow admits any localhost origin on any port; the direct port has no
+    login (2026-10-08 run, cycle 73)."""
+    import asyncio
+
+    method, path, origin, reaches = case
+
+    seen: list[str] = []
+    sent: list[dict] = []
+
+    async def upstream(scope, receive, send):
+        seen.append(scope["path"])
+
+    module = _load_guard(monkeypatch, upstream)
+    monkeypatch.setenv(
+        "MLFLOW_SERVER_CORS_ALLOWED_ORIGINS",
+        "http://mlflow.localhost:63002, http://localhost:5000",
+    )
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    headers = [] if origin is None else [(b"origin", origin)]
+    asyncio.run(module.app({"type": "http", "method": method, "path": path, "headers": headers}, receive, send))
+
+    assert (seen == [path]) is reaches
+    if not reaches:
+        assert sent[0]["status"] == 403

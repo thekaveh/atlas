@@ -16,6 +16,7 @@ from uuid import UUID, uuid4
 import httpx
 
 from db_connection import acquire_conn, connect_postgres
+from memory_models import _validate_consolidation_action
 from memory_store import (
     _VECTORIZER_SYSTEMATIC_TEXT,
     MemoryStore,
@@ -100,48 +101,6 @@ def _is_target_health_signal(exc: BaseException) -> bool:
             return False
         return status >= 500 or status in _TARGET_HEALTH_STATUSES
     return False
-
-
-def _is_valid_consolidation_index(index: Any, fact_count: int) -> bool:
-    return type(index) is int and 0 <= index < fact_count
-
-
-def _validated_consolidation_indices(
-    source_indices: Any, keep_index: Any, fact_count: int
-) -> Optional[tuple[List[int], int]]:
-    if not isinstance(source_indices, list) or len(source_indices) < 2:
-        return None
-    if not all(
-        _is_valid_consolidation_index(index, fact_count)
-        for index in source_indices
-    ):
-        return None
-    if len(set(source_indices)) != len(source_indices):
-        return None
-    if not _is_valid_consolidation_index(keep_index, fact_count):
-        return None
-    if keep_index not in source_indices:
-        return None
-    return source_indices, keep_index
-
-
-def _validate_consolidation_action(
-    action_data: Any, fact_count: int
-) -> Optional[tuple[str, List[int], int, str]]:
-    """Return a safe consolidation action or reject untrusted LLM output."""
-    if not isinstance(action_data, dict):
-        return None
-    action = action_data.get("action")
-    reason = action_data.get("reason", "")
-    if action not in {"merge", "supersede"} or not isinstance(reason, str):
-        return None
-    indices = _validated_consolidation_indices(
-        action_data.get("source_indices"), action_data.get("keep_index"), fact_count
-    )
-    if indices is None:
-        return None
-    source_indices, keep_index = indices
-    return action, source_indices, keep_index, reason
 
 
 #: How many TARGET-HEALTH failures since the last successful row mean the
@@ -1142,6 +1101,14 @@ Extract the facts as JSON:"""
                     source_fact_uuids = []
                     try:
                         async with conn.transaction():
+                            # The per-user lock extraction and restore take: two
+                            # consolidations reading the same snapshot could
+                            # otherwise supersede X by Y and Y by X, both under
+                            # READ COMMITTED, leaving neither fact active.
+                            await conn.execute(
+                                "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+                                str(uid),
+                            )
                             # Deactivate every source and write its audit record
                             # as one unit. A failed/stale later UPDATE must roll
                             # back every earlier source in the same LLM action.

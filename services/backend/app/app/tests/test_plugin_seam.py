@@ -962,6 +962,29 @@ def test_a_raw_starlette_route_is_refused_because_auth_cannot_apply(tmp_path, mo
     assert "/rawp/raw" not in {getattr(r, "path", "") for r in app.router.routes}
 
 
+
+def test_an_open_plugin_may_keep_raw_starlette_routes(tmp_path, monkeypatch):
+    """auth: open has nothing to bypass; refusing it would break such plugins (cycle 74)."""
+    from fastapi import FastAPI
+
+    import plugin_seam
+
+    pkg = tmp_path / "rawo"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text(
+        "from fastapi import APIRouter\n"
+        "from starlette.responses import PlainTextResponse\n"
+        "router = APIRouter()\n"
+        "async def raw(request):\n"
+        "    return PlainTextResponse('ok')\n"
+        "router.add_route('/rawo/raw', raw, methods=['GET'])\n"
+    )
+    (pkg / "plugin.yml").write_text("plugin_manifest_version: 1\nname: rawo\nroute_prefix: /rawo\nauth: open\n")
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+    entry = next(e for e in plugin_seam.load_plugins(FastAPI()) if e["name"] == "rawo")
+    assert entry["status"] == "loaded", entry
+
+
 @pytest.mark.parametrize("route", ["/up/{name}", "/up/{rest:path}"])
 @pytest.mark.parametrize("plain", ["aa_plain", "zz_plain"])
 def test_a_path_parameter_route_cannot_sit_under_a_declared_prefix(tmp_path, monkeypatch, route, plain):

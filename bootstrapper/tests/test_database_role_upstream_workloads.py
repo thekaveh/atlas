@@ -162,7 +162,9 @@ def test_pinned_realtime_runs_migrations_and_serves_health_as_scoped_owner(
         "-e", f"SECRET_KEY_BASE={'s' * 64}",
         "-e", f"METRICS_JWT_SECRET={'m' * 64}",
         "-e", "RLIMIT_NOFILE=65536",
-        "-e", "ERL_AFLAGS=-proto_dist inet_tcp",
+        "-e", "ERL_AFLAGS=-proto_dist inet_tcp -kernel inet_dist_use_interface {127,0,0,1}",
+        "-e", "ERL_EPMD_ADDRESS=127.0.0.1",
+        "-e", "GEN_RPC_SOCKET_IP=127.0.0.1",
         "-e", "HOSTNAME=supabase-realtime",
         "-e", "DNS_NODES=supabase-realtime-noop.invalid",
         "-e", "APP_NAME=realtime",
@@ -359,3 +361,18 @@ def test_meta_role_supports_sql_editor_administration_without_superuser(
         password=disposable_postgres.admin_password,
     ).stdout.strip()
     assert attributes == "false:true:true:false:false"
+
+
+def test_realtime_erlang_listeners_stay_on_loopback() -> None:
+    """The image's release cookie is public; epmd, distribution and gen_rpc
+    bound 0.0.0.0 let any backend-network co-tenant run code in realtime as
+    root (2026-10-08 run, cycle 80; verified live: all three on 127.0.0.1)."""
+    import yaml
+
+    compose = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / "services/supabase/compose.yml").read_text()
+    )
+    env = compose["services"]["supabase-realtime"]["environment"]
+    assert "-kernel inet_dist_use_interface {127,0,0,1}" in env["ERL_AFLAGS"]
+    assert env["ERL_EPMD_ADDRESS"] == "127.0.0.1"
+    assert env["GEN_RPC_SOCKET_IP"] == "127.0.0.1"

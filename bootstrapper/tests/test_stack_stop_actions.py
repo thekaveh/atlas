@@ -448,15 +448,37 @@ def test_teardown_compose_output_reaches_the_log_pane_not_the_terminal(tmp_path,
     child = ["sh", "-c", "echo 'Container x  Removed' >&2"]
     assert system.run_compose_child(child, str(tmp_path), manager.output_sink) == 0
     assert "Container x  Removed" in logged
-    # Streamed and bounded: a wedged daemon showed nothing and never ended (cycle 69).
-    monkeypatch.setattr(system, "SINK_COMPOSE_TIMEOUT_SECONDS", 1)
-    logged.clear()
-    assert system.run_compose_child(["sh", "-c", "echo started; sleep 30"], str(tmp_path), manager.output_sink) == 124
-    assert logged[0] == "started" and "did not finish" in logged[-1]
     manager._report_surviving_volumes = lambda project, emit: emit("survivor warning") or ["v"]
     monkeypatch.setattr(manager, "execute_compose_command", lambda *a, **k: 0)
     assert manager.perform_cold_stop_cleanup() is False
     assert "survivor warning" in logged
+
+
+def test_teardown_compose_output_is_bounded_and_decoded(tmp_path, monkeypatch):
+    """Streamed and bounded: a wedged daemon showed nothing and never ended
+    (cycle 69); the child is killed, not waited out, and non-UTF-8 output is
+    replaced, not a crashed reader (cycle 74)."""
+    import time as _time
+
+    from core.docker_manager import DockerManager
+    from utils import system
+
+    manager = DockerManager(str(tmp_path))
+    logged = []
+    scr = _screen()
+    monkeypatch.setattr(scr, "_safe_log", lambda message, **_k: logged.append(message))
+    scr._route_teardown_output(manager)
+    monkeypatch.setattr(system, "SINK_COMPOSE_TIMEOUT_SECONDS", 2)
+
+    began = _time.monotonic()
+    child = ["sh", "-c", "echo started; exec sleep 30"]  # exec: the kill closes the pipe
+    assert system.run_compose_child(child, str(tmp_path), manager.output_sink) == 124
+    assert _time.monotonic() - began < 10
+    assert logged[0] == "started"
+    assert "did not finish" in logged[-1]
+    logged.clear()
+    assert system.run_compose_child(["sh", "-c", "printf 'caf\\351\\n'"], str(tmp_path), manager.output_sink) == 0
+    assert logged == ["caf\ufffd"]
 
 
 async def _until(condition, *, tries: int = 100, pause: float = 0.05) -> None:
@@ -525,3 +547,26 @@ def test_real_ctrl_q_and_ctrl_c_keys_cannot_exit_during_a_stop():
 
     _run(scenario)
     assert exits == [], exits
+
+
+def test_the_stop_flag_is_set_at_commit_and_the_escape_window_expires(monkeypatch):
+    """A quit handled before the worker's first step exited with `down`
+    scheduled; the second-press escape must also expire (cycle 74)."""
+    from ui.textual.screens import wizard_screen
+
+    scr = _launched_screen_with(_FakeStopper())
+    scr._phase, scr._launch_succeeded = "launch", True
+    scr.run_worker = lambda work, **_k: work.close()  # the worker never starts
+    notes, logs = [], []
+    scr.notify = lambda message, **_k: notes.append(message)
+    scr._safe_log = lambda message, **_k: logs.append(message)
+    clock = {"t": 100.0}
+    monkeypatch.setattr(wizard_screen, "_teardown_clock", lambda: clock["t"])
+    scr.action_stop_stack()
+    scr.action_stop_stack()
+    assert scr.refuse_exit_during_teardown() is True  # set before any worker step
+    clock["t"] += 6  # past the 5 s window: refused again, not let through
+    assert scr.refuse_exit_during_teardown() is True
+    clock["t"] += 1
+    assert scr.refuse_exit_during_teardown() is False
+    assert any("result is unknown" in line for line in logs), logs

@@ -586,6 +586,10 @@ class BudgetEngine:
         otherwise the engine serializes the check-then-append with a
         process-local lock, which is what the concurrency-boundary test exercises.
         """
+        if record.estimated_cost_usd == 0:
+            # A free (local ComfyUI) request spends nothing, so it is never
+            # over budget, even after an operator settles a scope past its cap.
+            cap = None
         store_reserve = getattr(self.store, "reserve_within_cap", None)
         if store_reserve is not None:
             return await store_reserve(record, cap)

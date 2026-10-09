@@ -361,5 +361,33 @@ def test_pipeline_installs_bounded_executor_as_the_actual_compose_hook() -> None
 
     assert "_ThreadedComposeExecutor(" in source
     assert "docker_manager.execute_compose_command = compose_executor" in source
+    assert "restore_stream = compose_executor.bridge_stream()" in source
+    assert "restore_stream()" in source
     assert "compose_executor.run_in_thread(fn)" in source
     assert "Popen(" not in source
+
+
+def test_cold_cleanup_stream_is_cancelled_with_the_launch(tmp_path: Path) -> None:
+    """The cold-start `down --volumes` went through a raw Popen with no deadline
+    or cancel; Ctrl+C on a wedged daemon waited forever (2026-10-08 run,
+    cycle 76)."""
+    messages: list[tuple[str, str, str]] = []
+
+    async def exercise() -> tuple[int, float]:
+        executor, _manager = _executor(
+            tmp_path, [sys.executable, "-c", "import time; time.sleep(30)"], messages
+        )
+        launch = asyncio.create_task(
+            executor.run_in_thread(lambda: executor.stream(["down", "--volumes"], on_line=print))
+        )
+        await asyncio.sleep(0.5)
+        started = time.monotonic()
+        launch.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await launch
+        return time.monotonic() - started
+
+    elapsed = asyncio.run(exercise())
+
+    assert elapsed < 5
+    assert any("cancelled" in message for message, _, _ in messages)

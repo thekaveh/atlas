@@ -2300,6 +2300,21 @@ def test_a_delete_with_a_body_gets_the_default_envelope():
     scope = _scope(method="DELETE", path="/items/bulk", content_length=40 * 1024 * 1024)
     asyncio.run(middleware(scope, receive, send))
     assert sent[0]["status"] == 413 and read == [] and reached == []
+    # A chunked DELETE declares its body without a Content-Length (cycle 74).
+    chunked = _scope(method="DELETE", path="/items/bulk")
+    chunked["headers"] = [*chunked["headers"], (b"transfer-encoding", b"chunked")]
+    big = {"type": "http.request", "body": b"x" * (17 * 1024 * 1024), "more_body": False}
+
+    async def receive_big():
+        return big
+
+    async def reading_app(scope, receive, send):
+        while (await receive()).get("more_body"):
+            pass
+
+    sent.clear()
+    asyncio.run(RequestLimitMiddleware(reading_app, policy=LimitPolicy(rules=[]), authenticate=no_auth)(chunked, receive_big, send))
+    assert sent[0]["status"] == 413  # the counter trips mid-stream; the app then sees a disconnect
     # A DELETE without a body is not touched.
     asyncio.run(middleware(_scope(method="DELETE", path="/items/1"), receive, send))
     assert reached == ["DELETE"]

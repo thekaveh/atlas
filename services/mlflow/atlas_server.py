@@ -83,10 +83,62 @@ class GatewayDisabled:
         await self._upstream(scope, receive, send)
 
 
-def _guarded_app() -> GatewayDisabled:
+_FORBIDDEN_ORIGIN = b'{"detail":"Origin not allowed"}'
+
+
+def _origin_refused(scope: Scope) -> bool:
+    """True for an API call, or any write, from an origin outside the list.
+
+    MLflow 3.16.1 admits every ``localhost`` / ``127.0.0.1`` origin on any
+    port whatever ``MLFLOW_SERVER_CORS_ALLOWED_ORIGINS`` says, and the direct
+    port has no login, so a page on another local port could create, delete
+    and read experiments and models. Clients without an ``Origin`` header
+    (SDK, curl, same-origin GET) are not affected.
+    """
+    headers = dict(scope.get("headers") or [])
+    origin = headers.get(b"origin")
+    if origin is None:
+        return False
+    allowed = {
+        entry.strip()
+        for entry in os.environ.get("MLFLOW_SERVER_CORS_ALLOWED_ORIGINS", "").split(",")
+        if entry.strip()
+    }
+    if origin.decode("latin-1") in allowed:
+        return False
+    path = _without_static_prefix(scope.get("path", ""))
+    is_api = path.startswith(("/api/", "/ajax-api/"))
+    return is_api or scope.get("method") not in ("GET", "HEAD")
+
+
+class OriginGuard:
+    """Hold MLflow to the exact configured origin list."""
+
+    def __init__(self, upstream: Callable[[Scope, Receive, Send], Awaitable[None]]):
+        self._upstream = upstream
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") == "http" and _origin_refused(scope):
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 403,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"cache-control", b"no-store"),
+                        (b"content-length", str(len(_FORBIDDEN_ORIGIN)).encode("ascii")),
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": _FORBIDDEN_ORIGIN})
+            return
+        await self._upstream(scope, receive, send)
+
+
+def _guarded_app() -> OriginGuard:
     from mlflow.server.fastapi_app import app as upstream_app
 
-    return GatewayDisabled(upstream_app)
+    return OriginGuard(GatewayDisabled(upstream_app))
 
 
 _OUTDATED_SCHEMA = "Detected out-of-date database schema"

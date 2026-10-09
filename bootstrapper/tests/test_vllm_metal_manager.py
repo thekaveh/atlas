@@ -1557,7 +1557,8 @@ def test_a_non_http_listener_reads_as_unreachable_not_a_traceback(tmp_path):
     assert result["reachable"] is False, result
 
 
-@pytest.mark.parametrize("body", ["[]", '{"data": [1]}', '{"data": {"id": "x"}}', '"x"', '{"devices": ["mps"]}'])
+@pytest.mark.parametrize("body", ["[]", '{"data": [1]}', '{"data": {"id": "x"}}', '"x"', '{"devices": ["mps"]}',
+                                  '{"data": 5}', '{"devices": 5}'])
 def test_health_reads_a_foreign_json_shape_without_raising(monkeypatch, tmp_path, body):
     """A foreign listener's JSON raised AttributeError in health(), which
     rolled back the start's managed hosts (2026-10-08 run, cycle 68)."""

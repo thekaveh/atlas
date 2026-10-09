@@ -227,7 +227,10 @@ warns if a non-default project is left on it). Three ways, in order of preferenc
   prefer the manifest `auto` above). Ports of a disabled service are not
   probed. The probe applies this run's `--<svc>-source` flags, a manifest's
   declared `*_SOURCE` values (for `BASE_PORT: auto`) and the wizard's source
-  answers, but not a profile's sources (#1391).
+  answers (#1391). Once a profile, the manifest and the flags have written
+  their sources, the port check probes a block chosen this run again; if a
+  service enabled by one of them finds its port taken, the next free block is
+  used instead of refusing the launch.
   Candidate blocks are 100 ports apart, the highest port offset in use plus one;
   the `apps` slot band reserves offsets up to 109 for future services, and
   keeping the step at 100 leaves existing auto blocks where they are (#1391).
@@ -400,7 +403,7 @@ whole integration.
 
 | Knob | What it does | Where |
 |------|--------------|-------|
-| **`PROJECT_NAME`** | The Docker Compose project name — prefixes every container, volume, and the network (`${PROJECT_NAME}-network`), and is the `docker compose -p` namespace. **Both `./start.sh` and `./stop.sh` read it**, so stop tears down exactly what start launched. The key to isolation between stacks. Override per-run with `./start.sh --project <name>` / `-p` (persists back to `.env`); the wizard also prompts for it. Every compose command Atlas runs (wizard included) makes `PROJECT_NAME` name the same project as its `-p`: a shell-exported value or a `--cold --project <new>` that names a different project is replaced, so `down --volumes` cannot reach another project's volumes, while a hand-edited mixed-case name such as `MyStack` (project `mystack`) keeps its spelling, so existing `MyStack-*` volumes stay in use. | `.env` / `-p` |
+| **`PROJECT_NAME`** | The Docker Compose project name — prefixes every container, volume, and the network (`${PROJECT_NAME}-network`), and is the `docker compose -p` namespace. **Both `./start.sh` and `./stop.sh` read it**, so stop tears down exactly what start launched. The key to isolation between stacks. Override per-run with `./start.sh --project <name>` / `-p` (persists back to `.env`, unless `.env` already names the same project in another letter case: then the stored spelling is kept, for `./stop.sh -p` too); the wizard also prompts for it. Every compose command Atlas runs (wizard included) makes `PROJECT_NAME` name the same project as its `-p`: a shell-exported value or a `--cold --project <new>` that names a different project is replaced, so `down --volumes` cannot reach another project's volumes, while a hand-edited mixed-case name such as `MyStack` (project `mystack`) keeps its spelling, so existing `MyStack-*` volumes stay in use. | `.env` / `-p` |
 | **`.env.user`** | Optional user-owned overlay beside the active `.env`. On every start, Atlas merges `.env.user` values into `.env` before backfill and CLI flags. Use it for local downstream-only keys that must survive `.env` regeneration without adding them to upstream `.env.example`. | `.env.user` |
 | **`ATLAS_ENV_USER_FILE`** | Optional external user-owned overlay. Use this when Atlas is a submodule and the persistent project config should live in the parent repo instead of inside the Atlas checkout. The external file is applied after sibling `.env.user`, so it wins on duplicate keys; `--project` and other CLI flags still win last. | shell env var |
 | **`atlas.consumer.yml`** | Parent-owned one-file registration for project name, branding, env overlays, external Compose overlays, backend plugin roots, and model sidecars. Pass it with `./start.sh --consumer ./atlas.consumer.yml` or `ATLAS_CONSUMER_MANIFEST`. | [§6.1](#61-registering-a-parent-project-with-atlasconsumeryml) |
