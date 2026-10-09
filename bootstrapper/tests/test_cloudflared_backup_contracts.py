@@ -2134,7 +2134,10 @@ def test_s3_stream_supervisor_owns_producer_before_session_exists(
             "S3_CLIENT": str(REPO / "services/backup/init/scripts/s3-client.sh"),
             "PRODUCER_PID": str(producer_pid),
         },
-        timeout=10,
+        # The script's own wait (500 polls, each spawning ps) takes 8-9 s on
+        # macOS; 10 s here timed out under any load (2026-10-08 run). This
+        # is only the outer safety bound.
+        timeout=30,
         pid_files=(producer_pid,),
     ) as result:
         assert result.returncode == 0, result.stderr
@@ -5672,3 +5675,88 @@ def test_orchestrator_reads_export_prefixed_env_lines(tmp_path):
     assert values["PROJECT_NAME"] == "myproj"
     assert values["NEO4J_GRAPH_DB_SOURCE"] == "disabled"
     assert values["WEAVIATE_SOURCE"] == "container"
+
+
+_BACKUP_SCRIPTS = REPO / "services/backup/init/scripts"
+
+
+def test_a_disabled_source_placeholder_archives_under_busybox_tar(tmp_path):
+    """The backup image is alpine; BusyBox tar refuses `-T /dev/null` ("empty
+    archive"), so every consistent backup failed while Neo4j or Weaviate was
+    disabled (2026-10-08 run, cycle 34). Host GNU/bsd tar hid it."""
+    import shutil
+
+    if shutil.which("docker") is None:
+        pytest.skip("docker required for a BusyBox tar")
+    image = "alpine:3.24.2"
+    if subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode != 0:
+        pytest.skip(f"{image} not local")
+    script = (
+        ". /s/database-snapshots.sh; run_bounded() { \"$@\"; }; "
+        "database_empty_archive /tmp/neo4j.snapshot.tar.gz && tar tzf /tmp/neo4j.snapshot.tar.gz"
+    )
+    result = subprocess.run(
+        ["docker", "run", "--rm", "--pull=never", "--network", "none",
+         "-v", f"{_BACKUP_SCRIPTS}:/s:ro", image, "sh", "-c", script],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def _restore_harness(tmp_path, *, publish_postgres: bool):
+    """Publish a disabled-source database set into a fake bucket, then run
+    restore-databases.sh prepare against it through a stub mc."""
+    import shutil
+
+    for tool in ("openssl", "timeout", "sha256sum", "setsid"):
+        if shutil.which(tool) is None:
+            pytest.skip(f"{tool} required")
+    key, ts, bid = "a" * 64, "20261008_120000", "0123456789abcdef" * 2
+    bucket = tmp_path / "bucket" / "atlas-backups"
+    (tmp_path / "bin").mkdir(parents=True)
+    mc = tmp_path / "bin" / "mc"
+    mc.write_text(f'#!/bin/sh\ncase "$1" in alias) exit 0;; cat) exec cat "{tmp_path / "bucket"}/${{2#s3/}}";; *) exit 1;; esac\n')
+    mc.chmod(0o755)
+    work = tmp_path / "work"
+    work.mkdir()
+    env = {"PATH": f"{tmp_path / 'bin'}:{os.environ['PATH']}", "BACKUP_MANIFEST_HMAC_KEY": key,
+           "BACKUP_DEPLOYMENT_ID": "dep1", "BACKUP_NEO4J_SOURCE": "disabled", "BACKUP_WEAVIATE_SOURCE": "disabled"}
+    capture = subprocess.run(
+        ["sh", "-c", f". '{_BACKUP_SCRIPTS / 'database-snapshots.sh'}'; run_bounded() {{ \"$@\"; }}; capture_database_snapshots '{work}' {ts} {bid}"],
+        env=env, capture_output=True, text=True, timeout=120)
+    assert capture.returncode == 0, capture.stderr
+    (bucket / ts / bid).mkdir(parents=True)
+    for item in work.iterdir():
+        if item.name != "databases.complete":
+            shutil.copy(item, bucket / ts / bid / item.name)
+    shutil.copy(work / "databases.complete", bucket / ts / "databases.complete")
+    if publish_postgres:
+        payload = "".join(f"{k}={v}\n" for k, v in (
+            ("completion_format", 1), ("backup_timestamp", ts), ("backup_id", bid),
+            ("manifest_sha256", "0" * 64), ("manifest_bytes", 1), ("dump_bytes", 1),
+            ("tables_bytes", 1), ("objects_bytes", 1)))
+        (tmp_path / "payload").write_text(payload)
+        mac = subprocess.run(["openssl", "dgst", "-sha256", "-mac", "HMAC", "-macopt", f"hexkey:{key}",
+                              str(tmp_path / "payload")], capture_output=True, text=True).stdout.split()[-1]
+        (bucket / ts / "postgres.complete").write_text(payload + f"hmac_sha256={mac}\n")
+    token = "1" * 32
+    return subprocess.run(
+        ["sh", str(_BACKUP_SCRIPTS / 'restore-databases.sh'), "prepare"], capture_output=True, text=True, timeout=120,
+        env={**env, "MINIO_ROOT_USER": "u", "MINIO_ROOT_PASSWORD": "p", "BACKUP_TIMESTAMP": ts,
+             "BACKUP_RESTORE_TOKEN": token, "DATABASE_RESTORE_ROOT": f"/tmp/atlas-database-restore-test-{token}"})
+
+
+def test_a_database_restore_needs_the_published_postgres_marker(tmp_path):
+    """databases.complete is uploaded before postgres.complete; prepare
+    authenticated only the former, so a backup whose final upload failed
+    still cut over Neo4j/Weaviate alone (2026-10-08 run, cycle 34)."""
+    import shutil
+
+    try:
+        refused = _restore_harness(tmp_path / "a", publish_postgres=False)
+        assert refused.returncode != 0
+        assert "never published" in refused.stderr
+        accepted = _restore_harness(tmp_path / "b", publish_postgres=True)
+        assert accepted.returncode == 0, accepted.stderr
+    finally:
+        shutil.rmtree(f"/tmp/atlas-database-restore-test-{'1' * 32}", ignore_errors=True)

@@ -875,3 +875,4 @@ def test_legacy_neo4j_bind_snapshots_remain_operator_accessible():
     text = NEO_README.read_text(encoding="utf-8")
     assert "build/snapshot" in text
     assert "legacy" in text.lower()
+
