@@ -101,6 +101,10 @@ class LimitPolicy:
 
     rules: Sequence[BodyLimitRule]
     default_max_bytes: Optional[int] = DEFAULT_JSON_REQUEST_MAX_BYTES
+    # Path prefixes the default envelope skips: mounted plugins that declared
+    # ``request_buffering: false`` stream their uploads and own their cap
+    # (#1454); the 16 MiB default made any larger upload impossible.
+    streaming_prefixes: Sequence[str] = ()
 
     def __post_init__(self) -> None:
         if self.default_max_bytes is not None and self.default_max_bytes <= 0:
@@ -126,6 +130,10 @@ class RequestLimitMiddleware:
         self.authenticate = authenticate
         self.default_max_bytes = policy.default_max_bytes
         self._rules = {(rule.method, rule.path): rule for rule in policy.rules}
+        self._streaming_prefixes = tuple(p.rstrip("/") for p in policy.streaming_prefixes)
+
+    def _streams(self, path: str) -> bool:
+        return any(path == p or path.startswith(p + "/") for p in self._streaming_prefixes)
 
     async def __call__(self, scope: Dict[str, Any], receive, send) -> None:
         if scope.get("type") != "http" or scope.get("method") not in _BODY_METHODS:
@@ -133,7 +141,7 @@ class RequestLimitMiddleware:
             return
 
         rule = self._rules.get((scope["method"], scope.get("path", "")))
-        if rule is None and self.default_max_bytes is None:
+        if rule is None and (self.default_max_bytes is None or self._streams(scope.get("path", ""))):
             await self.app(scope, receive, send)
             return
         max_bytes = rule.max_bytes if rule else self.default_max_bytes

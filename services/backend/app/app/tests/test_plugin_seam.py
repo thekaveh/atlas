@@ -842,3 +842,38 @@ def test_a_pin_change_leaves_one_dist_info_per_distribution(tmp_path, monkeypatc
     monkeypatch.setenv("BACKEND_PLUGINS_SITE_DIR", str(foreign))
     plugin_seam._ensure_plugin_site()
     assert (foreign / "keep.txt").exists()
+
+
+def test_a_streaming_plugin_prefix_skips_the_default_envelope():
+    """A plugin that declared request_buffering: false still hit the 16 MiB
+    default, so no upload above it could reach the plugin (2026-10-08 run,
+    cycle 11; gap in #1454). Other paths keep the envelope."""
+    import media_request_limit
+    from starlette.applications import Starlette
+    from starlette.responses import PlainTextResponse
+    from starlette.routing import Route
+    from starlette.testclient import TestClient
+
+    async def count(request):
+        size = 0
+        async for chunk in request.stream():
+            size += len(chunk)
+        return PlainTextResponse(str(size))
+
+    inner = Starlette(routes=[Route("/bigup/upload", count, methods=["POST"]),
+                             Route("/bigupx/upload", count, methods=["POST"]),
+                             Route("/other", count, methods=["POST"])])
+
+    async def no_auth(_scope):
+        return None
+
+    wrapped = media_request_limit.RequestLimitMiddleware(
+        inner,
+        policy=media_request_limit.LimitPolicy(rules=[], default_max_bytes=1024, streaming_prefixes=["/bigup"]),
+        authenticate=no_auth,
+    )
+    client = TestClient(wrapped)
+    body = b"x" * 4096
+    assert client.post("/bigup/upload", content=body).text == "4096"
+    assert client.post("/bigupx/upload", content=body).status_code == 413
+    assert client.post("/other", content=body).status_code == 413

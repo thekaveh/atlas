@@ -75,6 +75,7 @@ def configure_otel(app: Any) -> bool:
         excluded_urls=os.getenv(
             "OTEL_PYTHON_FASTAPI_EXCLUDED_URLS", "/metrics,/health,/ready"
         ),
+        server_request_hook=redact_span_apikey,
     )
     CeleryInstrumentor().instrument(tracer_provider=provider)
     # Outbound calls (LiteLLM, ComfyUI, Weaviate, …) get client spans and a
@@ -82,6 +83,30 @@ def configure_otel(app: Any) -> bool:
     HTTPXClientInstrumentor().instrument(tracer_provider=provider)
     app.state.otel_configured = True
     return True
+
+
+_URL_ATTRIBUTES = ("http.url", "url.full", "http.target")
+
+
+def redact_span_apikey(span, _scope) -> None:
+    """Mask a query-string ``apikey`` in the server span's URL attributes.
+
+    The plugin gateway key may arrive as ``?apikey=`` (browsers cannot set a
+    header on a WebSocket handshake); the access log masks it, but the span
+    recorded the full URL and exported the key to the collector
+    (2026-10-08 run, cycle 11)."""
+    from access_log import _redact_apikey_query_values
+
+    if span is None or not span.is_recording():
+        return
+    attributes = getattr(span, "attributes", None) or {}
+    for key in _URL_ATTRIBUTES:
+        value = attributes.get(key)
+        if isinstance(value, str) and "?" in value:
+            span.set_attribute(key, _redact_apikey_query_values(value))
+    query = attributes.get("url.query")
+    if isinstance(query, str) and query:
+        span.set_attribute("url.query", _redact_apikey_query_values("?" + query)[1:])
 
 
 def configure_celery_otel(*, service_name: str) -> bool:

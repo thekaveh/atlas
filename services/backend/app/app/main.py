@@ -758,6 +758,10 @@ app.add_middleware(
             path="/documents/extract",
             max_bytes=_document_max_file_size() + MULTIPART_OVERHEAD_BYTES,
         ),
+    ], streaming_prefixes=[
+        entry["route_prefix"] for entry in PLUGIN_INVENTORY
+        if entry.get("status") == "loaded"
+        and (entry.get("kong_route") or {}).get("request_buffering") is False
     ]),
     authenticate=authenticate_backend_scope,
 )

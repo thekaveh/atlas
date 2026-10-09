@@ -266,7 +266,9 @@ overrides do not affect other backend routes; an omitted `read_timeout`/
 `write_timeout` gets the backend's own long timeout (at least 3,630,000 ms) and an omitted
 `connect_timeout` keeps Kong's 60,000 ms default. A plugin that sets
 `request_buffering` or `response_buffering` gets the same dedicated service;
-`false` streams its uploads or downloads through Kong. See
+`false` streams its uploads or downloads through Kong, and `request_buffering:
+false` also lifts the backend's 16 MiB default body limit for that prefix (the
+plugin enforces its own cap). See
 [reusing-atlas.md §6.3.1](https://github.com/thekaveh/atlas/blob/main/docs/operations/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml).
 
 ## 7. Health And Logs
