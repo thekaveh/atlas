@@ -118,6 +118,8 @@ services:
     image: ${SUPABASE_META_IMAGE}
     container_name: ${PROJECT_NAME}-supabase-meta
     restart: unless-stopped
+    deploy:
+      replicas: ${SUPABASE_META_SCALE:-1}
     depends_on:
       supabase-db-init:
         condition: service_completed_successfully
@@ -149,6 +151,8 @@ services:
     image: ${SUPABASE_STORAGE_IMAGE}
     container_name: ${PROJECT_NAME}-supabase-storage
     restart: unless-stopped
+    deploy:
+      replicas: ${SUPABASE_STORAGE_SCALE:-1}
     depends_on:
       supabase-db-init:
         condition: service_completed_successfully
@@ -186,6 +190,8 @@ services:
     image: ${SUPABASE_AUTH_IMAGE}
     container_name: ${PROJECT_NAME}-supabase-auth
     restart: unless-stopped
+    deploy:
+      replicas: ${SUPABASE_AUTH_SCALE:-1}
     depends_on:
       supabase-db-init:
         condition: service_completed_successfully
@@ -235,6 +241,8 @@ services:
     image: ${SUPABASE_API_IMAGE}
     container_name: ${PROJECT_NAME}-supabase-api
     restart: unless-stopped
+    deploy:
+      replicas: ${SUPABASE_API_SCALE:-1}
     depends_on:
       supabase-db-init:
         condition: service_completed_successfully
@@ -257,13 +265,17 @@ services:
     image: ${SUPABASE_REALTIME_IMAGE}
     container_name: ${PROJECT_NAME}-supabase-realtime
     restart: unless-stopped
+    deploy:
+      replicas: ${SUPABASE_REALTIME_SCALE:-1}
     depends_on:
       supabase-db-init:
         condition: service_completed_successfully
       supabase-auth:
         condition: service_started
+        required: false
       supabase-api:
         condition: service_started
+        required: false
     environment:
       DB_HOST: supabase-db
       DB_PORT: 5432
@@ -317,6 +329,8 @@ services:
     image: ${SUPABASE_STUDIO_IMAGE}
     container_name: ${PROJECT_NAME}-supabase-studio
     restart: unless-stopped
+    deploy:
+      replicas: ${SUPABASE_STUDIO_SCALE:-1}
     depends_on:
       supabase-db-init:
         condition: service_completed_successfully

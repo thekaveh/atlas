@@ -202,11 +202,15 @@ env:
   # Meta
   - name: SUPABASE_META_SOURCE
     default: container
+  - name: SUPABASE_META_SCALE
+    auto_managed: true
   - name: SUPABASE_META_PORT
     # default removed — computed by services/topology.py slot allocator
   # Storage
   - name: SUPABASE_STORAGE_SOURCE
     default: container
+  - name: SUPABASE_STORAGE_SCALE
+    auto_managed: true
   - name: SUPABASE_STORAGE_PORT
     # default removed — computed by services/topology.py slot allocator
   - name: STORAGE_REGION
@@ -222,6 +226,8 @@ env:
   # Auth (GoTrue)
   - name: SUPABASE_AUTH_SOURCE
     default: container
+  - name: SUPABASE_AUTH_SCALE
+    auto_managed: true
   - name: SUPABASE_AUTH_PORT
     # default removed — computed by services/topology.py slot allocator
   - name: SUPABASE_JWT_SECRET
@@ -239,16 +245,22 @@ env:
   # API (PostgREST)
   - name: SUPABASE_API_SOURCE
     default: container
+  - name: SUPABASE_API_SCALE
+    auto_managed: true
   - name: SUPABASE_API_PORT
     # default removed — computed by services/topology.py slot allocator
   # Realtime
   - name: SUPABASE_REALTIME_SOURCE
     default: container
+  - name: SUPABASE_REALTIME_SCALE
+    auto_managed: true
   - name: SUPABASE_REALTIME_PORT
     # default removed — computed by services/topology.py slot allocator
   # Studio
   - name: SUPABASE_STUDIO_SOURCE
     default: container
+  - name: SUPABASE_STUDIO_SCALE
+    auto_managed: true
   - name: SUPABASE_STUDIO_PORT
     # default removed — computed by services/topology.py slot allocator
 
@@ -267,26 +279,32 @@ rows:
     description: "Postgres database (always-on, container-only)."
   - display_name: "Supabase Meta"
     source_var: SUPABASE_META_SOURCE
+    scale_var: SUPABASE_META_SCALE
     port_var: SUPABASE_META_PORT
     description: "Postgres metadata API."
   - display_name: "Supabase Storage"
     source_var: SUPABASE_STORAGE_SOURCE
+    scale_var: SUPABASE_STORAGE_SCALE
     port_var: SUPABASE_STORAGE_PORT
     description: "S3-compatible storage API."
   - display_name: "Supabase Auth"
     source_var: SUPABASE_AUTH_SOURCE
+    scale_var: SUPABASE_AUTH_SCALE
     port_var: SUPABASE_AUTH_PORT
     description: "GoTrue authentication service."
   - display_name: "Supabase API"
     source_var: SUPABASE_API_SOURCE
+    scale_var: SUPABASE_API_SCALE
     port_var: SUPABASE_API_PORT
     description: "PostgREST REST API surface."
   - display_name: "Supabase Realtime"
     source_var: SUPABASE_REALTIME_SOURCE
+    scale_var: SUPABASE_REALTIME_SCALE
     port_var: SUPABASE_REALTIME_PORT
     description: "WebSocket replication firehose."
   - display_name: "Supabase Studio"
     source_var: SUPABASE_STUDIO_SOURCE
+    scale_var: SUPABASE_STUDIO_SCALE
     port_var: SUPABASE_STUDIO_PORT
     alias: supabase-studio.localhost
     description: "Browser UI for the database."

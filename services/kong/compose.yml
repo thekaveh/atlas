@@ -19,14 +19,19 @@ services:
         condition: service_started
       supabase-auth:
         condition: service_started
+        required: false
       supabase-api:
         condition: service_started
+        required: false
       supabase-realtime:
         condition: service_started
+        required: false
       supabase-storage:
         condition: service_started
+        required: false
       supabase-meta:
         condition: service_started
+        required: false
     environment:
       KONG_DATABASE: "off"
       # Host->container port map, so X-Forwarded-Port (and every upstream
