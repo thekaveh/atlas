@@ -210,6 +210,8 @@ class PluginManifest(BaseModel):
     connect_timeout: Optional[int] = Field(default=None, ge=1, le=_KONG_TIMEOUT_MAX_MS)
     write_timeout: Optional[int] = Field(default=None, ge=1, le=_KONG_TIMEOUT_MAX_MS)
     read_timeout: Optional[int] = Field(default=None, ge=1, le=_KONG_TIMEOUT_MAX_MS)
+    request_buffering: Optional[bool] = None
+    response_buffering: Optional[bool] = None
     env: list[PluginEnvVar] = Field(default_factory=list)
     depends_on: list[str] = Field(default_factory=list)
 

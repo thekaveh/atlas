@@ -326,3 +326,14 @@ def test_dot_segments_never_reach_kong_from_the_backend_validator():
         assert pattern == f"^{_PATH_RE.pattern}$"
         assert properties["health_path"]["pattern"] == pattern  # same grammar for health_path
         assert re.compile(pattern).search("/x/../api") is None
+
+
+def test_backend_loader_accepts_the_buffering_flags_the_schema_declares(tmp_path):
+    """The backend model forbids unknown keys, so a plugin.yml using a
+    schema field it lacks would be skipped (#1454)."""
+    manifest = load_manifest(_write(
+        tmp_path,
+        "plugin_manifest_version: 1\nname: stream\nroute_prefix: /stream\n"
+        "request_buffering: false\nresponse_buffering: false\n",
+    ))
+    assert manifest.request_buffering is False and manifest.response_buffering is False
