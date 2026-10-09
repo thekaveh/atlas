@@ -391,13 +391,15 @@ def test_quit_and_interrupt_are_refused_while_a_stop_runs():
                 if scr._teardown_running:
                     break
             scr.action_quit_wizard()
+            scr._exit_refused_until = 0.0  # the second-press escape is tested separately
             refused = scr.refuse_exit_during_teardown()
+            escaped = not scr.refuse_exit_during_teardown()  # a second press within 5 s leaves
             release.set()
             for _ in range(100):
                 await asyncio.sleep(0.05)
                 if not scr._teardown_running:
                     break
-            return refused
+            return refused and escaped
 
     assert _run(scenario) is True
     assert exits == [], "quit must not exit while the stop runs"
@@ -441,18 +443,16 @@ def test_teardown_compose_output_reaches_the_log_pane_not_the_terminal(tmp_path,
     scr = _screen()
     monkeypatch.setattr(scr, "_safe_log", lambda message, **_k: logged.append(message))
     scr._route_teardown_output(manager)
-    seen = {}
+    from utils import system
 
-    def fake_run(cmd, **kwargs):
-        seen.update(kwargs)
-        return subprocess.CompletedProcess(cmd, 0, "Container x  Removed\n", None)
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    from utils.system import run_compose_child
-
-    assert run_compose_child(["docker", "compose", "-p", "atlas", "down"], str(tmp_path), manager.output_sink) == 0
-    assert seen["stdout"] is subprocess.PIPE
+    child = ["sh", "-c", "echo 'Container x  Removed' >&2"]
+    assert system.run_compose_child(child, str(tmp_path), manager.output_sink) == 0
     assert "Container x  Removed" in logged
+    # Streamed and bounded: a wedged daemon showed nothing and never ended (cycle 69).
+    monkeypatch.setattr(system, "SINK_COMPOSE_TIMEOUT_SECONDS", 1)
+    logged.clear()
+    assert system.run_compose_child(["sh", "-c", "echo started; sleep 30"], str(tmp_path), manager.output_sink) == 124
+    assert logged[0] == "started" and "did not finish" in logged[-1]
     manager._report_surviving_volumes = lambda project, emit: emit("survivor warning") or ["v"]
     monkeypatch.setattr(manager, "execute_compose_command", lambda *a, **k: 0)
     assert manager.perform_cold_stop_cleanup() is False
@@ -516,6 +516,7 @@ def test_real_ctrl_q_and_ctrl_c_keys_cannot_exit_during_a_stop():
             scr.action_stop_stack()
             await _until(lambda: getattr(scr, "_teardown_running", False))
             await pilot.press("ctrl+q")
+            scr._exit_refused_until = 0.0  # each guard on its own, not the second-press escape
             app.push_screen(ModalScreen())
             await pilot.pause()
             await pilot.press("ctrl+c")

@@ -740,8 +740,9 @@ class VllmMetalManager:
             payload = json.loads(body)
         except ValueError:
             return {"reachable": True, "models": [], "error": "non-JSON /v1/models"}
-        models = [str(m.get("id")) for m in (payload.get("data") or []) if m.get("id")]
-        return {"reachable": True, "models": models}
+        # A foreign listener can answer other JSON; an AttributeError here
+        # rolled back the start (2026-10-08 run, cycle 68).
+        return {"reachable": True, "models": _model_ids(payload)}
 
     def wait_healthy(self, *, timeout: float = 120.0, interval: float = 2.0) -> dict:
         """Poll /v1/models until the server answers or ``timeout`` elapses.
@@ -887,6 +888,12 @@ def _port_error(raw, key: str, what: str = "a port number"):
     if raw and not (raw.isascii() and raw.isdigit()):
         return f"{key}={raw!r} is not {what}; fix it in .env"
     return None
+
+
+def _model_ids(payload) -> list[str]:
+    data = payload.get("data") if isinstance(payload, dict) else None
+    entries = data if isinstance(data, list) else []
+    return [str(m["id"]) for m in entries if isinstance(m, dict) and m.get("id")]
 
 
 def _env_port(raw, default: int) -> int:

@@ -1019,4 +1019,3 @@ def test_tempfile_write_enospc_closes_spool_without_app_or_response(monkeypatch)
     assert sent == []
     assert len(created) == 1
     assert created[0].closed is True
-

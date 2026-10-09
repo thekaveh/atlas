@@ -132,6 +132,11 @@ class ProvisionResult:
         }
 
 
+def _device_entries(stats) -> list[dict]:
+    devices = stats.get("devices") if isinstance(stats, dict) else None
+    return [d for d in devices if isinstance(d, dict)] if isinstance(devices, list) else []
+
+
 def _range_total(exc) -> int | None:
     """N from a 416's ``Content-Range: bytes */N``, else None.
 
@@ -432,6 +437,19 @@ class ComfyUiMpsManager:
         except OSError as exc:
             raise ComfyUiMpsError("pinned ComfyUI checkout lacks requirements.txt") from exc
 
+    def _recorded_install(self) -> dict:
+        """The installed marker as install last recorded it. Start and stop
+        wrote self.ref and the current requirements back, restoring the
+        marker a failed reconcile had dropped, so the next start skipped the
+        install over a half-built venv (2026-10-08 run, cycle 68)."""
+        try:
+            status = json.loads(self.status_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            status = {}
+        status = status if isinstance(status, dict) else {}
+        return {"installed_ref": status.get("installed_ref"),
+                "requirements_sha256": status.get("requirements_sha256")}
+
     def _installed_environment_matches(self, requirements_sha256: str) -> bool:
         try:
             payload = json.loads(self.status_file.read_text(encoding="utf-8"))
@@ -543,11 +561,7 @@ class ComfyUiMpsManager:
 
             started = _require_started(proc.pid, _MHM._process_start_time)
             _write_pid(self.pid_file, proc.pid, started)
-            self._write_status(
-                installed_ref=self.ref,
-                requirements_sha256=self._requirements_sha256(),
-                pid=proc.pid,
-            )
+            self._write_status(**self._recorded_install(), pid=proc.pid)
         except BaseException as exc:
             outcome = _compensate(
                 proc.pid, self.pid_file, lambda: self._terminate_pid(proc.pid)
@@ -652,7 +666,7 @@ class ComfyUiMpsManager:
             # pidfile so a retry/operator can act; don't claim success.
             return False
         self._clear_pid()
-        self._write_status(installed_ref=self.ref, pid=None)
+        self._write_status(**self._recorded_install(), pid=None)
         self._untracked_pid = None
         return True
 
@@ -764,8 +778,23 @@ class ComfyUiMpsManager:
                     f"{detail} may still be alive"
                 )
             self._refuse_removing_host_models()
+            self._refuse_removing_user_work()
             from services import remove_state_directory
             remove_state_directory(self.state_dir, ("managed ComfyUI state directory", ComfyUiMpsError))
+
+    def _refuse_removing_user_work(self) -> None:
+        """Generated images (ComfyUI/output) and saved workflows (ComfyUI/user/
+        .../workflows) live in the checkout; remove deleted them with the venv
+        (2026-10-08 run, cycle 68). ComfyUI's own placeholders start with '_'."""
+        output = self.repo_dir / "output"
+        kept = [p for p in output.rglob("*") if p.is_file() and not p.name.startswith("_")] if output.is_dir() else []
+        user = self.repo_dir / "user"
+        kept += [p for p in user.rglob("workflows/*") if p.is_file()] if user.is_dir() else []
+        if kept:
+            raise ComfyUiMpsError(
+                f"refusing to remove {self.state_dir}: it holds {len(kept)} generated image(s) or saved "
+                f"workflow(s), for example {kept[0]}; move {output} and {user} aside first"
+            )
 
     def _refuse_removing_host_models(self) -> None:
         """The host models dir is never deleted (README §10), even when it was
@@ -786,7 +815,9 @@ class ComfyUiMpsManager:
             stats = json.loads(body)
         except ValueError:
             return {"reachable": True, "device": "unknown", "error": "non-JSON /system_stats"}
-        devices = stats.get("devices") or []
+        # A foreign listener can answer other JSON; an AttributeError here
+        # rolled back the start (2026-10-08 run, cycle 68).
+        devices = _device_entries(stats)
         device_types = [str(d.get("type", "")).lower() for d in devices]
         # A non-CPU device (mps) is the acceptance signal.
         if any(t and t != "cpu" for t in device_types):
@@ -1487,8 +1518,10 @@ class ComfyUiMpsManager:
                 if actual == sha:
                     self._record_state(state, state_key, dest, sha)
                     return "skipped"
-                emit(f"↻ {state_key}: sha256 mismatch — re-fetching corrupt file")
-                dest.unlink()
+                # Kept until a verified replacement is published by
+                # os.replace below: deleting it first lost the user's file
+                # whenever the download then failed (2026-10-08 run, cycle 68).
+                emit(f"↻ {state_key}: sha256 mismatch — fetching a verified replacement")
                 state.pop(state_key, None)
             else:
                 return "skipped"  # no checksum declared: presence is a hit

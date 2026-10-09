@@ -2079,7 +2079,9 @@ def _resolve_consumer_project(
         request.project
         or headers.get("X-Atlas-Project")
     )
-    _check_attribution_labels(consumer=claimed_consumer, project=claimed_project)
+    # model goes into the ledger too: a NUL there was the same retryable 503
+    # (2026-10-08 run, cycle 70).
+    _check_attribution_labels(consumer=claimed_consumer, project=claimed_project, model=request.model)
     return authorize_media_scope(principal, claimed_consumer, claimed_project)
 
 

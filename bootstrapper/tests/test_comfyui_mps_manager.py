@@ -2065,3 +2065,52 @@ def test_a_civitai_file_name_is_reduced_where_it_is_parsed():
                                       "downloadUrl": "https://civitai.com/api/download/models/7",
                                       "hashes": {}}]}]}]}, "lora")
     assert entries and all(e.filename == "evil.safetensors" for e in entries), entries
+
+
+def test_a_stop_keeps_a_dropped_installed_marker(tmp_path, monkeypatch):
+    """A failed reconcile drops installed_ref; stop wrote self.ref back, so
+    the next start skipped the install over a half-built venv (2026-10-08
+    run, cycle 68)."""
+    import json
+
+    mgr = _mgr(tmp_path)
+    mgr.state_dir.mkdir(parents=True)
+    mgr.pid_file.write_text("777")
+    mgr.status_file.write_text(json.dumps({"installed_ref": None, "requirements_sha256": None, "pid": 777}))
+    monkeypatch.setattr(mgr, "_pid_alive", lambda pid: True)
+    monkeypatch.setattr(mgr, "_terminate_pid", lambda pid: True)
+    monkeypatch.setattr(ComfyUiMpsManager, "_pid_is_stranger", lambda self, pid: False)
+    assert mgr.stop() is True
+    assert json.loads(mgr.status_file.read_text())["installed_ref"] is None
+
+
+def test_a_mismatched_host_file_survives_a_failed_replacement(tmp_path):
+    """The mismatched file was deleted before the download; a 404 then lost
+    the user's own weights (2026-10-08 run, cycle 68)."""
+    m = _ProvisionManager(state_dir=tmp_path / "state", models_path=tmp_path / "models")
+    dest = _dest(m)
+    dest.parent.mkdir(parents=True)
+    dest.write_bytes(b"user weights")
+
+    def fail(url, part, chunk_size=1 << 20):
+        raise mod.ComfyUiMpsError("HTTP 404 fetching url")
+
+    m._fetch_to_part = fail
+    result = m.provision_models([_row()])
+    assert result.failed and dest.read_bytes() == b"user weights"
+
+
+def test_remove_keeps_generated_images_and_saved_workflows(tmp_path):
+    """ComfyUI writes outputs and saved workflows into the checkout; remove
+    deleted them with the venv (2026-10-08 run, cycle 68)."""
+    mgr = _mgr(tmp_path)
+    (mgr.repo_dir / "output").mkdir(parents=True)
+    (mgr.repo_dir / "output" / "_output_images_will_be_put_here").write_text("")
+    mgr.remove()  # only ComfyUI's placeholder: removable
+    mgr = _mgr(tmp_path)
+    out = mgr.repo_dir / "output" / "ComfyUI_00001_.png"
+    out.parent.mkdir(parents=True)
+    out.write_bytes(b"png")
+    with pytest.raises(mod.ComfyUiMpsError, match="generated image"):
+        mgr.remove()
+    assert out.exists()

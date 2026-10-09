@@ -470,7 +470,7 @@ database records, object files, workflow/chat history, models and caches stored
 there are lost. Bind mounts, external volumes, `.env` and managed host processes
 remain; unlike cold start, cold stop does not regenerate configuration.
 While a stop runs, a second stop or cold stop is refused with a warning, and so
-are `Ctrl+Q` and `Ctrl+C`. Wait for the first stop to report its result. The stop
+are `Ctrl+Q` and `Ctrl+C`. Wait for the first stop to report its result. If the stop hangs (for example a stalled Docker daemon), press `Ctrl+Q` or `Ctrl+C` again within 5 seconds to leave; the stop's result is then unknown, so check with `./stop.sh` or `docker compose ls`. A stop's Compose command is stopped after 600 seconds. The stop
 acts on the project this screen started, even if `.env` changes meanwhile. Its
 Compose output goes to the log pane. If Docker cannot list the project's volumes
 afterwards, the cold stop reports a problem instead of success.

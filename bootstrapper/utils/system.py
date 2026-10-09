@@ -215,18 +215,43 @@ def compose_env(compose_cmd: list) -> dict:
     return env
 
 
+SINK_COMPOSE_TIMEOUT_SECONDS = 600
+
+
 def run_compose_child(full_cmd: list, cwd: str, sink=None) -> int:
     """Run compose on the terminal, or into ``sink`` when given: a Textual
     screen owns the terminal, and inherited fds wrote compose's progress
     straight across it (2026-10-08 run, cycle 48)."""
-    piped = {"stdout": subprocess.PIPE, "stderr": subprocess.STDOUT, "text": True} if sink else {}
-    result = subprocess.run(
-        full_cmd, cwd=cwd, stdin=subprocess.DEVNULL, check=False, env=compose_env(full_cmd), **piped,
+    if not sink:
+        return subprocess.run(
+            full_cmd, cwd=cwd, stdin=subprocess.DEVNULL, check=False, env=compose_env(full_cmd),
+        ).returncode
+    return _stream_compose_child(full_cmd, cwd, sink)
+
+
+def _stream_compose_child(full_cmd: list, cwd: str, sink) -> int:
+    """Line by line into ``sink``, bounded: buffered until exit, a stop showed
+    nothing until compose ended, and a wedged daemon never ended (cycle 69)."""
+    import threading
+
+    process = subprocess.Popen(
+        full_cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True, errors="replace", env=compose_env(full_cmd),
     )
-    if sink:
-        for line in (result.stdout or "").splitlines():
-            sink(line)
-    return result.returncode
+    reader = threading.Thread(
+        target=lambda: [sink(line.rstrip("\n")) for line in process.stdout], daemon=True,
+    )
+    reader.start()
+    try:
+        returncode = process.wait(timeout=SINK_COMPOSE_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        sink(f"docker compose did not finish within {SINK_COMPOSE_TIMEOUT_SECONDS} s and was stopped; "
+             "check the stack with docker compose ls")
+        returncode = 124
+    reader.join(5)
+    return returncode
 
 
 def _env_file_project_name(compose_cmd: list) -> str:

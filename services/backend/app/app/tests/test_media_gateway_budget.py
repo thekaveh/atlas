@@ -2162,6 +2162,12 @@ def test_a_nul_in_an_attribution_label_is_rejected_not_retried(monkeypatch):
     )
     assert resp.status_code == 400 and "control characters" in resp.json()["detail"]
     assert client.get("/media/spend", params={"consumer": "acme", "project": "a\x00b"}).status_code == 400
+    resp = client.post(
+        "/media/generate",
+        json={"modality": "image", "provider": "fal", "model": "fal-ai/flux/dev\u0000",
+              "input": {"prompt": "a cat", "provider_arguments": {"prompt": "a cat"}}, "consumer": "acme"},
+    )
+    assert resp.status_code == 400 and "model must not contain control characters" in resp.json()["detail"], resp.json()
 
 
 def test_the_legacy_fal_route_honours_the_kill_switch(monkeypatch):
@@ -2267,3 +2273,33 @@ def test_a_streaming_plugin_route_authenticates_before_reading_the_body(monkeypa
     assert read == [] and reached == []
     assert asyncio.run(call("/open/upload")) == 200 and reached == ["/open/upload"]
 
+
+def test_a_delete_with_a_body_gets_the_default_envelope():
+    """Only POST/PUT/PATCH were limited; FastAPI reads a Body parameter on
+    DELETE too, before auth, so a multi-GB DELETE was buffered and then
+    refused (2026-10-08 run, cycle 70)."""
+    from media_request_limit import LimitPolicy, RequestLimitMiddleware
+    from tests.test_media_request_limit import _scope
+
+    reached, read, sent = [], [], []
+
+    async def app(scope, receive, send):
+        reached.append(scope["method"])
+
+    async def receive():
+        read.append(1)
+        return {"type": "http.request", "body": b"x", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    async def no_auth(_scope):
+        return None
+
+    middleware = RequestLimitMiddleware(app, policy=LimitPolicy(rules=[]), authenticate=no_auth)
+    scope = _scope(method="DELETE", path="/items/bulk", content_length=40 * 1024 * 1024)
+    asyncio.run(middleware(scope, receive, send))
+    assert sent[0]["status"] == 413 and read == [] and reached == []
+    # A DELETE without a body is not touched.
+    asyncio.run(middleware(_scope(method="DELETE", path="/items/1"), receive, send))
+    assert reached == ["DELETE"]

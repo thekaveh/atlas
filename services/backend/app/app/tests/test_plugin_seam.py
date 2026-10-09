@@ -928,3 +928,52 @@ def test_a_manifest_less_route_cannot_sit_under_a_declared_prefix(tmp_path, monk
     assert statuses == ["loaded", "skipped"], inventory
     skipped = next(e for e in inventory.values() if e["status"] == "skipped")
     assert "overlaps" in skipped["error"]
+
+
+@pytest.mark.parametrize("manifest", [
+    None,
+    "plugin_manifest_version: 1\nname: rawp\nroute_prefix: /rawp\nauth: inherit\n",
+    "plugin_manifest_version: 1\nname: rawp\nroute_prefix: /rawp\nauth: key-auth\n",
+])
+def test_a_raw_starlette_route_is_refused_because_auth_cannot_apply(tmp_path, monkeypatch, manifest):
+    """include_router attaches the auth dependency to FastAPI routes only; a
+    router.add_route / add_websocket_route handler answered without
+    credentials (2026-10-08 run, cycle 70)."""
+    from fastapi import FastAPI
+
+    import plugin_seam
+
+    pkg = tmp_path / "rawp"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text(
+        "from fastapi import APIRouter\n"
+        "from starlette.responses import PlainTextResponse\n"
+        "router = APIRouter()\n"
+        "async def raw(request):\n"
+        "    return PlainTextResponse('raw handler reached')\n"
+        "router.add_route('/rawp/raw', raw, methods=['GET', 'POST'])\n"
+    )
+    if manifest:
+        (pkg / "plugin.yml").write_text(manifest)
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+    app = FastAPI()
+    entry = next(e for e in plugin_seam.load_plugins(app) if e["name"] == "rawp")
+    assert entry["status"] == "skipped" and "not FastAPI routes" in entry["error"]
+    assert "/rawp/raw" not in {getattr(r, "path", "") for r in app.router.routes}
+
+
+@pytest.mark.parametrize("route", ["/up/{name}", "/up/{rest:path}"])
+@pytest.mark.parametrize("plain", ["aa_plain", "zz_plain"])
+def test_a_path_parameter_route_cannot_sit_under_a_declared_prefix(tmp_path, monkeypatch, route, plain):
+    """`/up/{name}` matches /up/open, but a raw compare of the whole path saw
+    no overlap (2026-10-08 run, cycle 70)."""
+    from fastapi import FastAPI
+
+    import plugin_seam
+
+    _plugin_pkg(tmp_path, "up_declared", "/up/open",
+                "plugin_manifest_version: 1\nname: up\nroute_prefix: /up/open\nauth: open\nrequest_buffering: false\n")
+    _plugin_pkg(tmp_path, plain, route)
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+    statuses = sorted(e["status"] for e in plugin_seam.load_plugins(FastAPI()))
+    assert statuses == ["loaded", "skipped"], statuses

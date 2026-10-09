@@ -42,14 +42,16 @@ CREATE TABLE IF NOT EXISTS storage.objects (
 -- There SET ROLE / RESET ROLE is refused, so code that role planted (a
 -- trigger, a cast, a column default) cannot climb back to the init superuser.
 -- SET LOCAL ROLE could: the session user stays superuser, and a planted
--- function ran RESET ROLE (2026-10-08 run, cycle 59).
+-- function ran RESET ROLE (2026-10-08 run, cycle 59). SET CONSTRAINTS ALL
+-- IMMEDIATE fires deferred constraint triggers inside the function too: left
+-- for commit, they ran in the superuser session (cycle 67).
 CREATE OR REPLACE FUNCTION pg_temp.atlas_as_role(runner name, body text)
 RETURNS void LANGUAGE plpgsql AS $atlas$
 BEGIN
   DROP FUNCTION IF EXISTS public.atlas_role_step();
   EXECUTE 'CREATE FUNCTION public.atlas_role_step() RETURNS void LANGUAGE plpgsql '
        || 'SECURITY DEFINER SET search_path = '''' AS '
-       || pg_catalog.quote_literal('BEGIN ' || body || ' END');
+       || pg_catalog.quote_literal('BEGIN ' || body || ' SET CONSTRAINTS ALL IMMEDIATE; END');
   REVOKE ALL ON FUNCTION public.atlas_role_step() FROM PUBLIC;
   EXECUTE pg_catalog.format('ALTER FUNCTION public.atlas_role_step() OWNER TO %I', runner);
   PERFORM public.atlas_role_step();

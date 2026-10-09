@@ -2967,8 +2967,20 @@ class WizardScreen(Screen):
         outcome was never reported (2026-10-08 run, cycle 48)."""
         if not getattr(self, "_teardown_running", False):
             return False
+        now = _teardown_clock()
+        if now < getattr(self, "_exit_refused_until", 0.0):
+            # The escape a hung Docker daemon needs: a second press within
+            # 5 s leaves anyway, and says the outcome is unknown (cycle 69).
+            self._safe_log(
+                "Left while a stop was still running; its result is unknown. "
+                "Run ./stop.sh (or docker compose ls) to check.",
+                source="teardown", level="warn",
+            )
+            return False
+        self._exit_refused_until = now + 5
         self.notify(
-            "A stop is running; wait for its result before quitting.",
+            "A stop is running; wait for its result, or press again within 5 seconds "
+            "to leave without it.",
             severity="warning",
             timeout=6,
         )
@@ -3305,6 +3317,9 @@ class WizardScreen(Screen):
         now = _teardown_clock()
         if self._pending_teardown == cold and now < self._pending_teardown_deadline:
             self._pending_teardown = None
+            # Set at commit, not in the worker: a quit handled before the
+            # worker's first step exited with `down` already scheduled (cycle 69).
+            self._teardown_running = True
             self.run_worker(
                 self._teardown_worker(cold=cold),
                 exclusive=True, exit_on_error=False,

@@ -1555,3 +1555,25 @@ def test_a_non_http_listener_reads_as_unreachable_not_a_traceback(tmp_path):
         worker.join(5)
         server.close()
     assert result["reachable"] is False, result
+
+
+@pytest.mark.parametrize("body", ["[]", '{"data": [1]}', '{"data": {"id": "x"}}', '"x"', '{"devices": ["mps"]}'])
+def test_health_reads_a_foreign_json_shape_without_raising(monkeypatch, tmp_path, body):
+    """A foreign listener's JSON raised AttributeError in health(), which
+    rolled back the start's managed hosts (2026-10-08 run, cycle 68)."""
+    import io
+
+    from services import comfyui_mps_manager as comfy_module
+    from services.comfyui_mps_manager import ComfyUiMpsManager
+
+    class _Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+    monkeypatch.setattr(mod.urllib.request, "urlopen", lambda *a, **k: _Resp(body.encode()))
+    monkeypatch.setattr(comfy_module.urllib.request, "urlopen", lambda *a, **k: _Resp(body.encode()))
+    assert VllmMetalManager(tmp_path / "v", port=1).health()["reachable"] is True
+    assert ComfyUiMpsManager(tmp_path / "c", port=1).health()["reachable"] is True

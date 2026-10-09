@@ -264,7 +264,14 @@ def _claim_manifestless_paths(router, seen_prefixes: dict[str, str], name: str) 
     """Record a mounted manifest-less plugin's paths, so a later manifest
     cannot declare a prefix over them (2026-10-08 run, cycle 52)."""
     for route in getattr(router, "routes", []):
-        seen_prefixes.setdefault(str(getattr(route, "path", "")), name + _NO_MANIFEST)
+        seen_prefixes.setdefault(_literal_prefix(str(getattr(route, "path", ""))), name + _NO_MANIFEST)
+
+
+def _literal_prefix(path: str) -> str:
+    """The part of a route path before its first parameter: `/up/{name}`
+    matches /up/open, which a raw-string compare of the whole path missed
+    (2026-10-08 run, cycle 70)."""
+    return path.split("{", 1)[0]
 
 
 def _declared_prefix_conflict(path: str, seen_prefixes: dict[str, str]) -> str | None:
@@ -275,13 +282,32 @@ def _declared_prefix_conflict(path: str, seen_prefixes: dict[str, str]) -> str |
     return next((
         f"manifest-less router path {path!r} overlaps prefix {prefix!r} claimed by {owner!r}"
         for prefix, owner in seen_prefixes.items()
-        if not owner.endswith(_NO_MANIFEST) and prefixes_overlap(path, prefix)
+        if not owner.endswith(_NO_MANIFEST) and prefixes_overlap(_literal_prefix(path), prefix)
     ), None)
+
+
+def _unguarded_route_error(router, manifest: PluginManifest | None) -> str | None:
+    """Only APIRoute / APIWebSocketRoute receive the include_router auth
+    dependency; a Starlette Route or WebSocketRoute (router.add_route,
+    add_websocket_route) was served with no auth under inherit and key-auth
+    (2026-10-08 run, cycle 70)."""
+    from fastapi.routing import APIRoute, APIWebSocketRoute  # noqa: PLC0415
+
+    if manifest is not None and manifest.auth == "open":
+        return None
+    raw = [str(getattr(route, "path", "")) for route in getattr(router, "routes", [])
+           if not isinstance(route, (APIRoute, APIWebSocketRoute))]
+    if not raw:
+        return None
+    return f"router routes {', '.join(sorted(raw))} are not FastAPI routes, so plugin auth cannot apply to them"
 
 
 def _router_path_error(router, manifest: PluginManifest | None, seen_prefixes: dict[str, str]) -> str | None:
     """Reject routes that escape a manifest, shadow built-ins, or sit under
     another plugin's declared prefix."""
+    unguarded = _unguarded_route_error(router, manifest)
+    if unguarded is not None:
+        return unguarded
     paths = [str(getattr(route, "path", "")) for route in getattr(router, "routes", [])]
     if manifest is not None:
         prefix = manifest.route_prefix.rstrip("/")

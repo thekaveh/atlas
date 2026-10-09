@@ -121,6 +121,16 @@ class LimitPolicy:
                 )
 
 
+def _may_carry_body(scope: Dict[str, Any]) -> bool:
+    """A body-bearing method, or any request that declares a body. FastAPI
+    reads a Body/Form/File parameter on DELETE or GET too, before auth: a
+    multi-GB DELETE was buffered, then refused (2026-10-08 run, cycle 70)."""
+    if scope.get("method") in _BODY_METHODS:
+        return True
+    headers = {key.lower(): value for key, value in scope.get("headers", [])}
+    return b"transfer-encoding" in headers or headers.get(b"content-length", b"0").strip() not in (b"", b"0")
+
+
 class RequestLimitMiddleware:
     """Enforce per-route-class body limits before any parsing happens."""
 
@@ -156,7 +166,7 @@ class RequestLimitMiddleware:
         return True
 
     async def __call__(self, scope: Dict[str, Any], receive, send) -> None:
-        if scope.get("type") != "http" or scope.get("method") not in _BODY_METHODS:
+        if scope.get("type") != "http" or not _may_carry_body(scope):
             await self.app(scope, receive, send)
             return
 

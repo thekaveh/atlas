@@ -1021,9 +1021,10 @@ _RESET_ROLE_PROBE = (
 )
 
 
+@pytest.mark.parametrize("deferred", [False, True])
 @pytest.mark.parametrize("target", ["auth.users", "storage.buckets"])
 def test_a_planted_trigger_cannot_reset_role_to_the_init_superuser(
-    disposable_postgres: DisposablePostgres, target: str,
+    disposable_postgres: DisposablePostgres, target: str, deferred: bool,
 ) -> None:
     """Init ran the owner's DML under SET LOCAL ROLE; the session user stayed
     superuser, so a planted BEFORE trigger ran RESET ROLE and acted as it
@@ -1037,10 +1038,16 @@ def test_a_planted_trigger_cannot_reset_role_to_the_init_superuser(
         db.sql("GRANT INSERT ON public.atlas_reset_probe TO PUBLIC")
         db.sql(as_owner + f"CREATE FUNCTION {schema}.atlas_reset_probe() RETURNS trigger LANGUAGE plpgsql AS "
                f"$f$ {_RESET_ROLE_PROBE} $f$")
-        db.sql(as_owner + f"CREATE TRIGGER atlas_reset_probe BEFORE INSERT OR UPDATE ON {target} "
-               f"FOR EACH ROW EXECUTE FUNCTION {schema}.atlas_reset_probe()")
+        # A deferred constraint trigger fired at commit, back in the superuser
+        # session, after the definer function had returned (cycle 67).
+        kind = ("CONSTRAINT TRIGGER atlas_reset_probe AFTER INSERT OR UPDATE ON {t} DEFERRABLE INITIALLY DEFERRED"
+                if deferred else "TRIGGER atlas_reset_probe BEFORE INSERT OR UPDATE ON {t}").format(t=target)
+        db.sql(as_owner + f"CREATE {kind} FOR EACH ROW EXECUTE FUNCTION {schema}.atlas_reset_probe()")
         if target == "auth.users":
             db.sql("INSERT INTO auth.users (id, email, aud, role) VALUES (gen_random_uuid(), 'reset-probe@example.com', '', '')")
+        if target == "storage.buckets":
+            # An AFTER row trigger fires only when the bucket insert adds a row.
+            db.sql("DELETE FROM storage.buckets WHERE id = 'default'")
         db.sql("TRUNCATE public.atlas_reset_probe")
         db.run_init()
         rows = db.sql("SELECT who, superuser FROM public.atlas_reset_probe").stdout.strip()
