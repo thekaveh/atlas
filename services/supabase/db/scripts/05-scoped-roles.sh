@@ -204,13 +204,19 @@ ensure_database() {
   # objects.  Transfer legacy supabase_admin ownership object-by-object so an
   # upgraded service can keep running ALTER migrations without CREATEDB or
   # cross-database privileges.
+  #
+  # The service role owns this database and its public schema, so a planted
+  # public.format(...) overload ran here as superuser on the next boot and the
+  # role could make itself cluster superuser (2026-10-08 run, cycle 18). Keep
+  # public off the path and qualify every built-in.
   psql_admin "$database_name" -v owner="$owner_role" <<'SQL'
+SET search_path = pg_catalog, pg_temp;
 ALTER SCHEMA public OWNER TO :"owner";
 GRANT ALL ON SCHEMA public TO :"owner";
-SELECT set_config('atlas.owner', :'owner', false);
+SELECT pg_catalog.set_config('atlas.owner', :'owner', false);
 DO $body$
 DECLARE
-  target name := current_setting('atlas.owner');
+  target name := pg_catalog.current_setting('atlas.owner');
   item record;
   kind text;
 BEGIN
@@ -220,7 +226,7 @@ BEGIN
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname NOT LIKE 'pg_%'
       AND n.nspname <> 'information_schema'
-      AND pg_get_userbyid(c.relowner) <> target
+      AND pg_catalog.pg_get_userbyid(c.relowner) <> target
       AND c.relkind IN ('r','p','S','v','m','f')
   LOOP
     kind := CASE item.relkind
@@ -230,7 +236,7 @@ BEGIN
       WHEN 'f' THEN 'FOREIGN TABLE'
       ELSE 'TABLE'
     END;
-    EXECUTE format('ALTER %s %I.%I OWNER TO %I', kind, item.nspname, item.relname, target);
+    EXECUTE pg_catalog.format('ALTER %s %I.%I OWNER TO %I', kind, item.nspname, item.relname, target);
   END LOOP;
   FOR item IN
     SELECT p.oid::regprocedure AS identity
@@ -238,9 +244,9 @@ BEGIN
     JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname NOT LIKE 'pg_%'
       AND n.nspname <> 'information_schema'
-      AND pg_get_userbyid(p.proowner) <> target
+      AND pg_catalog.pg_get_userbyid(p.proowner) <> target
   LOOP
-    EXECUTE format('ALTER FUNCTION %s OWNER TO %I', item.identity, target);
+    EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I', item.identity, target);
   END LOOP;
 END
 $body$;

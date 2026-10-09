@@ -283,6 +283,12 @@ Init runs as a superuser, so `db-init-runner` protects it in three ways:
   `TRIGGER` privilege on `public` tables, and init inserts the default storage
   bucket as the table's owner.
 
+Each service database (LiteLLM, Airflow, Langfuse and the others) is owned by
+its service role, which therefore owns that database's `public` schema. Init's
+ownership pass there runs with `search_path = pg_catalog, pg_temp` and
+schema-qualified built-ins, so nothing the role plants in it runs as the
+superuser.
+
 When init refuses, it names each object. Drop them, then restart. The backup
 and restore scripts resolve nothing through `public` (`search_path =
 pg_catalog, pg_temp`). Downstream SQL in `db/_user/` runs as the init

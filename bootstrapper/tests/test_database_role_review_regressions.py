@@ -826,3 +826,31 @@ def test_an_overload_in_the_literal_dollar_user_schema_never_runs(
     finally:
         db.sql("DROP ROLE IF EXISTS atlas_dollar_user_pwned", check=False)
         db.sql(f"DROP SCHEMA IF EXISTS {schema} CASCADE", check=False)
+
+
+def test_a_service_role_cannot_hijack_init_in_its_own_database(
+    disposable_postgres: DisposablePostgres,
+) -> None:
+    """05-scoped-roles.sh ran unqualified format() as superuser inside each
+    service database, whose public schema the service role owns; a planted
+    overload made the role cluster superuser (2026-10-08 run, cycle 18)."""
+    db = disposable_postgres
+    user = TEST_SECRETS["LITELLM_DB_USER"]
+    role = dict(user=user, password=TEST_SECRETS["LITELLM_DB_PASSWORD"], database=TEST_SECRETS["LITELLM_DB_NAME"])
+    plant = (
+        "CREATE EXTENSION IF NOT EXISTS pgcrypto; "
+        "CREATE OR REPLACE FUNCTION public.format(f text, a regprocedure, b name) RETURNS text "
+        "LANGUAGE plpgsql AS $p$ BEGIN "
+        f"EXECUTE 'ALTER ROLE {user} SUPERUSER'; "
+        "RETURN pg_catalog.format(f, a, b); END $p$"
+    )
+    try:
+        planted = db.sql(plant, check=False, **role)
+        assert planted.returncode == 0, planted.stderr
+        db.run_init()
+        superuser = db.sql(f"SELECT rolsuper FROM pg_roles WHERE rolname = '{user}'").stdout.strip()
+        assert superuser == "f", "init ran the service role's overload as superuser"
+    finally:
+        db.sql(f"ALTER ROLE {user} NOSUPERUSER", check=False)
+        db.sql("DROP FUNCTION IF EXISTS public.format(text, regprocedure, name)",
+               check=False, database=TEST_SECRETS["LITELLM_DB_NAME"])
