@@ -1365,7 +1365,7 @@ def run_setup_flow(
     Returns exit code: 0 on success / cancellation.
     """
     from .widgets import BrandInfo
-    from .screens.wizard_screen import WizardScreen
+    from .screens.wizard_screen import GuardedQuitMixin, WizardScreen, teardown_blocks_exit
 
     # Port-layout v0 → v1 migration runs BEFORE the wizard reads .env so
     # the user sees post-migration port values in the box. start.py has
@@ -1457,7 +1457,7 @@ def run_setup_flow(
         | consumer_override_keys(_consumer_declared_source_keys, services_info),
     )
 
-    class _SetupApp(App):
+    class _SetupApp(GuardedQuitMixin, App):
         CSS_PATH = str(_THEME_PATH)
         # TITLE is set dynamically in on_mount so it honors BRAND_NAME
         # overrides (forks that rebrand via BRAND_* env vars get their own
@@ -1488,6 +1488,8 @@ def run_setup_flow(
             ))
 
         def action_interrupt(self) -> None:
+            if teardown_blocks_exit(self):
+                return
             _record_interrupt(state_holder)
             self.exit()
 
@@ -1518,7 +1520,7 @@ def run_launch_flow(
     Returns exit code: 0 on detach, non-zero on interrupt.
     """
     from .widgets import BrandInfo
-    from .screens.wizard_screen import WizardScreen
+    from .screens.wizard_screen import GuardedQuitMixin, WizardScreen, teardown_blocks_exit
     from core.port_manager import PortManager
     from wizard.model.state_builder import lookup_service_meta, resolve_port as _resolve_port
 
@@ -1650,7 +1652,7 @@ def run_launch_flow(
 
     state_holder = {"interrupted": False, "exit_code": 0}
 
-    class _LaunchApp(App):
+    class _LaunchApp(GuardedQuitMixin, App):
         CSS_PATH = str(_THEME_PATH)
         # TITLE is set dynamically in on_mount so it honors BRAND_NAME
         # overrides (forks that rebrand via BRAND_* env vars get their own
@@ -1688,6 +1690,8 @@ def run_launch_flow(
             ))
 
         def action_interrupt(self) -> None:
+            if teardown_blocks_exit(self):
+                return
             _record_interrupt(state_holder)
             self.exit()
 

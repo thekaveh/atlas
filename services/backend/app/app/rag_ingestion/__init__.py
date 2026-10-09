@@ -38,11 +38,17 @@ __all__ = [
     "ProfileNotFoundError",
     "get_profile",
     "load_profiles",
+    "fail_abandoned_ingestion",
     "run_rag_ingestion",
     "IngestionExecutionBusy",
     "IngestionExecutionLeaseLost",
     "ingestion_execution_lease_seconds",
 ]
+
+
+def fail_abandoned_ingestion(ingestion_id: str, *, recovery_owner: str, reason: str) -> bool:
+    """Synchronous entrypoint: mark a run the Celery task gave up on failed."""
+    return asyncio.run(RagIngestionService().fail_abandoned(ingestion_id, recovery_owner, reason))
 
 
 def run_rag_ingestion(

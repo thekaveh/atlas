@@ -2823,3 +2823,324 @@ def test_two_profiles_never_produce_the_same_object_id():
     first = RagIngestionService._weaviate_objects("Docs_a_b", SimpleNamespace(name="a-b"), chunks)
     second = RagIngestionService._weaviate_objects("Docs_a_b", SimpleNamespace(name="a.b"), chunks)
     assert first[0]["id"] != second[0]["id"]
+
+
+def _schema_client(schema, objects, calls):
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, url, params=None):
+            calls.append(("GET", url))
+            if url.endswith("/v1/objects"):
+                return httpx.Response(200, json={"objects": objects}, request=httpx.Request("GET", url))
+            if "Rag" in schema:
+                return httpx.Response(200, json=schema["Rag"], request=httpx.Request("GET", url))
+            return httpx.Response(404, request=httpx.Request("GET", url))
+
+        async def put(self, url, json):
+            calls.append(("PUT", url))
+            schema["Rag"] = json
+            return httpx.Response(200, request=httpx.Request("PUT", url))
+
+        async def delete(self, url):
+            calls.append(("DELETE", url))
+            schema.pop("Rag", None)
+            return httpx.Response(200, request=httpx.Request("DELETE", url))
+
+        async def post(self, url, json):
+            calls.append(("POST", url))
+            schema[json["class"]] = json
+            return httpx.Response(200, request=httpx.Request("POST", url))
+
+    return Client
+
+
+def test_a_legacy_class_with_matching_vectors_is_adopted_not_dropped(monkeypatch):
+    """Every class created before #1364 has no recorded identity; dropping it
+    on the first run lost the vectors of sources that failed that run, though
+    they were valid (2026-10-08 run, cycle 2)."""
+    schema = {"Rag": {"class": "Rag", "vectorizer": "none"}}
+    calls = []
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_k: _schema_client(schema, [{"vector": [0.1, 0.2, 0.3]}], calls)())
+    rebuilt = asyncio.run(WeaviateClient("http://weaviate").ensure_class("Rag", embedding=("m", 3)))
+    assert rebuilt is False and "DELETE" not in [c[0] for c in calls]
+    assert schema["Rag"]["description"] == WeaviateClient.embedding_identity("m", 3)
+
+    schema = {"Rag": {"class": "Rag", "vectorizer": "none"}}
+    calls.clear()
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_k: _schema_client(schema, [{"vector": [0.1, 0.2]}], calls)())
+    rebuilt = asyncio.run(WeaviateClient("http://weaviate").ensure_class("Rag", embedding=("m", 3)))
+    assert rebuilt is True and "DELETE" in [c[0] for c in calls]
+
+
+def test_a_rebuilt_class_does_not_claim_failed_sources_were_preserved():
+    from types import SimpleNamespace
+
+    from rag_ingestion.service import RagIngestionService
+
+    async def reconcile_objects(*_a, **_k):
+        return None
+
+    service = RagIngestionService.__new__(RagIngestionService)
+    service.deps = SimpleNamespace(weaviate=SimpleNamespace(reconcile_objects=reconcile_objects))
+    phases = {}
+    record = SimpleNamespace(phase=lambda name: phases.setdefault(name, SimpleNamespace(note=None)))
+    state = {"failed_sources": {"bad.pdf"}, "class_rebuilt": True}
+    asyncio.run(service._reconcile_kept_sources(record, SimpleNamespace(name="p"), state, "Rag", []))
+    assert "preserved" not in phases["vector_write"].note and "bad.pdf" in phases["vector_write"].note
+
+
+def test_legacy_only_count_is_atomic_against_a_concurrent_writer(monkeypatch):
+    """SCARD and ZINTERCARD ran as two calls; a create between them made a
+    lone set-only member read as 0, ending a listing early (cycle 2)."""
+    import os
+
+    import redis as redis_module
+
+    from rag_ingestion import store as store_module
+
+    url = os.environ.get("ATLAS_TEST_REDIS_URL")
+    if not url:
+        pytest.skip("needs ATLAS_TEST_REDIS_URL")
+    store = store_module.RedisIngestionStore(url)
+    client = store._redis
+    client.delete(store_module._INDEX_SET, store_module._INDEX_ZSET)
+    client.sadd(store_module._INDEX_SET, "legacy-only", "both")
+    client.zadd(store_module._INDEX_ZSET, {"both": 1})
+    writer = redis_module.Redis.from_url(url)
+
+    def inject():
+        writer.sadd(store_module._INDEX_SET, "concurrent")
+        writer.zadd(store_module._INDEX_ZSET, {"concurrent": 2})
+
+    original_client_scard = type(client).scard
+    original_pipe_scard = redis_module.client.Pipeline.scard
+
+    def client_scard(self, *a, **k):
+        result = original_client_scard(self, *a, **k)
+        inject()
+        return result
+
+    def pipe_scard(self, *a, **k):
+        result = original_pipe_scard(self, *a, **k)
+        inject()
+        return result
+
+    monkeypatch.setattr(type(client), "scard", client_scard)
+    monkeypatch.setattr(redis_module.client.Pipeline, "scard", pipe_scard)
+    try:
+        assert store._legacy_only_members() == 1
+    finally:
+        client.delete(store_module._INDEX_SET, store_module._INDEX_ZSET)
+        writer.close()
+
+
+def test_one_failed_lease_renewal_does_not_discard_the_run():
+    """The first renewal that raised (one slow Redis reply) set lease_lost
+    and threw the whole ingestion away while the lease still had two thirds
+    of its term (2026-10-08 run, cycle 12)."""
+    from rag_ingestion.service import RagIngestionService
+
+    calls = []
+
+    class Store:
+        def renew_execution(self, *_args):
+            calls.append(1)
+            if len(calls) == 1:
+                raise TimeoutError("slow redis")
+            return True
+
+    service = RagIngestionService.__new__(RagIngestionService)
+    service.store = Store()
+
+    async def scenario():
+        stop, lost = asyncio.Event(), asyncio.Event()
+        beat = asyncio.create_task(service._heartbeat_execution("i", "o", 3, stop, lost))
+        await asyncio.sleep(2.6)
+        stop.set()
+        await beat
+        return lost.is_set()
+
+    assert asyncio.run(scenario()) is False
+    assert len(calls) >= 2
+
+
+def test_a_lost_lease_at_the_infrastructure_limit_is_not_retried_again(monkeypatch):
+    """Lease-lost retries never counted against any limit, so a recurring
+    renewal blip looped the job forever with its record still "running"
+    (2026-10-08 run, cycle 12)."""
+    import celery_tasks
+    import rag_ingestion
+
+    def lose_lease(*_args, **_kwargs):
+        raise rag_ingestion.IngestionExecutionLeaseLost("lost")
+
+    def never_retry(**_kwargs):
+        raise AssertionError("must not retry past the limit")
+
+    abandoned = []
+    monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", lose_lease)
+    monkeypatch.setattr(celery_tasks.rag_ingestion_task, "retry", never_retry)
+    # The give-up path must also mark the record failed; only the service
+    # method was tested, so deleting this call stayed green (cycle 44).
+    monkeypatch.setattr(rag_ingestion, "fail_abandoned_ingestion",
+                        lambda ingestion_id, **kw: abandoned.append((ingestion_id, kw)))
+    with pytest.raises(rag_ingestion.IngestionExecutionLeaseLost):
+        celery_tasks.rag_ingestion_task.run(
+            "ingestion-1",
+            retry_state={"phase_attempt": 0,
+                         "infrastructure_attempt": celery_tasks._RAG_INFRASTRUCTURE_RETRY_LIMIT},
+        )
+    assert [ingestion_id for ingestion_id, _ in abandoned] == ["ingestion-1"]
+
+
+def test_an_abandoned_run_is_marked_failed_so_a_resubmit_starts_fresh(tmp_path, monkeypatch):
+    """At the retry limit the task re-raised and the record stayed "running",
+    a dedup status, so every resubmit got the dead job back until the TTL
+    (2026-10-08 run, cycle 30). A live owner's run is left alone."""
+    from rag_ingestion.store import ExecutionClaim
+
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    store = InMemoryIngestionStore()
+    service = RagIngestionService(store=store, deps=Deps(), profiles_path=_profiles_file(tmp_path))
+    record, _ = service.submit("showcase-default")
+    record.status = "running"
+    store.save(record)
+
+    assert store.claim_execution(record.id, ExecutionClaim("live-worker", 60))
+    assert asyncio.run(service.fail_abandoned(record.id, "dead-worker", "lease lost")) is False
+    assert store.get(record.id).status == "running"
+    store.release_execution(record.id, "live-worker")
+
+    assert asyncio.run(service.fail_abandoned(record.id, "dead-worker", "lease lost")) is True
+    assert store.get(record.id).status == "failed"
+    resubmitted, created = service.submit("showcase-default")
+    assert created and resubmitted.id != record.id
+    # The abandon claim is released, not left to block this id for a lease
+    # term (cycle 44).
+    assert record.id not in store._leases
+
+
+def test_ensure_target_class_records_a_rebuild_only_when_the_class_was_rebuilt():
+    """The note test set state["class_rebuilt"] by hand, so dropping the
+    assignment in _ensure_target_class stayed green (cycle 22)."""
+    from types import SimpleNamespace
+
+    from rag_ingestion.service import RagIngestionService
+
+    for rebuilt in (True, False):
+        seen = []
+
+        async def ensure_class(name, *, embedding, _r=rebuilt):
+            seen.append((name, embedding))
+            return _r
+
+        service = RagIngestionService.__new__(RagIngestionService)
+        service.deps = SimpleNamespace(
+            weaviate=SimpleNamespace(ensure_class=ensure_class), embedder=SimpleNamespace(model="m"))
+        state = {"chunks": [{"vector": [0.1, 0.2]}]}
+        asyncio.run(service._ensure_target_class(state, "Rag"))
+        assert seen == [("Rag", ("m", 2))]
+        assert state.get("class_rebuilt", False) is rebuilt
+
+
+def _heartbeat_service(renew):
+    from rag_ingestion.service import RagIngestionService
+
+    class Store:
+        def renew_execution(self, *_args):
+            return renew()
+
+    service = RagIngestionService.__new__(RagIngestionService)
+    service.store = Store()
+    return service
+
+
+def _run_heartbeat(service, lease_seconds, run_for):
+    async def scenario():
+        stop, lost = asyncio.Event(), asyncio.Event()
+        beat = asyncio.create_task(service._heartbeat_execution("i", "o", lease_seconds, stop, lost))
+        await asyncio.sleep(run_for)
+        stop.set()
+        await asyncio.wait_for(beat, 5)
+        return lost.is_set()
+
+    return asyncio.run(scenario())
+
+
+def test_renewals_that_keep_failing_lose_the_lease_before_it_expires():
+    """With the deadline check disabled, renewals that always raised never
+    set lease_lost, so a run kept writing after its lease expired (cycle 22)."""
+    def renew():
+        raise TimeoutError("redis down")
+
+    assert _run_heartbeat(_heartbeat_service(renew), 3, 3.5) is True
+
+
+def test_a_successful_renewal_restarts_the_lease_deadline():
+    """Without the deadline refresh, a failure after earlier successes was
+    measured against the first lease and lost a valid run (cycle 22)."""
+    calls = []
+
+    def renew():
+        calls.append(1)
+        if len(calls) in (1, 2):
+            return True
+        if len(calls) == 3:
+            raise TimeoutError("slow redis")
+        return True
+
+    assert _run_heartbeat(_heartbeat_service(renew), 3, 4.5) is False
+    assert len(calls) >= 4
+
+
+@pytest.mark.parametrize(("status", "transient"), [(503, True), (500, True), (429, True), (408, True),
+                                                   (400, False), (404, False)])
+def test_an_embedder_outage_is_retried_but_a_bad_request_is_not(monkeypatch, status, transient):
+    """A 503 while the embedding model loads was a plain HTTPStatusError, not
+    in TRANSIENT_EXCEPTIONS, so the job failed on its first attempt
+    (2026-10-08 run, cycle 50)."""
+    from rag_ingestion.clients import Embedder
+    from rag_ingestion.service import TRANSIENT_EXCEPTIONS
+
+    def handler(request):
+        return httpx.Response(status, json={"error": "x"}, request=request)
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient",
+                        lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
+    embedder = Embedder.__new__(Embedder)
+    embedder._base_url, embedder._api_key, embedder._model = "http://litellm:4000/v1", "", "m"
+    with pytest.raises(Exception) as raised:
+        asyncio.run(embedder.embed(["text"]))
+    assert isinstance(raised.value, TRANSIENT_EXCEPTIONS) is transient, raised.value
+
+
+def test_the_last_renewal_attempt_ends_before_the_lease_expires():
+    """A renewal can block for the store's socket timeout; with a 1 s margin
+    the last failing call returned after expiry (2026-10-08 run, cycle 50)."""
+    import time as _time
+
+    class SlowStore:
+        call_timeout_seconds = 1.5
+
+        def renew_execution(self, *_args):
+            _time.sleep(1.5)
+            raise TimeoutError("redis stalled")
+
+    started = _time.monotonic()
+    service = _heartbeat_service(lambda: None)
+    service.store = SlowStore()
+
+    async def scenario():
+        stop, lost = asyncio.Event(), asyncio.Event()
+        beat = asyncio.create_task(service._heartbeat_execution("i", "o", 4, stop, lost))
+        await asyncio.wait_for(beat, 10)
+        return lost.is_set(), _time.monotonic() - started
+
+    lost, elapsed = asyncio.run(scenario())
+    assert lost and elapsed < 4.0, elapsed

@@ -128,3 +128,21 @@ def test_predicate_true_for_real_config(tmp_path) -> None:
     cfg = tmp_path / "config.yaml"
     _write_real_config(cfg)
     assert LiteLLMConfigGenerator._is_litellm_init_managed(cfg) is True
+
+
+def test_a_read_only_init_config_with_an_empty_model_list_is_replaced(tmp_path) -> None:
+    """litellm-init runs as root, so on rootful Linux Docker its config is
+    root-owned; the in-place rewrite of an init config with model_list: []
+    raised EACCES and aborted the start (2026-10-08 run, cycle 14)."""
+    import os
+    import stat
+
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(SENTINEL + "\nmodel_list: []\n", encoding="utf-8")
+    cfg.chmod(0o444)
+    try:
+        assert _gen().write_config(cfg, force=True) is True
+        assert cfg.read_text(encoding="utf-8").startswith("# STUB")
+        assert stat.S_IMODE(os.stat(cfg).st_mode) == 0o644
+    finally:
+        cfg.chmod(0o644)

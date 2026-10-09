@@ -84,7 +84,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Data | Supabase DB | 63012 | — |
 | Data | Supabase Meta | — | — |
 | Data | Supabase Storage | 63015 | — |
-| Data | Supabase Auth | 63016 | — |
+| Data | Supabase Auth | — | — |
 | Data | Supabase API | 63017 | — |
 | Data | Supabase Realtime | 63018 | — |
 | Data | Supabase Studio | — (Kong only) | supabase-studio.localhost |

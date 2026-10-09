@@ -46,7 +46,9 @@ _EXCLUDED_FILES = {"AGENTS.md"}
 
 def documentation_paths(repo_root: Path) -> list[Path]:
     try:
-        result = run_bounded(["git", "ls-files", "*.md"], cwd=repo_root)
+        # quotePath=false: git quotes non-ASCII names, which then matched no
+        # file and skipped the gate (2026-10-08 run, cycle 43).
+        result = run_bounded(["git", "-c", "core.quotePath=false", "ls-files", "*.md"], cwd=repo_root)
     except CommandTimedOut as exc:
         raise RuntimeError("Markdown inventory timed out") from exc
     except CommandLaunchError as exc:

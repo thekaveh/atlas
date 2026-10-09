@@ -180,3 +180,25 @@ def test_lint_single_dev_only_option_is_flagged():
     assert len(prod_violations) == 1, (
         f"Single dev-only option leaves no prod option; should flag: {prod_violations}"
     )
+
+
+def test_lint_rejects_a_repeated_source_option_id():
+    """option_in_profile takes the first match while no_prod_option used
+    any(), so a repeated id passed the lint yet left prod with no option
+    (2026-10-08 run, cycle 36)."""
+    from services.manifests import Manifest, EnvVarDecl, SourcesBlock, SourceOption
+    from services.manifest_validator import validate_manifests as vm
+
+    dup = Manifest(
+        name="dup-svc", label="Dup", category="apps",
+        env=[EnvVarDecl(name="DUP_SVC_SOURCE", default="container")],
+        sources=SourcesBlock(
+            var="DUP_SVC_SOURCE", default="container",
+            options=[
+                SourceOption(id="container", label="Container", profiles=["default"]),
+                SourceOption(id="disabled", label="Disabled", profiles=["default"]),
+                SourceOption(id="container", label="Container again"),
+            ],
+        ),
+    )
+    assert any(i.kind == "duplicate_source_option" and i.manifest == "dup-svc" for i in vm([dup]))

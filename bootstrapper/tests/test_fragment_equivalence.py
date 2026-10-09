@@ -374,3 +374,18 @@ def test_a_disabled_supabase_subservice_starts_no_container(monkeypatch):
     ):
         for upstream in upstreams:
             assert rendered[dependent]["depends_on"][upstream]["required"] is False, (dependent, upstream)
+
+
+def test_zeppelin_accepts_only_its_own_origins():
+    """Zeppelin's allowed-origins default "*" let any web page create and run
+    a notebook through the loopback port (2026-10-08 run, cycle 17)."""
+    origins = _render(COMPOSE)["services"]["zeppelin"]["environment"]["ZEPPELIN_ALLOWED_ORIGINS"]
+    assert "*" not in origins
+    assert set(origins.split(",")) == {"http://localhost:63099", "http://127.0.0.1:63099"}
+
+
+def test_redis_exporter_cannot_be_pointed_at_another_target():
+    """/scrape?target=<host> dialled any target with REDIS_PASSWORD, so
+    anything that could reach :9121 could collect it (2026-10-08 run, cycle 32)."""
+    env = _render(COMPOSE)["services"]["redis-exporter"]["environment"]
+    assert env["REDIS_EXPORTER_DISABLE_SCRAPE_ENDPOINT"] == "true"

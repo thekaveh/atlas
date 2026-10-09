@@ -97,7 +97,11 @@ def push_wiki(source: Path, remote: str, key_path: Path | None, *, push: bool) -
         )
         if diff.returncode == 0:
             return
-        _run_git(["commit", "-m", "docs: synchronize Atlas wiki"], cwd=repo_dir, env=env)
+        # The bot commit ignores a developer's commit.gpgsign and hooks: they
+        # made the --check dry run fail, or wait on a signer (2026-10-08 run,
+        # cycle 43).
+        _run_git(["-c", "commit.gpgsign=false", "-c", f"core.hooksPath={os.devnull}",
+                  "commit", "-m", "docs: synchronize Atlas wiki"], cwd=repo_dir, env=env)
         if push:
             _run_git(["push", "origin", "HEAD:master"], cwd=repo_dir, env=env)
 

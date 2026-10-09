@@ -67,6 +67,31 @@ def _env_value_text(value: object) -> str:
     return "" if value is None else str(value)
 
 
+def _parse_env_block(env_raw: object, *, origin: str, name: str) -> dict[str, str]:
+    if not isinstance(env_raw, dict):
+        raise ProfileConfigError(
+            f"{origin}: profile '{name}' env must be a mapping"
+        )
+    env: dict[str, str] = {}
+    for var, value in env_raw.items():
+        var_s = str(var)
+        if not _ENV_VAR_RE.match(var_s):
+            raise ProfileConfigError(
+                f"{origin}: profile '{name}' env key '{var_s}' is not a valid "
+                f"env var name"
+            )
+        if var_s.endswith("_SOURCE"):
+            # env skipped the option-id check, the profile availability check
+            # and CLI-flag precedence, so an explicit --x-source was undone
+            # (2026-10-08 run, cycle 53).
+            raise ProfileConfigError(
+                f"{origin}: profile '{name}' env key '{var_s}' is a service source; "
+                f"declare it under sources: instead"
+            )
+        env[var_s] = _env_value_text(value)
+    return env
+
+
 def _parse_bundle(name: str, raw: object, *, origin: str) -> ProfileBundle:
     if raw is None:
         return ProfileBundle()
@@ -110,21 +135,7 @@ def _parse_bundle(name: str, raw: object, *, origin: str) -> ProfileBundle:
             )
         sources[svc_s] = sid_s
 
-    env_raw = raw.get("env", {})
-    if not isinstance(env_raw, dict):
-        raise ProfileConfigError(
-            f"{origin}: profile '{name}' env must be a mapping"
-        )
-    env: dict[str, str] = {}
-    for var, value in env_raw.items():
-        var_s = str(var)
-        if not _ENV_VAR_RE.match(var_s):
-            raise ProfileConfigError(
-                f"{origin}: profile '{name}' env key '{var_s}' is not a valid "
-                f"env var name"
-            )
-        env[var_s] = _env_value_text(value)
-
+    env = _parse_env_block(raw.get("env", {}), origin=origin, name=name)
     return ProfileBundle(host_bind_ip=host_bind_ip, sources=sources, env=env)
 
 

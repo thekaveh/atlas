@@ -61,6 +61,11 @@ services:
     environment:
       REDIS_ADDR: "redis://redis:6379"
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+      # /scrape?target=<host> dials any target with the exporter's options,
+      # REDIS_PASSWORD included, so anything that can reach :9121 could
+      # collect the shared Redis password (2026-10-08 run, cycle 32).
+      # Prometheus scrapes /metrics, which this does not affect.
+      REDIS_EXPORTER_DISABLE_SCRAPE_ENDPOINT: "true"
     ports:
       - "${HOST_BIND_IP-127.0.0.1:}${REDIS_EXPORTER_PORT}:9121"
     depends_on:

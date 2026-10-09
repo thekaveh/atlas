@@ -134,3 +134,14 @@ BEGIN
     END IF;
   END LOOP;
 END $$;
+
+-- Clients never create triggers. TRIGGER on an Atlas table let anon,
+-- authenticated or service_role (which storage-api can SET ROLE to) attach a
+-- statement trigger that the init superuser then fired on its next write
+-- (2026-10-08 run, cycle 5). The init guard also refuses while one exists.
+DO $$ BEGIN
+  IF EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'service_role') THEN
+    REVOKE TRIGGER ON ALL TABLES IN SCHEMA public FROM anon, authenticated, service_role;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE TRIGGER ON TABLES FROM anon, authenticated, service_role;
+  END IF;
+END $$;

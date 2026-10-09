@@ -127,7 +127,11 @@ def _manifest_enablement(manifest) -> Dict[str, "_ServiceEnablementInfo"]:
     """name → enablement info for a manifest and each of its containers."""
     source_var = _manifest_source_var(manifest)
     all_scales = tuple(e.name for e in manifest.env if e.name.endswith("_SCALE"))
-    primary_scale = next((r.scale_var for r in manifest.rows if r.scale_var), None)
+    # A family fallback only when every row agrees: supabase's rows each
+    # scale one sub-service, and taking the first (SUPABASE_META_SCALE)
+    # reported the always-on database as disabled when pg-meta was off.
+    row_scales = {r.scale_var for r in manifest.rows if r.scale_var}
+    primary_scale = row_scales.pop() if len(row_scales) == 1 else None
     declared = _compose_replica_vars(manifest)
 
     out: Dict[str, _ServiceEnablementInfo] = {}

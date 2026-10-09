@@ -54,7 +54,7 @@
 | SEARXNG_SOURCE | searxng | container | container, disabled |
 | SPARK_SOURCE | spark | disabled | container, disabled |
 | SUPABASE_DB_SOURCE | supabase | container | container |
-| SUPABASE_DB_INIT_SOURCE | supabase | container | container, disabled |
+| SUPABASE_DB_INIT_SOURCE | supabase | container | container |
 | SUPABASE_META_SOURCE | supabase | container | container, disabled |
 | SUPABASE_STORAGE_SOURCE | supabase | container | container, disabled |
 | SUPABASE_AUTH_SOURCE | supabase | container | container, disabled |

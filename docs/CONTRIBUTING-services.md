@@ -880,7 +880,7 @@ cross-manifest rules; do not edit it by hand.
 | `category_capacity` | `category_overflow` | Port-owning variables fit within their category's allocated slot block. |
 | `engine_reachability` | `engine_orphan` | Engine-only manifests are reachable from a parent source option. |
 | `runtime_source_coverage` | `runtime_sc_unknown_variant`, `runtime_sc_missing_variant` | Main runtime slices match the manifest's declared source variants exactly. |
-| `production_source_availability` | `no_prod_option` | Every source-configurable service retains an option available in the production profile. |
+| `production_source_availability` | `no_prod_option`, `duplicate_source_option` | Every source-configurable service retains an option available in the production profile, and declares each option id once. |
 | `secondary_number_inputs` | `invalid_secondary_number` | Manifest-driven numeric inputs have valid bounds, defaults, sources, and owned environment variables. |
 | `automatic_source_preferences` | `auto_prefer_unknown_option`, `auto_prefer_unknown_capability`, `auto_prefer_no_fallback`, `auto_prefer_fallback_not_terminal` | Automatic source preferences use known options and capabilities with a terminal fallback. |
 | `fragment_container_contract` | `fragment_container_drift`, `missing_fragment`, `unexpected_fragment` | Non-virtual manifests match a sibling Compose fragment; virtual manifests have none. |

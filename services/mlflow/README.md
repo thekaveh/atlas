@@ -10,7 +10,7 @@ This first slice is intentionally narrow: notebooks can log experiments and arti
 
 | Surface | URL | Notes |
 | --- | --- | --- |
-| Kong | `http://mlflow.localhost:${KONG_HTTP_PORT}` | Routed only when `MLFLOW_SOURCE=container`; guarded by the Kong dashboard basic-auth (`DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`). MLflow itself has no login. `MLFLOW_SERVER_CORS_ALLOWED_ORIGINS` admits this origin plus the direct-port `localhost` / `127.0.0.1` origins; without it MLflow answers 403 to every UI write made through Kong. |
+| Kong | `http://mlflow.localhost:${KONG_HTTP_PORT}` | Routed only when `MLFLOW_SOURCE=container`; guarded by the Kong dashboard basic-auth (`DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`). MLflow itself has no login. `MLFLOW_SERVER_CORS_ALLOWED_ORIGINS` admits this origin plus the direct-port `localhost` / `127.0.0.1` origins; without it MLflow answers 403 to every UI write made through Kong. MLflow on its own also admits every other `localhost` / `127.0.0.1` origin on any port; `atlas_server.py` holds it to this exact list, so an API call or any write that carries an `Origin` outside it gets 403. SDK and `curl` calls send no `Origin` and are not affected. |
 | Direct | `http://localhost:${MLFLOW_PORT}` | Bound through `HOST_BIND_IP`; the default is loopback-only. A non-empty value publishes the port, but MLflow's `MLFLOW_SERVER_ALLOWED_HOSTS` still admits only the listed `Host` values (`localhost`/`127.0.0.1` on `MLFLOW_PORT`, `mlflow.localhost` on the Kong HTTP and HTTPS ports), so a LAN address answers 403 "invalid host header" until it is added to that list in the compose fragment. |
 | In-network | `http://mlflow:5000` | Used by JupyterHub and future service consumers. |
 

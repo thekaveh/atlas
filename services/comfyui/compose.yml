@@ -20,7 +20,10 @@ services:
       # download_models.sh reads this instead of the former public.comfyui_models DB query.
       COMFYUI_MANIFEST_TSV: /comfyui-manifest/active-models.tsv
     volumes:
-      - ./init/scripts:/scripts
+      # Read-only like every sibling init: the script never writes here, and a
+      # writable mount let a compromised download step rewrite it in the
+      # checkout (2026-10-08 run, cycle 60).
+      - ./init/scripts:/scripts:ro
       - comfyui-models:/models
       # Bootstrapper-generated manifest dir (written at start by
       # bootstrapper/utils/comfyui_manifest_generator.py via comfyui_resolver).

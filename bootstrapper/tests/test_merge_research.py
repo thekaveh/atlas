@@ -185,3 +185,18 @@ def test_cli_check_exits_2_on_drift(tmp_path):
     assert drift.returncode == 2
     assert "integration-matrix.md" in drift.stderr
     assert not (root / "integration-matrix.md").exists()
+
+
+def test_emitted_frontmatter_round_trips_values_yaml_would_misread():
+    """Unquoted, `Dagster #2` lost `#2` on the next parse and `a: b` made the
+    file unparseable; plain values keep their unquoted spelling (2026-10-08
+    run, cycle 43)."""
+    import yaml
+
+    from docs.merge_research import _emit_frontmatter
+
+    fm = {"name": "Dagster #2", "summary": "Dagster: data orchestrator", "slug": "dagster",
+          "tags": ["a #b", "c, d", "plain"], "long": ["x"] * 9 + ["y: z"]}
+    text = _emit_frontmatter(fm)
+    assert yaml.safe_load(text.strip().strip("-")) == fm
+    assert "slug: dagster\n" in text

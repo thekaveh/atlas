@@ -422,9 +422,16 @@ def _parse_civitai_response(
             popularity=int(stats.get("downloadCount") or 0),
             source="civitai",
             pulled=False,
-            filename=primary_file.get("name"),
+            filename=_plain_basename(primary_file.get("name")),
         ))
     return out
+
+
+def _plain_basename(name):
+    """The uploader-chosen civitai file name as a plain basename: `../x` or a
+    `/` failed the plan writer and the whole start (2026-10-08 run, cycle 55)."""
+    base = _os.path.basename(str(name or "").replace("\\", "/"))
+    return base if base not in {"", ".", ".."} else None
 
 
 # ── Curated catalog YAML path resolution ──────────────────────────────

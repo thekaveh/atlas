@@ -38,21 +38,52 @@ CREATE TABLE IF NOT EXISTS storage.objects (
 -- reaches existing supabase-db-data volumes without an explicit
 -- ALTER. ADD COLUMN IF NOT EXISTS is itself idempotent — no effect
 -- on fresh creates where the column is already present.
-ALTER TABLE storage.objects
-    ADD COLUMN IF NOT EXISTS path_tokens text[]
-        GENERATED ALWAYS AS (string_to_array(name, '/')) STORED;
+-- Run a statement block as a given role inside a SECURITY DEFINER function.
+-- There SET ROLE / RESET ROLE is refused, so code that role planted (a
+-- trigger, a cast, a column default) cannot climb back to the init superuser.
+-- SET LOCAL ROLE could: the session user stays superuser, and a planted
+-- function ran RESET ROLE (2026-10-08 run, cycle 59). SET CONSTRAINTS ALL
+-- IMMEDIATE fires deferred constraint triggers inside the function too: left
+-- for commit, they ran in the superuser session (cycle 67).
+CREATE OR REPLACE FUNCTION pg_temp.atlas_as_role(runner name, body text)
+RETURNS void LANGUAGE plpgsql AS $atlas$
+BEGIN
+  DROP FUNCTION IF EXISTS public.atlas_role_step();
+  EXECUTE 'CREATE FUNCTION public.atlas_role_step() RETURNS void LANGUAGE plpgsql '
+       || 'SECURITY DEFINER SET search_path = '''' AS '
+       || pg_catalog.quote_literal('BEGIN ' || body || ' SET CONSTRAINTS ALL IMMEDIATE; END');
+  REVOKE ALL ON FUNCTION public.atlas_role_step() FROM PUBLIC;
+  EXECUTE pg_catalog.format('ALTER FUNCTION public.atlas_role_step() OWNER TO %I', runner);
+  PERFORM public.atlas_role_step();
+  DROP FUNCTION public.atlas_role_step();
+END $atlas$;
 
--- Create indexes
-CREATE INDEX IF NOT EXISTS bname ON storage.buckets (name);
+CREATE OR REPLACE FUNCTION pg_temp.atlas_owner_of(target regclass)
+RETURNS name LANGUAGE sql AS $atlas$
+  SELECT pg_catalog.pg_get_userbyid(c.relowner) FROM pg_catalog.pg_class AS c WHERE c.oid = target
+$atlas$;
+
+-- 05 hands these tables to the storage-api role, which can then retype a
+-- column with its own implicit cast; this DDL evaluates column expressions,
+-- so it runs as each table's owner (2026-10-08 run, cycle 59).
+SELECT pg_temp.atlas_as_role(pg_temp.atlas_owner_of('storage.objects'), $body$
+  ALTER TABLE storage.objects
+      ADD COLUMN IF NOT EXISTS path_tokens text[]
+          GENERATED ALWAYS AS (pg_catalog.string_to_array(name, '/')) STORED;
+  CREATE INDEX IF NOT EXISTS bucket_id ON storage.objects (bucket_id);
+  CREATE INDEX IF NOT EXISTS name ON storage.objects (name);
+  CREATE INDEX IF NOT EXISTS idx_storage_objects_owner ON storage.objects (owner);
+  CREATE INDEX IF NOT EXISTS path_tokens_idx ON storage.objects USING gin (path_tokens);
+$body$);
+
 -- Index names are unique per schema, not per table: buckets and objects both
 -- live in schema `storage`, so a shared `owner` name silently drops the second
 -- CREATE (IF NOT EXISTS turns it into a no-op) and leaves storage.objects(owner)
 -- unindexed. Use distinct names so both indexes are actually created.
-CREATE INDEX IF NOT EXISTS idx_storage_buckets_owner ON storage.buckets (owner);
-CREATE INDEX IF NOT EXISTS bucket_id ON storage.objects (bucket_id);
-CREATE INDEX IF NOT EXISTS name ON storage.objects (name);
-CREATE INDEX IF NOT EXISTS idx_storage_objects_owner ON storage.objects (owner);
-CREATE INDEX IF NOT EXISTS path_tokens_idx ON storage.objects USING gin (path_tokens);
+SELECT pg_temp.atlas_as_role(pg_temp.atlas_owner_of('storage.buckets'), $body$
+  CREATE INDEX IF NOT EXISTS bname ON storage.buckets (name);
+  CREATE INDEX IF NOT EXISTS idx_storage_buckets_owner ON storage.buckets (owner);
+$body$);
 
 -- Disable RLS since we're managing access through GRANTs
 ALTER TABLE storage.buckets DISABLE ROW LEVEL SECURITY;
@@ -100,11 +131,13 @@ REVOKE ALL ON storage.objects FROM anon;
 REVOKE ALL ON storage.buckets FROM authenticated;
 REVOKE ALL ON storage.objects FROM authenticated;
 
--- Create default storage bucket (safe to re-run)
-DO $$ BEGIN
-  IF EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'authenticated') THEN
-    INSERT INTO storage.buckets (id, name)
-    VALUES ('default', 'default')
-    ON CONFLICT (id) DO NOTHING;
-  END IF;
-END $$;
+-- Create default storage bucket (safe to re-run). 05 hands storage.buckets to
+-- the storage-api role, which can then add triggers to it; insert as the
+-- table's owner, inside a definer function, so such a trigger never runs as
+-- the init superuser (cycles 22 and 59).
+SELECT pg_temp.atlas_as_role(pg_temp.atlas_owner_of('storage.buckets'), $body$
+  INSERT INTO storage.buckets (id, name)
+  VALUES ('default', 'default')
+  ON CONFLICT (id) DO NOTHING;
+$body$)
+WHERE EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'authenticated');

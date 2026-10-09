@@ -541,3 +541,32 @@ def test_project_name_via_env_values_or_env_file_is_validated(tmp_path):
         manifest.write_text(body, encoding="utf-8")
         with pytest.raises(ConsumerManifestError, match="(?i)project"):
             load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+@pytest.mark.parametrize("side", ["start", "stop"])
+def test_a_same_project_override_keeps_the_stored_spelling(tmp_path, monkeypatch, side):
+    """`-p mystack` against `PROJECT_NAME=MyStack` must not rewrite .env:
+    the volumes interpolate as `MyStack-*`, and a lower-cased name would
+    start the next launch on new, empty ones (2026-10-08 run, cycle 77)."""
+    env = tmp_path / ".env"
+    env.write_text("PROJECT_NAME=MyStack\n", encoding="utf-8")
+    (tmp_path / ".env.example").write_text("PROJECT_NAME=atlas\n", encoding="utf-8")
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env))
+    if side == "start":
+        import start as start_module
+
+        owner = start_module.AtlasStarter()
+        persist = owner._persist_project_name
+    else:
+        import stop as stop_module
+
+        owner = stop_module.AtlasStopper()
+        persist = owner.persist_project_name
+    owner.config_parser.env_file_path = env
+    owner.config_parser.env_example_path = tmp_path / ".env.example"
+
+    assert persist(normalize_project_name("MyStack")) is True
+    assert env.read_text(encoding="utf-8") == "PROJECT_NAME=MyStack\n"
+    # A different project is still persisted.
+    assert persist("other") is True
+    assert "PROJECT_NAME=other" in env.read_text(encoding="utf-8")

@@ -178,7 +178,7 @@ env:
   # DB init
   - name: SUPABASE_DB_INIT_SOURCE
     default: container
-    description: "Auto-managed by supabase-db. Container/disabled."
+    description: "Container only: the post-init SQL runner every Supabase-backed service waits for. Other values are rejected."
   # Postgres-exporter sidecar (observability)
   - name: POSTGRES_EXPORTER_PORT
     # default removed — computed by services/topology.py slot allocator
@@ -230,6 +230,7 @@ env:
     auto_managed: true
   - name: SUPABASE_AUTH_PORT
     # default removed — computed by services/topology.py slot allocator
+    description: "Reserved port slot for Supabase Auth (GoTrue); not published on the host. Reach it through Kong at /auth/v1."
   - name: SUPABASE_JWT_SECRET
     default: ""
     secret: true
@@ -328,13 +329,12 @@ runtime_sc:
       deploy: {}
       extra_hosts: []
   supabase-db-init:
+    # Container only: backend, open-webui, comfyui and every Supabase
+    # sub-service wait for it to complete, and nothing scales it, so a
+    # "disabled" here was accepted and silently ignored (2026-10-08 run,
+    # cycle 13).
     container:
       scale: 1
-      environment: {}
-      deploy: {}
-      extra_hosts: []
-    disabled:
-      scale: 0
       environment: {}
       deploy: {}
       extra_hosts: []

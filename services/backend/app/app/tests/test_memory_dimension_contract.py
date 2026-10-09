@@ -2563,3 +2563,60 @@ def test_recall_passes_its_threshold_to_the_store(monkeypatch):
     svc._acquire = lambda: Conn()
     asyncio.run(svc.recall("00000000-0000-4000-8000-000000000001", "q", min_confidence=0.8))
     assert seen["min_confidence"] == 0.8
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["database_restart", "model_not_registered"])
+async def test_a_failure_that_hits_every_row_is_retried_next_pass(monkeypatch, failure):
+    """Only a row's own rejection may be skipped; a Postgres restart or a
+    LiteLLM model not registered yet hit every row, and remembering them hid
+    the rows until a backend restart (2026-10-08 run, cycle 24)."""
+    import asyncpg
+    import httpx
+
+    import memory_service as mod
+
+    request = httpx.Request("POST", "http://litellm/embeddings")
+    errors = {
+        "database_restart": asyncpg.exceptions.CannotConnectNowError("the database system is starting up"),
+        "model_not_registered": httpx.HTTPStatusError(
+            "bad", request=request,
+            response=httpx.Response(400, request=request, text="Invalid model name passed in model=x"),
+        ),
+    }
+
+    class Store:
+        backend = "weaviate"
+
+        async def initialize(self):
+            return None
+
+        async def update_embedding(self, fact_id=None, **kwargs):
+            raise errors[failure]
+
+        async def deactivate_embedding(self, *a, **k):
+            return None
+
+    rows = _pending_rows(2)
+    seen = []
+
+    class FakeConn:
+        async def fetch(self, _query, ids, stamps):
+            seen.append(list(ids))
+            return rows
+
+        async def execute(self, *_a, **_k):
+            return "UPDATE 1"
+
+        async def close(self):
+            return None
+
+    svc = mod.MemoryService.__new__(mod.MemoryService)
+    svc.store = Store()
+    svc.database_url = "postgresql://x"
+    monkeypatch.setattr(mod, "connect_postgres", AsyncMock(return_value=FakeConn()))
+    _also_route_acquire(monkeypatch, mod, FakeConn)
+
+    await svc._reconcile_pending_vectors()
+    await svc._reconcile_pending_vectors()
+    assert seen[1] == []

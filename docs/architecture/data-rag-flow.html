@@ -37,7 +37,7 @@
     </div>
     <section class="interpretation">
       <h2>How to read this view</h2>
-      <p>Backend isn&#x27;t the only writer into these stores: LightRAG writes directly to Neo4j over Bolt and to Supabase pgvector, and other MinIO consumers (the Iceberg pipeline, asset-worker) hold their own scoped IAM credentials and write directly too — only Backend&#x27;s own ingestion path is pictured here, not every producer.</p>
+      <p>Backend is not the only writer into these stores. LightRAG writes directly to Neo4j over Bolt and to Supabase pgvector. Other MinIO consumers (the Iceberg pipeline, asset-worker) write with their own scoped IAM credentials. This view shows only Backend&#x27;s ingestion path.</p>
     </section>
   </main>
 </body>

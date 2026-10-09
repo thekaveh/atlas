@@ -10,7 +10,7 @@ Route-specific Kong controls, backend identity validation, application-enforced 
 
 ## 2. Notes
 
-Kong applies route-specific Basic, key-auth, pass-through, rate-limit, and CORS policies; it does not provide one uniform identity layer. Backend separately validates Supabase JWTs, scoped first-party tokens, and operator tokens, while plugin `open|key-auth|inherit` modes are enforced again at the application boundary. Backend `/health`, `/ready`, `/metrics`, and API-doc routes are intentionally public, and direct ports or operator-trusted UIs can bypass Kong, so those surfaces must remain inside their intended network boundary.
+Kong applies route-specific Basic, key-auth, pass-through, rate-limit, and CORS policies; it does not provide one uniform identity layer. Backend separately validates Supabase JWTs, scoped first-party tokens, and operator tokens. It enforces plugin `open|key-auth|inherit` modes again at the application boundary. Backend `/health`, `/ready`, `/metrics`, and API-doc routes are public by design. Direct ports and operator-trusted UIs can bypass Kong, so keep those surfaces inside their intended network boundary.
 
 ## 3. Source Files
 

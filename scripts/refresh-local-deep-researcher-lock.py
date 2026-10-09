@@ -167,13 +167,13 @@ def refresh() -> None:
             *SECURITY_DEPENDENCIES,
         )
         _validate_combined_project(source / "pyproject.toml", cli)
+        # Export first: a failed or timed-out export left the two lock
+        # inputs updated and the requirements stale (2026-10-08 run, cycle 66).
+        requirements = _stable_export(source, ref, lock_sha, cli)
         LOCK_INPUTS.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source / "pyproject.toml", RUNTIME_PYPROJECT)
         shutil.copy2(source / "uv.lock", RUNTIME_UV_LOCK)
-        _atomic_write(
-            RUNTIME_REQUIREMENTS,
-            _stable_export(source, ref, lock_sha, cli),
-        )
+        _atomic_write(RUNTIME_REQUIREMENTS, requirements)
     print("Wrote Local Deep Researcher combined lock inputs and runtime requirements")
 
 

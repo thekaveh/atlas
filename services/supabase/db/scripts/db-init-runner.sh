@@ -108,15 +108,34 @@ SELECT n.nspname || '.' || o.oprname || ' operator owned by ' || r.rolname
                  JOIN pg_catalog.pg_namespace AS bn ON bn.oid = b.oprnamespace
                  JOIN pg_catalog.pg_roles AS br ON br.oid = b.oprowner
                 WHERE bn.nspname IN ('pg_catalog', 'public', 'auth', 'extensions')
-                  AND br.rolsuper AND b.oprname = o.oprname);
+                  AND br.rolsuper AND b.oprname = o.oprname)
+UNION ALL
+-- A trigger on a superuser-owned table fires as whoever writes the table;
+-- init writes several (public.users, comfyui_workflows, memory state).
+SELECT 'trigger ' || t.tgname || ' on ' || c.oid::pg_catalog.regclass::pg_catalog.text
+       || ' runs ' || p.oid::pg_catalog.regprocedure::pg_catalog.text || ' owned by ' || r.rolname
+  FROM pg_catalog.pg_trigger AS t
+  JOIN pg_catalog.pg_class AS c ON c.oid = t.tgrelid
+  JOIN pg_catalog.pg_roles AS cr ON cr.oid = c.relowner
+  JOIN pg_catalog.pg_proc AS p ON p.oid = t.tgfoid
+  JOIN pg_catalog.pg_roles AS r ON r.oid = p.proowner
+ WHERE NOT t.tgisinternal AND cr.rolsuper AND NOT r.rolsuper;
 SQL
 )"
 if [ -n "$shadowing" ]; then
-  echo "db-init-runner: ERROR - non-superuser objects shadow PostgreSQL built-ins that init runs as superuser:" >&2
+  echo "db-init-runner: ERROR - non-superuser objects would run with superuser rights during init (built-in look-alikes or triggers on init tables):" >&2
   printf '  %s\n' "$shadowing" >&2
   echo "db-init-runner: drop them (they would execute with superuser rights), then restart." >&2
   exit 1
 fi
+
+# supabase_admin's saved search_path is literally '"\$user", public, auth,
+# extensions': the escaped name never matches the role, so it names a schema
+# called "\$user" that any role with CREATE on the database (dashboard_user,
+# which pg-meta inherits) can create ahead of public and fill with overloads
+# the guard above does not look at. Pin the path for every psql below (the
+# Atlas slices, 05-scoped-roles.sh, user SQL), keeping what it resolves today.
+export PGOPTIONS="${PGOPTIONS:+$PGOPTIONS }-c search_path=public,auth,extensions"
 
 echo "db-init-runner: Database is ready. Running Atlas post-initialization scripts from $ATLAS_SQL_DIR..."
 run_sql_directory "$ATLAS_SQL_DIR" "Atlas" "true" "/tmp/_db_init_atlas_sql_files"

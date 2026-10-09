@@ -35,6 +35,8 @@ When enabled, the dedicated Postgres database and role are created by `supabase-
 - `LABEL_STUDIO_HOST` and `CSRF_TRUSTED_ORIGINS` for the Kong alias.
 - `LABEL_STUDIO_USER_TOKEN`, exposed as upstream `USER_TOKEN`, for API/notebook smoke paths.
 
+`SSRF_PROTECTION_ENABLED=true` is set: a task import from a URL cannot fetch private or internal addresses (other Atlas services, cloud metadata endpoints). Upstream Label Studio 1.23 turns it off by default. ML backend URLs are a separate path that this setting does not cover.
+
 Label Studio's S3/import/export storage connections remain project-specific in upstream Label Studio. Atlas provisions the bucket and credentials, but each project still chooses source/target storage in the Label Studio UI or API.
 
 ### 4.1. Notebook Export Loop

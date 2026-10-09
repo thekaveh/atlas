@@ -659,3 +659,52 @@ def test_an_unresolvable_selection_is_reported_by_name(tmp_path, monkeypatch):
     generator = comfyui_manifest_generator.ComfyUIManifestGenerator(env)
     assert generator.write(tmp_path)
     assert generator.unresolved == ["gone-model"]
+
+
+def test_one_unreadable_remembered_row_does_not_drop_the_others(tmp_path):
+    """Loading was all-or-nothing, and the next write replaced the file with
+    only the active set, destroying every other remembered selection
+    (2026-10-08 run, cycle 3)."""
+    import dataclasses
+    import json
+
+    from utils import comfyui_resolver
+    from utils.comfyui_library import ComfyUIModelFile
+
+    good = _scraped("hf-model", "huggingface")
+    bundle = dataclasses.replace(
+        _scraped("hf-bundle", "huggingface"),
+        files=(ComfyUIModelFile(role="model", category="checkpoint", url=good.url, filename="b.safetensors"),),
+    )
+    bad = {**dataclasses.asdict(_scraped("old", "huggingface")), "category": "gone"}
+    path = tmp_path / comfyui_resolver.REMEMBERED_SELECTIONS_FILE
+    comfyui_resolver.write_remembered_selections([good, bundle], path)
+    rows = json.loads(path.read_text()) + [bad]
+    path.write_text(json.dumps(rows))
+    loaded = comfyui_resolver.load_remembered_selections(path)
+    assert set(loaded) == {"hf-model", "hf-bundle"}
+    assert loaded["hf-bundle"].files[0].filename == "b.safetensors"
+
+
+def test_two_selected_models_at_one_path_skip_the_second_not_the_start(tmp_path):
+    """Two civitai LoRAs shipping add_detail.safetensors made the plan writer
+    abort the whole start; only sidecar entries were clash-checked
+    (2026-10-08 run, cycle 55)."""
+    catalog = [
+        _entry("civitai-1", source="civitai", target_dir="loras", filename="add_detail.safetensors",
+               url="https://civitai.com/api/download/models/1"),
+        _entry("civitai-2", source="civitai", target_dir="loras", filename="add_detail.safetensors",
+               url="https://civitai.com/api/download/models/2"),
+    ]
+    active = active_comfyui_models(
+        {"COMFYUI_USER_MODELS": "civitai-1,civitai-2"}, catalog=catalog,
+        sidecar_path=str(tmp_path / "none.yaml"), remembered_path=tmp_path / "none.json")
+    assert [e.name for e in active] == ["civitai-1"]
+    write_manifest(active, str(tmp_path / "plan.yaml"))
+
+
+def test_a_civitai_file_name_is_reduced_to_a_plain_basename():
+    from utils.comfyui_library import _plain_basename
+
+    assert _plain_basename("../evil.safetensors") == "evil.safetensors"
+    assert _plain_basename("..") is None and _plain_basename("") is None

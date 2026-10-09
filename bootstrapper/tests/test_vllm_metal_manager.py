@@ -1473,3 +1473,108 @@ def test_a_malformed_port_refuses_a_launch_but_not_a_stop():
     with pytest.raises(comfyui_mps_manager.ComfyUiMpsError, match="not a port number"):
         comfy.start_with_ownership()
     assert vllm_metal_manager.manager_from_env({"VLLM_METAL_LOCALHOST_PORT": "8001"}).__dict__.get("port_error") is None
+
+
+def test_vllm_remove_keeps_an_hf_cache_inside_the_state_dir(tmp_path):
+    """remove() deleted VLLM_METAL_MODELS_PATH (HF_HOME) with the state dir;
+    ComfyUI already refused this (2026-10-08 run, cycle 39)."""
+    state = tmp_path / "state"
+    weights = state / "hf" / "hub" / "w.safetensors"
+    weights.parent.mkdir(parents=True)
+    weights.write_bytes(b"w")
+    mgr = VllmMetalManager(state, port=1, hf_cache_dir=str(state / "hf"))
+    with pytest.raises(VllmMetalError, match="VLLM_METAL_MODELS_PATH"):
+        mgr.remove()
+    assert weights.exists()
+
+
+@pytest.mark.parametrize("raw", ["15.5", "16GB"])
+def test_a_malformed_memory_floor_does_not_break_stop_and_remove(raw):
+    """int('15.5') raised in manager_from_env, so stop could not run (cycle 39)."""
+    from services import comfyui_mps_manager, vllm_metal_manager
+
+    vllm = vllm_metal_manager.manager_from_env({"VLLM_METAL_MIN_MEMORY_GB": raw})
+    comfy = comfyui_mps_manager.manager_from_env({"COMFYUI_MPS_MIN_MEMORY_GB": raw})
+    assert vllm.min_memory_gb == 16 and comfy.min_memory_gb == 16
+    assert "VLLM_METAL_MIN_MEMORY_GB" in vllm.port_error
+    assert "COMFYUI_MPS_MIN_MEMORY_GB" in comfy.port_error
+
+
+def test_a_health_path_without_a_slash_and_null_env_are_rejected(tmp_path):
+    """`path: health` became http://127.0.0.1:PORThealth and its InvalidURL
+    escaped health(); env `true`/`null` became "True"/"None" (cycle 39)."""
+    import yaml
+
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    def _load(tmp_path, block):
+        root = tmp_path / "daydreams"
+        root.mkdir(exist_ok=True)
+        manifest = root / "atlas.consumer.yml"
+        manifest.write_text(yaml.safe_dump({"name": "daydreams", **block}), encoding="utf-8")
+        return load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+    with pytest.raises(ConsumerManifestError, match="must start with '/'"):
+        _load(tmp_path, {"managed_host_services": [
+            {"name": "svc", "command": "app", "port": 9001, "health": {"path": "health"}},
+        ]})
+    with pytest.raises(ConsumerManifestError, match="must not be null"):
+        _load(tmp_path, {"managed_host_services": [
+            {"name": "svc", "command": "app", "port": 9001, "env": {"EMPTY": None}},
+        ]})
+    spec = _load(tmp_path, {"managed_host_services": [
+        {"name": "svc", "command": "app", "port": 9001, "env": {"USE_MPS": True, "N": 3}},
+    ]}).managed_host_services[0]
+    assert spec.env == {"USE_MPS": "true", "N": "3"}
+
+
+def test_a_non_http_listener_reads_as_unreachable_not_a_traceback(tmp_path):
+    """A non-HTTP answer raises http.client.BadStatusLine, which is neither
+    OSError nor ValueError; only manifest parsing was tested (cycle 44)."""
+    import socket
+
+    from services.managed_host import HealthProbe, HostProcessSpec, ManagedHostManager
+
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    port = server.getsockname()[1]
+
+    def answer():
+        conn, _ = server.accept()
+        with conn:
+            conn.sendall(b"SSH-2.0-x\r\n")
+
+    worker = threading.Thread(target=answer, daemon=True)
+    worker.start()
+    try:
+        spec = HostProcessSpec(name="probe", command=("true",), port=port,
+                               health=HealthProbe(kind="http", path="/health"))
+        result = ManagedHostManager(spec, tmp_path / "state").health(timeout=5)
+    finally:
+        worker.join(5)
+        server.close()
+    assert result["reachable"] is False, result
+
+
+@pytest.mark.parametrize("body", ["[]", '{"data": [1]}', '{"data": {"id": "x"}}', '"x"', '{"devices": ["mps"]}',
+                                  '{"data": 5}', '{"devices": 5}'])
+def test_health_reads_a_foreign_json_shape_without_raising(monkeypatch, tmp_path, body):
+    """A foreign listener's JSON raised AttributeError in health(), which
+    rolled back the start's managed hosts (2026-10-08 run, cycle 68)."""
+    import io
+
+    from services import comfyui_mps_manager as comfy_module
+    from services.comfyui_mps_manager import ComfyUiMpsManager
+
+    class _Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+    monkeypatch.setattr(mod.urllib.request, "urlopen", lambda *a, **k: _Resp(body.encode()))
+    monkeypatch.setattr(comfy_module.urllib.request, "urlopen", lambda *a, **k: _Resp(body.encode()))
+    assert VllmMetalManager(tmp_path / "v", port=1).health()["reachable"] is True
+    assert ComfyUiMpsManager(tmp_path / "c", port=1).health()["reachable"] is True

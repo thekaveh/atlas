@@ -1054,3 +1054,22 @@ def test_mlflow_lock_is_checked_for_the_images_python() -> None:
     assert "MLFLOW_IMAGE=ghcr.io/mlflow/mlflow:v3.16.1" in env_example
     spec = next(item for item in check_runtime_locks.RUNTIME_LOCKS if "mlflow" in item.requirements)
     assert spec.python_version == "3.11"
+
+
+def test_every_test_lock_pins_the_shipped_runtime_versions():
+    """The backend test lock pinned openai 2.52.1 / typer 0.27.1 while the
+    image shipped 2.52.0 / 0.27.0, so the suite never ran the shipped
+    closure (2026-10-08 run, cycle 41)."""
+    assert [d for spec in check_test_locks.TEST_LOCKS for d in check_test_locks.runtime_drift(spec)] == []
+
+
+def test_runtime_drift_reports_a_differing_pin(tmp_path, monkeypatch):
+    (tmp_path / "svc").mkdir()
+    (tmp_path / "svc" / "requirements-locked.txt").write_text("openai==2.52.0\nshared==1.0\n")
+    (tmp_path / "svc" / "requirements-test-locked.txt").write_text("openai==2.52.1\nshared==1.0\npytest==9\n")
+    monkeypatch.setattr(check_test_locks, "ROOT", tmp_path)
+    spec = check_test_locks.TestLock("svc/requirements-test.txt", "svc/requirements-test-locked.txt")
+    assert check_test_locks.runtime_drift(spec) == [
+        "svc/requirements-test-locked.txt: openai==2.52.1 but svc/requirements-locked.txt ships 2.52.0"
+    ]
+

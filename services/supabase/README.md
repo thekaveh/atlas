@@ -148,7 +148,7 @@ execute privilege is revoked from public API roles despite its required
 
 ## 4. Individual Services
 
-`SUPABASE_{META,STORAGE,AUTH,API,REALTIME,STUDIO}_SOURCE=disabled` scales that container to 0 (the bootstrapper writes the matching `SUPABASE_<X>_SCALE`), and the port check skips it. Kong and Realtime depend on those sub-services optionally (`required: false`), so they start without the ones a stack does not use; routes to a disabled one return 502 (#1462). The database (`SUPABASE_DB_SOURCE`) stays required.
+`SUPABASE_{META,STORAGE,AUTH,API,REALTIME,STUDIO}_SOURCE=disabled` scales that container to 0 (the bootstrapper writes the matching `SUPABASE_<X>_SCALE`), and the port check skips it. Kong and Realtime depend on those sub-services optionally (`required: false`), so they start without the ones a stack does not use; routes to a disabled one return 503 (#1462). The database (`SUPABASE_DB_SOURCE`) stays required.
 
 ### 4.1. PostgreSQL Database
 
@@ -158,10 +158,12 @@ execute privilege is revoked from public API roles despite its required
 
 ### 4.2. Auth Service (GoTrue)
 
-**Access**: `http://localhost:${SUPABASE_AUTH_PORT}` (default: 63016)
+**Access**: through Kong at `/auth/v1` only. GoTrue is not published on the host: it answers any browser origin, and with sign-up and auto-confirm on, any web page open in your browser could create an account and read its token. `SUPABASE_AUTH_PORT` stays reserved but is not bound.
 **Purpose**: User registration, login, password recovery, email confirmation
 **Features**: JWT authentication, user management, password policies
-**Port**: GoTrue listens on 9999 (`GOTRUE_API_PORT`; its own default is 8081), which is where Kong's `/auth/v1` routes, Storage's `GOTRUE_URL` and the published `SUPABASE_AUTH_PORT` point; the container's healthcheck probes `/health` there.
+**Port**: GoTrue listens on 9999 (`GOTRUE_API_PORT`; its own default is 8081), which is where Kong's `/auth/v1` routes and Storage's `GOTRUE_URL` point; the container's healthcheck probes `/health` there.
+**Token claims**: `GOTRUE_JWT_AUD` and `GOTRUE_JWT_DEFAULT_GROUP_NAME` are `authenticated`, so user tokens carry the `aud` and `role` the backend and PostgREST require. Users stored with an empty `aud` and `role` (signed up before this setting) are repaired on the next start.
+**Profile sync**: the `auth.users` → `public.users` trigger and backfill run as the no-login role `atlas_auth_sync`, which can only read the synced `auth.users` columns and write `public.users`. GoTrue's database role owns `auth.users`; with the trigger owned by the init superuser, that role could make itself superuser. Every init statement that writes a table another role owns (this backfill, the empty-claims repair, the storage bucket insert and index DDL) runs inside a temporary `SECURITY DEFINER` function owned by that role, which also fires deferred constraint triggers before it returns. Code the owning role planted therefore never runs as the init superuser.
 
 **Limits**: GoTrue's `SITE_URL` (`http://supabase-studio:3000`) and `API_EXTERNAL_URL` (`http://supabase-auth:9999`) are container-internal and SMTP points at a local relay that does not exist, so email confirmation, recovery, magic-link and OAuth redirect links are not usable from a browser; the stock defaults auto-confirm sign-ups instead.
 
@@ -191,6 +193,8 @@ execute privilege is revoked from public API roles despite its required
 **Access**: WebSocket at `http://localhost:${SUPABASE_REALTIME_PORT}` (default: 63018)
 **Purpose**: Live database change notifications
 **Status**: not functional yet. Realtime v2.112 serves only tenants it has seeded, and Atlas does not seed one (`SEED_SELF_HOST`, `API_JWT_SECRET` and `DB_ENC_KEY` are not set, and the tenant is chosen from the request host's first label, which the Kong and direct URLs do not carry), so every connection is refused as an unknown tenant. Nothing in the stack subscribes today; enabling it is tracked as follow-up work.
+
+Realtime is an Erlang node. The image ships one fixed release cookie, so Atlas binds its epmd, Erlang distribution and gen_rpc listeners to the container's loopback (`ERL_AFLAGS` `inet_dist_use_interface`, `ERL_EPMD_ADDRESS`, `GEN_RPC_SOCKET_IP`). Other containers on `backend-network` reach only the HTTP/WebSocket port 4000. A single Realtime node needs no cluster traffic.
 
 Realtime creates and manages its own logical replication slots. Database initialization no longer creates a separate `supabase_realtime_slot` (Realtime never used it, so it only retained WAL) and drops that slot on startup when it is idle.
 
@@ -235,7 +239,7 @@ SUPABASE_ANON_KEY=generated_anon_key
 SUPABASE_SERVICE_KEY=generated_service_key
 
 # Service Ports
-SUPABASE_AUTH_PORT=63016
+SUPABASE_AUTH_PORT=63016          # reserved, not bound (use Kong /auth/v1)
 SUPABASE_API_PORT=63017
 SUPABASE_STORAGE_PORT=63015
 SUPABASE_STUDIO_PORT=63019
@@ -259,22 +263,40 @@ reserved in the port block but is not bound.
 ### 5.2. Security note — writable `public` schema
 
 Open WebUI, LightRAG, pg-meta and Realtime roles can create objects in
-`public`. PostgreSQL resolves an unqualified call to the best type match across
-the search path, so a planted `public` overload can beat a `pg_catalog`
-built-in and run as whoever calls it. Every `SECURITY DEFINER` function in
-the database runs with a `search_path` that excludes `public`. Atlas's own use
-`pg_catalog, pg_temp` (or empty) and qualify `public` objects, and
-`01-extensions.sql` pins PostGIS's `ST_EstimatedExtent` the same way: call its
-schema-qualified three-argument form, because the two-argument form no longer
-finds a table by search path. Superuser-run slices schema-qualify built-ins
-called with non-exact argument types. Because the slices still call some
-routines (`format`, `=`, `<>`, and extension routines such as `vector_dims`)
-without exact types, `db-init-runner` refuses to run while a non-superuser owns
-a function or operator named like a superuser-owned one in `pg_catalog`,
-`public`, `auth` or `extensions`, and names each object: drop them, then
-restart. The backup and restore scripts resolve nothing through `public`
-(`search_path = pg_catalog, pg_temp`). Downstream SQL in `db/_user/` runs as
-the init superuser too: qualify calls the same way (#1456).
+`public`. PostgreSQL resolves an unqualified call to the best type match on the
+search path. A planted `public` overload can therefore beat a `pg_catalog`
+built-in and run as whoever calls it.
+
+Every `SECURITY DEFINER` function in the database pins a `search_path` without
+`public`. Atlas's own functions use `pg_catalog, pg_temp` (or an empty path)
+and qualify `public` objects. `01-extensions.sql` pins PostGIS's
+`ST_EstimatedExtent` the same way, so call its schema-qualified three-argument
+form: the two-argument form no longer finds a table by search path.
+
+Init runs as a superuser, so `db-init-runner` protects it in three ways:
+
+- Every init `psql` call uses `search_path=public,auth,extensions`. The
+  superuser's saved path also names a schema literally called `"\$user"`,
+  which any role with `CREATE` on the database could add ahead of `public`.
+- It refuses to run while a non-superuser owns a function or operator named
+  like a superuser-owned one in `pg_catalog`, `public`, `auth` or
+  `extensions`. Superuser-run slices still call some routines (`format`, `=`,
+  `<>`, `vector_dims`) without exact argument types.
+- It refuses to run while a trigger on a superuser-owned table calls a function
+  that a non-superuser owns. `anon`, `authenticated` and `service_role` hold no
+  `TRIGGER` privilege on `public` tables, and init inserts the default storage
+  bucket as the table's owner.
+
+Each service database (LiteLLM, Airflow, Langfuse and the others) is owned by
+its service role, which therefore owns that database's `public` schema. Init's
+ownership pass there runs with `search_path = pg_catalog, pg_temp` and
+schema-qualified built-ins, so nothing the role plants in it runs as the
+superuser.
+
+When init refuses, it names each object. Drop them, then restart. The backup
+and restore scripts resolve nothing through `public` (`search_path =
+pg_catalog, pg_temp`). Downstream SQL in `db/_user/` runs as the init
+superuser too: qualify calls the same way (#1456).
 
 ## 6. Integration Points
 
@@ -301,7 +323,7 @@ docker exec ${PROJECT_NAME}-supabase-db pg_isready
 
 # Services
 curl -I http://localhost:${SUPABASE_API_PORT}/   # PostgREST serves its OpenAPI root; it has no /health on this port
-curl http://localhost:${SUPABASE_AUTH_PORT}/health
+docker exec ${PROJECT_NAME}-supabase-auth wget -qO- http://localhost:9999/health
 ```
 
 ### 7.3. View Logs
