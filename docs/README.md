@@ -31,9 +31,9 @@ Documentation index for Atlas. Start from the journey that matches you:
 - [User Supabase Migrations](../services/supabase/db/_user/README.md) — add downstream-owned SQL after Atlas migrations
 
 ### 1.4. Architecture diagrams
-- [Architecture catalog](architecture/index.md) — generated index of platform, lifecycle, data-flow, routing, observability, and security perspectives
-- [Diagram authoring](architecture/README.md) — regeneration workflow and source-of-truth rules for architecture assets
-- [Diagram asset catalog](diagrams/README.md) — top-level diagram update workflow and per-service auto-generation chain
+- [Platform architecture](architecture/index.md) — the top-level platform diagram
+- [Diagram catalog](architecture/README.md) — generated index of the platform, lifecycle, data-flow, routing, observability, and security perspectives
+- [Diagram authoring](diagrams/README.md) — top-level diagram update workflow and per-service auto-generation chain
 - The top-level diagram itself lives at [diagrams/architecture.svg](diagrams/architecture.svg) (embedded in the project README) and [diagrams/architecture.html](diagrams/architecture.html) (standalone view)
 
 ### 1.5. Configuration and operations
