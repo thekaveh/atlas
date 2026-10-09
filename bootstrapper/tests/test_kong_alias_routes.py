@@ -1128,3 +1128,17 @@ def test_kong_audit_fails_on_path_only_routes_dropped_plugins_and_strip_path(tmp
 
     monkeypatch.setattr(audit, "generate_default_kong_config", generate)
     assert audit.main() == 1
+
+
+def test_plugin_route_buffering_lands_on_its_dedicated_route():
+    """Kong buffered a whole (multi-GiB) upload before the plugin could refuse
+    it; a plugin can now turn buffering off for its route (#1454)."""
+    config = _generate_with_plugin_auth(
+        "", [],
+        [("tableau", "/tableau", {"request_buffering": False, "response_buffering": False})],
+    )
+    service = _service(config, "backend-api-plugin-tableau")
+    route = service["routes"][0]
+    assert route["request_buffering"] is False and route["response_buffering"] is False
+    assert "request_buffering" not in service and "response_buffering" not in service
+    assert service["read_timeout"] == 3_630_000  # unset timeouts keep the backend default

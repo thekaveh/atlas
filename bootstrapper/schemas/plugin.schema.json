@@ -54,6 +54,14 @@
       "maximum": 2147483646,
       "description": "Optional Kong upstream read-idle timeout in milliseconds. Omitted means the backend's own long timeout (at least 3,630,000 ms, as on the shared backend-api service) applies."
     },
+    "request_buffering": {
+      "type": "boolean",
+      "description": "Optional Kong route request_buffering. false streams the request body to the backend as it arrives, so the plugin can refuse an oversized or unwanted upload early instead of after Kong has read all of it. Omitted means Kong's default (true)."
+    },
+    "response_buffering": {
+      "type": "boolean",
+      "description": "Optional Kong route response_buffering. false streams the response to the client as the backend produces it (a large download). Omitted means Kong's default (true)."
+    },
     "env": {
       "type": "array",
       "description": "Declared environment contract. Validated at startup and by the consumer doctor: required-but-missing → warning naming plugin + var; enum/type mismatches flagged. Secret values are masked in all state/doctor/docs/log output.",
