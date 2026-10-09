@@ -289,7 +289,11 @@ steps; keep only a thin launcher that calls `./infra/start.sh --consumer
 
 ### 4.3. Parent .gitignore Configuration
 
-Add these entries to your parent project's `.gitignore`:
+A parent repository's `.gitignore` has no effect on paths inside the
+submodule. Atlas's own `.gitignore` already ignores `.env`, `.env.user`,
+`volumes/`, `data/` and the files in `services/supabase/db/_user/`, so local
+state does not make the submodule look dirty. The entries below are optional;
+they only matter if your parent tooling scans `infra/` as plain files:
 
 ```
 # Infrastructure environment and data
@@ -318,7 +322,7 @@ ATLAS_ENV_USER_FILE="$PWD/atlas.env.user" ./infra/start.sh
 
 During setup, Atlas copies `.env.example` when needed, merges sibling `infra/.env.user`, then merges `ATLAS_ENV_USER_FILE`, and then applies explicit CLI flags such as `--project` last. Both overlays are applied on every start, including `--cold`, before Atlas backfills missing keys from `.env.example`. If `ATLAS_ENV_USER_FILE` is relative, `start.sh` resolves it against the parent directory that invoked the wrapper; direct Python invocations resolve it against their current working directory. Missing or unreadable external overlay files produce a warning rather than aborting startup.
 
-Use `infra/services/supabase/db/_user/` for downstream-owned Supabase SQL that should run after Atlas-owned database initialization. Files are executed by `supabase-db-init` in lexical order after `infra/services/supabase/db/scripts/*.sql`; write them idempotently because the same database volume may be reused across starts. The parent `.gitignore` entry above keeps local SQL from making the Atlas submodule look dirty unless your project intentionally versions those migrations through its own overlay strategy.
+Use `infra/services/supabase/db/_user/` for downstream-owned Supabase SQL that should run after Atlas-owned database initialization. Files are executed by `supabase-db-init` in lexical order after `infra/services/supabase/db/scripts/*.sql`; write them idempotently because the same database volume may be reused across starts. Atlas's own `services/supabase/db/_user/.gitignore` keeps that local SQL from making the submodule look dirty; version the migrations in the parent repository if your project needs them tracked.
 
 ## 5. Configuration
 
@@ -488,7 +492,7 @@ import os
 # Development configuration
 LITELLM_BASE_URL = os.getenv("LITELLM_BASE_URL", "http://localhost:63040")
 LITELLM_API_KEY = os.getenv("LITELLM_API_KEY")  # equals LITELLM_MASTER_KEY
-SUPABASE_URL = os.getenv("SUPABASE_URL", "http://localhost:63017")  # SUPABASE_API_PORT
+SUPABASE_URL = os.getenv("SUPABASE_URL", "http://localhost:63000")  # Kong gateway; clients add /rest/v1
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:63025")
 ```
 
@@ -695,7 +699,7 @@ You can run multiple instances of atlas for different projects:
 # fragment interpolation used the shell value, colliding the two stacks)
 cd ~/project1/infra
 echo "PROJECT_NAME=project1" >> .env
-./start.sh --base-port 63000
+./start.sh --base-port 65000  # not the default 63000; see reusing-atlas §7
 
 # Project 2
 cd ~/project2/infra

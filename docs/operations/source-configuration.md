@@ -232,7 +232,7 @@ COMFYUI_SOURCE=managed-localhost-mps
 - **Use case**: Apple Silicon, where Metal/MPS acceleration is unavailable inside a Linux container
 - **Pros**: GPU-accelerated on macOS; Atlas owns the install, start/stop and health of the host process
 - **Cons**: macOS/Apple Silicon only; the process runs outside Docker
-- **Requirements**: managed through `./start.sh comfyui-mps <preflight|install|provision|start|stop|status|health|remove>`
+- **Requirements**: managed through `./start.sh comfyui-mps <preflight|install|provision|provision-nodes|start|stop|status|health|remove>`
 
 #### 4.2.5. `disabled`
 ```bash
@@ -319,7 +319,7 @@ MINIO_SOURCE=disabled
 ```
 - **Use case**: No artifact-tier object storage needed
 - **Pros**: Saves resources
-- **Cons**: No S3-compatible artifact surface available. Spark, Iceberg REST, Trino, Jenkins, MLflow, Label Studio and Langfuse refuse to start without MinIO (startup stops with an error naming the service), so disable those too or keep MinIO on; the asset worker/baker and a local-mode backup are instead auto-disabled by the launch-time dependency check.
+- **Cons**: No S3-compatible artifact surface available. Spark, Iceberg REST, Trino, Jenkins, MLflow, Label Studio, Langfuse, the asset worker and baker, and a local-mode backup refuse to start without MinIO (startup stops with an error naming the service). Disable those too, set `BACKUP_S3_MODE=external` for backups, or keep MinIO on.
 - **Requirements**: None
 
 ### 4.5. OPENCLAW_SOURCE
