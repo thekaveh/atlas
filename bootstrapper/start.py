@@ -2905,6 +2905,8 @@ class AtlasStarter:
         # No consumer declares n8n_workflows → remove any stale generated
         # artifacts so a warm restart doesn't re-seed removed workflows.
         if not config.n8n_workflows:
+            if _n8n_plan_has_workflows(seed_dir / "plan.json"):
+                return self._reconcile_last_n8n_workflows(seed_dir, overlay_path)
             if seed_dir.exists():
                 for stale in seed_dir.glob("*.json"):
                     stale.unlink()
@@ -2934,6 +2936,26 @@ class AtlasStarter:
         self.banner.show_status_message(
             f"  • Seeding {len(config.n8n_workflows)} consumer n8n workflow(s) "
             f"from {', '.join(owners)}",
+            "info",
+        )
+        return True
+
+    def _reconcile_last_n8n_workflows(self, seed_dir: Path, overlay_path: Path) -> bool:
+        """The last declared workflow was removed: run the seed once more with
+        an empty plan, so its reconcile deactivates and deletes every
+        ``atlas-consumer-*`` workflow. Dropping the overlay at once skipped the
+        seed and left their webhooks live (2026-10-08 run, cycle 31). The next
+        start finds the empty plan and removes the artifacts."""
+        from core.consumer_manifest import compile_n8n_plan, render_n8n_seed_overlay
+
+        for stale in seed_dir.glob("*.json"):
+            if stale.name != "plan.json":
+                stale.unlink()
+        (seed_dir / "plan.json").write_text(compile_n8n_plan([]), encoding="utf-8")
+        overlay_path.parent.mkdir(parents=True, exist_ok=True)
+        overlay_path.write_text(render_n8n_seed_overlay([]), encoding="utf-8")
+        self.banner.show_status_message(
+            "  • No consumer n8n workflows declared: removing the previously seeded ones",
             "info",
         )
         return True
@@ -8763,6 +8785,14 @@ def _ollama_model_name(value: str) -> str:
         if value.startswith(prefix):
             return value[len(prefix):]
     return ""
+
+
+def _n8n_plan_has_workflows(plan_path: Path) -> bool:
+    """Whether the last generated n8n seed plan still lists workflows."""
+    try:
+        return bool(json.loads(plan_path.read_text(encoding="utf-8")).get("workflows"))
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def label_ollama_models(models: list, env: dict, root: Optional[Path] = None) -> list[dict]:

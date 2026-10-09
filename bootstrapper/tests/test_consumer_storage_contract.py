@@ -194,6 +194,8 @@ def test_credential_tokens_for_keygen_backfill(tmp_path: Path) -> None:
         ("a" * 64, "3-63"),                        # too long
         ("dd..artifacts", r"\.\."),                # double dot
         ("10.0.0.1", "IP-formatted"),              # ip-like
+        ("ab.-cd", r"'\.-'"),                     # MinIO rejects (cycle 31)
+        ("ab-.cd", r"'-\.'"),
     ],
 )
 def test_invalid_bucket_names_rejected(tmp_path: Path, bucket: str, match: str) -> None:

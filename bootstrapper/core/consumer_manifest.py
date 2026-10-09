@@ -943,9 +943,11 @@ def _validate_bucket_name(name: str, *, origin: str) -> None:
             f"storage bucket {name!r} must be lowercase alphanumeric with "
             f"hyphens/dots, starting and ending alphanumeric ({origin})"
         )
-    if ".." in name or _IPV4_RE.match(name):
+    # MinIO and S3 also reject '.-' and '-.'; accepting them made minio-init's
+    # `mc mb` fail at start (2026-10-08 run, cycle 31).
+    if any(seq in name for seq in ("..", ".-", "-.")) or _IPV4_RE.match(name):
         raise ConsumerManifestError(
-            f"storage bucket {name!r} may not contain '..' or be IP-formatted ({origin})"
+            f"storage bucket {name!r} may not contain '..', '.-' or '-.' or be IP-formatted ({origin})"
         )
 
 
