@@ -869,7 +869,7 @@
 | SUPABASE_META_DB_PASSWORD_URI | supabase | atlas-db-password | Bootstrapper-synchronized percent-encoded SUPABASE_META_DB_PASSWORD for DSN userinfo. |
 | SUPABASE_STUDIO_DB_USER | supabase | atlas_studio_readonly | Read-only SQL-editor identity used by Studio; it shares Studio's single password interface with Meta but has no Meta admin authority. |
 | SUPABASE_STUDIO_DB_USER_URI | supabase | atlas_studio_readonly | Bootstrapper-synchronized percent-encoded SUPABASE_STUDIO_DB_USER for Studio's constructed DSN. |
-| SUPABASE_DB_INIT_SOURCE | supabase | container | Auto-managed by supabase-db. Container/disabled. |
+| SUPABASE_DB_INIT_SOURCE | supabase | container | Container only: the post-init SQL runner every Supabase-backed service waits for. Other values are rejected. |
 | POSTGRES_EXPORTER_PORT | supabase | 63013 | Host port for postgres-exporter (in-container 9187). Sidecar gated by PROMETHEUS_SOURCE. |
 | POSTGRES_EXPORTER_SCALE | supabase |  | Set by _generate_prometheus_config() to 1 when PROMETHEUS_SOURCE=container, 0 otherwise. |
 | POSTGRES_EXPORTER_DB_USER | supabase | atlas_metrics | - |

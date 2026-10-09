@@ -371,3 +371,5 @@ def test_a_remembered_selection_renders_as_a_checked_row(tmp_path, monkeypatch):
     )[0]
     options = step.options_provider({})
     assert "owner--hf-model" in [o.value for o in options]
+    # Pre-checked: the panel keeps a default only when it maps to a row.
+    assert "owner--hf-model" in step.default_values

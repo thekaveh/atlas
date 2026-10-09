@@ -178,7 +178,7 @@ env:
   # DB init
   - name: SUPABASE_DB_INIT_SOURCE
     default: container
-    description: "Auto-managed by supabase-db. Container/disabled."
+    description: "Container only: the post-init SQL runner every Supabase-backed service waits for. Other values are rejected."
   # Postgres-exporter sidecar (observability)
   - name: POSTGRES_EXPORTER_PORT
     # default removed — computed by services/topology.py slot allocator
@@ -328,13 +328,12 @@ runtime_sc:
       deploy: {}
       extra_hosts: []
   supabase-db-init:
+    # Container only: backend, open-webui, comfyui and every Supabase
+    # sub-service wait for it to complete, and nothing scales it, so a
+    # "disabled" here was accepted and silently ignored (2026-10-08 run,
+    # cycle 13).
     container:
       scale: 1
-      environment: {}
-      deploy: {}
-      extra_hosts: []
-    disabled:
-      scale: 0
       environment: {}
       deploy: {}
       extra_hosts: []
