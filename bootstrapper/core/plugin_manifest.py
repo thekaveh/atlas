@@ -38,6 +38,8 @@ else:
 PLUGIN_MANIFEST_FILENAME = "plugin.yml"
 SECRET_MASK = "***"
 KONG_TIMEOUT_FIELDS = ("connect_timeout", "write_timeout", "read_timeout")
+# Route-level (not service-level) Kong fields a plugin may set (#1454).
+KONG_ROUTE_FIELDS = ("request_buffering", "response_buffering")
 
 # Built-in backend route prefixes a plugin must not shadow. Kept in sync with
 # services/backend/app/app/plugin_manifest.py::RESERVED_ROUTE_PREFIXES and the
@@ -108,6 +110,8 @@ class PluginManifest:
     connect_timeout: int | None = None
     write_timeout: int | None = None
     read_timeout: int | None = None
+    request_buffering: bool | None = None
+    response_buffering: bool | None = None
     env: tuple[dict, ...] = ()
     depends_on: tuple[str, ...] = ()
     source_dir: Path | None = None
@@ -168,6 +172,8 @@ def load_plugin_manifest(plugin_dir: Path) -> PluginManifest | None:
         connect_timeout=raw.get("connect_timeout"),
         write_timeout=raw.get("write_timeout"),
         read_timeout=raw.get("read_timeout"),
+        request_buffering=raw.get("request_buffering"),
+        response_buffering=raw.get("response_buffering"),
         env=tuple(raw.get("env", ())),
         depends_on=tuple(raw.get("depends_on", ())),
         source_dir=plugin_dir,
@@ -257,7 +263,9 @@ def derive_route_auth(manifests: list[PluginManifest]) -> list[tuple[str, str]]:
 def derive_route_timeouts(
     manifests: list[PluginManifest],
 ) -> list[tuple[str, str, dict[str, int]]]:
-    """Per-plugin Kong service timeouts for manifests that declare any.
+    """Per-plugin Kong policies for manifests that declare any: service
+    timeouts plus route buffering flags (#1454), each plugin on its own Kong
+    service.
 
     Values have already passed the canonical JSON Schema. Omitted fields stay
     omitted so Kong retains its own per-field defaults.
@@ -266,7 +274,7 @@ def derive_route_timeouts(
     for manifest in manifests:
         timeouts = {
             field_name: value
-            for field_name in KONG_TIMEOUT_FIELDS
+            for field_name in KONG_TIMEOUT_FIELDS + KONG_ROUTE_FIELDS
             if (value := getattr(manifest, field_name)) is not None
         }
         if timeouts:

@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from core.config_parser import DEFAULT_BASE_PORT
+from core.plugin_manifest import KONG_ROUTE_FIELDS
 from utils.atomic_write import atomic_replace_text
 
 
@@ -2156,7 +2157,9 @@ class KongConfigGenerator:
         auth_by_prefix = dict(self.plugin_route_auth)
         base_mode = self._backend_kong_auth_mode()
         services: List[Dict[str, Any]] = []
-        for plugin_name, prefix, timeouts in self.plugin_route_timeouts:
+        for plugin_name, prefix, policy in self.plugin_route_timeouts:
+            # Buffering flags are route attributes; timeouts are service ones.
+            route_fields = {k: v for k, v in policy.items() if k in KONG_ROUTE_FIELDS}
             service = {
                 'name': f'backend-api-plugin-{plugin_name}',
                 'url': 'http://backend:8000/',
@@ -2169,11 +2172,12 @@ class KongConfigGenerator:
                         'plugins': self._backend_auth_plugins(
                             auth_by_prefix.get(prefix, base_mode)
                         ),
+                        **route_fields,
                     }
                 ],
                 'plugins': [{'name': 'cors'}],
             }
-            service.update(timeouts)
+            service.update({k: v for k, v in policy.items() if k not in KONG_ROUTE_FIELDS})
             services.append(service)
         return services
 
