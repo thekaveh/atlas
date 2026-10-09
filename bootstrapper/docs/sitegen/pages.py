@@ -772,7 +772,7 @@ runs. See [reusing-atlas.md §6.5](https://github.com/thekaveh/atlas/blob/main/d
 A backend plugin package mounted under `BACKEND_PLUGINS_DIR` may ship an optional
 `plugin.yml` (`plugin_manifest_version: 1`) declaring a typed, validated
 contract: `name`, `route_prefix`, `health_path`/`docs_url`, `auth:
-inherit|open|key-auth`, optional per-plugin Kong upstream timeouts, and
+inherit|open|key-auth`, optional per-plugin Kong upstream timeouts and buffering, and
 typed/`default`/`required`/`secret` `env`. Absent →
 the plugin loads exactly as before (backward compatible). A present-but-malformed
 manifest skips only that plugin with a structured error and leaves others
@@ -786,7 +786,9 @@ the historical single backend route unchanged. Timeout-bearing plugins receive
 dedicated Kong services so their strict millisecond `connect_timeout`,
 `write_timeout`, and `read_timeout` overrides do not affect other backend
 routes; an omitted `read_timeout`/`write_timeout` gets the backend's own
-long timeout (at least 3,630,000 ms) and an omitted `connect_timeout` keeps Kong's 60,000 ms default. See
+long timeout (at least 3,630,000 ms) and an omitted `connect_timeout` keeps Kong's 60,000 ms default.
+`request_buffering: false` / `response_buffering: false` stream a plugin's
+uploads and downloads through Kong on the same dedicated service. See
 [reusing-atlas.md §6.3.1](https://github.com/thekaveh/atlas/blob/main/docs/operations/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml).
 
 ## 7. Health And Logs

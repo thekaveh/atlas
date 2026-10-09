@@ -408,3 +408,15 @@ def test_a_trailing_newline_is_rejected_like_the_backend_does(tmp_path):
     with pytest.raises(PluginManifestError, match="newline"):
         load_plugin_manifest(_pkg(tmp_path, "pp", 'plugin_manifest_version: 1\nname: pp\nroute_prefix: "/demo\\n"\n'))
     assert load_plugin_manifest(_pkg(tmp_path, "qq", "plugin_manifest_version: 1\nname: qq\nroute_prefix: /a.b/c..d\n"))
+
+
+def test_buffering_flags_load_derive_and_reject_non_booleans(tmp_path):
+    from core.plugin_manifest import derive_route_timeouts
+
+    body = ("plugin_manifest_version: 1\nname: stream\nroute_prefix: /stream\n"
+            "request_buffering: false\n")
+    manifest = load_plugin_manifest(_pkg(tmp_path, "stream", body))
+    assert manifest.request_buffering is False and manifest.response_buffering is None
+    assert derive_route_timeouts([manifest]) == [("stream", "/stream", {"request_buffering": False})]
+    with pytest.raises(PluginManifestError):
+        load_plugin_manifest(_pkg(tmp_path, "bad", body.replace("name: stream", "name: bad").replace("false", '"no"')))
