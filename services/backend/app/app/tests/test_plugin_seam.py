@@ -307,6 +307,25 @@ def test_plugin_inventory_exposes_only_declared_kong_timeouts(tmp_path, monkeypa
         "connect_timeout": 120000,
         "read_timeout": 900000,
     }
+    assert timed["kong_route"] == {}
+
+
+def test_plugin_inventory_exposes_declared_kong_buffering(tmp_path, monkeypatch):
+    """GET /plugins showed timeouts but not the #1454 buffering flags, so an
+    operator could not see a prefix streams (2026-10-08 run, cycle 6)."""
+    _plugin_pkg(
+        tmp_path, "stream_plugin", "/stream",
+        "plugin_manifest_version: 1\nname: stream\nroute_prefix: /stream\n"
+        "request_buffering: false\n",
+    )
+
+    from fastapi import FastAPI
+    import plugin_seam
+
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+    inventory = plugin_seam.load_plugins(FastAPI())
+    stream = next(entry for entry in inventory if entry["name"] == "stream")
+    assert stream["kong_route"] == {"request_buffering": False}
 
 
 @pytest.fixture

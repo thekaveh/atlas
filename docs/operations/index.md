@@ -264,7 +264,9 @@ public. Timeout-bearing plugins receive dedicated Kong services so their
 strict millisecond `connect_timeout`, `write_timeout`, and `read_timeout`
 overrides do not affect other backend routes; an omitted `read_timeout`/
 `write_timeout` gets the backend's own long timeout (at least 3,630,000 ms) and an omitted
-`connect_timeout` keeps Kong's 60,000 ms default. See
+`connect_timeout` keeps Kong's 60,000 ms default. A plugin that sets
+`request_buffering` or `response_buffering` gets the same dedicated service;
+`false` streams its uploads or downloads through Kong. See
 [reusing-atlas.md §6.3.1](https://github.com/thekaveh/atlas/blob/main/docs/operations/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml).
 
 ## 7. Health And Logs

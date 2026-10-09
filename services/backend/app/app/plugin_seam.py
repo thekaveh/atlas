@@ -222,6 +222,7 @@ def _inventory_entry(
         "docs_url": manifest.docs_url if manifest else None,
         "auth": manifest.auth if manifest else None,
         "timeouts": manifest.timeout_summary() if manifest else {},
+        "kong_route": manifest.kong_route_summary() if manifest else {},
         "depends_on": list(manifest.depends_on) if manifest else [],
         "env": manifest.env_summary(dict(os.environ)) if manifest else [],
     }
