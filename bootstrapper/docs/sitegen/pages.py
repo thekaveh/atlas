@@ -449,22 +449,23 @@ ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
         "get overridden."
     ),
     "network-routing-topology": (
-        "The host-gateway address is runtime-dependent, not a fixed IP: "
-        "Docker accepts the literal `host-gateway` value in `extra_hosts` "
-        "and resolves it internally, but Podman has no such shortcut — it "
-        "queries the default bridge network's IPAM gateway IP directly "
-        "(`resolve_host_gateway_ip()` in `bootstrapper/utils/system.py`), "
-        "falling back to a throwaway container if that lookup fails. "
-        "Localhost-source endpoints always name `host.docker.internal`, and "
-        "every container that reads one maps it to that gateway in "
-        "`extra_hosts`; no host-side lookup or fixed bridge IP is involved (#1361)."
+        (
+            'The host-gateway address depends on the runtime; it is not a fixed IP. '
+            'Docker resolves the literal `host-gateway` value in `extra_hosts` itself. '
+            'Podman has no such shortcut: `resolve_host_gateway_ip()` in '
+            "`bootstrapper/utils/system.py` queries the default bridge network's IPAM "
+            'gateway, then falls back to a throwaway container. Localhost-source '
+            'endpoints always name `host.docker.internal`, which each reading container '
+            'maps to that gateway (#1361).'
+        )
     ),
     "data-rag-flow": (
-        "Backend isn't the only writer into these stores: LightRAG writes "
-        "directly to Neo4j over Bolt and to Supabase pgvector, and other MinIO "
-        "consumers (the Iceberg pipeline, asset-worker) hold their own scoped "
-        "IAM credentials and write directly too — only Backend's own "
-        "ingestion path is pictured here, not every producer."
+        (
+            'Backend is not the only writer into these stores. LightRAG writes directly '
+            'to Neo4j over Bolt and to Supabase pgvector. Other MinIO consumers (the '
+            'Iceberg pipeline, asset-worker) write with their own scoped IAM credentials.'
+            " This view shows only Backend's ingestion path."
+        )
     ),
     "llm-provider-flow": (
         "Disabling a cloud provider in `.env` doesn't error — the model "
@@ -477,43 +478,46 @@ ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
         "completions."
     ),
     "data-engineering-lakehouse-flow": (
-        "Iceberg REST's catalog metadata lives in Supabase Postgres via a "
-        "JDBC catalog, not a Hive metastore — if `CATALOG_URI` isn't pointed "
-        "at `jdbc:postgresql://supabase-db:5432/iceberg`, the base image "
-        "silently falls back to a local SQLite catalog and metadata vanishes "
-        "on restart. Trino runs single-coordinator, no worker scaling, by "
-        "design. Spark still starts with `ICEBERG_REST_SOURCE=disabled` for "
-        "ML-only use; only lakehouse SQL fails."
+        (
+            'Iceberg REST keeps its catalog metadata in Supabase Postgres through a JDBC '
+            'catalog, not a Hive metastore. If `CATALOG_URI` does not point at '
+            '`jdbc:postgresql://supabase-db:5432/iceberg`, the base image falls back to a'
+            ' local SQLite catalog that a restart loses. Trino runs one coordinator and '
+            'no workers, by design. Spark still starts with '
+            '`ICEBERG_REST_SOURCE=disabled` for ML-only use; only lakehouse SQL fails.'
+        )
     ),
     "observability-flow": (
-        "Langfuse is deliberately outside the OTel path: LiteLLM emits "
-        "Langfuse traces via its own `success_callback`/`failure_callback`, not through the "
-        "Collector, because Langfuse is the LLM-behavior layer while "
-        "Prometheus/Grafana stay the infrastructure-metrics layer. Backend, "
-        "Celery workers, and LiteLLM OTLP traces reach Tempo through the "
-        "Collector. Applications that emit OTLP logs use the same receiver; "
-        "the Collector redacts a documented field allowlist and persists "
-        "accepted logs in Loki with trace/span structured metadata."
+        (
+            'Langfuse is deliberately outside the OTel path. LiteLLM sends Langfuse '
+            'traces through its own `success_callback`/`failure_callback`, not through '
+            'the Collector. Langfuse is the LLM-behavior layer; Prometheus and Grafana '
+            'are the infrastructure-metrics layer. Backend, Celery workers, and LiteLLM '
+            'OTLP traces reach Tempo through the Collector. OTLP logs use the same '
+            'receiver. The Collector redacts a documented field allowlist and persists '
+            'accepted logs in Loki with trace and span metadata.'
+        )
     ),
     "security-auth-secrets-boundary": (
-        "Kong applies route-specific Basic, key-auth, pass-through, rate-limit, "
-        "and CORS policies; it does not provide one uniform identity layer. "
-        "Backend separately validates Supabase JWTs, scoped first-party tokens, "
-        "and operator tokens, while plugin `open|key-auth|inherit` modes are "
-        "enforced again at the application boundary. Backend `/health`, "
-        "`/ready`, `/metrics`, and API-doc routes are intentionally public, and "
-        "direct ports or operator-trusted UIs can bypass Kong, so those surfaces "
-        "must remain inside their intended network boundary."
+        (
+            'Kong applies route-specific Basic, key-auth, pass-through, rate-limit, and '
+            'CORS policies; it does not provide one uniform identity layer. Backend '
+            'separately validates Supabase JWTs, scoped first-party tokens, and operator '
+            'tokens. It enforces plugin `open|key-auth|inherit` modes again at the '
+            'application boundary. Backend `/health`, `/ready`, `/metrics`, and API-doc '
+            'routes are public by design. Direct ports and operator-trusted UIs can '
+            'bypass Kong, so keep those surfaces inside their intended network boundary.'
+        )
     ),
     "service-admission-workflow": (
-        "`manifest_validator.py`'s fragment check is what actually blocks a "
-        "partial landing: `missing_fragment` for a non-virtual manifest with "
-        "no `compose.yml`, `unexpected_fragment` for a virtual manifest that "
-        "ships one anyway, and `fragment_container_drift` when the "
-        "manifest's `containers[]` disagrees with the compose file's "
-        "`services:` keys. `tools/validate_fragments.py` runs this in CI and "
-        "separately checks `.env.example` drift and the README `TOPOLOGY` "
-        "block."
+        (
+            'The fragment check in `manifest_validator.py` blocks a partial landing. It '
+            'reports `missing_fragment` for a non-virtual manifest without `compose.yml` '
+            'and `unexpected_fragment` for a virtual manifest that ships one. It reports '
+            '`fragment_container_drift` when `containers[]` disagrees with the compose '
+            '`services:` keys. `tools/validate_fragments.py` runs this check in CI, and '
+            'also checks `.env.example` drift and the README `TOPOLOGY` block.'
+        )
     ),
 }
 
