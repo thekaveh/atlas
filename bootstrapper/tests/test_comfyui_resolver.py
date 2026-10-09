@@ -659,3 +659,28 @@ def test_an_unresolvable_selection_is_reported_by_name(tmp_path, monkeypatch):
     generator = comfyui_manifest_generator.ComfyUIManifestGenerator(env)
     assert generator.write(tmp_path)
     assert generator.unresolved == ["gone-model"]
+
+
+def test_one_unreadable_remembered_row_does_not_drop_the_others(tmp_path):
+    """Loading was all-or-nothing, and the next write replaced the file with
+    only the active set, destroying every other remembered selection
+    (2026-10-08 run, cycle 3)."""
+    import dataclasses
+    import json
+
+    from utils import comfyui_resolver
+    from utils.comfyui_library import ComfyUIModelFile
+
+    good = _scraped("hf-model", "huggingface")
+    bundle = dataclasses.replace(
+        _scraped("hf-bundle", "huggingface"),
+        files=(ComfyUIModelFile(role="model", category="checkpoint", url=good.url, filename="b.safetensors"),),
+    )
+    bad = {**dataclasses.asdict(_scraped("old", "huggingface")), "category": "gone"}
+    path = tmp_path / comfyui_resolver.REMEMBERED_SELECTIONS_FILE
+    comfyui_resolver.write_remembered_selections([good, bundle], path)
+    rows = json.loads(path.read_text()) + [bad]
+    path.write_text(json.dumps(rows))
+    loaded = comfyui_resolver.load_remembered_selections(path)
+    assert set(loaded) == {"hf-model", "hf-bundle"}
+    assert loaded["hf-bundle"].files[0].filename == "b.safetensors"

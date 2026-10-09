@@ -302,18 +302,35 @@ def load_remembered_selections(path: Path | str | None) -> dict[str, ComfyUILibr
         return {}
     try:
         rows = json.loads(Path(path).read_text(encoding="utf-8"))
-        entries = [comfyui_library._dict_to_entry(row, str(row["source"])) for row in rows]
-    except (OSError, ValueError, KeyError, TypeError) as exc:
+    except (OSError, ValueError) as exc:
         print(f"⚠️  ignoring unreadable {path}: {exc}", file=sys.stderr, flush=True)
         return {}
-    return {entry.name: entry for entry in entries}
+    entries: dict[str, ComfyUILibraryEntry] = {}
+    # Row by row: one row an upgrade can no longer parse (a renamed category,
+    # a hand edit) must not drop every other remembered selection.
+    for row in rows if isinstance(rows, list) else ():
+        try:
+            entry = comfyui_library._dict_to_entry(row, str(row["source"]))
+        except (ValueError, KeyError, TypeError) as exc:
+            print(f"⚠️  ignoring a remembered ComfyUI entry in {path}: {exc}", file=sys.stderr, flush=True)
+            continue
+        entries[entry.name] = entry
+    return entries
+
+
+def _remembered_row(entry: ComfyUILibraryEntry) -> dict:
+    """asdict, minus null file fields: the loader rejects a present
+    ``provisioning_required: null`` on a file, so a bundle never read back."""
+    row = dataclasses.asdict(entry)
+    row["files"] = [{k: v for k, v in f.items() if v is not None} for f in row["files"]]
+    return row
 
 
 def write_remembered_selections(entries: list[ComfyUILibraryEntry], path: Path | str) -> None:
     """Persist the scraped (non-curated, non-sidecar) active entries, so the
     next start can resolve them when the scrape no longer returns them."""
     rows = [
-        dataclasses.asdict(entry) for entry in entries
+        _remembered_row(entry) for entry in entries
         if entry.source not in ("curated", "custom")
     ]
     out_path = Path(path)

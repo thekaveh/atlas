@@ -348,3 +348,26 @@ def test_skip_predicate_prefers_live_selection_over_stale_env(
     step = _picker_step(env_vars={"COMFYUI_SOURCE": env_source})
     sel = {"ComfyUI  ·  source": selected_source}
     assert step.skip_if_prev(sel) is expected_skip
+
+
+def test_a_remembered_selection_renders_as_a_checked_row(tmp_path, monkeypatch):
+    """The step built rows from the live scrape only; a selection only the
+    remembered file resolves got no row, and confirming the step removed it
+    from COMFYUI_USER_MODELS (2026-10-08 run, cycle 3; gap in #1448)."""
+    import dataclasses
+    import json
+
+    from utils import comfyui_library, comfyui_resolver
+
+    remembered = _entry("owner--hf-model", source="huggingface")
+    path = tmp_path / "selected-library-entries.json"
+    path.write_text(json.dumps([dataclasses.asdict(remembered)]))
+    monkeypatch.setattr(comfyui_resolver, "_default_remembered_path", lambda: path)
+    monkeypatch.setattr(comfyui_library, "assemble_wizard_catalog", lambda: [_entry("civitai-1", source="civitai")])
+    step = build_comfyui_steps(
+        env_vars={"COMFYUI_SOURCE": "container-cpu", "COMFYUI_USER_MODELS": "owner--hf-model",
+                  "COMFYUI_CUSTOM_MODELS_FILE": str(tmp_path / "none.yaml")},
+        warn=lambda _msg: None,
+    )[0]
+    options = step.options_provider({})
+    assert "owner--hf-model" in [o.value for o in options]

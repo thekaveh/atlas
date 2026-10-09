@@ -286,6 +286,17 @@ def _family_parent_option(
     )
 
 
+def _remembered_selected(catalog, sidecar, selected: set[str]) -> list[ComfyUILibraryEntry]:
+    """Selected names the live scrape no longer returns, from the entries
+    remembered at earlier starts (#1448). Without them the step showed no
+    row for such a name and confirming it removed the name from .env."""
+    from utils.comfyui_resolver import _default_remembered_path, load_remembered_selections
+
+    known = {e.name for e in catalog} | {e.name for e in sidecar}
+    remembered = load_remembered_selections(_default_remembered_path())
+    return [entry for name, entry in remembered.items() if name in selected and name not in known]
+
+
 def _merged_comfyui_options(
     catalog: list[ComfyUILibraryEntry],
     sidecar: list[ComfyUILibraryEntry],
@@ -441,6 +452,7 @@ def build_comfyui_steps(
         sidecar: list[ComfyUILibraryEntry] = []
         for sidecar_path in sidecar_paths:
             sidecar.extend(load_custom_models(sidecar_path))
+        catalog = catalog + _remembered_selected(catalog, sidecar, existing_names)
 
         # Filesystem scan for already-downloaded models (best-effort —
         # see _resolve_models_volume_root for when this yields nothing).
