@@ -132,6 +132,18 @@ class ProvisionResult:
         }
 
 
+def _require_full_body(response, written: int, url: str) -> None:
+    """urllib ends a body the server cut short with an empty read, not an
+    error; a no-sha file was then published truncated and skipped forever
+    (2026-10-08 run, cycle 10). Raise so the ``.part`` is kept and resumed."""
+    promised = (response.headers.get("Content-Length") or "").strip()
+    if promised.isdigit() and written < int(promised):
+        raise ComfyUiMpsError(
+            f"transfer of {url} ended after {written} of {promised} bytes — "
+            "partial kept; re-run to resume"
+        )
+
+
 class ComfyUiMpsError(RuntimeError):
     """A managed-MPS lifecycle failure (unsupported host, install/launch error)."""
 
@@ -1464,12 +1476,15 @@ class ComfyUiMpsManager:
         with response:
             status = getattr(response, "status", 200)
             mode = "ab" if (resume_from and status == 206) else "wb"
+            written = 0
             with open(part, mode) as handle:
                 while True:
                     chunk = response.read(chunk_size)
                     if not chunk:
                         break
                     handle.write(chunk)
+                    written += len(chunk)
+            _require_full_body(response, written, url)
 
     @staticmethod
     def _sha256_file(path: Path, *, chunk_size: int = 1 << 20) -> str:

@@ -680,3 +680,37 @@ def test_an_escaping_row_fails_alone(tmp_path):
     assert result.provisioned == ["vae/t.safetensors"]
     assert len(result.failed) == 1 and "outside" in result.failed[0]
     assert m.models_satisfied([bad])[0] is False
+
+
+def test_a_transfer_cut_short_is_kept_as_a_part_and_resumed(tmp_path, monkeypatch):
+    """urllib ends a body the server cut short with an empty read, not an
+    error; a no-sha row was published truncated and then skipped forever
+    (2026-10-08 run, cycle 10)."""
+    import io
+    import urllib.request
+
+    from services import comfyui_mps_manager as module
+
+    m = ComfyUiMpsManager(state_dir=tmp_path / "state", models_path=tmp_path / "models")
+    (tmp_path / "models").mkdir()
+    requests = []
+
+    class Response(io.BytesIO):
+        def __init__(self, body, length, status):
+            super().__init__(body)
+            self.headers = {"Content-Length": str(length)}
+            self.status = status
+
+    def urlopen(request, timeout=30):
+        requests.append(request.get_header("Range"))
+        if len(requests) == 1:
+            return Response(PAYLOAD[:300], len(PAYLOAD), 200)  # connection drops early
+        return Response(PAYLOAD[300:], len(PAYLOAD) - 300, 206)
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", urlopen)
+    first = m.provision_models([_row(sha256="")])
+    assert first.failed and not _dest(m).exists()
+    assert m._part_path(_dest(m)).stat().st_size == 300
+    second = m.provision_models([_row(sha256="")])
+    assert second.provisioned == ["vae/t.safetensors"] and requests[1] == "bytes=300-"
+    assert _dest(m).read_bytes() == PAYLOAD
