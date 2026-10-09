@@ -220,3 +220,13 @@ def _fixture_manifest(tmp_path: Path):
         encoding="utf-8",
     )
     return load_manifest(docs / "manifest.yaml", tmp_path)
+
+
+def test_a_fenced_comment_is_not_a_heading_and_a_comment_is_not_a_body():
+    """Both satisfied the critical-pages gate (2026-10-08 run, cycle 66)."""
+    from scripts.docs.critical_pages import section_has_body
+
+    fenced = "# Page\n\n```bash\n# Troubleshooting\n./stop.sh --cold\n```\n"
+    assert section_has_body(fenced, "Troubleshooting") is False
+    assert section_has_body("## Access\n<!-- todo -->\n", "Access") is False
+    assert section_has_body("## Access\n```\ncode\n```\n", "Access") is True

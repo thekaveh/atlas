@@ -48,3 +48,25 @@ def test_generate_block_contains_known_row():
     assert "63011" in block
     assert "Supabase DB" in block
     assert "63012" in block
+
+
+def test_check_mode_reports_drift_without_writing_and_bad_markers_are_refused(tmp_path):
+    """`--check` rewrote the README, and swapped markers duplicated the text
+    between them (2026-10-08 run, cycle 66)."""
+    import pytest
+
+    from tools.generate_readme_topology import update_readme
+
+    services = Path(__file__).resolve().parents[2] / "services"
+    readme = tmp_path / "README.md"
+    stale = "intro\n<!-- TOPOLOGY:BEGIN -->\nold\n<!-- TOPOLOGY:END -->\noutro\n"
+    readme.write_text(stale)
+    assert update_readme(readme, services, check=True) is False
+    assert readme.read_text() == stale
+    update_readme(readme, services)
+    assert update_readme(readme, services, check=True) is True
+    swapped = "a\n<!-- TOPOLOGY:END -->\nb\n<!-- TOPOLOGY:BEGIN -->\nc\n"
+    readme.write_text(swapped)
+    with pytest.raises(RuntimeError):
+        update_readme(readme, services)
+    assert readme.read_text() == swapped

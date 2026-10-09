@@ -720,7 +720,11 @@ class VllmMetalManager:
                     "refusing to remove managed vLLM Metal state while its tracked "
                     f"{detail} may still be alive"
                 )
-            from services import remove_state_directory
+            # HF_HOME may point inside the state dir; the README says an
+            # existing cache is reused, so remove must not delete the weights
+            # (2026-10-08 run, cycle 39).
+            from services import refuse_removing_user_data, remove_state_directory
+            refuse_removing_user_data(self.state_dir, self.hf_cache_dir, "VLLM_METAL_MODELS_PATH", VllmMetalError)
             remove_state_directory(self.state_dir, ("managed vLLM Metal state directory", VllmMetalError))
 
     # ── health ───────────────────────────────────────────────────────
@@ -736,8 +740,9 @@ class VllmMetalManager:
             payload = json.loads(body)
         except ValueError:
             return {"reachable": True, "models": [], "error": "non-JSON /v1/models"}
-        models = [str(m.get("id")) for m in (payload.get("data") or []) if m.get("id")]
-        return {"reachable": True, "models": models}
+        # A foreign listener can answer other JSON; an AttributeError here
+        # rolled back the start (2026-10-08 run, cycle 68).
+        return {"reachable": True, "models": _model_ids(payload)}
 
     def wait_healthy(self, *, timeout: float = 120.0, interval: float = 2.0) -> dict:
         """Poll /v1/models until the server answers or ``timeout`` elapses.
@@ -878,11 +883,17 @@ class VllmMetalManager:
         self.status_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
-def _port_error(raw, key: str):
+def _port_error(raw, key: str, what: str = "a port number"):
     raw = (raw or "").strip()
     if raw and not (raw.isascii() and raw.isdigit()):
-        return f"{key}={raw!r} is not a port number; fix it in .env"
+        return f"{key}={raw!r} is not {what}; fix it in .env"
     return None
+
+
+def _model_ids(payload) -> list[str]:
+    data = payload.get("data") if isinstance(payload, dict) else None
+    entries = data if isinstance(data, list) else []
+    return [str(m["id"]) for m in entries if isinstance(m, dict) and m.get("id")]
 
 
 def _env_port(raw, default: int) -> int:
@@ -906,9 +917,11 @@ def manager_from_env(env: dict[str, str]) -> VllmMetalManager:
         ),
         python_bin=env.get("VLLM_METAL_PYTHON", _DEFAULT_PYTHON) or _DEFAULT_PYTHON,
         hf_cache_dir=env.get("VLLM_METAL_MODELS_PATH") or None,
-        min_memory_gb=int(env.get("VLLM_METAL_MIN_MEMORY_GB", "16") or "16"),
+        min_memory_gb=_env_port(env.get("VLLM_METAL_MIN_MEMORY_GB"), 16),
     )
     # Stop/status/remove fall back to the default; a launch must not, or the
     # process listens there while LiteLLM is told the raw value.
-    manager.port_error = _port_error(env.get("VLLM_METAL_LOCALHOST_PORT"), "VLLM_METAL_LOCALHOST_PORT")
+    manager.port_error = _port_error(env.get("VLLM_METAL_LOCALHOST_PORT"), "VLLM_METAL_LOCALHOST_PORT") or _port_error(
+        env.get("VLLM_METAL_MIN_MEMORY_GB"), "VLLM_METAL_MIN_MEMORY_GB", "a whole number of GB",
+    )
     return manager

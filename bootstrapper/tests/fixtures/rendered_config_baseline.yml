@@ -999,6 +999,7 @@ services:
     - type: bind
       source: '{REPO_ROOT}/services/comfyui/init/scripts'
       target: /scripts
+      read_only: true
       bind: {}
     - type: volume
       source: comfyui-models
@@ -1486,7 +1487,7 @@ services:
         BASE_IMAGE: quay.io/jupyter/datascience-notebook:2026-08-24@sha256:e5029672ab8a861345f117dc466a4dab91ad7c299f3c7c853b9b193860b16aaf
     command:
     - start-notebook.sh
-    - --ServerApp.allow_origin=*
+    - --ServerApp.allow_origin=
     - --ServerApp.allow_remote_access=True
     - --ServerApp.disable_check_xsrf=False
     container_name: atlas-jupyterhub
@@ -1518,7 +1519,7 @@ services:
       HERMES_ENDPOINT: ''
       ICEBERG_REST_URI: http://iceberg-rest:8181
       ICEBERG_WAREHOUSE: s3://lakehouse/
-      JUPYTER_ALLOW_ORIGIN: '*'
+      JUPYTER_ALLOW_ORIGIN: ''
       JUPYTER_ENABLE_LAB: 'yes'
       JUPYTER_TOKEN: ''
       LABEL_STUDIO_API_KEY: ''
@@ -1705,6 +1706,7 @@ services:
       POSTGRE_PORT: '5432'
       POSTGRE_USER: label_studio
       SECRET_KEY: ''
+      SSRF_PROTECTION_ENABLED: 'true'
       STORAGE_AWS_ACCESS_KEY_ID: ''
       STORAGE_AWS_BUCKET_NAME: label-studio
       STORAGE_AWS_ENDPOINT_URL: http://minio:9000
@@ -1786,6 +1788,9 @@ services:
       read_only: true
       bind: {}
   langfuse-clickhouse:
+    configs:
+    - source: langfuse-clickhouse-retention
+      target: /etc/clickhouse-server/config.d/atlas-retention.xml
     container_name: atlas-langfuse-clickhouse
     deploy:
       replicas: 0
@@ -3701,6 +3706,7 @@ services:
       replicas: 0
     environment:
       REDIS_ADDR: redis://redis:6379
+      REDIS_EXPORTER_DISABLE_SCRAPE_ENDPOINT: 'true'
       REDIS_PASSWORD: redis_password
     image: oliver006/redis_exporter:v1.86.0
     logging:
@@ -4038,6 +4044,7 @@ services:
       SPARK_MASTER_HOST: spark-master
       SPARK_MASTER_OPTS: -Dspark.master.rest.enabled=true -Dspark.master.rest.host=spark-master
         -Dspark.master.rest.port=6066 -Dspark.standalone.submit.waitAppCompletion=true
+        -Dspark.ui.killEnabled=false
     healthcheck:
       test:
       - CMD
@@ -4154,6 +4161,9 @@ services:
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DISABLE_SIGNUP: 'false'
       GOTRUE_EXTERNAL_EMAIL_ENABLED: 'true'
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
       GOTRUE_JWT_EXP: '3600'
       GOTRUE_JWT_SECRET: ''
       GOTRUE_MAILER_AUTOCONFIRM: 'true'
@@ -4189,12 +4199,6 @@ services:
         max-size: 10m
     networks:
       backend-network: null
-    ports:
-    - mode: ingress
-      host_ip: 127.0.0.1
-      target: 9999
-      published: '63016'
-      protocol: tcp
     restart: unless-stopped
   supabase-db:
     command:
@@ -4377,7 +4381,9 @@ services:
       DB_PORT: '5432'
       DB_USER: atlas_realtime
       DNS_NODES: supabase-realtime-noop.invalid
-      ERL_AFLAGS: -proto_dist inet_tcp
+      ERL_AFLAGS: -proto_dist inet_tcp -kernel inet_dist_use_interface {127,0,0,1}
+      ERL_EPMD_ADDRESS: 127.0.0.1
+      GEN_RPC_SOCKET_IP: 127.0.0.1
       HOSTNAME: supabase-realtime
       IP_VERSION: ipv4
       JWT_ROLE: service_role
@@ -5083,6 +5089,7 @@ services:
       ZEPPELIN_JDBC_POSTGRES_PASSWORD: atlas-db-password
       ZEPPELIN_JDBC_POSTGRES_URL: jdbc:postgresql://supabase-db:5432/postgres
       ZEPPELIN_JDBC_POSTGRES_USER: atlas_zeppelin
+      ZEPPELIN_ALLOWED_ORIGINS: http://localhost:63099,http://127.0.0.1:63099
       ZEPPELIN_LOG_DIR: /logs
       ZEPPELIN_NOTEBOOK_DIR: /notebook
       ZEPPELIN_PORT: '8080'
@@ -5298,3 +5305,7 @@ volumes:
   zeppelin-logs:
     name: atlas-zeppelin-logs
     driver: local
+configs:
+  langfuse-clickhouse-retention:
+    content: "<clickhouse>\n  <logger>\n    <level>warning</level>\n    <size>100M</size>\n    <count>3</count>\n  </logger>\n  <query_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_log>\n  <metric_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></metric_log>\n  <asynchronous_metric_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></asynchronous_metric_log>\n  <trace_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></trace_log>\n  <part_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></part_log>\n  <error_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></error_log>\n  <query_metric_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_metric_log>\n  <processors_profile_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></processors_profile_log>\n  <text_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl><level>warning</level></text_log>\n</clickhouse>\n"
+    name: atlas_langfuse-clickhouse-retention

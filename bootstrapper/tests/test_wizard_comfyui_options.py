@@ -348,3 +348,69 @@ def test_skip_predicate_prefers_live_selection_over_stale_env(
     step = _picker_step(env_vars={"COMFYUI_SOURCE": env_source})
     sel = {"ComfyUI  ·  source": selected_source}
     assert step.skip_if_prev(sel) is expected_skip
+
+
+def test_a_remembered_selection_renders_as_a_checked_row(tmp_path, monkeypatch):
+    """The step built rows from the live scrape only; a selection only the
+    remembered file resolves got no row, and confirming the step removed it
+    from COMFYUI_USER_MODELS (2026-10-08 run, cycle 3; gap in #1448)."""
+    import dataclasses
+    import json
+
+    from utils import comfyui_library, comfyui_resolver
+
+    remembered = _entry("owner--hf-model", source="huggingface")
+    path = tmp_path / "selected-library-entries.json"
+    path.write_text(json.dumps([dataclasses.asdict(remembered)]))
+    monkeypatch.setattr(comfyui_resolver, "_default_remembered_path", lambda: path)
+    monkeypatch.setattr(comfyui_library, "assemble_wizard_catalog", lambda: [_entry("civitai-1", source="civitai")])
+    step = build_comfyui_steps(
+        env_vars={"COMFYUI_SOURCE": "container-cpu", "COMFYUI_USER_MODELS": "owner--hf-model",
+                  "COMFYUI_CUSTOM_MODELS_FILE": str(tmp_path / "none.yaml")},
+        warn=lambda _msg: None,
+    )[0]
+    options = step.options_provider({})
+    assert "owner--hf-model" in [o.value for o in options]
+    # Pre-checked: the panel keeps a default only when it maps to a row.
+    assert "owner--hf-model" in step.default_values
+
+
+def test_an_unresolvable_saved_name_keeps_a_row_and_the_reason_is_shown(tmp_path, monkeypatch):
+    """A saved name in neither the catalog, the sidecar nor the remembered
+    file had no row, so Enter removed it from .env. A corrupt remembered
+    file reported only to stderr, which the TUI discards (cycle 37)."""
+    from utils import comfyui_library, comfyui_resolver
+
+    path = tmp_path / "selected-library-entries.json"
+    path.write_text("{not json")
+    monkeypatch.setattr(comfyui_resolver, "_default_remembered_path", lambda: path)
+    monkeypatch.setattr(comfyui_library, "assemble_wizard_catalog", lambda: [_entry("civitai-1", source="civitai")])
+    warnings: list[str] = []
+    step = build_comfyui_steps(
+        env_vars={"COMFYUI_SOURCE": "container-cpu", "COMFYUI_USER_MODELS": "civitai-1,gone-model",
+                  "COMFYUI_CUSTOM_MODELS_FILE": str(tmp_path / "none.yaml")},
+        warn=warnings.append,
+    )[0]
+    options = step.options_provider({})
+    values = [o.value for o in options]
+    assert values.count("gone-model") == 1 and values.count("civitai-1") == 1
+    assert "saved" in next(o for o in options if o.value == "gone-model").badges
+    assert any("ignoring unreadable" in w for w in warnings), warnings
+    # The kept name is reported as kept, not "ignoring" (cycle 61).
+    assert any("'gone-model'" in w and "kept as a saved row" in w for w in warnings), warnings
+
+
+def test_a_saved_family_variant_gets_no_duplicate_saved_row():
+    """A saved name that is a leaf under a family parent is offered there;
+    a flat "saved" row too would list it twice (2026-10-08 run, cycle 44)."""
+    from wizard.comfyui_steps import _to_prompt_option, _with_saved_comfyui_rows
+
+    catalog = [
+        _hf("microsoft--TRELLIS-image-large", category="mesh_model"),
+        _hf("microsoft--TRELLIS.2-4B", category="mesh_model"),
+    ]
+    saved = {"microsoft--TRELLIS.2-4B"}
+    rows = [_to_prompt_option(o) for o in _merged_comfyui_options(
+        catalog=catalog, sidecar=[], pulled_names=set(), default_selected=saved)]
+    assert any(r.value.startswith("family:") for r in rows)
+    assert [r.value for r in _with_saved_comfyui_rows(rows, saved)] == [r.value for r in rows]

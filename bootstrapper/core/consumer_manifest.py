@@ -943,9 +943,11 @@ def _validate_bucket_name(name: str, *, origin: str) -> None:
             f"storage bucket {name!r} must be lowercase alphanumeric with "
             f"hyphens/dots, starting and ending alphanumeric ({origin})"
         )
-    if ".." in name or _IPV4_RE.match(name):
+    # MinIO and S3 also reject '.-' and '-.'; accepting them made minio-init's
+    # `mc mb` fail at start (2026-10-08 run, cycle 31).
+    if any(seq in name for seq in ("..", ".-", "-.")) or _IPV4_RE.match(name):
         raise ConsumerManifestError(
-            f"storage bucket {name!r} may not contain '..' or be IP-formatted ({origin})"
+            f"storage bucket {name!r} may not contain '..', '.-' or '-.' or be IP-formatted ({origin})"
         )
 
 
@@ -2206,9 +2208,13 @@ def _parse_host_health(raw: Any, *, name: str, origin: str) -> HealthProbe:
         timeout = float(block.get("timeout", 5.0))
     except (TypeError, ValueError):
         raise ConsumerManifestError(f"{label}.timeout must be a number ({origin})") from None
+    path = str(block.get("path") or "/")
+    if not path.startswith("/"):
+        # `health` became http://127.0.0.1:PORThealth (cycle 39).
+        raise ConsumerManifestError(f"{label}.path must start with '/' ({origin})")
     return HealthProbe(
         kind=_host_health_kind(block, label=label, origin=origin),
-        path=str(block.get("path") or "/"),
+        path=path,
         expect_json=dict(expect),
         timeout=timeout,
     )
@@ -2283,7 +2289,12 @@ def _host_environment(raw: Mapping[str, Any], *, name: str, origin: str) -> dict
         raise ConsumerManifestError(
             f"managed_host_services[{name!r}].env must be a mapping ({origin})"
         )
-    return {str(key): str(item) for key, item in value.items()}
+    if any(item is None for item in value.values()):
+        raise ConsumerManifestError(
+            f"managed_host_services[{name!r}].env values must not be null ({origin})"
+        )
+    # _env_text spelling: str(True) wrote "True", as env.values once did.
+    return {str(key): str(_env_text(item)) for key, item in value.items()}
 
 
 def _host_boolean(value: Any, *, label: str, origin: str) -> bool:

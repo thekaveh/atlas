@@ -1891,8 +1891,13 @@ def test_fal_compatibility_path_is_refused_while_budgets_are_enabled(monkeypatch
 
     response = TestClient(main.app).post("/comfyui/generate", json={"prompt": "a cat"})
 
-    assert response.status_code == 409
-    assert "/media/generate" in response.json()["detail"]
+    if disabled_providers:
+        # The kill-switch is checked first (2026-10-08 run, cycle 23).
+        assert response.status_code == 403
+        assert "kill-switch" in response.json()["detail"]
+    else:
+        assert response.status_code == 409
+        assert "/media/generate" in response.json()["detail"]
 
 
 def test_fal_compatibility_timeout_is_a_504_not_a_retryable_200(monkeypatch):
@@ -2110,3 +2115,206 @@ def test_a_completed_3d_job_without_a_glb_is_flagged_and_stays_succeeded(monkeyp
     assert (polled["status"], polled["artifact_url"]) == ("succeeded", None)
     assert polled["provenance"]["glb_missing"] is True
 
+
+
+def test_kill_switch_holds_with_budgets_off(monkeypatch):
+    """reserve() returned before the kill-switch when budgets were off (the
+    default), so a provider the operator disabled kept spending (2026-10-08
+    run, cycle 23)."""
+    main = _fresh_main(monkeypatch, budget_enabled=False, disabled_providers="fal")
+    monkeypatch.setattr(main, "FalClient", _ExplodingFalClient, raising=False)
+    from fastapi.testclient import TestClient
+
+    resp = _submit(TestClient(main.app), consumer="acme")
+    assert resp.status_code == 403
+    assert "kill-switch" in resp.json()["detail"]
+
+
+def test_an_over_long_attribution_header_is_rejected(monkeypatch):
+    """The ledger columns are VARCHAR(255); an over-long header failed every
+    ledger insert as a retryable 503 (cycle 23)."""
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    monkeypatch.setattr(main, "FalClient", _ExplodingFalClient, raising=False)
+    from fastapi.testclient import TestClient
+
+    resp = TestClient(main.app).post(
+        "/media/generate",
+        headers={"X-Atlas-Project": "p" * 256},
+        json={"modality": "image_to_3d", "provider": "fal", "model": "trellis",
+              "input": {"image": "https://cdn.example/sprite.png"}, "consumer": "acme"},
+    )
+    assert resp.status_code == 400
+
+
+
+def test_a_nul_in_an_attribution_label_is_rejected_not_retried(monkeypatch):
+    """Postgres rejects 0x00, so a NUL project failed every ledger write as a
+    retryable 503, on submit and on /media/spend (2026-10-08 run, cycle 49)."""
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    monkeypatch.setattr(main, "FalClient", _ExplodingFalClient, raising=False)
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    resp = client.post(
+        "/media/generate",
+        json={"modality": "image_to_3d", "provider": "fal", "model": "trellis",
+              "input": {"image": "https://cdn.example/sprite.png"}, "consumer": "acme", "project": "a\u0000"},
+    )
+    assert resp.status_code == 400 and "control characters" in resp.json()["detail"]
+    assert client.get("/media/spend", params={"consumer": "acme", "project": "a\x00b"}).status_code == 400
+    resp = client.post(
+        "/media/generate",
+        json={"modality": "image", "provider": "fal", "model": "fal-ai/flux/dev\u0000",
+              "input": {"prompt": "a cat", "provider_arguments": {"prompt": "a cat"}}, "consumer": "acme"},
+    )
+    assert resp.status_code == 400 and "model must not contain control characters" in resp.json()["detail"], resp.json()
+
+
+def test_the_legacy_fal_route_honours_the_kill_switch(monkeypatch):
+    """/comfyui/generate called FAL with no kill-switch check (cycle 23)."""
+    monkeypatch.setenv("MEDIA_DISABLED_PROVIDERS", "fal")
+    main = _fresh_fal_main(monkeypatch, fal_source="enabled", fal_api_key="fal-key")
+
+    class UnexpectedFalClient:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("a disabled provider must not be called")
+
+    class _NoComfyUIClient:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("ComfyUI must not be used")
+
+    monkeypatch.setattr(main, "FalClient", UnexpectedFalClient)
+    monkeypatch.setattr(main, "ComfyUIClient", _NoComfyUIClient)
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post("/comfyui/generate", json={"prompt": "x", "wait_for_completion": True})
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize("path, body", [
+    ("/comfyui/generate", {"prompt": "x", "wait_for_completion": False}),
+    ("/comfyui/workflow", {"workflow": {"1": {"class_type": "KSampler", "inputs": {}}}}),
+])
+def test_the_legacy_comfyui_routes_honour_the_kill_switch(monkeypatch, path, body):
+    """MEDIA_DISABLED_PROVIDERS=comfyui stopped /media/generate but not the
+    legacy routes n8n and Open WebUI call (2026-10-08 run, cycle 29)."""
+    monkeypatch.setenv("MEDIA_DISABLED_PROVIDERS", "comfyui")
+    main = _fresh_fal_main(monkeypatch, fal_source="disabled")
+
+    class NoComfyUI:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("a disabled provider must not be called")
+
+    monkeypatch.setattr(main, "ComfyUIClient", NoComfyUI)
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(path, json=body)
+    assert response.status_code == 403, response.text
+
+
+def test_a_streaming_plugin_route_authenticates_before_reading_the_body(monkeypatch):
+    """The streaming exemption skipped the middleware, and FastAPI reads the
+    whole body before the route's auth dependency: 40 MiB was read before
+    a 401 (2026-10-08 run, cycle 46). The plugin's own mode now runs first."""
+    import asyncio
+
+    for var, default in (("KONG_URL", "http://kong-api-gateway:8000"), ("SUPABASE_SERVICE_KEY", "dummy-key"),
+                         ("DATABASE_URL", "postgresql://x:x@localhost/x")):
+        if not os.environ.get(var):
+            monkeypatch.setenv(var, default)
+    import main
+    import plugin_seam
+    from media_request_limit import RequestLimitMiddleware
+
+    inventory = [
+        {"route_prefix": "/inh", "status": "loaded", "auth": "inherit", "kong_route": {"request_buffering": False}},
+        {"route_prefix": "/key", "status": "loaded", "auth": "key-auth", "kong_route": {"request_buffering": False}},
+        {"route_prefix": "/open", "status": "loaded", "auth": "open", "kong_route": {"request_buffering": False}},
+    ]
+    assert plugin_seam.streaming_auth_modes(inventory) == {"/inh": "inherit", "/key": "key-auth", "/open": "open"}
+    from fastapi import HTTPException
+
+    async def deny(_scope):  # the suite's autouse fixture disables identity auth
+        raise HTTPException(status_code=401, detail="no principal")
+
+    monkeypatch.setitem(main._STREAMING_AUTHENTICATORS, "inherit", deny)
+    policy = main._request_limit_policy(inventory)
+    assert set(policy.streaming_auth) == {"/inh", "/key"}
+
+    reached, read = [], []
+
+    async def app(scope, receive, send):
+        reached.append(scope["path"])
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    async def no_auth(_scope):
+        return None
+
+    middleware = RequestLimitMiddleware(app, policy=policy, authenticate=no_auth)
+
+    async def receive():
+        read.append(1)
+        return {"type": "http.request", "body": b"x" * 1024, "more_body": False}
+
+    async def call(path):
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+
+        await middleware({"type": "http", "method": "POST", "path": path, "headers": [],
+                          "query_string": b""}, receive, send)
+        return sent[0]["status"]
+
+    monkeypatch.setenv("BACKEND_KONG_API_KEY", "k")
+    assert asyncio.run(call("/inh/upload")) == 401
+    assert asyncio.run(call("/key/upload")) == 401
+    assert read == [] and reached == []
+    assert asyncio.run(call("/open/upload")) == 200 and reached == ["/open/upload"]
+
+
+def test_a_delete_with_a_body_gets_the_default_envelope():
+    """Only POST/PUT/PATCH were limited; FastAPI reads a Body parameter on
+    DELETE too, before auth, so a multi-GB DELETE was buffered and then
+    refused (2026-10-08 run, cycle 70)."""
+    from media_request_limit import LimitPolicy, RequestLimitMiddleware
+    from tests.test_media_request_limit import _scope
+
+    reached, read, sent = [], [], []
+
+    async def app(scope, receive, send):
+        reached.append(scope["method"])
+
+    async def receive():
+        read.append(1)
+        return {"type": "http.request", "body": b"x", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    async def no_auth(_scope):
+        return None
+
+    middleware = RequestLimitMiddleware(app, policy=LimitPolicy(rules=[]), authenticate=no_auth)
+    scope = _scope(method="DELETE", path="/items/bulk", content_length=40 * 1024 * 1024)
+    asyncio.run(middleware(scope, receive, send))
+    assert sent[0]["status"] == 413 and read == [] and reached == []
+    # A chunked DELETE declares its body without a Content-Length (cycle 74).
+    chunked = _scope(method="DELETE", path="/items/bulk")
+    chunked["headers"] = [*chunked["headers"], (b"transfer-encoding", b"chunked")]
+    big = {"type": "http.request", "body": b"x" * (17 * 1024 * 1024), "more_body": False}
+
+    async def receive_big():
+        return big
+
+    async def reading_app(scope, receive, send):
+        while (await receive()).get("more_body"):
+            pass
+
+    sent.clear()
+    asyncio.run(RequestLimitMiddleware(reading_app, policy=LimitPolicy(rules=[]), authenticate=no_auth)(chunked, receive_big, send))
+    assert sent[0]["status"] == 413  # the counter trips mid-stream; the app then sees a disconnect
+    # A DELETE without a body is not touched.
+    asyncio.run(middleware(_scope(method="DELETE", path="/items/1"), receive, send))
+    assert reached == ["DELETE"]

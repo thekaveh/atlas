@@ -3,14 +3,14 @@
 The top-level architecture diagram presents the platform's major tiers and
 runtime call direction. Its source artifacts are:
 
-- `architecture.svg` — SVG embedded in the project root `README.md` and viewable standalone.
-- `architecture.html` — standalone HTML page containing the same inline SVG plus summary cards and a footer.
+- `docs/diagrams/architecture.svg` — SVG embedded in the project root `README.md` and viewable standalone.
+- `docs/diagrams/architecture.html` — standalone HTML page containing the same inline SVG plus summary cards and a footer.
 
 ## 1. Updating the top-level diagram
 
 The HTML/SVG masters are hand-authored rather than generated from manifests.
-Edit both through the repository's `architecture-diagram` skill and keep their
-SVG elements byte-equivalent. Render the committed PNG before building and
+Edit both with the `architecture-diagram` agent skill (it is not shipped in
+this repository) and keep their SVG elements byte-equivalent. Render the committed PNG before building and
 checking the generated surfaces:
 
 ```bash

@@ -826,8 +826,9 @@ def test_consolidation_skips_fact_edited_during_llm_round_trip(monkeypatch):
                 return {"id": facts[0]["id"], "weaviate_id": "vector-old"}
             return None
 
-        async def execute(self, _query, *_params):
-            self.log_calls += 1
+        async def execute(self, query, *_params):
+            if "pg_advisory_xact_lock" not in query:
+                self.log_calls += 1
 
         async def fetchval(self, _query, *_params):
             return 3

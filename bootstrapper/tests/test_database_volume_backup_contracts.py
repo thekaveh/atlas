@@ -906,6 +906,18 @@ def _signed_database_publication(
     (artifact_dir.parent / "databases.complete").write_text(
         complete, encoding="utf-8"
     )
+    # A database restore also requires the published Postgres marker for the
+    # same backup (2026-10-08 run, cycle 34).
+    postgres_payload = "\n".join([
+        "completion_format=1", f"backup_timestamp={timestamp}", f"backup_id={backup_id}",
+        f"manifest_sha256={'0' * 64}", "manifest_bytes=1", "dump_bytes=1",
+        "tables_bytes=1", "objects_bytes=1", "",
+    ])
+    (artifact_dir.parent / "postgres.complete").write_text(
+        postgres_payload + "hmac_sha256="
+        + hmac.new(key, postgres_payload.encode(), hashlib.sha256).hexdigest() + "\n",
+        encoding="utf-8",
+    )
     return weaviate_id
 
 

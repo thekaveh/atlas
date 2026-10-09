@@ -134,6 +134,11 @@ data_flow:
       status: optional
       condition: RAY_SOURCE=ray-container-cpu or ray-container-gpu
       evidence: bootstrapper/utils/kong_config_generator.py
+    # trueforge.localhost (generate_trueforge_service) when enabled.
+    - target: trueforge
+      status: optional
+      condition: TRUEFORGE_SOURCE=container
+      evidence: bootstrapper/utils/kong_config_generator.py
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.

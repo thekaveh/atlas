@@ -10,7 +10,7 @@ Manifest, compose fragment, topology row, env assembler, docs regeneration, diag
 
 ## 2. Notes
 
-`manifest_validator.py`'s fragment check is what actually blocks a partial landing: `missing_fragment` for a non-virtual manifest with no `compose.yml`, `unexpected_fragment` for a virtual manifest that ships one anyway, and `fragment_container_drift` when the manifest's `containers[]` disagrees with the compose file's `services:` keys. `tools/validate_fragments.py` runs this in CI and separately checks `.env.example` drift and the README `TOPOLOGY` block.
+The fragment check in `manifest_validator.py` blocks a partial landing. It reports `missing_fragment` for a non-virtual manifest without `compose.yml` and `unexpected_fragment` for a virtual manifest that ships one. It reports `fragment_container_drift` when `containers[]` disagrees with the compose `services:` keys. `tools/validate_fragments.py` runs this check in CI, and also checks `.env.example` drift and the README `TOPOLOGY` block.
 
 ## 3. Source Files
 

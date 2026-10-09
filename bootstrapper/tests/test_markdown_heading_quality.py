@@ -86,3 +86,18 @@ def test_renumber_markdown_is_idempotent_after_a_move():
     once = renumber_markdown(source)
 
     assert renumber_markdown(once) == once
+
+
+def test_a_non_ascii_markdown_name_is_still_inventoried(tmp_path):
+    """git quotes non-ASCII paths ("caf\\303\\251.md"), which matched no file,
+    so such a page skipped every heading gate (2026-10-08 run, cycle 43)."""
+    import subprocess
+
+    from scripts.docs.heading_quality import documentation_paths
+
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    page = tmp_path / "docs" / "café.md"
+    page.parent.mkdir()
+    page.write_text("# Café\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "docs/café.md"], check=True)
+    assert page in documentation_paths(tmp_path)

@@ -471,6 +471,26 @@ class _ThreadedComposeExecutor:
             )
         return returncode
 
+    def stream(self, args: list[str], on_line=None, use_env_file: bool = True) -> int:
+        """The ``stream_compose`` seam (cold-start ``down --volumes``), bounded
+        and cancellable like every other command; output goes to the log pane.
+        A raw Popen there outlived Ctrl+C on a wedged daemon (2026-10-08 run,
+        cycle 76)."""
+        return self(args, use_env_file=use_env_file)
+
+    def bridge_stream(self):
+        """Route the manager's ``stream_compose`` through ``stream``; returns
+        the restore callable."""
+        original = getattr(self._manager, "stream_compose", None)
+        if original is None:
+            return lambda: None
+        self._manager.stream_compose = self.stream
+
+        def restore() -> None:
+            self._manager.stream_compose = original
+
+        return restore
+
     def cancel_requested(self) -> bool:
         """True once a cancel was requested; a ``should_stop`` for sync helpers."""
         return self._cancel_requested.is_set()
@@ -517,10 +537,12 @@ async def _capture_bounded_process_output(
         sink(line + "\n")
         captured_bytes = _append_bounded_hint(captured, line, captured_bytes)
 
+    from utils.system import compose_env  # noqa: PLC0415
+
     returncode = await _run_streamed_command(
         command,
         cwd=cwd,
-        env=os.environ.copy(),
+        env=compose_env(command),
         on_line=capture_line,
         timeout_seconds=timeout_seconds,
     )
@@ -2959,6 +2981,31 @@ class WizardScreen(Screen):
             self._close_launch_log_tee()
             self.app.exit()
 
+    def refuse_exit_during_teardown(self) -> bool:
+        """True (and say so) while a stop runs. Exiting cancelled the worker
+        but not its thread: compose down (or down -v) went on unseen and its
+        outcome was never reported (2026-10-08 run, cycle 48)."""
+        if not getattr(self, "_teardown_running", False):
+            return False
+        now = _teardown_clock()
+        if now < getattr(self, "_exit_refused_until", 0.0):
+            # The escape a hung Docker daemon needs: a second press within
+            # 5 s leaves anyway, and says the outcome is unknown (cycle 69).
+            self._safe_log(
+                "Left while a stop was still running; its result is unknown. "
+                "Run ./stop.sh (or docker compose ls) to check.",
+                source="teardown", level="warn",
+            )
+            return False
+        self._exit_refused_until = now + 5
+        self.notify(
+            "A stop is running; wait for its result, or press again within 5 seconds "
+            "to leave without it.",
+            severity="warning",
+            timeout=6,
+        )
+        return True
+
     def action_quit_wizard(self) -> None:
         if self._phase == "launch" and not self._launch_detach_ready:
             # Cancelling is not a teardown: say what it leaves (#1032).
@@ -2974,6 +3021,8 @@ class WizardScreen(Screen):
                 severity="warning",
                 timeout=6,
             )
+            return
+        if self.refuse_exit_during_teardown():
             return
         # Close the tee on a setup-phase quit so the wizard-time
         # warnings flushed earlier aren't left in a still-open fh
@@ -3280,9 +3329,17 @@ class WizardScreen(Screen):
         # during setup/build/`up` a `down` would race the in-flight launch.
         if self._phase != "launch" or not self._launch_succeeded:
             return
+        if getattr(self, "_teardown_running", False):
+            # A second stop raced the first (compose down and down -v at
+            # once) and its outcome was never reported (cycle 37).
+            self.notify("A stop is already running; wait for it to finish.", severity="warning")
+            return
         now = _teardown_clock()
         if self._pending_teardown == cold and now < self._pending_teardown_deadline:
             self._pending_teardown = None
+            # Set at commit, not in the worker: a quit handled before the
+            # worker's first step exited with `down` already scheduled (cycle 69).
+            self._teardown_running = True
             self.run_worker(
                 self._teardown_worker(cold=cold),
                 exclusive=True, exit_on_error=False,
@@ -3295,7 +3352,7 @@ class WizardScreen(Screen):
         self._pending_teardown_deadline = now + 8
         if cold:
             warning = (
-                f"Cold stop for project {self._resolve_project_name()}: removes "
+                f"Cold stop for project {self._resolve_project_name() or '(unknown)'}: removes "
                 "containers and Compose-managed named/attached anonymous volumes. "
                 "Data LOST in those volumes includes database records, object "
                 "files, workflow/chat history, models and caches. "
@@ -3319,6 +3376,13 @@ class WizardScreen(Screen):
     async def _teardown_worker(self, *, cold: bool) -> None:
         """Run the teardown off the UI thread and report honestly."""
         label = "Cold stop" if cold else "Stop"
+        self._teardown_running = True
+        try:
+            await self._run_teardown(label, cold)
+        finally:
+            self._teardown_running = False
+
+    async def _run_teardown(self, label: str, cold: bool) -> None:
         self._write_status(f"{label}: tearing down containers…", style="yellow")
         try:
             stopper = self._stopper_factory()
@@ -3328,7 +3392,13 @@ class WizardScreen(Screen):
             stopper.banner = _NullBanner(
                 sink=lambda message, level: self._safe_log(message, source="teardown", level=level)
             )
+            # Compose output and the surviving-volume warning go to the log
+            # pane, not across the screen or into a discarded print
+            # (2026-10-08 run, cycle 48).
+            self._route_teardown_output(getattr(stopper, "docker_manager", None))
             project = self._resolve_project_name()
+            if project is None:
+                raise RuntimeError("the launched project name is unreadable; run ./stop.sh -p <name>")
             ok = await asyncio.to_thread(stopper.stop_services, cold, project)
             # Managed ComfyUI-MPS, vLLM-Metal, and Blender MCP runtimes are host-global
             # singletons shared by every Atlas consumer, so a
@@ -3360,15 +3430,24 @@ class WizardScreen(Screen):
 
         return AtlasStopper()
 
-    def _resolve_project_name(self) -> str:
+    def _route_teardown_output(self, docker_manager) -> None:
+        if docker_manager is not None:
+            docker_manager.set_command_echo_callback(lambda m: self._safe_log(m, source="teardown"))
+            docker_manager.output_sink = lambda m: self._safe_log(m, source="teardown")
+
+    def _resolve_project_name(self) -> str | None:
+        """The project this screen launched. Re-reading .env at stop time
+        followed a `./stop.sh -p other` from another terminal, and an
+        unreadable name fell back to "atlas": a cold stop could delete
+        another stack's volumes (2026-10-08 run, cycle 48). None refuses."""
         opts = self._stack_options or {}
-        name = (opts.get("project_name") or "").strip()
+        name = (opts.get("project_name") or "").strip() or getattr(self, "_launched_project", "")
         if name:
             return name
         try:
             return self._starter.config_parser.get_project_name()
         except Exception:  # noqa: BLE001
-            return "atlas"
+            return None
 
     def action_copy_logs(self) -> None:
         # a/e/w/i/s all gate on _phase == "launch"; this is the same
@@ -3575,7 +3654,8 @@ class WizardScreen(Screen):
         # ``supabase-db`` and don't appear as duplicate sources in the
         # filter dropdown next to the bare names.
         try:
-            set_project_prefix(starter.config_parser.get_project_name())
+            self._launched_project = starter.config_parser.get_project_name()
+            set_project_prefix(self._launched_project)
         except Exception:  # noqa: BLE001
             pass
 
@@ -3614,6 +3694,7 @@ class WizardScreen(Screen):
             self._safe_log,
         )
         starter.docker_manager.execute_compose_command = compose_executor
+        restore_stream = compose_executor.bridge_stream()
         # Ctrl+C sets the executor's cancel event; the one-shot init wait
         # polls it and returns within a poll step (#1357).
         starter.docker_manager.should_stop = compose_executor.cancel_requested
@@ -3974,6 +4055,7 @@ class WizardScreen(Screen):
                 pass
             try:
                 starter.docker_manager.execute_compose_command = original_execute
+                restore_stream()
             except Exception:  # noqa: BLE001
                 pass
             sys.stdout, sys.stderr = old_stdout, old_stderr
@@ -3993,7 +4075,12 @@ class WizardScreen(Screen):
         full_cmd = self._starter.docker_manager._build_compose_command(
             args, top_level_flags=["--ansi=never"],
         )
-        env = {**os.environ, "BUILDKIT_PROGRESS": "plain"}
+        # compose_env pins PROJECT_NAME to the -p value, as the threaded
+        # executor does: a stray shell export made this `up` use another
+        # project's volumes than stop and --no-tui (2026-10-08 run, cycle 37).
+        from utils.system import compose_env  # noqa: PLC0415
+
+        env = {**compose_env(full_cmd), "BUILDKIT_PROGRESS": "plain"}
         # Route through _safe_log so every compose line lands in the
         # launch-log tee (/tmp/atlas-launch-*.log). Direct
         # _log_pane.write_* calls bypassed the tee — image-pull errors
@@ -4226,3 +4313,35 @@ class _NullBanner:
     # Undefined attributes (e.g. ``console``) resolve to a sink that swallows
     # both further attribute access and calls — see _NullSink.
     def __getattr__(self, name): return _NULL_SINK
+
+
+# ── app-level exit guards (used by the integration apps) ──────────────
+
+def _wizard_screen(app):
+    """The WizardScreen under any modal: ``app.screen`` is the modal while
+    one is open, which let Ctrl+C past the teardown guard (cycle 61)."""
+    return next((screen for screen in reversed(app.screen_stack) if isinstance(screen, WizardScreen)), None)
+
+
+def teardown_blocks_exit(app) -> bool:
+    screen = _wizard_screen(app)
+    return screen is not None and screen.refuse_exit_during_teardown()
+
+
+def guarded_quit(app) -> None:
+    """Ctrl+Q through the wizard's own quit checks. Textual's app-level
+    priority binding ran App.action_quit first, so a keypress never reached
+    them and quit mid-stop (2026-10-08 run, cycle 61)."""
+    screen = _wizard_screen(app)
+    if screen is None:
+        app.exit()
+    else:
+        screen.action_quit_wizard()
+
+
+class GuardedQuitMixin:
+    """App mixin: ctrl+q goes through the wizard's quit checks (cycle 61)."""
+
+    def action_quit(self) -> None:
+        guarded_quit(self)
+

@@ -132,6 +132,72 @@ class ProvisionResult:
         }
 
 
+def _drop_part(part: Path) -> None:
+    """Remove a partial download and its resume validator together: the
+    validator alone was left as a stray dotfile in the user's models tree
+    (2026-10-08 run, cycle 72)."""
+    part.unlink(missing_ok=True)
+    _validator_path(part).unlink(missing_ok=True)
+
+
+def _files(root: Path) -> list[Path]:
+    return [p for p in root.rglob("*") if p.is_file()] if root.is_dir() else []
+
+
+def _device_entries(stats) -> list[dict]:
+    devices = stats.get("devices") if isinstance(stats, dict) else None
+    return [d for d in devices if isinstance(d, dict)] if isinstance(devices, list) else []
+
+
+def _range_total(exc) -> int | None:
+    """N from a 416's ``Content-Range: bytes */N``, else None.
+
+    Only when N is the part's own size is the part already the full file. A
+    longer part (a smaller re-publish) was published as is on any 416
+    (2026-10-08 run, cycle 39); it is now dropped and fetched from the start.
+    """
+    raw = str((getattr(exc, "headers", None) or {}).get("Content-Range") or "")
+    total = raw.rpartition("/")[2].strip()
+    return int(total) if raw.startswith("bytes */") and total.isdigit() else None
+
+
+def _validator_path(part: Path) -> Path:
+    return part.with_name(f".{part.name}.validator")
+
+
+def _record_validator(part: Path, response) -> None:
+    """Keep the strong ETag (or Last-Modified) a resume must match."""
+    headers = getattr(response, "headers", None) or {}
+    etag = str(headers.get("ETag") or "")
+    validator = etag if etag and not etag.startswith("W/") else str(headers.get("Last-Modified") or "")
+    path = _validator_path(part)
+    if validator:
+        path.write_text(validator, encoding="utf-8")
+    else:
+        path.unlink(missing_ok=True)
+
+
+def _resumes_at(response, offset: int) -> bool:
+    """A 206 whose Content-Range starts at ``offset``: only then append."""
+    if not offset or getattr(response, "status", 200) != 206:
+        return False
+    raw = str((getattr(response, "headers", None) or {}).get("Content-Range") or "")
+    start = raw.removeprefix("bytes ").split("-", 1)[0].strip()
+    return start.isdigit() and int(start) == offset
+
+
+def _require_full_body(response, written: int, url: str) -> None:
+    """urllib ends a body the server cut short with an empty read, not an
+    error; a no-sha file was then published truncated and skipped forever
+    (2026-10-08 run, cycle 10). Raise so the ``.part`` is kept and resumed."""
+    promised = (response.headers.get("Content-Length") or "").strip()
+    if promised.isdigit() and written < int(promised):
+        raise ComfyUiMpsError(
+            f"transfer of {url} ended after {written} of {promised} bytes — "
+            "partial kept; re-run to resume"
+        )
+
+
 class ComfyUiMpsError(RuntimeError):
     """A managed-MPS lifecycle failure (unsupported host, install/launch error)."""
 
@@ -383,6 +449,19 @@ class ComfyUiMpsManager:
         except OSError as exc:
             raise ComfyUiMpsError("pinned ComfyUI checkout lacks requirements.txt") from exc
 
+    def _recorded_install(self) -> dict:
+        """The installed marker as install last recorded it. Start and stop
+        wrote self.ref and the current requirements back, restoring the
+        marker a failed reconcile had dropped, so the next start skipped the
+        install over a half-built venv (2026-10-08 run, cycle 68)."""
+        try:
+            status = json.loads(self.status_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            status = {}
+        status = status if isinstance(status, dict) else {}
+        return {"installed_ref": status.get("installed_ref"),
+                "requirements_sha256": status.get("requirements_sha256")}
+
     def _installed_environment_matches(self, requirements_sha256: str) -> bool:
         try:
             payload = json.loads(self.status_file.read_text(encoding="utf-8"))
@@ -494,11 +573,7 @@ class ComfyUiMpsManager:
 
             started = _require_started(proc.pid, _MHM._process_start_time)
             _write_pid(self.pid_file, proc.pid, started)
-            self._write_status(
-                installed_ref=self.ref,
-                requirements_sha256=self._requirements_sha256(),
-                pid=proc.pid,
-            )
+            self._write_status(**self._recorded_install(), pid=proc.pid)
         except BaseException as exc:
             outcome = _compensate(
                 proc.pid, self.pid_file, lambda: self._terminate_pid(proc.pid)
@@ -603,7 +678,7 @@ class ComfyUiMpsManager:
             # pidfile so a retry/operator can act; don't claim success.
             return False
         self._clear_pid()
-        self._write_status(installed_ref=self.ref, pid=None)
+        self._write_status(**self._recorded_install(), pid=None)
         self._untracked_pid = None
         return True
 
@@ -715,29 +790,33 @@ class ComfyUiMpsManager:
                     f"{detail} may still be alive"
                 )
             self._refuse_removing_host_models()
+            self._refuse_removing_user_work()
             from services import remove_state_directory
             remove_state_directory(self.state_dir, ("managed ComfyUI state directory", ComfyUiMpsError))
+
+    def _refuse_removing_user_work(self) -> None:
+        """Generated images (ComfyUI/output) and saved workflows (ComfyUI/user/
+        .../workflows) live in the checkout; remove deleted them with the venv
+        (2026-10-08 run, cycle 68). ComfyUI's own placeholders start with '_'."""
+        # Only the files ComfyUI ships are exempt; a '_' prefix, a nested
+        # workflow folder, subgraphs and uploaded inputs are user work too
+        # (cycle 72).
+        output, user, inputs = (self.repo_dir / name for name in ("output", "user", "input"))
+        kept = [p for p in _files(output) if p.name != "_output_images_will_be_put_here"]
+        kept += [p for p in _files(user) if {"workflows", "subgraphs"} & set(p.relative_to(user).parts)]
+        kept += [p for p in _files(inputs) if p.name != "example.png"]
+        if kept:
+            raise ComfyUiMpsError(
+                f"refusing to remove {self.state_dir}: it holds {len(kept)} generated image(s), saved "
+                f"workflow(s) or uploaded input(s), for example {kept[0]}; move {output}, {user} and "
+                f"{inputs} aside first"
+            )
 
     def _refuse_removing_host_models(self) -> None:
         """The host models dir is never deleted (README §10), even when it was
         pointed inside the managed state directory."""
-        if not self.models_path:
-            return
-        models = Path(self.models_path).expanduser().resolve()
-        state = self.state_dir.expanduser().resolve()
-        # By file identity as well as text: on a case-insensitive volume a
-        # differently-cased models path is the same folder (85b10c48).
-        inside = models == state or state in models.parents
-        if not inside and state.exists():
-            state_stat = state.stat()
-            inside = any(
-                p.exists() and os.path.samestat(p.stat(), state_stat) for p in (models, *models.parents)
-            )
-        if inside:
-            raise ComfyUiMpsError(
-                f"refusing to remove {state}: it contains COMFYUI_MPS_MODELS_PATH ({models}), "
-                "which Atlas never deletes; move the models or point COMFYUI_MPS_MODELS_PATH elsewhere"
-            )
+        from services import refuse_removing_user_data
+        refuse_removing_user_data(self.state_dir, self.models_path, "COMFYUI_MPS_MODELS_PATH", ComfyUiMpsError)
 
     # ── health ───────────────────────────────────────────────────────
     def health(self, *, timeout: float = 3.0) -> dict:
@@ -752,7 +831,9 @@ class ComfyUiMpsManager:
             stats = json.loads(body)
         except ValueError:
             return {"reachable": True, "device": "unknown", "error": "non-JSON /system_stats"}
-        devices = stats.get("devices") or []
+        # A foreign listener can answer other JSON; an AttributeError here
+        # rolled back the start (2026-10-08 run, cycle 68).
+        devices = _device_entries(stats)
         device_types = [str(d.get("type", "")).lower() for d in devices]
         # A non-CPU device (mps) is the acceptance signal.
         if any(t and t != "cpu" for t in device_types):
@@ -983,6 +1064,33 @@ class ComfyUiMpsManager:
                 "COMFYUI_MPS_MODELS_PATH is not set — nowhere to provision"
             )
             return result
+        self.models_path.mkdir(parents=True, exist_ok=True)
+        with self._provision_guard(self.models_path / ".atlas_provision.lock", emit):
+            return self._provision_models_locked(rows, verify=verify, emit=emit)
+
+    @contextmanager
+    def _provision_guard(self, lock_path: Path, emit):
+        """One provisioning run per models tree or node checkout. Two runs (a start plus
+        `comfyui-mps provision`) shared each `.part`: one published it while
+        the other kept appending to the same inode, so a corrupt weight was
+        published and later skipped as present (2026-10-08 run, cycle 39).
+        The second run waits, then finds the files present."""
+        with lock_path.open("a+", encoding="utf-8") as lock:
+            if fcntl is None:
+                yield
+                return
+            try:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                emit(f"… another provisioning run holds {lock_path.parent}; waiting for it")
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+    def _provision_models_locked(self, rows: list[dict], *, verify: bool, emit) -> ProvisionResult:
+        result = ProvisionResult()
 
         # Dedupe by physical path (multiple logical bundles may share a file —
         # the TSV writer enforces metadata agreement; first row wins here).
@@ -1111,6 +1219,12 @@ class ComfyUiMpsManager:
         if not self.repo_dir.exists():
             result.failed.append("ComfyUI repo not installed — run `comfyui-mps install` first")
             return result
+        # One run per checkout: two runs shared <name>.tmp, and one renamed
+        # the other's half-made clone into place (2026-10-08 run, cycle 55).
+        with self._provision_guard(self.repo_dir / ".atlas_nodes.lock", emit):
+            return self._provision_nodes_locked(nodes, result, emit)
+
+    def _provision_nodes_locked(self, nodes: list, result: ProvisionResult, emit) -> ProvisionResult:
         seen: set[str] = set()
         for node in nodes:
             (
@@ -1199,6 +1313,10 @@ class ComfyUiMpsManager:
                 self._run(["git", "-C", str(dest), "fetch", "origin", ref_l])
                 self._run(["git", "-C", str(dest), "checkout", "--detach", ref_l])
                 outcome = "updated"
+        elif dest.exists():
+            # A folder without .git (a zip install, a patched copy) was
+            # deleted; the container refuses here too (2026-10-08 run, cycle 55).
+            raise ComfyUiMpsError(f"{dest} exists but is not a git checkout; move it aside, then re-run")
         else:
             tmp = dest.with_name(dest.name + ".tmp")
             if tmp.exists():
@@ -1206,8 +1324,6 @@ class ComfyUiMpsManager:
             emit(f"cloning {name} at {ref_l}")
             self._run(["git", "clone", repo, str(tmp)])
             self._run(["git", "-C", str(tmp), "checkout", "--detach", ref_l])
-            if dest.exists():
-                shutil.rmtree(dest)
             tmp.rename(dest)
             outcome = "provisioned"
 
@@ -1418,10 +1534,13 @@ class ComfyUiMpsManager:
                 if actual == sha:
                     self._record_state(state, state_key, dest, sha)
                     return "skipped"
-                emit(f"↻ {state_key}: sha256 mismatch — re-fetching corrupt file")
-                dest.unlink()
+                # Kept until a verified replacement is published by
+                # os.replace below: deleting it first lost the user's file
+                # whenever the download then failed (2026-10-08 run, cycle 68).
+                emit(f"↻ {state_key}: sha256 mismatch — fetching a verified replacement")
                 state.pop(state_key, None)
-            else:
+                self._require_room_for(row, state_key)
+            elif dest.stat().st_size > 0:
                 return "skipped"  # no checksum declared: presence is a hit
 
         url = str(row.get("download_url") or "").strip()
@@ -1430,18 +1549,40 @@ class ComfyUiMpsManager:
         dest.parent.mkdir(parents=True, exist_ok=True)
         part = self._part_path(dest)
         self._fetch_to_part(url, part)
+        if part.stat().st_size == 0:
+            # download_models.sh rejects an empty body; published, a 0-byte
+            # weight was then skipped as present forever (cycle 72).
+            _drop_part(part)
+            raise ComfyUiMpsError(f"empty response fetching {url}")
         if sha:
             actual = self._sha256_file(part)
             if actual != sha:
-                part.unlink(missing_ok=True)  # poisoned bytes: no resume
+                _drop_part(part)  # poisoned bytes: no resume
                 raise ComfyUiMpsError(
                     f"sha256 mismatch after download (expected {sha[:12]}…, got "
                     f"{actual[:12]}…) — partial removed; re-run to retry"
                 )
         os.replace(part, dest)
+        _validator_path(part).unlink(missing_ok=True)
         if sha:
             self._record_state(state, state_key, dest, sha)
         return "provisioned"
+
+    def _require_room_for(self, row: dict, state_key: str) -> None:
+        """A replacement downloads next to the kept file, which the run's
+        disk preflight (missing files only) does not count (cycle 72)."""
+        size = row.get("file_size_bytes")
+        if not isinstance(size, (int, float)):
+            return
+        try:
+            free = shutil.disk_usage(self.models_path).free
+        except OSError:
+            return
+        if free < size * self._DISK_HEADROOM:
+            raise ComfyUiMpsError(
+                f"insufficient disk space to fetch a replacement for {state_key} "
+                f"({size / 1e9:.1f} GB needed, {free / 1e9:.1f} GB free); the existing file is kept"
+            )
 
     def _fetch_to_part(self, url: str, part: Path, *, chunk_size: int = 1 << 20) -> None:
         """Stream ``url`` into ``part`` with HTTP-Range resume.
@@ -1450,26 +1591,59 @@ class ComfyUiMpsManager:
         parity); an HTTP error status drops it (a served error page must never
         be mistaken for model bytes)."""
         resume_from = part.stat().st_size if part.exists() else 0
-        request = urllib.request.Request(url)
-        if resume_from:
-            request.add_header("Range", f"bytes={resume_from}-")
-        try:
-            response = urllib.request.urlopen(request, timeout=30)
-        except urllib.error.HTTPError as exc:
-            if exc.code == 416 and resume_from:
-                # Range not satisfiable — the part is already the full file.
-                return
-            part.unlink(missing_ok=True)
-            raise ComfyUiMpsError(f"HTTP {exc.code} fetching {url}") from exc
+        response = self._open_resume(url, part, resume_from)
+        if response is None:
+            return None
         with response:
-            status = getattr(response, "status", 200)
-            mode = "ab" if (resume_from and status == 206) else "wb"
+            resumed = _resumes_at(response, resume_from)
+            mode = "ab" if resumed else "wb"
+            if not resumed:
+                _record_validator(part, response)
+            written = 0
             with open(part, mode) as handle:
                 while True:
                     chunk = response.read(chunk_size)
                     if not chunk:
                         break
                     handle.write(chunk)
+                    written += len(chunk)
+            _require_full_body(response, written, url)
+
+    def _open_resume(self, url: str, part: Path, resume_from: int):
+        """The response to write ``part`` from: a resume only when a recorded
+        validator vouches for the part, and only a 206 starting at its end."""
+        if resume_from and not _validator_path(part).is_file():
+            # Nothing proves the remote file is the one the part came from: a
+            # re-published file was spliced onto the old bytes (cycle 55).
+            _drop_part(part)
+            resume_from = 0
+        response = self._open_range(url, part, resume_from)
+        if response is not None and getattr(response, "status", 200) == 206 and not _resumes_at(response, resume_from):
+            # A range that does not start at the part's end is neither the
+            # tail to append nor the whole file: written as the file, it
+            # published a tail-only weight (2026-10-08 run, cycle 63).
+            response.close()
+            _drop_part(part)
+            response = self._open_range(url, part, 0)
+        return response
+
+    def _open_range(self, url: str, part: Path, resume_from: int):
+        """The response for ``url`` from ``resume_from``, or None when the
+        part is already the full file. Any other HTTP error drops the part."""
+        request = urllib.request.Request(url)
+        if resume_from:
+            request.add_header("Range", f"bytes={resume_from}-")
+            # If-Range: a changed file comes back whole (200), never spliced.
+            request.add_header("If-Range", _validator_path(part).read_text(encoding="utf-8").strip())
+        try:
+            return urllib.request.urlopen(request, timeout=30)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 416 and resume_from and _range_total(exc) == resume_from:
+                return None
+            _drop_part(part)
+            if exc.code == 416 and resume_from:
+                return self._open_range(url, part, 0)
+            raise ComfyUiMpsError(f"HTTP {exc.code} fetching {url}") from exc
 
     @staticmethod
     def _sha256_file(path: Path, *, chunk_size: int = 1 << 20) -> str:
@@ -1508,10 +1682,10 @@ class ComfyUiMpsManager:
         state[key] = {"sha256": sha, "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
 
 
-def _port_error(raw, key: str):
+def _port_error(raw, key: str, what: str = "a port number"):
     raw = (raw or "").strip()
     if raw and not (raw.isascii() and raw.isdigit()):
-        return f"{key}={raw!r} is not a port number; fix it in .env"
+        return f"{key}={raw!r} is not {what}; fix it in .env"
     return None
 
 
@@ -1530,11 +1704,13 @@ def manager_from_env(env: dict[str, str]) -> ComfyUiMpsManager:
         port=_env_port(env.get("COMFYUI_MPS_LOCALHOST_PORT"), 8188),
         ref=env.get("COMFYUI_MPS_REF", "v0.27.0"),
         models_path=env.get("COMFYUI_MPS_MODELS_PATH") or None,
-        min_memory_gb=int(env.get("COMFYUI_MPS_MIN_MEMORY_GB", "16") or "16"),
+        min_memory_gb=_env_port(env.get("COMFYUI_MPS_MIN_MEMORY_GB"), 16),
         torch_pin=env.get("COMFYUI_MPS_TORCH_PIN") or None,
         listen=env.get("COMFYUI_MPS_LISTEN") or "127.0.0.1",
     )
     # Stop/status/remove fall back to the default; a launch must not, or the
     # process listens there while LiteLLM is told the raw value.
-    manager.port_error = _port_error(env.get("COMFYUI_MPS_LOCALHOST_PORT"), "COMFYUI_MPS_LOCALHOST_PORT")
+    manager.port_error = _port_error(env.get("COMFYUI_MPS_LOCALHOST_PORT"), "COMFYUI_MPS_LOCALHOST_PORT") or _port_error(
+        env.get("COMFYUI_MPS_MIN_MEMORY_GB"), "COMFYUI_MPS_MIN_MEMORY_GB", "a whole number of GB",
+    )
     return manager

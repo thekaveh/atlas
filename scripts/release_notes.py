@@ -399,7 +399,10 @@ def _counted_line(notes: list[Note]) -> str:
         for bucket in BUCKETS
         if bucket not in _DETAILED_BUCKETS and any(n.bucket == bucket for n in notes)
     ]
-    return "Also in this range: " + ", ".join(counts) + " — detailed in the curated entries below."
+    # Counted, not itemized: the curated entries below cite 13 of 478, so
+    # "detailed below" misled (2026-10-08 run, cycle 43).
+    return ("Also in this range: " + ", ".join(counts)
+            + " — counted here, not itemized; `git log` over the range lists them.")
 
 
 def render_changelog_block(notes: list[Note], *, rev_range: str) -> str:

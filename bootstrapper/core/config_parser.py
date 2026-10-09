@@ -323,6 +323,18 @@ class ConfigParser:
             return DEFAULT_PROJECT_NAME
         return normalize_project_name(str(raw))
     
+    def stored_project_name_matches(self, project_name: str) -> bool:
+        """True when .env already names this project in any letter case.
+
+        A hand-edited ``PROJECT_NAME=MyStack`` is project ``mystack``, but its
+        volumes interpolate as ``MyStack-*``; rewriting it lower-case would
+        point the next start at new, empty volumes.
+        """
+        if not project_name or not self.env_file_exists():
+            return False
+        raw = self.parse_env_file().get("PROJECT_NAME")
+        return bool(raw) and str(raw).strip().lower() == project_name
+
     def env_file_exists(self) -> bool:
         """
         Check if .env file exists.

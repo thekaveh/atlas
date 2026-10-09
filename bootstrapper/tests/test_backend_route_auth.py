@@ -223,6 +223,19 @@ def _ruled_paths(rules: ast.expr | None) -> set[str]:
     return paths
 
 
+def _limit_policy_call(tree, registration):
+    """The LimitPolicy(...) call a registration installs. main.py builds it in
+    _request_limit_policy so it can take the plugin inventory (2026-10-08
+    run, cycle 44); follow that helper to the LimitPolicy it returns."""
+    policy = {kw.arg: kw.value for kw in registration.keywords}.get("policy")
+    assert isinstance(policy, ast.Call), "policy=LimitPolicy(<rules>) must be present"
+    builders = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+    builder = builders.get(getattr(policy.func, "id", None))
+    if builder is None:
+        return policy
+    return next(node.value for node in ast.walk(builder) if isinstance(node, ast.Return))
+
+
 def test_request_limit_middleware_is_wired_to_header_authentication():
     """The body-limit gate must sit outside request-parsing instrumentation.
 
@@ -241,11 +254,7 @@ def test_request_limit_middleware_is_wired_to_header_authentication():
         "expected exactly one RequestLimitMiddleware registration"
     )
 
-    policy = next(
-        (kw.value for kw in registrations[0].keywords if kw.arg == "policy"),
-        None,
-    )
-    assert isinstance(policy, ast.Call), "policy=LimitPolicy(<rules>) must be present"
+    policy = _limit_policy_call(tree, registrations[0])
     rules = next(
         (kw.value for kw in policy.keywords if kw.arg == "rules"),
         None,

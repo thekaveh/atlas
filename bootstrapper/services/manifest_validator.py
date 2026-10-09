@@ -1226,6 +1226,21 @@ def _runtime_sc_variant_issues(
     return issues
 
 
+def _duplicate_source_options(manifest: Manifest) -> list[ValidationIssue]:
+    """A repeated option id: profile checks use the first match while this
+    rule used any(), so the two disagreed about which options prod allows
+    (2026-10-08 run, cycle 36)."""
+    ids = [opt.id for opt in manifest.sources.options]
+    return [
+        ValidationIssue(
+            kind="duplicate_source_option",
+            manifest=manifest.name,
+            message=f"source option id '{option_id}' is declared more than once",
+        )
+        for option_id in sorted({i for i in ids if ids.count(i) > 1})
+    ]
+
+
 def _check_prod_option_availability(
     manifests: list[Manifest],
 ) -> list[ValidationIssue]:
@@ -1245,6 +1260,7 @@ def _check_prod_option_availability(
     for m in manifests:
         if m.sources is None or len(m.sources.options) < 1:
             continue
+        issues.extend(_duplicate_source_options(m))
         has_prod_option = any(
             opt.profiles is None or "prod" in opt.profiles
             for opt in m.sources.options
@@ -1504,8 +1520,8 @@ VALIDATOR_RULES: tuple[ValidatorRule, ...] = (
     ),
     ValidatorRule(
         "production_source_availability",
-        ("no_prod_option",),
-        "Every source-configurable service retains an option available in the production profile.",
+        ("no_prod_option", "duplicate_source_option"),
+        "Every source-configurable service retains an option available in the production profile, and declares each option id once.",
         _check_prod_option_availability,
     ),
     ValidatorRule(

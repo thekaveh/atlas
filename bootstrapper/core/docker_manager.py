@@ -12,7 +12,7 @@ import re
 import signal
 import subprocess
 
-from utils.system import compose_env, project_volume_names, report_surviving_volumes
+from utils.system import compose_env, project_volume_names, report_surviving_volumes, run_compose_child
 import time
 from typing import Callable, List, Optional
 
@@ -43,6 +43,10 @@ def _local_build_projection(services: dict) -> dict[str, dict]:
 
 class DockerManager:
     """Manages Docker operations and compose commands."""
+
+    # When set, execute_compose_command pipes the child's output here instead
+    # of the terminal (the TUI teardown, 2026-10-08 run, cycle 48).
+    output_sink: Optional[Callable[[str], None]] = None
 
     def __init__(self, root_dir: Optional[str] = None):
         """
@@ -354,13 +358,7 @@ class DockerManager:
             # `logs -f` — the keystrokes would otherwise be visible inside an
             # active scroll region.
             try:
-                return subprocess.run(
-                    full_cmd,
-                    cwd=str(self.root_dir),
-                    stdin=subprocess.DEVNULL,
-                    check=False,
-                    env=compose_env(full_cmd),
-                ).returncode
+                return run_compose_child(full_cmd, str(self.root_dir), self.output_sink)
             except KeyboardInterrupt:
                 # `docker compose up --build` drives BuildKit inside the Docker
                 # daemon, so the build is not ours to stop reliably: it can
@@ -770,7 +768,7 @@ class DockerManager:
         Host-wide Docker pruning is deliberately not part of project cleanup.
         """
         project_name = self.project_name_override or self.config_parser.get_project_name()
-        print("    - Stopping containers and removing volumes...")
+        self._on_command("    - Stopping containers and removing volumes...")
         result = self.execute_compose_command(
             ['down', '--volumes', '--remove-orphans'],
             project_name=project_name,
@@ -782,7 +780,7 @@ class DockerManager:
         # Nothing records which consumer manifest started the stack, so a bare
         # --cold drops overlay-only volumes from the compose model and leaves
         # them on disk; check the project label instead of trusting `down`.
-        return not self._report_surviving_volumes(project_name, print)
+        return not self._report_surviving_volumes(project_name, self._on_command)
 
     def _report_surviving_volumes(self, project_name: str, emit) -> List[str]:
         return report_surviving_volumes(self._project_volume_names(project_name), emit)

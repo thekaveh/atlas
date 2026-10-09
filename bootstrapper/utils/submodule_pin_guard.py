@@ -130,7 +130,10 @@ def detect_submodule_pin_drift(atlas_root: Path) -> SubmodulePinStatus:
     # explicit `git add infra` half of the bug stages it; a bare HEAD drift is
     # already covered by head_drifted above.
     staged_in_superproject = False
-    if submodule_path:
+    # No recorded gitlink yet (a `git submodule add` not committed, or an
+    # unborn superproject): there is no pin to drift from, and the staged
+    # signal is the add itself (2026-10-08 run, cycle 27).
+    if submodule_path and recorded_gitlink is not None:
         # `diff --cached`, not the porcelain X column: _run_git strips stdout,
         # which ate the leading space of " M infra" and read bare HEAD drift
         # as staged.

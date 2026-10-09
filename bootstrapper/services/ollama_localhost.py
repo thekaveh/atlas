@@ -99,12 +99,25 @@ def list_host_tags(base_url: str, *, timeout: float = _TAGS_TIMEOUT) -> set[str]
         # any query failure means "cannot see the daemon"; callers treat None
         # as unreachable and warn. Provisioning is strictly non-fatal.
         return None
-    tags: set[str] = set()
-    for model in payload.get("models") or []:
-        name = str(model.get("name") or model.get("model") or "").strip()
-        if name:
-            tags.add(_normalize(name))
-    return tags
+    return _tag_names(payload)
+
+
+_NOT_OLLAMA = object()
+
+
+def _tag_names(payload) -> set[str] | None:
+    """Normalized tags from an /api/tags body, or None when it is not
+    Ollama's shape. Another service on the port can answer other JSON; an
+    AttributeError here aborted the launch and rolled back the managed hosts
+    it had started (2026-10-08 run, cycle 39)."""
+    # A dict without "models" ({"status": "ok"}) is another service too; a
+    # null list is an empty daemon (a Go nil slice encodes as null).
+    models = payload.get("models", _NOT_OLLAMA) if isinstance(payload, dict) else _NOT_OLLAMA
+    models = [] if models is None else models
+    if not isinstance(models, list):
+        return None
+    names = (str(m.get("name") or m.get("model") or "").strip() for m in models if isinstance(m, dict))
+    return {_normalize(name) for name in names if name}
 
 
 def _pull_one(base_url: str, tag: str, *, log, timeout: float | None = None) -> None:

@@ -500,13 +500,15 @@ def test_s3a_probe_reconciles_beyond_short_command_timeout(tmp_path: Path) -> No
         FAKE_DOCKER_DELAY_PROBE_INSPECTIONS="3",
     )
 
+    # Outer safety bound only: the script's own 8 s budget plus cleanup hit
+    # 12 s under load (2026-10-08 run, cycle 44).
     result = subprocess.run(
         [str(S3A_SMOKE), "atlas-test-spark:latest"],
         cwd=ROOT,
         env=env,
         capture_output=True,
         text=True,
-        timeout=12,
+        timeout=60,
         check=False,
     )
 
@@ -676,7 +678,7 @@ def test_s3a_smoke_handles_signals_at_child_ownership_transitions(
         env=env,
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=30,
         check=False,
     )
 

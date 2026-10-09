@@ -803,7 +803,6 @@ class FalClient:
     def _probe_url(
         self, payload: Dict[str, Any], keys: Tuple[str, ...], consumed: set
     ) -> Optional[Dict[str, Any]]:
-        found: Optional[Dict[str, Any]] = None
         for key in keys:
             if key not in payload:
                 continue
@@ -812,11 +811,13 @@ class FalClient:
                 # A recognized key holding a non-URL value (e.g. vendor
                 # metadata) is left for provider_fields, not silently dropped.
                 continue
+            # Only the winner is consumed: Tripo's pbr_model/base_model were
+            # also consumed and vanished from artifacts and provider_fields
+            # (2026-10-08 run, cycle 49).
             consumed.add(key)
-            if found is None:
-                coerced["key"] = key
-                found = coerced
-        return found
+            coerced["key"] = key
+            return coerced
+        return None
 
     def _probe_url_list(
         self, payload: Dict[str, Any], keys: Tuple[str, ...], consumed: set

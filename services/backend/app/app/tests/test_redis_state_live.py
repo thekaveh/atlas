@@ -565,3 +565,77 @@ def test_in_flight_budget_tracked_media_record_never_expires() -> None:
         await redis_store.aclose()
 
     asyncio.run(scenario())
+
+
+def test_a_recovered_ledger_attach_keeps_the_in_flight_record() -> None:
+    """An attach that failed at submit and was recovered later sets only
+    provenance.ledger_attach_completed (budget_tracked stays False); its
+    record still expired with the ledger row SUBMITTED (cycle 1 of the
+    2026-10-08 run, a gap in #1447)."""
+    from media_operation_store import InMemoryMediaOperationStore
+
+    def payload(operation_id: str, status: str, **provenance) -> dict:
+        return {"operation_id": operation_id, "status": status, "provenance": provenance}
+
+    async def scenario():
+        redis_store = RedisMediaOperationStore(_REDIS_URL)
+        memory_store = InMemoryMediaOperationStore()
+        operation_id = f"recovered-{uuid.uuid4().hex}"
+        key = "atlas:media:operations:" + operation_id
+        for store in (redis_store, memory_store):
+            await store.create({
+                "operation_id": operation_id, "provider": "fal", "modality": "image",
+                "model": "fal-ai/flux/dev", "owner_scope": "service",
+                "budget_tracked": False, "reconciled": False,
+                "last_payload": payload(operation_id, "queued", ledger_attach_pending=True),
+            })
+            await store.transition_payload(operation_id, payload(
+                operation_id, "queued", ledger_attach_completed=True,
+                ledger_attach_protection_clear_pending=True))
+            await store.complete_attach_protection_clear(operation_id)
+            if store is redis_store:
+                # Checked before the next transition, which resets the TTL and
+                # hid a clear script that dropped attach_completed (cycle 22).
+                assert await redis_store._redis.ttl(key) == -1
+            await store.transition_payload(operation_id, payload(
+                operation_id, "running", ledger_attach_completed=True))
+        assert await redis_store._redis.ttl(key) == -1
+        assert await memory_store.get(operation_id) is not None
+        for store in (redis_store, memory_store):
+            await store.transition_payload(operation_id, payload(
+                operation_id, "succeeded", ledger_attach_completed=True))
+            await store.mark_reconciled(operation_id)
+        assert await redis_store._redis.ttl(key) > 0
+        await redis_store._redis.delete(key)
+        await redis_store.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_an_adopted_reconciliation_that_is_no_longer_pending_keeps_a_ttl() -> None:
+    """The adopt script always dropped the TTL; with mark_reconciled failing,
+    the next sweep removed the id from the index and the record never
+    expired (2026-10-08 run, cycle 49)."""
+    async def scenario():
+        store = RedisMediaOperationStore(_REDIS_URL)
+        operation_id = f"adopt-{uuid.uuid4().hex}"
+        key = "atlas:media:operations:" + operation_id
+        await store.create({
+            "operation_id": operation_id, "provider": "fal", "modality": "image",
+            "model": "fal-ai/flux/dev", "owner_scope": "service",
+            "budget_tracked": False, "reconciled": False,
+            "last_payload": {"operation_id": operation_id, "status": "succeeded", "provenance": {
+                "manual_reconciliation_outcome": "committed", "ledger_reconciliation_pending": True}},
+        })
+        _, changed = await store.adopt_ledger_reconciliation(
+            operation_id, "committed",
+            {"operation_id": operation_id, "status": "succeeded",
+             "provenance": {"manual_reconciliation_outcome": "committed"}})
+        ttl = await store._redis.ttl(key)
+        await store._redis.delete(key)
+        await store.aclose()
+        return changed, ttl
+
+    changed, ttl = asyncio.run(scenario())
+    assert changed is True
+    assert ttl > 0

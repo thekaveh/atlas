@@ -1102,3 +1102,4 @@ def test_jupyter_mlflow_exception_scans_every_shipped_execution_surface() -> Non
     assert not violations, "Jupyter's reviewed client-only exception became reachable:\n" + "\n".join(
         violations
     )
+

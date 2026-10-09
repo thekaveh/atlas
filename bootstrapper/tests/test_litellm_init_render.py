@@ -660,3 +660,23 @@ def test_an_uncatalogued_openai_model_leaves_mode_to_litellm():
     entry = next(e for e in mod.render_model_list(rows) if e["model_name"] == "gpt-5-pro")
     assert "mode" not in entry["model_info"]
     assert entry["model_info"]["atlas_model_metadata"]["kind"] == "chat"
+
+
+def test_two_stack_rows_with_one_model_name_keep_only_the_first(capsys):
+    """openai/gpt-5 in both OPENAI_USER_MODELS and OPENROUTER_USER_MODELS made
+    two rows LiteLLM load-balances, splitting one alias across two providers
+    (2026-10-08 run, cycle 54)."""
+    mod = _load_init_module({})
+    rows = [
+        {"model_name": "openai/gpt-5", "litellm_params": {"model": "openai/gpt-5"}},
+        {"model_name": "openai/gpt-5", "litellm_params": {"model": "openrouter/openai/gpt-5"}},
+        {"model_name": "other", "litellm_params": {"model": "openai/other"}},
+    ]
+    kept = mod._unique_model_names(rows)
+    assert [r["litellm_params"]["model"] for r in kept] == ["openai/gpt-5", "openai/other"]
+    assert "declared twice" in capsys.readouterr().out
+    mod = _load_init_module({"LLM_PROVIDER_SOURCE": "none", "HERMES_SOURCE": "disabled",
+                             "LIGHTRAG_SOURCE": "disabled"})
+    mod.render_model_list = lambda _rows: [dict(r) for r in rows]
+    names = [r["model_name"] for r in mod.render_config([])["model_list"]]
+    assert names.count("openai/gpt-5") == 1

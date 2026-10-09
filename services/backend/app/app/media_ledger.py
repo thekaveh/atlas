@@ -485,13 +485,15 @@ class BudgetEngine:
         Raises ProviderDisabled / UnknownCostRejected / BudgetExceeded (each
         also recorded as a denial) when policy blocks the request.
         """
-        if not self.config.enabled:
-            return None
-
         # Kill-switch is enforced independently of budget math and gateway
-        # availability — one disabled provider must not down the others.
+        # availability — one disabled provider must not down the others — and
+        # of MEDIA_BUDGET_ENABLED: returning before this check let a provider
+        # the operator disabled keep spending with budgets off, the default
+        # (2026-10-08 run, cycle 23). A denial is recorded only with budgets on.
         if not self.provider_enabled(provider):
             reason = f"provider '{provider}' is disabled (kill-switch)"
+            if not self.config.enabled:
+                raise ProviderDisabled(reason)
             await self._record_denial(
                 operation_id=operation_id,
                 consumer=consumer,
@@ -505,6 +507,8 @@ class BudgetEngine:
                 reason=reason,
             )
             raise ProviderDisabled(reason)
+        if not self.config.enabled:
+            return None
 
         cap = self._cap_for(consumer, project)
 
@@ -582,6 +586,10 @@ class BudgetEngine:
         otherwise the engine serializes the check-then-append with a
         process-local lock, which is what the concurrency-boundary test exercises.
         """
+        if record.estimated_cost_usd == 0:
+            # A free (local ComfyUI) request spends nothing, so it is never
+            # over budget, even after an operator settles a scope past its cap.
+            cap = None
         store_reserve = getattr(self.store, "reserve_within_cap", None)
         if store_reserve is not None:
             return await store_reserve(record, cap)

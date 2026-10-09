@@ -85,7 +85,7 @@ import json
 import os
 import sys
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -290,30 +290,57 @@ def _default_remembered_path() -> Path | None:
         return None
 
 
-def load_remembered_selections(path: Path | str | None) -> dict[str, ComfyUILibraryEntry]:
+def load_remembered_selections(
+    path: Path | str | None, warn: Callable[[str], None] | None = None,
+) -> dict[str, ComfyUILibraryEntry]:
     """Scraped library entries selected on an earlier start, by name.
 
     Every start re-scrapes Hugging Face and civitai; a selected model the
     scrape no longer returns (one scraper down, fell out of the top-N, or
     picked from the offline fallback) was dropped with no metadata left to
-    download it (#1448). An unreadable file counts as empty.
+    download it (#1448). An unreadable file counts as empty. ``warn``
+    receives each problem; without it they go to stderr, which the TUI
+    discards (2026-10-08 run, cycle 37).
     """
+    def _report(msg: str) -> None:
+        if warn is not None:
+            warn(msg)
+        else:
+            print(f"⚠️  {msg}", file=sys.stderr, flush=True)
+
     if path is None or not Path(path).is_file():
         return {}
     try:
         rows = json.loads(Path(path).read_text(encoding="utf-8"))
-        entries = [comfyui_library._dict_to_entry(row, str(row["source"])) for row in rows]
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        print(f"⚠️  ignoring unreadable {path}: {exc}", file=sys.stderr, flush=True)
+    except (OSError, ValueError) as exc:
+        _report(f"ignoring unreadable {path}: {exc}")
         return {}
-    return {entry.name: entry for entry in entries}
+    entries: dict[str, ComfyUILibraryEntry] = {}
+    # Row by row: one row an upgrade can no longer parse (a renamed category,
+    # a hand edit) must not drop every other remembered selection.
+    for row in rows if isinstance(rows, list) else ():
+        try:
+            entry = comfyui_library._dict_to_entry(row, str(row["source"]))
+        except (ValueError, KeyError, TypeError) as exc:
+            _report(f"ignoring a remembered ComfyUI entry in {path}: {exc}")
+            continue
+        entries[entry.name] = entry
+    return entries
+
+
+def _remembered_row(entry: ComfyUILibraryEntry) -> dict:
+    """asdict, minus null file fields: the loader rejects a present
+    ``provisioning_required: null`` on a file, so a bundle never read back."""
+    row = dataclasses.asdict(entry)
+    row["files"] = [{k: v for k, v in f.items() if v is not None} for f in row["files"]]
+    return row
 
 
 def write_remembered_selections(entries: list[ComfyUILibraryEntry], path: Path | str) -> None:
     """Persist the scraped (non-curated, non-sidecar) active entries, so the
     next start can resolve them when the scrape no longer returns them."""
     rows = [
-        dataclasses.asdict(entry) for entry in entries
+        _remembered_row(entry) for entry in entries
         if entry.source not in ("curated", "custom")
     ]
     out_path = Path(path)
@@ -455,24 +482,21 @@ def active_comfyui_models(
     # Preserve the relative order of active_catalog, then append sidecar.
     result: list[ComfyUILibraryEntry] = []
     seen_names: set[str] = set()
-    for entry in active_catalog:
-        if entry.name not in seen_names:
-            result.append(entry)
-            seen_names.add(entry.name)
     claimed: dict[tuple, tuple] = {}
-    for entry in result:
-        claimed.update(_download_targets(entry))
-    for entry in sidecar_entries:
+    # Every entry is clash-checked, first claimant wins: two selected civitai
+    # LoRAs shipping the same file name made the plan writer abort the whole
+    # start; only sidecar entries were checked (2026-10-08 run, cycle 55).
+    for entry in [*active_catalog, *sidecar_entries]:
         if entry.name in seen_names:
             continue
         clash = _conflicting_target(_download_targets(entry), claimed)
         if clash:
             # The plan writer refuses two downloads at one path, which aborted
-            # the whole start; a custom entry is skipped alone instead.
+            # the whole start; the later entry is skipped alone instead.
             print(
-                f"⚠️  custom model '{entry.name}' would be saved as {clash[0]}/{clash[1]}, "
-                "which another active model already uses — skipping it; give it a "
-                "distinct `filename:`.",
+                f"⚠️  ComfyUI model '{entry.name}' would be saved as {clash[0]}/{clash[1]}, "
+                "which another active model already uses — skipping it (a custom entry "
+                "can set a distinct `filename:`).",
                 file=sys.stderr,
                 flush=True,
             )

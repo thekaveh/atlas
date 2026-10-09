@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace as NS
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
 
@@ -196,7 +198,19 @@ def test_models_satisfied_reports_missing_and_ignores_unsafe(tmp_path):
 # ── container parity ─────────────────────────────────────────────────
 
 
-def test_provision_consumes_the_container_tsv_row_shape():
+@pytest.fixture
+def _offline_catalog(tmp_path, monkeypatch):
+    """The bundled catalog and an empty remembered file. Without this the
+    resolver live-scraped Hugging Face and civitai (a hang on broken IPv6)
+    and read the developer's own remembered selections (2026-10-08 run,
+    cycle 44)."""
+    from utils import comfyui_library, comfyui_resolver
+
+    monkeypatch.setattr(comfyui_library, "assemble_wizard_catalog", comfyui_library.list_curated)
+    monkeypatch.setattr(comfyui_resolver, "_default_remembered_path", lambda: tmp_path / "remembered.json")
+
+
+def test_provision_consumes_the_container_tsv_row_shape(_offline_catalog):
     """The provisioner reads exactly the fields the container TSV carries —
     resolved from the SAME `comfyui_resolver` source of truth (parity AC)."""
     from utils.comfyui_resolver import active_comfyui_models, manifest_dict
@@ -220,7 +234,7 @@ def test_provision_consumes_the_container_tsv_row_shape():
 # ── doctor + CLI wiring ──────────────────────────────────────────────
 
 
-def test_doctor_unpullable_flips_to_pass_when_tree_satisfied(tmp_path, monkeypatch):
+def test_doctor_unpullable_flips_to_pass_when_tree_satisfied(tmp_path, monkeypatch, _offline_catalog):
     import start
 
     models = tmp_path / "models"
@@ -680,3 +694,129 @@ def test_an_escaping_row_fails_alone(tmp_path):
     assert result.provisioned == ["vae/t.safetensors"]
     assert len(result.failed) == 1 and "outside" in result.failed[0]
     assert m.models_satisfied([bad])[0] is False
+
+
+def test_a_transfer_cut_short_is_kept_as_a_part_and_resumed(tmp_path, monkeypatch):
+    """urllib ends a body the server cut short with an empty read, not an
+    error; a no-sha row was published truncated and then skipped forever
+    (2026-10-08 run, cycle 10)."""
+    import io
+    import urllib.request
+
+    from services import comfyui_mps_manager as module
+
+    m = ComfyUiMpsManager(state_dir=tmp_path / "state", models_path=tmp_path / "models")
+    (tmp_path / "models").mkdir()
+    requests = []
+
+    class Response(io.BytesIO):
+        def __init__(self, body, status, headers):
+            super().__init__(body)
+            self.headers = {"ETag": '"v1"', **headers}
+            self.status = status
+
+    def urlopen(request, timeout=30):
+        requests.append(request.get_header("Range"))
+        if len(requests) == 1:  # connection drops early
+            return Response(PAYLOAD[:300], 200, {"Content-Length": str(len(PAYLOAD))})
+        assert request.get_header("If-range") == '"v1"'  # a changed file comes back whole
+        return Response(PAYLOAD[300:], 206, {"Content-Length": str(len(PAYLOAD) - 300),
+                        "Content-Range": f"bytes 300-{len(PAYLOAD) - 1}/{len(PAYLOAD)}"})
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", urlopen)
+    first = m.provision_models([_row(sha256="")])
+    assert first.failed and not _dest(m).exists()
+    assert m._part_path(_dest(m)).stat().st_size == 300
+    second = m.provision_models([_row(sha256="")])
+    assert second.provisioned == ["vae/t.safetensors"] and requests[1] == "bytes=300-"
+    assert _dest(m).read_bytes() == PAYLOAD
+
+
+def test_a_transfer_one_byte_short_is_not_published(tmp_path):
+    """The 300-byte cut left an off-by-one in the length check untested
+    (2026-10-08 run, cycle 22)."""
+    import io
+
+    from services.comfyui_mps_manager import _require_full_body
+
+    class Response(io.BytesIO):
+        headers = {"Content-Length": str(len(PAYLOAD))}
+
+    import pytest
+
+    with pytest.raises(ComfyUiMpsError):
+        _require_full_body(Response(), len(PAYLOAD) - 1, "https://example/t")
+    _require_full_body(Response(), len(PAYLOAD), "https://example/t")
+
+
+def test_concurrent_provisioning_runs_never_publish_a_corrupt_weight(tmp_path):
+    """Two runs shared each .part: one published it while the other kept
+    appending to the same inode, so a corrupt weight was published and later
+    skipped as present (2026-10-08 run, cycle 39)."""
+    import threading
+    import time
+
+    m = _manager(tmp_path)
+    started = threading.Event()
+
+    def slow_fetch(url, part, chunk_size=1 << 20):
+        existing = part.stat().st_size if part.exists() else 0
+        with open(part, "ab") as handle:
+            half = max(existing, len(PAYLOAD) // 2)
+            handle.write(PAYLOAD[existing:half])
+            handle.flush()
+            started.set()
+            time.sleep(0.3)
+            handle.write(PAYLOAD[half:])
+
+    m._fetch_to_part = slow_fetch
+    results: list = []
+    first = threading.Thread(target=lambda: results.append(m.provision_models([_row(sha256="")])))
+    first.start()
+    started.wait(5)
+    second = ComfyUiMpsManager(state_dir=tmp_path / "state", models_path=m.models_path)
+    second._fetch_to_part = slow_fetch
+    results.append(second.provision_models([_row(sha256="")]))
+    first.join(10)
+    assert _dest(m).read_bytes() == PAYLOAD
+    assert all(r.ok for r in results), [r.failed for r in results]
+
+
+def test_a_416_for_a_longer_part_refetches_instead_of_publishing_it(tmp_path):
+    """Any 416 counted as "the part is complete", so a part longer than the
+    remote file was published as is (cycle 39)."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    body = b"x" * 1000
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            if self.headers.get("Range"):
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{len(body)}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        m = ComfyUiMpsManager(state_dir=tmp_path / "state", models_path=tmp_path / "models")
+        part = tmp_path / "w.part"
+        part.write_bytes(b"y" * 1031)
+        m._fetch_to_part(f"http://127.0.0.1:{server.server_address[1]}/w", part)
+        assert part.read_bytes() == body
+        part.write_bytes(body)  # a complete part stays as is on 416 bytes */1000
+        m._fetch_to_part(f"http://127.0.0.1:{server.server_address[1]}/w", part)
+        assert part.read_bytes() == body
+    finally:
+        server.shutdown()
+        server.server_close()

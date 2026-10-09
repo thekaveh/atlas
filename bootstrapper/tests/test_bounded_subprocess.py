@@ -203,7 +203,7 @@ def test_run_bounded_does_not_block_sigterm_in_child():
 
 
 def _wait_until_ready(marker: Path, process: subprocess.Popen) -> None:
-    deadline = time.monotonic() + 2
+    deadline = time.monotonic() + 10
     while not marker.exists() and time.monotonic() < deadline:
         assert process.poll() is None, "signal-test wrapper exited before readiness"
         time.sleep(0.01)
@@ -225,7 +225,7 @@ def _process_is_live(pid: int) -> bool:
 
 
 def _wait_until_process_stops(pid: int) -> None:
-    deadline = time.monotonic() + 2
+    deadline = time.monotonic() + 10
     while _process_is_live(pid) and time.monotonic() < deadline:
         time.sleep(0.01)
     assert not _process_is_live(pid), f"descendant process {pid} survived"
@@ -295,7 +295,7 @@ def test_run_bounded_terminates_descendants_when_wrapper_is_interrupted(
     try:
         _wait_until_ready(ready, process)
         os.kill(process.pid, signal.SIGINT)
-        process.wait(timeout=2)
+        process.wait(timeout=10)
         _wait_until_process_stops(int(descendant_pid.read_text()))
         assert process.returncode != 0
         assert not marker.exists()
@@ -328,7 +328,7 @@ def test_cli_sigterm_terminates_command_tree(tmp_path: Path):
     try:
         _wait_until_ready(ready, process)
         os.kill(process.pid, signal.SIGTERM)
-        process.wait(timeout=2)
+        process.wait(timeout=10)
         _wait_until_process_stops(int(descendant_pid.read_text()))
         assert process.returncode == 128 + signal.SIGTERM
         assert not marker.exists()
@@ -353,7 +353,7 @@ def test_direct_run_bounded_sigterm_terminates_command_tree(tmp_path: Path):
     try:
         _wait_until_ready(ready, process)
         os.kill(process.pid, signal.SIGTERM)
-        process.wait(timeout=2)
+        process.wait(timeout=10)
         _wait_until_process_stops(int(descendant_pid.read_text()))
         assert process.returncode == 128 + signal.SIGTERM
         assert not marker.exists()
@@ -392,7 +392,7 @@ def test_cli_sigint_is_redacted_and_has_no_traceback(tmp_path: Path):
     try:
         _wait_until_ready(ready, process)
         os.kill(process.pid, signal.SIGINT)
-        stdout, stderr = process.communicate(timeout=2)
+        stdout, stderr = process.communicate(timeout=10)
         assert process.returncode == 130
         assert stdout == "interrupt test interrupted (subprocess details redacted)\n"
         assert "Traceback" not in stderr

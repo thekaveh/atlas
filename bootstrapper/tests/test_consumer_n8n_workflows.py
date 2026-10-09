@@ -579,3 +579,52 @@ def test_static_and_pin_data_stripped_from_normalized(tmp_path: Path) -> None:
     assert "staticData" not in norm
     assert "pinData" not in norm
     assert "SECRET" not in art.content and "SECRET-TOKEN" not in art.content
+
+
+def test_removing_the_last_workflow_reconciles_once_then_cleans_up(tmp_path):
+    """With no workflow declared the overlay was dropped at once, so the seed
+    never ran its reconcile and the removed workflows stayed live with their
+    webhooks (2026-10-08 run, cycle 31)."""
+    import json
+    from types import SimpleNamespace
+
+    import start
+    from core.consumer_manifest import N8N_CONSUMER_OVERLAY_PATH, N8N_CONSUMER_WORKFLOWS_DIR
+
+    seed_dir = tmp_path / N8N_CONSUMER_WORKFLOWS_DIR
+    overlay = tmp_path / N8N_CONSUMER_OVERLAY_PATH
+    seed_dir.mkdir(parents=True)
+    overlay.parent.mkdir(parents=True, exist_ok=True)
+    (seed_dir / "a.json").write_text("{}")
+    (seed_dir / "plan.json").write_text(json.dumps({"namespace": "atlas-consumer-", "workflows": [{"id": "a"}]}))
+    overlay.write_text("services: {}\n")
+
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter.root_dir = tmp_path
+    starter.banner = SimpleNamespace(show_status_message=lambda *_a, **_k: None)
+    warnings = []
+    starter.banner = SimpleNamespace(show_status_message=lambda msg, level="info": warnings.append((level, msg)))
+    starter.config_parser = SimpleNamespace(
+        load_consumer_config=lambda: SimpleNamespace(n8n_workflows=[]),
+        parse_env_file=lambda: {"N8N_API_KEY": ""},
+    )
+
+    assert starter._finalize_consumer_n8n_workflows()
+    plan = json.loads((seed_dir / "plan.json").read_text())
+    assert plan["workflows"] == [] and plan["namespace"].startswith("atlas-consumer")
+    # The overlay is regenerated, not just left in place (cycle 44).
+    from core.consumer_manifest import render_n8n_seed_overlay
+
+    assert overlay.read_text() == render_n8n_seed_overlay([]) and not (seed_dir / "a.json").exists()
+    assert any(level == "warning" and "N8N_API_KEY" in msg for level, msg in warnings)
+
+    # Still kept on the next start: one run may not have reconciled (no key,
+    # n8n not healthy), cycle 34.
+    assert starter._finalize_consumer_n8n_workflows()
+    assert overlay.exists() and (seed_dir / "plan.json").exists()
+
+    # With a key set, the seed can reconcile: no warning (cycle 44).
+    warnings.clear()
+    starter.config_parser.parse_env_file = lambda: {"N8N_API_KEY": "key"}
+    assert starter._finalize_consumer_n8n_workflows()
+    assert not any("N8N_API_KEY" in msg for _level, msg in warnings), warnings

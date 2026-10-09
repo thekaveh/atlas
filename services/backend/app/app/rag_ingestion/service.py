@@ -108,6 +108,24 @@ def weaviate_class_name(collection_prefix: str, profile_name: str) -> str:
     return f"{collection_prefix}_{safe_name}"
 
 
+def _renewal_retry_wait(
+    ingestion_id: str, deadline: float, interval: float, call_bound: float,
+) -> Optional[float]:
+    """Seconds before retrying a renewal that raised, or None once the lease
+    would expire (cycle 12 of the 2026-10-08 run). ``call_bound`` is how long
+    one renewal can block: with a 1 s margin the last call returned after
+    the lease had expired, and the phase kept writing unleased (cycle 50)."""
+    remaining = deadline - time.monotonic()
+    logger.exception(
+        "RAG execution lease renewal failed for ingestion %s (%.1fs of lease left)",
+        ingestion_id,
+        remaining,
+    )
+    if remaining <= call_bound + 1.0:
+        return None
+    return min(interval, max(0.5, remaining / 3))
+
+
 class PhaseFatal(RuntimeError):
     """A phase failure that aborts the remaining phases and fails the job (a
     capability ``on_unavailable: fail`` target, or a drain timeout)."""
@@ -360,9 +378,14 @@ class RagIngestionService:
         lease_lost: asyncio.Event,
     ) -> None:
         interval = max(1.0, lease_seconds / 3)
+        # The lease stays valid until this deadline; a renewal that raises
+        # (one slow Redis reply) is retried until then instead of discarding
+        # the whole run at the first error (2026-10-08 run, cycle 12).
+        deadline = time.monotonic() + lease_seconds
+        wait = interval
         while True:
             try:
-                await asyncio.wait_for(stop.wait(), timeout=interval)
+                await asyncio.wait_for(stop.wait(), timeout=wait)
                 return
             except asyncio.TimeoutError:
                 try:
@@ -373,12 +396,13 @@ class RagIngestionService:
                         lease_seconds,
                     )
                 except Exception:
-                    logger.exception(
-                        "RAG execution lease renewal failed for ingestion %s",
-                        ingestion_id,
+                    wait = _renewal_retry_wait(
+                        ingestion_id, deadline, interval, getattr(self.store, "call_timeout_seconds", 0.0),
                     )
-                    lease_lost.set()
-                    return
+                    if wait is None:
+                        lease_lost.set()
+                        return
+                    continue
                 if not renewed:
                     logger.warning(
                         "RAG execution lease ownership lost for ingestion %s",
@@ -386,6 +410,8 @@ class RagIngestionService:
                     )
                     lease_lost.set()
                     return
+                deadline = time.monotonic() + lease_seconds
+                wait = interval
 
     async def _run_phase_with_lease(
         self,
@@ -577,6 +603,25 @@ class RagIngestionService:
                 operation="execution lease release",
                 ingestion_id=ingestion_id,
             )
+
+    async def fail_abandoned(self, ingestion_id: str, recovery_owner: str, reason: str) -> bool:
+        """Mark a run the worker gave up on as failed. Without this the record
+        kept its last status, "running", which the create script treats as a
+        dedup hit, so every resubmit got the dead job back until the TTL
+        (2026-10-08 run, cycle 30). Fenced: the claim fails while another
+        live worker holds the lease, and that run is left alone."""
+        owner = f"abandon:{uuid.uuid4()}"
+        claim = ExecutionClaim(owner, ingestion_execution_lease_seconds(), recovery_owner)
+        if not await asyncio.to_thread(self.store.claim_execution, ingestion_id, claim):
+            return False
+        try:
+            record = await asyncio.to_thread(self.store.get, ingestion_id)
+            if record is None or record.is_terminal:
+                return False
+            await self._record_unexpected_failure(record, RuntimeError(reason), owner)
+            return True
+        finally:
+            await asyncio.to_thread(self.store.release_execution, ingestion_id, owner)
 
     async def _record_unexpected_failure(
         self, record: IngestionRecord, exc: Exception, owner: str
@@ -811,6 +856,10 @@ class RagIngestionService:
         record.counts["vectors_written"] = 0
         record.add_error(IngestionError(phase="vector_write", message=message))
 
+    async def _ensure_target_class(self, state, class_name: str) -> None:
+        if await self.deps.weaviate.ensure_class(class_name, embedding=self._embedding_of(state)):
+            state["class_rebuilt"] = True
+
     def _embedding_of(self, state) -> tuple[str, int]:
         """(model, dimension) of this run's vectors: the class identity (#1364)."""
         return (str(getattr(self.deps.embedder, "model", "") or ""), len(state["chunks"][0]["vector"]))
@@ -854,7 +903,15 @@ class RagIngestionService:
             [obj["id"] for obj in objects],
             preserve_sources=failed_sources,
         )
-        if failed_sources:
+        if failed_sources and state.get("class_rebuilt"):
+            # The class was rebuilt for another embedding model or size, so the
+            # failed sources' earlier vectors are gone, not preserved.
+            record.phase("vector_write").note = (
+                f"wrote {len(objects)} object(s); class rebuilt for a new embedding model, "
+                f"so {len(failed_sources)} source(s) that failed this run have no vectors "
+                f"until a later run succeeds ({', '.join(failed_sources[:5])})"
+            )
+        elif failed_sources:
             record.phase("vector_write").note = (
                 f"wrote {len(objects)} object(s); preserved existing vectors for "
                 f"{len(failed_sources)} source(s) that failed this run "
@@ -923,7 +980,7 @@ class RagIngestionService:
                 return
             class_name = weaviate_class_name(target['collection_prefix'], profile.name)
             try:
-                await self.deps.weaviate.ensure_class(class_name, embedding=self._embedding_of(state))
+                await self._ensure_target_class(state, class_name)
                 objects = self._weaviate_objects(class_name, profile, state["chunks"])
                 total += await self.deps.weaviate.write_objects(class_name, objects)
                 # Reconcile PER SOURCE. The deletion pass treats "not in this

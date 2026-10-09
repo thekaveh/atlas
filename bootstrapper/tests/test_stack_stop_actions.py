@@ -91,6 +91,7 @@ def _run(scenario):
 def _launched_screen_with(stopper: _FakeStopper) -> WizardScreen:
     scr = _screen()
     scr._stopper_factory = lambda: stopper
+    scr._launched_project = "atlas"  # a real launch pins the name it used
     return scr
 
 
@@ -301,3 +302,271 @@ def test_a_failed_launch_does_not_advertise_teardown():
     assert succeeded is False
     keys = {k for ks, _ in hints for k in ks}
     assert "ctrl+s" not in keys and "ctrl+x" not in keys, hints
+
+
+def test_a_second_stop_is_refused_while_one_is_running():
+    """A cold stop must not start while a normal stop is still running.
+
+    The worker is exclusive, but the stopper runs in a thread that a
+    cancelled worker cannot stop: compose down and down -v ran at once,
+    and only the second outcome was reported (2026-10-08 run, cycle 37).
+    """
+    import threading
+
+    release = threading.Event()
+
+    class _SlowStopper(_FakeStopper):
+        def stop_services(self, cold_stop: bool, project_name: str) -> bool:
+            self.calls.append((cold_stop, project_name))
+            release.wait(5)
+            return True
+
+    stopper = _SlowStopper()
+    scr = _launched_screen_with(stopper)
+
+    async def scenario():
+        async with _App(scr).run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            scr._phase = "launch"
+            scr._launch_succeeded = True
+            scr.action_stop_stack()
+            scr.action_stop_stack()
+            await pilot.pause()
+            await asyncio.sleep(0.1)
+            scr.action_stop_stack_cold()
+            scr.action_stop_stack_cold()
+            await pilot.pause()
+            await asyncio.sleep(0.1)
+            calls = list(stopper.calls)
+            release.set()
+            for _ in range(100):
+                await asyncio.sleep(0.05)
+                if not scr._teardown_running:
+                    break
+            # Once the first stop finished, a new stop is accepted again; a
+            # guard never cleared refused every later stop (cycle 44).
+            scr.action_stop_stack_cold()
+            scr.action_stop_stack_cold()
+            await pilot.pause()
+            for _ in range(100):
+                await asyncio.sleep(0.05)
+                if len(stopper.calls) > 1:
+                    break
+            return calls, list(stopper.calls)
+
+    calls, later = _run(scenario)
+    assert calls == [(False, calls[0][1])], calls
+    assert [cold for cold, _ in later] == [False, True], later
+
+
+def test_quit_and_interrupt_are_refused_while_a_stop_runs():
+    """Ctrl+Q / Ctrl+C during a stop exited the app while compose down kept
+    running unseen, with no result reported (2026-10-08 run, cycle 48)."""
+    import threading
+
+    release = threading.Event()
+
+    class _SlowStopper(_FakeStopper):
+        def stop_services(self, cold_stop: bool, project_name: str) -> bool:
+            self.calls.append((cold_stop, project_name))
+            release.wait(5)
+            return True
+
+    stopper = _SlowStopper()
+    scr = _launched_screen_with(stopper)
+    exits = []
+
+    async def scenario():
+        app = _App(scr)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            scr._phase = "launch"
+            scr._launch_succeeded = True
+            scr._launch_detach_ready = True
+            app.exit = lambda *a, **k: exits.append(a)  # type: ignore[method-assign]
+            scr.action_stop_stack()
+            scr.action_stop_stack()
+            for _ in range(100):
+                await asyncio.sleep(0.02)
+                if scr._teardown_running:
+                    break
+            scr.action_quit_wizard()
+            scr._exit_refused_until = 0.0  # the second-press escape is tested separately
+            refused = scr.refuse_exit_during_teardown()
+            escaped = not scr.refuse_exit_during_teardown()  # a second press within 5 s leaves
+            release.set()
+            for _ in range(100):
+                await asyncio.sleep(0.05)
+                if not scr._teardown_running:
+                    break
+            return refused and escaped
+
+    assert _run(scenario) is True
+    assert exits == [], "quit must not exit while the stop runs"
+
+
+def test_the_stop_targets_the_launched_project_not_a_later_env_edit():
+    """The name was re-read from .env at stop time; a `./stop.sh -p atlas`
+    in another terminal redirected a cold stop to another stack (cycle 48)."""
+    from types import SimpleNamespace
+
+    stopper = _FakeStopper()
+    scr = _launched_screen_with(stopper)
+    names = iter(["rag", "atlas"])
+    scr._starter = SimpleNamespace(config_parser=SimpleNamespace(get_project_name=lambda: next(names)))
+    scr._launched_project = scr._starter.config_parser.get_project_name()  # pinned at launch: rag
+
+    async def scenario():
+        async with _App(scr).run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            scr._phase = "launch"
+            scr._launch_succeeded = True
+            scr.action_stop_stack_cold()
+            scr.action_stop_stack_cold()
+            await pilot.pause()
+            await asyncio.sleep(0.1)
+            return stopper.calls
+
+    assert _run(scenario) == [(True, "rag")]
+
+
+def test_teardown_compose_output_reaches_the_log_pane_not_the_terminal(tmp_path, monkeypatch):
+    """The stopper's compose child inherited the terminal fds Textual draws
+    on, and its surviving-volume warning went to a discarded print
+    (2026-10-08 run, cycle 48)."""
+    import subprocess
+
+    from core.docker_manager import DockerManager
+
+    manager = DockerManager(str(tmp_path))
+    logged = []
+    scr = _screen()
+    monkeypatch.setattr(scr, "_safe_log", lambda message, **_k: logged.append(message))
+    scr._route_teardown_output(manager)
+    from utils import system
+
+    child = ["sh", "-c", "echo 'Container x  Removed' >&2"]
+    assert system.run_compose_child(child, str(tmp_path), manager.output_sink) == 0
+    assert "Container x  Removed" in logged
+    manager._report_surviving_volumes = lambda project, emit: emit("survivor warning") or ["v"]
+    monkeypatch.setattr(manager, "execute_compose_command", lambda *a, **k: 0)
+    assert manager.perform_cold_stop_cleanup() is False
+    assert "survivor warning" in logged
+
+
+def test_teardown_compose_output_is_bounded_and_decoded(tmp_path, monkeypatch):
+    """Streamed and bounded: a wedged daemon showed nothing and never ended
+    (cycle 69); the child is killed, not waited out, and non-UTF-8 output is
+    replaced, not a crashed reader (cycle 74)."""
+    import time as _time
+
+    from core.docker_manager import DockerManager
+    from utils import system
+
+    manager = DockerManager(str(tmp_path))
+    logged = []
+    scr = _screen()
+    monkeypatch.setattr(scr, "_safe_log", lambda message, **_k: logged.append(message))
+    scr._route_teardown_output(manager)
+    monkeypatch.setattr(system, "SINK_COMPOSE_TIMEOUT_SECONDS", 2)
+
+    began = _time.monotonic()
+    child = ["sh", "-c", "echo started; exec sleep 30"]  # exec: the kill closes the pipe
+    assert system.run_compose_child(child, str(tmp_path), manager.output_sink) == 124
+    assert _time.monotonic() - began < 10
+    assert logged[0] == "started"
+    assert "did not finish" in logged[-1]
+    logged.clear()
+    assert system.run_compose_child(["sh", "-c", "printf 'caf\\351\\n'"], str(tmp_path), manager.output_sink) == 0
+    assert logged == ["caf\ufffd"]
+
+
+async def _until(condition, *, tries: int = 100, pause: float = 0.05) -> None:
+    for _ in range(tries):
+        if condition():
+            return
+        await asyncio.sleep(pause)
+
+
+def test_real_ctrl_q_and_ctrl_c_keys_cannot_exit_during_a_stop():
+    """Textual's priority ctrl+q binding ran App.action_quit, so a keypress
+    never reached the wizard's guard; with a modal open, ctrl+c read the
+    modal as the screen and skipped it (2026-10-08 run, cycle 61)."""
+    import inspect
+    import threading
+
+    from textual.binding import Binding
+    from textual.screen import ModalScreen
+
+    from ui.textual import integration
+    from ui.textual.screens import wizard_screen
+
+    source = inspect.getsource(integration)
+    # Both real apps take the ctrl+q mixin and check the guard on ctrl+c (cycle 63).
+    assert source.count("(GuardedQuitMixin, App)") == 2
+    assert source.count("if teardown_blocks_exit(self):\n                return") == 2
+    release = threading.Event()
+
+    class _SlowStopper(_FakeStopper):
+        def stop_services(self, cold_stop: bool, project_name: str) -> bool:
+            self.calls.append((cold_stop, project_name))
+            release.wait(5)
+            return True
+
+    scr = _launched_screen_with(_SlowStopper())
+    exits = []
+
+    class _GuardedApp(_App):
+        BINDINGS = [Binding("ctrl+c", "interrupt", "Quit", priority=True)]
+
+        def action_interrupt(self) -> None:
+            if not wizard_screen.teardown_blocks_exit(self):
+                exits.append("interrupt")
+
+        def action_quit(self) -> None:
+            wizard_screen.guarded_quit(self)
+
+        def exit(self, *args, **kwargs):  # noqa: A003
+            exits.append("exit")
+
+    async def scenario():
+        app = _GuardedApp(scr)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            scr._phase, scr._launch_succeeded, scr._launch_detach_ready = "launch", True, True
+            scr.action_stop_stack()
+            scr.action_stop_stack()
+            await _until(lambda: getattr(scr, "_teardown_running", False))
+            await pilot.press("ctrl+q")
+            scr._exit_refused_until = 0.0  # each guard on its own, not the second-press escape
+            app.push_screen(ModalScreen())
+            await pilot.pause()
+            await pilot.press("ctrl+c")
+            release.set()
+            await _until(lambda: not getattr(scr, "_teardown_running", False))
+
+    _run(scenario)
+    assert exits == [], exits
+
+
+def test_the_stop_flag_is_set_at_commit_and_the_escape_window_expires(monkeypatch):
+    """A quit handled before the worker's first step exited with `down`
+    scheduled; the second-press escape must also expire (cycle 74)."""
+    from ui.textual.screens import wizard_screen
+
+    scr = _launched_screen_with(_FakeStopper())
+    scr._phase, scr._launch_succeeded = "launch", True
+    scr.run_worker = lambda work, **_k: work.close()  # the worker never starts
+    notes, logs = [], []
+    scr.notify = lambda message, **_k: notes.append(message)
+    scr._safe_log = lambda message, **_k: logs.append(message)
+    clock = {"t": 100.0}
+    monkeypatch.setattr(wizard_screen, "_teardown_clock", lambda: clock["t"])
+    scr.action_stop_stack()
+    scr.action_stop_stack()
+    assert scr.refuse_exit_during_teardown() is True  # set before any worker step
+    clock["t"] += 6  # past the 5 s window: refused again, not let through
+    assert scr.refuse_exit_during_teardown() is True
+    clock["t"] += 1
+    assert scr.refuse_exit_during_teardown() is False
+    assert any("result is unknown" in line for line in logs), logs

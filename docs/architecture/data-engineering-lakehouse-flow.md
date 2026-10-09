@@ -10,7 +10,7 @@ MinIO, Iceberg REST, Supabase Postgres, Spark, JupyterHub, Zeppelin, Airflow, Tr
 
 ## 2. Notes
 
-Iceberg REST's catalog metadata lives in Supabase Postgres via a JDBC catalog, not a Hive metastore — if `CATALOG_URI` isn't pointed at `jdbc:postgresql://supabase-db:5432/iceberg`, the base image silently falls back to a local SQLite catalog and metadata vanishes on restart. Trino runs single-coordinator, no worker scaling, by design. Spark still starts with `ICEBERG_REST_SOURCE=disabled` for ML-only use; only lakehouse SQL fails.
+Iceberg REST keeps its catalog metadata in Supabase Postgres through a JDBC catalog, not a Hive metastore. If `CATALOG_URI` does not point at `jdbc:postgresql://supabase-db:5432/iceberg`, the base image falls back to a local SQLite catalog that a restart loses. Trino runs one coordinator and no workers, by design. Spark still starts with `ICEBERG_REST_SOURCE=disabled` for ML-only use; only lakehouse SQL fails.
 
 ## 3. Source Files
 

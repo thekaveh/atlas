@@ -323,3 +323,13 @@ def test_a_dependency_disabled_by_auto_resolve_still_counts_as_missing(tmp_path)
     dm = _make_dm(tmp_path, "WEAVIATE_SOURCE=container\nWEAVIATE_SCALE=0\n"
                             "N8N_SOURCE=container\nN8N_SCALE=1\n")
     assert _n8n_weaviate_violations(dm)
+
+
+def test_a_disabled_supabase_subservice_does_not_disable_the_database(tmp_path):
+    """#1462 gave each Supabase row its own scale var; the family fallback
+    took the first (SUPABASE_META_SCALE), so pg-meta off reported the
+    always-on database as disabled (2026-10-08 run, cycle 4)."""
+    dm = _make_dm(tmp_path, "SUPABASE_META_SOURCE=disabled\nSUPABASE_META_SCALE=0\n")
+    assert dm.get_service_scale("supabase-meta") == 0
+    for name in ("supabase", "supabase-db", "supabase-db-init"):
+        assert dm.get_service_scale(name) == 1, name

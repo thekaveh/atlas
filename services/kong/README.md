@@ -295,6 +295,7 @@ For more information on Kong's role in the overall architecture, see the system 
 | mcp-servers | agents | current |
 | n8n | agents | current |
 | openclaw | agents | current |
+| trueforge | agents | optional: TRUEFORGE_SOURCE=container |
 | backend ↔ | apps | current |
 | jenkins | apps | current |
 | jupyterhub | apps | current |

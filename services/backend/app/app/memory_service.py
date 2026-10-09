@@ -16,7 +16,9 @@ from uuid import UUID, uuid4
 import httpx
 
 from db_connection import acquire_conn, connect_postgres
+from memory_models import _validate_consolidation_action
 from memory_store import (
+    _VECTORIZER_SYSTEMATIC_TEXT,
     MemoryStore,
     _to_uuid,
     _weaviate_vectorizer_failure,
@@ -99,48 +101,6 @@ def _is_target_health_signal(exc: BaseException) -> bool:
             return False
         return status >= 500 or status in _TARGET_HEALTH_STATUSES
     return False
-
-
-def _is_valid_consolidation_index(index: Any, fact_count: int) -> bool:
-    return type(index) is int and 0 <= index < fact_count
-
-
-def _validated_consolidation_indices(
-    source_indices: Any, keep_index: Any, fact_count: int
-) -> Optional[tuple[List[int], int]]:
-    if not isinstance(source_indices, list) or len(source_indices) < 2:
-        return None
-    if not all(
-        _is_valid_consolidation_index(index, fact_count)
-        for index in source_indices
-    ):
-        return None
-    if len(set(source_indices)) != len(source_indices):
-        return None
-    if not _is_valid_consolidation_index(keep_index, fact_count):
-        return None
-    if keep_index not in source_indices:
-        return None
-    return source_indices, keep_index
-
-
-def _validate_consolidation_action(
-    action_data: Any, fact_count: int
-) -> Optional[tuple[str, List[int], int, str]]:
-    """Return a safe consolidation action or reject untrusted LLM output."""
-    if not isinstance(action_data, dict):
-        return None
-    action = action_data.get("action")
-    reason = action_data.get("reason", "")
-    if action not in {"merge", "supersede"} or not isinstance(reason, str):
-        return None
-    indices = _validated_consolidation_indices(
-        action_data.get("source_indices"), action_data.get("keep_index"), fact_count
-    )
-    if indices is None:
-        return None
-    source_indices, keep_index = indices
-    return action, source_indices, keep_index, reason
 
 
 #: How many TARGET-HEALTH failures since the last successful row mean the
@@ -234,6 +194,33 @@ def _deletion_report(state, store=None) -> Dict[str, Any]:
         ),
         "restore": "PUT /memory/{memory_id} with is_active=true reactivates the fact",
     }
+
+
+def _is_row_rejection(exc: BaseException) -> bool:
+    """A failure caused by this row's content: a 4xx from the embedder or the
+    target that is not auth, missing model, timeout or back-pressure. Database
+    restarts, a not-yet-registered model or a superseded write hit every row
+    and recover by themselves, so remembering them hid rows until a restart
+    (2026-10-08 run, cycle 24)."""
+    if _weaviate_vectorizer_failure(exc):
+        return _weaviate_vectorizer_row_rejection(exc)
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return False
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    if status is None or not 400 <= status < 500 or status in {401, 403, 404, 408, 429}:
+        return False
+    try:
+        body = response.text
+    except Exception:  # noqa: BLE001 - unreadable body: not classifiable
+        return False
+    return not _VECTORIZER_SYSTEMATIC_TEXT.search(body or "")
+
+
+def _remember_rejected(rejected: dict, row, exc: BaseException) -> None:
+    """Skip a row the target rejected on its own until it changes (bounded)."""
+    if _is_row_rejection(exc) and len(rejected) < 10_000:
+        rejected[row["id"]] = row["updated_at"]
 
 
 class MemoryService:
@@ -819,6 +806,12 @@ Extract the facts as JSON:"""
             weaviate_id=row.get("weaviate_id"),
         )
 
+    def _rejected_rows(self) -> dict:
+        rejected = getattr(self, "_rejected_vector_rows", None)
+        if rejected is None:
+            rejected = self._rejected_vector_rows = {}
+        return rejected
+
     async def _reconcile_pending_vectors(
         self,
         conn=None,
@@ -836,16 +829,27 @@ Extract the facts as JSON:"""
             conn = await connect_postgres(self.database_url)
         reconciled = 0
         target_failures_since_progress = 0
+        # Rows the target rejected on their own (a 4xx) stayed first in this
+        # oldest-first page, so 100 of them stalled every later row: deletes
+        # never reached Weaviate (2026-10-08 run, cycle 12). Skip them here
+        # until their updated_at changes; a restart retries them once.
+        rejected = self._rejected_rows()
         try:
             rows = await conn.fetch(
                 """
                 SELECT id, user_id, namespace, content, fact_type, confidence,
                        is_active, weaviate_id, updated_at
-                FROM public.memory_facts
+                FROM public.memory_facts AS f
                 WHERE vector_sync_pending = true
+                  AND NOT EXISTS (
+                      SELECT 1 FROM unnest($1::uuid[], $2::timestamptz[]) AS r(id, ts)
+                      WHERE r.id = f.id AND r.ts = f.updated_at
+                  )
                 ORDER BY updated_at
                 LIMIT 100
-                """
+                """,
+                list(rejected),
+                list(rejected.values()),
             )
             for row in rows:
                 new_weaviate_id = None
@@ -862,6 +866,7 @@ Extract the facts as JSON:"""
                         type(exc).__name__,
                     )
                     if not _counts_toward_reconcile_halt(exc, target_signal):
+                        _remember_rejected(rejected, row, exc)
                         # A row-specific failure says nothing about the
                         # target's health, so it must not COUNT toward the
                         # streak — and it must not RESET it either. Resetting
@@ -1096,6 +1101,14 @@ Extract the facts as JSON:"""
                     source_fact_uuids = []
                     try:
                         async with conn.transaction():
+                            # The per-user lock extraction and restore take: two
+                            # consolidations reading the same snapshot could
+                            # otherwise supersede X by Y and Y by X, both under
+                            # READ COMMITTED, leaving neither fact active.
+                            await conn.execute(
+                                "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+                                str(uid),
+                            )
                             # Deactivate every source and write its audit record
                             # as one unit. A failed/stale later UPDATE must roll
                             # back every earlier source in the same LLM action.

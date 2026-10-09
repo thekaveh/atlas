@@ -198,6 +198,18 @@ verify_signed_metadata "${work}/databases.complete"
 backup_id="$(metadata_value "${work}/databases.complete" backup_id)"
 case "${backup_id}" in *[!0-9a-f]*|'') echo "database restore: invalid backup id" >&2; exit 65;; esac
 [ "${#backup_id}" -eq 32 ] || { echo "database restore: invalid backup id" >&2; exit 65; }
+# postgres.complete is the publication marker and is uploaded last; without
+# it (a failed final upload) restore-postgres refuses this timestamp, so the
+# graph and vector stores must not be cut over alone (2026-10-08 run, cycle 34).
+download_bounded "s3/${BUCKET}/${BACKUP_TIMESTAMP}/postgres.complete" "${work}/postgres.complete" 2048 || {
+  echo "database restore: backup ${BACKUP_TIMESTAMP} was never published (no postgres.complete)" >&2; exit 65;
+}
+exact_keys "${work}/postgres.complete" completion_format backup_timestamp backup_id manifest_sha256 manifest_bytes dump_bytes tables_bytes objects_bytes hmac_sha256
+verify_signed_metadata "${work}/postgres.complete"
+[ "$(metadata_value "${work}/postgres.complete" backup_id)" = "${backup_id}" ] \
+  && [ "$(metadata_value "${work}/postgres.complete" backup_timestamp)" = "${BACKUP_TIMESTAMP}" ] || {
+  echo "database restore: postgres.complete belongs to another backup" >&2; exit 65;
+}
 manifest_bytes="$(metadata_value "${work}/databases.complete" manifest_bytes)"
 case "${manifest_bytes}" in ''|*[!0-9]*|0|0*) echo "database restore: invalid manifest size" >&2; exit 65;; esac
 [ "${manifest_bytes}" -le 8192 ] || { echo "database restore: manifest too large" >&2; exit 65; }

@@ -156,8 +156,11 @@ def get_hosts_file_path() -> str:
         return ""
 
 
-def project_volume_names(project_name: str) -> list:
-    """Volumes Compose labelled as this project's; [] when unknown."""
+def project_volume_names(project_name: str) -> list | None:
+    """Volumes Compose labelled as this project's; None when docker could not
+    list them. [] for "unknown" let a failed listing confirm a cold cleanup,
+    so secrets rotated while volumes holding the old ones survived
+    (2026-10-08 run, cycle 48)."""
     try:
         result = subprocess.run(
             ["docker", "volume", "ls", "-q", "--filter",
@@ -165,13 +168,20 @@ def project_volume_names(project_name: str) -> list:
             capture_output=True, text=True, timeout=30, check=False,
         )
     except (OSError, subprocess.SubprocessError):
-        return []
-    return [line for line in result.stdout.split() if line] if result.returncode == 0 else []
+        return None
+    return [line for line in result.stdout.split() if line] if result.returncode == 0 else None
 
 
-def report_surviving_volumes(leftover: list, emit) -> list:
+def report_surviving_volumes(leftover: list | None, emit) -> list:
     """Name project volumes `down --volumes` left behind (a consumer overlay
-    not loaded for this run), with the remedy."""
+    not loaded for this run), with the remedy. An unknown listing counts as
+    a survivor: the removal is not confirmed."""
+    if leftover is None:
+        emit(
+            "    ⚠ Could not list this project's volumes (docker volume ls failed), so "
+            "their removal is not confirmed. Check Docker, then re-run."
+        )
+        return ["<unknown>"]
     if leftover:
         emit(
             "    ⚠ These project volumes were not removed (declared by a consumer "
@@ -197,10 +207,51 @@ def compose_env(compose_cmd: list) -> dict:
     if "-p" not in compose_cmd[:-1]:
         return env
     project = compose_cmd[compose_cmd.index("-p") + 1]
-    resolved = env.get("PROJECT_NAME") or _env_file_project_name(compose_cmd)
+    # An exported empty value still wins over --env-file in Compose, so it
+    # must be replaced too, not read as unset (2026-10-08 run, cycle 47).
+    resolved = env["PROJECT_NAME"] if "PROJECT_NAME" in env else _env_file_project_name(compose_cmd)
     if not resolved or _normalized_project(resolved) != project:
         env["PROJECT_NAME"] = project
     return env
+
+
+SINK_COMPOSE_TIMEOUT_SECONDS = 600
+
+
+def run_compose_child(full_cmd: list, cwd: str, sink=None) -> int:
+    """Run compose on the terminal, or into ``sink`` when given: a Textual
+    screen owns the terminal, and inherited fds wrote compose's progress
+    straight across it (2026-10-08 run, cycle 48)."""
+    if not sink:
+        return subprocess.run(
+            full_cmd, cwd=cwd, stdin=subprocess.DEVNULL, check=False, env=compose_env(full_cmd),
+        ).returncode
+    return _stream_compose_child(full_cmd, cwd, sink)
+
+
+def _stream_compose_child(full_cmd: list, cwd: str, sink) -> int:
+    """Line by line into ``sink``, bounded: buffered until exit, a stop showed
+    nothing until compose ended, and a wedged daemon never ended (cycle 69)."""
+    import threading
+
+    process = subprocess.Popen(
+        full_cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True, errors="replace", env=compose_env(full_cmd),
+    )
+    reader = threading.Thread(
+        target=lambda: [sink(line.rstrip("\n")) for line in process.stdout], daemon=True,
+    )
+    reader.start()
+    try:
+        returncode = process.wait(timeout=SINK_COMPOSE_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        sink(f"docker compose did not finish within {SINK_COMPOSE_TIMEOUT_SECONDS} s and was stopped; "
+             "check the stack with docker compose ls")
+        returncode = 124
+    reader.join(5)
+    return returncode
 
 
 def _env_file_project_name(compose_cmd: list) -> str:

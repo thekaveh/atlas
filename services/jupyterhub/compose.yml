@@ -32,7 +32,7 @@ services:
       # cell execution gets dropped. Same value is also written to
       # JUPYTER_ALLOW_ORIGIN for forward-compat with image versions that
       # honor that env name; the CLI flags below are the authoritative knob.
-      JUPYTER_ALLOW_ORIGIN: ${JUPYTER_ALLOW_ORIGIN:-*}
+      JUPYTER_ALLOW_ORIGIN: ${JUPYTER_ALLOW_ORIGIN:-}
       DATABASE_URL: postgresql://${JUPYTER_DB_USER_URI:?JUPYTER_DB_USER_URI is required}:${JUPYTER_DB_PASSWORD_URI:?JUPYTER_DB_PASSWORD_URI is required}@supabase-db:5432/${SUPABASE_DB_NAME_URI:?SUPABASE_DB_NAME_URI is required}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/3
       LITELLM_BASE_URL: http://litellm:4000
@@ -135,12 +135,14 @@ services:
     # container will restart-loop with `exec: --ServerApp.allow_origin=...:
     # not found`.
     #
-    # Token auth still gates every request, so allow_origin='*' is safe as
-    # long as JUPYTERHUB_TOKEN stays secret. README §10.3.2 explains each
+    # allow_origin defaults to empty (Jupyter's same-origin check). '*' let a
+    # page on any other localhost port open a cookie-authenticated terminal
+    # websocket (2026-10-08 run, cycle 57); token-authenticated clients such
+    # as VS Code skip the origin check anyway. README §10.3.2 explains each
     # flag's mechanism in detail.
     command:
       - start-notebook.sh
-      - --ServerApp.allow_origin=${JUPYTER_ALLOW_ORIGIN:-*}
+      - --ServerApp.allow_origin=${JUPYTER_ALLOW_ORIGIN:-}
       - --ServerApp.allow_remote_access=True
       - --ServerApp.disable_check_xsrf=False
     ports:

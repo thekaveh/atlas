@@ -300,3 +300,14 @@ def test_a_stalled_pull_fails_at_the_stall_bound_and_is_retried_once(monkeypatch
 
     assert (result.pulled, result.failed, len(attempts)) == (["tiny:1b"], [], 2)
     assert any("retrying once" in line for line in logs)
+
+
+def test_list_host_tags_treats_a_foreign_json_shape_as_unreachable(monkeypatch):
+    """Another service on the port answered `[]`: AttributeError aborted the
+    launch and rolled back the managed hosts it had started (cycle 39)."""
+    assert ol._tag_names({"models": None}) == set() and ol._tag_names({"models": []}) == set()
+    for body in ([], "ok", {}, {"status": "ok"}, {"models": {"a": 1}}):
+        payload = json.dumps(body).encode()
+        monkeypatch.setattr(ol.urllib.request, "urlopen", lambda *a, _p=payload, **k: _FakeResponse(_p))
+        result = ol.list_host_tags("http://localhost:11434")
+        assert result is None, (body, result)

@@ -81,7 +81,9 @@ Schedules run **agents** (goal-seeking, tool-using, non-deterministic) on hourly
 
 ### 5.2. Current — Downstream (services that call this)
 
-_No downstream consumers._
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | optional: TRUEFORGE_SOURCE=container |
 
 ### 5.3. Architecture diagram
 

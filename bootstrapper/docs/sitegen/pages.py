@@ -449,22 +449,23 @@ ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
         "get overridden."
     ),
     "network-routing-topology": (
-        "The host-gateway address is runtime-dependent, not a fixed IP: "
-        "Docker accepts the literal `host-gateway` value in `extra_hosts` "
-        "and resolves it internally, but Podman has no such shortcut — it "
-        "queries the default bridge network's IPAM gateway IP directly "
-        "(`resolve_host_gateway_ip()` in `bootstrapper/utils/system.py`), "
-        "falling back to a throwaway container if that lookup fails. "
-        "Localhost-source endpoints always name `host.docker.internal`, and "
-        "every container that reads one maps it to that gateway in "
-        "`extra_hosts`; no host-side lookup or fixed bridge IP is involved (#1361)."
+        (
+            'The host-gateway address depends on the runtime; it is not a fixed IP. '
+            'Docker resolves the literal `host-gateway` value in `extra_hosts` itself. '
+            'Podman has no such shortcut: `resolve_host_gateway_ip()` in '
+            "`bootstrapper/utils/system.py` queries the default bridge network's IPAM "
+            'gateway, then falls back to a throwaway container. Localhost-source '
+            'endpoints always name `host.docker.internal`, which each reading container '
+            'maps to that gateway (#1361).'
+        )
     ),
     "data-rag-flow": (
-        "Backend isn't the only writer into these stores: LightRAG writes "
-        "directly to Neo4j over Bolt and to Supabase pgvector, and other MinIO "
-        "consumers (the Iceberg pipeline, asset-worker) hold their own scoped "
-        "IAM credentials and write directly too — only Backend's own "
-        "ingestion path is pictured here, not every producer."
+        (
+            'Backend is not the only writer into these stores. LightRAG writes directly '
+            'to Neo4j over Bolt and to Supabase pgvector. Other MinIO consumers (the '
+            'Iceberg pipeline, asset-worker) write with their own scoped IAM credentials.'
+            " This view shows only Backend's ingestion path."
+        )
     ),
     "llm-provider-flow": (
         "Disabling a cloud provider in `.env` doesn't error — the model "
@@ -477,43 +478,46 @@ ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
         "completions."
     ),
     "data-engineering-lakehouse-flow": (
-        "Iceberg REST's catalog metadata lives in Supabase Postgres via a "
-        "JDBC catalog, not a Hive metastore — if `CATALOG_URI` isn't pointed "
-        "at `jdbc:postgresql://supabase-db:5432/iceberg`, the base image "
-        "silently falls back to a local SQLite catalog and metadata vanishes "
-        "on restart. Trino runs single-coordinator, no worker scaling, by "
-        "design. Spark still starts with `ICEBERG_REST_SOURCE=disabled` for "
-        "ML-only use; only lakehouse SQL fails."
+        (
+            'Iceberg REST keeps its catalog metadata in Supabase Postgres through a JDBC '
+            'catalog, not a Hive metastore. If `CATALOG_URI` does not point at '
+            '`jdbc:postgresql://supabase-db:5432/iceberg`, the base image falls back to a'
+            ' local SQLite catalog that a restart loses. Trino runs one coordinator and '
+            'no workers, by design. Spark still starts with '
+            '`ICEBERG_REST_SOURCE=disabled` for ML-only use; only lakehouse SQL fails.'
+        )
     ),
     "observability-flow": (
-        "Langfuse is deliberately outside the OTel path: LiteLLM emits "
-        "Langfuse traces via its own `success_callback`/`failure_callback`, not through the "
-        "Collector, because Langfuse is the LLM-behavior layer while "
-        "Prometheus/Grafana stay the infrastructure-metrics layer. Backend, "
-        "Celery workers, and LiteLLM OTLP traces reach Tempo through the "
-        "Collector. Applications that emit OTLP logs use the same receiver; "
-        "the Collector redacts a documented field allowlist and persists "
-        "accepted logs in Loki with trace/span structured metadata."
+        (
+            'Langfuse is deliberately outside the OTel path. LiteLLM sends Langfuse '
+            'traces through its own `success_callback`/`failure_callback`, not through '
+            'the Collector. Langfuse is the LLM-behavior layer; Prometheus and Grafana '
+            'are the infrastructure-metrics layer. Backend, Celery workers, and LiteLLM '
+            'OTLP traces reach Tempo through the Collector. OTLP logs use the same '
+            'receiver. The Collector redacts a documented field allowlist and persists '
+            'accepted logs in Loki with trace and span metadata.'
+        )
     ),
     "security-auth-secrets-boundary": (
-        "Kong applies route-specific Basic, key-auth, pass-through, rate-limit, "
-        "and CORS policies; it does not provide one uniform identity layer. "
-        "Backend separately validates Supabase JWTs, scoped first-party tokens, "
-        "and operator tokens, while plugin `open|key-auth|inherit` modes are "
-        "enforced again at the application boundary. Backend `/health`, "
-        "`/ready`, `/metrics`, and API-doc routes are intentionally public, and "
-        "direct ports or operator-trusted UIs can bypass Kong, so those surfaces "
-        "must remain inside their intended network boundary."
+        (
+            'Kong applies route-specific Basic, key-auth, pass-through, rate-limit, and '
+            'CORS policies; it does not provide one uniform identity layer. Backend '
+            'separately validates Supabase JWTs, scoped first-party tokens, and operator '
+            'tokens. It enforces plugin `open|key-auth|inherit` modes again at the '
+            'application boundary. Backend `/health`, `/ready`, `/metrics`, and API-doc '
+            'routes are public by design. Direct ports and operator-trusted UIs can '
+            'bypass Kong, so keep those surfaces inside their intended network boundary.'
+        )
     ),
     "service-admission-workflow": (
-        "`manifest_validator.py`'s fragment check is what actually blocks a "
-        "partial landing: `missing_fragment` for a non-virtual manifest with "
-        "no `compose.yml`, `unexpected_fragment` for a virtual manifest that "
-        "ships one anyway, and `fragment_container_drift` when the "
-        "manifest's `containers[]` disagrees with the compose file's "
-        "`services:` keys. `tools/validate_fragments.py` runs this in CI and "
-        "separately checks `.env.example` drift and the README `TOPOLOGY` "
-        "block."
+        (
+            'The fragment check in `manifest_validator.py` blocks a partial landing. It '
+            'reports `missing_fragment` for a non-virtual manifest without `compose.yml` '
+            'and `unexpected_fragment` for a virtual manifest that ships one. It reports '
+            '`fragment_container_drift` when `containers[]` disagrees with the compose '
+            '`services:` keys. `tools/validate_fragments.py` runs this check in CI, and '
+            'also checks `.env.example` drift and the README `TOPOLOGY` block.'
+        )
     ),
 }
 
@@ -1082,6 +1086,46 @@ def architecture_pages(model: DocsModel) -> dict[Path, str]:
     return pages
 
 
+_MANIFEST_FIELD_PURPOSES = {
+    "containers": "Container names in the service family",
+    "env": "Environment variables owned by the manifest",
+    "sources": "SOURCE var, default, and allowed values",
+    "category": "Topology category and wizard grouping",
+    "docs": "Repository-relative operator documentation path",
+    "docs_exception": (
+        "Printable reason with an explicit `because` clause, four "
+        "substantive words, and three distinct terms"
+    ),
+    "depends_on": "Required and optional logical dependencies",
+    "support": (
+        "Support tier (`stable`, `experimental`, `community`, `unsupported`), "
+        "the evidence it rests on, the release tag or commit that evidence was "
+        "gathered at, the owner, and known limitations"
+    ),
+    "runtime_sc": "Per-source runtime scale/env/deploy slices",
+    "data_flow": "Runtime call graph (`data_flow.calls`) used by docs and diagrams",
+    "name": "Folder name under `services/`, in kebab-case",
+    "extra_kong_aliases": "Extra `*.localhost` Kong hostnames beyond each row's alias",
+    "images": "Image env var, pinned default image and the container that uses it",
+    "runtime_dependency_tiers": "Stack-wide startup tier order (the `globals` manifest only)",
+}
+
+
+def _manifest_field_rows(root: Path) -> list[list[str]]:
+    """Every top-level property of service.schema.json. A hand list showed
+    10 of 22 fields and none of the required name/label/capabilities
+    (2026-10-08 run, cycle 40)."""
+    import json  # noqa: PLC0415
+
+    schema = json.loads((root / "bootstrapper" / "schemas" / "service.schema.json").read_text(encoding="utf-8"))
+    required = set(schema.get("required", ()))
+    rows = []
+    for name, spec in schema["properties"].items():
+        purpose = _MANIFEST_FIELD_PURPOSES.get(name) or (spec.get("description") or "").split(". ")[0].rstrip(".")
+        rows.append([name, "yes" if name in required else "no", purpose or "See the schema"])
+    return rows
+
+
 def reference_pages(model: DocsModel) -> dict[Path, str]:
     ref = model.root / "docs" / "site" / "reference"
     source_rows = []
@@ -1144,32 +1188,5 @@ def reference_pages(model: DocsModel) -> dict[Path, str]:
         "runtime requirements. Runtime edges are in the Runtime Calls column.\n\n"
         + table(["Service", "Start order (depends_on.required)", "Optional", "Runtime Calls"], deps_rows),
         ref / "manifest-fields.md": "# Manifest Fields\n\n## 1. Manifest Schema Quick Reference\n\nGenerated manifest schema quick reference.\n\n"
-        + table(
-            ["Field", "Purpose"],
-            [
-                ["containers", "Container names in the service family"],
-                ["env", "Environment variables owned by the manifest"],
-                ["sources", "SOURCE var, default, and allowed values"],
-                ["category", "Topology category and wizard grouping"],
-                ["docs", "Repository-relative operator documentation path"],
-                [
-                    "docs_exception",
-                    (
-                        "Printable reason with an explicit `because` clause, four "
-                        "substantive words, and three distinct terms"
-                    ),
-                ],
-                ["depends_on", "Required and optional logical dependencies"],
-                [
-                    "support",
-                    (
-                        "Support tier (`stable`, `experimental`, `community`, `unsupported`), "
-                        "the evidence it rests on, the release tag or commit that evidence was "
-                        "gathered at, the owner, and known limitations"
-                    ),
-                ],
-                ["runtime_sc", "Per-source runtime scale/env/deploy slices"],
-                ["data_flow.calls", "Runtime call graph used by docs and diagrams"],
-            ],
-        ),
+        + table(["Field", "Required", "Purpose"], _manifest_field_rows(model.root)),
     }
