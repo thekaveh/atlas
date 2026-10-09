@@ -319,7 +319,7 @@ MINIO_SOURCE=disabled
 ```
 - **Use case**: No artifact-tier object storage needed
 - **Pros**: Saves resources
-- **Cons**: No S3-compatible artifact surface available. Spark, Iceberg REST, Trino, Jenkins, MLflow, Label Studio, Langfuse, the asset worker and baker, and a local-mode backup refuse to start without MinIO (startup stops with an error naming the service). Disable those too, set `BACKUP_S3_MODE=external` for backups, or keep MinIO on.
+- **Cons**: No S3-compatible artifact surface available. These services refuse to start without MinIO, and the error names the service: Spark, Iceberg REST, Trino, Jenkins, MLflow, Label Studio, Langfuse, the asset worker and baker, and a local-mode backup. Disable those too, set `BACKUP_S3_MODE=external` for backups, or keep MinIO on.
 - **Requirements**: None
 
 ### 4.5. OPENCLAW_SOURCE

@@ -104,7 +104,7 @@ Zeppelin speaks its own REST + websocket protocol, not the Jupyter kernel protoc
 |---|---|---|
 | Direct | `http://localhost:${ZEPPELIN_PORT}` | None; the published port is always bound to `127.0.0.1`. |
 
-No authentication ships pre-configured, so Atlas does not publish Zeppelin through Kong and does not honor a wider `HOST_BIND_IP` for this service. Reach a remote Atlas host through the SSH tunnel documented in §1.6. Configure Zeppelin authentication before introducing any external reverse-proxy route. Loopback alone does not stop a web page in your browser from sending requests to that port, so Atlas sets `ZEPPELIN_ALLOWED_ORIGINS` to the loopback origins: Zeppelin 0.12.1 then refuses a state-changing REST request or a websocket from any other origin (403).
+No authentication ships pre-configured, so Atlas does not publish Zeppelin through Kong and does not honor a wider `HOST_BIND_IP` for this service. Reach a remote Atlas host through the SSH tunnel documented in §1.6. Configure Zeppelin authentication before introducing any external reverse-proxy route. Zeppelin 0.12.1 refuses a state-changing REST request or a websocket from another origin (403). It accepts an origin whose host is `localhost` (any port) and the origins in `ZEPPELIN_ALLOWED_ORIGINS`, which Atlas sets to `http://localhost:<ZEPPELIN_PORT>` and `http://127.0.0.1:<ZEPPELIN_PORT>`. Through an SSH tunnel on another local port, open Zeppelin at a `localhost` URL.
 
 ## 3. Configuration
 

@@ -291,7 +291,7 @@ steps; keep only a thin launcher that calls `./infra/start.sh --consumer
 
 A parent repository's `.gitignore` has no effect on paths inside the
 submodule. Atlas's own `.gitignore` already ignores `.env`, `.env.user`,
-`volumes/`, `data/` and the files in `services/supabase/db/_user/`, so local
+the generated files under `volumes/`, `data/` and the files in `services/supabase/db/_user/`, so local
 state does not make the submodule look dirty. The entries below are optional;
 they only matter if your parent tooling scans `infra/` as plain files:
 

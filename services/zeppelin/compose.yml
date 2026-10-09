@@ -21,10 +21,11 @@ services:
       - "127.0.0.1:${ZEPPELIN_PORT}:8080"
     environment:
       ZEPPELIN_PORT: "8080"
-      # Zeppelin's default "*" let any web page create and run a notebook
-      # through the loopback port (REST and websocket); v0.12.1's CORS filter
-      # answers 403 to a state-changing request from any other origin
-      # (2026-10-08 run, cycle 17). Zeppelin always accepts host "localhost".
+      # Zeppelin 0.12.1 accepts an origin whose host is "localhost" (any
+      # port), the container's hostname, or one listed here, and answers 403
+      # to a state-changing REST request or websocket from any other origin.
+      # Its default list is empty, which rejected the UI opened at
+      # http://127.0.0.1:<port>; listing it fixes that (2026-10-08 run).
       ZEPPELIN_ALLOWED_ORIGINS: "http://localhost:${ZEPPELIN_PORT},http://127.0.0.1:${ZEPPELIN_PORT}"
       ZEPPELIN_LOG_DIR: /logs
       ZEPPELIN_NOTEBOOK_DIR: /notebook
