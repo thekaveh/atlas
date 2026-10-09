@@ -77,6 +77,18 @@ database_archive_size() {
   printf '%s' "${database_bytes}"
 }
 
+database_empty_archive() {
+  # Placeholder for a disabled source. BusyBox tar (the alpine backup image)
+  # refuses `-T /dev/null` with "empty archive", which failed every
+  # consistent backup while Neo4j or Weaviate was disabled (2026-10-08 run,
+  # cycle 34); an empty directory archives as "./" in both tars.
+  database_empty_dir="$(mktemp -d)" || return 1
+  run_bounded tar czf "$1" -C "$database_empty_dir" .
+  database_empty_rc=$?
+  rmdir "$database_empty_dir"
+  return "$database_empty_rc"
+}
+
 database_sha256() {
   database_sha_output="$(run_bounded sha256sum "$1")"
   printf '%s' "${database_sha_output%% *}"
@@ -253,7 +265,7 @@ capture_database_snapshots() {
     database_neo4j_sha="$(database_sha256 "${database_work}/neo4j.snapshot.tar.gz")"
     database_neo4j_state=complete
   else
-    run_bounded tar czf "${database_work}/neo4j.snapshot.tar.gz" -T /dev/null
+    database_empty_archive "${database_work}/neo4j.snapshot.tar.gz"
     database_neo4j_bytes="$(database_archive_size "${database_work}/neo4j.snapshot.tar.gz")"
     database_neo4j_sha="$(database_sha256 "${database_work}/neo4j.snapshot.tar.gz")"
   fi
@@ -312,7 +324,7 @@ capture_database_snapshots() {
     database_weaviate_state=complete
     rm -f "${database_meta_response}" "${database_response}"
   else
-    run_bounded tar czf "${database_work}/weaviate.snapshot.tar.gz" -T /dev/null
+    database_empty_archive "${database_work}/weaviate.snapshot.tar.gz"
     database_weaviate_bytes="$(database_archive_size "${database_work}/weaviate.snapshot.tar.gz")"
     database_weaviate_sha="$(database_sha256 "${database_work}/weaviate.snapshot.tar.gz")"
   fi

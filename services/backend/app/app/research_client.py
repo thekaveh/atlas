@@ -281,8 +281,17 @@ class ResearchClient:
                                     if isinstance(values, dict):
                                         if "error" in values:
                                             raise ResearchError(_UPSTREAM_REQUEST_FAILED)
-                                        final_values = values
-            if not final_values:
+                                        # Only state events count: the stream opens
+                                        # with `event: metadata` ({"run_id": …}),
+                                        # which made an empty run COMPLETED with no
+                                        # content (2026-10-08 run, cycle 30).
+                                        if current_event in ("", "values"):
+                                            final_values = values
+            # A summary is the run's output; a stream that ends on the input
+            # state alone ({"research_topic": …}) produced nothing.
+            if not final_values or not any(
+                final_values.get(key) for key in ("final_summary", "running_summary", "summary")
+            ):
                 return ResearchResponse(
                     session_id=session_id,
                     status=ResearchStatus.FAILED,

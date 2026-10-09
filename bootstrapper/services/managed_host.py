@@ -45,6 +45,7 @@ try:  # POSIX advisory locking; absent on Windows
 except ImportError:  # pragma: no cover - non-POSIX
     fcntl = None
 import time
+import http.client
 import urllib.error
 import urllib.request
 from contextlib import contextmanager
@@ -832,7 +833,7 @@ class ManagedHostManager:
             with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310
                 body = response.read(65536).decode("utf-8", errors="replace")
                 code = response.getcode()
-        except (urllib.error.URLError, OSError, ValueError) as exc:
+        except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as exc:
             return {"reachable": False, "error": str(exc)}
         out: dict[str, Any] = {"reachable": True, "code": code}
         expect = self.spec.health.expect_json

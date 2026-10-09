@@ -245,3 +245,41 @@ def test_the_warm_start_rechecks_ports_through_the_release_wait():
     source = (REPO_ROOT / "bootstrapper" / "start.py").read_text(encoding="utf-8")
     stop = source.index("Previous instance stopped successfully")
     assert "self.port_manager.conflicts_after_release(base_port)" in source[stop:stop + 600]
+
+
+def test_a_cold_start_waits_for_released_ports_too(tmp_path, monkeypatch):
+    """The release wait ran only when project containers were running at the
+    port check; a cold start had already stopped them, so a port Docker was
+    still releasing aborted the start (2026-10-08 run, cycle 7)."""
+    from start import AtlasStarter
+
+    starter = AtlasStarter()
+    calls = []
+    monkeypatch.setattr(starter.port_manager, "get_port_conflicts", lambda bp: {"BACKEND_PORT": bp + 20})
+    monkeypatch.setattr(
+        starter.port_manager, "conflicts_after_release", lambda bp: calls.append(bp) or {}
+    )
+    monkeypatch.setattr(starter.port_manager, "update_env_ports", lambda bp: True)
+    monkeypatch.setattr(starter, "_port_block_moves", lambda bp: False)
+    starter.project_stopped_this_run = True
+    assert starter.handle_port_configuration(63000) is True
+    assert calls == [63000]
+
+
+def test_the_test_suite_cannot_stop_a_real_stack():
+    from core.docker_manager import DockerManager
+
+    assert DockerManager().are_project_containers_running() is False
+
+
+def test_a_successful_cold_cleanup_marks_the_project_stopped(monkeypatch):
+    """The release-wait test set project_stopped_this_run by hand, so
+    deleting the line in perform_cold_start_cleanup stayed green (cycle 22)."""
+    from start import AtlasStarter
+
+    for success in (True, False):
+        starter = AtlasStarter()
+        monkeypatch.setattr(starter.docker_manager, "perform_cold_start_cleanup",
+                            lambda project_name=None, _s=success: _s)
+        starter.perform_cold_start_cleanup("atlas")
+        assert starter.project_stopped_this_run is success

@@ -143,3 +143,23 @@ def test_submodule_staged_in_superproject_warns(tmp_path):
     # READ-ONLY: the superproject index is unchanged by the guard — the
     # pointer change we staged is still staged (the guard never unstages).
     assert "infra" in _git(super_root, "status", "--porcelain")
+
+
+def test_a_submodule_added_but_not_yet_committed_is_silent(tmp_path):
+    """No recorded gitlink yet means no pin to drift from; the staged add
+    printed "recorded pin: ?" and advice to unstage the new submodule
+    (2026-10-08 run, cycle 27)."""
+    upstream = tmp_path / "atlas_upstream"
+    upstream.mkdir()
+    _git(upstream, "init")
+    _commit(upstream, "upstream base")
+    bare = tmp_path / "atlas.git"
+    subprocess.run(["git", "clone", "--bare", str(upstream), str(bare)], capture_output=True, text=True, check=True)
+    super_root = tmp_path / "consumer"
+    super_root.mkdir()
+    _git(super_root, "init")
+    _git(super_root, "submodule", "add", str(bare), "infra")  # not committed
+    sink: list[str] = []
+    assert detect_submodule_pin_drift(super_root / "infra").drifted is False
+    assert warn_if_submodule_pin_drifted(super_root / "infra", sink=sink.append) is False
+    assert sink == []

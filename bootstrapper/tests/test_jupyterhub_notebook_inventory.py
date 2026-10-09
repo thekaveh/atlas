@@ -173,7 +173,9 @@ def test_jupyterhub_allow_origin_flag_uses_env_knob():
     compose = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
     command = compose["services"]["jupyterhub"]["command"]
 
-    assert "--ServerApp.allow_origin=${JUPYTER_ALLOW_ORIGIN:-*}" in command
+    # Not "*": a page on another localhost port could open a cookie-authenticated
+    # terminal websocket (2026-10-08 run, cycle 57).
+    assert "--ServerApp.allow_origin=${JUPYTER_ALLOW_ORIGIN:-}" in command
 def test_env_vars_the_scala_kernel_hard_requires_are_injected():
     """The Scala kernel reads sys.env only and has no dotenv fallback.
 
@@ -292,3 +294,18 @@ def test_rag_notebook_stores_documents_idempotently():
                      / "services/jupyterhub/build/notebooks/02_langchain_rag.ipynb").read_text())
     store = next("".join(c["source"]) for c in nb["cells"] if "collection.data.insert" in "".join(c["source"]))
     assert "generate_uuid5(doc)" in store and "uuid=doc_id" in store and "data.exists(doc_id)" in store
+
+
+def test_jupyter_origin_defaults_to_same_origin_and_spark_kill_is_off():
+    """allow_origin '*' let another localhost page open a cookie-authenticated
+    terminal; the Spark master UI accepted cross-site kill POSTs
+    (2026-10-08 run, cycle 57)."""
+    import yaml
+
+    repo = Path(__file__).resolve().parents[2]
+    manifest = yaml.safe_load((repo / "services/jupyterhub/service.yml").read_text())
+    default = next(v["default"] for v in manifest["env"] if v["name"] == "JUPYTER_ALLOW_ORIGIN")
+    assert default == ""
+    assert "${JUPYTER_ALLOW_ORIGIN:-*}" not in (repo / "services/jupyterhub/compose.yml").read_text()
+    spark = yaml.safe_load((repo / "services/spark/compose.yml").read_text())
+    assert "-Dspark.ui.killEnabled=false" in spark["services"]["spark-master"]["environment"]["SPARK_MASTER_OPTS"]

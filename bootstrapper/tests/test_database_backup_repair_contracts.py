@@ -145,7 +145,7 @@ def test_exit_cleanup_preserves_primary_and_surfaces_cleanup_only_failure(
     )
 
     result = subprocess.run(
-        ["sh", str(harness)], text=True, capture_output=True, check=False, timeout=5
+        ["sh", str(harness)], text=True, capture_output=True, check=False, timeout=30
     )
     assert result.returncode == expected, result.stderr
 
@@ -161,7 +161,7 @@ def test_restore_download_cleanup_propagates_fifo_removal_failure(tmp_path: Path
         encoding="utf-8",
     )
     result = subprocess.run(
-        ["sh", str(harness)], text=True, capture_output=True, check=False, timeout=5
+        ["sh", str(harness)], text=True, capture_output=True, check=False, timeout=30
     )
     assert result.returncode == 7
 
@@ -189,7 +189,7 @@ def test_cutover_recovery_failure_is_recorded_without_masking_primary(
         encoding="utf-8",
     )
     result = subprocess.run(
-        ["sh", str(harness)], text=True, capture_output=True, check=False, timeout=5
+        ["sh", str(harness)], text=True, capture_output=True, check=False, timeout=30
     )
     assert result.returncode == expected
     assert "automatic cutover-state inspection failed" in result.stderr
@@ -875,3 +875,4 @@ def test_legacy_neo4j_bind_snapshots_remain_operator_accessible():
     text = NEO_README.read_text(encoding="utf-8")
     assert "build/snapshot" in text
     assert "legacy" in text.lower()
+

@@ -434,3 +434,11 @@ def test_a_squash_promotion_takes_its_off_range_source_bucket(released: Path) ->
     kept = release_notes.collect_notes(released, "v0.2.0..main")
     assert [(note.pr, note.bucket) for note in kept] == [(8, "Promotions")]
 
+
+
+def test_the_counted_line_does_not_claim_the_counts_are_itemized():
+    """The line said every counted commit was "detailed in the curated entries
+    below"; those cite 13 of 478 (2026-10-08 run, cycle 43)."""
+    line = release_notes._counted_line([])
+    assert "detailed in the curated entries below" not in line
+    assert "not itemized" in line

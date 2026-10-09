@@ -691,6 +691,12 @@ class AtlasStarter:
         # Set when the port check stopped this project's running stack, so a
         # later decline/failure can say it is down (the stop is not undone).
         self.stopped_previous_instance: bool = False
+        # True when this run chose BASE_PORT with `auto` (CLI flag or a fresh
+        # manifest resolution) rather than reusing a block.
+        self.base_port_auto_chosen: bool = False
+        # True once this run's cold cleanup has taken the project down; its
+        # ports may still be held for a moment afterwards (#1438).
+        self.project_stopped_this_run: bool = False
 
 
     def show_banner(self):
@@ -1128,6 +1134,9 @@ class AtlasStarter:
         """
         if not project_name:
             return True
+        if self.config_parser.stored_project_name_matches(project_name):
+            self.docker_manager.project_name_override = project_name
+            return True
         if self.source_override_manager.update_env_file({"PROJECT_NAME": project_name}):
             self.docker_manager.project_name_override = project_name
             self.banner.show_status_message(
@@ -1475,6 +1484,7 @@ class AtlasStarter:
                     "warning",
                 )
                 resolved = self.port_manager.auto_base_port(source_overrides=_declared_sources(overrides))
+                self.base_port_auto_chosen = resolved is not None
                 if resolved is None:
                     self.banner.show_status_message(
                         "BASE_PORT=auto could not find a free port block; keeping "
@@ -1484,6 +1494,7 @@ class AtlasStarter:
                     resolved = current_int
         else:
             resolved = self.port_manager.auto_base_port(source_overrides=_declared_sources(overrides))
+            self.base_port_auto_chosen = resolved is not None
             if resolved is None:
                 self.banner.show_status_message(
                     "BASE_PORT=auto could not find a free port block; using the "
@@ -2430,6 +2441,8 @@ class AtlasStarter:
                 except ValueError:
                     base_port = DEFAULT_BASE_PORT
 
+        base_port = self._reresolve_auto_block(base_port)
+
         # Validate base port
         if not self.port_manager.validate_base_port(base_port):
             offsets = self.port_manager.port_offsets()
@@ -2470,6 +2483,11 @@ class AtlasStarter:
                 # release the ports it just unpublished (#1438).
                 conflicts = self.port_manager.conflicts_after_release(base_port)
 
+            elif conflicts and getattr(self, "project_stopped_this_run", False):
+                # A cold start stopped the stack before this check; wait for
+                # Docker to release its ports as the warm path does.
+                conflicts = self.port_manager.conflicts_after_release(base_port)
+
             # If conflicts remain, show the original error
             if conflicts:
                 self.banner.show_status_message("Port conflicts detected:", "warning")
@@ -2497,6 +2515,26 @@ class AtlasStarter:
             return False
 
         return True
+
+    def _reresolve_auto_block(self, base_port: int) -> int:
+        """An `auto` block was probed before the profile, the consumer
+        manifest and the CLI flags had all written their *_SOURCE values. If a
+        service they enable now finds its port taken, choose again with the
+        sources in .env, before a running stack is stopped for a block this
+        launch would then refuse (2026-10-08 run, cycle 75)."""
+        if not self.base_port_auto_chosen:
+            return base_port
+        if not self.port_manager.check_port_range_availability(base_port):
+            return base_port
+        fresh = self.port_manager.auto_base_port()
+        if fresh is None or fresh == base_port:
+            return base_port
+        self.banner.show_status_message(
+            f"BASE_PORT=auto: block {base_port} has a port in use by a service "
+            f"this launch enables; using {fresh} instead.",
+            "warning",
+        )
+        return fresh
 
     def _port_block_moves(self, base_port: int) -> bool:
         """Whether `.env`'s ports differ from ``base_port``'s block: a
@@ -2897,6 +2935,8 @@ class AtlasStarter:
         # No consumer declares n8n_workflows → remove any stale generated
         # artifacts so a warm restart doesn't re-seed removed workflows.
         if not config.n8n_workflows:
+            if (seed_dir / "plan.json").exists():
+                return self._reconcile_last_n8n_workflows(seed_dir, overlay_path)
             if seed_dir.exists():
                 for stale in seed_dir.glob("*.json"):
                     stale.unlink()
@@ -2928,6 +2968,34 @@ class AtlasStarter:
             f"from {', '.join(owners)}",
             "info",
         )
+        return True
+
+    def _reconcile_last_n8n_workflows(self, seed_dir: Path, overlay_path: Path) -> bool:
+        """Workflows were seeded before and none is declared now: run the seed
+        with an empty plan on every start, so its reconcile deactivates and
+        deletes every ``atlas-consumer-*`` workflow. Dropping the overlay
+        skipped the seed and left their webhooks live (cycle 31); dropping it
+        after one run lost the cleanup whenever that run could not reconcile
+        (no N8N_API_KEY, n8n not healthy) (2026-10-08 run, cycle 34). Delete
+        volumes/n8n/consumer-workflows/ to stop it."""
+        from core.consumer_manifest import compile_n8n_plan, render_n8n_seed_overlay
+
+        for stale in seed_dir.glob("*.json"):
+            if stale.name != "plan.json":
+                stale.unlink()
+        (seed_dir / "plan.json").write_text(compile_n8n_plan([]), encoding="utf-8")
+        overlay_path.parent.mkdir(parents=True, exist_ok=True)
+        overlay_path.write_text(render_n8n_seed_overlay([]), encoding="utf-8")
+        self.banner.show_status_message(
+            "  • No consumer n8n workflows declared: the n8n seed removes any previously seeded ones",
+            "info",
+        )
+        if not (self.config_parser.parse_env_file().get("N8N_API_KEY") or "").strip():
+            self.banner.show_status_message(
+                "  • N8N_API_KEY is not set, so previously seeded consumer workflows stay active "
+                "until it is set",
+                "warning",
+            )
         return True
 
     def _finalize_consumer_rag_ingestion_profiles(self) -> bool:
@@ -3770,6 +3838,7 @@ class AtlasStarter:
         # project still recorded in .env (the override is not persisted until
         # setup_env_file runs later).
         success = self.docker_manager.perform_cold_start_cleanup(project_name=project_name)
+        self.project_stopped_this_run = getattr(self, "project_stopped_this_run", False) or bool(success)
         
         if not success:
             self.banner.show_status_message("Cold cleanup failed; secrets were not rotated", "error")
@@ -4852,7 +4921,7 @@ class AtlasStarter:
             ("supabase-db", "5432", env_vars.get("SUPABASE_DB_PORT", ""), None, None),
             ("redis", "6379", env_vars.get("REDIS_PORT", ""), None, None),
             ("supabase-storage", "5000", env_vars.get("SUPABASE_STORAGE_PORT", ""), "SUPABASE_STORAGE_SOURCE", "SUPABASE_STORAGE_SCALE"),
-            ("supabase-auth", "9999", env_vars.get("SUPABASE_AUTH_PORT", ""), "SUPABASE_AUTH_SOURCE", "SUPABASE_AUTH_SCALE"),
+            # supabase-auth is not published on the host (2026-10-08 run, cycle 56).
             ("supabase-api", "3000", env_vars.get("SUPABASE_API_PORT", ""), "SUPABASE_API_SOURCE", "SUPABASE_API_SCALE"),
             ("supabase-realtime", "4000", env_vars.get("SUPABASE_REALTIME_PORT", ""), "SUPABASE_REALTIME_SOURCE", "SUPABASE_REALTIME_SCALE"),
             ("neo4j-graph-db", "7687", env_vars.get("GRAPH_DB_PORT", ""), "NEO4J_GRAPH_DB_SOURCE", "NEO4J_SCALE"),
@@ -7486,7 +7555,8 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
     # so every downstream path (Textual + linear + setup_env_file) sees a plain
     # int. auto scans below the ephemeral range and never returns the default,
     # so a submodule consumer can't silently squat the port a bare atlas binds.
-    if base_port == "auto":
+    base_port_auto = base_port == "auto"
+    if base_port_auto:
         from core.port_manager import PortManager
         # The run's --<svc>-source flags are not in .env yet; probe with them
         # so a service they enable is checked and one they disable is not (#1391).
@@ -7637,6 +7707,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
 
     starter = AtlasStarter()
     starter.support_bundle_path = _invoker_path(support_bundle)
+    starter.base_port_auto_chosen = base_port_auto
 
     try:
         # Consumer manifests (--consumer or ATLAS_CONSUMER_MANIFEST) are user
@@ -8720,7 +8791,43 @@ def label_comfyui_files(files: list, root: Path) -> list[dict]:
             for path, size in files]
 
 
-def label_ollama_models(models: list, env: dict) -> list[dict]:
+_OLLAMA_PREFIXES = ("ollama/", "ollama_chat/")
+
+
+def _routed_ollama_names(env: dict, root: Optional[Path]) -> set:
+    """Ollama models the stack routes besides the selection: the LiteLLM
+    default/vision/embedding settings and the rendered LiteLLM config the
+    running stack uses. `.env` alone let `storage clean` delete the embedding
+    model a still-running stack routed (2026-10-08 run, cycle 9)."""
+    values = [env.get(key, "") for key in (
+        "LITELLM_DEFAULT_MODEL", "LITELLM_VISION_MODEL", "LITELLM_EMBEDDING_MODEL", "LANGMEM_EMBEDDING_MODEL",
+    )] + _rendered_litellm_models(root)
+    names = {_ollama_model_name(str(value or "").strip()) for value in values}
+    return {name for name in names if name}
+
+
+def _rendered_litellm_models(root: Optional[Path]) -> list:
+    """``litellm_params.model`` of every row in the rendered LiteLLM config;
+    empty when no stack has rendered one yet."""
+    import yaml  # noqa: PLC0415
+
+    rendered = (root or Path("/nonexistent")) / "volumes" / "litellm" / "config.yaml"
+    try:
+        model_list = (yaml.safe_load(rendered.read_text(encoding="utf-8")) or {}).get("model_list") or []
+        return [str((row.get("litellm_params") or {}).get("model") or "") for row in model_list]
+    except (OSError, yaml.YAMLError, AttributeError):
+        return []
+
+
+def _ollama_model_name(value: str) -> str:
+    """``ollama/x`` or ``ollama_chat/x`` → ``x``; anything else → ""."""
+    for prefix in _OLLAMA_PREFIXES:
+        if value.startswith(prefix):
+            return value[len(prefix):]
+    return ""
+
+
+def label_ollama_models(models: list, env: dict, root: Optional[Path] = None) -> list[dict]:
     """(name, bytes) pulled Ollama models as items: retained when the resolved
     active set names them, removable when the catalog does, else unknown."""
     from utils import llm_catalog  # noqa: PLC0415
@@ -8728,6 +8835,7 @@ def label_ollama_models(models: list, env: dict) -> list[dict]:
 
     tag = lambda name: name if ":" in name else f"{name}:latest"  # noqa: E731
     active = {tag(entry.name) for entry in _active_ollama(env, None)}
+    active |= {tag(name) for name in _routed_ollama_names(env, root)}
     known = {tag(entry.name) for entry in llm_catalog.ollama_entries()}
     label = lambda name: "retained" if tag(name) in active else ("removable" if tag(name) in known else "unknown")  # noqa: E731
     return [{"kind": "ollama", "volume": "llm-provider-data", "path": name, "bytes": size, "label": label(name)}
@@ -8767,7 +8875,7 @@ def _exec(project: str, service: str, *argv: str):
                           capture_output=True, text=True, check=False, timeout=120)
 
 
-def _ollama_volume_items(env: dict, project: str) -> list[dict]:
+def _ollama_volume_items(env: dict, project: str, root: Optional[Path] = None) -> list[dict]:
     """Models in the Atlas Ollama container's volume, via that container only:
     a host daemon (ollama-localhost, or anyone's on the default port) is
     never queried, so its models can never be listed or removed."""
@@ -8779,7 +8887,7 @@ def _ollama_volume_items(env: dict, project: str) -> list[dict]:
         print("  The Ollama container is not running: its models are not itemized.")
         return []
     rows = [line.split() for line in listing.stdout.splitlines()[1:] if line.strip()]
-    return label_ollama_models([(row[0], parse_docker_size("".join(row[2:4]))) for row in rows if len(row) >= 4], env)
+    return label_ollama_models([(row[0], parse_docker_size("".join(row[2:4]))) for row in rows if len(row) >= 4], env, root)
 
 
 def _comfyui_volume_items(env: dict, root: Path, project: str) -> list[dict]:
@@ -8804,7 +8912,7 @@ def _comfyui_volume_items(env: dict, root: Path, project: str) -> list[dict]:
 
 def _live_model_items(env: dict, root: Path, project: str) -> list[dict]:
     """Model items a running stack holds in its own model volumes."""
-    return _ollama_volume_items(env, project) + _comfyui_volume_items(env, root, project)
+    return _ollama_volume_items(env, project, root) + _comfyui_volume_items(env, root, project)
 
 
 def host_model_directories(env: dict) -> list[dict]:
@@ -9188,12 +9296,25 @@ def comfyui_mps_health_command() -> None:
         raise click.exceptions.Exit(1)
 
 
+def _refusal_exits(label: str, action, error_type):
+    """Run a manager action; its own refusal prints "<label> failed: <why>"
+    and exits 1, as the sibling install/start commands do, instead of a
+    traceback that reads as a crash (2026-10-08 run, cycle 9)."""
+    try:
+        return action()
+    except error_type as exc:
+        click.echo(f"{label} failed: {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+
+
 @comfyui_mps_group.command("remove")
 @click.confirmation_option(prompt="Stop the process and delete the managed state directory?")
 def comfyui_mps_remove_command() -> None:
     """Stop the process and delete the Atlas-owned state directory."""
+    from services.comfyui_mps_manager import ComfyUiMpsError
+
     manager = _comfyui_mps_manager()
-    manager.remove()
+    _refusal_exits("Remove", manager.remove, ComfyUiMpsError)
     click.echo(f"Removed {manager.state_dir}.")
 
 @comfyui_mps_group.command("provision")
@@ -9402,8 +9523,10 @@ def blender_mcp_health() -> None:
 def blender_mcp_remove() -> None:
     """Stop the bridge and delete the state dir (add-on, launcher, logs),
     every pool instance's included."""
+    from services.blender_mcp_manager import BlenderMcpError
+
     for manager in reversed(_blender_mcp_pool(include_strays=True)):
-        manager.remove()
+        _refusal_exits("Remove", manager.remove, BlenderMcpError)
     print("removed")
 
 
@@ -9503,8 +9626,10 @@ def vllm_metal_health_command() -> None:
 @click.confirmation_option(prompt="Stop the process and delete the managed state directory?")
 def vllm_metal_remove_command() -> None:
     """Stop the process and delete the Atlas-owned state directory."""
+    from services.vllm_metal_manager import VllmMetalError
+
     manager = _vllm_metal_manager()
-    manager.remove()
+    _refusal_exits("Remove", manager.remove, VllmMetalError)
     click.echo(f"Removed {manager.state_dir}.")
 
 
@@ -9575,8 +9700,10 @@ def managed_host_preflight_command(name: str) -> None:
 @click.option("--update", is_flag=True, help="Recreate the venv and reinstall deps.")
 def managed_host_install_command(name: str, update: bool) -> None:
     """Create the declared venv (if any), install deps, run install steps."""
+    from services.managed_host import ManagedHostError
+
     manager = _managed_host_manager(name)
-    manager.install(update=update)
+    _refusal_exits("Install", lambda: manager.install(update=update), ManagedHostError)
     click.echo(f"Installed {name} into {manager.state_dir}.")
 
 
@@ -9584,8 +9711,10 @@ def managed_host_install_command(name: str, update: bool) -> None:
 @click.argument("name")
 def managed_host_start_command(name: str) -> None:
     """Start the declared process and wait for its port to open."""
+    from services.managed_host import ManagedHostError
+
     manager = _managed_host_manager(name)
-    status = manager.start()
+    status = _refusal_exits("Start", manager.start, ManagedHostError)
     click.echo(json.dumps(status.to_dict(), indent=2))
 
 
@@ -9618,8 +9747,10 @@ def managed_host_health_command(name: str) -> None:
 @click.confirmation_option(prompt="Stop the process and delete the managed state directory?")
 def managed_host_remove_command(name: str) -> None:
     """Stop the process and delete the Atlas-owned state directory."""
+    from services.managed_host import ManagedHostError
+
     manager = _managed_host_manager(name)
-    manager.remove()
+    _refusal_exits("Remove", manager.remove, ManagedHostError)
     click.echo(f"Removed {manager.state_dir}.")
 
 

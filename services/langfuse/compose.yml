@@ -42,6 +42,12 @@ services:
     volumes:
       - langfuse-clickhouse-data:/var/lib/clickhouse
       - langfuse-clickhouse-logs:/var/log/clickhouse-server
+    # The image's system log tables (metric_log, text_log, trace_log, …) have
+    # no TTL and its file log runs at trace level: ~126 MB/day while idle
+    # until the disk fills (2026-10-08 run, cycle 32).
+    configs:
+      - source: langfuse-clickhouse-retention
+        target: /etc/clickhouse-server/config.d/atlas-retention.xml
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
       interval: 5s
@@ -165,6 +171,27 @@ services:
         max-file: "${LOG_MAX_FILE:-3}"
     networks:
       - backend-network
+
+
+configs:
+  langfuse-clickhouse-retention:
+    content: |
+      <clickhouse>
+        <logger>
+          <level>warning</level>
+          <size>100M</size>
+          <count>3</count>
+        </logger>
+        <query_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_log>
+        <metric_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></metric_log>
+        <asynchronous_metric_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></asynchronous_metric_log>
+        <trace_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></trace_log>
+        <part_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></part_log>
+        <error_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></error_log>
+        <query_metric_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_metric_log>
+        <processors_profile_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></processors_profile_log>
+        <text_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl><level>warning</level></text_log>
+      </clickhouse>
 
 volumes:
   langfuse-clickhouse-data:

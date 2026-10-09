@@ -139,6 +139,7 @@ _BOOL_TRUE = {"1", "true", "yes", "on"}
 _BOOL_FALSE = {"0", "false", "no", "off"}
 _KONG_TIMEOUT_MAX_MS = 2_147_483_646
 KONG_TIMEOUT_FIELDS = ("connect_timeout", "write_timeout", "read_timeout")
+KONG_ROUTE_FIELDS = ("request_buffering", "response_buffering")
 
 
 class PluginManifestError(RuntimeError):
@@ -253,11 +254,13 @@ class PluginManifest(BaseModel):
             raise ValueError(f"auth {v!r} must be one of {', '.join(_AUTH_MODES)}")
         return v
 
-    @field_validator(*KONG_TIMEOUT_FIELDS, mode="before")
+    @field_validator(*KONG_TIMEOUT_FIELDS, *KONG_ROUTE_FIELDS, mode="before")
     @classmethod
-    def _timeout_is_present_integer(cls, v: object) -> object:
+    def _kong_field_is_present(cls, v: object) -> object:
+        # The schema rejects null, so the bootstrapper drops the plugin from
+        # Kong policy; the backend must not mount it with null either.
         if v is None:
-            raise ValueError("timeout must be omitted rather than null")
+            raise ValueError("Kong fields must be omitted rather than null")
         return v
 
     @property
@@ -286,6 +289,14 @@ class PluginManifest(BaseModel):
                 }
             )
         return out
+
+    def kong_route_summary(self) -> dict[str, bool]:
+        """Explicit Kong route buffering flags (#1454)."""
+        return {
+            field_name: value
+            for field_name in KONG_ROUTE_FIELDS
+            if (value := getattr(self, field_name)) is not None
+        }
 
     def timeout_summary(self) -> dict[str, int]:
         """Explicit Kong timeout fields, without manufacturing defaults."""

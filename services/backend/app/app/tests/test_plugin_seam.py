@@ -307,6 +307,25 @@ def test_plugin_inventory_exposes_only_declared_kong_timeouts(tmp_path, monkeypa
         "connect_timeout": 120000,
         "read_timeout": 900000,
     }
+    assert timed["kong_route"] == {}
+
+
+def test_plugin_inventory_exposes_declared_kong_buffering(tmp_path, monkeypatch):
+    """GET /plugins showed timeouts but not the #1454 buffering flags, so an
+    operator could not see a prefix streams (2026-10-08 run, cycle 6)."""
+    _plugin_pkg(
+        tmp_path, "stream_plugin", "/stream",
+        "plugin_manifest_version: 1\nname: stream\nroute_prefix: /stream\n"
+        "request_buffering: false\n",
+    )
+
+    from fastapi import FastAPI
+    import plugin_seam
+
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+    inventory = plugin_seam.load_plugins(FastAPI())
+    stream = next(entry for entry in inventory if entry["name"] == "stream")
+    assert stream["kong_route"] == {"request_buffering": False}
 
 
 @pytest.fixture
@@ -774,7 +793,7 @@ def test_manifest_less_router_cannot_open_with_a_path_parameter():
     def catch_all(slug: str):
         return {"plugin": slug}
 
-    error = plugin_seam._router_path_error(router, None)
+    error = plugin_seam._router_path_error(router, None, {})
     assert error and "path parameter" in error
 
     partial = APIRouter()
@@ -783,7 +802,7 @@ def test_manifest_less_router_cannot_open_with_a_path_parameter():
     def partial_catch_all(rest: str):
         return {"plugin": rest}
 
-    assert "path parameter" in (plugin_seam._router_path_error(partial, None) or "")
+    assert "path parameter" in (plugin_seam._router_path_error(partial, None, {}) or "")
 
 
 def test_a_pin_change_leaves_one_dist_info_per_distribution(tmp_path, monkeypatch):
@@ -823,3 +842,161 @@ def test_a_pin_change_leaves_one_dist_info_per_distribution(tmp_path, monkeypatc
     monkeypatch.setenv("BACKEND_PLUGINS_SITE_DIR", str(foreign))
     plugin_seam._ensure_plugin_site()
     assert (foreign / "keep.txt").exists()
+
+
+def test_a_streaming_plugin_prefix_skips_the_default_envelope():
+    """A plugin that declared request_buffering: false still hit the 16 MiB
+    default, so no upload above it could reach the plugin (2026-10-08 run,
+    cycle 11; gap in #1454). Other paths keep the envelope."""
+    import media_request_limit
+    from starlette.applications import Starlette
+    from starlette.responses import PlainTextResponse
+    from starlette.routing import Route
+    from starlette.testclient import TestClient
+
+    async def count(request):
+        size = 0
+        async for chunk in request.stream():
+            size += len(chunk)
+        return PlainTextResponse(str(size))
+
+    inner = Starlette(routes=[Route("/bigup/upload", count, methods=["POST"]),
+                             Route("/bigupx/upload", count, methods=["POST"]),
+                             Route("/other", count, methods=["POST"])])
+
+    async def no_auth(_scope):
+        return None
+
+    wrapped = media_request_limit.RequestLimitMiddleware(
+        inner,
+        policy=media_request_limit.LimitPolicy(rules=[], default_max_bytes=1024, streaming_prefixes=["/bigup"]),
+        authenticate=no_auth,
+    )
+    client = TestClient(wrapped)
+    body = b"x" * 4096
+    assert client.post("/bigup/upload", content=body).text == "4096"
+    assert client.post("/bigupx/upload", content=body).status_code == 413
+    assert client.post("/other", content=body).status_code == 413
+
+
+def test_main_wires_loaded_streaming_plugins_into_the_request_limit(monkeypatch):
+    """Deleting the main.py wiring left every test green: the earlier test
+    builds LimitPolicy directly (2026-10-08 run, cycle 22)."""
+    import plugin_seam
+
+    inventory = [
+        {"route_prefix": "/bigup", "status": "loaded", "kong_route": {"request_buffering": False}},
+        {"route_prefix": "/buffered", "status": "loaded", "kong_route": {"request_buffering": True}},
+        {"route_prefix": "/failed", "status": "failed", "kong_route": {"request_buffering": False}},
+        {"route_prefix": "/plain", "status": "loaded"},
+    ]
+    assert plugin_seam.streaming_prefixes(inventory) == ["/bigup"]
+    # Behavior, not source text: the app's policy is built from the inventory
+    # (a `[:0]` wrapper passed the old text check, cycle 44).
+    for var, default in (("KONG_URL", "http://kong-api-gateway:8000"), ("SUPABASE_SERVICE_KEY", "dummy-key"),
+                         ("DATABASE_URL", "postgresql://x:x@localhost/x")):
+        if not os.environ.get(var):
+            monkeypatch.setenv(var, default)
+    import main
+    from media_request_limit import RequestLimitMiddleware
+
+    assert main._request_limit_policy(inventory).streaming_prefixes == ["/bigup"]
+    installed = next(m for m in main.app.user_middleware if m.cls is RequestLimitMiddleware)
+    expected = main._request_limit_policy(main.PLUGIN_INVENTORY)
+    assert installed.kwargs["policy"].streaming_prefixes == expected.streaming_prefixes
+
+
+@pytest.mark.parametrize("names", [("aa_plain", "up_declared"), ("up_declared", "zz_plain")])
+def test_a_manifest_less_route_cannot_sit_under_a_declared_prefix(tmp_path, monkeypatch, names):
+    """A manifest-less route under an `open` streaming prefix got that
+    prefix's (no) auth and no body cap, then FastAPI read 64 MiB before its
+    own `inherit` 401; loaded first, it also shadowed the plugin's route
+    (2026-10-08 run, cycle 52). Rejected in both load orders."""
+    from fastapi import FastAPI
+
+    import plugin_seam
+
+    first, second = names
+    plain = first if first.endswith("_plain") else second
+    declared = second if plain == first else first
+    _plugin_pkg(tmp_path, declared, "/up/open",
+                "plugin_manifest_version: 1\nname: up\nroute_prefix: /up\nauth: open\nrequest_buffering: false\n")
+    _plugin_pkg(tmp_path, plain, "/up/admin")
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+    inventory = {e["name"]: e for e in plugin_seam.load_plugins(FastAPI())}
+    statuses = sorted(e["status"] for e in inventory.values())
+    assert statuses == ["loaded", "skipped"], inventory
+    skipped = next(e for e in inventory.values() if e["status"] == "skipped")
+    assert "overlaps" in skipped["error"]
+
+
+@pytest.mark.parametrize("manifest", [
+    None,
+    "plugin_manifest_version: 1\nname: rawp\nroute_prefix: /rawp\nauth: inherit\n",
+    "plugin_manifest_version: 1\nname: rawp\nroute_prefix: /rawp\nauth: key-auth\n",
+])
+def test_a_raw_starlette_route_is_refused_because_auth_cannot_apply(tmp_path, monkeypatch, manifest):
+    """include_router attaches the auth dependency to FastAPI routes only; a
+    router.add_route / add_websocket_route handler answered without
+    credentials (2026-10-08 run, cycle 70)."""
+    from fastapi import FastAPI
+
+    import plugin_seam
+
+    pkg = tmp_path / "rawp"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text(
+        "from fastapi import APIRouter\n"
+        "from starlette.responses import PlainTextResponse\n"
+        "router = APIRouter()\n"
+        "async def raw(request):\n"
+        "    return PlainTextResponse('raw handler reached')\n"
+        "router.add_route('/rawp/raw', raw, methods=['GET', 'POST'])\n"
+    )
+    if manifest:
+        (pkg / "plugin.yml").write_text(manifest)
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+    app = FastAPI()
+    entry = next(e for e in plugin_seam.load_plugins(app) if e["name"] == "rawp")
+    assert entry["status"] == "skipped" and "not FastAPI routes" in entry["error"]
+    assert "/rawp/raw" not in {getattr(r, "path", "") for r in app.router.routes}
+
+
+
+def test_an_open_plugin_may_keep_raw_starlette_routes(tmp_path, monkeypatch):
+    """auth: open has nothing to bypass; refusing it would break such plugins (cycle 74)."""
+    from fastapi import FastAPI
+
+    import plugin_seam
+
+    pkg = tmp_path / "rawo"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text(
+        "from fastapi import APIRouter\n"
+        "from starlette.responses import PlainTextResponse\n"
+        "router = APIRouter()\n"
+        "async def raw(request):\n"
+        "    return PlainTextResponse('ok')\n"
+        "router.add_route('/rawo/raw', raw, methods=['GET'])\n"
+    )
+    (pkg / "plugin.yml").write_text("plugin_manifest_version: 1\nname: rawo\nroute_prefix: /rawo\nauth: open\n")
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+    entry = next(e for e in plugin_seam.load_plugins(FastAPI()) if e["name"] == "rawo")
+    assert entry["status"] == "loaded", entry
+
+
+@pytest.mark.parametrize("route", ["/up/{name}", "/up/{rest:path}"])
+@pytest.mark.parametrize("plain", ["aa_plain", "zz_plain"])
+def test_a_path_parameter_route_cannot_sit_under_a_declared_prefix(tmp_path, monkeypatch, route, plain):
+    """`/up/{name}` matches /up/open, but a raw compare of the whole path saw
+    no overlap (2026-10-08 run, cycle 70)."""
+    from fastapi import FastAPI
+
+    import plugin_seam
+
+    _plugin_pkg(tmp_path, "up_declared", "/up/open",
+                "plugin_manifest_version: 1\nname: up\nroute_prefix: /up/open\nauth: open\nrequest_buffering: false\n")
+    _plugin_pkg(tmp_path, plain, route)
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+    statuses = sorted(e["status"] for e in plugin_seam.load_plugins(FastAPI()))
+    assert statuses == ["loaded", "skipped"], statuses

@@ -153,17 +153,32 @@ def load_contract(path: Path) -> Contract:
     return parse_contract(text)
 
 
+def _is_heading(line: str, fenced: bool):
+    return None if fenced else _HEADING_RE.match(line)
+
+
+def _is_content(line: str) -> bool:
+    stripped = line.strip()
+    return bool(stripped) and not (stripped.startswith("<!--") and stripped.endswith("-->"))
+
+
 def section_has_body(markdown: str, title: str) -> bool:
-    """True when ``title`` is a heading followed by at least one content line."""
-    lines = markdown.splitlines()
-    for index, line in enumerate(lines):
-        match = _HEADING_RE.match(line)
+    """True when ``title`` is a heading followed by at least one content line.
+
+    A `# comment` inside a code fence is not a heading, and a lone HTML
+    comment is not a body; both satisfied the gate (2026-10-08 run,
+    cycle 66)."""
+    from .heading_quality import _structural_lines  # noqa: PLC0415
+
+    lines = [(line.rstrip("\n"), fenced) for _number, line, fenced in _structural_lines(markdown)]
+    for index, (line, fenced) in enumerate(lines):
+        match = _is_heading(line, fenced)
         if match is None or match.group("title") != title:
             continue
-        for following in lines[index + 1 :]:
-            if _HEADING_RE.match(following):
+        for following, following_fenced in lines[index + 1 :]:
+            if _is_heading(following, following_fenced):
                 return False
-            if following.strip():
+            if _is_content(following):
                 return True
         return False
     return False

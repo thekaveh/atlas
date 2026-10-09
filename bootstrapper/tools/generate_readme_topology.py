@@ -46,19 +46,38 @@ def generate_block(services_root: Path) -> str:
     return "\n".join(lines) + "\n"
 
 
-def update_readme(readme_path: Path, services_root: Path) -> None:
-    block = generate_block(services_root)
+def _rendered(text: str, block: str) -> str:
+    """``text`` with its TOPOLOGY block replaced. Swapped or repeated markers
+    are refused: text[:start] + block + text[end:] duplicated everything
+    between them (2026-10-08 run, cycle 66)."""
+    begin, finish = "<!-- TOPOLOGY:BEGIN -->", "<!-- TOPOLOGY:END -->"
+    if text.count(begin) != 1 or text.count(finish) != 1:
+        raise RuntimeError("README.md must contain exactly one pair of TOPOLOGY markers")
+    start, end = text.find(begin), text.find(finish)
+    if end < start:
+        raise RuntimeError("README.md TOPOLOGY:END comes before TOPOLOGY:BEGIN")
+    return text[:start] + block.rstrip() + text[end + len(finish):]
+
+
+def update_readme(readme_path: Path, services_root: Path, *, check: bool = False) -> bool:
+    """Rewrite the block, or with ``check`` only report whether it is
+    current (True) without writing; `--check` used to rewrite it anyway."""
     text = readme_path.read_text(encoding="utf-8")
-    start = text.find("<!-- TOPOLOGY:BEGIN -->")
-    end = text.find("<!-- TOPOLOGY:END -->")
-    if start == -1 or end == -1:
-        raise RuntimeError("README.md is missing the TOPOLOGY markers")
-    end += len("<!-- TOPOLOGY:END -->")
-    new_text = text[:start] + block.rstrip() + text[end:]
+    new_text = _rendered(text, generate_block(services_root))
+    if check:
+        return new_text == text
     readme_path.write_text(new_text, encoding="utf-8")
+    return True
 
 
 if __name__ == "__main__":
+    import sys
+
     project_root = Path(__file__).resolve().parent.parent.parent
-    update_readme(project_root / "README.md", project_root / "services")
+    check = "--check" in sys.argv[1:]
+    current = update_readme(project_root / "README.md", project_root / "services", check=check)
+    if check:
+        print("README.md TOPOLOGY block is current" if current else
+              "README.md TOPOLOGY block is stale; run `python -m tools.generate_readme_topology`")
+        sys.exit(0 if current else 1)
     print("Updated README.md TOPOLOGY block")

@@ -144,7 +144,7 @@ RUN pip install --no-cache-dir \
 # The newest official Jupyter base is immutable but contains three fixable
 # findings in upstream-bundled tooling. Refresh nbclassic's exact Underscore
 # asset from its checksummed official tarball; refresh pip's private msgpack
-# from the repository-locked 1.2.1 installation and keep both wheel RECORD and
+# from the repository-locked 1.2.2 installation and keep both wheel RECORD and
 # CycloneDX inventory accurate. py-rattler 0.25.0 has no fixed release for its
 # Rust dependency findings, so remove that optional solver plugin while
 # retaining and validating the base image's default conda/libmamba toolchain.

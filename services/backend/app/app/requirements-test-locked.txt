@@ -101,7 +101,7 @@ nest-asyncio==1.6.0
 networkx==3.6.1
 numpy==2.5.1
 ollama==0.6.2
-openai==2.52.1
+openai==2.52.0
 opentelemetry-api==1.44.0
 opentelemetry-exporter-otlp-proto-common==1.44.0
 opentelemetry-exporter-otlp-proto-http==1.44.0
@@ -172,7 +172,7 @@ tokie==0.1.4
 tqdm==4.70.0
 transformers==5.14.1
 truststore==0.10.4
-typer==0.27.1
+typer==0.27.0
 types-pyyaml==6.0.12.20260724
 typing-extensions==4.16.0
 typing-inspect==0.9.0

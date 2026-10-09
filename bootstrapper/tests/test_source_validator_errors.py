@@ -140,3 +140,12 @@ def test_validate_all_sources_enforces_a_selected_options_requires(env_with_over
     monkeypatch.setattr(manifests_module, "load_manifests", lambda *a, **k: [*real(*a, **k), probe])
     assert validator.validate_all_sources() is False
     assert any("ATLAS_TEST_REQUIRED_KEY" in error for error in validator.validation_errors), validator.validation_errors
+
+
+def test_supabase_db_init_source_accepts_only_container(env_with_overrides):
+    """`disabled` was accepted and silently ignored: nothing scales the runner
+    every Supabase-backed service waits for (2026-10-08 run, cycle 13)."""
+    validator = _validator(env_with_overrides({"SUPABASE_DB_INIT_SOURCE": "container"}))
+    assert validator.load_yaml_config()
+    assert validator.validate_source_value("SUPABASE_DB_INIT_SOURCE", "container")
+    assert not validator.validate_source_value("SUPABASE_DB_INIT_SOURCE", "disabled")

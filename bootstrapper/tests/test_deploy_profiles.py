@@ -542,3 +542,13 @@ def test_profile_override_booleans_are_written_as_env_text():
 
     bundle = _parse_bundle("prod", {"env": {"BACKUP_DATABASES": True, "X_OFF": False}}, origin="t")
     assert bundle.env == {"BACKUP_DATABASES": "true", "X_OFF": "false"}
+
+
+def test_a_profile_env_cannot_set_a_service_source(tmp_path):
+    """env skipped the option-id check, the profile availability check and
+    CLI-flag precedence: --prometheus-source disabled was silently undone
+    (2026-10-08 run, cycle 53)."""
+    path = tmp_path / "profiles.yml"
+    path.write_text("profiles:\n  prod:\n    env:\n      PROMETHEUS_SOURCE: container\n", encoding="utf-8")
+    with pytest.raises(ProfileConfigError, match="declare it under sources"):
+        load_profile_bundles(path)

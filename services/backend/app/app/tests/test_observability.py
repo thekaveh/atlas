@@ -49,8 +49,9 @@ def test_configure_otel_marks_app_when_dependencies_available(monkeypatch):
 
     class FakeInstrumentor:
         @staticmethod
-        def instrument_app(app, *, excluded_urls):
+        def instrument_app(app, *, excluded_urls, server_request_hook):
             calls["excluded_urls"] = excluded_urls
+            calls["server_request_hook"] = server_request_hook
 
     fastapi_module.FastAPIInstrumentor = FakeInstrumentor
 
@@ -123,6 +124,9 @@ def test_configure_otel_marks_app_when_dependencies_available(monkeypatch):
     assert calls["endpoint"] == "http://otel-collector:4318/v1/traces"
     assert calls["resource"]["service.name"] == "backend"
     assert calls["excluded_urls"] == "/health,/metrics"
+    from observability import redact_span_apikey
+
+    assert calls["server_request_hook"] is redact_span_apikey
     assert calls["celery_provider"] is calls["provider"]
     # Outbound httpx calls propagate traceparent to LiteLLM and the rest.
     assert calls["httpx_provider"] is calls["provider"]
@@ -141,3 +145,49 @@ def test_celery_worker_process_init_configures_tracing(monkeypatch):
     celery_app.worker_process_init.send(sender=celery_app.celery_app)
 
     assert calls == ["backend-celery-worker"]
+
+
+def test_the_server_span_masks_a_query_string_apikey():
+    """The span recorded ?apikey=<plugin gateway key> and exported it to the
+    collector; the access log already masked it (2026-10-08 run, cycle 11)."""
+    from observability import redact_span_apikey
+
+    class Span:
+        def __init__(self):
+            self.attributes = {
+                "http.url": "http://backend:8000/bigup/upload?x=1&apikey=SECRET",
+                "http.target": "/bigup/upload?apikey=SECRET",
+                "url.query": "apikey=SECRET&x=1",
+            }
+
+        def is_recording(self):
+            return True
+
+        def set_attribute(self, key, value):
+            self.attributes[key] = value
+
+    span = Span()
+    redact_span_apikey(span, {})
+    assert "SECRET" not in repr(span.attributes)
+    assert span.attributes["url.query"] == "apikey=***&x=1"
+
+
+def test_a_key_with_an_encoded_ampersand_is_masked_in_full():
+    """http.url carries the decoded query, so `?apikey=SEC%26RET2` split at
+    the decoded `&` and exported `RET2` (2026-10-08 run, cycle 46)."""
+    from observability import redact_span_apikey
+
+    class Span:
+        def __init__(self):
+            self.attributes = {"http.url": "http://t/p/x?apikey=SEC&RET2", "url.query": "apikey=SEC%26RET2"}
+
+        def is_recording(self):
+            return True
+
+        def set_attribute(self, key, value):
+            self.attributes[key] = value
+
+    span = Span()
+    redact_span_apikey(span, {"query_string": b"apikey=SEC%26RET2"})
+    assert "RET2" not in repr(span.attributes) and "SEC" not in repr(span.attributes)
+    assert span.attributes["http.url"] == "http://t/p/x?apikey=***"

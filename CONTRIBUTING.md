@@ -59,6 +59,8 @@ The Backend has its own dependencies. This block creates a throwaway Python 3.12
 
 Replace `tests/test_readiness.py` with the test file for the route or service you changed, or use `tests/` for the whole non-live suite.
 
+`requirements-test-locked.txt` must pin every package it shares with `requirements-locked.txt` at the same version, so the tests run the versions the image ships. `scripts/check_test_locks.py` fails when the two differ.
+
 ### 3.3. Documentation
 
 ```bash

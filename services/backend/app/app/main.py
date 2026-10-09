@@ -139,6 +139,7 @@ from backend_identity import (
     BackendPrincipal,
     _ct_equals,
     authenticate_backend_scope,
+    authenticate_plugin_key_scope,
     authorize_media_scope,
     authorize_user_id,
     principal_scope_key,
@@ -565,7 +566,11 @@ storage_client = StorageClient(
 app.include_router(ray_router)
 # Generic downstream extension seam — no-op unless a consumer mounts
 # $BACKEND_PLUGINS_DIR with plugin packages. See plugin_seam.py.
-from plugin_seam import load_plugins  # noqa: E402
+from plugin_seam import (  # noqa: E402
+    load_plugins,
+    streaming_auth_modes as plugin_streaming_auth_modes,
+    streaming_prefixes as plugin_streaming_prefixes,
+)
 # Inventory of mounted plugins (name, route prefix, health/docs, auth, env
 # summary with secrets masked, load status). Populated at startup; served by
 # GET /plugins so operators can see what is mounted and what env it declares.
@@ -744,9 +749,18 @@ document_extractor = DocumentExtractor()
 # overhead (their UploadFile reads stay the fine-grained bound); everything
 # else falls under the default JSON envelope. Caps here must track the
 # route-level limits they mirror.
-app.add_middleware(
-    RequestLimitMiddleware,
-    policy=LimitPolicy(rules=[
+# The plugin's own auth mode, applied to its streaming routes before the body
+# is read (2026-10-08 run, cycle 46); `open` plugins stay unauthenticated.
+_STREAMING_AUTHENTICATORS = {
+    "inherit": authenticate_backend_scope,
+    "key-auth": authenticate_plugin_key_scope,
+    "open": None,
+}
+
+
+def _request_limit_policy(inventory: List[Dict[str, Any]]) -> LimitPolicy:
+    """Body envelopes, plus the loaded plugins that stream (#1454)."""
+    return LimitPolicy(rules=[
         media_rule(media_request_max_bytes_from_env()),
         BodyLimitRule(
             method="POST",
@@ -758,7 +772,16 @@ app.add_middleware(
             path="/documents/extract",
             max_bytes=_document_max_file_size() + MULTIPART_OVERHEAD_BYTES,
         ),
-    ]),
+    ], streaming_prefixes=plugin_streaming_prefixes(inventory), streaming_auth={
+        prefix: _STREAMING_AUTHENTICATORS[mode]
+        for prefix, mode in plugin_streaming_auth_modes(inventory).items()
+        if _STREAMING_AUTHENTICATORS.get(mode) is not None
+    })
+
+
+app.add_middleware(
+    RequestLimitMiddleware,
+    policy=_request_limit_policy(PLUGIN_INVENTORY),
     authenticate=authenticate_backend_scope,
 )
 
@@ -2056,7 +2079,32 @@ def _resolve_consumer_project(
         request.project
         or headers.get("X-Atlas-Project")
     )
+    # model goes into the ledger too: a NUL there was the same retryable 503
+    # (2026-10-08 run, cycle 70).
+    _check_attribution_labels(consumer=claimed_consumer, project=claimed_project, model=request.model)
     return authorize_media_scope(principal, claimed_consumer, claimed_project)
+
+
+def _check_attribution_labels(**labels: Optional[str]) -> None:
+    """400 for a label the ledger cannot store. An over-long header (cycle 23)
+    and a NUL (Postgres rejects 0x00, cycle 49) each failed every ledger
+    write as a retryable 503."""
+    for name, value in labels.items():
+        if value is not None and len(value) > 255:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{name} must be at most 255 characters")
+        if value is not None and any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{name} must not contain control characters")
+
+
+def _require_provider_enabled(provider: str) -> None:
+    """The legacy /comfyui/* routes call providers directly; honour the
+    MEDIA_DISABLED_PROVIDERS kill-switch there too (2026-10-08 run, cycles 23
+    and 29)."""
+    if not MEDIA_BUDGET_ENGINE.provider_enabled(provider):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"provider '{provider}' is disabled (kill-switch)",
+        )
 
 
 def _estimate_media_cost(
@@ -4023,6 +4071,7 @@ async def get_media_spend(
     Returns that consumer's ledger rows + committed/reserved totals only — never
     provider keys or another consumer's records. Requires an explicit consumer.
     """
+    _check_attribution_labels(consumer=consumer, project=project)
     consumer, resolved_project = authorize_media_scope(principal, consumer, project)
     if not MEDIA_BUDGET_ENGINE.enabled:
         return MediaSpendResponse(
@@ -4070,6 +4119,7 @@ async def generate_image(request: ComfyUIGenerateRequest):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="FAL does not support queue-only compatibility requests",
             )
+        _require_provider_enabled("fal")
         if MEDIA_BUDGET_ENGINE.enabled:
             # This compatibility path calls FAL directly with no reservation
             # and no kill-switch check, so with budgets on it would spend
@@ -4135,6 +4185,7 @@ async def generate_image(request: ComfyUIGenerateRequest):
         except Exception as exc:
             raise _unexpected_error("Generate image with FAL", exc)
 
+    _require_provider_enabled("comfyui")
     try:
         async with ComfyUIClient() as client:
             # Generate the image
@@ -4212,6 +4263,7 @@ async def generate_image(request: ComfyUIGenerateRequest):
 )
 async def execute_comfyui_workflow(request: ComfyUIWorkflowRequest):
     """Execute a custom ComfyUI workflow"""
+    _require_provider_enabled("comfyui")
     deadline = time.monotonic() + request.timeout_seconds
     try:
         async with ComfyUIClient() as client:

@@ -741,6 +741,28 @@ def load_consumer_model_rows() -> list[dict[str, Any]]:
     return valid
 
 
+def _unique_model_names(model_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One stack row per model_name, first wins. LiteLLM load-balances rows
+    sharing a name, so OPENAI_USER_MODELS=openai/gpt-5 plus the same name in
+    OPENROUTER_USER_MODELS split one alias across two providers and bills
+    (2026-10-08 run, cycle 54)."""
+    seen: dict[str, str] = {}
+    unique: list[dict[str, Any]] = []
+    for entry in model_list:
+        name = entry.get("model_name")
+        routed = (entry.get("litellm_params") or {}).get("model")
+        if name in seen:
+            print(
+                f"  ⚠ model '{name}' is declared twice (→ {seen[name]} and → {routed}); "
+                f"keeping the first, skipping → {routed}",
+                flush=True,
+            )
+            continue
+        seen[name] = routed
+        unique.append(entry)
+    return unique
+
+
 def render_config(active_rows: list[Any]) -> dict[str, Any]:
     """Build the complete config.yaml dict (model_list + settings).
     The settings half comes from bootstrapper/utils/litellm_settings.py
@@ -790,6 +812,7 @@ def render_config(active_rows: list[Any]) -> dict[str, Any]:
             f"{tei_rerank_entry['litellm_params']['api_base']}",
             flush=True,
         )
+    model_list = _unique_model_names(model_list)
     # Consumer-owned rows (#411) merge last so a downstream integration's models
     # appear in /v1/models alongside the stack's — Open WebUI, n8n, backend all
     # discover them for free. Ordering after the stack rows keeps the stack

@@ -44,8 +44,34 @@ TEST_LOCKS = (
 )
 
 
+def _pins(path: Path) -> dict[str, str]:
+    pins = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        name, sep, version = line.split(";")[0].strip().partition("==")
+        if sep and name and not name.startswith("#"):
+            pins[name.lower().replace("_", "-")] = version.strip()
+    return pins
+
+
+def runtime_drift(spec: TestLock) -> list[str]:
+    """Packages the test lock pins at another version than the shipped
+    runtime lock beside it. The tested closure must be the shipped one; the
+    backend test lock carried newer openai/typer patches for months
+    (2026-10-08 run, cycle 41)."""
+    test_lock = ROOT / spec.lock
+    runtime_lock = test_lock.with_name("requirements-locked.txt")
+    if not runtime_lock.is_file():
+        return []
+    tested = _pins(test_lock)
+    return [
+        f"{spec.lock}: {name}=={tested[name]} but {runtime_lock.relative_to(ROOT)} ships {version}"
+        for name, version in sorted(_pins(runtime_lock).items())
+        if name in tested and tested[name] != version
+    ]
+
+
 def main() -> int:
-    failures: list[str] = []
+    failures: list[str] = [drift for spec in TEST_LOCKS for drift in runtime_drift(spec)]
     with tempfile.TemporaryDirectory(prefix="atlas-test-locks-") as raw_tmp:
         temporary_dir = Path(raw_tmp)
         for index, spec in enumerate(TEST_LOCKS):

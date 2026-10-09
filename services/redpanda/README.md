@@ -23,7 +23,7 @@ Redpanda adds a disabled-by-default Kafka API broker for Atlas data-engineering 
 
 The init container creates the comma-separated topics in `REDPANDA_DEMO_TOPICS`; the default is `REDPANDA_DEMO_TOPICS=atlas_stream_events`. Leave it blank or remove topics from the list when you want a broker with no Atlas-created demo topics.
 
-Downstream projects that need deterministic topics before a Spark subscription should set `REDPANDA_DEMO_TOPICS=<topic1,topic2>` in `.env`. For example, data-engineering scenario suites can use `REDPANDA_DEMO_TOPICS=events,online_retail_cdc` to pre-seed project-owned topics at bootstrap. Redpanda runs in `dev-container` mode, so producer-first flows can create topics on first write, but Atlas consumers should prefer explicit `REDPANDA_DEMO_TOPICS` pre-seeding when a reader expects the topic to already exist.
+Downstream projects that need deterministic topics before a Spark subscription should set `REDPANDA_DEMO_TOPICS=<topic1,topic2>` in `.env`. For example, data-engineering scenario suites can use `REDPANDA_DEMO_TOPICS=events,online_retail_cdc` to pre-seed project-owned topics at bootstrap. Redpanda runs in `dev-container` mode, so producer-first flows can create topics on first write. The same mode turns on `--unsafe-bypass-fsync` and write caching: an acknowledged record is not yet on disk, and a host or Docker VM crash can lose the most recent writes. Treat the broker as a development stream, not a system of record, and replay from the source after a crash. Atlas consumers should prefer explicit `REDPANDA_DEMO_TOPICS` pre-seeding when a reader expects the topic to already exist.
 
 When Redpanda is enabled, Atlas sets in-network bootstrap values in `.env`:
 

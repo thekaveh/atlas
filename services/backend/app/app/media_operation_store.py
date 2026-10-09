@@ -92,9 +92,15 @@ def _in_flight_budget_tracked(operation: dict[str, Any]) -> bool:
     settles it, and nothing polls in the background. Expiring it left the
     estimate reserved (or, with retention, a billed job uncommitted) (#1447).
     The in-memory store never expires records, so both stores agree."""
-    status = str((operation.get("last_payload") or {}).get("status") or "")
+    payload = operation.get("last_payload") or {}
+    status = str(payload.get("status") or "")
+    # An attach that failed at submit and was recovered later sets only the
+    # provenance flag; its ledger row is tracked all the same.
+    tracked = operation.get("budget_tracked") or (payload.get("provenance") or {}).get(
+        "ledger_attach_completed"
+    )
     return bool(
-        operation.get("budget_tracked")
+        tracked
         and not operation.get("reconciled")
         and status not in TERMINAL_MEDIA_STATUSES
     )
@@ -518,7 +524,8 @@ if pending then
     -- A terminal operation is still the durable retry intent until its
     -- ledger row is settled and mark_reconciled reapplies the normal TTL.
     redis.call('SET', KEYS[1], blob)
-elseif not terminal and operation.budget_tracked == true and operation.reconciled ~= true then
+elseif not terminal and (operation.budget_tracked == true or attach_completed)
+        and operation.reconciled ~= true then
     -- In flight and budget-tracked: its ledger row is SUBMITTED and only a
     -- poll of this record settles it, so it must not expire first (#1447).
     redis.call('SET', KEYS[1], blob)
@@ -616,7 +623,8 @@ if pending then
     redis.call('SADD', KEYS[2], operation.operation_id)
     if score then redis.call('ZADD', KEYS[3], 'NX', score, operation.operation_id) end
 else
-    if not terminal and operation.budget_tracked == true and operation.reconciled ~= true then
+    if not terminal and (operation.budget_tracked == true or attach_completed)
+       and operation.reconciled ~= true then
         redis.call('SET', KEYS[1], blob)  -- in flight, budget-tracked (#1447)
     else
         redis.call('SET', KEYS[1], blob, 'EX', ARGV[1])
@@ -638,16 +646,32 @@ if operation.reconciled == true
     return {0, blob}
 end
 local next_payload = cjson.decode(ARGV[2])
-local score, score_error = reserve_score(
-    KEYS[2], KEYS[3], KEYS[4], operation.operation_id, true)
-if score_error then return redis.error_reply(score_error) end
 operation.last_payload = next_payload
 operation.state_version = tonumber(operation.state_version or 0) + 1
 blob = cjson.encode(operation)
--- Keep the repaired winner durable until mark_reconciled reapplies the TTL.
-redis.call('SET', KEYS[1], blob)
-redis.call('SADD', KEYS[2], operation.operation_id)
-if score then redis.call('ZADD', KEYS[3], 'NX', score, operation.operation_id) end
+-- Pending as the other scripts judge it. A winner that is no longer pending
+-- kept no TTL and left the index on the next sweep when mark_reconciled
+-- failed, so it never expired (2026-10-08 run, cycle 49).
+local next_provenance = next_payload.provenance or {}
+local pending = operation.budget_tracked == true
+   or next_provenance.ledger_reconciliation_pending == true
+   or next_provenance.ledger_attach_completed == true
+   or next_provenance.ledger_cleanup_pending == true
+   or next_provenance.ledger_attach_pending == true
+   or next_provenance.ledger_attach_protection_clear_pending == true
+local score, score_error = reserve_score(
+    KEYS[2], KEYS[3], KEYS[4], operation.operation_id, pending)
+if score_error then return redis.error_reply(score_error) end
+if pending then
+    -- Keep the repaired winner durable until mark_reconciled reapplies the TTL.
+    redis.call('SET', KEYS[1], blob)
+    redis.call('SADD', KEYS[2], operation.operation_id)
+    if score then redis.call('ZADD', KEYS[3], 'NX', score, operation.operation_id) end
+else
+    redis.call('SET', KEYS[1], blob, 'EX', ARGV[3])
+    redis.call('SREM', KEYS[2], operation.operation_id)
+    redis.call('ZREM', KEYS[3], operation.operation_id)
+end
 return {1, blob}
 """
 
@@ -931,6 +955,7 @@ return 1
             _PENDING_LEDGER_SEQUENCE,
             expected_outcome,
             json.dumps(payload),
+            self._ttl,
         )
         return (json.loads(blob) if blob else None), bool(changed)
 

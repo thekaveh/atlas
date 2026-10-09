@@ -387,6 +387,10 @@ class InMemoryIngestionStore(IngestionStore):
 
 
 class RedisIngestionStore(IngestionStore):
+    # One call can block this long (socket_timeout below); the heartbeat stops
+    # retrying a renewal early enough that its last call ends before expiry.
+    call_timeout_seconds = 3.0
+
     def __init__(self, url: str) -> None:
         import redis  # lazy — keeps main.py import closure redis-free
 
@@ -747,9 +751,13 @@ return 1
         no round trip per member), or None when the server cannot say
         (ZINTERCARD needs Redis 7)."""
         try:
-            return int(self._redis.scard(_INDEX_SET)) - int(
-                self._redis.zintercard(2, [_INDEX_SET, _INDEX_ZSET])
-            )
+            # One MULTI/EXEC: a writer adding to both keys between two
+            # separate calls made a lone set-only member read as 0.
+            pipe = self._redis.pipeline(transaction=True)
+            pipe.scard(_INDEX_SET)
+            pipe.zintercard(2, [_INDEX_SET, _INDEX_ZSET])
+            total, both = pipe.execute()
+            return int(total) - int(both)
         except Exception:  # noqa: BLE001 - fall back to the bounded scan
             return None
 

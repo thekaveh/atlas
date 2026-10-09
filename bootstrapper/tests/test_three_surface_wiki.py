@@ -65,3 +65,17 @@ def test_push_wiki_uses_master_and_default_ci_identity(tmp_path: Path, monkeypat
         text=True,
     ).stdout.strip()
     assert author == "Atlas Docs Bot <docs@atlas.local>"
+
+
+def test_the_check_dry_run_ignores_a_global_signing_config(tmp_path: Path, monkeypatch) -> None:
+    """The check-mode commit inherited commit.gpgsign and gpg.program from the
+    developer's config and failed (2026-10-08 run, cycle 43)."""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "Home.md").write_text("# Home\n", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "2")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "commit.gpgsign")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "true")
+    monkeypatch.setenv("GIT_CONFIG_KEY_1", "gpg.program")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_1", "false")
+    push_wiki(source, "unused", key_path=None, push=False)

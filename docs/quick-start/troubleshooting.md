@@ -253,9 +253,27 @@ docker system df
 docker system df -v
 ```
 
-To see what this project stores, run `./start.sh storage inventory` (#1194). It lists each volume named for the project with its size from `docker system df -v`, and marks one that no Atlas compose fragment declares (another project whose name starts the same way, a leftover) as `unknown`, and sizes the declared host model directories (`COMFYUI_LOCAL_MODELS_PATH`, `COMFYUI_MPS_MODELS_PATH`). While the stack runs it also lists the models in the Atlas Ollama container (`ollama list`) and the files in the ComfyUI models volume, each labelled `retained` (in the active model selection or `volumes/comfyui/active-models.tsv`), `removable` (a catalog model nothing selects) or `unknown` (not in the catalog). Ollama sizes count blobs shared between models once per model, so they can add up to more than the volume holds.
+To see what this project stores, run `./start.sh storage inventory` (#1194). It reports:
 
-To free model disk without a reset, run `./start.sh storage clean`. It removes `removable` items only, plus `unknown` items you name with `--name`, one at a time; it prints each item and the total bytes first and asks before removing anything (`--yes` skips the question). `retained` items are never removed, and no database, workflow or other stateful volume can be part of a cleanup: it only ever removes single items, through `docker exec` into the Atlas Ollama and ComfyUI containers, never a volume. A host Ollama daemon or host ComfyUI directory is never touched: with `LLM_PROVIDER_SOURCE` not `ollama-container-*`, or `COMFYUI_SOURCE` not `container-*`, that service's models are not itemized, and ComfyUI files are not itemized at all until a start has written `volumes/comfyui/active-models.tsv`. A cleanup that stops at a failed removal exits 1 and leaves every remaining item as it was, so a new `storage inventory` shows the true state.
+- each volume named for the project, with its size from `docker system df -v`. A volume no Atlas compose fragment declares (a leftover, or another project whose name starts the same way) is marked `unknown`.
+- the size of the declared host model directories (`COMFYUI_LOCAL_MODELS_PATH`, `COMFYUI_MPS_MODELS_PATH`).
+- while the stack runs, the models in the Atlas Ollama container (`ollama list`) and the files in the ComfyUI models volume, each labelled as below.
+
+| Label | Meaning |
+|---|---|
+| `retained` | In use, so never removed. An Ollama model is retained when `OLLAMA_USER_MODELS` or `OLLAMA_CUSTOM_MODELS` selects it, when `LITELLM_DEFAULT_MODEL`, `LITELLM_VISION_MODEL`, `LITELLM_EMBEDDING_MODEL` or `LANGMEM_EMBEDDING_MODEL` names it as `ollama/<name>` or `ollama_chat/<name>`, or when the rendered `volumes/litellm/config.yaml` routes it. A ComfyUI file is retained when `volumes/comfyui/active-models.tsv` lists it. |
+| `removable` | A catalog model that nothing selects or routes. |
+| `unknown` | Not in the catalog. Removed only when you name it. |
+
+Ollama sizes count blobs shared between models once per model, so they can add up to more than the volume holds.
+
+To free model disk without a reset, run `./start.sh storage clean`:
+
+- It removes `removable` items, plus the `unknown` items you name with `--name`, one at a time. It never removes a `retained` item.
+- It prints each item and the total bytes, then asks before it removes anything. `--yes` skips the question.
+- It removes single items through `docker exec` into the Atlas Ollama and ComfyUI containers. It never removes a volume, so no database, workflow or other stateful volume can be part of a cleanup.
+- It never touches a host Ollama daemon or a host ComfyUI directory. With `LLM_PROVIDER_SOURCE` not `ollama-container-*`, or `COMFYUI_SOURCE` not `container-*`, that service's models are not itemized. ComfyUI files are not itemized until a start has written `volumes/comfyui/active-models.tsv`.
+- If a removal fails, the cleanup stops, exits 1 and leaves every remaining item as it was. Run `storage inventory` again to see the true state.
 
 To reclaim all disk from **this project only**, use the project-scoped reset (`./stop.sh --cold`, §10.1) — it removes only Atlas's own containers, network, and named volumes and leaves every other Compose project on the host untouched.
 
@@ -440,7 +458,12 @@ Atlas recovery is **project-scoped by design**: everything Atlas creates — con
 
 ### 10.1. Complete Reset (destructive — deletes this project's data)
 
-`./stop.sh --cold` stops the stack and **deletes every named Atlas project volume**: databases, n8n workflows, downloaded models, generated artifacts. There is no undo. A stack started with `--consumer <manifest>` must be stopped with the same `--consumer`: volumes declared only by its compose overlays are outside the base model otherwise, and the cold stop names them and exits non-zero instead of reporting a full wipe. `./start.sh --cold` checks the same way and stops before rotating any secret. Take a backup first (§10.3), and note that with the default `BACKUP_S3_MODE=local` the backup itself lives in this project's MinIO volume (and the Neo4j/Weaviate snapshot volumes), so `--cold` deletes it too: use `BACKUP_S3_MODE=external` or copy the bucket off the host before resetting. `./start.sh --cold` then rebuilds `.env` from `.env.example`; it saves the previous file next to it as `.env.backup.cold.<YYYYmmddTHHMMSS>.<random>` (owner-only; the five most recent cold copies are kept, separately from the routine `.env.backup.*` start-up copies), but keep your own copy of `BACKUP_MANIFEST_HMAC_KEY` and `BACKUP_DEPLOYMENT_ID`, since a backup cannot be restored without them.
+`./stop.sh --cold` stops the stack and **deletes every named Atlas project volume**: databases, n8n workflows, downloaded models, generated artifacts. There is no undo.
+
+- Stop a stack started with `--consumer <manifest>` with the same `--consumer`. Otherwise the volumes its compose overlays declare are outside the base model: the cold stop names them and exits non-zero instead of reporting a full wipe. `./start.sh --cold` checks the same way and stops before it rotates any secret.
+- Take a backup first (§10.3). With the default `BACKUP_S3_MODE=local` the backup lives in this project's MinIO volume (and the Neo4j and Weaviate snapshot volumes), so `--cold` deletes it too. Use `BACKUP_S3_MODE=external`, or copy the bucket off the host before the reset.
+- `./start.sh --cold` rebuilds `.env` from `.env.example`. It saves the previous file next to it as `.env.backup.cold.<YYYYmmddTHHMMSS>.<random>` (owner-only; the five most recent cold copies are kept, separately from the routine `.env.backup.*` copies).
+- Keep your own copy of `BACKUP_MANIFEST_HMAC_KEY` and `BACKUP_DEPLOYMENT_ID`: a backup cannot be restored without them.
 
 ```bash
 # Full project reset — removes THIS project's containers, network, and

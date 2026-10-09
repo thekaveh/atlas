@@ -47,6 +47,10 @@ services:
       POSTGRE_PASSWORD: ${LABEL_STUDIO_DB_PASSWORD:?LABEL_STUDIO_DB_PASSWORD is required}
       POSTGRE_HOST: supabase-db
       POSTGRE_PORT: "5432"
+      # Label Studio 1.23 defaults this to False, so a URL task import fetched
+      # internal services (ollama, tei, metadata endpoints) from the backend
+      # network (2026-10-08 run, cycle 60).
+      SSRF_PROTECTION_ENABLED: "true"
       LABEL_STUDIO_HOST: http://label-studio.localhost:${KONG_HTTP_PORT:-63000}
       CSRF_TRUSTED_ORIGINS: http://label-studio.localhost:${KONG_HTTP_PORT:-63000}
       USERNAME: ${LABEL_STUDIO_USERNAME:-admin@atlas.local}

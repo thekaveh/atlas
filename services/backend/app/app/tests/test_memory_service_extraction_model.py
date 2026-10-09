@@ -665,3 +665,61 @@ async def test_extraction_can_recreate_a_deleted_fact(monkeypatch):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_consolidation_takes_the_per_user_lock_before_superseding(monkeypatch):
+    """Concurrent consolidations could each supersede the other's keeper and
+    leave neither fact active (2026-10-08 run, cycle 71)."""
+    import memory_service
+    from memory_service import MemoryService
+
+    uid = UUID("11111111-1111-1111-1111-111111111111")
+    now = datetime.now(timezone.utc)
+    facts = [
+        {"id": UUID(int=i + 1), "content": f"f{i}", "fact_type": "t", "confidence": 1.0,
+         "namespace": "default", "created_at": now, "updated_at": now, "metadata": {},
+         "weaviate_id": None}
+        for i in range(2)
+    ]
+    calls = []
+
+    class Conn:
+        @asynccontextmanager
+        async def transaction(self):
+            calls.append("BEGIN")
+            yield
+
+        async def fetch(self, sql, *args):
+            return [{"namespace": "default"}] if "DISTINCT" in sql else facts
+
+        async def fetchrow(self, sql, *args):
+            calls.append("UPDATE")
+            return {"id": args[1], "weaviate_id": None}
+
+        async def execute(self, sql, *args):
+            calls.append("LOCK" if "advisory" in sql else sql.split()[0])
+
+        async def close(self):
+            pass
+
+    @asynccontextmanager
+    async def acquire():
+        yield Conn()
+
+    svc = MemoryService.__new__(MemoryService)
+    svc.enabled = True
+    svc._initialized = True
+    svc.database_url = "postgresql://unused"
+    monkeypatch.setattr(svc, "_acquire", acquire, raising=False)
+    monkeypatch.setattr(svc, "_reconcile_pending_vectors", AsyncMock())
+    monkeypatch.setattr(svc, "_get_extraction_model", AsyncMock(return_value="m"))
+    monkeypatch.setattr(svc, "_expire_excess_facts", AsyncMock(return_value=0))
+    monkeypatch.setattr(svc, "_litellm_complete", AsyncMock(return_value=(
+        '[{"action": "merge", "source_indices": [0, 1], "keep_index": 0, "reason": "dup"}]'
+    )))
+    monkeypatch.setattr(memory_service, "connect_postgres", AsyncMock(return_value=Conn()))
+
+    result = asyncio.run(svc.consolidate(str(uid)))
+
+    assert result["facts_merged"] == 1
+    assert calls[:3] == ["BEGIN", "LOCK", "UPDATE"]

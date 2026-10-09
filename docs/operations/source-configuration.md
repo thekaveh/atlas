@@ -232,7 +232,7 @@ COMFYUI_SOURCE=managed-localhost-mps
 - **Use case**: Apple Silicon, where Metal/MPS acceleration is unavailable inside a Linux container
 - **Pros**: GPU-accelerated on macOS; Atlas owns the install, start/stop and health of the host process
 - **Cons**: macOS/Apple Silicon only; the process runs outside Docker
-- **Requirements**: managed through `./start.sh comfyui-mps <preflight|install|provision|start|stop|status|health|remove>`
+- **Requirements**: managed through `./start.sh comfyui-mps <preflight|install|provision|provision-nodes|start|stop|status|health|remove>`
 
 #### 4.2.5. `disabled`
 ```bash
@@ -319,7 +319,7 @@ MINIO_SOURCE=disabled
 ```
 - **Use case**: No artifact-tier object storage needed
 - **Pros**: Saves resources
-- **Cons**: No S3-compatible artifact surface available. Spark, Iceberg REST, Trino, Jenkins, MLflow, Label Studio and Langfuse refuse to start without MinIO (startup stops with an error naming the service), so disable those too or keep MinIO on; the asset worker/baker and a local-mode backup are instead auto-disabled by the launch-time dependency check.
+- **Cons**: No S3-compatible artifact surface available. These services refuse to start without MinIO, and the error names the service: Spark, Iceberg REST, Trino, Jenkins, MLflow, Label Studio, Langfuse, the asset worker and baker, and a local-mode backup. Disable those too, set `BACKUP_S3_MODE=external` for backups, or keep MinIO on.
 - **Requirements**: None
 
 ### 4.5. OPENCLAW_SOURCE
@@ -527,9 +527,9 @@ Spark is a standalone Apache Spark cluster (master + N workers + history server 
 SPARK_SOURCE=disabled
 ```
 - **Use case**: No Spark workloads; saves ~3 GB image disk + per-worker RAM
-- **Pros**: Zero footprint; Zeppelin is also gated off (Zeppelin without Spark errors out at start)
+- **Pros**: Zero footprint
 - **Cons**: No batch / SQL / DataFrame compute; LLM operators in Airflow that import `pyspark` will fail
-- **Requirements**: None
+- **Requirements**: Set `ZEPPELIN_SOURCE=disabled` too. With Spark disabled, a Zeppelin container stops the start with an error.
 
 #### 4.11.2. `container`
 ```bash
@@ -677,7 +677,7 @@ CRAWL4AI_API_TOKEN=...                         # auto-generated on first bootstr
 - **Pros**: Kong-aliased UI/API at `crawl4ai.localhost`, bearer-token protected API, n8n HTTP Request compatibility, Local Deep Researcher full-page adapter.
 - **Cons**: Adds a Playwright/Chromium-based container; crawling arbitrary internal URLs remains disabled unless `CRAWL4AI_ALLOW_INTERNAL_URLS=true` is deliberately set.
 - **Containers**: `crawl4ai`.
-- **Requirements**: None for the service itself. `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=crawl4ai` requires `CRAWL4AI_SOURCE=container` and fails early otherwise.
+- **Requirements**: None for the service itself. `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=crawl4ai` requires `CRAWL4AI_SOURCE=container` and fails early otherwise. When `LOCAL_DEEP_RESEARCHER_SOURCE=disabled`, the mode is ignored and this check does not run.
 
 ### 4.18. TIKA_SOURCE
 

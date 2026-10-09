@@ -337,3 +337,12 @@ def test_backend_loader_accepts_the_buffering_flags_the_schema_declares(tmp_path
         "request_buffering: false\nresponse_buffering: false\n",
     ))
     assert manifest.request_buffering is False and manifest.response_buffering is False
+
+
+@pytest.mark.parametrize("field", ["request_buffering", "response_buffering"])
+def test_null_buffering_flags_are_rejected_like_the_schema(tmp_path, field):
+    """The schema rejects null, so the bootstrapper dropped the plugin from
+    Kong policy while the backend mounted it (2026-10-08 run, cycle 6)."""
+    with pytest.raises(PluginManifestError):
+        load_manifest(_write(
+            tmp_path, f"plugin_manifest_version: 1\nname: stream\nroute_prefix: /stream\n{field}: null\n"))

@@ -1001,9 +1001,11 @@ def test_rag_execution_claim_retry_is_rescheduled(
     assert captured["kwargs"]["ingestion_id"] == "ingestion-1"
     state = captured["kwargs"]["retry_state"]
     assert state["phase_attempt"] == 2
-    assert state["infrastructure_attempt"] == 0
+    # A lost lease counts against the infrastructure limit (cycle 12).
+    assert state["infrastructure_attempt"] == (1 if carries_owner else 0)
     assert state.get("recovery_owner") == (
         invoked["execution_owner"] if carries_owner else None
     )
     assert captured["args"] == ()
+
 

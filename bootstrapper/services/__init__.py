@@ -623,6 +623,25 @@ def compensate_failed_launch(pid: int, pid_file: Path, terminate) -> LaunchCompe
     return LaunchCompensation(False, evidence, errors + retention_errors)
 
 
+def refuse_removing_user_data(state_dir: Path, data_path, key: str, error_type) -> None:
+    """Raise when ``data_path`` (user data Atlas never deletes) is the state
+    directory or inside it. Compared by file identity as well as text: on a
+    case-insensitive volume a differently-cased path is the same folder."""
+    if not data_path:
+        return
+    data = Path(data_path).expanduser().resolve()
+    state = Path(state_dir).expanduser().resolve()
+    inside = data == state or state in data.parents
+    if not inside and state.exists():
+        state_stat = state.stat()
+        inside = any(p.exists() and os.path.samestat(p.stat(), state_stat) for p in (data, *data.parents))
+    if inside:
+        raise error_type(
+            f"refusing to remove {state}: it contains {key} ({data}), "
+            f"which Atlas never deletes; move that data or point {key} elsewhere"
+        )
+
+
 def tracked_process_may_survive(manager) -> tuple[int | None, bool]:
     """Return the raw tracked PID and a fail-closed liveness verdict.
 

@@ -15,6 +15,7 @@ Deterministic and idempotent: re-running produces byte-identical output.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -44,6 +45,21 @@ def _parse(text: str) -> tuple[dict, str] | None:
     return fm, m.group(2)
 
 
+def _scalar(value, *, in_flow: bool = False):
+    """``value`` as written, quoted only when YAML would read it back as
+    something else: an unquoted ` #` truncated it and `: ` made the file
+    unparseable on the next regen (2026-10-08 run, cycle 43)."""
+    if not isinstance(value, str):
+        return value
+    text = f"[{value}]" if in_flow else value
+    try:
+        loaded = yaml.safe_load(f"k: {text}")
+    except yaml.YAMLError:
+        loaded = None
+    expected = [value] if in_flow else value
+    return value if loaded == {"k": expected} else json.dumps(value, ensure_ascii=False)
+
+
 def _emit_frontmatter(fm: dict) -> str:
     """Emit YAML frontmatter deterministically. Uses inline (`[a, b]`) form for
     short lists to match the existing example fixtures."""
@@ -52,14 +68,14 @@ def _emit_frontmatter(fm: dict) -> str:
         v = fm[k]
         if isinstance(v, list):
             if all(isinstance(x, str) for x in v) and len(v) <= 8:
-                rendered = "[" + ", ".join(v) + "]"
+                rendered = "[" + ", ".join(str(_scalar(x, in_flow=True)) for x in v) + "]"
                 lines.append(f"{k}: {rendered}")
             else:
                 lines.append(f"{k}:")
                 for item in v:
-                    lines.append(f"  - {item}")
+                    lines.append(f"  - {_scalar(item)}")
         else:
-            lines.append(f"{k}: {v}")
+            lines.append(f"{k}: {_scalar(v)}")
     lines.append("---")
     return "\n".join(lines) + "\n"
 

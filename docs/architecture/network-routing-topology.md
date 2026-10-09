@@ -10,7 +10,7 @@ Host ports, Kong aliases, direct service ports, backend-network-only services, a
 
 ## 2. Notes
 
-The host-gateway address is runtime-dependent, not a fixed IP: Docker accepts the literal `host-gateway` value in `extra_hosts` and resolves it internally, but Podman has no such shortcut — it queries the default bridge network's IPAM gateway IP directly (`resolve_host_gateway_ip()` in `bootstrapper/utils/system.py`), falling back to a throwaway container if that lookup fails. Localhost-source endpoints always name `host.docker.internal`, and every container that reads one maps it to that gateway in `extra_hosts`; no host-side lookup or fixed bridge IP is involved (#1361).
+The host-gateway address depends on the runtime; it is not a fixed IP. Docker resolves the literal `host-gateway` value in `extra_hosts` itself. Podman has no such shortcut: `resolve_host_gateway_ip()` in `bootstrapper/utils/system.py` queries the default bridge network's IPAM gateway, then falls back to a throwaway container. Localhost-source endpoints always name `host.docker.internal`, which each reading container maps to that gateway (#1361).
 
 ## 3. Source Files
 

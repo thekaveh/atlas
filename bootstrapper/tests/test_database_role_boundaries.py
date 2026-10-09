@@ -1337,3 +1337,4 @@ def test_open_webui_role_can_upsert_its_identity_rows(
     assert disposable_postgres.sql(
         "SELECT name FROM public.users WHERE id = '00000000-0000-4000-8000-0000000000ef'"
     ).stdout.strip() == "gotrue"
+

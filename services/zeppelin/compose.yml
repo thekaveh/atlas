@@ -21,6 +21,12 @@ services:
       - "127.0.0.1:${ZEPPELIN_PORT}:8080"
     environment:
       ZEPPELIN_PORT: "8080"
+      # Zeppelin 0.12.1 accepts an origin whose host is "localhost" (any
+      # port), the container's hostname, or one listed here, and answers 403
+      # to a state-changing REST request or websocket from any other origin.
+      # Its default list is empty, which rejected the UI opened at
+      # http://127.0.0.1:<port>; listing it fixes that (2026-10-08 run).
+      ZEPPELIN_ALLOWED_ORIGINS: "http://localhost:${ZEPPELIN_PORT},http://127.0.0.1:${ZEPPELIN_PORT}"
       ZEPPELIN_LOG_DIR: /logs
       ZEPPELIN_NOTEBOOK_DIR: /notebook
       JAVA_HOME: /opt/java/openjdk
