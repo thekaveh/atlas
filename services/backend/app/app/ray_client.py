@@ -143,6 +143,24 @@ def _bind_transport_deadline(client) -> None:
     client._do_request = bounded
 
 
+def _bounded_submission_client(address: str):
+    """Construct the SDK client with the transport deadline already in force:
+    its constructor probes /api/version through ``_do_request`` with no
+    timeout, so a dashboard that accepts TCP and never answers held a
+    worker thread forever (2026-10-08 run, cycle 33)."""
+    from ray.job_submission import JobSubmissionClient
+
+    if not isinstance(JobSubmissionClient, type):  # a test double factory
+        return JobSubmissionClient(address)
+
+    class _Bounded(JobSubmissionClient):
+        def _do_request(self, method, endpoint, **kwargs):
+            kwargs.setdefault("timeout", (_RAY_CONNECT_TIMEOUT_SECONDS, _RAY_READ_TIMEOUT_SECONDS))
+            return super()._do_request(method, endpoint, **kwargs)
+
+    return _Bounded(address)
+
+
 class RayClient:
     _instance: Optional["RayClient"] = None
 
@@ -160,8 +178,14 @@ class RayClient:
         if self._addr is None:
             raise RayDisabledError("RAY_ADDRESS not set — Ray cluster is disabled")
         if self._client is None:
-            from ray.job_submission import JobSubmissionClient
-            client = JobSubmissionClient(self._addr)
+            # Ray 2.56.0 resolves the submission address from RAY_ADDRESS
+            # before the argument; compose sets ray://ray-head:10001, so the
+            # SDK fell back to Ray Client (ray.init), which fails on the
+            # backend's Python 3.12 vs the cluster's 3.10 and 500'd every
+            # /api/ray call. RAY_API_SERVER_ADDRESS outranks RAY_ADDRESS there
+            # (2026-10-08 run, cycle 33).
+            os.environ.setdefault("RAY_API_SERVER_ADDRESS", self._addr)
+            client = _bounded_submission_client(self._addr)
             _bind_transport_deadline(client)
             self._client = client
         return self._client

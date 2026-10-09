@@ -255,3 +255,31 @@ def test_stop_and_status_timeouts_map_to_control_plane_timeout(
     with pytest.raises(RayControlPlaneTimeoutError):
         client.get_job_status("raysubmit_x")
 
+
+
+def test_the_sdk_is_pointed_at_the_dashboard_not_ray_client(monkeypatch):
+    """Ray 2.56.0 resolves the submission address from RAY_ADDRESS
+    (ray://…) before the argument and falls back to Ray Client, which 500'd
+    every /api/ray call on a Python-version mismatch; the constructor probe
+    also had no timeout (2026-10-08 run, cycle 33)."""
+    import ray_client
+
+    seen = {}
+
+    class FakeSDK:
+        def __init__(self, address):
+            seen["address"] = address
+            seen["api_server"] = __import__("os").environ.get("RAY_API_SERVER_ADDRESS")
+            self._do_request("GET", "/api/version")
+
+        def _do_request(self, method, endpoint, **kwargs):
+            seen["timeout"] = kwargs.get("timeout")
+
+    monkeypatch.setenv("RAY_ADDRESS", "ray://ray-head:10001")
+    monkeypatch.delenv("RAY_DASHBOARD_URL", raising=False)
+    monkeypatch.delenv("RAY_API_SERVER_ADDRESS", raising=False)
+    monkeypatch.setattr("ray.job_submission.JobSubmissionClient", FakeSDK)
+    ray_client.RayClient._instance = None
+    ray_client.RayClient()._ensure_client()
+    assert seen["address"] == seen["api_server"] == "http://ray-head:8265"
+    assert seen["timeout"] is not None
