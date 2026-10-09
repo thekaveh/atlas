@@ -378,3 +378,12 @@ def test_crawl4ai_docs_describe_security_mcp_n8n_and_deferrals() -> None:
 
     assert "unclecode/crawl4ai:0.9.0" in candidate
     assert "secure-by-default" in candidate
+
+
+def test_a_disabled_local_deep_researcher_skips_the_crawl4ai_mode_gate() -> None:
+    """--track data-eng disables both; a leftover crawl4ai mode aborted the
+    start for a service that does not run (2026-10-08 run, cycle 38)."""
+    sc = ServiceConfig(config_parser=MagicMock())
+    sc.config_parser.parse_env_file.return_value = {"LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE": "crawl4ai"}
+    sc.service_sources = {"LOCAL_DEEP_RESEARCHER_SOURCE": "disabled", "CRAWL4AI_SOURCE": "disabled"}
+    assert sc._generate_local_deep_researcher_extraction_config()["CRAWL4AI_ENDPOINT"] == ""

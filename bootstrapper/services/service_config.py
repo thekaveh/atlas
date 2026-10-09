@@ -1446,8 +1446,17 @@ class ServiceConfig:
 
         This is intentionally a MODE value, not a *_SOURCE selector, because
         Atlas validates every *_SOURCE as a service source. Crawl4AI itself is
-        the only source-configurable service in this integration.
+        the only source-configurable service in this integration. A disabled
+        Local Deep Researcher needs no mode: enforcing the Crawl4AI check
+        aborted a start (e.g. --track data-eng) for a service that does not
+        run (2026-10-08 run, cycle 38).
         """
+        if self.service_sources.get("LOCAL_DEEP_RESEARCHER_SOURCE", "container") == "disabled":
+            return {
+                "FETCH_FULL_PAGE": "false",
+                "LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE": "disabled",
+                "CRAWL4AI_ENDPOINT": "",
+            }
         env = self.config_parser.parse_env_file()
         mode = (
             env.get("LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE", "disabled")

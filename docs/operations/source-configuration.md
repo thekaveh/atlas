@@ -677,7 +677,7 @@ CRAWL4AI_API_TOKEN=...                         # auto-generated on first bootstr
 - **Pros**: Kong-aliased UI/API at `crawl4ai.localhost`, bearer-token protected API, n8n HTTP Request compatibility, Local Deep Researcher full-page adapter.
 - **Cons**: Adds a Playwright/Chromium-based container; crawling arbitrary internal URLs remains disabled unless `CRAWL4AI_ALLOW_INTERNAL_URLS=true` is deliberately set.
 - **Containers**: `crawl4ai`.
-- **Requirements**: None for the service itself. `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=crawl4ai` requires `CRAWL4AI_SOURCE=container` and fails early otherwise.
+- **Requirements**: None for the service itself. `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=crawl4ai` requires `CRAWL4AI_SOURCE=container` and fails early otherwise. When `LOCAL_DEEP_RESEARCHER_SOURCE=disabled`, the mode is ignored and this check does not run.
 
 ### 4.18. TIKA_SOURCE
 
