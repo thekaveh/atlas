@@ -374,3 +374,11 @@ def test_a_disabled_supabase_subservice_starts_no_container(monkeypatch):
     ):
         for upstream in upstreams:
             assert rendered[dependent]["depends_on"][upstream]["required"] is False, (dependent, upstream)
+
+
+def test_zeppelin_accepts_only_its_own_origins():
+    """Zeppelin's allowed-origins default "*" let any web page create and run
+    a notebook through the loopback port (2026-10-08 run, cycle 17)."""
+    origins = _render(COMPOSE)["services"]["zeppelin"]["environment"]["ZEPPELIN_ALLOWED_ORIGINS"]
+    assert "*" not in origins
+    assert set(origins.split(",")) == {"http://localhost:63099", "http://127.0.0.1:63099"}
