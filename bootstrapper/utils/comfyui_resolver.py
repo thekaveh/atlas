@@ -85,7 +85,7 @@ import json
 import os
 import sys
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -290,20 +290,30 @@ def _default_remembered_path() -> Path | None:
         return None
 
 
-def load_remembered_selections(path: Path | str | None) -> dict[str, ComfyUILibraryEntry]:
+def load_remembered_selections(
+    path: Path | str | None, warn: Callable[[str], None] | None = None,
+) -> dict[str, ComfyUILibraryEntry]:
     """Scraped library entries selected on an earlier start, by name.
 
     Every start re-scrapes Hugging Face and civitai; a selected model the
     scrape no longer returns (one scraper down, fell out of the top-N, or
     picked from the offline fallback) was dropped with no metadata left to
-    download it (#1448). An unreadable file counts as empty.
+    download it (#1448). An unreadable file counts as empty. ``warn``
+    receives each problem; without it they go to stderr, which the TUI
+    discards (2026-10-08 run, cycle 37).
     """
+    def _report(msg: str) -> None:
+        if warn is not None:
+            warn(msg)
+        else:
+            print(f"⚠️  {msg}", file=sys.stderr, flush=True)
+
     if path is None or not Path(path).is_file():
         return {}
     try:
         rows = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        print(f"⚠️  ignoring unreadable {path}: {exc}", file=sys.stderr, flush=True)
+        _report(f"ignoring unreadable {path}: {exc}")
         return {}
     entries: dict[str, ComfyUILibraryEntry] = {}
     # Row by row: one row an upgrade can no longer parse (a renamed category,
@@ -312,7 +322,7 @@ def load_remembered_selections(path: Path | str | None) -> dict[str, ComfyUILibr
         try:
             entry = comfyui_library._dict_to_entry(row, str(row["source"]))
         except (ValueError, KeyError, TypeError) as exc:
-            print(f"⚠️  ignoring a remembered ComfyUI entry in {path}: {exc}", file=sys.stderr, flush=True)
+            _report(f"ignoring a remembered ComfyUI entry in {path}: {exc}")
             continue
         entries[entry.name] = entry
     return entries

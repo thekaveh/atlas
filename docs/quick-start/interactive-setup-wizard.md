@@ -469,6 +469,8 @@ that Compose-managed named volumes and attached anonymous volumes are removed:
 database records, object files, workflow/chat history, models and caches stored
 there are lost. Bind mounts, external volumes, `.env` and managed host processes
 remain; unlike cold start, cold stop does not regenerate configuration.
+While a stop runs, a second stop or cold stop is refused with a warning. Wait for
+the first stop to report its result.
 
 Both actions require pressing the **same key twice within eight seconds**. A
 different action re-arms its own confirmation; an expired confirmation requires

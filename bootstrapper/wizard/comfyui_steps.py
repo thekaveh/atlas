@@ -286,14 +286,15 @@ def _family_parent_option(
     )
 
 
-def _remembered_selected(catalog, sidecar, selected: set[str]) -> list[ComfyUILibraryEntry]:
+def _remembered_selected(catalog, sidecar, selected: set[str],
+                         warn: Callable[[str], None] | None = None) -> list[ComfyUILibraryEntry]:
     """Selected names the live scrape no longer returns, from the entries
     remembered at earlier starts (#1448). Without them the step showed no
     row for such a name and confirming it removed the name from .env."""
     from utils.comfyui_resolver import _default_remembered_path, load_remembered_selections
 
     known = {e.name for e in catalog} | {e.name for e in sidecar}
-    remembered = load_remembered_selections(_default_remembered_path())
+    remembered = load_remembered_selections(_default_remembered_path(), warn=warn)
     return [entry for name, entry in remembered.items() if name in selected and name not in known]
 
 
@@ -379,6 +380,27 @@ def _merged_comfyui_options(
     return options
 
 
+def _with_saved_comfyui_rows(rows: list[PromptOption], selected: set[str]) -> list[PromptOption]:
+    """A flat "saved" row for each selected name no row offers (cycle 37).
+
+    ComfyUI counterpart of ``llm_steps._with_saved_rows`` (#1180): the panel
+    drops a default with no matching row, so a name in neither the catalog,
+    the sidecar nor the remembered file left .env on the next Enter.
+    """
+    from wizard.llm_steps import BADGE_SAVED  # noqa: PLC0415
+
+    known = {r.value for r in rows} | {leaf for r in rows for leaf in (r.sizes or ())}
+    return rows + [
+        PromptOption(
+            value=name, label=name,
+            hint="already in .env; kept so it is not dropped when unlisted",
+            badges=[BADGE_SAVED],
+        )
+        for name in sorted(selected)
+        if name not in known
+    ]
+
+
 def _to_prompt_option(opt: _ComfyUIOption) -> PromptOption:
     """Convert an internal _ComfyUIOption to a real PromptOption for the
     wizard's PromptStep. The group is already embedded in opt.badges;
@@ -452,7 +474,7 @@ def build_comfyui_steps(
         sidecar: list[ComfyUILibraryEntry] = []
         for sidecar_path in sidecar_paths:
             sidecar.extend(load_custom_models(sidecar_path))
-        catalog = catalog + _remembered_selected(catalog, sidecar, existing_names)
+        catalog = catalog + _remembered_selected(catalog, sidecar, existing_names, warn=_warn)
 
         # Filesystem scan for already-downloaded models (best-effort —
         # see _resolve_models_volume_root for when this yields nothing).
@@ -471,7 +493,7 @@ def build_comfyui_steps(
             gpu_mem_gb=gpu_mem,
             warn=_warn,
         )
-        return [_to_prompt_option(o) for o in raw]
+        return _with_saved_comfyui_rows([_to_prompt_option(o) for o in raw], existing_names)
 
     # Pre-checked values seed from env (parallel to ollama_default_values).
     comfyui_default_values = sorted(existing_names) if existing_names else []

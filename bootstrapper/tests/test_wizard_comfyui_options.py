@@ -373,3 +373,26 @@ def test_a_remembered_selection_renders_as_a_checked_row(tmp_path, monkeypatch):
     assert "owner--hf-model" in [o.value for o in options]
     # Pre-checked: the panel keeps a default only when it maps to a row.
     assert "owner--hf-model" in step.default_values
+
+
+def test_an_unresolvable_saved_name_keeps_a_row_and_the_reason_is_shown(tmp_path, monkeypatch):
+    """A saved name in neither the catalog, the sidecar nor the remembered
+    file had no row, so Enter removed it from .env. A corrupt remembered
+    file reported only to stderr, which the TUI discards (cycle 37)."""
+    from utils import comfyui_library, comfyui_resolver
+
+    path = tmp_path / "selected-library-entries.json"
+    path.write_text("{not json")
+    monkeypatch.setattr(comfyui_resolver, "_default_remembered_path", lambda: path)
+    monkeypatch.setattr(comfyui_library, "assemble_wizard_catalog", lambda: [_entry("civitai-1", source="civitai")])
+    warnings: list[str] = []
+    step = build_comfyui_steps(
+        env_vars={"COMFYUI_SOURCE": "container-cpu", "COMFYUI_USER_MODELS": "civitai-1,gone-model",
+                  "COMFYUI_CUSTOM_MODELS_FILE": str(tmp_path / "none.yaml")},
+        warn=warnings.append,
+    )[0]
+    options = step.options_provider({})
+    values = [o.value for o in options]
+    assert values.count("gone-model") == 1 and values.count("civitai-1") == 1
+    assert "saved" in next(o for o in options if o.value == "gone-model").badges
+    assert any("ignoring unreadable" in w for w in warnings), warnings

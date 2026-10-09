@@ -517,10 +517,12 @@ async def _capture_bounded_process_output(
         sink(line + "\n")
         captured_bytes = _append_bounded_hint(captured, line, captured_bytes)
 
+    from utils.system import compose_env  # noqa: PLC0415
+
     returncode = await _run_streamed_command(
         command,
         cwd=cwd,
-        env=os.environ.copy(),
+        env=compose_env(command),
         on_line=capture_line,
         timeout_seconds=timeout_seconds,
     )
@@ -3280,6 +3282,11 @@ class WizardScreen(Screen):
         # during setup/build/`up` a `down` would race the in-flight launch.
         if self._phase != "launch" or not self._launch_succeeded:
             return
+        if getattr(self, "_teardown_running", False):
+            # A second stop raced the first (compose down and down -v at
+            # once) and its outcome was never reported (cycle 37).
+            self.notify("A stop is already running; wait for it to finish.", severity="warning")
+            return
         now = _teardown_clock()
         if self._pending_teardown == cold and now < self._pending_teardown_deadline:
             self._pending_teardown = None
@@ -3319,6 +3326,13 @@ class WizardScreen(Screen):
     async def _teardown_worker(self, *, cold: bool) -> None:
         """Run the teardown off the UI thread and report honestly."""
         label = "Cold stop" if cold else "Stop"
+        self._teardown_running = True
+        try:
+            await self._run_teardown(label, cold)
+        finally:
+            self._teardown_running = False
+
+    async def _run_teardown(self, label: str, cold: bool) -> None:
         self._write_status(f"{label}: tearing down containers…", style="yellow")
         try:
             stopper = self._stopper_factory()
@@ -3993,7 +4007,12 @@ class WizardScreen(Screen):
         full_cmd = self._starter.docker_manager._build_compose_command(
             args, top_level_flags=["--ansi=never"],
         )
-        env = {**os.environ, "BUILDKIT_PROGRESS": "plain"}
+        # compose_env pins PROJECT_NAME to the -p value, as the threaded
+        # executor does: a stray shell export made this `up` use another
+        # project's volumes than stop and --no-tui (2026-10-08 run, cycle 37).
+        from utils.system import compose_env  # noqa: PLC0415
+
+        env = {**compose_env(full_cmd), "BUILDKIT_PROGRESS": "plain"}
         # Route through _safe_log so every compose line lands in the
         # launch-log tee (/tmp/atlas-launch-*.log). Direct
         # _log_pane.write_* calls bypassed the tee — image-pull errors

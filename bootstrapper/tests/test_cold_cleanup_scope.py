@@ -703,3 +703,16 @@ def test_a_manager_refusal_exits_cleanly_instead_of_a_traceback(monkeypatch):
     assert result.exit_code == 1
     assert "Remove failed: models path is inside the state directory" in result.output
     assert isinstance(result.exception, SystemExit)
+
+
+def test_the_wizard_up_and_bounded_capture_pin_project_name_too():
+    """The launch `up` and bounded captures ran with os.environ, so a stray
+    PROJECT_NAME export named volumes differently from stop (cycle 37)."""
+    import inspect
+
+    from ui.textual.screens import wizard_screen
+
+    assert "compose_env(full_cmd)" in inspect.getsource(wizard_screen.WizardScreen._run_compose)
+    capture = inspect.getsource(wizard_screen._capture_bounded_process_output)
+    assert "compose_env(command)" in capture
+    assert "os.environ" not in capture

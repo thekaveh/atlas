@@ -301,3 +301,45 @@ def test_a_failed_launch_does_not_advertise_teardown():
     assert succeeded is False
     keys = {k for ks, _ in hints for k in ks}
     assert "ctrl+s" not in keys and "ctrl+x" not in keys, hints
+
+
+def test_a_second_stop_is_refused_while_one_is_running():
+    """A cold stop must not start while a normal stop is still running.
+
+    The worker is exclusive, but the stopper runs in a thread that a
+    cancelled worker cannot stop: compose down and down -v ran at once,
+    and only the second outcome was reported (2026-10-08 run, cycle 37).
+    """
+    import threading
+
+    release = threading.Event()
+
+    class _SlowStopper(_FakeStopper):
+        def stop_services(self, cold_stop: bool, project_name: str) -> bool:
+            self.calls.append((cold_stop, project_name))
+            release.wait(5)
+            return True
+
+    stopper = _SlowStopper()
+    scr = _launched_screen_with(stopper)
+
+    async def scenario():
+        async with _App(scr).run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            scr._phase = "launch"
+            scr._launch_succeeded = True
+            scr.action_stop_stack()
+            scr.action_stop_stack()
+            await pilot.pause()
+            await asyncio.sleep(0.1)
+            scr.action_stop_stack_cold()
+            scr.action_stop_stack_cold()
+            await pilot.pause()
+            await asyncio.sleep(0.1)
+            calls = list(stopper.calls)
+            release.set()
+            await asyncio.sleep(0.1)
+            return calls
+
+    calls = _run(scenario)
+    assert calls == [(False, calls[0][1])], calls
