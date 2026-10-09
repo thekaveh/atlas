@@ -1611,19 +1611,19 @@ services:
         required: true
       supabase-api:
         condition: service_started
-        required: true
+        required: false
       supabase-auth:
         condition: service_started
-        required: true
+        required: false
       supabase-meta:
         condition: service_started
-        required: true
+        required: false
       supabase-realtime:
         condition: service_started
-        required: true
+        required: false
       supabase-storage:
         condition: service_started
-        required: true
+        required: false
     environment:
       KONG_DATABASE: 'off'
       KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
@@ -4115,6 +4115,8 @@ services:
       supabase-db-init:
         condition: service_completed_successfully
         required: true
+    deploy:
+      replicas: 1
     environment:
       PGRST_DB_ANON_ROLE: anon
       PGRST_DB_SCHEMA: public,storage
@@ -4141,6 +4143,8 @@ services:
       supabase-db-init:
         condition: service_completed_successfully
         required: true
+    deploy:
+      replicas: 1
     environment:
       API_EXTERNAL_URL: http://supabase-auth:9999
       DB_NAMESPACE: auth
@@ -4331,6 +4335,8 @@ services:
       supabase-db-init:
         condition: service_completed_successfully
         required: true
+    deploy:
+      replicas: 1
     environment:
       CRYPTO_KEY: ''
       PG_META_DB_HOST: supabase-db
@@ -4353,13 +4359,15 @@ services:
     depends_on:
       supabase-api:
         condition: service_started
-        required: true
+        required: false
       supabase-auth:
         condition: service_started
-        required: true
+        required: false
       supabase-db-init:
         condition: service_completed_successfully
         required: true
+    deploy:
+      replicas: 1
     environment:
       APP_NAME: realtime
       DB_CHANNEL_ENABLED: 'true'
@@ -4401,6 +4409,8 @@ services:
       supabase-db-init:
         condition: service_completed_successfully
         required: true
+    deploy:
+      replicas: 1
     environment:
       ANON_KEY: ''
       DATABASE_URL: postgresql://supabase_storage_admin:atlas-db-password@supabase-db:5432/postgres
@@ -4461,6 +4471,8 @@ services:
       supabase-storage:
         condition: service_started
         required: true
+    deploy:
+      replicas: 1
     environment:
       AUTH_JWT_SECRET: ''
       DEFAULT_ORGANIZATION_NAME: atlas
