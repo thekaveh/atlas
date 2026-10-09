@@ -5890,9 +5890,9 @@ GRANT ALL ON TABLE extensions.pg_stat_statements TO postgres WITH GRANT OPTION;
 GRANT ALL ON TABLE extensions.pg_stat_statements_info TO postgres WITH GRANT OPTION;
 
 GRANT ALL ON TABLE public.comfyui_generations TO postgres;
-GRANT ALL ON TABLE public.comfyui_generations TO anon;
-GRANT ALL ON TABLE public.comfyui_generations TO authenticated;
-GRANT ALL ON TABLE public.comfyui_generations TO service_role;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.comfyui_generations TO anon;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.comfyui_generations TO authenticated;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.comfyui_generations TO service_role;
 GRANT SELECT ON TABLE public.comfyui_generations TO atlas_realtime;
 GRANT SELECT ON TABLE public.comfyui_generations TO atlas_airflow_reader;
 GRANT SELECT ON TABLE public.comfyui_generations TO atlas_mcp;
@@ -5901,9 +5901,9 @@ GRANT SELECT ON TABLE public.comfyui_generations TO atlas_zeppelin;
 GRANT SELECT ON TABLE public.comfyui_generations TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.comfyui_workflows TO postgres;
-GRANT ALL ON TABLE public.comfyui_workflows TO anon;
-GRANT ALL ON TABLE public.comfyui_workflows TO authenticated;
-GRANT ALL ON TABLE public.comfyui_workflows TO service_role;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.comfyui_workflows TO anon;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.comfyui_workflows TO authenticated;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.comfyui_workflows TO service_role;
 GRANT SELECT ON TABLE public.comfyui_workflows TO atlas_realtime;
 GRANT SELECT ON TABLE public.comfyui_workflows TO atlas_airflow_reader;
 GRANT SELECT ON TABLE public.comfyui_workflows TO atlas_mcp;
@@ -5911,6 +5911,12 @@ GRANT SELECT ON TABLE public.comfyui_workflows TO atlas_jupyter;
 GRANT SELECT ON TABLE public.comfyui_workflows TO atlas_zeppelin;
 GRANT SELECT ON TABLE public.comfyui_workflows TO atlas_studio_readonly;
 
+REVOKE ALL ON TABLE public.geography_columns FROM anon;
+REVOKE ALL ON TABLE public.geography_columns FROM authenticated;
+REVOKE ALL ON TABLE public.geography_columns FROM service_role;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.geography_columns TO anon;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.geography_columns TO authenticated;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.geography_columns TO service_role;
 GRANT SELECT ON TABLE public.geography_columns TO atlas_realtime;
 GRANT SELECT ON TABLE public.geography_columns TO atlas_airflow_reader;
 GRANT SELECT ON TABLE public.geography_columns TO atlas_mcp;
@@ -5918,6 +5924,12 @@ GRANT SELECT ON TABLE public.geography_columns TO atlas_jupyter;
 GRANT SELECT ON TABLE public.geography_columns TO atlas_zeppelin;
 GRANT SELECT ON TABLE public.geography_columns TO atlas_studio_readonly;
 
+REVOKE ALL ON TABLE public.geometry_columns FROM anon;
+REVOKE ALL ON TABLE public.geometry_columns FROM authenticated;
+REVOKE ALL ON TABLE public.geometry_columns FROM service_role;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.geometry_columns TO anon;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.geometry_columns TO authenticated;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.geometry_columns TO service_role;
 GRANT SELECT ON TABLE public.geometry_columns TO atlas_realtime;
 GRANT SELECT ON TABLE public.geometry_columns TO atlas_airflow_reader;
 GRANT SELECT ON TABLE public.geometry_columns TO atlas_mcp;
@@ -5926,9 +5938,9 @@ GRANT SELECT ON TABLE public.geometry_columns TO atlas_zeppelin;
 GRANT SELECT ON TABLE public.geometry_columns TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.media_spend_ledger TO postgres;
-GRANT ALL ON TABLE public.media_spend_ledger TO anon;
-GRANT ALL ON TABLE public.media_spend_ledger TO authenticated;
-GRANT ALL ON TABLE public.media_spend_ledger TO service_role;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.media_spend_ledger TO anon;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.media_spend_ledger TO authenticated;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.media_spend_ledger TO service_role;
 GRANT SELECT ON TABLE public.media_spend_ledger TO atlas_realtime;
 GRANT SELECT ON TABLE public.media_spend_ledger TO atlas_airflow_reader;
 GRANT SELECT ON TABLE public.media_spend_ledger TO atlas_mcp;
@@ -5938,8 +5950,8 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.media_spend_ledger TO atlas_ba
 GRANT SELECT ON TABLE public.media_spend_ledger TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.memory_consolidation_log TO postgres;
-GRANT ALL ON TABLE public.memory_consolidation_log TO anon;
-GRANT ALL ON TABLE public.memory_consolidation_log TO authenticated;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.memory_consolidation_log TO anon;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.memory_consolidation_log TO authenticated;
 GRANT ALL ON TABLE public.memory_consolidation_log TO service_role;
 GRANT SELECT ON TABLE public.memory_consolidation_log TO atlas_realtime;
 GRANT SELECT ON TABLE public.memory_consolidation_log TO atlas_airflow_reader;
@@ -5959,8 +5971,8 @@ GRANT SELECT ON TABLE public.memory_embedding_schema_state TO atlas_backend;
 GRANT SELECT ON TABLE public.memory_embedding_schema_state TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.memory_facts TO postgres;
-GRANT ALL ON TABLE public.memory_facts TO anon;
-GRANT ALL ON TABLE public.memory_facts TO authenticated;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.memory_facts TO anon;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.memory_facts TO authenticated;
 GRANT ALL ON TABLE public.memory_facts TO service_role;
 GRANT SELECT ON TABLE public.memory_facts TO atlas_realtime;
 GRANT SELECT ON TABLE public.memory_facts TO atlas_airflow_reader;
@@ -5971,8 +5983,8 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.memory_facts TO atlas_backend;
 GRANT SELECT ON TABLE public.memory_facts TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.memory_sessions TO postgres;
-GRANT ALL ON TABLE public.memory_sessions TO anon;
-GRANT ALL ON TABLE public.memory_sessions TO authenticated;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.memory_sessions TO anon;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.memory_sessions TO authenticated;
 GRANT ALL ON TABLE public.memory_sessions TO service_role;
 GRANT SELECT ON TABLE public.memory_sessions TO atlas_realtime;
 GRANT SELECT ON TABLE public.memory_sessions TO atlas_airflow_reader;
@@ -5983,8 +5995,8 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.memory_sessions TO atlas_backe
 GRANT SELECT ON TABLE public.memory_sessions TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.research_logs TO postgres;
-GRANT ALL ON TABLE public.research_logs TO anon;
-GRANT ALL ON TABLE public.research_logs TO authenticated;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.research_logs TO anon;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.research_logs TO authenticated;
 GRANT ALL ON TABLE public.research_logs TO service_role;
 GRANT SELECT ON TABLE public.research_logs TO atlas_realtime;
 GRANT SELECT ON TABLE public.research_logs TO atlas_airflow_reader;
@@ -5995,8 +6007,8 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.research_logs TO atlas_backend
 GRANT SELECT ON TABLE public.research_logs TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.research_results TO postgres;
-GRANT ALL ON TABLE public.research_results TO anon;
-GRANT ALL ON TABLE public.research_results TO authenticated;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.research_results TO anon;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.research_results TO authenticated;
 GRANT ALL ON TABLE public.research_results TO service_role;
 GRANT SELECT ON TABLE public.research_results TO atlas_realtime;
 GRANT SELECT ON TABLE public.research_results TO atlas_airflow_reader;
@@ -6007,8 +6019,8 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.research_results TO atlas_back
 GRANT SELECT ON TABLE public.research_results TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.research_sessions TO postgres;
-GRANT ALL ON TABLE public.research_sessions TO anon;
-GRANT ALL ON TABLE public.research_sessions TO authenticated;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.research_sessions TO anon;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.research_sessions TO authenticated;
 GRANT ALL ON TABLE public.research_sessions TO service_role;
 GRANT SELECT ON TABLE public.research_sessions TO atlas_realtime;
 GRANT SELECT ON TABLE public.research_sessions TO atlas_airflow_reader;
@@ -6019,8 +6031,8 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.research_sessions TO atlas_bac
 GRANT SELECT ON TABLE public.research_sessions TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.research_sources TO postgres;
-GRANT ALL ON TABLE public.research_sources TO anon;
-GRANT ALL ON TABLE public.research_sources TO authenticated;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.research_sources TO anon;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.research_sources TO authenticated;
 GRANT ALL ON TABLE public.research_sources TO service_role;
 GRANT SELECT ON TABLE public.research_sources TO atlas_realtime;
 GRANT SELECT ON TABLE public.research_sources TO atlas_airflow_reader;
@@ -6031,9 +6043,9 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.research_sources TO atlas_back
 GRANT SELECT ON TABLE public.research_sources TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.schema_migrations TO postgres;
-GRANT ALL ON TABLE public.schema_migrations TO anon;
-GRANT ALL ON TABLE public.schema_migrations TO authenticated;
-GRANT ALL ON TABLE public.schema_migrations TO service_role;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.schema_migrations TO anon;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.schema_migrations TO authenticated;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.schema_migrations TO service_role;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.schema_migrations TO atlas_realtime;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.schema_migrations TO supabase_auth_admin;
 GRANT SELECT ON TABLE public.schema_migrations TO atlas_airflow_reader;
@@ -6044,6 +6056,8 @@ GRANT SELECT ON TABLE public.schema_migrations TO atlas_studio_readonly;
 
 REVOKE ALL ON TABLE public.spatial_ref_sys FROM anon;
 REVOKE ALL ON TABLE public.spatial_ref_sys FROM authenticated;
+REVOKE ALL ON TABLE public.spatial_ref_sys FROM service_role;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.spatial_ref_sys TO service_role;
 GRANT SELECT ON TABLE public.spatial_ref_sys TO atlas_realtime;
 GRANT SELECT ON TABLE public.spatial_ref_sys TO atlas_airflow_reader;
 GRANT SELECT ON TABLE public.spatial_ref_sys TO atlas_mcp;
@@ -6052,9 +6066,9 @@ GRANT SELECT ON TABLE public.spatial_ref_sys TO atlas_zeppelin;
 GRANT SELECT ON TABLE public.spatial_ref_sys TO atlas_studio_readonly;
 
 GRANT ALL ON TABLE public.users TO postgres;
-GRANT ALL ON TABLE public.users TO anon;
-GRANT ALL ON TABLE public.users TO authenticated;
-GRANT ALL ON TABLE public.users TO service_role;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.users TO anon;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.users TO authenticated;
+GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.users TO service_role;
 GRANT SELECT ON TABLE public.users TO atlas_realtime;
 GRANT SELECT ON TABLE public.users TO atlas_airflow_reader;
 GRANT SELECT ON TABLE public.users TO atlas_mcp;
@@ -6170,9 +6184,9 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES 
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO service_role;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON TABLES TO postgres;
-ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON TABLES TO anon;
-ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON TABLES TO authenticated;
-ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLES TO anon;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLES TO authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLES TO service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT SELECT ON TABLES TO atlas_studio_readonly;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT SELECT ON TABLES TO atlas_airflow_reader;
 ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT SELECT ON TABLES TO atlas_mcp;

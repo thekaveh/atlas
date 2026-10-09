@@ -100,11 +100,17 @@ REVOKE ALL ON storage.objects FROM anon;
 REVOKE ALL ON storage.buckets FROM authenticated;
 REVOKE ALL ON storage.objects FROM authenticated;
 
--- Create default storage bucket (safe to re-run)
+-- Create default storage bucket (safe to re-run). 05 hands storage.buckets to
+-- the storage-api role, which can then add triggers to it; insert as the
+-- table's owner so such a trigger never runs as the init superuser.
 DO $$ BEGIN
   IF EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'authenticated') THEN
+    EXECUTE pg_catalog.format('SET LOCAL ROLE %I', (
+      SELECT pg_catalog.pg_get_userbyid(c.relowner) FROM pg_catalog.pg_class AS c
+       WHERE c.oid = 'storage.buckets'::pg_catalog.regclass));
     INSERT INTO storage.buckets (id, name)
     VALUES ('default', 'default')
     ON CONFLICT (id) DO NOTHING;
+    RESET ROLE;
   END IF;
 END $$;

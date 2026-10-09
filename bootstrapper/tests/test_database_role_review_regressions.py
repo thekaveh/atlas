@@ -769,3 +769,60 @@ def test_init_refuses_an_overload_of_a_superuser_owned_extension_routine(
     finally:
         db.sql(drop, check=False)
     db.run_init()
+
+
+def test_a_planted_trigger_on_an_init_table_makes_init_refuse(
+    disposable_postgres: DisposablePostgres,
+) -> None:
+    """Client roles held TRIGGER on every public table, and init writes
+    several of them as superuser; a planted statement trigger ran with
+    superuser rights on the next boot (2026-10-08 run, cycle 5)."""
+    db = disposable_postgres
+    owui = TEST_SECRETS["OPEN_WEBUI_DB_USER"]
+    role = dict(user=owui, password=TEST_SECRETS["OPEN_WEBUI_DB_PASSWORD"])
+    for client in ("anon", "authenticated", "service_role"):
+        granted = db.sql(f"SELECT has_table_privilege('{client}', 'public.users', 'TRIGGER')").stdout.strip()
+        assert granted == "f", client
+    try:
+        assert db.sql(
+            "CREATE FUNCTION public.atlas_planted_trigger() RETURNS trigger LANGUAGE plpgsql "
+            "AS $f$ BEGIN RETURN NULL; END $f$", check=False, **role,
+        ).returncode == 0
+        # TRIGGER is revoked from clients now; plant it the way a role that
+        # still held the privilege would have.
+        db.sql("CREATE TRIGGER atlas_planted AFTER INSERT ON public.users "
+               "FOR EACH STATEMENT EXECUTE FUNCTION public.atlas_planted_trigger()")
+        with pytest.raises(subprocess.CalledProcessError) as refused:
+            db.run_init()
+        output = (refused.value.stderr or "") + (refused.value.stdout or "")
+        assert "trigger atlas_planted on public.users" in output
+    finally:
+        db.sql("DROP TRIGGER IF EXISTS atlas_planted ON public.users", check=False)
+        db.sql("DROP FUNCTION IF EXISTS public.atlas_planted_trigger()", check=False)
+    db.run_init()
+
+
+def test_an_overload_in_the_literal_dollar_user_schema_never_runs(
+    disposable_postgres: DisposablePostgres,
+) -> None:
+    """supabase_admin's search_path names a schema literally called "\\$user"
+    ahead of public; a co-tenant that created it planted format(text, name),
+    which 06-permissions then ran as superuser (cycle 5)."""
+    db = disposable_postgres
+    owui = TEST_SECRETS["OPEN_WEBUI_DB_USER"]
+    role = dict(user=owui, password=TEST_SECRETS["OPEN_WEBUI_DB_PASSWORD"])
+    schema = '"\\$user"'
+    planted = "SELECT count(*) FROM pg_roles WHERE rolname = 'atlas_dollar_user_pwned'"
+    try:
+        db.sql(f"CREATE SCHEMA {schema} AUTHORIZATION {owui}")
+        assert db.sql(
+            f"CREATE FUNCTION {schema}.format(f text, a name) RETURNS text LANGUAGE plpgsql AS $p$ BEGIN "
+            "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'atlas_dollar_user_pwned') "
+            "THEN EXECUTE 'CREATE ROLE atlas_dollar_user_pwned'; END IF; "
+            "RETURN pg_catalog.format(f, a); END $p$", check=False, **role,
+        ).returncode == 0
+        db.run_init()
+        assert db.sql(planted).stdout.strip() == "0", "init ran the planted overload as superuser"
+    finally:
+        db.sql("DROP ROLE IF EXISTS atlas_dollar_user_pwned", check=False)
+        db.sql(f"DROP SCHEMA IF EXISTS {schema} CASCADE", check=False)

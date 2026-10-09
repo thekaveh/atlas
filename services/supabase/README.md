@@ -259,22 +259,34 @@ reserved in the port block but is not bound.
 ### 5.2. Security note — writable `public` schema
 
 Open WebUI, LightRAG, pg-meta and Realtime roles can create objects in
-`public`. PostgreSQL resolves an unqualified call to the best type match across
-the search path, so a planted `public` overload can beat a `pg_catalog`
-built-in and run as whoever calls it. Every `SECURITY DEFINER` function in
-the database runs with a `search_path` that excludes `public`. Atlas's own use
-`pg_catalog, pg_temp` (or empty) and qualify `public` objects, and
-`01-extensions.sql` pins PostGIS's `ST_EstimatedExtent` the same way: call its
-schema-qualified three-argument form, because the two-argument form no longer
-finds a table by search path. Superuser-run slices schema-qualify built-ins
-called with non-exact argument types. Because the slices still call some
-routines (`format`, `=`, `<>`, and extension routines such as `vector_dims`)
-without exact types, `db-init-runner` refuses to run while a non-superuser owns
-a function or operator named like a superuser-owned one in `pg_catalog`,
-`public`, `auth` or `extensions`, and names each object: drop them, then
-restart. The backup and restore scripts resolve nothing through `public`
-(`search_path = pg_catalog, pg_temp`). Downstream SQL in `db/_user/` runs as
-the init superuser too: qualify calls the same way (#1456).
+`public`. PostgreSQL resolves an unqualified call to the best type match on the
+search path. A planted `public` overload can therefore beat a `pg_catalog`
+built-in and run as whoever calls it.
+
+Every `SECURITY DEFINER` function in the database pins a `search_path` without
+`public`. Atlas's own functions use `pg_catalog, pg_temp` (or an empty path)
+and qualify `public` objects. `01-extensions.sql` pins PostGIS's
+`ST_EstimatedExtent` the same way, so call its schema-qualified three-argument
+form: the two-argument form no longer finds a table by search path.
+
+Init runs as a superuser, so `db-init-runner` protects it in three ways:
+
+- Every init `psql` call uses `search_path=public,auth,extensions`. The
+  superuser's saved path also names a schema literally called `"\$user"`,
+  which any role with `CREATE` on the database could add ahead of `public`.
+- It refuses to run while a non-superuser owns a function or operator named
+  like a superuser-owned one in `pg_catalog`, `public`, `auth` or
+  `extensions`. Superuser-run slices still call some routines (`format`, `=`,
+  `<>`, `vector_dims`) without exact argument types.
+- It refuses to run while a trigger on a superuser-owned table calls a function
+  that a non-superuser owns. `anon`, `authenticated` and `service_role` hold no
+  `TRIGGER` privilege on `public` tables, and init inserts the default storage
+  bucket as the table's owner.
+
+When init refuses, it names each object. Drop them, then restart. The backup
+and restore scripts resolve nothing through `public` (`search_path =
+pg_catalog, pg_temp`). Downstream SQL in `db/_user/` runs as the init
+superuser too: qualify calls the same way (#1456).
 
 ## 6. Integration Points
 
