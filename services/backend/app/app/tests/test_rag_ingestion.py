@@ -2823,3 +2823,117 @@ def test_two_profiles_never_produce_the_same_object_id():
     first = RagIngestionService._weaviate_objects("Docs_a_b", SimpleNamespace(name="a-b"), chunks)
     second = RagIngestionService._weaviate_objects("Docs_a_b", SimpleNamespace(name="a.b"), chunks)
     assert first[0]["id"] != second[0]["id"]
+
+
+def _schema_client(schema, objects, calls):
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, url, params=None):
+            calls.append(("GET", url))
+            if url.endswith("/v1/objects"):
+                return httpx.Response(200, json={"objects": objects}, request=httpx.Request("GET", url))
+            if "Rag" in schema:
+                return httpx.Response(200, json=schema["Rag"], request=httpx.Request("GET", url))
+            return httpx.Response(404, request=httpx.Request("GET", url))
+
+        async def put(self, url, json):
+            calls.append(("PUT", url))
+            schema["Rag"] = json
+            return httpx.Response(200, request=httpx.Request("PUT", url))
+
+        async def delete(self, url):
+            calls.append(("DELETE", url))
+            schema.pop("Rag", None)
+            return httpx.Response(200, request=httpx.Request("DELETE", url))
+
+        async def post(self, url, json):
+            calls.append(("POST", url))
+            schema[json["class"]] = json
+            return httpx.Response(200, request=httpx.Request("POST", url))
+
+    return Client
+
+
+def test_a_legacy_class_with_matching_vectors_is_adopted_not_dropped(monkeypatch):
+    """Every class created before #1364 has no recorded identity; dropping it
+    on the first run lost the vectors of sources that failed that run, though
+    they were valid (2026-10-08 run, cycle 2)."""
+    schema = {"Rag": {"class": "Rag", "vectorizer": "none"}}
+    calls = []
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_k: _schema_client(schema, [{"vector": [0.1, 0.2, 0.3]}], calls)())
+    rebuilt = asyncio.run(WeaviateClient("http://weaviate").ensure_class("Rag", embedding=("m", 3)))
+    assert rebuilt is False and "DELETE" not in [c[0] for c in calls]
+    assert schema["Rag"]["description"] == WeaviateClient.embedding_identity("m", 3)
+
+    schema = {"Rag": {"class": "Rag", "vectorizer": "none"}}
+    calls.clear()
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_k: _schema_client(schema, [{"vector": [0.1, 0.2]}], calls)())
+    rebuilt = asyncio.run(WeaviateClient("http://weaviate").ensure_class("Rag", embedding=("m", 3)))
+    assert rebuilt is True and "DELETE" in [c[0] for c in calls]
+
+
+def test_a_rebuilt_class_does_not_claim_failed_sources_were_preserved():
+    from types import SimpleNamespace
+
+    from rag_ingestion.service import RagIngestionService
+
+    async def reconcile_objects(*_a, **_k):
+        return None
+
+    service = RagIngestionService.__new__(RagIngestionService)
+    service.deps = SimpleNamespace(weaviate=SimpleNamespace(reconcile_objects=reconcile_objects))
+    phases = {}
+    record = SimpleNamespace(phase=lambda name: phases.setdefault(name, SimpleNamespace(note=None)))
+    state = {"failed_sources": {"bad.pdf"}, "class_rebuilt": True}
+    asyncio.run(service._reconcile_kept_sources(record, SimpleNamespace(name="p"), state, "Rag", []))
+    assert "preserved" not in phases["vector_write"].note and "bad.pdf" in phases["vector_write"].note
+
+
+def test_legacy_only_count_is_atomic_against_a_concurrent_writer(monkeypatch):
+    """SCARD and ZINTERCARD ran as two calls; a create between them made a
+    lone set-only member read as 0, ending a listing early (cycle 2)."""
+    import os
+
+    import redis as redis_module
+
+    from rag_ingestion import store as store_module
+
+    url = os.environ.get("ATLAS_TEST_REDIS_URL")
+    if not url:
+        pytest.skip("needs ATLAS_TEST_REDIS_URL")
+    store = store_module.RedisIngestionStore(url)
+    client = store._redis
+    client.delete(store_module._INDEX_SET, store_module._INDEX_ZSET)
+    client.sadd(store_module._INDEX_SET, "legacy-only", "both")
+    client.zadd(store_module._INDEX_ZSET, {"both": 1})
+    writer = redis_module.Redis.from_url(url)
+
+    def inject():
+        writer.sadd(store_module._INDEX_SET, "concurrent")
+        writer.zadd(store_module._INDEX_ZSET, {"concurrent": 2})
+
+    original_client_scard = type(client).scard
+    original_pipe_scard = redis_module.client.Pipeline.scard
+
+    def client_scard(self, *a, **k):
+        result = original_client_scard(self, *a, **k)
+        inject()
+        return result
+
+    def pipe_scard(self, *a, **k):
+        result = original_pipe_scard(self, *a, **k)
+        inject()
+        return result
+
+    monkeypatch.setattr(type(client), "scard", client_scard)
+    monkeypatch.setattr(redis_module.client.Pipeline, "scard", pipe_scard)
+    try:
+        assert store._legacy_only_members() == 1
+    finally:
+        client.delete(store_module._INDEX_SET, store_module._INDEX_ZSET)
+        writer.close()

@@ -811,6 +811,10 @@ class RagIngestionService:
         record.counts["vectors_written"] = 0
         record.add_error(IngestionError(phase="vector_write", message=message))
 
+    async def _ensure_target_class(self, state, class_name: str) -> None:
+        if await self.deps.weaviate.ensure_class(class_name, embedding=self._embedding_of(state)):
+            state["class_rebuilt"] = True
+
     def _embedding_of(self, state) -> tuple[str, int]:
         """(model, dimension) of this run's vectors: the class identity (#1364)."""
         return (str(getattr(self.deps.embedder, "model", "") or ""), len(state["chunks"][0]["vector"]))
@@ -854,7 +858,15 @@ class RagIngestionService:
             [obj["id"] for obj in objects],
             preserve_sources=failed_sources,
         )
-        if failed_sources:
+        if failed_sources and state.get("class_rebuilt"):
+            # The class was rebuilt for another embedding model or size, so the
+            # failed sources' earlier vectors are gone, not preserved.
+            record.phase("vector_write").note = (
+                f"wrote {len(objects)} object(s); class rebuilt for a new embedding model, "
+                f"so {len(failed_sources)} source(s) that failed this run have no vectors "
+                f"until a later run succeeds ({', '.join(failed_sources[:5])})"
+            )
+        elif failed_sources:
             record.phase("vector_write").note = (
                 f"wrote {len(objects)} object(s); preserved existing vectors for "
                 f"{len(failed_sources)} source(s) that failed this run "
@@ -923,7 +935,7 @@ class RagIngestionService:
                 return
             class_name = weaviate_class_name(target['collection_prefix'], profile.name)
             try:
-                await self.deps.weaviate.ensure_class(class_name, embedding=self._embedding_of(state))
+                await self._ensure_target_class(state, class_name)
                 objects = self._weaviate_objects(class_name, profile, state["chunks"])
                 total += await self.deps.weaviate.write_objects(class_name, objects)
                 # Reconcile PER SOURCE. The deletion pass treats "not in this

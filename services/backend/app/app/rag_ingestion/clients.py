@@ -566,25 +566,59 @@ class WeaviateClient:
         """Class ``description`` naming the vectors it holds (#1364)."""
         return f"atlas-rag-ingestion embedding_model={model} dimension={dimension}"
 
+    async def _adopt_legacy_class(self, client, schema: dict, dimension: int) -> bool:
+        """Record the embedding identity on a class created before Atlas
+        recorded one, when its vectors already have this run's size (or it
+        has none). Returns False when the sizes differ and it must be rebuilt.
+        Atlas cannot tell which model produced same-size legacy vectors."""
+        class_name = schema["class"]
+        sample = await client.get(
+            f"{self._url}/v1/objects", params={"class": class_name, "limit": 1, "include": "vector"}
+        )
+        sample.raise_for_status()
+        objects = sample.json().get("objects") or []
+        if objects and len(objects[0].get("vector") or []) != dimension:
+            return False
+        updated = await client.put(f"{self._url}/v1/schema/{class_name}", json=schema)
+        updated.raise_for_status()
+        return True
+
+    async def _keep_existing_class(
+        self, client, schema: dict, embedding: Optional[tuple[str, int]]
+    ) -> bool:
+        """True to reuse the class as is; otherwise it has been dropped."""
+        class_name = schema["class"]
+        description = self.embedding_identity(*embedding) if embedding else None
+        if description is None or schema.get("description") == description:
+            return True
+        if not schema.get("description") and await self._adopt_legacy_class(
+            client, {**schema, "description": description}, embedding[1]
+        ):
+            return True
+        dropped = await client.delete(f"{self._url}/v1/schema/{class_name}")
+        if dropped.status_code not in (200, 404):
+            dropped.raise_for_status()
+        return False
+
     async def ensure_class(
         self, class_name: str, embedding: Optional[tuple[str, int]] = None
-    ) -> None:
+    ) -> bool:
         """Create ``class_name`` if absent. With ``embedding`` (model,
         dimension), a class recorded for other vectors (or created before the
         identity was recorded) is dropped and recreated: appending vectors of
-        another model or size failed or mixed incompatible spaces (#1364). The
-        run rewrites the profile's corpus, so nothing current is lost."""
+        another model or size failed or mixed incompatible spaces (#1364). A
+        legacy class whose vectors match this run's size is adopted instead.
+        Returns True when an existing class was dropped: its objects, including
+        those of sources that fail this run, are gone."""
         import httpx
 
         description = self.embedding_identity(*embedding) if embedding else None
         async with httpx.AsyncClient(timeout=30.0) as client:
             existing = await client.get(f"{self._url}/v1/schema/{class_name}")
-            if existing.status_code == 200:
-                if description is None or existing.json().get("description") == description:
-                    return
-                dropped = await client.delete(f"{self._url}/v1/schema/{class_name}")
-                if dropped.status_code not in (200, 404):
-                    dropped.raise_for_status()
+            if existing.status_code == 200 and await self._keep_existing_class(
+                client, {"class": class_name, **existing.json()}, embedding
+            ):
+                return False
             resp = await client.post(
                 f"{self._url}/v1/schema",
                 json={
@@ -609,6 +643,7 @@ class WeaviateClient:
                     resp.raise_for_status()
             elif resp.status_code != 200:
                 resp.raise_for_status()
+        return existing.status_code == 200
 
     async def write_objects(self, class_name: str, objects: List[Dict[str, Any]]) -> int:
         import httpx
