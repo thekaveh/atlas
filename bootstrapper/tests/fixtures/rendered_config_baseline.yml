@@ -999,6 +999,7 @@ services:
     - type: bind
       source: '{REPO_ROOT}/services/comfyui/init/scripts'
       target: /scripts
+      read_only: true
       bind: {}
     - type: volume
       source: comfyui-models
@@ -1486,7 +1487,7 @@ services:
         BASE_IMAGE: quay.io/jupyter/datascience-notebook:2026-08-24@sha256:e5029672ab8a861345f117dc466a4dab91ad7c299f3c7c853b9b193860b16aaf
     command:
     - start-notebook.sh
-    - --ServerApp.allow_origin=*
+    - --ServerApp.allow_origin=
     - --ServerApp.allow_remote_access=True
     - --ServerApp.disable_check_xsrf=False
     container_name: atlas-jupyterhub
@@ -1518,7 +1519,7 @@ services:
       HERMES_ENDPOINT: ''
       ICEBERG_REST_URI: http://iceberg-rest:8181
       ICEBERG_WAREHOUSE: s3://lakehouse/
-      JUPYTER_ALLOW_ORIGIN: '*'
+      JUPYTER_ALLOW_ORIGIN: ''
       JUPYTER_ENABLE_LAB: 'yes'
       JUPYTER_TOKEN: ''
       LABEL_STUDIO_API_KEY: ''
@@ -1705,6 +1706,7 @@ services:
       POSTGRE_PORT: '5432'
       POSTGRE_USER: label_studio
       SECRET_KEY: ''
+      SSRF_PROTECTION_ENABLED: 'true'
       STORAGE_AWS_ACCESS_KEY_ID: ''
       STORAGE_AWS_BUCKET_NAME: label-studio
       STORAGE_AWS_ENDPOINT_URL: http://minio:9000
@@ -4042,6 +4044,7 @@ services:
       SPARK_MASTER_HOST: spark-master
       SPARK_MASTER_OPTS: -Dspark.master.rest.enabled=true -Dspark.master.rest.host=spark-master
         -Dspark.master.rest.port=6066 -Dspark.standalone.submit.waitAppCompletion=true
+        -Dspark.ui.killEnabled=false
     healthcheck:
       test:
       - CMD
@@ -4158,6 +4161,9 @@ services:
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DISABLE_SIGNUP: 'false'
       GOTRUE_EXTERNAL_EMAIL_ENABLED: 'true'
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
       GOTRUE_JWT_EXP: '3600'
       GOTRUE_JWT_SECRET: ''
       GOTRUE_MAILER_AUTOCONFIRM: 'true'
@@ -4193,12 +4199,6 @@ services:
         max-size: 10m
     networks:
       backend-network: null
-    ports:
-    - mode: ingress
-      host_ip: 127.0.0.1
-      target: 9999
-      published: '63016'
-      protocol: tcp
     restart: unless-stopped
   supabase-db:
     command:

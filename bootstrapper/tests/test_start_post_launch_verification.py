@@ -765,4 +765,7 @@ def test_port_verification_skips_disabled_supabase_subservices(monkeypatch):
     starter.show_container_status_and_verify_ports(on_line=lambda _msg, _level: None)
 
     assert ("supabase-storage", "5000") not in calls
-    assert ("supabase-auth", "9999") in calls
+    # supabase-auth is not host-published: probing it reported every default
+    # launch as a failed port check (2026-10-08 run, cycle 59).
+    assert ("supabase-auth", "9999") not in calls
+    assert ("weaviate", "8080") in calls

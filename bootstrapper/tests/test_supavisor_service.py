@@ -277,5 +277,7 @@ def test_gotrue_listens_where_kong_storage_and_the_port_map_point():
     auth = compose["services"]["supabase-auth"]
     assert auth["environment"]["GOTRUE_API_PORT"] == "9999"
     assert auth["environment"]["GOTRUE_API_HOST"] == "0.0.0.0"
-    assert auth["ports"][0].endswith(":9999")
+    # Not host-published any more (2026-10-08 run, cycle 56): Kong and
+    # Storage reach it on the network.
+    assert "ports" not in auth
     assert "http://localhost:9999/health" in auth["healthcheck"]["test"]

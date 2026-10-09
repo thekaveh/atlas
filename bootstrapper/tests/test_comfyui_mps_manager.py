@@ -1905,3 +1905,163 @@ def test_start_restarts_an_owned_process_launched_with_other_settings(tmp_path, 
     assert mgr.listen in launched["args"]
     record = json.loads(mgr.status_file.read_text())
     assert (record["port"], record["listen"]) == (mgr.port, mgr.listen)
+
+
+# ── provisioning tests from cycle 55 (here because test_comfyui_mps_provision
+# is at its logical-line limit) ─────────────────────────────────────────
+from tests.test_comfyui_mps_provision import (  # noqa: E402
+    ComfyUiMpsManager as _ProvisionManager,
+    _dest,
+    _node_dict,
+    _node_manager,
+    _row,
+    _simulate_clone,
+)
+
+
+def test_a_republished_file_is_fetched_whole_not_spliced(tmp_path, monkeypatch):
+    """A resumed part was appended to whatever the server now served: a
+    re-published, larger file was spliced onto the old bytes and, with no
+    sha, kept as present (2026-10-08 run, cycle 55)."""
+    import io
+
+    from services import comfyui_mps_manager as module
+
+    m = _ProvisionManager(state_dir=tmp_path / "state", models_path=tmp_path / "models")
+    (tmp_path / "models").mkdir()
+    old, new = b"A" * 1000, b"B" * 1500
+
+    class Response(io.BytesIO):
+        def __init__(self, body, status, headers):
+            super().__init__(body)
+            self.headers = headers
+            self.status = status
+
+    calls = []
+
+    def urlopen(request, timeout=30):
+        calls.append(request.get_header("If-range"))
+        if len(calls) == 1:
+            return Response(old[:400], 200, {"Content-Length": str(len(old)), "ETag": '"old"'})
+        # The validator no longer matches: the server sends the new file whole.
+        return Response(new, 200, {"Content-Length": str(len(new)), "ETag": '"new"'})
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", urlopen)
+    assert m.provision_models([_row(sha256="")]).failed
+    assert m.provision_models([_row(sha256="")]).provisioned == ["vae/t.safetensors"]
+    assert calls[1] == '"old"' and _dest(m).read_bytes() == new
+
+
+
+def test_a_non_git_node_folder_is_kept_and_reported(tmp_path):
+    """A node folder without .git (a zip install, a patched copy) was deleted
+    and replaced by a clone; the container refuses (2026-10-08 run, cycle 55)."""
+    m = _node_manager(tmp_path)
+    dest = m.repo_dir / "custom_nodes" / "my-node"
+    dest.mkdir(parents=True)
+    (dest / "my_local_patch.py").write_text("x")
+    m._run = lambda cmd: _simulate_clone(cmd)
+    r = m.provision_custom_nodes([_node_dict("my-node")])
+    assert r.failed and "not a git checkout" in r.failed[0]
+    assert (dest / "my_local_patch.py").exists()
+
+
+def test_concurrent_node_provisioning_runs_one_at_a_time(tmp_path):
+    """Two runs shared <name>.tmp: one renamed the other's half-made clone
+    into place and reported it provisioned (2026-10-08 run, cycle 55)."""
+    import threading
+    import time
+
+    m = _node_manager(tmp_path)
+    started = threading.Event()
+
+    def slow_run(cmd):
+        if cmd[:2] == ["git", "clone"]:
+            started.set()
+            time.sleep(0.3)
+        _simulate_clone(cmd)
+
+    m._run = slow_run
+    m._rev_parse = lambda _dest: "a" * 40
+    results = []
+    first = threading.Thread(target=lambda: results.append(m.provision_custom_nodes([_node_dict("my-node")])))
+    first.start()
+    started.wait(5)
+    second = _ProvisionManager(state_dir=tmp_path / "state")
+    second._run, second._rev_parse = slow_run, m._rev_parse
+    results.append(second.provision_custom_nodes([_node_dict("my-node")]))
+    first.join(10)
+    assert all(r.ok for r in results), [r.failed for r in results]
+    assert (m.repo_dir / "custom_nodes" / "my-node" / ".git").exists()
+
+
+def test_a_misaligned_or_unlabelled_206_is_refetched_whole(tmp_path, monkeypatch):
+    """A 206 that did not start at the part's end was written as the whole
+    file, so a tail-only weight was published (2026-10-08 run, cycle 63)."""
+    import io
+
+    from services import comfyui_mps_manager as module
+
+    payload = bytes(range(256)) * 4
+
+    class Response(io.BytesIO):
+        def __init__(self, body, status, headers):
+            super().__init__(body)
+            self.headers = {"Content-Length": str(len(body)), **headers}
+            self.status = status
+
+    for bad_range in ({}, {"Content-Range": f"bytes 500-{len(payload) - 1}/{len(payload)}"}):
+        m = _ProvisionManager(state_dir=tmp_path / "s", models_path=tmp_path / "models")
+        part = tmp_path / "w.part"
+        part.write_bytes(payload[:300])
+        module._validator_path(part).write_text('"v1"')
+        calls = []
+
+        def urlopen(request, timeout=30, _bad=bad_range):
+            calls.append(request.get_header("Range"))
+            if request.get_header("Range"):
+                return Response(payload[500:], 206, _bad)
+            return Response(payload, 200, {"ETag": '"v1"'})
+
+        monkeypatch.setattr(module.urllib.request, "urlopen", urlopen)
+        m._fetch_to_part("https://example/w", part)
+        assert part.read_bytes() == payload and calls == ["bytes=300-", None], (bad_range, calls)
+
+
+def test_the_resume_validator_rules(tmp_path):
+    """A weak ETag cannot back If-Range, Last-Modified is the fallback, and
+    the validator is removed once the file is published (cycle 63)."""
+    from types import SimpleNamespace
+
+    from services import comfyui_mps_manager as module
+
+    part = tmp_path / "w.part"
+    module._record_validator(part, SimpleNamespace(headers={"ETag": 'W/"weak"', "Last-Modified": "Mon"}))
+    assert module._validator_path(part).read_text() == "Mon"
+    module._record_validator(part, SimpleNamespace(headers={"ETag": '"strong"'}))
+    assert module._validator_path(part).read_text() == '"strong"'
+    module._record_validator(part, SimpleNamespace(headers={}))
+    assert not module._validator_path(part).exists()
+
+    m = _node_manager(tmp_path / "pub")
+    m.models_path = tmp_path / "pub" / "models"
+    m.models_path.mkdir(parents=True)
+
+    def fetch(url, part, chunk_size=1 << 20):
+        part.write_bytes(b"x")
+        module._validator_path(part).write_text('"v"')
+
+    m._fetch_to_part = fetch
+    m.provision_models([_row(sha256="")])
+    assert not module._validator_path(m._part_path(_dest(m))).exists()
+
+
+def test_a_civitai_file_name_is_reduced_where_it_is_parsed():
+    """Only the helper was tested; the parser kept '../x' (cycle 63)."""
+    from utils.comfyui_library import _parse_civitai_response
+
+    entries = _parse_civitai_response({"items": [{"id": 7, "name": "X", "type": "LORA", "stats": {},
+        "modelVersions": [{"files": [{"name": "../evil.safetensors", "primary": True, "sizeKB": 1,
+                                      "downloadUrl": "https://civitai.com/api/download/models/7",
+                                      "hashes": {}}]}]}]}, "lora")
+    assert entries and all(e.filename == "evil.safetensors" for e in entries), entries

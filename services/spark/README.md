@@ -10,7 +10,7 @@ Image: locally built `${PROJECT_NAME}-spark:local` — `FROM apache/spark:4.1.2`
 
 | Surface | URL | Auth |
 |---|---|---|
-| Master UI (direct) | `http://localhost:${SPARK_MASTER_UI_PORT}` | None |
+| Master UI (direct) | `http://localhost:${SPARK_MASTER_UI_PORT}` | None; the UI's kill buttons are off (`spark.ui.killEnabled=false`), so a cross-site form cannot stop applications or drivers |
 | Master UI (Kong) | `http://spark.localhost:${KONG_HTTP_PORT}` | None |
 | History UI (direct) | `http://localhost:${SPARK_HISTORY_PORT}` | None |
 | History UI (Kong) | `http://spark-history.localhost:${KONG_HTTP_PORT}` | None |

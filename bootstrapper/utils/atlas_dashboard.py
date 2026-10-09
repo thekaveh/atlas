@@ -546,6 +546,22 @@ def _own_credential_note(name_l: str, name: str) -> str | None:
     return None
 
 
+def _hard_dependencies(manifest) -> set[str]:
+    """depends_on.required entries the service actually calls, plus its
+    runtime_deps requires. depends_on.required alone also holds slot-ordering
+    pins (ray for prometheus/grafana/loki/tempo/langfuse), reported as missing
+    dependencies (2026-10-08 run, cycle 53); runtime_deps alone lost real ones
+    such as spark→minio (cycle 63)."""
+    from services.manifests import call_edges  # noqa: PLC0415
+
+    called = {edge.target for edge in call_edges(manifest.data_flow)}
+    deps = set(manifest.depends_on.required) & called
+    for spec in (manifest.runtime_deps or {}).values():
+        rules = [spec, *spec.get("conditional_requires", [])] if isinstance(spec, dict) else []
+        deps.update(dep for rule in rules for dep in rule.get("requires") or ())
+    return deps
+
+
 def _dependency_warnings(rows, service_sources: dict[str, str], env: dict[str, str]) -> list[str]:
     by_manifest = {row.manifest: row for row in rows}
     disabled_manifests = {
@@ -561,10 +577,10 @@ def _dependency_warnings(rows, service_sources: dict[str, str], env: dict[str, s
         for manifest in load_manifests(services_root):
             if manifest.name in disabled_manifests:
                 continue
-            missing = [
-                dep for dep in manifest.depends_on.required
+            missing = sorted(
+                dep for dep in _hard_dependencies(manifest)
                 if dep in disabled_manifests and dep in by_manifest
-            ]
+            )
             if missing:
                 warnings.append(
                     f"{manifest.label or manifest.name} has disabled required dependencies: {', '.join(sorted(missing))}."

@@ -710,16 +710,18 @@ def test_a_transfer_cut_short_is_kept_as_a_part_and_resumed(tmp_path, monkeypatc
     requests = []
 
     class Response(io.BytesIO):
-        def __init__(self, body, length, status):
+        def __init__(self, body, status, headers):
             super().__init__(body)
-            self.headers = {"Content-Length": str(length)}
+            self.headers = {"ETag": '"v1"', **headers}
             self.status = status
 
     def urlopen(request, timeout=30):
         requests.append(request.get_header("Range"))
-        if len(requests) == 1:
-            return Response(PAYLOAD[:300], len(PAYLOAD), 200)  # connection drops early
-        return Response(PAYLOAD[300:], len(PAYLOAD) - 300, 206)
+        if len(requests) == 1:  # connection drops early
+            return Response(PAYLOAD[:300], 200, {"Content-Length": str(len(PAYLOAD))})
+        assert request.get_header("If-range") == '"v1"'  # a changed file comes back whole
+        return Response(PAYLOAD[300:], 206, {"Content-Length": str(len(PAYLOAD) - 300),
+                        "Content-Range": f"bytes 300-{len(PAYLOAD) - 1}/{len(PAYLOAD)}"})
 
     monkeypatch.setattr(module.urllib.request, "urlopen", urlopen)
     first = m.provision_models([_row(sha256="")])

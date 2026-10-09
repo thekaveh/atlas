@@ -198,8 +198,8 @@ services:
     environment:
       GOTRUE_SITE_URL: http://supabase-studio:3000
       API_EXTERNAL_URL: http://supabase-auth:9999
-      # GoTrue's built-in default is 8081; Kong, Storage (GOTRUE_URL) and the
-      # published port all target 9999, so without these auth was unreachable.
+      # GoTrue's built-in default is 8081; Kong and Storage (GOTRUE_URL) both
+      # target 9999, so without these auth was unreachable.
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: "9999"
       GOTRUE_DB_DRIVER: postgres
@@ -207,6 +207,12 @@ services:
       GOTRUE_DB_DATABASE_URL: postgres://${SUPABASE_AUTH_DB_USER_URI:?SUPABASE_AUTH_DB_USER_URI is required}:${SUPABASE_AUTH_DB_PASSWORD_URI:?SUPABASE_AUTH_DB_PASSWORD_URI is required}@supabase-db:5432/${SUPABASE_DB_NAME_URI:?SUPABASE_DB_NAME_URI is required}
       GOTRUE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
       GOTRUE_JWT_EXP: 3600
+      # Without these every token carried aud "" and role "", which the
+      # backend and PostgREST refuse (2026-10-08 run, cycle 56); upstream
+      # Supabase sets the same values.
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_ADMIN_ROLES: service_role
       GOTRUE_DISABLE_SIGNUP: "false"
       GOTRUE_MAILER_AUTOCONFIRM: "true"
       GOTRUE_MAILER_URLPATHS_INVITE: "/invite"
@@ -227,8 +233,10 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
-    ports:
-      - "${HOST_BIND_IP-127.0.0.1:}${SUPABASE_AUTH_PORT}:9999"
+    # Not published on the host: GoTrue answers any browser origin (CORS *)
+    # with signup and autoconfirm on, so any web page the operator opened
+    # could create an account and read its token. Kong's /auth/v1 route
+    # (key-auth, localhost-scoped CORS) is the host path (cycle 56).
     logging:
       driver: json-file
       options:

@@ -925,3 +925,178 @@ def test_the_default_bucket_insert_never_runs_a_trigger_as_superuser(
         db.sql("DROP TRIGGER IF EXISTS atlas_bucket_probe ON storage.buckets", check=False)
         db.sql("DROP FUNCTION IF EXISTS storage.atlas_bucket_probe()", check=False)
         db.sql("DROP TABLE IF EXISTS public.atlas_bucket_probe", check=False)
+
+
+def test_a_cast_planted_by_the_auth_users_owner_never_runs_as_superuser(
+    disposable_postgres: DisposablePostgres,
+) -> None:
+    """auth.users belongs to GoTrue's login role, which can retype a column
+    and add an implicit cast; the superuser-owned sync trigger and backfill
+    then ran that cast as superuser (2026-10-08 run, cycle 58)."""
+    import contextlib
+
+    db = disposable_postgres
+    owner = db.sql(
+        "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'auth.users'::regclass"
+    ).stdout.strip()
+    as_owner = f"SET ROLE {owner}; "
+    plant = [
+        "CREATE TABLE public.atlas_cast_probe (who name, superuser boolean)",
+        "GRANT INSERT ON public.atlas_cast_probe TO PUBLIC",
+        "INSERT INTO auth.users (id, email) VALUES (gen_random_uuid(), 'cast-probe@example.com')",
+        as_owner + "DROP TRIGGER IF EXISTS on_auth_user_sync ON auth.users",
+        as_owner + "CREATE TYPE auth.atlas_evil AS (j text)",
+        as_owner + "CREATE FUNCTION auth.atlas_evil_cast(auth.atlas_evil) RETURNS jsonb LANGUAGE plpgsql AS $f$ "
+                   "BEGIN BEGIN RESET ROLE; EXCEPTION WHEN others THEN NULL; END; "
+                   "INSERT INTO public.atlas_cast_probe SELECT current_user, "
+                   "(SELECT rolsuper FROM pg_roles WHERE rolname = current_user); RETURN '{}'::jsonb; END $f$",
+        as_owner + "CREATE CAST (auth.atlas_evil AS jsonb) WITH FUNCTION auth.atlas_evil_cast(auth.atlas_evil) AS IMPLICIT",
+        as_owner + "ALTER TABLE auth.users ALTER COLUMN raw_user_meta_data TYPE auth.atlas_evil USING NULL",
+    ]
+    try:
+        for statement in plant:
+            db.sql(statement)
+        with contextlib.suppress(subprocess.CalledProcessError):
+            db.run_init()  # refusing is fine too; running the cast as superuser is not
+        # A GoTrue-style insert fires the sync trigger with the planted type.
+        db.sql(as_owner + "INSERT INTO auth.users (id, email, raw_user_meta_data) VALUES "
+               "(gen_random_uuid(), 'cast-probe2@example.com', ROW('{\"name\":\"z\"}')::auth.atlas_evil)")
+        rows = db.sql("SELECT who, superuser FROM public.atlas_cast_probe").stdout.strip()
+        assert rows, "the planted cast never ran; the test proves nothing"
+        assert all(line.split("|")[-1].strip() == "f" for line in rows.splitlines() if line), rows
+        assert db.sql(f"SELECT rolsuper FROM pg_roles WHERE rolname = '{owner}'").stdout.strip() == "f"
+    finally:
+        db.sql(as_owner + "DROP TRIGGER IF EXISTS on_auth_user_sync ON auth.users", check=False)
+        db.sql("DELETE FROM auth.users WHERE email LIKE 'cast-probe%@example.com'", check=False)
+        db.sql(as_owner + "ALTER TABLE auth.users ALTER COLUMN raw_user_meta_data TYPE jsonb USING NULL", check=False)
+        db.sql(as_owner + "DROP CAST IF EXISTS (auth.atlas_evil AS jsonb)", check=False)
+        db.sql(as_owner + "DROP FUNCTION IF EXISTS auth.atlas_evil_cast(auth.atlas_evil)", check=False)
+        db.sql(as_owner + "DROP TYPE IF EXISTS auth.atlas_evil", check=False)
+        db.sql("DROP TABLE IF EXISTS public.atlas_cast_probe", check=False)
+    db.run_init()
+
+
+def test_users_signed_up_without_claims_get_the_authenticated_role(
+    disposable_postgres: DisposablePostgres,
+) -> None:
+    """supabase-auth set no GOTRUE_JWT_AUD / DEFAULT_GROUP_NAME, so users were
+    stored with aud and role "", and their tokens were refused by the backend
+    and PostgREST; init repairs them (2026-10-08 run, cycle 56)."""
+    db = disposable_postgres
+    rows = {"no-claims@example.com": ("''", "''"), "null-claims@example.com": ("NULL", "NULL"),
+            "admin-claims@example.com": ("''", "'service_role'")}
+    try:
+        for email, (aud, role) in rows.items():
+            db.sql(f"INSERT INTO auth.users (id, email, aud, role) VALUES (gen_random_uuid(), '{email}', {aud}, {role})")
+        db.run_init()
+        claims = dict(line.split("|") for line in db.sql(
+            "SELECT email, coalesce(aud, '-') || '/' || coalesce(role, '-') FROM auth.users "
+            "WHERE email LIKE '%-claims@example.com'").stdout.split())
+        assert claims["no-claims@example.com"] == "authenticated/authenticated"
+        assert claims["null-claims@example.com"] == "authenticated/authenticated"
+        # Only rows with BOTH claims empty are repaired; a set role is kept (cycle 63).
+        assert claims["admin-claims@example.com"] == "/service_role"
+        # The sync role reads only the synced columns, never the password hash.
+        denied = db.sql("SET ROLE atlas_auth_sync; SELECT encrypted_password FROM auth.users LIMIT 1", check=False)
+        assert denied.returncode != 0 and "permission denied" in denied.stderr
+    finally:
+        db.sql("DELETE FROM auth.users WHERE email LIKE '%-claims@example.com'", check=False)
+
+
+def test_supabase_auth_sets_the_claims_and_is_not_host_published():
+    """GoTrue answered any browser origin with signup + autoconfirm on its
+    published port, and issued tokens with empty claims (cycle 56)."""
+    import yaml
+
+    auth = yaml.safe_load((REPO / "services/supabase/compose.yml").read_text())["services"]["supabase-auth"]
+    assert auth["environment"]["GOTRUE_JWT_AUD"] == "authenticated"
+    assert auth["environment"]["GOTRUE_JWT_DEFAULT_GROUP_NAME"] == "authenticated"
+    assert "ports" not in auth
+
+
+_RESET_ROLE_PROBE = (
+    "BEGIN BEGIN RESET ROLE; EXCEPTION WHEN others THEN NULL; END; "
+    "INSERT INTO public.atlas_reset_probe SELECT current_user, "
+    "(SELECT rolsuper FROM pg_roles WHERE rolname = current_user); RETURN NEW; END"
+)
+
+
+@pytest.mark.parametrize("target", ["auth.users", "storage.buckets"])
+def test_a_planted_trigger_cannot_reset_role_to_the_init_superuser(
+    disposable_postgres: DisposablePostgres, target: str,
+) -> None:
+    """Init ran the owner's DML under SET LOCAL ROLE; the session user stayed
+    superuser, so a planted BEFORE trigger ran RESET ROLE and acted as it
+    (2026-10-08 run, cycle 59). Inside a definer function RESET ROLE fails."""
+    db = disposable_postgres
+    owner = db.sql(f"SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = '{target}'::regclass").stdout.strip()
+    schema = target.split(".")[0]
+    as_owner = f"SET ROLE {owner}; "
+    try:
+        db.sql("CREATE TABLE public.atlas_reset_probe (who name, superuser boolean)")
+        db.sql("GRANT INSERT ON public.atlas_reset_probe TO PUBLIC")
+        db.sql(as_owner + f"CREATE FUNCTION {schema}.atlas_reset_probe() RETURNS trigger LANGUAGE plpgsql AS "
+               f"$f$ {_RESET_ROLE_PROBE} $f$")
+        db.sql(as_owner + f"CREATE TRIGGER atlas_reset_probe BEFORE INSERT OR UPDATE ON {target} "
+               f"FOR EACH ROW EXECUTE FUNCTION {schema}.atlas_reset_probe()")
+        if target == "auth.users":
+            db.sql("INSERT INTO auth.users (id, email, aud, role) VALUES (gen_random_uuid(), 'reset-probe@example.com', '', '')")
+        db.sql("TRUNCATE public.atlas_reset_probe")
+        db.run_init()
+        rows = db.sql("SELECT who, superuser FROM public.atlas_reset_probe").stdout.strip()
+        assert rows, "the planted trigger never fired; the test proves nothing"
+        assert all(line.split("|")[-1].strip() == "f" for line in rows.splitlines()), rows
+    finally:
+        db.sql(as_owner + f"DROP TRIGGER IF EXISTS atlas_reset_probe ON {target}", check=False)
+        db.sql(as_owner + f"DROP FUNCTION IF EXISTS {schema}.atlas_reset_probe()", check=False)
+        db.sql("DELETE FROM auth.users WHERE email = 'reset-probe@example.com'", check=False)
+        db.sql("DROP TABLE IF EXISTS public.atlas_reset_probe", check=False)
+
+
+def test_a_cast_planted_on_storage_objects_never_runs_as_superuser(
+    disposable_postgres: DisposablePostgres,
+) -> None:
+    """04 re-adds path_tokens with a generated expression over `name`. The
+    storage role owns storage.objects, so it could drop the column, retype
+    `name` with its own implicit cast to text and let the rewrite run that
+    cast as the init superuser (2026-10-08 run, cycles 59 and 63)."""
+    import contextlib
+
+    db = disposable_postgres
+    owner = db.sql("SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'storage.objects'::regclass").stdout.strip()
+    as_owner = f"SET ROLE {owner}; "
+    plant = [
+        "CREATE TABLE public.atlas_storage_probe (who name, superuser boolean)",
+        "GRANT INSERT ON public.atlas_storage_probe TO PUBLIC",
+        as_owner + "ALTER TABLE storage.objects DROP COLUMN path_tokens",
+        as_owner + "CREATE TYPE storage.atlas_evil AS (j text)",
+        as_owner + "CREATE FUNCTION storage.atlas_probe_write() RETURNS void LANGUAGE plpgsql AS $f$ "
+                   "BEGIN BEGIN RESET ROLE; EXCEPTION WHEN others THEN NULL; END; "
+                   "INSERT INTO public.atlas_storage_probe SELECT current_user, "
+                   "(SELECT rolsuper FROM pg_roles WHERE rolname = current_user); END $f$",
+        as_owner + "CREATE FUNCTION storage.atlas_evil_text(storage.atlas_evil) RETURNS text LANGUAGE plpgsql "
+                   "IMMUTABLE AS $f$ BEGIN PERFORM storage.atlas_probe_write(); RETURN ($1).j; END $f$",
+        as_owner + "CREATE CAST (storage.atlas_evil AS text) WITH FUNCTION storage.atlas_evil_text(storage.atlas_evil) AS IMPLICIT",
+        as_owner + "ALTER TABLE storage.objects ALTER COLUMN name TYPE storage.atlas_evil USING ROW(name)::storage.atlas_evil",
+        as_owner + "INSERT INTO storage.objects (bucket_id, name) VALUES ('default', ROW('a/b')::storage.atlas_evil)",
+        "TRUNCATE public.atlas_storage_probe",
+    ]
+    try:
+        for statement in plant:
+            db.sql(statement)
+        with contextlib.suppress(subprocess.CalledProcessError):
+            db.run_init()  # refusing is fine; running the cast as superuser is not
+        rows = db.sql("SELECT who, superuser FROM public.atlas_storage_probe").stdout.strip()
+        assert rows, "the planted cast never ran; the test proves nothing"
+        assert all(line.split("|")[-1].strip() == "f" for line in rows.splitlines()), rows
+        assert db.sql(f"SELECT rolsuper FROM pg_roles WHERE rolname = '{owner}'").stdout.strip() == "f"
+    finally:
+        db.sql(as_owner + "DELETE FROM storage.objects WHERE bucket_id = 'default'", check=False)
+        db.sql(as_owner + "ALTER TABLE storage.objects DROP COLUMN IF EXISTS path_tokens", check=False)
+        db.sql(as_owner + "ALTER TABLE storage.objects ALTER COLUMN name TYPE text USING (name).j", check=False)
+        db.sql(as_owner + "DROP CAST IF EXISTS (storage.atlas_evil AS text)", check=False)
+        db.sql(as_owner + "DROP FUNCTION IF EXISTS storage.atlas_evil_text(storage.atlas_evil)", check=False)
+        db.sql(as_owner + "DROP TYPE IF EXISTS storage.atlas_evil", check=False)
+        db.sql(as_owner + "DROP FUNCTION IF EXISTS storage.atlas_probe_write()", check=False)
+        db.sql("DROP TABLE IF EXISTS public.atlas_storage_probe", check=False)
+    db.run_init()

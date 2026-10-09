@@ -4276,3 +4276,35 @@ class _NullBanner:
     # Undefined attributes (e.g. ``console``) resolve to a sink that swallows
     # both further attribute access and calls — see _NullSink.
     def __getattr__(self, name): return _NULL_SINK
+
+
+# ── app-level exit guards (used by the integration apps) ──────────────
+
+def _wizard_screen(app):
+    """The WizardScreen under any modal: ``app.screen`` is the modal while
+    one is open, which let Ctrl+C past the teardown guard (cycle 61)."""
+    return next((screen for screen in reversed(app.screen_stack) if isinstance(screen, WizardScreen)), None)
+
+
+def teardown_blocks_exit(app) -> bool:
+    screen = _wizard_screen(app)
+    return screen is not None and screen.refuse_exit_during_teardown()
+
+
+def guarded_quit(app) -> None:
+    """Ctrl+Q through the wizard's own quit checks. Textual's app-level
+    priority binding ran App.action_quit first, so a keypress never reached
+    them and quit mid-stop (2026-10-08 run, cycle 61)."""
+    screen = _wizard_screen(app)
+    if screen is None:
+        app.exit()
+    else:
+        screen.action_quit_wizard()
+
+
+class GuardedQuitMixin:
+    """App mixin: ctrl+q goes through the wizard's quit checks (cycle 61)."""
+
+    def action_quit(self) -> None:
+        guarded_quit(self)
+

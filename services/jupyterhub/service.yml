@@ -16,7 +16,7 @@ capabilities:
   - name: "Token-authenticated notebook access"
     status: partial
     verification: tested
-    note: "The direct and CORS-only jupyter.localhost paths require one Jupyter token, while wildcard browser origins remain the local default and must be narrowed for shared deployments."
+    note: "The direct and CORS-only jupyter.localhost paths require one Jupyter token, and browser origins are limited to Jupyter's same-origin check by default (JUPYTER_ALLOW_ORIGIN is empty); do not set it to '*'."
   - name: "Operator-trusted credential environment"
     status: partial
     verification: documented
@@ -75,8 +75,8 @@ env:
     secret: true
     description: "Optional. Empty = generate on start."
   - name: JUPYTER_ALLOW_ORIGIN
-    default: "*"
-    description: "Allowed browser origin for Jupyter Server websocket upgrades; keep '*' for local dev, or set one exact origin (a single value, not a list) for shared deployments."
+    default: ""
+    description: "Allowed browser origin for Jupyter Server websocket upgrades. Empty keeps Jupyter's same-origin check; token-authenticated clients such as VS Code do not need '*'. Set one exact origin (a single value, not a list) only if a browser page on another origin must connect."
   - name: SPARK_REMOTE
     default: "sc://spark-connect:15002"
     description: "Spark Connect endpoint used by bundled notebooks; override for a remote or managed Spark Connect server."

@@ -396,6 +396,8 @@ def test_an_unresolvable_saved_name_keeps_a_row_and_the_reason_is_shown(tmp_path
     assert values.count("gone-model") == 1 and values.count("civitai-1") == 1
     assert "saved" in next(o for o in options if o.value == "gone-model").badges
     assert any("ignoring unreadable" in w for w in warnings), warnings
+    # The kept name is reported as kept, not "ignoring" (cycle 61).
+    assert any("'gone-model'" in w and "kept as a saved row" in w for w in warnings), warnings
 
 
 def test_a_saved_family_variant_gets_no_duplicate_saved_row():

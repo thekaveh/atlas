@@ -229,3 +229,21 @@ def test_print_inventory_rebuilds_font_entries_from_the_cached_stylesheet(tmp_pa
     assert printed[1]["name"] == "Example Sans normal 400, latin"
     assert printed[1]["version"] == "Example Sans v2"
     assert printed[1]["sha256"] == hashlib.sha256(b"b").hexdigest()
+
+
+def test_the_docs_check_treats_a_missing_mkdocs_yml_as_not_stale(tmp_path, monkeypatch):
+    """mkdocs.yml is gitignored, so a clean checkout failed the check with
+    "configuration is stale" (2026-10-08 run, cycle 66). A differing file
+    still fails."""
+    import pytest
+
+    from scripts.docs import build_docs
+
+    for name in ("_render_tree", "_render_tree_in_subprocess", "_assert_dirs_equal"):
+        monkeypatch.setattr(build_docs, name, lambda *a, **k: None)
+    monkeypatch.setattr(build_docs, "load_manifest", lambda *a, **k: object())
+    monkeypatch.setattr(build_docs, "render_mkdocs_yml", lambda _m: "site_name: x\n")
+    build_docs.build(tmp_path / "m.yaml", tmp_path, site=True, wiki=False, check=True)
+    (tmp_path / "mkdocs.yml").write_text("site_name: old\n")
+    with pytest.raises(RuntimeError, match="stale"):
+        build_docs.build(tmp_path / "m.yaml", tmp_path, site=True, wiki=False, check=True)

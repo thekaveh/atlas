@@ -144,6 +144,31 @@ def _range_total(exc) -> int | None:
     return int(total) if raw.startswith("bytes */") and total.isdigit() else None
 
 
+def _validator_path(part: Path) -> Path:
+    return part.with_name(f".{part.name}.validator")
+
+
+def _record_validator(part: Path, response) -> None:
+    """Keep the strong ETag (or Last-Modified) a resume must match."""
+    headers = getattr(response, "headers", None) or {}
+    etag = str(headers.get("ETag") or "")
+    validator = etag if etag and not etag.startswith("W/") else str(headers.get("Last-Modified") or "")
+    path = _validator_path(part)
+    if validator:
+        path.write_text(validator, encoding="utf-8")
+    else:
+        path.unlink(missing_ok=True)
+
+
+def _resumes_at(response, offset: int) -> bool:
+    """A 206 whose Content-Range starts at ``offset``: only then append."""
+    if not offset or getattr(response, "status", 200) != 206:
+        return False
+    raw = str((getattr(response, "headers", None) or {}).get("Content-Range") or "")
+    start = raw.removeprefix("bytes ").split("-", 1)[0].strip()
+    return start.isdigit() and int(start) == offset
+
+
 def _require_full_body(response, written: int, url: str) -> None:
     """urllib ends a body the server cut short with an empty read, not an
     error; a no-sha file was then published truncated and skipped forever
@@ -992,25 +1017,25 @@ class ComfyUiMpsManager:
                 "COMFYUI_MPS_MODELS_PATH is not set — nowhere to provision"
             )
             return result
-        with self._provision_guard(emit):
+        self.models_path.mkdir(parents=True, exist_ok=True)
+        with self._provision_guard(self.models_path / ".atlas_provision.lock", emit):
             return self._provision_models_locked(rows, verify=verify, emit=emit)
 
     @contextmanager
-    def _provision_guard(self, emit):
-        """One provisioning run per models tree. Two runs (a start plus
+    def _provision_guard(self, lock_path: Path, emit):
+        """One provisioning run per models tree or node checkout. Two runs (a start plus
         `comfyui-mps provision`) shared each `.part`: one published it while
         the other kept appending to the same inode, so a corrupt weight was
         published and later skipped as present (2026-10-08 run, cycle 39).
         The second run waits, then finds the files present."""
-        self.models_path.mkdir(parents=True, exist_ok=True)
-        with (self.models_path / ".atlas_provision.lock").open("a+", encoding="utf-8") as lock:
+        with lock_path.open("a+", encoding="utf-8") as lock:
             if fcntl is None:
                 yield
                 return
             try:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
-                emit("… another provisioning run is using this models directory; waiting for it")
+                emit(f"… another provisioning run holds {lock_path.parent}; waiting for it")
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             try:
                 yield
@@ -1147,6 +1172,12 @@ class ComfyUiMpsManager:
         if not self.repo_dir.exists():
             result.failed.append("ComfyUI repo not installed — run `comfyui-mps install` first")
             return result
+        # One run per checkout: two runs shared <name>.tmp, and one renamed
+        # the other's half-made clone into place (2026-10-08 run, cycle 55).
+        with self._provision_guard(self.repo_dir / ".atlas_nodes.lock", emit):
+            return self._provision_nodes_locked(nodes, result, emit)
+
+    def _provision_nodes_locked(self, nodes: list, result: ProvisionResult, emit) -> ProvisionResult:
         seen: set[str] = set()
         for node in nodes:
             (
@@ -1235,6 +1266,10 @@ class ComfyUiMpsManager:
                 self._run(["git", "-C", str(dest), "fetch", "origin", ref_l])
                 self._run(["git", "-C", str(dest), "checkout", "--detach", ref_l])
                 outcome = "updated"
+        elif dest.exists():
+            # A folder without .git (a zip install, a patched copy) was
+            # deleted; the container refuses here too (2026-10-08 run, cycle 55).
+            raise ComfyUiMpsError(f"{dest} exists but is not a git checkout; move it aside, then re-run")
         else:
             tmp = dest.with_name(dest.name + ".tmp")
             if tmp.exists():
@@ -1242,8 +1277,6 @@ class ComfyUiMpsManager:
             emit(f"cloning {name} at {ref_l}")
             self._run(["git", "clone", repo, str(tmp)])
             self._run(["git", "-C", str(tmp), "checkout", "--detach", ref_l])
-            if dest.exists():
-                shutil.rmtree(dest)
             tmp.rename(dest)
             outcome = "provisioned"
 
@@ -1475,6 +1508,7 @@ class ComfyUiMpsManager:
                     f"{actual[:12]}…) — partial removed; re-run to retry"
                 )
         os.replace(part, dest)
+        _validator_path(part).unlink(missing_ok=True)
         if sha:
             self._record_state(state, state_key, dest, sha)
         return "provisioned"
@@ -1486,12 +1520,14 @@ class ComfyUiMpsManager:
         parity); an HTTP error status drops it (a served error page must never
         be mistaken for model bytes)."""
         resume_from = part.stat().st_size if part.exists() else 0
-        response = self._open_range(url, part, resume_from)
+        response = self._open_resume(url, part, resume_from)
         if response is None:
             return None
         with response:
-            status = getattr(response, "status", 200)
-            mode = "ab" if (resume_from and status == 206) else "wb"
+            resumed = _resumes_at(response, resume_from)
+            mode = "ab" if resumed else "wb"
+            if not resumed:
+                _record_validator(part, response)
             written = 0
             with open(part, mode) as handle:
                 while True:
@@ -1502,12 +1538,32 @@ class ComfyUiMpsManager:
                     written += len(chunk)
             _require_full_body(response, written, url)
 
+    def _open_resume(self, url: str, part: Path, resume_from: int):
+        """The response to write ``part`` from: a resume only when a recorded
+        validator vouches for the part, and only a 206 starting at its end."""
+        if resume_from and not _validator_path(part).is_file():
+            # Nothing proves the remote file is the one the part came from: a
+            # re-published file was spliced onto the old bytes (cycle 55).
+            part.unlink()
+            resume_from = 0
+        response = self._open_range(url, part, resume_from)
+        if response is not None and getattr(response, "status", 200) == 206 and not _resumes_at(response, resume_from):
+            # A range that does not start at the part's end is neither the
+            # tail to append nor the whole file: written as the file, it
+            # published a tail-only weight (2026-10-08 run, cycle 63).
+            response.close()
+            part.unlink(missing_ok=True)
+            response = self._open_range(url, part, 0)
+        return response
+
     def _open_range(self, url: str, part: Path, resume_from: int):
         """The response for ``url`` from ``resume_from``, or None when the
         part is already the full file. Any other HTTP error drops the part."""
         request = urllib.request.Request(url)
         if resume_from:
             request.add_header("Range", f"bytes={resume_from}-")
+            # If-Range: a changed file comes back whole (200), never spliced.
+            request.add_header("If-Range", _validator_path(part).read_text(encoding="utf-8").strip())
         try:
             return urllib.request.urlopen(request, timeout=30)
         except urllib.error.HTTPError as exc:

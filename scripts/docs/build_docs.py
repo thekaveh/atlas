@@ -321,11 +321,12 @@ def build(
                 _assert_dirs_equal(root / "first" / "site", root / "second" / "site")
             if wiki:
                 _assert_dirs_equal(root / "first" / "wiki", root / "second" / "wiki")
+            # mkdocs.yml is gitignored: a clean checkout has none, which is
+            # not stale. Only a present file that differs is (2026-10-08 run,
+            # cycle 66).
             expected_mkdocs = render_mkdocs_yml(manifest)
             mkdocs_path = repo_root / "mkdocs.yml"
-            if not mkdocs_path.is_file() or mkdocs_path.read_text(
-                encoding="utf-8"
-            ) != expected_mkdocs:
+            if mkdocs_path.is_file() and mkdocs_path.read_text(encoding="utf-8") != expected_mkdocs:
                 raise RuntimeError("Generated MkDocs configuration is stale: mkdocs.yml")
         return
 

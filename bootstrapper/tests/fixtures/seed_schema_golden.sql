@@ -588,7 +588,7 @@ BEGIN
 END;
 $$;
 
-ALTER FUNCTION public.handle_auth_user_sync() OWNER TO supabase_admin;
+ALTER FUNCTION public.handle_auth_user_sync() OWNER TO atlas_auth_sync;
 
 CREATE FUNCTION public.health() RETURNS text
     LANGUAGE plpgsql
@@ -1267,6 +1267,7 @@ GRANT ALL ON SCHEMA auth TO service_role;
 GRANT ALL ON SCHEMA auth TO supabase_auth_admin;
 GRANT ALL ON SCHEMA auth TO dashboard_user;
 GRANT USAGE ON SCHEMA auth TO postgres;
+GRANT USAGE ON SCHEMA auth TO atlas_auth_sync;
 GRANT USAGE ON SCHEMA auth TO atlas_open_webui;
 GRANT USAGE ON SCHEMA auth TO atlas_studio_readonly;
 
@@ -1289,6 +1290,7 @@ GRANT USAGE ON SCHEMA public TO postgres;
 GRANT USAGE ON SCHEMA public TO anon;
 GRANT USAGE ON SCHEMA public TO authenticated;
 GRANT USAGE ON SCHEMA public TO service_role;
+GRANT USAGE ON SCHEMA public TO atlas_auth_sync;
 GRANT ALL ON SCHEMA public TO atlas_meta;
 GRANT ALL ON SCHEMA public TO atlas_realtime;
 GRANT USAGE ON SCHEMA public TO atlas_airflow_reader;
@@ -5883,7 +5885,14 @@ GRANT ALL ON TABLE auth.users TO dashboard_user;
 GRANT ALL ON TABLE auth.users TO postgres;
 GRANT SELECT ON TABLE auth.users TO atlas_studio_readonly;
 
+GRANT SELECT(id) ON TABLE auth.users TO atlas_auth_sync;
 GRANT SELECT(id) ON TABLE auth.users TO atlas_open_webui;
+
+GRANT SELECT(email) ON TABLE auth.users TO atlas_auth_sync;
+
+GRANT SELECT(raw_user_meta_data) ON TABLE auth.users TO atlas_auth_sync;
+
+GRANT SELECT(created_at) ON TABLE auth.users TO atlas_auth_sync;
 
 GRANT ALL ON TABLE extensions.pg_stat_statements TO postgres WITH GRANT OPTION;
 
@@ -6069,6 +6078,7 @@ GRANT ALL ON TABLE public.users TO postgres;
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.users TO anon;
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.users TO authenticated;
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRUNCATE,MAINTAIN,UPDATE ON TABLE public.users TO service_role;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.users TO atlas_auth_sync;
 GRANT SELECT ON TABLE public.users TO atlas_realtime;
 GRANT SELECT ON TABLE public.users TO atlas_airflow_reader;
 GRANT SELECT ON TABLE public.users TO atlas_mcp;

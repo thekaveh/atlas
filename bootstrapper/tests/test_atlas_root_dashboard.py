@@ -265,3 +265,22 @@ def test_auth_note_combines_the_gate_with_the_services_own_credential():
     assert _auth_note("MinIO", "minio.localhost") == "MinIO credentials"
     assert _auth_note("Weaviate", "weaviate.localhost", gated) == "Service-specific"
     assert _auth_note("Redis", None) == "Internal"
+
+
+def test_a_slot_ordering_pin_is_not_reported_as_a_missing_dependency():
+    """prometheus/grafana/loki/tempo/langfuse list ray in depends_on.required
+    only to pin a port slot; the dashboard warned "disabled required
+    dependencies: ray" (2026-10-08 run, cycle 53)."""
+    from services.topology import get_topology
+    from utils.atlas_dashboard import _dependency_warnings
+
+    sources = {"RAY_SOURCE": "disabled", "PROMETHEUS_SOURCE": "container", "GRAFANA_SOURCE": "container",
+               "WEAVIATE_SOURCE": "disabled", "N8N_SOURCE": "container"}
+    warnings = _dependency_warnings(get_topology().rows, sources, {})
+    assert not any("ray" in w for w in warnings), warnings
+    assert any("n8n" in w.lower() and "weaviate" in w for w in warnings), warnings
+    # Real hard dependencies still warn (only runtime_deps lost these, cycle 63).
+    sources.update(MINIO_SOURCE="disabled", SPARK_SOURCE="container", ASSET_WORKER_SOURCE="container")
+    warnings = _dependency_warnings(get_topology().rows, sources, {})
+    assert any("spark" in w.lower() and "minio" in w for w in warnings), warnings
+    assert any("asset worker" in w.lower() and "minio" in w for w in warnings), warnings

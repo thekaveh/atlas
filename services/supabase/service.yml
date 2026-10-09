@@ -230,6 +230,7 @@ env:
     auto_managed: true
   - name: SUPABASE_AUTH_PORT
     # default removed — computed by services/topology.py slot allocator
+    description: "Reserved port slot for Supabase Auth (GoTrue); not published on the host. Reach it through Kong at /auth/v1."
   - name: SUPABASE_JWT_SECRET
     default: ""
     secret: true

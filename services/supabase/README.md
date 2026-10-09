@@ -158,10 +158,12 @@ execute privilege is revoked from public API roles despite its required
 
 ### 4.2. Auth Service (GoTrue)
 
-**Access**: `http://localhost:${SUPABASE_AUTH_PORT}` (default: 63016)
+**Access**: through Kong at `/auth/v1` only. GoTrue is not published on the host: it answers any browser origin, and with sign-up and auto-confirm on, any web page open in your browser could create an account and read its token. `SUPABASE_AUTH_PORT` stays reserved but is not bound.
 **Purpose**: User registration, login, password recovery, email confirmation
 **Features**: JWT authentication, user management, password policies
-**Port**: GoTrue listens on 9999 (`GOTRUE_API_PORT`; its own default is 8081), which is where Kong's `/auth/v1` routes, Storage's `GOTRUE_URL` and the published `SUPABASE_AUTH_PORT` point; the container's healthcheck probes `/health` there.
+**Port**: GoTrue listens on 9999 (`GOTRUE_API_PORT`; its own default is 8081), which is where Kong's `/auth/v1` routes and Storage's `GOTRUE_URL` point; the container's healthcheck probes `/health` there.
+**Token claims**: `GOTRUE_JWT_AUD` and `GOTRUE_JWT_DEFAULT_GROUP_NAME` are `authenticated`, so user tokens carry the `aud` and `role` the backend and PostgREST require. Users stored with an empty `aud` and `role` (signed up before this setting) are repaired on the next start.
+**Profile sync**: the `auth.users` → `public.users` trigger and backfill run as the no-login role `atlas_auth_sync`, which can only read the synced `auth.users` columns and write `public.users`. GoTrue's database role owns `auth.users`; with the trigger owned by the init superuser, that role could make itself superuser.
 
 **Limits**: GoTrue's `SITE_URL` (`http://supabase-studio:3000`) and `API_EXTERNAL_URL` (`http://supabase-auth:9999`) are container-internal and SMTP points at a local relay that does not exist, so email confirmation, recovery, magic-link and OAuth redirect links are not usable from a browser; the stock defaults auto-confirm sign-ups instead.
 
@@ -235,7 +237,7 @@ SUPABASE_ANON_KEY=generated_anon_key
 SUPABASE_SERVICE_KEY=generated_service_key
 
 # Service Ports
-SUPABASE_AUTH_PORT=63016
+SUPABASE_AUTH_PORT=63016          # reserved, not bound (use Kong /auth/v1)
 SUPABASE_API_PORT=63017
 SUPABASE_STORAGE_PORT=63015
 SUPABASE_STUDIO_PORT=63019
@@ -319,7 +321,7 @@ docker exec ${PROJECT_NAME}-supabase-db pg_isready
 
 # Services
 curl -I http://localhost:${SUPABASE_API_PORT}/   # PostgREST serves its OpenAPI root; it has no /health on this port
-curl http://localhost:${SUPABASE_AUTH_PORT}/health
+docker exec ${PROJECT_NAME}-supabase-auth wget -qO- http://localhost:9999/health
 ```
 
 ### 7.3. View Logs

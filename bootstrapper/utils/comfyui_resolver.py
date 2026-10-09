@@ -482,24 +482,21 @@ def active_comfyui_models(
     # Preserve the relative order of active_catalog, then append sidecar.
     result: list[ComfyUILibraryEntry] = []
     seen_names: set[str] = set()
-    for entry in active_catalog:
-        if entry.name not in seen_names:
-            result.append(entry)
-            seen_names.add(entry.name)
     claimed: dict[tuple, tuple] = {}
-    for entry in result:
-        claimed.update(_download_targets(entry))
-    for entry in sidecar_entries:
+    # Every entry is clash-checked, first claimant wins: two selected civitai
+    # LoRAs shipping the same file name made the plan writer abort the whole
+    # start; only sidecar entries were checked (2026-10-08 run, cycle 55).
+    for entry in [*active_catalog, *sidecar_entries]:
         if entry.name in seen_names:
             continue
         clash = _conflicting_target(_download_targets(entry), claimed)
         if clash:
             # The plan writer refuses two downloads at one path, which aborted
-            # the whole start; a custom entry is skipped alone instead.
+            # the whole start; the later entry is skipped alone instead.
             print(
-                f"⚠️  custom model '{entry.name}' would be saved as {clash[0]}/{clash[1]}, "
-                "which another active model already uses — skipping it; give it a "
-                "distinct `filename:`.",
+                f"⚠️  ComfyUI model '{entry.name}' would be saved as {clash[0]}/{clash[1]}, "
+                "which another active model already uses — skipping it (a custom entry "
+                "can set a distinct `filename:`).",
                 file=sys.stderr,
                 flush=True,
             )

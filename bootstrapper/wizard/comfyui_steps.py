@@ -330,8 +330,10 @@ def _merged_comfyui_options(
     # Warn on unresolved defaults — same pattern as integration.py for Ollama.
     for n in default_selected:
         if n not in by_name:
-            msg = (f"COMFYUI_USER_MODELS entry {n!r} not found in catalog "
-                   f"or sidecar; ignoring.")
+            # Kept as a "saved" row by _with_saved_comfyui_rows; "ignoring"
+            # misdescribed it (2026-10-08 run, cycle 61).
+            msg = (f"COMFYUI_USER_MODELS entry {n!r} is not in the catalog or sidecar; "
+                   f"kept as a saved row, but it cannot be downloaded unless it reappears.")
             if warn is not None:
                 warn(msg)
             else:

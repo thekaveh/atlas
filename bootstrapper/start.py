@@ -4891,7 +4891,7 @@ class AtlasStarter:
             ("supabase-db", "5432", env_vars.get("SUPABASE_DB_PORT", ""), None, None),
             ("redis", "6379", env_vars.get("REDIS_PORT", ""), None, None),
             ("supabase-storage", "5000", env_vars.get("SUPABASE_STORAGE_PORT", ""), "SUPABASE_STORAGE_SOURCE", "SUPABASE_STORAGE_SCALE"),
-            ("supabase-auth", "9999", env_vars.get("SUPABASE_AUTH_PORT", ""), "SUPABASE_AUTH_SOURCE", "SUPABASE_AUTH_SCALE"),
+            # supabase-auth is not published on the host (2026-10-08 run, cycle 56).
             ("supabase-api", "3000", env_vars.get("SUPABASE_API_PORT", ""), "SUPABASE_API_SOURCE", "SUPABASE_API_SCALE"),
             ("supabase-realtime", "4000", env_vars.get("SUPABASE_REALTIME_PORT", ""), "SUPABASE_REALTIME_SOURCE", "SUPABASE_REALTIME_SCALE"),
             ("neo4j-graph-db", "7687", env_vars.get("GRAPH_DB_PORT", ""), "NEO4J_GRAPH_DB_SOURCE", "NEO4J_SCALE"),

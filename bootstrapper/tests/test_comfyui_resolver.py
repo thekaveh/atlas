@@ -684,3 +684,27 @@ def test_one_unreadable_remembered_row_does_not_drop_the_others(tmp_path):
     loaded = comfyui_resolver.load_remembered_selections(path)
     assert set(loaded) == {"hf-model", "hf-bundle"}
     assert loaded["hf-bundle"].files[0].filename == "b.safetensors"
+
+
+def test_two_selected_models_at_one_path_skip_the_second_not_the_start(tmp_path):
+    """Two civitai LoRAs shipping add_detail.safetensors made the plan writer
+    abort the whole start; only sidecar entries were clash-checked
+    (2026-10-08 run, cycle 55)."""
+    catalog = [
+        _entry("civitai-1", source="civitai", target_dir="loras", filename="add_detail.safetensors",
+               url="https://civitai.com/api/download/models/1"),
+        _entry("civitai-2", source="civitai", target_dir="loras", filename="add_detail.safetensors",
+               url="https://civitai.com/api/download/models/2"),
+    ]
+    active = active_comfyui_models(
+        {"COMFYUI_USER_MODELS": "civitai-1,civitai-2"}, catalog=catalog,
+        sidecar_path=str(tmp_path / "none.yaml"), remembered_path=tmp_path / "none.json")
+    assert [e.name for e in active] == ["civitai-1"]
+    write_manifest(active, str(tmp_path / "plan.yaml"))
+
+
+def test_a_civitai_file_name_is_reduced_to_a_plain_basename():
+    from utils.comfyui_library import _plain_basename
+
+    assert _plain_basename("../evil.safetensors") == "evil.safetensors"
+    assert _plain_basename("..") is None and _plain_basename("") is None

@@ -94,7 +94,7 @@ Within `${PROJECT_NAME}-network`, reach each service by its **compose service na
 | **Open WebUI** (chat UI) | `open-web-ui:8080` | |
 | **Backend** (FastAPI orchestrator) | `backend:8000` | |
 
-The authoritative, always-current port list (host-published ports + Kong hostnames) is [ports-and-routes.md](ports-and-routes.md) and the generated `.env.example`.
+The authoritative, always-current port list (port variables + Kong hostnames) is the generated [ports and routes reference](../reference/ports-routes.md) and the generated `.env.example`; [ports-and-routes.md](ports-and-routes.md) describes route behaviour.
 
 ### 3.4. Going through Kong instead (single entry point)
 
@@ -585,7 +585,7 @@ declared are not reset on a switch); switching profiles resets the prior profile
 their service defaults (no residue), while a same-profile restart never resets
 anything — tracked via the `ATLAS_PROFILE_APPLIED` marker in `.env`. The
 `profile` doctor check reports the effective bundle and the precedence tier
-each managed value currently comes from.
+each managed value currently comes from. A profile's `env` cannot set a `*_SOURCE` key; declare it under `sources`, where the option and precedence checks apply.
 
 Unknown or typo'd **top-level** keys are rejected with a clear error naming the
 offending key and the allowed set — a manifest that misspells `compose_overlays`
@@ -1619,6 +1619,6 @@ The first two rows were Phase 1 of the production-readiness & reuse roadmap — 
 
 - [submodule-usage.md](submodule-usage.md) — complete Git-submodule guide (layout, integration patterns, CI/CD, troubleshooting)
 - [source-configuration.md](source-configuration.md) — every `*_SOURCE` variable and what it does
-- [ports-and-routes.md](ports-and-routes.md) — authoritative port + Kong-hostname mapping
+- [ports and routes reference](../reference/ports-routes.md) — generated, authoritative port + Kong-hostname mapping; [ports-and-routes.md](ports-and-routes.md) — route behaviour
 - [releasing.md](releasing.md) — version-tag convention for pinning a submodule
 - [Production readiness & reuse roadmap](../superpowers/specs/2026-06-20-production-readiness-and-reuse-roadmap-design.md) — the strategy/assessment behind this guide

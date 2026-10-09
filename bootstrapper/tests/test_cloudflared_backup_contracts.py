@@ -5788,3 +5788,33 @@ def test_a_database_restore_needs_the_published_postgres_marker(tmp_path):
             assert forged.returncode != 0, (marker, forged.stderr)
     finally:
         shutil.rmtree(f"/tmp/atlas-database-restore-test-{'1' * 32}", ignore_errors=True)
+
+
+def _writable_repo_mounts(label, spec):
+    mounts = [m for m in spec.get("volumes") or [] if isinstance(m, str) and m.startswith("./")]
+    return [f"{label}: {m}" for m in mounts if not m.endswith(":ro")]
+
+
+def _writable_repo_init_mounts(repo):
+    import yaml
+
+    for compose in sorted((repo / "services").glob("*/compose.yml")):
+        services = (yaml.safe_load(compose.read_text()) or {}).get("services") or {}
+        for name in [n for n in services if n.endswith("-init")]:
+            yield from _writable_repo_mounts(f"{compose.parent.name}/{name}", services[name])
+
+
+def test_init_containers_mount_repo_sources_read_only_and_label_studio_blocks_ssrf():
+    """comfyui-init mounted ./init/scripts writable, so a compromised download
+    step could rewrite the script in the checkout; Label Studio 1.23 ships
+    SSRF protection off (2026-10-08 run, cycle 60)."""
+    import yaml
+
+    repo = Path(__file__).resolve().parents[2]
+    writable = list(_writable_repo_init_mounts(repo))
+    # Not yet reviewed for read-only mounts; listed so a new one is noticed.
+    pending_review = {"airflow/airflow-init: ./dags:/opt/airflow/dags",
+                      "supabase/supabase-db-init: ./db/scripts:/scripts"}
+    assert sorted(set(writable) - pending_review) == [], writable
+    label_studio = yaml.safe_load((repo / "services/label-studio/compose.yml").read_text())
+    assert label_studio["services"]["label-studio"]["environment"]["SSRF_PROTECTION_ENABLED"] == "true"

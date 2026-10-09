@@ -457,3 +457,70 @@ def test_teardown_compose_output_reaches_the_log_pane_not_the_terminal(tmp_path,
     monkeypatch.setattr(manager, "execute_compose_command", lambda *a, **k: 0)
     assert manager.perform_cold_stop_cleanup() is False
     assert "survivor warning" in logged
+
+
+async def _until(condition, *, tries: int = 100, pause: float = 0.05) -> None:
+    for _ in range(tries):
+        if condition():
+            return
+        await asyncio.sleep(pause)
+
+
+def test_real_ctrl_q_and_ctrl_c_keys_cannot_exit_during_a_stop():
+    """Textual's priority ctrl+q binding ran App.action_quit, so a keypress
+    never reached the wizard's guard; with a modal open, ctrl+c read the
+    modal as the screen and skipped it (2026-10-08 run, cycle 61)."""
+    import inspect
+    import threading
+
+    from textual.binding import Binding
+    from textual.screen import ModalScreen
+
+    from ui.textual import integration
+    from ui.textual.screens import wizard_screen
+
+    source = inspect.getsource(integration)
+    # Both real apps take the ctrl+q mixin and check the guard on ctrl+c (cycle 63).
+    assert source.count("(GuardedQuitMixin, App)") == 2
+    assert source.count("if teardown_blocks_exit(self):\n                return") == 2
+    release = threading.Event()
+
+    class _SlowStopper(_FakeStopper):
+        def stop_services(self, cold_stop: bool, project_name: str) -> bool:
+            self.calls.append((cold_stop, project_name))
+            release.wait(5)
+            return True
+
+    scr = _launched_screen_with(_SlowStopper())
+    exits = []
+
+    class _GuardedApp(_App):
+        BINDINGS = [Binding("ctrl+c", "interrupt", "Quit", priority=True)]
+
+        def action_interrupt(self) -> None:
+            if not wizard_screen.teardown_blocks_exit(self):
+                exits.append("interrupt")
+
+        def action_quit(self) -> None:
+            wizard_screen.guarded_quit(self)
+
+        def exit(self, *args, **kwargs):  # noqa: A003
+            exits.append("exit")
+
+    async def scenario():
+        app = _GuardedApp(scr)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            scr._phase, scr._launch_succeeded, scr._launch_detach_ready = "launch", True, True
+            scr.action_stop_stack()
+            scr.action_stop_stack()
+            await _until(lambda: getattr(scr, "_teardown_running", False))
+            await pilot.press("ctrl+q")
+            app.push_screen(ModalScreen())
+            await pilot.pause()
+            await pilot.press("ctrl+c")
+            release.set()
+            await _until(lambda: not getattr(scr, "_teardown_running", False))
+
+    _run(scenario)
+    assert exits == [], exits
