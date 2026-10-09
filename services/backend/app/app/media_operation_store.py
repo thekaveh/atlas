@@ -92,9 +92,15 @@ def _in_flight_budget_tracked(operation: dict[str, Any]) -> bool:
     settles it, and nothing polls in the background. Expiring it left the
     estimate reserved (or, with retention, a billed job uncommitted) (#1447).
     The in-memory store never expires records, so both stores agree."""
-    status = str((operation.get("last_payload") or {}).get("status") or "")
+    payload = operation.get("last_payload") or {}
+    status = str(payload.get("status") or "")
+    # An attach that failed at submit and was recovered later sets only the
+    # provenance flag; its ledger row is tracked all the same.
+    tracked = operation.get("budget_tracked") or (payload.get("provenance") or {}).get(
+        "ledger_attach_completed"
+    )
     return bool(
-        operation.get("budget_tracked")
+        tracked
         and not operation.get("reconciled")
         and status not in TERMINAL_MEDIA_STATUSES
     )
@@ -518,7 +524,8 @@ if pending then
     -- A terminal operation is still the durable retry intent until its
     -- ledger row is settled and mark_reconciled reapplies the normal TTL.
     redis.call('SET', KEYS[1], blob)
-elseif not terminal and operation.budget_tracked == true and operation.reconciled ~= true then
+elseif not terminal and (operation.budget_tracked == true or attach_completed)
+        and operation.reconciled ~= true then
     -- In flight and budget-tracked: its ledger row is SUBMITTED and only a
     -- poll of this record settles it, so it must not expire first (#1447).
     redis.call('SET', KEYS[1], blob)
@@ -616,7 +623,8 @@ if pending then
     redis.call('SADD', KEYS[2], operation.operation_id)
     if score then redis.call('ZADD', KEYS[3], 'NX', score, operation.operation_id) end
 else
-    if not terminal and operation.budget_tracked == true and operation.reconciled ~= true then
+    if not terminal and (operation.budget_tracked == true or attach_completed)
+       and operation.reconciled ~= true then
         redis.call('SET', KEYS[1], blob)  -- in flight, budget-tracked (#1447)
     else
         redis.call('SET', KEYS[1], blob, 'EX', ARGV[1])

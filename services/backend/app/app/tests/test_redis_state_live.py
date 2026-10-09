@@ -565,3 +565,44 @@ def test_in_flight_budget_tracked_media_record_never_expires() -> None:
         await redis_store.aclose()
 
     asyncio.run(scenario())
+
+
+def test_a_recovered_ledger_attach_keeps_the_in_flight_record() -> None:
+    """An attach that failed at submit and was recovered later sets only
+    provenance.ledger_attach_completed (budget_tracked stays False); its
+    record still expired with the ledger row SUBMITTED (cycle 1 of the
+    2026-10-08 run, a gap in #1447)."""
+    from media_operation_store import InMemoryMediaOperationStore
+
+    def payload(operation_id: str, status: str, **provenance) -> dict:
+        return {"operation_id": operation_id, "status": status, "provenance": provenance}
+
+    async def scenario():
+        redis_store = RedisMediaOperationStore(_REDIS_URL)
+        memory_store = InMemoryMediaOperationStore()
+        operation_id = f"recovered-{uuid.uuid4().hex}"
+        key = "atlas:media:operations:" + operation_id
+        for store in (redis_store, memory_store):
+            await store.create({
+                "operation_id": operation_id, "provider": "fal", "modality": "image",
+                "model": "fal-ai/flux/dev", "owner_scope": "service",
+                "budget_tracked": False, "reconciled": False,
+                "last_payload": payload(operation_id, "queued", ledger_attach_pending=True),
+            })
+            await store.transition_payload(operation_id, payload(
+                operation_id, "queued", ledger_attach_completed=True,
+                ledger_attach_protection_clear_pending=True))
+            await store.complete_attach_protection_clear(operation_id)
+            await store.transition_payload(operation_id, payload(
+                operation_id, "running", ledger_attach_completed=True))
+        assert await redis_store._redis.ttl(key) == -1
+        assert await memory_store.get(operation_id) is not None
+        for store in (redis_store, memory_store):
+            await store.transition_payload(operation_id, payload(
+                operation_id, "succeeded", ledger_attach_completed=True))
+            await store.mark_reconciled(operation_id)
+        assert await redis_store._redis.ttl(key) > 0
+        await redis_store._redis.delete(key)
+        await redis_store.aclose()
+
+    asyncio.run(scenario())
