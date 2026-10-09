@@ -854,3 +854,22 @@ def test_a_service_role_cannot_hijack_init_in_its_own_database(
         db.sql(f"ALTER ROLE {user} NOSUPERUSER", check=False)
         db.sql("DROP FUNCTION IF EXISTS public.format(text, regprocedure, name)",
                check=False, database=TEST_SECRETS["LITELLM_DB_NAME"])
+
+
+def test_a_procedure_in_a_service_database_does_not_stop_init(
+    disposable_postgres: DisposablePostgres,
+) -> None:
+    """The ownership pass ran ALTER FUNCTION for every routine; a procedure
+    raises "is not a function", so one stopped init on every boot (2026-10-08
+    run, cycle 26). ALTER ROUTINE covers functions, procedures and aggregates."""
+    db = disposable_postgres
+    database = TEST_SECRETS["LITELLM_DB_NAME"]
+    try:
+        db.sql("CREATE PROCEDURE public.atlas_legacy_proc() LANGUAGE sql AS 'SELECT 1'", database=database)
+        db.run_init()
+        owner = db.sql(
+            "SELECT pg_get_userbyid(proowner) FROM pg_proc WHERE proname = 'atlas_legacy_proc'", database=database
+        ).stdout.strip()
+        assert owner == TEST_SECRETS["LITELLM_DB_USER"]
+    finally:
+        db.sql("DROP PROCEDURE IF EXISTS public.atlas_legacy_proc()", check=False, database=database)

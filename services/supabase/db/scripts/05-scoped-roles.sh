@@ -246,7 +246,7 @@ BEGIN
       AND n.nspname <> 'information_schema'
       AND pg_catalog.pg_get_userbyid(p.proowner) <> target
   LOOP
-    EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I', item.identity, target);
+    EXECUTE pg_catalog.format('ALTER ROUTINE %s OWNER TO %I', item.identity, target);
   END LOOP;
 END
 $body$;
@@ -731,7 +731,7 @@ BEGIN
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'n8n' AND pg_get_userbyid(p.proowner) <> target
   LOOP
-    EXECUTE format('ALTER FUNCTION %s OWNER TO %I', item.identity, target);
+    EXECUTE format('ALTER ROUTINE %s OWNER TO %I', item.identity, target);
   END LOOP;
 
   -- Open WebUI owns these public tables in the pinned v0.6.32 migration set.
@@ -772,7 +772,7 @@ BEGIN
     FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
     WHERE n.nspname='lightrag' AND pg_get_userbyid(p.proowner) <> target
   LOOP
-    EXECUTE format('ALTER FUNCTION %s OWNER TO %I', item.identity, target);
+    EXECUTE format('ALTER ROUTINE %s OWNER TO %I', item.identity, target);
   END LOOP;
   FOR item IN
     SELECT c.relname, c.relkind
