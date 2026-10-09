@@ -684,24 +684,38 @@ def test_an_ollama_model_the_stack_routes_is_retained(monkeypatch, tmp_path):
     assert start.deletion_set(items, named=[]) == []
 
 
-def test_a_manager_refusal_exits_cleanly_instead_of_a_traceback(monkeypatch):
+@pytest.mark.parametrize("case", [
+    (["comfyui-mps", "remove", "--yes"], "_comfyui_mps_manager", "services.comfyui_mps_manager:ComfyUiMpsError", "Remove"),
+    (["vllm-metal", "remove", "--yes"], "_vllm_metal_manager", "services.vllm_metal_manager:VllmMetalError", "Remove"),
+    (["managed-host", "install", "x"], "_managed_host_manager", "services.managed_host:ManagedHostError", "Install"),
+    (["managed-host", "start", "x"], "_managed_host_manager", "services.managed_host:ManagedHostError", "Start"),
+    (["managed-host", "remove", "x", "--yes"], "_managed_host_manager", "services.managed_host:ManagedHostError", "Remove"),
+])
+def test_a_manager_refusal_exits_cleanly_instead_of_a_traceback(monkeypatch, case):
     """remove/managed-host commands let the manager's refusal escape as a
-    traceback; siblings print '<op> failed: <why>' and exit 1 (cycle 9)."""
+    traceback; siblings print '<op> failed: <why>' and exit 1 (cycle 9).
+    Every wrapped command is covered: unwrapping one stayed green (cycle 22)."""
+    import importlib
+
     from click.testing import CliRunner
 
     import start
-    from services.comfyui_mps_manager import ComfyUiMpsError
+
+    args, factory, error, label = case
+    module, _, name = error.partition(":")
+    error_type = getattr(importlib.import_module(module), name)
+
+    def refuse(*_a, **_k):
+        raise error_type("refused for a reason")
 
     class Manager:
         state_dir = "/tmp/x"
+        remove = install = start = staticmethod(refuse)
 
-        def remove(self):
-            raise ComfyUiMpsError("models path is inside the state directory")
-
-    monkeypatch.setattr(start, "_comfyui_mps_manager", lambda: Manager())
-    result = CliRunner().invoke(start.main, ["comfyui-mps", "remove", "--yes"])
-    assert result.exit_code == 1
-    assert "Remove failed: models path is inside the state directory" in result.output
+    monkeypatch.setattr(start, factory, lambda *_a: Manager())
+    result = CliRunner().invoke(start.main, args)
+    assert result.exit_code == 1, result.output
+    assert f"{label} failed: refused for a reason" in result.output
     assert isinstance(result.exception, SystemExit)
 
 
@@ -713,6 +727,42 @@ def test_the_wizard_up_and_bounded_capture_pin_project_name_too():
     from ui.textual.screens import wizard_screen
 
     assert "compose_env(full_cmd)" in inspect.getsource(wizard_screen.WizardScreen._run_compose)
-    capture = inspect.getsource(wizard_screen._capture_bounded_process_output)
-    assert "compose_env(command)" in capture
-    assert "os.environ" not in capture
+
+
+def test_a_bounded_capture_runs_compose_under_the_p_project(monkeypatch, tmp_path):
+    """Behavior, not source text: the capture child gets PROJECT_NAME from
+    -p even with another value exported (cycle 44)."""
+    import asyncio
+
+    from ui.textual.screens import wizard_screen
+
+    seen = {}
+
+    async def fake_run(command, *, env, **_kwargs):
+        seen.update(env)
+        return 0
+
+    monkeypatch.setenv("PROJECT_NAME", "other")
+    monkeypatch.setattr(wizard_screen, "_run_streamed_command", fake_run)
+    asyncio.run(wizard_screen._capture_bounded_process_output(
+        ["docker", "compose", "-p", "foo", "ps"], cwd=tmp_path, sink=lambda _l: None, timeout_seconds=1))
+    assert seen["PROJECT_NAME"] == "foo"
+
+
+def test_live_model_items_keep_a_model_only_the_rendered_litellm_config_routes(monkeypatch, tmp_path):
+    """The retention test called label_ollama_models directly, so dropping
+    `root` from the storage-clean path stayed green and the rendered LiteLLM
+    config was never read there (cycle 22)."""
+    import subprocess
+
+    import start
+
+    rendered = tmp_path / "volumes" / "litellm" / "config.yaml"
+    rendered.parent.mkdir(parents=True)
+    rendered.write_text("model_list:\n- model_name: chat\n  litellm_params: {model: ollama_chat/routed-chat}\n")
+    listing = "NAME ID SIZE MODIFIED\nrouted-chat:latest abc 1.0 GB 2 days ago\n"
+    monkeypatch.setattr(start, "_exec", lambda project, service, *argv: subprocess.CompletedProcess(
+        argv, 0 if service == "ollama" else 1, listing, ""))
+    env = {"LLM_PROVIDER_SOURCE": "ollama-container-cpu", "COMFYUI_SOURCE": "disabled"}
+    items = start._live_model_items(env, tmp_path, "atlas")
+    assert [(i["path"], i["label"]) for i in items] == [("routed-chat:latest", "retained")]

@@ -873,3 +873,55 @@ def test_a_procedure_in_a_service_database_does_not_stop_init(
         assert owner == TEST_SECRETS["LITELLM_DB_USER"]
     finally:
         db.sql("DROP PROCEDURE IF EXISTS public.atlas_legacy_proc()", check=False, database=database)
+
+
+@pytest.mark.parametrize(("schema", "owner_key"), [("n8n", "N8N_DB_USER"), ("lightrag", "LIGHTRAG_DB_USER")])
+def test_a_procedure_in_a_service_schema_does_not_stop_init(
+    disposable_postgres: DisposablePostgres, schema: str, owner_key: str,
+) -> None:
+    """Only the per-database site was tested; reverting the n8n or lightrag
+    schema pass to ALTER FUNCTION stayed green (2026-10-08 run, cycle 44)."""
+    db = disposable_postgres
+    try:
+        db.sql(f"CREATE PROCEDURE {schema}.atlas_legacy_proc() LANGUAGE sql AS 'SELECT 1'")
+        db.run_init()
+        owner = db.sql(
+            "SELECT pg_get_userbyid(p.proowner) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+            f"WHERE p.proname = 'atlas_legacy_proc' AND n.nspname = '{schema}'"
+        ).stdout.strip()
+        assert owner == TEST_SECRETS[owner_key]
+    finally:
+        db.sql(f"DROP PROCEDURE IF EXISTS {schema}.atlas_legacy_proc()", check=False)
+
+
+def test_the_default_bucket_insert_never_runs_a_trigger_as_superuser(
+    disposable_postgres: DisposablePostgres,
+) -> None:
+    """storage.buckets is owned by the storage role, so the init guard does
+    not cover it; only 04's SET LOCAL ROLE keeps a trigger planted by that
+    owner from running as the init superuser. Removing it stayed green
+    (2026-10-08 run, cycle 22)."""
+    db = disposable_postgres
+    owner = db.sql(
+        "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'storage.buckets'::regclass"
+    ).stdout.strip()
+    assert owner and db.sql(f"SELECT rolsuper FROM pg_roles WHERE rolname = '{owner}'").stdout.strip() == "f"
+    try:
+        db.sql("CREATE TABLE public.atlas_bucket_probe (who name, superuser boolean)")
+        db.sql("GRANT INSERT ON public.atlas_bucket_probe TO PUBLIC")
+        db.sql(
+            "CREATE FUNCTION storage.atlas_bucket_probe() RETURNS trigger LANGUAGE plpgsql AS $f$ "
+            "BEGIN INSERT INTO public.atlas_bucket_probe SELECT current_user, "
+            "(SELECT rolsuper FROM pg_roles WHERE rolname = current_user); RETURN NULL; END $f$"
+        )
+        db.sql(f"ALTER FUNCTION storage.atlas_bucket_probe() OWNER TO {owner}")
+        db.sql("CREATE TRIGGER atlas_bucket_probe AFTER INSERT ON storage.buckets "
+               "FOR EACH STATEMENT EXECUTE FUNCTION storage.atlas_bucket_probe()")
+        db.run_init()
+        rows = db.sql("SELECT who, superuser FROM public.atlas_bucket_probe").stdout.strip()
+        assert rows, "the planted trigger did not fire; the test proves nothing"
+        assert all(line.split("|")[-1].strip() == "f" for line in rows.splitlines()), rows
+    finally:
+        db.sql("DROP TRIGGER IF EXISTS atlas_bucket_probe ON storage.buckets", check=False)
+        db.sql("DROP FUNCTION IF EXISTS storage.atlas_bucket_probe()", check=False)
+        db.sql("DROP TABLE IF EXISTS public.atlas_bucket_probe", check=False)

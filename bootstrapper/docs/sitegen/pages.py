@@ -1086,6 +1086,46 @@ def architecture_pages(model: DocsModel) -> dict[Path, str]:
     return pages
 
 
+_MANIFEST_FIELD_PURPOSES = {
+    "containers": "Container names in the service family",
+    "env": "Environment variables owned by the manifest",
+    "sources": "SOURCE var, default, and allowed values",
+    "category": "Topology category and wizard grouping",
+    "docs": "Repository-relative operator documentation path",
+    "docs_exception": (
+        "Printable reason with an explicit `because` clause, four "
+        "substantive words, and three distinct terms"
+    ),
+    "depends_on": "Required and optional logical dependencies",
+    "support": (
+        "Support tier (`stable`, `experimental`, `community`, `unsupported`), "
+        "the evidence it rests on, the release tag or commit that evidence was "
+        "gathered at, the owner, and known limitations"
+    ),
+    "runtime_sc": "Per-source runtime scale/env/deploy slices",
+    "data_flow": "Runtime call graph (`data_flow.calls`) used by docs and diagrams",
+    "name": "Folder name under `services/`, in kebab-case",
+    "extra_kong_aliases": "Extra `*.localhost` Kong hostnames beyond each row's alias",
+    "images": "Image env var, pinned default image and the container that uses it",
+    "runtime_dependency_tiers": "Stack-wide startup tier order (the `globals` manifest only)",
+}
+
+
+def _manifest_field_rows(root: Path) -> list[list[str]]:
+    """Every top-level property of service.schema.json. A hand list showed
+    10 of 22 fields and none of the required name/label/capabilities
+    (2026-10-08 run, cycle 40)."""
+    import json  # noqa: PLC0415
+
+    schema = json.loads((root / "bootstrapper" / "schemas" / "service.schema.json").read_text(encoding="utf-8"))
+    required = set(schema.get("required", ()))
+    rows = []
+    for name, spec in schema["properties"].items():
+        purpose = _MANIFEST_FIELD_PURPOSES.get(name) or (spec.get("description") or "").split(". ")[0].rstrip(".")
+        rows.append([name, "yes" if name in required else "no", purpose or "See the schema"])
+    return rows
+
+
 def reference_pages(model: DocsModel) -> dict[Path, str]:
     ref = model.root / "docs" / "site" / "reference"
     source_rows = []
@@ -1148,32 +1188,5 @@ def reference_pages(model: DocsModel) -> dict[Path, str]:
         "runtime requirements. Runtime edges are in the Runtime Calls column.\n\n"
         + table(["Service", "Start order (depends_on.required)", "Optional", "Runtime Calls"], deps_rows),
         ref / "manifest-fields.md": "# Manifest Fields\n\n## 1. Manifest Schema Quick Reference\n\nGenerated manifest schema quick reference.\n\n"
-        + table(
-            ["Field", "Purpose"],
-            [
-                ["containers", "Container names in the service family"],
-                ["env", "Environment variables owned by the manifest"],
-                ["sources", "SOURCE var, default, and allowed values"],
-                ["category", "Topology category and wizard grouping"],
-                ["docs", "Repository-relative operator documentation path"],
-                [
-                    "docs_exception",
-                    (
-                        "Printable reason with an explicit `because` clause, four "
-                        "substantive words, and three distinct terms"
-                    ),
-                ],
-                ["depends_on", "Required and optional logical dependencies"],
-                [
-                    "support",
-                    (
-                        "Support tier (`stable`, `experimental`, `community`, `unsupported`), "
-                        "the evidence it rests on, the release tag or commit that evidence was "
-                        "gathered at, the owner, and known limitations"
-                    ),
-                ],
-                ["runtime_sc", "Per-source runtime scale/env/deploy slices"],
-                ["data_flow.calls", "Runtime call graph used by docs and diagrams"],
-            ],
-        ),
+        + table(["Field", "Required", "Purpose"], _manifest_field_rows(model.root)),
     }

@@ -612,10 +612,19 @@ def test_removing_the_last_workflow_reconciles_once_then_cleans_up(tmp_path):
     assert starter._finalize_consumer_n8n_workflows()
     plan = json.loads((seed_dir / "plan.json").read_text())
     assert plan["workflows"] == [] and plan["namespace"].startswith("atlas-consumer")
-    assert overlay.exists() and not (seed_dir / "a.json").exists()
+    # The overlay is regenerated, not just left in place (cycle 44).
+    from core.consumer_manifest import render_n8n_seed_overlay
+
+    assert overlay.read_text() == render_n8n_seed_overlay([]) and not (seed_dir / "a.json").exists()
     assert any(level == "warning" and "N8N_API_KEY" in msg for level, msg in warnings)
 
     # Still kept on the next start: one run may not have reconciled (no key,
     # n8n not healthy), cycle 34.
     assert starter._finalize_consumer_n8n_workflows()
     assert overlay.exists() and (seed_dir / "plan.json").exists()
+
+    # With a key set, the seed can reconcile: no warning (cycle 44).
+    warnings.clear()
+    starter.config_parser.parse_env_file = lambda: {"N8N_API_KEY": "key"}
+    assert starter._finalize_consumer_n8n_workflows()
+    assert not any("N8N_API_KEY" in msg for _level, msg in warnings), warnings

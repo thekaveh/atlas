@@ -593,6 +593,10 @@ def test_a_recovered_ledger_attach_keeps_the_in_flight_record() -> None:
                 operation_id, "queued", ledger_attach_completed=True,
                 ledger_attach_protection_clear_pending=True))
             await store.complete_attach_protection_clear(operation_id)
+            if store is redis_store:
+                # Checked before the next transition, which resets the TTL and
+                # hid a clear script that dropped attach_completed (cycle 22).
+                assert await redis_store._redis.ttl(key) == -1
             await store.transition_payload(operation_id, payload(
                 operation_id, "running", ledger_attach_completed=True))
         assert await redis_store._redis.ttl(key) == -1

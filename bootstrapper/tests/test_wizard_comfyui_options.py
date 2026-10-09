@@ -396,3 +396,19 @@ def test_an_unresolvable_saved_name_keeps_a_row_and_the_reason_is_shown(tmp_path
     assert values.count("gone-model") == 1 and values.count("civitai-1") == 1
     assert "saved" in next(o for o in options if o.value == "gone-model").badges
     assert any("ignoring unreadable" in w for w in warnings), warnings
+
+
+def test_a_saved_family_variant_gets_no_duplicate_saved_row():
+    """A saved name that is a leaf under a family parent is offered there;
+    a flat "saved" row too would list it twice (2026-10-08 run, cycle 44)."""
+    from wizard.comfyui_steps import _to_prompt_option, _with_saved_comfyui_rows
+
+    catalog = [
+        _hf("microsoft--TRELLIS-image-large", category="mesh_model"),
+        _hf("microsoft--TRELLIS.2-4B", category="mesh_model"),
+    ]
+    saved = {"microsoft--TRELLIS.2-4B"}
+    rows = [_to_prompt_option(o) for o in _merged_comfyui_options(
+        catalog=catalog, sidecar=[], pulled_names=set(), default_selected=saved)]
+    assert any(r.value.startswith("family:") for r in rows)
+    assert [r.value for r in _with_saved_comfyui_rows(rows, saved)] == [r.value for r in rows]

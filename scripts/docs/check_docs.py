@@ -263,7 +263,9 @@ def _is_internal_doc(path: Path, docs_root: Path) -> bool:
 def _tracked_service_readmes(repo_root: Path) -> list[Path]:
     try:
         result = run_bounded(
-            ["git", "ls-files", "--", "services/**"], cwd=repo_root
+            # quotePath=false: a quoted "caf\303\251.md" never matched a file,
+            # so non-ASCII docs skipped every gate (2026-10-08 run, cycle 43).
+            ["git", "-c", "core.quotePath=false", "ls-files", "--", "services/**"], cwd=repo_root
         )
     except CommandLaunchError:
         result = None
@@ -291,7 +293,7 @@ def _tracked_docs(repo_root: Path) -> list[Path]:
     """
     docs_root = repo_root / "docs"
     try:
-        result = run_bounded(["git", "ls-files", "--", "docs"], cwd=repo_root)
+        result = run_bounded(["git", "-c", "core.quotePath=false", "ls-files", "--", "docs"], cwd=repo_root)
     except CommandLaunchError:
         result = None
     except CommandTimedOut as exc:

@@ -877,3 +877,30 @@ def test_a_streaming_plugin_prefix_skips_the_default_envelope():
     assert client.post("/bigup/upload", content=body).text == "4096"
     assert client.post("/bigupx/upload", content=body).status_code == 413
     assert client.post("/other", content=body).status_code == 413
+
+
+def test_main_wires_loaded_streaming_plugins_into_the_request_limit(monkeypatch):
+    """Deleting the main.py wiring left every test green: the earlier test
+    builds LimitPolicy directly (2026-10-08 run, cycle 22)."""
+    import plugin_seam
+
+    inventory = [
+        {"route_prefix": "/bigup", "status": "loaded", "kong_route": {"request_buffering": False}},
+        {"route_prefix": "/buffered", "status": "loaded", "kong_route": {"request_buffering": True}},
+        {"route_prefix": "/failed", "status": "failed", "kong_route": {"request_buffering": False}},
+        {"route_prefix": "/plain", "status": "loaded"},
+    ]
+    assert plugin_seam.streaming_prefixes(inventory) == ["/bigup"]
+    # Behavior, not source text: the app's policy is built from the inventory
+    # (a `[:0]` wrapper passed the old text check, cycle 44).
+    for var, default in (("KONG_URL", "http://kong-api-gateway:8000"), ("SUPABASE_SERVICE_KEY", "dummy-key"),
+                         ("DATABASE_URL", "postgresql://x:x@localhost/x")):
+        if not os.environ.get(var):
+            monkeypatch.setenv(var, default)
+    import main
+    from media_request_limit import RequestLimitMiddleware
+
+    assert main._request_limit_policy(inventory).streaming_prefixes == ["/bigup"]
+    installed = next(m for m in main.app.user_middleware if m.cls is RequestLimitMiddleware)
+    expected = main._request_limit_policy(main.PLUGIN_INVENTORY)
+    assert installed.kwargs["policy"].streaming_prefixes == expected.streaming_prefixes

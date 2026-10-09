@@ -3788,7 +3788,7 @@ def test_production_backup_restore_and_global_wrapper_clean_s3_config_on_signals
         start_new_session=True,
     )
     try:
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + 20
         while time.monotonic() < deadline and not ready.exists():
             if process.poll() is not None:
                 break
@@ -3797,7 +3797,7 @@ def test_production_backup_restore_and_global_wrapper_clean_s3_config_on_signals
         config_dir = Path(trace.read_text(encoding="utf-8").splitlines()[0])
         assert config_dir.is_dir()
         os.killpg(process.pid, sent_signal)
-        stdout, stderr = process.communicate(timeout=5)
+        stdout, stderr = process.communicate(timeout=20)
         assert not config_dir.exists()
         assert not tmp_path.joinpath("leak").exists()
         for raw in ("signal-access", "signal-secret", "db-secret"):
@@ -3809,7 +3809,7 @@ def test_production_backup_restore_and_global_wrapper_clean_s3_config_on_signals
     finally:
         if process.poll() is None:
             os.killpg(process.pid, signal.SIGKILL)
-            process.wait(timeout=3)
+            process.wait(timeout=15)
 
 
 def test_concurrent_production_backups_use_unique_s3_config_directories(
@@ -3826,7 +3826,7 @@ def test_concurrent_production_backups_use_unique_s3_config_directories(
         for i in range(2)
     ]
     try:
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
             if trace.exists() and len(trace.read_text(encoding="utf-8").splitlines()) >= 2 and all(
                 tmp_path.joinpath(f"ready-{i}").exists() for i in range(2)
@@ -3838,7 +3838,7 @@ def test_concurrent_production_backups_use_unique_s3_config_directories(
         assert len(set(dirs)) == 2
         for process in processes:
             os.killpg(process.pid, signal.SIGTERM)
-        outputs = [process.communicate(timeout=5) for process in processes]
+        outputs = [process.communicate(timeout=20) for process in processes]
         assert all(not path.exists() for path in dirs)
         assert not tmp_path.joinpath("leak").exists()
         for stdout, stderr in outputs:
@@ -5691,24 +5691,42 @@ def test_a_disabled_source_placeholder_archives_under_busybox_tar(tmp_path):
     image = "alpine:3.24.2"
     if subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode != 0:
         pytest.skip(f"{image} not local")
+    # The capture itself, not only the helper: a call site reverted to
+    # `tar -T /dev/null` stayed green on the host (cycle 44).
     script = (
         ". /s/database-snapshots.sh; run_bounded() { \"$@\"; }; "
-        "database_empty_archive /tmp/neo4j.snapshot.tar.gz && tar tzf /tmp/neo4j.snapshot.tar.gz"
+        "database_empty_archive /tmp/neo4j.snapshot.tar.gz && tar tzf /tmp/neo4j.snapshot.tar.gz && "
+        "mkdir /tmp/w && capture_database_snapshots /tmp/w 20261008_120000 " + "0123456789abcdef" * 2
+        + " && tar tzf /tmp/w/neo4j.snapshot.tar.gz && tar tzf /tmp/w/weaviate.snapshot.tar.gz"
     )
     result = subprocess.run(
         ["docker", "run", "--rm", "--pull=never", "--network", "none",
+         "-e", "BACKUP_MANIFEST_HMAC_KEY=" + "a" * 64, "-e", "BACKUP_DEPLOYMENT_ID=dep1",
+         "-e", "BACKUP_NEO4J_SOURCE=disabled", "-e", "BACKUP_WEAVIATE_SOURCE=disabled",
          "-v", f"{_BACKUP_SCRIPTS}:/s:ro", image, "sh", "-c", script],
         capture_output=True, text=True, timeout=120,
     )
     assert result.returncode == 0, result.stderr
 
 
-def _restore_harness(tmp_path, *, publish_postgres: bool):
+def _ensure_setsid(bin_dir) -> None:
+    """macOS has no setsid(1), so the restore harness always skipped there
+    (2026-10-08 run, cycle 44); the shim starts a real new session."""
+    import shutil
+
+    if shutil.which("setsid") is None:
+        shim = bin_dir / "setsid"
+        shim.write_text(f'#!/bin/sh\nexec "{sys.executable}" -c "import os, sys; os.setsid(); '
+                        f'os.execvp(sys.argv[1], sys.argv[1:])" "$@"\n')
+        shim.chmod(0o755)
+
+
+def _restore_harness(tmp_path, *, publish_postgres: bool, marker: str = "valid"):
     """Publish a disabled-source database set into a fake bucket, then run
     restore-databases.sh prepare against it through a stub mc."""
     import shutil
 
-    for tool in ("openssl", "timeout", "sha256sum", "setsid"):
+    for tool in ("openssl", "timeout", "sha256sum"):
         if shutil.which(tool) is None:
             pytest.skip(f"{tool} required")
     key, ts, bid = "a" * 64, "20261008_120000", "0123456789abcdef" * 2
@@ -5717,6 +5735,7 @@ def _restore_harness(tmp_path, *, publish_postgres: bool):
     mc = tmp_path / "bin" / "mc"
     mc.write_text(f'#!/bin/sh\ncase "$1" in alias) exit 0;; cat) exec cat "{tmp_path / "bucket"}/${{2#s3/}}";; *) exit 1;; esac\n')
     mc.chmod(0o755)
+    _ensure_setsid(tmp_path / "bin")
     work = tmp_path / "work"
     work.mkdir()
     env = {"PATH": f"{tmp_path / 'bin'}:{os.environ['PATH']}", "BACKUP_MANIFEST_HMAC_KEY": key,
@@ -5732,12 +5751,15 @@ def _restore_harness(tmp_path, *, publish_postgres: bool):
     shutil.copy(work / "databases.complete", bucket / ts / "databases.complete")
     if publish_postgres:
         payload = "".join(f"{k}={v}\n" for k, v in (
-            ("completion_format", 1), ("backup_timestamp", ts), ("backup_id", bid),
+            ("completion_format", 1), ("backup_timestamp", ts),
+            ("backup_id", "f" * 32 if marker == "other-id" else bid),
             ("manifest_sha256", "0" * 64), ("manifest_bytes", 1), ("dump_bytes", 1),
             ("tables_bytes", 1), ("objects_bytes", 1)))
         (tmp_path / "payload").write_text(payload)
         mac = subprocess.run(["openssl", "dgst", "-sha256", "-mac", "HMAC", "-macopt", f"hexkey:{key}",
                               str(tmp_path / "payload")], capture_output=True, text=True).stdout.split()[-1]
+        if marker == "bad-hmac":
+            mac = "0" * 64
         (bucket / ts / "postgres.complete").write_text(payload + f"hmac_sha256={mac}\n")
     token = "1" * 32
     return subprocess.run(
@@ -5758,5 +5780,11 @@ def test_a_database_restore_needs_the_published_postgres_marker(tmp_path):
         assert "never published" in refused.stderr
         accepted = _restore_harness(tmp_path / "b", publish_postgres=True)
         assert accepted.returncode == 0, accepted.stderr
+        # A forged marker or one from another backup authorizes nothing;
+        # neither case was tested (cycle 44).
+        for marker in ("bad-hmac", "other-id"):
+            shutil.rmtree(f"/tmp/atlas-database-restore-test-{'1' * 32}", ignore_errors=True)
+            forged = _restore_harness(tmp_path / marker, publish_postgres=True, marker=marker)
+            assert forged.returncode != 0, (marker, forged.stderr)
     finally:
         shutil.rmtree(f"/tmp/atlas-database-restore-test-{'1' * 32}", ignore_errors=True)

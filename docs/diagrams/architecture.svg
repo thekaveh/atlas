@@ -319,7 +319,7 @@
 
     <rect x="80" y="1028" width="600" height="36" rx="6" fill="#0f172a"/>
     <rect x="80" y="1028" width="600" height="36" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
-    <text x="380" y="1052" fill="#e2e8f0" font-size="12" font-weight="600" text-anchor="middle">Prometheus scrapes Kong · LiteLLM · n8n · Backend · Weaviate · MinIO · DB sidecars</text>
+    <text x="380" y="1052" fill="#e2e8f0" font-size="12" font-weight="600" text-anchor="middle">Prometheus scrapes Kong · LiteLLM · n8n · Backend · Weaviate · MinIO · DB sidecars · more</text>
 
     <rect x="720" y="1028" width="600" height="36" rx="6" fill="#0f172a"/>
     <rect x="720" y="1028" width="600" height="36" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>

@@ -520,3 +520,34 @@ def test_a_stream_without_a_summary_is_failed_not_completed(monkeypatch, events)
 
     done = asyncio.run(scenario())
     assert done.status == ResearchStatus.FAILED
+
+
+@pytest.mark.parametrize("events", [
+    # Upstream Local Deep Researcher streams running_summary, not final_summary.
+    ["event: values", 'data: {"running_summary": "Real report"}'],
+    # A trailing metadata event must not replace the final values.
+    ["event: values", 'data: {"running_summary": "Real report"}',
+     "event: metadata", 'data: {"run_id": "r1"}'],
+])
+def test_a_running_summary_stream_is_completed(monkeypatch, events):
+    """Only final_summary was covered: dropping running_summary from the
+    summary keys, or the values-event filter, stayed green while every real
+    run would end FAILED (2026-10-08 run, cycle 44)."""
+    import research_client
+
+    class SummaryClient(FakeAsyncClient):
+        def stream(self, method, url, **kwargs):
+            self.calls.append((method, url, kwargs))
+            return FakeStreamResponse(events)
+
+    monkeypatch.setattr(research_client.httpx, "AsyncClient", SummaryClient)
+    client = ResearchClient(base_url="http://local-deep-researcher:2024")
+
+    async def scenario():
+        start = await client.start_research(ResearchRequest(query="atlas", max_loops=2, search_api="searxng"))
+        done = await client.wait_for_completion(start.session_id)
+        return done, await client.get_research_result(start.session_id)
+
+    done, result = asyncio.run(scenario())
+    assert done.status == ResearchStatus.COMPLETED
+    assert result is not None and result.content == "Real report"

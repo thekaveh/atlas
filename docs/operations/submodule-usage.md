@@ -493,7 +493,9 @@ import os
 LITELLM_BASE_URL = os.getenv("LITELLM_BASE_URL", "http://localhost:63040")
 LITELLM_API_KEY = os.getenv("LITELLM_API_KEY")  # equals LITELLM_MASTER_KEY
 SUPABASE_URL = os.getenv("SUPABASE_URL", "http://localhost:63000")  # Kong gateway; clients add /rest/v1
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:63025")
+# Redis always requires a password. Atlas's own REDIS_URL uses the in-network
+# host `redis`, so build the host URL from REDIS_PASSWORD and REDIS_PORT.
+REDIS_URL = f"redis://:{os.getenv('REDIS_PASSWORD')}@localhost:{os.getenv('REDIS_PORT', '63025')}/0"
 ```
 
 ### 6.4. Pattern 4: Service Extension

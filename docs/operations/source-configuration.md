@@ -527,9 +527,9 @@ Spark is a standalone Apache Spark cluster (master + N workers + history server 
 SPARK_SOURCE=disabled
 ```
 - **Use case**: No Spark workloads; saves ~3 GB image disk + per-worker RAM
-- **Pros**: Zero footprint; Zeppelin is also gated off (Zeppelin without Spark errors out at start)
+- **Pros**: Zero footprint
 - **Cons**: No batch / SQL / DataFrame compute; LLM operators in Airflow that import `pyspark` will fail
-- **Requirements**: None
+- **Requirements**: Set `ZEPPELIN_SOURCE=disabled` too. With Spark disabled, a Zeppelin container stops the start with an error.
 
 #### 4.11.2. `container`
 ```bash

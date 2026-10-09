@@ -270,3 +270,16 @@ def test_the_test_suite_cannot_stop_a_real_stack():
     from core.docker_manager import DockerManager
 
     assert DockerManager().are_project_containers_running() is False
+
+
+def test_a_successful_cold_cleanup_marks_the_project_stopped(monkeypatch):
+    """The release-wait test set project_stopped_this_run by hand, so
+    deleting the line in perform_cold_start_cleanup stayed green (cycle 22)."""
+    from start import AtlasStarter
+
+    for success in (True, False):
+        starter = AtlasStarter()
+        monkeypatch.setattr(starter.docker_manager, "perform_cold_start_cleanup",
+                            lambda project_name=None, _s=success: _s)
+        starter.perform_cold_start_cleanup("atlas")
+        assert starter.project_stopped_this_run is success

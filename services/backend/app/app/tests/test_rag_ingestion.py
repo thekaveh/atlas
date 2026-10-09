@@ -2982,14 +2982,20 @@ def test_a_lost_lease_at_the_infrastructure_limit_is_not_retried_again(monkeypat
     def never_retry(**_kwargs):
         raise AssertionError("must not retry past the limit")
 
+    abandoned = []
     monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", lose_lease)
     monkeypatch.setattr(celery_tasks.rag_ingestion_task, "retry", never_retry)
+    # The give-up path must also mark the record failed; only the service
+    # method was tested, so deleting this call stayed green (cycle 44).
+    monkeypatch.setattr(rag_ingestion, "fail_abandoned_ingestion",
+                        lambda ingestion_id, **kw: abandoned.append((ingestion_id, kw)))
     with pytest.raises(rag_ingestion.IngestionExecutionLeaseLost):
         celery_tasks.rag_ingestion_task.run(
             "ingestion-1",
             retry_state={"phase_attempt": 0,
                          "infrastructure_attempt": celery_tasks._RAG_INFRASTRUCTURE_RETRY_LIMIT},
         )
+    assert [ingestion_id for ingestion_id, _ in abandoned] == ["ingestion-1"]
 
 
 def test_an_abandoned_run_is_marked_failed_so_a_resubmit_starts_fresh(tmp_path, monkeypatch):
@@ -3014,3 +3020,79 @@ def test_an_abandoned_run_is_marked_failed_so_a_resubmit_starts_fresh(tmp_path, 
     assert store.get(record.id).status == "failed"
     resubmitted, created = service.submit("showcase-default")
     assert created and resubmitted.id != record.id
+    # The abandon claim is released, not left to block this id for a lease
+    # term (cycle 44).
+    assert record.id not in store._leases
+
+
+def test_ensure_target_class_records_a_rebuild_only_when_the_class_was_rebuilt():
+    """The note test set state["class_rebuilt"] by hand, so dropping the
+    assignment in _ensure_target_class stayed green (cycle 22)."""
+    from types import SimpleNamespace
+
+    from rag_ingestion.service import RagIngestionService
+
+    for rebuilt in (True, False):
+        seen = []
+
+        async def ensure_class(name, *, embedding, _r=rebuilt):
+            seen.append((name, embedding))
+            return _r
+
+        service = RagIngestionService.__new__(RagIngestionService)
+        service.deps = SimpleNamespace(
+            weaviate=SimpleNamespace(ensure_class=ensure_class), embedder=SimpleNamespace(model="m"))
+        state = {"chunks": [{"vector": [0.1, 0.2]}]}
+        asyncio.run(service._ensure_target_class(state, "Rag"))
+        assert seen == [("Rag", ("m", 2))]
+        assert state.get("class_rebuilt", False) is rebuilt
+
+
+def _heartbeat_service(renew):
+    from rag_ingestion.service import RagIngestionService
+
+    class Store:
+        def renew_execution(self, *_args):
+            return renew()
+
+    service = RagIngestionService.__new__(RagIngestionService)
+    service.store = Store()
+    return service
+
+
+def _run_heartbeat(service, lease_seconds, run_for):
+    async def scenario():
+        stop, lost = asyncio.Event(), asyncio.Event()
+        beat = asyncio.create_task(service._heartbeat_execution("i", "o", lease_seconds, stop, lost))
+        await asyncio.sleep(run_for)
+        stop.set()
+        await asyncio.wait_for(beat, 5)
+        return lost.is_set()
+
+    return asyncio.run(scenario())
+
+
+def test_renewals_that_keep_failing_lose_the_lease_before_it_expires():
+    """With the deadline check disabled, renewals that always raised never
+    set lease_lost, so a run kept writing after its lease expired (cycle 22)."""
+    def renew():
+        raise TimeoutError("redis down")
+
+    assert _run_heartbeat(_heartbeat_service(renew), 3, 3.5) is True
+
+
+def test_a_successful_renewal_restarts_the_lease_deadline():
+    """Without the deadline refresh, a failure after earlier successes was
+    measured against the first lease and lost a valid run (cycle 22)."""
+    calls = []
+
+    def renew():
+        calls.append(1)
+        if len(calls) in (1, 2):
+            return True
+        if len(calls) == 3:
+            raise TimeoutError("slow redis")
+        return True
+
+    assert _run_heartbeat(_heartbeat_service(renew), 3, 4.5) is False
+    assert len(calls) >= 4

@@ -565,7 +565,7 @@ storage_client = StorageClient(
 app.include_router(ray_router)
 # Generic downstream extension seam — no-op unless a consumer mounts
 # $BACKEND_PLUGINS_DIR with plugin packages. See plugin_seam.py.
-from plugin_seam import load_plugins  # noqa: E402
+from plugin_seam import load_plugins, streaming_prefixes as plugin_streaming_prefixes  # noqa: E402
 # Inventory of mounted plugins (name, route prefix, health/docs, auth, env
 # summary with secrets masked, load status). Populated at startup; served by
 # GET /plugins so operators can see what is mounted and what env it declares.
@@ -744,9 +744,9 @@ document_extractor = DocumentExtractor()
 # overhead (their UploadFile reads stay the fine-grained bound); everything
 # else falls under the default JSON envelope. Caps here must track the
 # route-level limits they mirror.
-app.add_middleware(
-    RequestLimitMiddleware,
-    policy=LimitPolicy(rules=[
+def _request_limit_policy(inventory: List[Dict[str, Any]]) -> LimitPolicy:
+    """Body envelopes, plus the loaded plugins that stream (#1454)."""
+    return LimitPolicy(rules=[
         media_rule(media_request_max_bytes_from_env()),
         BodyLimitRule(
             method="POST",
@@ -758,11 +758,12 @@ app.add_middleware(
             path="/documents/extract",
             max_bytes=_document_max_file_size() + MULTIPART_OVERHEAD_BYTES,
         ),
-    ], streaming_prefixes=[
-        entry["route_prefix"] for entry in PLUGIN_INVENTORY
-        if entry.get("status") == "loaded"
-        and (entry.get("kong_route") or {}).get("request_buffering") is False
-    ]),
+    ], streaming_prefixes=plugin_streaming_prefixes(inventory))
+
+
+app.add_middleware(
+    RequestLimitMiddleware,
+    policy=_request_limit_policy(PLUGIN_INVENTORY),
     authenticate=authenticate_backend_scope,
 )
 

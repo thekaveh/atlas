@@ -1025,7 +1025,8 @@ def test_memory_namespace_cannot_exceed_the_column_width():
 
 
 @pytest.mark.asyncio
-async def test_rejected_rows_do_not_stall_the_next_pass(monkeypatch):
+@pytest.mark.parametrize("status", [400, 404, 403, 500])
+async def test_rejected_rows_do_not_stall_the_next_pass(monkeypatch, status):
     """Rows the embedder rejected stayed first in the oldest-first page of
     100, so 100 of them blocked every later row (a delete never reached
     Weaviate). The next pass excludes them until they change (2026-10-08
@@ -1043,7 +1044,7 @@ async def test_rejected_rows_do_not_stall_the_next_pass(monkeypatch):
             return None
 
         async def update_embedding(self, fact_id=None, **kwargs):
-            raise httpx.HTTPStatusError("bad", request=request, response=httpx.Response(400, request=request))
+            raise httpx.HTTPStatusError("bad", request=request, response=httpx.Response(status, request=request))
 
         async def deactivate_embedding(self, *a, **k):
             return None
@@ -1071,5 +1072,9 @@ async def test_rejected_rows_do_not_stall_the_next_pass(monkeypatch):
     await svc._reconcile_pending_vectors()
     await svc._reconcile_pending_vectors()
     assert seen[0] == {}
-    assert seen[1] == {row["id"]: row["updated_at"] for row in rows}
+    # Only a row-specific 4xx is remembered. A missing model (404), a
+    # forbidden key (403) or a 5xx hit every row; remembering those rows hid
+    # them until a restart (cycle 22).
+    expected = {row["id"]: row["updated_at"] for row in rows} if status == 400 else {}
+    assert seen[1] == expected
 

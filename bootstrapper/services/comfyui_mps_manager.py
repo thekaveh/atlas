@@ -132,6 +132,18 @@ class ProvisionResult:
         }
 
 
+def _range_total(exc) -> int | None:
+    """N from a 416's ``Content-Range: bytes */N``, else None.
+
+    Only when N is the part's own size is the part already the full file. A
+    longer part (a smaller re-publish) was published as is on any 416
+    (2026-10-08 run, cycle 39); it is now dropped and fetched from the start.
+    """
+    raw = str((getattr(exc, "headers", None) or {}).get("Content-Range") or "")
+    total = raw.rpartition("/")[2].strip()
+    return int(total) if raw.startswith("bytes */") and total.isdigit() else None
+
+
 def _require_full_body(response, written: int, url: str) -> None:
     """urllib ends a body the server cut short with an empty read, not an
     error; a no-sha file was then published truncated and skipped forever
@@ -733,23 +745,8 @@ class ComfyUiMpsManager:
     def _refuse_removing_host_models(self) -> None:
         """The host models dir is never deleted (README §10), even when it was
         pointed inside the managed state directory."""
-        if not self.models_path:
-            return
-        models = Path(self.models_path).expanduser().resolve()
-        state = self.state_dir.expanduser().resolve()
-        # By file identity as well as text: on a case-insensitive volume a
-        # differently-cased models path is the same folder (85b10c48).
-        inside = models == state or state in models.parents
-        if not inside and state.exists():
-            state_stat = state.stat()
-            inside = any(
-                p.exists() and os.path.samestat(p.stat(), state_stat) for p in (models, *models.parents)
-            )
-        if inside:
-            raise ComfyUiMpsError(
-                f"refusing to remove {state}: it contains COMFYUI_MPS_MODELS_PATH ({models}), "
-                "which Atlas never deletes; move the models or point COMFYUI_MPS_MODELS_PATH elsewhere"
-            )
+        from services import refuse_removing_user_data
+        refuse_removing_user_data(self.state_dir, self.models_path, "COMFYUI_MPS_MODELS_PATH", ComfyUiMpsError)
 
     # ── health ───────────────────────────────────────────────────────
     def health(self, *, timeout: float = 3.0) -> dict:
@@ -995,6 +992,33 @@ class ComfyUiMpsManager:
                 "COMFYUI_MPS_MODELS_PATH is not set — nowhere to provision"
             )
             return result
+        with self._provision_guard(emit):
+            return self._provision_models_locked(rows, verify=verify, emit=emit)
+
+    @contextmanager
+    def _provision_guard(self, emit):
+        """One provisioning run per models tree. Two runs (a start plus
+        `comfyui-mps provision`) shared each `.part`: one published it while
+        the other kept appending to the same inode, so a corrupt weight was
+        published and later skipped as present (2026-10-08 run, cycle 39).
+        The second run waits, then finds the files present."""
+        self.models_path.mkdir(parents=True, exist_ok=True)
+        with (self.models_path / ".atlas_provision.lock").open("a+", encoding="utf-8") as lock:
+            if fcntl is None:
+                yield
+                return
+            try:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                emit("… another provisioning run is using this models directory; waiting for it")
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+    def _provision_models_locked(self, rows: list[dict], *, verify: bool, emit) -> ProvisionResult:
+        result = ProvisionResult()
 
         # Dedupe by physical path (multiple logical bundles may share a file —
         # the TSV writer enforces metadata agreement; first row wins here).
@@ -1462,17 +1486,9 @@ class ComfyUiMpsManager:
         parity); an HTTP error status drops it (a served error page must never
         be mistaken for model bytes)."""
         resume_from = part.stat().st_size if part.exists() else 0
-        request = urllib.request.Request(url)
-        if resume_from:
-            request.add_header("Range", f"bytes={resume_from}-")
-        try:
-            response = urllib.request.urlopen(request, timeout=30)
-        except urllib.error.HTTPError as exc:
-            if exc.code == 416 and resume_from:
-                # Range not satisfiable — the part is already the full file.
-                return
-            part.unlink(missing_ok=True)
-            raise ComfyUiMpsError(f"HTTP {exc.code} fetching {url}") from exc
+        response = self._open_range(url, part, resume_from)
+        if response is None:
+            return None
         with response:
             status = getattr(response, "status", 200)
             mode = "ab" if (resume_from and status == 206) else "wb"
@@ -1485,6 +1501,22 @@ class ComfyUiMpsManager:
                     handle.write(chunk)
                     written += len(chunk)
             _require_full_body(response, written, url)
+
+    def _open_range(self, url: str, part: Path, resume_from: int):
+        """The response for ``url`` from ``resume_from``, or None when the
+        part is already the full file. Any other HTTP error drops the part."""
+        request = urllib.request.Request(url)
+        if resume_from:
+            request.add_header("Range", f"bytes={resume_from}-")
+        try:
+            return urllib.request.urlopen(request, timeout=30)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 416 and resume_from and _range_total(exc) == resume_from:
+                return None
+            part.unlink(missing_ok=True)
+            if exc.code == 416 and resume_from:
+                return self._open_range(url, part, 0)
+            raise ComfyUiMpsError(f"HTTP {exc.code} fetching {url}") from exc
 
     @staticmethod
     def _sha256_file(path: Path, *, chunk_size: int = 1 << 20) -> str:
@@ -1523,10 +1555,10 @@ class ComfyUiMpsManager:
         state[key] = {"sha256": sha, "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
 
 
-def _port_error(raw, key: str):
+def _port_error(raw, key: str, what: str = "a port number"):
     raw = (raw or "").strip()
     if raw and not (raw.isascii() and raw.isdigit()):
-        return f"{key}={raw!r} is not a port number; fix it in .env"
+        return f"{key}={raw!r} is not {what}; fix it in .env"
     return None
 
 
@@ -1545,11 +1577,13 @@ def manager_from_env(env: dict[str, str]) -> ComfyUiMpsManager:
         port=_env_port(env.get("COMFYUI_MPS_LOCALHOST_PORT"), 8188),
         ref=env.get("COMFYUI_MPS_REF", "v0.27.0"),
         models_path=env.get("COMFYUI_MPS_MODELS_PATH") or None,
-        min_memory_gb=int(env.get("COMFYUI_MPS_MIN_MEMORY_GB", "16") or "16"),
+        min_memory_gb=_env_port(env.get("COMFYUI_MPS_MIN_MEMORY_GB"), 16),
         torch_pin=env.get("COMFYUI_MPS_TORCH_PIN") or None,
         listen=env.get("COMFYUI_MPS_LISTEN") or "127.0.0.1",
     )
     # Stop/status/remove fall back to the default; a launch must not, or the
     # process listens there while LiteLLM is told the raw value.
-    manager.port_error = _port_error(env.get("COMFYUI_MPS_LOCALHOST_PORT"), "COMFYUI_MPS_LOCALHOST_PORT")
+    manager.port_error = _port_error(env.get("COMFYUI_MPS_LOCALHOST_PORT"), "COMFYUI_MPS_LOCALHOST_PORT") or _port_error(
+        env.get("COMFYUI_MPS_MIN_MEMORY_GB"), "COMFYUI_MPS_MIN_MEMORY_GB", "a whole number of GB",
+    )
     return manager

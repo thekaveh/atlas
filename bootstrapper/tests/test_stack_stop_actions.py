@@ -338,8 +338,21 @@ def test_a_second_stop_is_refused_while_one_is_running():
             await asyncio.sleep(0.1)
             calls = list(stopper.calls)
             release.set()
-            await asyncio.sleep(0.1)
-            return calls
+            for _ in range(100):
+                await asyncio.sleep(0.05)
+                if not scr._teardown_running:
+                    break
+            # Once the first stop finished, a new stop is accepted again; a
+            # guard never cleared refused every later stop (cycle 44).
+            scr.action_stop_stack_cold()
+            scr.action_stop_stack_cold()
+            await pilot.pause()
+            for _ in range(100):
+                await asyncio.sleep(0.05)
+                if len(stopper.calls) > 1:
+                    break
+            return calls, list(stopper.calls)
 
-    calls = _run(scenario)
+    calls, later = _run(scenario)
     assert calls == [(False, calls[0][1])], calls
+    assert [cold for cold, _ in later] == [False, True], later

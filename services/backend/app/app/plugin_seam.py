@@ -399,3 +399,14 @@ def load_plugins(app) -> list[dict]:
     for plugins_dir in _plugin_roots():
         _load_plugins_from_dir(app, plugins_dir, installed_requirements, seen_names, seen_prefixes)
     return list(PLUGIN_INVENTORY)
+
+
+def streaming_prefixes(inventory: list[dict]) -> list[str]:
+    """Route prefixes of loaded plugins that declared
+    ``kong_route.request_buffering: false``; the request-limit middleware
+    streams them instead of applying the 16 MiB default envelope."""
+    return [
+        entry["route_prefix"] for entry in inventory
+        if entry.get("status") == "loaded"
+        and (entry.get("kong_route") or {}).get("request_buffering") is False
+    ]
