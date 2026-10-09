@@ -1891,8 +1891,13 @@ def test_fal_compatibility_path_is_refused_while_budgets_are_enabled(monkeypatch
 
     response = TestClient(main.app).post("/comfyui/generate", json={"prompt": "a cat"})
 
-    assert response.status_code == 409
-    assert "/media/generate" in response.json()["detail"]
+    if disabled_providers:
+        # The kill-switch is checked first (2026-10-08 run, cycle 23).
+        assert response.status_code == 403
+        assert "kill-switch" in response.json()["detail"]
+    else:
+        assert response.status_code == 409
+        assert "/media/generate" in response.json()["detail"]
 
 
 def test_fal_compatibility_timeout_is_a_504_not_a_retryable_200(monkeypatch):
@@ -2110,3 +2115,53 @@ def test_a_completed_3d_job_without_a_glb_is_flagged_and_stays_succeeded(monkeyp
     assert (polled["status"], polled["artifact_url"]) == ("succeeded", None)
     assert polled["provenance"]["glb_missing"] is True
 
+
+
+def test_kill_switch_holds_with_budgets_off(monkeypatch):
+    """reserve() returned before the kill-switch when budgets were off (the
+    default), so a provider the operator disabled kept spending (2026-10-08
+    run, cycle 23)."""
+    main = _fresh_main(monkeypatch, budget_enabled=False, disabled_providers="fal")
+    monkeypatch.setattr(main, "FalClient", _ExplodingFalClient, raising=False)
+    from fastapi.testclient import TestClient
+
+    resp = _submit(TestClient(main.app), consumer="acme")
+    assert resp.status_code == 403
+    assert "kill-switch" in resp.json()["detail"]
+
+
+def test_an_over_long_attribution_header_is_rejected(monkeypatch):
+    """The ledger columns are VARCHAR(255); an over-long header failed every
+    ledger insert as a retryable 503 (cycle 23)."""
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    monkeypatch.setattr(main, "FalClient", _ExplodingFalClient, raising=False)
+    from fastapi.testclient import TestClient
+
+    resp = TestClient(main.app).post(
+        "/media/generate",
+        headers={"X-Atlas-Project": "p" * 256},
+        json={"modality": "image_to_3d", "provider": "fal", "model": "trellis",
+              "input": {"image": "https://cdn.example/sprite.png"}, "consumer": "acme"},
+    )
+    assert resp.status_code == 400
+
+
+def test_the_legacy_fal_route_honours_the_kill_switch(monkeypatch):
+    """/comfyui/generate called FAL with no kill-switch check (cycle 23)."""
+    monkeypatch.setenv("MEDIA_DISABLED_PROVIDERS", "fal")
+    main = _fresh_fal_main(monkeypatch, fal_source="enabled", fal_api_key="fal-key")
+
+    class UnexpectedFalClient:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("a disabled provider must not be called")
+
+    class _NoComfyUIClient:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("ComfyUI must not be used")
+
+    monkeypatch.setattr(main, "FalClient", UnexpectedFalClient)
+    monkeypatch.setattr(main, "ComfyUIClient", _NoComfyUIClient)
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post("/comfyui/generate", json={"prompt": "x", "wait_for_completion": True})
+    assert response.status_code == 403

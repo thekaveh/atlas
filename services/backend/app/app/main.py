@@ -2060,6 +2060,14 @@ def _resolve_consumer_project(
         request.project
         or headers.get("X-Atlas-Project")
     )
+    # The body fields are capped at the ledger's VARCHAR(255); an over-long
+    # header made every ledger insert fail as a retryable 503 (cycle 23).
+    for name, value in (("consumer", claimed_consumer), ("project", claimed_project)):
+        if value is not None and len(value) > 255:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{name} must be at most 255 characters",
+            )
     return authorize_media_scope(principal, claimed_consumer, claimed_project)
 
 
@@ -4073,6 +4081,11 @@ async def generate_image(request: ComfyUIGenerateRequest):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="FAL does not support queue-only compatibility requests",
+            )
+        if not MEDIA_BUDGET_ENGINE.provider_enabled("fal"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="provider 'fal' is disabled (kill-switch)",
             )
         if MEDIA_BUDGET_ENGINE.enabled:
             # This compatibility path calls FAL directly with no reservation

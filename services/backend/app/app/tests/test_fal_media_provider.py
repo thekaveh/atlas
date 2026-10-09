@@ -1240,3 +1240,4 @@ def test_submitted_handle_is_persistable_with_the_real_sdk_handle():
 
     assert raw["request_id"] == "fal-req-1" and "client" not in raw
     json.dumps(copy.deepcopy(raw))
+
