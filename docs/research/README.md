@@ -87,10 +87,8 @@ Six required sections:
 
 `## Why now (and why not sooner)` is optional.
 
-These generated research one-pagers intentionally keep schema-fixed heading
-names such as `## Headline` instead of hierarchical numeric prefixes. They are
-exempt from the repository-wide numbered-docs convention so the schema
-validator and merge script can treat headings as stable field names.
+Research one-pagers number their headings like every other page (`## 1. Headline`).
+The schema validator matches the title after the number, so the titles above stay fixed.
 
 ## 4. Validation
 

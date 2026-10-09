@@ -4,31 +4,31 @@ This guide explains the SOURCE-based configuration system that makes Atlas flexi
 
 ## 1. Interactive Setup Wizard
 
-The easiest way to configure SOURCE variables is the **interactive setup wizard**. Run `./start.sh` with no arguments to launch it. The wizard walks you through each service, shows available options with contextual hints, and validates dependencies in real time. See the [Interactive Setup Wizard Guide](../quick-start/interactive-setup-wizard.md) for details.
+The easiest way to configure SOURCE variables is the **interactive setup wizard**. Run `./start.sh` with no arguments to launch it. The wizard walks you through each service, shows the available options with hints, and validates dependencies as you go. See the [Interactive Setup Wizard Guide](../quick-start/interactive-setup-wizard.md) for details.
 
 ## 2. Understanding SOURCE Variables
 
-SOURCE variables control how each service is deployed — whether in a Docker container, using a localhost installation, or disabling the service entirely. (The legacy `external` and `api` source values were retired earlier in 2026; see the `LLM_PROVIDER_SOURCE` migration note below.)
+SOURCE variables control how each service is deployed: in a Docker container, through a localhost installation, or not at all.
 
 ### 2.1. CLI source flags persist to `.env` (consumer-wrapper trap)
 
-Every `--<service>-source` flag (`--comfyui-source`, `--llm-provider-source`, `--ray-source`, …) is written into `.env` as an explicit override on **every** start — the flag is persisted, not applied for that run only. This is convenient for one-off reconfiguration but a trap for wrapper scripts: a wrapper that passes a *defaulted* source flag (e.g. `--comfyui-source "${COMFYUI_SOURCE:-container-cpu}"`) silently rewrites a hand-configured `.env` value back to the default on every restart.
+Every `--<service>-source` flag (`--comfyui-source`, `--llm-provider-source`, `--ray-source`, …) is written to `.env` on every start. It is not a one-run override. A wrapper that always passes a defaulted flag, for example `--comfyui-source "${COMFYUI_SOURCE:-container-cpu}"`, resets a hand-set `.env` value to the default on every restart.
 
-To make that visible, the bootstrapper prints a warning whenever a CLI source flag would **change** an existing non-empty `.env` value — on the standard log stream in the `--no-tui` flow and in the TUI log pane alike:
+When a flag changes a non-empty `.env` value, the bootstrapper prints a warning. The warning appears in the TUI log pane and in `--no-tui` output:
 
 ```
 ⚠ COMFYUI_SOURCE: managed-localhost-mps → container-cpu (overridden by --comfyui-source or the selected track; persisted to .env)
 ```
 
-The same line appears when `--track` disables an off-track service that `.env` had enabled; the message names the flag that would set that variable, since the track writes it through the same path.
+`--track` prints the same line when it disables an off-track service that `.env` had enabled. The line names the flag for that variable, because the track writes through the same path. There is no warning when the flag equals the `.env` value or the variable was empty.
 
-A flag equal to the value already in `.env` is silent (no noise), as is first-time assignment of an empty/unset variable. **Guidance for wrappers:** do not pass a source flag when `.env` already carries the intended value — omit the flag and let `.env` be the source of truth, or only pass it when you genuinely intend to change the persisted configuration.
+**For wrappers:** pass a source flag only to change the persisted value. Otherwise omit it and let `.env` decide.
 
 ## 3. SOURCE Values Reference
 
-A SOURCE value is the `*_SOURCE` env var setting that picks how a given service is deployed — `container` (Docker), a `localhost`/`managed-localhost` variant (host process), or `disabled` (excluded from compose); some services expose additional named variants (GPU/CPU flavors, provider choices, etc.). The full generated list of every `*_SOURCE` variable, its default, and its valid options lives in [SOURCE Values](../reference/source-values.md); the full env var catalog (including non-SOURCE vars) is in [Environment Variables](../reference/env-vars.md).
+A SOURCE value is the `*_SOURCE` setting that picks how a service is deployed. The common values are `container` (Docker), a `localhost` or `managed-localhost` variant (host process) and `disabled` (excluded from Compose). Some services add named variants, such as GPU and CPU flavors or provider choices. [SOURCE Values](../reference/source-values.md) lists every `*_SOURCE` variable with its default and valid options. [Environment Variables](../reference/env-vars.md) lists all other variables.
 
-> The `litellm-init` container is mandatory and has no SOURCE toggle — it always runs when the stack starts. `litellm-init` provisions the dedicated `litellm` Postgres database and renders `volumes/litellm/config.yaml` from the YAML model catalogs (`services/ollama/models.yaml`, `services/litellm/models.yaml`) + the wizard's `*_USER_MODELS` env vars, via `model_resolver`. No separate catalog-init container is involved in LLM model selection.
+> The `litellm-init` container is mandatory and has no SOURCE toggle. It runs on every start. It provisions the dedicated `litellm` Postgres database and renders `volumes/litellm/config.yaml` through `model_resolver`. The inputs are the YAML model catalogs (`services/ollama/models.yaml`, `services/litellm/models.yaml`) and the wizard's `*_USER_MODELS` variables. No separate catalog-init container takes part in model selection.
 
 ### 3.1. Services Supporting Localhost
 
@@ -48,12 +48,14 @@ These services can run on your host machine instead of in containers:
 | **TTS Provider** | `TTS_PROVIDER_SOURCE` | `chatterbox-localhost` | Run Chatterbox voice cloning natively (macOS MPS / Linux) |
 | **Document Processor** | `DOC_PROCESSOR_SOURCE` | `docling-localhost` | Use a host Docling service |
 | **Apache Tika** | `TIKA_SOURCE` | `tika-localhost` | Use a host Tika server for long-tail fallback extraction |
-| **Blender MCP** | `BLENDER_MCP_SOURCE` | `localhost`, `managed-localhost` | Use a host-installed Blender MCP add-on/server without exposing it through Kong. `managed-localhost` runs an Atlas-provisioned headless Blender + MCP bridge — see `services/blender-mcp/README.md`. |
+| **Blender MCP** | `BLENDER_MCP_SOURCE` | `localhost`, `managed-localhost` | Use a host-installed Blender MCP add-on and server, with no Kong route. `managed-localhost` runs an Atlas-provisioned headless Blender and MCP bridge; see the [Blender MCP README](../../services/blender-mcp/README.md). |
 | **vLLM Metal** | `VLLM_METAL_SOURCE` | `managed-localhost` | Run a managed Apple-silicon OpenAI-compatible model server as an optional LiteLLM upstream; it has no Kong route. |
+
+Every option in this table is dev-only: `--profile prod` does not offer it (§9).
 
 ### 3.2. Container-Only or Stack-Managed Services
 
-Container-only and stack-managed services should normally be left at their defaults unless you are intentionally reducing the stack or debugging a specific component. Init-service SOURCE variables (the `*_INIT_SOURCE` selectors) are usually managed by the startup flow and should not be the first knob users change.
+Leave container-only and stack-managed services at their defaults unless you are reducing the stack or debugging one component. The always-on tier (`BACKEND_SOURCE`, `KONG_API_GATEWAY_SOURCE`, `LITELLM_SOURCE`, `REDIS_SOURCE` and the `SUPABASE_*_SOURCE` variables) defaults to `container`. The startup flow usually manages the init-service selectors (`*_INIT_SOURCE`); do not change them first.
 
 ### 3.3. Feature Flags (Non-SOURCE)
 
@@ -67,102 +69,55 @@ Some features within services are controlled by feature flags rather than SOURCE
 
 The interactive wizard's per-provider multiselects persist as comma-separated env vars in `.env`. On each `docker compose up`:
 
-- **`litellm-init`** calls `model_resolver.active_models(env)` — which reads `services/ollama/models.yaml`, `services/litellm/models.yaml`, and the `*_USER_MODELS` vars below — to render `volumes/litellm/config.yaml`. No DB query involved.
-- **`ollama-pull`** pre-pulls Ollama models (container sources only) using the same resolved active set. For `ollama-localhost`, the bootstrapper pulls the same declared union onto the host daemon at every start (#757) — present tags skip, missing ones stream, per-tag failures warn without aborting.
+- **`litellm-init`** calls `model_resolver.active_models(env)` to render `volumes/litellm/config.yaml`. It reads `services/ollama/models.yaml`, `services/litellm/models.yaml` and the `*_USER_MODELS` variables below. No database query is involved.
+- **`ollama-pull`** pre-pulls the same resolved Ollama models for container sources. For `ollama-localhost`, the bootstrapper pulls the same declared set onto the host daemon at every start. Present tags are skipped, missing tags are pulled, and a failed tag gives a warning without stopping the start.
 
 | Variable | Set by | Default | Notes |
 |---|---|---|---|
-| `OLLAMA_USER_MODELS` | Single unified Ollama models multiselect (source-aware; localhost rows are badged `[pulled]` / `[library]`). | Default-active baseline (qwen3.8:latest, qwen3-embedding:0.6b, nomic-embed-text). | Consumed by `model_resolver` for every Ollama source. Pulled by `ollama-pull` for container sources; for `ollama-localhost` the bootstrapper pulls the declared set onto the host daemon at start (#757). |
-| `OLLAMA_CUSTOM_MODELS` | Ollama "additional models to pull" free-text step. | Empty. | Comma-separated. Pulled by `ollama-pull` for container sources; for `ollama-localhost` the bootstrapper pulls them onto the host daemon at start (#757). |
+| `OLLAMA_USER_MODELS` | Single unified Ollama models multiselect (source-aware; localhost rows are badged `[pulled]` / `[library]`). | Default-active baseline (qwen3.8:latest, qwen3-embedding:0.6b, nomic-embed-text). | Consumed by `model_resolver` for every Ollama source. `ollama-pull` pulls them for container sources. For `ollama-localhost`, the bootstrapper pulls them onto the host daemon at start. |
+| `OLLAMA_CUSTOM_MODELS` | Ollama "additional models to pull" free-text step. | Empty. | Comma-separated. `ollama-pull` pulls them for container sources. For `ollama-localhost`, the bootstrapper pulls them onto the host daemon at start. |
 | `OPENAI_USER_MODELS` | OpenAI multiselect (live `/v1/models` fetch; falls back to the curated catalog and says so). | Curated default-active intersection (gpt-5, gpt-5-mini, text-embedding-3-large) when key valid. | Requires `OPENAI_API_KEY`. |
 | `ANTHROPIC_USER_MODELS` | Anthropic multiselect (live `/v1/models` fetch; falls back to the curated catalog and says so). | Curated default-active intersection (claude-opus-4-7, claude-sonnet-4-6) when key valid. | Requires `ANTHROPIC_API_KEY`. |
 | `OPENROUTER_USER_MODELS` | OpenRouter multiselect (live `/api/v1/models` fetch; falls back to the curated catalog and says so). | `openrouter/auto` when reachable. | Requires `OPENROUTER_API_KEY`. |
 
-A cloud multiselect never claims a live listing it did not get. The caption above the list reads either `Live from the provider; key accepted` or `Curated catalog, credentials unverified: <reason>`, and each row is badged `live` or `catalog` to match (#1180). Values already saved in a `*_USER_MODELS` var that neither source lists are carried into the picker badged `saved`, so a failed lookup cannot silently shorten the stored list. See [Interactive Setup Wizard §4.4.2](https://github.com/thekaveh/atlas/blob/main/docs/quick-start/interactive-setup-wizard.md).
+Each cloud model row is badged `live`, `catalog` or `saved`. See [Interactive Setup Wizard §4.4.2](../quick-start/interactive-setup-wizard.md#442-where-the-listed-models-came-from).
 
 ### 3.5. Numeric wizard entries
 
-`BASE_PORT` and the inline per-row numbers (`RAY_WORKER_COUNT`, `SPARK_WORKER_COUNT`, `PROMETHEUS_RETENTION_DAYS`, the STT provider ports) are accepted as typed or refused. The wizard does not clamp a value into range or fall back to the previous one (#1181), so nothing here is written until an accepted value exists. Empty means "keep the current value", and `auto` remains a real `BASE_PORT` value. See [Interactive Setup Wizard §7.2](https://github.com/thekaveh/atlas/blob/main/docs/quick-start/interactive-setup-wizard.md).
+The wizard accepts `BASE_PORT` and the inline numbers (`RAY_WORKER_COUNT`, `SPARK_WORKER_COUNT`, `PROMETHEUS_RETENTION_DAYS`, the STT provider ports) as typed, or refuses them. Empty keeps the current value, and `auto` is a valid `BASE_PORT` value. See [Interactive Setup Wizard §7.2](../quick-start/interactive-setup-wizard.md#72-invalid-numbers-are-refused-not-adjusted).
 
 ## 4. Detailed SOURCE Configurations
 
 ### 4.1. LLM access (LiteLLM gateway + Ollama, vLLM Metal, and cloud upstreams)
 
-LLM access in this stack is split between **LiteLLM** (the always-on OpenAI-compatible gateway Atlas-managed consumers read) and configurable upstreams behind it: Ollama, the optional managed vLLM Metal host, and three cloud providers. See [LiteLLM Gateway](https://github.com/thekaveh/atlas/blob/main/services/litellm/README.md) for the consumer-facing surface; the variables below pick what LiteLLM forwards to.
+**LiteLLM** is the always-on OpenAI-compatible gateway that Atlas-managed consumers read. The upstreams behind it are configurable: Ollama, the optional managed vLLM Metal host and three cloud providers. The [LiteLLM Gateway README](../../services/litellm/README.md) describes the consumer-facing surface. The variables below pick what LiteLLM forwards to.
 
 #### 4.1.1. `LLM_PROVIDER_SOURCE` — Ollama upstream (single-select)
 
-##### 4.1.1.1. `ollama-container-cpu` (Default)
-```bash
-LLM_PROVIDER_SOURCE=ollama-container-cpu
-```
-- **Use case**: Default setup, no local Ollama required
-- **Pros**: No setup needed, works everywhere
-- **Cons**: Higher memory usage, slower model loading
-- **Requirements**: None
+| Value | Use |
+|---|---|
+| `ollama-container-cpu` (default) | Ollama in a CPU container. No host setup. |
+| `ollama-container-gpu` | Ollama in a GPU container. Needs an NVIDIA GPU and the NVIDIA Container Toolkit. |
+| `ollama-localhost` | An Ollama on the host, port `OLLAMA_LOCALHOST_PORT` (default `11434`). Run `ollama serve` on the host; Atlas pulls the declared tags at start. |
+| `none` | No Ollama upstream. Enable `VLLM_METAL_SOURCE=managed-localhost`, at least one `CLOUD_*_SOURCE`, or both. |
 
-##### 4.1.1.2. `ollama-container-gpu`
-```bash
-LLM_PROVIDER_SOURCE=ollama-container-gpu
-```
-- **Use case**: GPU acceleration in container
-- **Pros**: GPU acceleration, no local setup
-- **Cons**: Requires NVIDIA GPU + Docker GPU support
-- **Requirements**: NVIDIA Container Toolkit
-
-##### 4.1.1.3. `ollama-localhost`
-```bash
-LLM_PROVIDER_SOURCE=ollama-localhost
-```
-- **Use case**: Use existing Ollama installation
-- **Pros**: Faster startup, reuse models, less container memory
-- **Cons**: Requires local Ollama setup
-- **Requirements**: Ollama installed and running locally
-
-Setup for localhost:
-```bash
-# Install Ollama
-curl -fsSL https://ollama.com/install.sh | sh
-
-# Start Ollama service — the only required step
-ollama serve &
-
-# Optional pre-warm — Atlas pulls the declared tags automatically at start (#757)
-ollama pull qwen3.8:latest
-ollama pull qwen3-embedding:0.6b
-```
-
-##### 4.1.1.4. `none`
-```bash
-LLM_PROVIDER_SOURCE=none
-```
-- **Use case**: Disable the Ollama upstream while using vLLM Metal and/or cloud providers
-- **Pros**: No Ollama resource usage; LiteLLM still provides one consumer endpoint
-- **Cons**: Requires another configured upstream
-- **Requirements**: Enable `VLLM_METAL_SOURCE=managed-localhost` and/or at least one `CLOUD_*_SOURCE`. The bootstrapper refuses to start only when `LLM_PROVIDER_SOURCE=none`, vLLM Metal is disabled, and every cloud source is disabled.
-- **Default models**: any `LITELLM_DEFAULT_MODEL`, `LITELLM_VISION_MODEL` or `LITELLM_EMBEDDING_MODEL` still naming an `ollama/*` model (the `.env.example` defaults) is repointed at start to the best active cloud model, and the embedding dimension follows; models you chose explicitly are left alone. An explicit non-Ollama `LANGMEM_EMBEDDING_MODEL` becomes the embedding model for the pair, and a stale `ollama/*` LangMem override follows the active one. When no active provider offers a replacement, the value is left as is; if that leaves the embedding model unresolved, a warning names the gap.
-
-The legacy values `LLM_PROVIDER_SOURCE=api` and `LLM_PROVIDER_SOURCE=disabled` have been removed — use `none` to mean “no Ollama upstream.”
+The bootstrapper refuses to start only when `LLM_PROVIDER_SOURCE=none`, vLLM Metal is disabled and every cloud source is disabled. The legacy values `LLM_PROVIDER_SOURCE=api` and `LLM_PROVIDER_SOURCE=disabled` have been removed; use `none` to mean "no Ollama upstream."
 
 #### 4.1.2. `VLLM_METAL_SOURCE` — managed Apple-silicon upstream
 
-`VLLM_METAL_SOURCE=managed-localhost` installs and supervises a native vLLM
-Metal process on a supported Apple-silicon host, then registers its
-`VLLM_METAL_MODEL` alias with LiteLLM. It is independent of
-`LLM_PROVIDER_SOURCE`: a vLLM-Metal-only configuration is valid with
-`LLM_PROVIDER_SOURCE=none` and every cloud source disabled. The default is
-`disabled`; see [vLLM Metal](../../services/vllm-metal/README.md) for platform,
-model, port, and lifecycle requirements.
+`VLLM_METAL_SOURCE=managed-localhost` installs and supervises a native vLLM Metal process on a supported Apple-silicon host. It then registers its `VLLM_METAL_MODEL` alias with LiteLLM. It is independent of `LLM_PROVIDER_SOURCE`: a vLLM-Metal-only configuration with `LLM_PROVIDER_SOURCE=none` and every cloud source disabled is valid. The default is `disabled`. See [vLLM Metal](../../services/vllm-metal/README.md) for platform, model, port and lifecycle requirements.
 
 #### 4.1.3. `CLOUD_OPENAI_SOURCE` / `CLOUD_ANTHROPIC_SOURCE` / `CLOUD_OPENROUTER_SOURCE` (multi-toggle)
 
-Each cloud provider is an independent `enabled` / `disabled` switch — turn on as many as you want simultaneously. The switch is independent of the stored credential: `CLOUD_<PROVIDER>_SOURCE=disabled` alongside a populated `<PROVIDER>_API_KEY` is a valid, supported state, and the wizard can produce and preserve it (#1183). Only an explicit `remove` in the wizard's key step blanks a key; turning a provider off, and unchecking every one of its models, both leave the key in place. See [Interactive Setup Wizard §4.4.1](https://github.com/thekaveh/atlas/blob/main/docs/quick-start/interactive-setup-wizard.md). Consumers request model IDs against `LITELLM_BASE_URL`; LiteLLM routes per-provider based on the active model set that `model_resolver` computes from the YAML catalogs + env on each `docker compose up`.
+Each cloud provider is an independent `enabled` / `disabled` switch (default `disabled`). Turning a provider off keeps its API key; only `remove` in the wizard key step deletes it ([§4.4.1](../quick-start/interactive-setup-wizard.md#441-turning-a-provider-off-is-not-the-same-as-deleting-its-key)). Consumers request model IDs against `LITELLM_BASE_URL`. LiteLLM routes the active model set that `model_resolver` computes on each `docker compose up`.
 
 ```bash
 CLOUD_OPENAI_SOURCE=enabled          # requires OPENAI_API_KEY
 CLOUD_ANTHROPIC_SOURCE=enabled       # requires ANTHROPIC_API_KEY
 CLOUD_OPENROUTER_SOURCE=enabled      # requires OPENROUTER_API_KEY
 ```
+
+The LiteLLM path gives one URL and key for the default Atlas-managed consumer path, with spend logging in LiteLLM. Services that support a native-provider override can bypass that path. Cloud providers add API costs and per-provider quotas.
 
 #### 4.1.4. Per-provider activation rules (applied by `model_resolver` on every `docker compose up`)
 
@@ -172,102 +127,99 @@ CLOUD_OPENROUTER_SOURCE=enabled      # requires OPENROUTER_API_KEY
 | `enabled` + key | non-empty CSV | Exactly those models are active (catalog entries + synthesized entries for unknown names). |
 | `enabled` + key | empty | The curated `default_active=True` set from the YAML catalog (e.g. gpt-5 + gpt-5-mini + text-embedding-3-large for OpenAI) so the provider is usable out of the box. |
 
-**Bootstrapper safety net** — `source_validator.enforce_runtime_invariants()` flips `CLOUD_*_SOURCE=enabled` back to `disabled` when the matching API key is empty and prints a warning. This protects against the "looks ready in .env, errors at first request" failure mode.
+**Bootstrapper safety net.** `source_validator.enforce_runtime_invariants()` sets `CLOUD_*_SOURCE=enabled` back to `disabled` when the matching API key is empty, and prints a warning. This prevents a provider that looks ready in `.env` but fails at the first request.
 
-- **Use case**: Mix-and-match Ollama, vLLM Metal, and cloud, or run without Ollama using `LLM_PROVIDER_SOURCE=none`
-- **Pros**: One URL/key for the default Atlas-managed consumer path, with spend logging handled by LiteLLM. Services that explicitly support a native-provider override can bypass that path.
-- **Cons**: API costs and per-provider quota considerations
-- **Requirements**: The provider's API key must be present in `.env`
+**Default models.** At every start, a default model that this launch will not route is replaced with the best active model. This covers `LITELLM_DEFAULT_MODEL`, `LITELLM_VISION_MODEL`, `LITELLM_EMBEDDING_MODEL` and `LANGMEM_EMBEDDING_MODEL`. Examples are an `ollama/*` model when Ollama is off, or a cloud model whose provider is disabled. The embedding dimension follows the new embedding model.
 
-### 4.2. COMFYUI_SOURCE
+- A routed model, a consumer model and a host-imported Ollama tag are never changed.
+- An explicit non-Ollama `LANGMEM_EMBEDDING_MODEL` becomes the embedding model for the pair.
+- If no active provider offers a replacement, the value is kept and a warning names it.
 
-#### 4.2.1. `container-cpu` (Default)
+### 4.2. Per-service SOURCE options
+
+Each row lists the options from the service's `service.yml` `sources:` block; **bold** marks the default. Options marked † are dev-only and are not offered under `--profile prod`. The service README holds setup, configuration and troubleshooting.
+
+| SOURCE variable | Options | Behaviour and requirements | Service README |
+|---|---|---|---|
+| `AIRFLOW_SOURCE` | `container`, **`disabled`** | DAG orchestrator (LocalExecutor, metadata in Supabase Postgres). UI and `/api/v2/` at `airflow.localhost`. See §4.3.1. | [Airflow](../../services/airflow/README.md) |
+| `ASSET_BAKER_SOURCE` | `container-cpu`, **`disabled`** | Blender high-poly to low-poly bake (Cycles CPU). | [Asset Baker](../../services/asset-baker/README.md) |
+| `ASSET_WORKER_SOURCE` | `container`, **`disabled`** | glTF post-processing. | [Asset Worker](../../services/asset-worker/README.md) |
+| `BACKUP_SOURCE` | `container`, **`disabled`** | Postgres and database snapshots to S3. Run with `docker compose run --rm backup`. | [Backup](../../services/backup/README.md) |
+| `BLENDER_MCP_SOURCE` | `localhost`†, `managed-localhost`†, **`disabled`** | Host Blender MCP bridge. `managed-localhost` runs an Atlas-provisioned headless Blender. No Kong route. | [Blender MCP](../../services/blender-mcp/README.md) |
+| `CELERY_SOURCE` | `container`, **`disabled`** | Backend Celery worker and Flower monitor. | [Celery](../../services/celery/README.md) |
+| `CLOUDFLARED_SOURCE` | `container`, **`disabled`** | Cloudflare Tunnel public edge, proxied to Kong. | [Cloudflare Tunnel](../../services/cloudflared/README.md) |
+| `COMFYUI_SOURCE` | **`container-cpu`**, `container-gpu`, `localhost`†, `managed-localhost-mps`†, `disabled` | `container-gpu` needs the NVIDIA Container Toolkit. `localhost` uses a host ComfyUI on `COMFYUI_LOCALHOST_PORT` (default `8000`; set `8188` for the upstream default). `managed-localhost-mps` runs Metal ComfyUI on Apple Silicon via `./start.sh comfyui-mps <preflight\|install\|provision\|provision-nodes\|start\|stop\|status\|health\|remove>`. | [ComfyUI](../../services/comfyui/README.md) |
+| `CRAWL4AI_SOURCE` | `container`, **`disabled`** | Browser-backed extraction API at `crawl4ai.localhost`, with a generated `CRAWL4AI_API_TOKEN`. `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=crawl4ai` requires `container`. Disabled: Local Deep Researcher uses snippets unless the mode is `builtin`. | [Crawl4AI](../../services/crawl4ai/README.md) |
+| `DOC_PROCESSOR_SOURCE` | **`disabled`**, `docling-localhost`†, `docling-container-gpu` | Docling document processor. | [Document Processor](../../services/doc-processor/README.md) |
+| `FAL_SOURCE` | `enabled`, **`disabled`** | fal.ai cloud media. Needs `FAL_API_KEY` when enabled. See §4.3.5. | [FAL](../../services/fal/README.md) |
+| `GRAFANA_SOURCE` | `container`, **`disabled`** | Dashboards and alerting at `grafana.localhost`; admin password generated. Pair it with `PROMETHEUS_SOURCE=container`, or every panel shows "datasource unreachable". | [Grafana](../../services/grafana/README.md) |
+| `HERMES_SOURCE` | **`container`**, `localhost`†, `disabled` | Agent runtime; `litellm-init` registers `hermes-agent` in LiteLLM unless disabled. `HERMES_DEFAULT_MODEL` needs a context window of at least 64K. `localhost`: install Hermes on the host, run `hermes gateway run`, and set `HERMES_LOCALHOST_PORT` (default `8642`) if needed. | [Hermes Agent](../../services/hermes/README.md) |
+| `ICEBERG_REST_SOURCE` | `container`, **`disabled`** | Iceberg REST catalog (Supabase JDBC catalog, MinIO warehouse). | [Iceberg REST](../../services/iceberg-rest/README.md) |
+| `JENKINS_SOURCE` | `container`, **`disabled`** | Maven Spark-app builder at `jenkins.localhost`; it publishes JARs to the MinIO `jars` bucket. Requires `MINIO_SOURCE=container`. Atlas ships no downstream jobs. | [Jenkins](../../services/jenkins/README.md) |
+| `JUPYTERHUB_SOURCE` | **`container`**, `disabled` | DS/ML and lakehouse notebooks. Includes `boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow` and `duckdb`. | [JupyterHub](../../services/jupyterhub/README.md) |
+| `LABEL_STUDIO_SOURCE` | `container`, **`disabled`** | Dataset review and annotation for the ML Engineering track, at `label-studio.localhost`. Requires `MINIO_SOURCE=container`. | [Label Studio](../../services/label-studio/README.md) |
+| `LANGFUSE_SOURCE` | `container`, **`disabled`** | LLM traces and evals for LiteLLM-routed calls, at `langfuse.localhost`. Requires `MINIO_SOURCE=container`, which the `gen-ai-*` tracks disable: pass `--minio-source container` there. | [Langfuse](../../services/langfuse/README.md) |
+| `LIGHTRAG_SOURCE` | `container`, `localhost`†, **`disabled`** | `container` stores data in Supabase pgvector, Neo4j and Redis. If one is disabled, LightRAG fails to start unless its `LIGHTRAG_*_STORAGE` names an in-process class. `localhost` uses `LIGHTRAG_LOCALHOST_PORT` (default `63068`). | [LightRAG](../../services/lightrag/README.md) |
+| `LLM_GRAPH_BUILDER_SOURCE` | `container`, **`disabled`** | Neo4j LLM Graph Builder (pinned source build). | [LLM Graph Builder](../../services/llm-graph-builder/README.md) |
+| `LLM_PROVIDER_SOURCE` | **`ollama-container-cpu`**, `ollama-container-gpu`, `ollama-localhost`†, `none` | Ollama upstream for LiteLLM. See §4.1.1. | [Ollama](../../services/ollama/README.md) |
+| `LOCAL_DEEP_RESEARCHER_SOURCE` | **`container`**, `disabled` | LangGraph research agent. | [Local Deep Researcher](../../services/local-deep-researcher/README.md) |
+| `LOKI_SOURCE` | `container`, **`disabled`** | Local queryable log store. | [Loki](../../services/loki/README.md) |
+| `MCP_SERVERS_SOURCE` | `container`, **`disabled`** | Read-only Postgres, Neo4j and SearXNG tools over Streamable HTTP at `/mcp` (`mcp.localhost`). Requires `NEO4J_GRAPH_DB_SOURCE=container` and `SEARXNG_SOURCE=container`. Tool output is untrusted. | [MCP Servers](../../services/mcp-servers/README.md) |
+| `MINIO_SOURCE` | **`container`**, `disabled` | S3-compatible object storage with scoped per-consumer buckets. See §4.3.3. | [MinIO](../../services/minio/README.md) |
+| `MLFLOW_SOURCE` | `container`, **`disabled`** | Experiment tracking at `mlflow.localhost`; JupyterHub gets `MLFLOW_TRACKING_URI=http://mlflow:5000`. Requires `MINIO_SOURCE=container`. Model promotion and serving are not included. | [MLflow](../../services/mlflow/README.md) |
+| `MULTI2VEC_CLIP_SOURCE` | **`container-cpu`**, `container-gpu`, `disabled` | CLIP vectorizer for Weaviate. See §4.3.2. | [multi2vec-clip](../../services/multi2vec-clip/README.md) |
+| `N8N_SOURCE` | **`container`**, `disabled` | Workflow automation. | [n8n](../../services/n8n/README.md) |
+| `NEO4J_GRAPH_DB_SOURCE` | **`container`**, `localhost`†, `disabled` | Graph database. | [Neo4j](../../services/neo4j/README.md) |
+| `OPEN_WEB_UI_SOURCE` | **`container`**, `disabled` | Chat interface. | [Open WebUI](../../services/open-webui/README.md) |
+| `OPENCLAW_SOURCE` | **`disabled`**, `container`, `localhost`† | AI agent gateway. `localhost` needs Node.js 22+ and `npm install -g openclaw`. Run `openclaw onboard`, then `openclaw gateway --port 63065`, or set `OPENCLAW_LOCALHOST_PORT` to your port. | [OpenClaw](../../services/openclaw/README.md) |
+| `OTEL_COLLECTOR_SOURCE` | `container`, **`disabled`** | OpenTelemetry (OTLP) ingest. | [OpenTelemetry Collector](../../services/otel-collector/README.md) |
+| `PROMETHEUS_SOURCE` | `container`, **`disabled`** | Metrics and TSDB with `node-exporter` and `cAdvisor`, at `prometheus.localhost`. It also scales the `postgres-exporter` and `redis-exporter` sidecars. `cAdvisor` and `node-exporter` add steady CPU load. | [Prometheus](../../services/prometheus/README.md) |
+| `RAY_SOURCE` | `ray-container-cpu`, `ray-container-gpu`, **`disabled`** | Head plus `RAY_WORKER_COUNT` workers (`0` = head only), dashboard at `ray.localhost`. GPU needs the NVIDIA Container Toolkit. Disabled: Backend `/api/ray/*` returns 503 and `ray.init()` in notebooks fails. | [Ray](../../services/ray/README.md) |
+| `REDPANDA_SOURCE` | `container`, **`disabled`** | Kafka-API broker, console and demo topics. | [Redpanda](../../services/redpanda/README.md) |
+| `SEARXNG_SOURCE` | **`container`**, `disabled` | Privacy metasearch. | [SearXNG](../../services/searxng/README.md) |
+| `SPARK_SOURCE` | `container`, **`disabled`** | Standalone cluster with Spark Connect. Requires `MINIO_SOURCE=container`. With Spark disabled, set `ZEPPELIN_SOURCE=disabled` too. See §4.3.4. | [Spark](../../services/spark/README.md) |
+| `STT_PROVIDER_SOURCE` | **`speaches-container-cpu`**, `speaches-container-gpu`, `parakeet-container-gpu`, `parakeet-localhost`†, `whisper-cpp-localhost`†, `disabled` | Speech-to-text engine. | [STT Provider](../../services/stt-provider/README.md) |
+| `SUPAVISOR_SOURCE` | `container`, **`disabled`** | Postgres transaction pooler. | [Supavisor](../../services/supavisor/README.md) |
+| `TEI_RERANKER_SOURCE` | `container-cpu`, `container-gpu`, `localhost`†, **`disabled`** | Cross-encoder reranker (`mixedbread-ai/mxbai-rerank-base-v1`) with a `/rerank` route. On arm64, `container-cpu` uses the digest-pinned `cpu-arm64-latest` image. LightRAG gets `RERANK_BINDING=null`; direct LightRAG-to-TEI reranking needs an adapter. | [TEI Reranker](../../services/tei-reranker/README.md) |
+| `TEMPO_SOURCE` | `container`, **`disabled`** | Local distributed-trace store. | [Tempo](../../services/tempo/README.md) |
+| `TIKA_SOURCE` | `container`, `tika-localhost`†, **`disabled`** | Fallback text extractor for formats Docling does not support (EML, MSG, RTF, OpenDocument, archives). `tika-localhost` uses `TIKA_LOCALHOST_PORT` (default `9998`). | [Apache Tika](../../services/tika/README.md) |
+| `TRINO_SOURCE` | `container`, **`disabled`** | Federated SQL over Iceberg REST and the MinIO lakehouse. | [Trino](../../services/trino/README.md) |
+| `TRUEFORGE_SOURCE` | `container`, **`disabled`** | Agent runtime with MCP tools, approvals and schedules, at `trueforge.localhost`. Uses a LiteLLM virtual key. `MCP_SERVERS_SOURCE=container` is optional. | [TrueForge](../../services/trueforge/README.md) |
+| `TTS_PROVIDER_SOURCE` | **`speaches-container-cpu`**, `speaches-container-gpu`, `chatterbox-container-gpu`, `chatterbox-localhost`†, `disabled` | Text-to-speech engine. | [TTS Provider](../../services/tts-provider/README.md) |
+| `VERBA_SOURCE` | `container`, **`disabled`** | Archived Weaviate RAG demo UI at `verba.localhost`. Needs `WEAVIATE_SOURCE` `container` or `localhost`. | [Verba](../../services/verba/README.md) |
+| `VLLM_METAL_SOURCE` | `managed-localhost`†, **`disabled`** | Managed Apple-silicon LLM server for LiteLLM. See §4.1.2. | [vLLM Metal](../../services/vllm-metal/README.md) |
+| `WEAVIATE_SOURCE` | **`container`**, `localhost`†, `disabled` | Vector database. See §4.3.2. | [Weaviate](../../services/weaviate/README.md) |
+| `ZEPPELIN_SOURCE` | `container`, **`disabled`** | Spark-first notebook with a loopback-only direct UI at `http://127.0.0.1:${ZEPPELIN_PORT}`. Requires `SPARK_SOURCE=container` and `MINIO_SOURCE=container`; with Spark disabled, the start stops with an error. | [Zeppelin](../../services/zeppelin/README.md) |
+
+The cloud switches (`CLOUD_*_SOURCE`) are in §4.1.3.
+
+### 4.3. Cross-service notes
+
+#### 4.3.1. Airflow Connections
+
+`airflow-init` seeds `postgres_supabase`, `litellm_default` and `redis_default` always. It seeds `spark_default`, `minio_default`, `weaviate_default` and `neo4j_default` only when that sibling's source is `container`. Without `spark_default`, `SparkSubmitOperator` tasks fail.
+
+The image includes `apache-airflow-providers-openai`, wired to LiteLLM. For LangChain, use `langchain-openai` with `PythonOperator`; no `apache-airflow-providers-langchain` package exists. The image also has Java 17, `spark-submit` and the S3A and Iceberg jars. `SparkSubmitOperator` can submit a JAR from `s3a://jars/...` to `spark://spark-master:7077` with `deploy_mode="cluster"`.
+
+To read a seeded Connection from a `docker exec` script outside a task, see the [Airflow README](../../services/airflow/README.md) §4.
+
+The manual `lakehouse_spark_submit_smoke` DAG submits a validation JAR from `s3a://jars/` and records Spark History. It needs Spark, MinIO and Iceberg REST. See the [Airflow README](../../services/airflow/README.md) §4 (seeded Connections) and §5 (sample and smoke DAGs).
+
+`AIRFLOW_SOURCE=container` generates these secrets in `.env` on the first start:
+
 ```bash
-COMFYUI_SOURCE=container-cpu
-```
-- **Use case**: Default image generation
-- **Pros**: Works everywhere, automatic model download
-- **Cons**: Slow generation, high memory usage
-- **Requirements**: None
-
-#### 4.2.2. `container-gpu`
-```bash
-COMFYUI_SOURCE=container-gpu
-```
-- **Use case**: Fast image generation
-- **Pros**: GPU acceleration, fast generation
-- **Cons**: Requires NVIDIA GPU
-- **Requirements**: NVIDIA Container Toolkit
-
-#### 4.2.3. `localhost`
-```bash
-COMFYUI_SOURCE=localhost
-```
-- **Use case**: Existing ComfyUI installation
-- **Pros**: Custom workflows, existing setups
-- **Cons**: Manual setup required
-- **Requirements**: ComfyUI running locally on the port given by `COMFYUI_LOCALHOST_PORT` (default `8000`; override to e.g. `8188` if your installation uses another port). The URL is derived as `http://host.docker.internal:${COMFYUI_LOCALHOST_PORT}` at compose-render time.
-
-Setup for localhost:
-```bash
-# Clone ComfyUI
-git clone https://github.com/comfyanonymous/ComfyUI.git
-cd ComfyUI
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Start ComfyUI on the stack default localhost port
-python main.py --port 8000
-
-# If your local ComfyUI uses the common native/default port 8188 instead, set:
-# COMFYUI_LOCALHOST_PORT=8188
-# (URL is derived as http://host.docker.internal:8188 at compose-render time.)
+# Username is hardcoded `admin` — there is no AIRFLOW_ADMIN_USERNAME knob.
+AIRFLOW_ADMIN_PASSWORD=...              # auto-generated
+AIRFLOW_FERNET_KEY=...                  # auto-generated; encrypts Connections + Variables at rest
+AIRFLOW_SECRET_KEY=...                  # auto-generated; AIRFLOW__API__SECRET_KEY
+AIRFLOW_JWT_SECRET=...                  # auto-generated; AIRFLOW__API_AUTH__JWT_SECRET signs Execution API and /api/v2 JWTs
+AIRFLOW_DB_USER=airflow                 # Postgres role on supabase-db
+AIRFLOW_DB_PASSWORD=...                 # auto-generated
 ```
 
-#### 4.2.4. `managed-localhost-mps`
-```bash
-COMFYUI_SOURCE=managed-localhost-mps
-```
-- **Use case**: Apple Silicon, where Metal/MPS acceleration is unavailable inside a Linux container
-- **Pros**: GPU-accelerated on macOS; Atlas owns the install, start/stop and health of the host process
-- **Cons**: macOS/Apple Silicon only; the process runs outside Docker
-- **Requirements**: managed through `./start.sh comfyui-mps <preflight|install|provision|provision-nodes|start|stop|status|health|remove>`
+#### 4.3.2. Weaviate and the CLIP vectorizer
 
-#### 4.2.5. `disabled`
-```bash
-COMFYUI_SOURCE=disabled
-```
-- **Use case**: No image generation needed
-- **Pros**: Saves resources
-- **Cons**: No image generation
-- **Requirements**: None
-
-#### 4.2.6. `FAL_SOURCE` — cloud media provider
-```bash
-FAL_SOURCE=enabled
-FAL_API_KEY=<your-fal-key>
-FAL_MODEL=fal-ai/flux/dev
-```
-- **Use case**: Route simple backend image generation through fal.ai instead of local ComfyUI hardware.
-- **Pros**: No local GPU or ComfyUI container required for compatible prompt-to-image requests.
-- **Cons**: Requires internet access, provider quota, and per-generation provider cost.
-- **Requirements**: `FAL_API_KEY` when `FAL_SOURCE=enabled`; no key required when `FAL_SOURCE=disabled`. The switch is independent of the stored key: `FAL_SOURCE=disabled` alongside a populated `FAL_API_KEY` is a valid, supported state, and the wizard can produce and preserve it (#1255). Its fal.ai key step takes the same words as the cloud providers' — Enter changes nothing, `enable` / `disable` flip `FAL_SOURCE` and keep the key, and only `remove` blanks it. See [Interactive Setup Wizard §4.4.1](https://github.com/thekaveh/atlas/blob/main/docs/quick-start/interactive-setup-wizard.md).
-- **Behavior**: `POST /comfyui/generate` uses FAL when enabled, for backward compatibility with existing Open WebUI and n8n callers; with `MEDIA_BUDGET_ENABLED=true` it answers `409` (it cannot reserve budget), so budgeted callers use `POST /media/generate`. `POST /media/generate` is the provider-neutral route for FAL image and image-to-3D generation (TRELLIS, Hunyuan3D, Tripo, Rodin); the full request/response contract is served at the backend's `/docs` (Swagger) endpoint.
-
-### 4.3. WEAVIATE_SOURCE
-
-#### 4.3.1. `container` (Default)
-```bash
-WEAVIATE_SOURCE=container
-WEAVIATE_URL=http://weaviate:8080
-```
-- **Use case**: Standard vector database
-- **Pros**: Easy setup, automatic configuration
-- **Cons**: Container resource usage
-- **Requirements**: None
-
-The default stack also enables the optional CLIP vectorizer service. Text vectorization talks to LiteLLM via the `text2vec-openai` module — the OpenAI-compatible URL points at `LITELLM_BASE_URL` and `OPENAI_APIKEY` is set to `LITELLM_MASTER_KEY`. The default module list also keeps `text2vec-ollama` and `generative-ollama` enabled for back-compat with schemas created before the LiteLLM-fronted setup.
+`WEAVIATE_URL` is auto-managed per source (`http://weaviate:8080` for `container`). Text vectorization uses the `text2vec-openai` module against `LITELLM_BASE_URL`, with `OPENAI_APIKEY` set to `LITELLM_MASTER_KEY`. `text2vec-ollama` and `generative-ollama` stay enabled for schemas created before LiteLLM fronted Ollama.
 
 ```bash
 MULTI2VEC_CLIP_SOURCE=container-cpu
@@ -276,568 +228,40 @@ CLIP_INFERENCE_API=http://multi2vec-clip:8080
 MULTI2VEC_CLIP_SIGLIP2_IMAGE=semitechnologies/multi2vec-clip:google-siglip2-so400m-patch16-512-1.5.1
 ```
 
-With `MULTI2VEC_CLIP_SOURCE=disabled` the bootstrapper removes `multi2vec-clip` from `WEAVIATE_ENABLE_MODULES` and blanks `CLIP_INFERENCE_API` itself, so Weaviate does not advertise a disabled inference endpoint. CLIP runs only beside a container Weaviate: with `WEAVIATE_SOURCE=localhost` or `disabled` it is scaled to 0, because Weaviate is its only consumer and it publishes no host port.
+- With `MULTI2VEC_CLIP_SOURCE=disabled`, the bootstrapper removes `multi2vec-clip` from `WEAVIATE_ENABLE_MODULES` and blanks `CLIP_INFERENCE_API`.
+- CLIP runs only beside a container Weaviate. With `WEAVIATE_SOURCE=localhost` or `disabled` it is scaled to 0, because Weaviate is its only consumer.
+- `MULTI2VEC_CLIP_SIGLIP2_IMAGE` is an opt-in alternative to `MULTI2VEC_CLIP_IMAGE`. It changes vectors from 512-d to 1152-d, so existing collections that use `multi2vec-clip` must be recreated or revectorized. See the [multi2vec-clip README](../../services/multi2vec-clip/README.md).
 
-`MULTI2VEC_CLIP_SIGLIP2_IMAGE` is a documented opt-in alternative to the default `MULTI2VEC_CLIP_IMAGE`. Switching it is a breaking change for existing collections — the default ViT-B/32 image emits 512-d vectors versus 1152-d for SigLIP 2 — so a swap requires recreating or revectorizing/reindexing every collection that uses `multi2vec-clip`. See the [multi2vec-clip service README](../../services/multi2vec-clip/README.md) for the full migration steps.
+#### 4.3.3. MinIO
 
-#### 4.3.2. `localhost`
-```bash
-WEAVIATE_SOURCE=localhost
-```
-- **Use case**: Custom Weaviate setup
-- **Pros**: Custom configuration, performance tuning
-- **Cons**: Manual setup and maintenance
-- **Requirements**: Weaviate running locally
+`MINIO_ENDPOINT` (`http://minio:9000`) and `MINIO_PUBLIC_ENDPOINT` are auto-managed. The S3 API is at `http://localhost:${MINIO_PORT}` and the console at `http://localhost:${MINIO_CONSOLE_PORT}` (63020 and 63021 at the default base port).
 
-#### 4.3.3. `disabled`
-```bash
-WEAVIATE_SOURCE=disabled
-```
-- **Use case**: No vector search needed
-- **Pros**: Reduced resource usage
-- **Cons**: No semantic search capabilities
-- **Requirements**: None
+Their Compose fragments wire these consumers. They are Airflow, Asset Worker, Asset Baker, Backend, Celery, backup, Iceberg REST, Jenkins, JupyterHub, Label Studio, Langfuse, MLflow, Spark, Trino and Zeppelin. Most get scoped service-account credentials. Airflow and the backup service use the root credentials. Backend and Celery get the endpoint plus the credential variables a consumer manifest's `storage` block declares.
 
-### 4.4. MINIO_SOURCE
+With `MINIO_SOURCE=disabled`, some services refuse to start, and the error names the service. They are Spark, Iceberg REST, Trino, Jenkins, MLflow, Label Studio, Langfuse, the asset worker and baker, and a local-mode backup. Disable them too, set `BACKUP_S3_MODE=external` for backups, or keep MinIO on. See [MinIO](../../services/minio/README.md) for the bucket-to-consumer table.
 
-#### 4.4.1. `container` (Default)
-```bash
-MINIO_SOURCE=container
-MINIO_ENDPOINT=http://minio:9000
-MINIO_PUBLIC_ENDPOINT=http://localhost:63020
-```
-- **Use case**: S3-compatible artifact-tier object storage (lakehouse tables, Spark jobs and history, MLflow/Langfuse/Label Studio artifacts, Jenkins publishing, backend and asset storage, JupyterHub datasets, backups)
-- **Pros**: Sixteen pre-provisioned buckets across thirteen consumers with scoped service-account credentials; complements Supabase Storage; admin console at `http://localhost:63021` (S3 API on `:63020`)
-- **Cons**: Container resource usage
-- **Requirements**: None
+#### 4.3.4. Spark, Iceberg REST and notebook clients
 
-Consumers are wired through their compose fragments: Airflow, the asset worker and baker, Backend and Celery, the backup service, Iceberg REST, Jenkins, JupyterHub, Label Studio, Langfuse, MLflow, Spark, Trino and Zeppelin. Most get scoped service-account credentials; Airflow and the backup service use the root credentials, and Backend/Celery get the endpoint plus whatever credential variables a consumer manifest's `storage` block declares. See [MinIO](../../services/minio/README.md) for the bucket-to-consumer table.
+- Spark runs a master, N workers (`SPARK_WORKER_COUNT`, 1 to 8), a history server, a `spark-connect` gRPC sidecar and a one-shot `spark-init`.
+- In-stack clients use Spark Connect at `sc://spark-connect:15002`. JupyterHub gets `SPARK_REMOTE=sc://spark-connect:15002`.
+- Zeppelin uses the standalone master (`spark://spark-master:7077`), because its launcher calls `spark-submit`. The Backend has no Spark wiring.
+- The Spark image includes `iceberg-spark-runtime-4.1_2.13:1.11.0` and `iceberg-aws-bundle:1.11.0`. It preconfigures a `lakehouse` Iceberg REST catalog at `http://iceberg-rest:8181` on MinIO.
+- The catalog works only when `ICEBERG_REST_SOURCE=container`.
 
-#### 4.4.2. `disabled`
-```bash
-MINIO_SOURCE=disabled
-```
-- **Use case**: No artifact-tier object storage needed
-- **Pros**: Saves resources
-- **Cons**: No S3-compatible artifact surface available. These services refuse to start without MinIO, and the error names the service: Spark, Iceberg REST, Trino, Jenkins, MLflow, Label Studio, Langfuse, the asset worker and baker, and a local-mode backup. Disable those too, set `BACKUP_S3_MODE=external` for backups, or keep MinIO on.
-- **Requirements**: None
+Client setup is in the [Spark](../../services/spark/README.md), [JupyterHub](../../services/jupyterhub/README.md) and [Zeppelin](../../services/zeppelin/README.md) READMEs.
 
-### 4.5. OPENCLAW_SOURCE
-
-#### 4.5.1. `container`
-```bash
-OPENCLAW_SOURCE=container
-```
-- **Use case**: Run OpenClaw agent in Docker
-- **Pros**: Easy setup, isolated environment
-- **Cons**: Container resource usage
-- **Requirements**: None
-
-#### 4.5.2. `localhost`
-```bash
-OPENCLAW_SOURCE=localhost
-```
-- **Use case**: Use existing OpenClaw installation
-- **Pros**: Native performance, persistent config
-- **Cons**: Manual setup required
-- **Requirements**: Node.js 22+, `npm install -g openclaw`, running `openclaw gateway`
-
-Setup for localhost:
-```bash
-# Install OpenClaw
-npm install -g openclaw
-
-# Run onboarding
-openclaw onboard
-
-# Start the gateway on the stack default localhost port
-openclaw gateway --port 63065
-
-# If your local OpenClaw uses its native/default port 18789 instead, set:
-# OPENCLAW_LOCALHOST_PORT=18789
-# (URL is derived as http://host.docker.internal:18789 at compose-render time.)
-```
-
-#### 4.5.3. `disabled` (Default)
-```bash
-OPENCLAW_SOURCE=disabled
-```
-- **Use case**: No AI agent needed
-- **Pros**: Saves resources
-- **Cons**: No messaging integration
-- **Requirements**: None
-
-### 4.6. HERMES_SOURCE
-
-The programmable AI agent runtime by Nous Research. Hermes reasons over the LiteLLM gateway and exposes an OpenAI-compatible API; `litellm-init` auto-registers `hermes-agent` as a model in the gateway when `HERMES_SOURCE != disabled`, so Open WebUI / n8n / backend / jupyterhub / openclaw all see Hermes for free.
-
-See [Hermes Agent](https://github.com/thekaveh/atlas/blob/main/services/hermes/README.md) for the full service doc.
-
-#### 4.6.1. `container` (Default)
-```bash
-HERMES_SOURCE=container
-```
-- **Use case**: Run Hermes as a stack service consumed by Open WebUI, n8n, OpenClaw, etc.
-- **Pros**: Easy setup, isolated environment, available to every consumer without per-service wiring
-- **Cons**: ~2–4 GB RAM, ~5.66 GB image on disk, no GPU required
-- **Requirements**: `HERMES_DEFAULT_MODEL` must reference a model with ≥64K context window (stock Ollama context defaults are VRAM-dependent (4k/32k/256k) and usually below 64K — set `OLLAMA_CONTEXT_LENGTH=65536` on the Ollama server, or `/set parameter num_ctx 65536` + `/save <model>` inside `ollama run`; or use a cloud model)
-
-#### 4.6.2. `localhost`
-```bash
-HERMES_SOURCE=localhost
-```
-- **Use case**: Hermes operates your real dev machine — read/write your real files, drive your real browser, use a real microphone for voice mode
-- **Pros**: Native shell/browser/audio access; bigger context budget; React/Ink TUI as a daily-driver
-- **Cons**: Manual install per host; consumers still reach it via the same `HERMES_ENDPOINT` (auto-set to `http://host.docker.internal:<port>`)
-- **Requirements**: Host-installed Hermes (`curl -fsSL https://hermes-agent.nousresearch.com/install.sh | sh`), then `hermes gateway run`
-
-Setup for localhost:
-```bash
-# Install Hermes on the host
-curl -fsSL https://hermes-agent.nousresearch.com/install.sh | sh
-
-# Start the gateway on the stack default localhost port
-hermes gateway run
-
-# If your local Hermes uses a different port, set:
-# HERMES_LOCALHOST_PORT=<your-port>
-# (URL is derived as http://host.docker.internal:<your-port> at compose-render time.)
-```
-
-#### 4.6.3. `disabled`
-```bash
-HERMES_SOURCE=disabled
-```
-- **Use case**: No agent runtime needed; consumers see only direct LLM models in the LiteLLM dropdown
-- **Pros**: Saves ~5.66 GB image disk and 2–4 GB RAM
-- **Cons**: No agent loop, skills, voice, or programmable behaviour
-- **Requirements**: None — `litellm-init` automatically omits the `hermes-agent` row from the model_list when disabled
-
-### 4.7. LIGHTRAG_SOURCE
-
-LightRAG runs out-of-process as either an in-stack container or a host-installed process.
-
-- **`container`** — Pulls `ghcr.io/hkuds/lightrag:v1.5.4` and runs it on `backend-network`. Storage backends are adapted from existing services (Supabase pgvector, Neo4j, Redis); when any of those is `disabled`, there is no automatic fallback: LightRAG fails to start (the bootstrapper warns) unless the matching `LIGHTRAG_*_STORAGE` names an in-process class.
-- **`localhost`** — Expects an existing LightRAG running on the host at `LIGHTRAG_LOCALHOST_PORT` (default 63068). Backend-network consumers reach it via `host.docker.internal`.
-- **`disabled`** — `LIGHTRAG_ENDPOINT` empties; hermes/n8n/backend skip the LightRAG capability; LiteLLM's `model_list` omits the `lightrag` entry.
-
-Role-specific LLM overrides are optional and preserve the single-model fallback when left empty:
+#### 4.3.5. FAL compatibility route
 
 ```bash
-LIGHTRAG_LLM_MODEL=qwen3.8:latest
-LIGHTRAG_EXTRACT_LLM_MODEL=mistral-small3.2:24b
-LIGHTRAG_KEYWORD_LLM_MODEL=mistral-small3.2:24b
-LIGHTRAG_QUERY_LLM_MODEL=qwen3.8:latest
-LIGHTRAG_QUERY_ENABLE_RERANK=false
-LIGHTRAG_QUERY_TOP_K=10
-LIGHTRAG_QUERY_CHUNK_TOP_K=5
-LIGHTRAG_QUERY_MAX_TOTAL_TOKENS=12000
+FAL_SOURCE=enabled
+FAL_API_KEY=<your-fal-key>
+FAL_MODEL=fal-ai/flux/dev
 ```
 
-Use `EXTRACT` and `KEYWORD` for high-volume structured extraction work and `QUERY` for final answer generation. For local Ollama deployments, a cheaper non-reasoning extraction model usually keeps indexing responsive while allowing query answering to use the project-selected stronger model. Empty role-specific values inherit the base `LLM_MODEL`, so existing deployments do not need to set these variables.
-
-The `LIGHTRAG_QUERY_*` knobs map to LightRAG's native query defaults and must stay set to concrete numbers (LightRAG parses them as integers and rejects empty strings). `LIGHTRAG_QUERY_ENABLE_RERANK` defaults to `false` because LightRAG's built-in rerank clients are not wire-compatible with TEI's `/rerank` route — leave it off unless routing through a compatible adapter. See the [LightRAG service README](../../services/lightrag/README.md) for the full query-parameter reference.
-
-### 4.8. RAY_SOURCE
-
-Ray is the stack's distributed-compute substrate (head + worker containers, `infra` category). Consumers reach it via `RAY_ADDRESS` set per source by the bootstrapper's `_generate_ray_config()` hook. See [Ray service README](https://github.com/thekaveh/atlas/blob/main/services/ray/README.md) for the full configuration reference.
-
-#### 4.8.1. `disabled` (Default)
-```bash
-RAY_SOURCE=disabled
-```
-- **Use case**: No distributed compute needed; Backend's `/api/ray/*` returns 503 and JupyterHub notebooks calling `ray.init()` error cleanly
-- **Pros**: Zero footprint
-- **Cons**: No parallel job submission
-- **Requirements**: None
-
-#### 4.8.2. `ray-container-cpu`
-```bash
-RAY_SOURCE=ray-container-cpu
-RAY_WORKER_COUNT=2   # number of ray-worker replicas; 0 = head-only
-```
-- **Use case**: Default container deployment; suitable for dev machines without GPU passthrough
-- **Pros**: Head + N workers, dashboard at `ray.localhost`, REST job-submission API, client server reachable from host Python via `ray://localhost:${RAY_CLIENT_PORT}`
-- **Cons**: CPU-only — slow for heavy ML workloads. `shm_size: 8gb` required (compose handles this; rootless Docker may not honor it)
-- **Requirements**: ~2-3 GB image disk + ~1 GB RAM per worker
-
-#### 4.8.3. `ray-container-gpu`
-```bash
-RAY_SOURCE=ray-container-gpu
-RAY_WORKER_COUNT=2
-```
-- **Use case**: GPU-accelerated parallel work (multi-host Linux primarily — Mac Docker has no GPU passthrough)
-- **Pros**: NVIDIA-runtime workers, same API surface as CPU mode
-- **Cons**: Requires NVIDIA Container Toolkit on host. Image is ~5.9 GB
-- **Requirements**: NVIDIA GPU + Container Toolkit installed on host
-
-### 4.9. PROMETHEUS_SOURCE
-
-Prometheus is the stack's metrics scraper + TSDB, bundled with `node-exporter` (host metrics) and `cAdvisor` (container metrics) as one co-lifecycled family. The bootstrapper's `_generate_prometheus_config()` hook also scales the `postgres-exporter` (in `services/supabase/`) and `redis-exporter` (in `services/redis/`) sidecars from this same source. See [Prometheus service README](https://github.com/thekaveh/atlas/blob/main/services/prometheus/README.md) for scrape targets and configuration details.
-
-#### 4.9.1. `disabled` (Default)
-```bash
-PROMETHEUS_SOURCE=disabled
-```
-- **Use case**: Cold-start fast, no observability overhead
-- **Pros**: Zero footprint
-- **Cons**: No metrics — Grafana shows "datasource unreachable" if also `container`
-- **Requirements**: None
-
-#### 4.9.2. `container`
-```bash
-PROMETHEUS_SOURCE=container
-PROMETHEUS_RETENTION_DAYS=7   # 1..365 — wizard prompts inline on the source step
-```
-- **Use case**: Stack-wide observability — scrapes Prometheus itself, Grafana, Kong, LiteLLM, Weaviate, n8n (web + worker), MinIO, Backend, Asset Worker, Asset Baker, plus the postgres/redis sidecars and cAdvisor/node-exporter. JupyterHub + Hermes scrape jobs were retired (the JupyterHub image is single-user `jupyter/datascience-notebook` with no `/metrics`; the third-party Hermes image likewise has no `/metrics` endpoint)
-- **Pros**: 15 pre-configured scrape jobs, recording-rules folder ready to extend, Kong-aliased UI at `prometheus.localhost`
-- **Cons**: cAdvisor polls every container every 5s and node-exporter polls `/proc` continuously — non-trivial overhead on a laptop
-- **Requirements**: ~500 MB image disk + retention-day-dependent disk for the TSDB volume
-
-### 4.10. GRAFANA_SOURCE
-
-Grafana is the user-facing dashboards + unified alerting UI on top of Prometheus. The Prometheus datasource is pre-provisioned (URL interpolated from `${PROMETHEUS_ENDPOINT}` at boot) plus 7 starter dashboards (stack overview, LiteLLM, Kong, Postgres+Redis, containers+host, n8n, app-tier). See [Grafana service README](https://github.com/thekaveh/atlas/blob/main/services/grafana/README.md) for the dashboard catalog and admin-password lifecycle.
-
-#### 4.10.1. `disabled` (Default)
-```bash
-GRAFANA_SOURCE=disabled
-```
-- **Use case**: Cold-start fast; no UI overhead. Useful even when Prometheus is `container` if you only want raw metrics via Prom's own UI
-- **Pros**: Zero footprint
-- **Cons**: No dashboards
-- **Requirements**: None
-
-#### 4.10.2. `container`
-```bash
-GRAFANA_SOURCE=container
-GRAFANA_ADMIN_USERNAME=admin    # override only if you want a different login
-GRAFANA_ADMIN_PASSWORD=...       # auto-generated on first bootstrap; persisted to .env
-```
-- **Use case**: User-facing observability — 7 dashboards in the "Atlas" folder, unified alerting enabled (no rules pre-provisioned), Kong-aliased UI at `grafana.localhost`
-- **Pros**: Admin login + datasource provisioning happen automatically; sign-up disabled; anonymous-read off by default
-- **Cons**: When `PROMETHEUS_SOURCE=disabled`, every panel shows "datasource unreachable" — pair with `--prometheus-source container` for a working setup
-- **Requirements**: ~300 MB image disk + small named volume for SQLite
-
-### 4.11. SPARK_SOURCE
-
-Spark is a standalone Apache Spark cluster (master + N workers + history server + dedicated `spark-connect` gRPC sidecar + one-shot `spark-init`) sitting in the `data` band. It exposes a Spark Connect endpoint on `:15002` via the sidecar for in-stack thin clients. JupyterHub receives `SPARK_REMOTE=sc://spark-connect:15002` for PySpark Connect notebooks, while Zeppelin is seeded for the stock standalone Spark interpreter path (`spark.master=spark://spark-master:7077`) because Zeppelin's launcher uses `spark-submit`. Backend wiring remains a future service-level integration. The local Spark image also bakes `iceberg-spark-runtime-4.1_2.13:1.11.0` plus `iceberg-aws-bundle:1.11.0` and preconfigures a `lakehouse` Iceberg REST catalog at `http://iceberg-rest:8181`, including MinIO S3FileIO endpoint, scoped Iceberg service-account credentials, path-style access, and `client.region=us-east-1`; this catalog is active when `ICEBERG_REST_SOURCE=container` and inert for ML-only Spark users who leave Iceberg REST disabled. JupyterHub also carries `boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow`, and `duckdb` with MinIO and Iceberg REST env so Python notebooks can list buckets, load the REST catalog, and query Arrow data locally. See [Spark service README](https://github.com/thekaveh/atlas/blob/main/services/spark/README.md), [JupyterHub service README](https://github.com/thekaveh/atlas/blob/main/services/jupyterhub/README.md), and [Zeppelin service README](https://github.com/thekaveh/atlas/blob/main/services/zeppelin/README.md) for the client paths.
-
-#### 4.11.1. `disabled` (Default)
-```bash
-SPARK_SOURCE=disabled
-```
-- **Use case**: No Spark workloads; saves ~3 GB image disk + per-worker RAM
-- **Pros**: Zero footprint
-- **Cons**: No batch / SQL / DataFrame compute; LLM operators in Airflow that import `pyspark` will fail
-- **Requirements**: Set `ZEPPELIN_SOURCE=disabled` too. With Spark disabled, a Zeppelin container stops the start with an error.
-
-#### 4.11.2. `container`
-```bash
-SPARK_SOURCE=container
-SPARK_WORKER_COUNT=2     # number of spark-worker replicas; 1..8 — wizard prompts inline
-```
-- **Use case**: Local Spark cluster for batch / SQL / DataFrame jobs and Spark Connect clients
-- **Pros**: Master + N workers + history server, Kong-aliased UIs at `spark.localhost` + `spark-history.localhost`, Spark Connect on `:15002`, default `lakehouse` Iceberg REST catalog when `iceberg-rest` is enabled.
-- **Cons**: Each worker may use up to 2 CPUs / 4 GB (`SPARK_WORKER_CPU_LIMIT` / `SPARK_WORKER_MEMORY_LIMIT`); heavy on laptops above 2 workers
-- **Containers**: `spark-master`, `spark-worker-1..N`, `spark-history`, `spark-connect` (gRPC Connect sidecar), `spark-init` (one-shot — creates the spark-history MinIO bucket)
-- **Requirements**: `MINIO_SOURCE=container` (startup stops with an error otherwise); ~3 GB image disk + up to 4 GB RAM per worker (the default limit)
-
-### 4.12. TEI_RERANKER_SOURCE
-
-Cross-encoder reranker inference server (default model `mixedbread-ai/mxbai-rerank-base-v1`). Exposes TEI's `/rerank` endpoint for consumers that send TEI-compatible request bodies.
-
-- **`container-cpu`** — `ghcr.io/huggingface/text-embeddings-inference:cpu-1.9` on amd64; on arm64 Atlas resolves the digest-pinned `cpu-arm64-latest` (Candle) image instead. ~150 ms per pair latency.
-- **`container-gpu`** — `:1.9` image with NVIDIA reservation. ~15 ms per pair on RTX-class GPU.
-- **`localhost`** — Existing TEI process on host at `TEI_RERANKER_LOCALHOST_PORT` (default 63049).
-- **`disabled`** — `TEI_RERANKER_ENDPOINT` empties. LightRAG's `RERANK_BINDING` is emitted as `null` in all stock SOURCE combinations so LightRAG disables reranking instead of crashing on an empty binding; direct LightRAG-to-TEI reranking requires an adapter because the request bodies differ.
-
-### 4.13. ZEPPELIN_SOURCE
-
-Zeppelin is the Spark-first notebook UI. `zeppelin-init` pre-configures the stock Spark interpreter against the in-cluster standalone master (`spark.master=spark://spark-master:7077`) plus MinIO S3A and the Iceberg REST `lakehouse` catalog; Spark Connect remains the JupyterHub/direct-client path. The JDBC interpreter ships with Supabase Postgres credentials in env vars but requires a one-time UI-driven `postgres` profile setup (see [Zeppelin service README](https://github.com/thekaveh/atlas/blob/main/services/zeppelin/README.md) §4). **Hard-gated on Spark** — `ZEPPELIN_SOURCE=container` with `SPARK_SOURCE=disabled` errors out at bootstrap.
-
-#### 4.13.1. `disabled` (Default)
-```bash
-ZEPPELIN_SOURCE=disabled
-```
-- **Use case**: No notebook UI for Spark; saves ~1.5 GB image disk
-- **Pros**: Zero footprint
-- **Cons**: No Spark notebook authoring (Jupyter notebooks can still drive Spark Connect though)
-- **Requirements**: None
-
-#### 4.13.2. `container`
-```bash
-ZEPPELIN_SOURCE=container
-SPARK_SOURCE=container   # REQUIRED — Zeppelin hard-fails without Spark
-```
-- **Use case**: Web-based notebook authoring against the in-cluster Spark master
-- **Pros**: Pre-configured Spark interpreter (standalone master RPC + MinIO S3A + Iceberg REST catalog), loopback-only direct UI at `http://127.0.0.1:${ZEPPELIN_PORT}`, and persistent notebooks in a named volume. JDBC interpreter ships with credentials in env but needs a one-time UI setup.
-- **Cons**: Adds ~1.5 GB image disk + ~512 MB RAM
-- **Containers**: `zeppelin`, `zeppelin-init` (one-shot — seeds and restarts the Spark interpreter when Atlas-owned settings drift)
-- **Requirements**: `SPARK_SOURCE=container` and `MINIO_SOURCE=container` (`zeppelin` waits on `minio-init`)
-
-### 4.14. JENKINS_SOURCE
-
-Jenkins is the optional Maven Spark app builder for the data-eng track. Atlas provides the Jenkins controller, JCasC configuration, Maven runtime, MinIO `mc` client, and generated admin login. Downstream projects provide repositories, Jenkinsfiles, seed jobs, and project credentials. **Hard-gated on MinIO** — `JENKINS_SOURCE=container` with `MINIO_SOURCE=disabled` errors out at bootstrap because publishing to the `jars` bucket is part of the service contract.
-
-#### 4.14.1. `disabled` (Default)
-```bash
-JENKINS_SOURCE=disabled
-```
-- **Use case**: No in-stack CI builder; downstream projects can use external CI or GitHub Actions
-- **Pros**: Zero footprint
-- **Cons**: No local Maven build/publish UI for Spark app JARs
-- **Requirements**: None
-
-#### 4.14.2. `container`
-```bash
-JENKINS_SOURCE=container
-MINIO_SOURCE=container     # REQUIRED — Jenkins publishes artifacts to MinIO
-JENKINS_ADMIN_PASSWORD=... # auto-generated on first bootstrap; persisted to .env
-```
-- **Use case**: Local Jenkins controller for `mvn -q package` and `mc cp target/*.jar` to `s3a://jars/<app>/<version>/app.jar`
-- **Pros**: JCasC-managed admin user, Kong-aliased UI at `jenkins.localhost`, Maven + MinIO client baked into the image, persistent Jenkins home
-- **Cons**: Adds controller image/build time and a persistent volume; Atlas intentionally ships no downstream project jobs
-- **Containers**: `jenkins`
-- **Requirements**: `MINIO_SOURCE=container`
-
-### 4.15. AIRFLOW_SOURCE
-
-Airflow is a code-defined DAG orchestrator running LocalExecutor (no Celery / Redis broker — the metadata DB is Supabase Postgres). The image bundles `apache-airflow-providers-openai` (LiteLLM-wired) — LangChain support runs via `langchain-openai` + `PythonOperator`; there is no `apache-airflow-providers-langchain` package on PyPI. It also installs Java 17, exposes PySpark's `spark-submit`, and carries S3A/Iceberg jars so `SparkSubmitOperator` can submit a JAR from `s3a://jars/...` to `spark://spark-master:7077`. The documented lakehouse path uses `deploy_mode="cluster"` so the driver runs on Atlas Spark workers while Airflow acts as the submit client. `airflow-init` seeds Connection objects per sibling source: `postgres_supabase`, `litellm_default`, and `redis_default` (always-on — required deps and locked-source services), `spark_default` (gated on `SPARK_SOURCE=container`, seeded for cluster SparkSubmit), `minio_default` (gated on `MINIO_SOURCE=container`), `weaviate_default` (gated on `WEAVIATE_SOURCE=container`), `neo4j_default` (gated on `NEO4J_GRAPH_DB_SOURCE=container`). DAG tasks should keep using hooks/operators such as `S3Hook(aws_conn_id="minio_default")` and `SparkSubmitOperator(conn_id="spark_default")`; standalone `docker exec ... python ...` probes are outside a task execution context and can see `AirflowNotFoundException` from `BaseHook.get_connection(...)` even when the CLI shows the Connection row. For those probes, read the metadata DB with `airflow.settings.Session` + `airflow.models.Connection` instead. See [Airflow service README](https://github.com/thekaveh/atlas/blob/main/services/airflow/README.md) §4 for the full seeded Connections matrix, the example DAG, and the `lakehouse_spark_submit_smoke` validation DAG.
-
-#### 4.15.1. `disabled` (Default)
-```bash
-AIRFLOW_SOURCE=disabled
-```
-- **Use case**: No orchestrated workflows; saves ~2 GB image disk + Postgres metadata schema
-- **Pros**: Zero footprint
-- **Cons**: No scheduled DAGs; no Hermes → Airflow trigger pattern
-- **Requirements**: None
-
-#### 4.15.2. `container`
-```bash
-AIRFLOW_SOURCE=container
-# Username is hardcoded `admin` — there is no AIRFLOW_ADMIN_USERNAME knob.
-AIRFLOW_ADMIN_PASSWORD=...              # auto-generated on first bootstrap; persisted to .env
-AIRFLOW_FERNET_KEY=...                  # auto-generated; encrypts Connections + Variables at rest
-AIRFLOW_SECRET_KEY=...                  # auto-generated; AIRFLOW__API__SECRET_KEY signs inter-process payloads (DagFileProcessor→scheduler RPC, deferrable triggers, multi-scheduler JWTs) in Airflow 3.x
-AIRFLOW_DB_USER=airflow                 # Postgres role on supabase-db
-AIRFLOW_DB_PASSWORD=...                 # auto-generated
-```
-- **Use case**: Scheduled / triggered DAG runs (ETL, model fine-tunes, scheduled LLM evals) with first-class LiteLLM-wired LLM operators and SparkSubmit lakehouse jobs
-- **Pros**: LocalExecutor (no broker), Supabase Postgres metadata DB, Kong-aliased UI at `airflow.localhost`, REST API under the same alias at `/api/v2/`, 7 Connections auto-seeded (`postgres_supabase` / `litellm_default` / `redis_default` always; `spark_default` / `minio_default` / `weaviate_default` / `neo4j_default` gated on the matching sibling being `container`-sourced), manual `lakehouse_spark_submit_smoke` DAG submits a validation JAR from `s3a://jars/` and records Spark History when Spark + MinIO + Iceberg REST are enabled
-- **Cons**: ~2 GB image disk + ~1.5 GB RAM for the webserver + scheduler + dag-processor combo
-- **Containers**: `airflow-init` (one-shot), `airflow-webserver`, `airflow-scheduler`, `airflow-dag-processor` (Airflow 3.x REQUIRES a standalone DAG processor — the scheduler no longer parses DAGs in-process)
-- **Requirements**: Supabase Postgres reachable (always-on)
-
-### 4.16. MCP_SERVERS_SOURCE
-
-Curated MCP Servers expose Atlas' first Model Context Protocol tool surface. The first slice is intentionally narrow: read-only Postgres queries, Neo4j schema/read Cypher, and SearXNG web search over Streamable HTTP at `/mcp`. Open WebUI and Hermes should consume it directly where possible; LiteLLM MCP Gateway remains an explicit opt-in path for model-facing tools under LiteLLM policy.
-
-#### 4.16.1. `disabled` (Default)
-```bash
-MCP_SERVERS_SOURCE=disabled
-```
-- **Use case**: Default safe startup; no shared tool surface is exposed.
-- **Pros**: No extra credential or prompt-injection surface.
-- **Cons**: MCP-native clients do not get Atlas database/search tools.
-- **Requirements**: None.
-
-#### 4.16.2. `container`
-```bash
-MCP_SERVERS_SOURCE=container
-NEO4J_GRAPH_DB_SOURCE=container   # REQUIRED
-SEARXNG_SOURCE=container          # REQUIRED
-```
-- **Use case**: Give MCP-native clients a small, reviewed Atlas tool package.
-- **Pros**: One curated endpoint for Postgres, Neo4j, and SearXNG; no one-server-per-service sprawl; Kong alias `mcp.localhost`.
-- **Cons**: Tool output is untrusted and may include sensitive local data; clients need explicit operator consent and credentials.
-- **Requirements**: `NEO4J_GRAPH_DB_SOURCE=container` and `SEARXNG_SOURCE=container`.
-
-### 4.17. CRAWL4AI_SOURCE
-
-Crawl4AI is Atlas' optional browser-backed extraction API. When enabled, Atlas runs the upstream Docker server on port 11235, publishes `crawl4ai.localhost`, generates `CRAWL4AI_API_TOKEN`, and exposes `CRAWL4AI_ENDPOINT=http://crawl4ai:11235` to Local Deep Researcher and n8n.
-
-#### 4.17.1. `disabled` (Default)
-```bash
-CRAWL4AI_SOURCE=disabled
-LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=disabled
-```
-- **Use case**: Default safe startup with no browser crawler.
-- **Pros**: Zero footprint; no browser sandbox, shared memory, or crawling surface.
-- **Cons**: Local Deep Researcher uses snippets unless `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=builtin` is selected.
-- **Requirements**: None.
-
-#### 4.17.2. `container`
-```bash
-CRAWL4AI_SOURCE=container
-LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=crawl4ai  # optional consumer mode
-CRAWL4AI_API_TOKEN=...                         # auto-generated on first bootstrap
-```
-- **Use case**: Render JavaScript-heavy pages and return markdown for research or ingestion workflows.
-- **Pros**: Kong-aliased UI/API at `crawl4ai.localhost`, bearer-token protected API, n8n HTTP Request compatibility, Local Deep Researcher full-page adapter.
-- **Cons**: Adds a Playwright/Chromium-based container; crawling arbitrary internal URLs remains disabled unless `CRAWL4AI_ALLOW_INTERNAL_URLS=true` is deliberately set.
-- **Containers**: `crawl4ai`.
-- **Requirements**: None for the service itself. `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=crawl4ai` requires `CRAWL4AI_SOURCE=container` and fails early otherwise. When `LOCAL_DEEP_RESEARCHER_SOURCE=disabled`, the mode is ignored and this check does not run.
-
-### 4.18. TIKA_SOURCE
-
-Apache Tika is Atlas' optional fallback text extractor for long-tail document formats. When enabled, Atlas exposes `TIKA_ENDPOINT` to the Backend and n8n. The Backend keeps Docling first for supported/unknown formats and uses Tika only for explicit unsupported-format responses or known long-tail formats such as EML, MSG, RTF, ODT, ODS, ODP, ZIP, TAR, GZIP, and BZIP2.
-
-#### 4.18.1. `disabled` (Default)
-```bash
-TIKA_SOURCE=disabled
-```
-- **Use case**: Default safe startup with no JVM parser for untrusted documents.
-- **Pros**: Zero footprint; no additional document parsing attack surface.
-- **Cons**: Docling unsupported-format failures do not have an in-stack plain-text fallback.
-- **Requirements**: None.
-
-#### 4.18.2. `container`
-```bash
-TIKA_SOURCE=container
-TIKA_ENDPOINT=http://tika:9998   # auto-managed
-```
-- **Use case**: Add a local fallback extractor for email, RTF/OpenDocument, archives, and obscure MIME types.
-- **Pros**: Kong alias `tika.localhost`, direct host port via `TIKA_PORT`, backend/n8n env wiring, bounded backend size and timeout controls.
-- **Cons**: Plain-text-only degraded extraction; no malware scanning or archive quarantine in v1.
-- **Containers**: `tika`.
-- **Requirements**: None.
-
-#### 4.18.3. `tika-localhost`
-```bash
-TIKA_SOURCE=tika-localhost
-TIKA_LOCALHOST_PORT=9998
-```
-- **Use case**: Reuse an existing host-running Tika server.
-- **Pros**: No Tika container footprint; Kong still routes `tika.localhost` through `host.docker.internal`.
-- **Cons**: Operator must keep the host Tika process patched and running.
-- **Requirements**: Host Tika server listening on `TIKA_LOCALHOST_PORT`.
-
-### 4.19. LANGFUSE_SOURCE
-
-Langfuse is Atlas' optional LLM observability surface. When enabled, Atlas runs Langfuse web, worker, and ClickHouse containers; provisions a dedicated Supabase Postgres database plus Langfuse object-store credentials; and wires LiteLLM with Langfuse tracing keys so OpenAI-compatible requests through LiteLLM produce traces, latency, and cost records. It appears in the `gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `trading` and `all` tracks and stays out of the data-engineering track. MinIO is not in the three `gen-ai-*` tracks, so it is disabled there and enabling Langfuse fails at startup unless you also pass `--minio-source container`.
-
-#### 4.19.1. `disabled` (Default)
-```bash
-LANGFUSE_SOURCE=disabled
-```
-- **Use case**: Default safe startup with no tracing datastore or extra UI.
-- **Pros**: Zero footprint; no persisted LLM trace records.
-- **Cons**: LiteLLM requests are not captured in Langfuse.
-- **Requirements**: None.
-
-#### 4.19.2. `container`
-```bash
-LANGFUSE_SOURCE=container
-MINIO_SOURCE=container       # REQUIRED — Langfuse uses S3-compatible blob storage
-LANGFUSE_PUBLIC_KEY=...      # auto-generated on first bootstrap
-LANGFUSE_SECRET_KEY=...      # auto-generated on first bootstrap
-```
-- **Use case**: Inspect LLM traces, prompt experiments, evals, latency, and spend for LiteLLM-routed calls from Open WebUI, Backend, Hermes, Airflow, notebooks, and other Atlas consumers.
-- **Pros**: Kong-aliased UI/API at `langfuse.localhost`, generated first-run credentials, dedicated ClickHouse analytics store, dedicated Supabase Postgres database, dedicated MinIO bucket and service account, automatic LiteLLM `success_callback`/`failure_callback` tracing.
-- **Cons**: Adds a stateful ClickHouse volume plus web/worker containers; only LiteLLM-routed calls are traced in the first slice.
-- **Containers**: `langfuse-init` (one-shot), `langfuse-web`, `langfuse-worker`, `langfuse-clickhouse`.
-- **Requirements**: Supabase Postgres and Redis are always-on; `MINIO_SOURCE=container` is required.
-
-### 4.20. MLFLOW_SOURCE
-
-MLflow is Atlas' optional experiment tracking and artifact registry surface for the ML Engineering track. When enabled, Atlas runs a tracking server backed by a dedicated Supabase Postgres database and a scoped MinIO artifact bucket. JupyterHub receives `MLFLOW_TRACKING_URI=http://mlflow:5000` so notebooks can log runs, metrics, parameters, and artifacts without direct MinIO credentials.
-
-#### 4.20.1. `disabled` (Default)
-```bash
-MLFLOW_SOURCE=disabled
-```
-- **Use case**: Default safe startup with no experiment tracking UI/API.
-- **Pros**: Zero footprint; no persisted ML run history.
-- **Cons**: Notebook experiments remain local to the notebook session unless users configure an external tracker.
-- **Requirements**: None.
-
-#### 4.20.2. `container`
-```bash
-MLFLOW_SOURCE=container
-MINIO_SOURCE=container       # REQUIRED — MLflow stores run artifacts in MinIO
-MLFLOW_TRACKING_URI=...      # auto-managed as http://mlflow:5000
-```
-- **Use case**: Durable experiment tracking for JupyterHub notebooks and future backend/n8n workflows.
-- **Pros**: Kong-aliased UI/API at `mlflow.localhost`, Postgres-backed run metadata, MinIO-backed artifact persistence, generated DB and MinIO credentials, notebook-friendly tracking URI.
-- **Cons**: Adds an app container plus one-shot DB init; model promotion automations and serving are out of scope for the first slice.
-- **Containers**: `mlflow-init` (one-shot), `mlflow`.
-- **Requirements**: Supabase Postgres is always-on; `MINIO_SOURCE=container` is required.
-
-### 4.21. LABEL_STUDIO_SOURCE
-
-Label Studio is Atlas' optional dataset review and annotation surface for the ML Engineering track. When enabled, Atlas runs Label Studio CE with a dedicated Supabase Postgres database and a scoped MinIO bucket for S3-compatible media/upload storage. JupyterHub receives `LABEL_STUDIO_URL`, `LABEL_STUDIO_API_URL`, and `LABEL_STUDIO_API_KEY` so notebooks can create projects, push tasks, export annotations, and then hand reviewed outputs to MLflow or Weaviate.
-
-#### 4.21.1. `disabled` (Default)
-```bash
-LABEL_STUDIO_SOURCE=disabled
-```
-- **Use case**: Default safe startup with no annotation UI/API.
-- **Pros**: Zero footprint; no separate Label Studio auth surface or review data.
-- **Cons**: Dataset review remains a notebook/manual workflow.
-- **Requirements**: None.
-
-#### 4.21.2. `container`
-```bash
-LABEL_STUDIO_SOURCE=container
-MINIO_SOURCE=container       # REQUIRED — Label Studio stores media/uploads in MinIO
-LABEL_STUDIO_API_URL=...     # auto-managed as http://label-studio:8080
-```
-- **Use case**: Human review and annotation loops for ML, RAG, and creative datasets.
-- **Pros**: Kong-aliased UI/API at `label-studio.localhost`, Postgres-backed app metadata, MinIO-backed media storage, generated admin/API credentials, notebook-friendly SDK path.
-- **Cons**: Adds an app container plus one-shot DB init; Label Studio CE has its own auth model, so broad multi-user usage should wait for SSO/permissions work.
-- **Containers**: `label-studio-init` (one-shot), `label-studio`.
-- **Requirements**: Supabase Postgres is always-on; `MINIO_SOURCE=container` is required.
-
-### 4.22. VERBA_SOURCE
-
-Verba is Atlas' optional Weaviate RAG demo UI for the RAG track. It is useful as a visible sample ingest/query path over Atlas Weaviate and LiteLLM, but upstream Verba is archived and discontinued, so Atlas keeps it disabled by default and documents it as a reference UI rather than a maintained strategic runtime.
-
-#### 4.22.1. `disabled` (Default)
-```bash
-VERBA_SOURCE=disabled
-```
-- **Use case**: Default safe startup with no archived RAG UI.
-- **Pros**: Zero footprint; no extra single-user UI or Verba-managed Weaviate classes.
-- **Cons**: Users must rely on Open WebUI, LightRAG, notebooks, or other RAG surfaces for interactive demos.
-- **Requirements**: None.
-
-#### 4.22.2. `container`
-```bash
-VERBA_SOURCE=container
-WEAVIATE_SOURCE=container    # REQUIRED — localhost Weaviate is also supported
-VERBA_ENDPOINT=...           # auto-managed as http://verba:8000
-```
-- **Use case**: A browser-based sample ingest/query path that exercises Weaviate and LiteLLM with Verba-managed classes such as `VERBA_Document`.
-- **Pros**: Kong-aliased UI at `verba.localhost`, isolated Verba-owned Weaviate classes, LiteLLM OpenAI-compatible generator/embedding wiring, and an explicit sample workflow for RAG demos.
-- **Cons**: Upstream is archived/discontinued, single-user, and latest-only on Docker Hub; Atlas pins the observed image digest and does not treat Verba as a secure multi-user product surface.
-- **Containers**: `verba`.
-- **Requirements**: LiteLLM is always-on; `WEAVIATE_SOURCE` must be `container` or `localhost`. Docling is optional and documented as a manual pre-processing path, not a hard dependency.
-
-### 4.23. TRUEFORGE_SOURCE
-
-TrueForge is Atlas' general agent runtime — saved agents with MCP tools, per-tool-call human approvals, schedules, and per-session cost accounting (adopted as an `experimental`-tier service, [#1159](https://github.com/thekaveh/atlas/issues/1159)). When enabled, Atlas runs the TrueForge server, a schedule controller, and a one-shot settings-seeding init container; provisions a dedicated Supabase Postgres database; and seeds a `custom` model provider pointed at LiteLLM plus (when mcp-servers is enabled) the in-stack MCP tool connector. It appears in the `gen-ai-eng` track.
-
-#### 4.23.1. `disabled` (Default)
-```bash
-TRUEFORGE_SOURCE=disabled
-```
-- **Use case**: Default safe startup with no agent runtime.
-- **Pros**: Zero footprint.
-- **Cons**: No saved-agent harness; only the fixed-purpose agents remain.
-- **Requirements**: None.
-
-#### 4.23.2. `container`
-```bash
-TRUEFORGE_SOURCE=container
-TRUEFORGE_API_KEY=...        # auto-generated on first bootstrap
-TRUEFORGE_DB_PASSWORD=...    # auto-generated on first bootstrap
-```
-- **Use case**: Compose agents in a UI — pick a LiteLLM model, attach MCP tools, gate writes behind approvals, and run them on demand or on hourly/daily/weekly schedules.
-- **Pros**: Kong-aliased UI/API at `trueforge.localhost` (dashboard-user guarded); live model list seeded from the LiteLLM gateway (Ollama and cloud models arrive automatically); a dedicated LiteLLM virtual key so agent traffic never carries the master key; LiteLLM-routed calls appear in Langfuse when that service is enabled.
-- **Cons**: Upstream is young (v0.2, experimental tier); the image is linux/amd64-only and runs emulated on Apple Silicon; no OIDC login in-stack (network-trusted admin identity); skills and sandbox execution are deliberately unconfigured.
-- **Containers**: `trueforge`, `trueforge-controller`, `trueforge-init` (one-shot).
-- **Requirements**: Supabase Postgres, Redis, and LiteLLM are always-on; `MCP_SERVERS_SOURCE=container` is optional but recommended for agent tools.
+- `FAL_SOURCE=disabled` with a populated `FAL_API_KEY` is valid; the wizard key step works as for cloud providers ([§4.4.1](../quick-start/interactive-setup-wizard.md#441-turning-a-provider-off-is-not-the-same-as-deleting-its-key)).
+- With FAL enabled, `POST /comfyui/generate` uses FAL, for existing Open WebUI and n8n callers. It accepts only `FAL_MODEL=fal-ai/flux/dev` and synchronous requests; other requests return 400.
+- With `MEDIA_BUDGET_ENABLED=true`, `/comfyui/generate` returns `409`, because it cannot reserve budget.
+- `POST /media/generate` is the provider-neutral route for FAL image and image-to-3D generation (TRELLIS, Hunyuan3D, Tripo, Rodin). Use its `input.provider_arguments` for other FAL endpoints. The backend's `/docs` endpoint serves the contract.
 
 ## 5. Configuration Patterns
 
@@ -853,10 +277,11 @@ Best for local development with minimal resources:
 ```
 
 ### 5.2. Production Setup
-Best for production with full features:
+Best for production with full features. `--profile prod` does not accept localhost sources (§9):
 
 ```bash
-./start.sh --llm-provider-source ollama-container-gpu \
+./start.sh --profile prod \
+          --llm-provider-source ollama-container-gpu \
           --comfyui-source container-gpu \
           --weaviate-source container \
           --n8n-source container \
@@ -872,10 +297,13 @@ Best for testing or resource-constrained environments:
           --comfyui-source disabled \
           --weaviate-source disabled \
           --n8n-source disabled \
-          --searxng-source disabled
+          --searxng-source disabled \
+          --hermes-source disabled \
+          --jupyterhub-source disabled \
+          --minio-source disabled
 ```
 
-Make sure `OPENAI_API_KEY` (or whichever cloud key matches your enabled `CLOUD_*_SOURCE`) is set in `.env`.
+Set `OPENAI_API_KEY` in `.env`, or the key for the `CLOUD_*_SOURCE` you enabled.
 
 ### 5.4. Mixed Setup
 Combine different approaches for optimal performance:
@@ -905,10 +333,10 @@ N8N_SOURCE=container
 ./start.sh
 ```
 
-`BASE_PORT` is the way to move the stack to another port range: change it manually or run `./start.sh --base-port <port>`. Individual `*_PORT` variables are recomputed from `BASE_PORT` on every start, so editing one by hand does not persist.
+To move the stack to another port range, change `BASE_PORT` or run `./start.sh --base-port <port>`. Container `*_PORT` variables are recomputed from `BASE_PORT` on every start, so a hand edit to one is lost. `*_LOCALHOST_PORT` variables (host-side ports) are kept.
 
-### 6.2. Using CLI Overrides
-Temporary configuration for testing:
+### 6.2. Using CLI flags
+CLI flags are written to `.env`, so they also apply to later runs:
 
 ```bash
 # Flags are persisted to .env, so this choice also applies to later runs
@@ -923,7 +351,7 @@ Temporary configuration for testing:
 Understanding which services depend on others:
 
 ### 7.1. Core Dependencies
-- **Open WebUI / Backend / n8n / JupyterHub / Local Deep Researcher / OpenClaw** → All read `LITELLM_BASE_URL` + `LITELLM_API_KEY` for LLM access. LiteLLM is always-on; the actual upstream is whatever `LLM_PROVIDER_SOURCE` and the `CLOUD_*_SOURCE` toggles select.
+- **Backend / n8n / JupyterHub / Local Deep Researcher / OpenClaw** → read `LITELLM_BASE_URL` + `LITELLM_API_KEY` for LLM access. **Open WebUI** reaches the same gateway through `OPENAI_API_BASE_URLS` / `OPENAI_API_KEYS`. LiteLLM is always-on; `LLM_PROVIDER_SOURCE` and the `CLOUD_*_SOURCE` toggles select the upstream.
 - **Backend API** → Depends on database services (PostgreSQL, Redis)
 - **n8n workflows** → Often use Weaviate for vector operations
 
@@ -960,9 +388,9 @@ lsof -i :63096
 
 **Kong routing not working**:
 ```bash
-# Kong config is regenerated from .env at every startup — inspect the output
-# and the SOURCE values that drive it:
-cat volumes/api/kong-dynamic.yml
+# Kong config is regenerated from .env at every startup. Print route names and
+# hosts only: the file also holds credentials.
+grep -nE '^  - name:|^    - [a-z0-9.-]+\.localhost$' volumes/api/kong-dynamic.yml
 grep -E '^[A-Z_]+_SOURCE=' .env
 
 # Check the hosts file (read-only)
@@ -990,12 +418,16 @@ docker stats
 
 ## 9. Deployment profile (`--profile prod`)
 
-The deployment profile is now a **declarative bundle** defined in `bootstrapper/profiles.yml` (#755). Two platform bundles ship — `default` and `prod` (`dev` is accepted everywhere as an alias for `default`) — and each declares three fields:
+A deployment profile is a bundle defined in `bootstrapper/profiles.yml`. Two ship: `default` and `prod`; `dev` is an alias for `default`. Apply one with `./start.sh --profile prod` or the wizard's profile step. Each bundle has three fields:
 
-- **`sources`** — per-service source selections, each either a concrete option id (e.g. `prod` selects `prometheus: container` + `grafana: container`) or the host-adaptive `auto` sentinel (#753). A `*_SOURCE` set by a `--<svc>-source` flag, a consumer manifest's `env`, or `.env.user` / `ATLAS_ENV_USER_FILE` wins over the profile (#1391).
-- **`env`** — profile-managed values (e.g. `prod`'s `LOG_MAX_SIZE=10m` / `LOG_MAX_FILE=3`), applied when the variable is unset, empty, still the shipped `.env.example` default, or (on a switch) the value the prior profile wrote for the same key — a key pinned in `.env.user` / `ATLAS_ENV_USER_FILE` or a consumer manifest's `env`, and any other operator-set value, is kept. Keys only the old profile declared are not reset on a switch.
-- **`host_bind_ip`** — the published-port interface prefix: both shipped profiles declare `127.0.0.1:`, so fresh and legacy-blank launches keep ports reachable only from the host (with the public edge fronting Kong). A non-empty operator-set value, including `0.0.0.0:`, is preserved for deliberate remote access.
+- **`sources`**: source selections, either an option id or `auto` (host-adaptive). `prod` sets `prometheus: container` and `grafana: container`. They are re-applied on every start, so a hand edit to `.env` is overwritten.
+- **`env`**: values such as `prod`'s `LOG_MAX_SIZE=10m` and `LOG_MAX_FILE=3`. A value is applied when the variable is unset, empty or still the `.env.example` default. On a profile switch, it is also applied when the variable holds the prior profile's value. A value pinned in `.env.user`, `ATLAS_ENV_USER_FILE` or a consumer manifest's `env`, and any other value you set, is kept. Keys only the old profile declared are not reset.
+- **`host_bind_ip`**: the published-port interface. Both profiles use `127.0.0.1:`, so ports are reachable only from the host. A non-empty value you set, including `0.0.0.0:`, is kept.
 
-`./start.sh --profile prod` (or the wizard's profile step) applies the bundle. The active profile is tracked via the `ATLAS_PROFILE_APPLIED` marker, and a profile **switch** first resets the prior profile's asserted sources to their service defaults, so transitions leave no source residue. An explicit `--<svc>-source` CLI flag passed on the current run always wins over the profile's selection, and so does a non-empty `<SVC>_SOURCE` declared in a consumer manifest's `env` (CLI flag > manifest > profile). Consumers may pin `profile:` and override individual fields via `profile_overrides:` in `atlas.consumer.yml` — see [reusing-atlas.md](reusing-atlas.md) §6.1 for the consumer view. Per-service resource limits (`*_MEMORY_LIMIT` / `*_CPU_LIMIT`) remain always-on `.env` defaults, independent of the profile.
+A `--<svc>-source` flag on this run, a `*_SOURCE` in a consumer manifest's `env`, or one in `.env.user` / `ATLAS_ENV_USER_FILE` each overrides the profile's source.
+
+Under `prod`, dev-only sources (every `localhost`, `*-localhost` and `managed-localhost*` option) are not offered, and selecting one fails validation.
+
+The applied profile is recorded in `ATLAS_PROFILE_APPLIED`. On a switch, sources the prior profile set are first reset to their service defaults. Consumers can pin `profile:` and override fields with `profile_overrides:` in `atlas.consumer.yml`; see [reusing-atlas.md](reusing-atlas.md) §6.1. Per-service `*_MEMORY_LIMIT` / `*_CPU_LIMIT` values are `.env` defaults and do not depend on the profile.
 
 For more troubleshooting help, see [../quick-start/troubleshooting.md](../quick-start/troubleshooting.md).

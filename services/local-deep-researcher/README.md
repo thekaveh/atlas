@@ -1,12 +1,12 @@
 # 5.2.29. Local Deep Researcher
 
-LangGraph-based multi-step research agent. The user submits a topic, LDR runs a search-summarize-reflect-search loop (default 3 iterations), and returns a Markdown report citing the sources it found. Upstream is [langchain-ai/local-deep-researcher](https://github.com/langchain-ai/local-deep-researcher); the stack runs it via the LangGraph dev server (`langgraph dev`) listening on port 2024 inside the container, exposed at `LOCAL_DEEP_RESEARCHER_PORT` on the host.
+LangGraph-based multi-step research agent. The user submits a topic. LDR runs a search-summarize-reflect loop (default 3 iterations) and returns a Markdown report that cites its sources. Upstream is [langchain-ai/local-deep-researcher](https://github.com/langchain-ai/local-deep-researcher). The stack runs the LangGraph dev server (`langgraph dev`) on container port 2024, published at `LOCAL_DEEP_RESEARCHER_PORT`.
 
-LDR is **completely local** by design — it relies on the stack's LiteLLM gateway (so any registered local Ollama model works) and SearXNG for web search. No outbound API keys required for the default loop. The backend exposes a typed `/research/start|status|result|cancel|logs|sessions|health` surface while its upstream client now speaks the stock LangGraph dev-server API: `/ok`, `/threads`, and `/threads/{id}/runs/stream`. The LDR endpoint itself is reachable directly and via Kong's `research.localhost` alias.
+LDR is **local** by design: it uses the stack's LiteLLM gateway (so any local Ollama model LiteLLM serves works) and SearXNG for web search. The default loop needs no outbound API key. The backend exposes a typed `/research/start|status|result|cancel|logs|sessions|health` surface. Its client calls the stock LangGraph dev-server API (`/ok`, `/threads`, `/threads/{id}/runs/stream`). The LDR endpoint is reachable directly and through Kong's `research.localhost` alias.
 
 ## 1. Overview
 
-Image: `python:3.11.15-slim`. At startup, the managed repo volume is checked out at the manifest-pinned upstream commit, verified, and installed with `pip install -e .`; restarts never pull a mutable branch. Source variants are minimal — `container` or `disabled`. There is no GPU path; LDR doesn't run inference itself, it orchestrates LiteLLM.
+Image: `python:3.11.15-slim`. At each start, the entrypoint checks out the manifest-pinned upstream commit into the repo volume, verifies it and installs it. A restart never pulls a mutable branch. Sources: `container` or `disabled`. There is no GPU path: LDR runs no inference and orchestrates LiteLLM.
 
 ## 2. Access
 
@@ -16,7 +16,7 @@ Image: `python:3.11.15-slim`. At startup, the managed repo volume is checked out
 | Kong | `http://research.localhost:63000` | Route generated from `LOCAL_DEEP_RESEARCHER_SOURCE` (needs the `--setup-hosts` entries). |
 | LangGraph API | `POST /threads`, `POST /threads/{id}/runs/stream` | Standard LangGraph dev-server endpoints. |
 
-Browser access is limited to the Kong origin (`CORS_ALLOW_ORIGINS=http://research.localhost:${KONG_HTTP_PORT}`). langgraph-api's default `*` (with credentials) let any web page read or delete research threads through the direct port; the backend calls the API server-side and is unaffected.
+Browser access is limited to the Kong origin (`CORS_ALLOW_ORIGINS=http://research.localhost:${KONG_HTTP_PORT}`), so other web pages cannot read or delete threads through the direct port. The Backend calls the API server-side and is unaffected.
 
 Canonical port table: [Ports and Routes](../../docs/reference/ports-routes.md).
 
@@ -29,8 +29,9 @@ LOCAL_DEEP_RESEARCHER_REF=38f769f84380f2065de76021ac7c5215f88aa39e
 LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION=0.4.31
 LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256=26fc35ac377836de6628e5f7b180944c4d4bd50a5e9f0200bd6e663f20e35c1a
 LOCAL_DEEP_RESEARCHER_LOOPS=3                # max research iterations
-LOCAL_DEEP_RESEARCHER_SEARCH_API=searxng     # only searxng is wired today; tavily/perplexity supported upstream
-LOCAL_DEEP_RESEARCHER_WORKERS=3              # reserved; the entrypoint does not currently pass --n-workers to langgraph dev
+LOCAL_DEEP_RESEARCHER_SEARCH_API=searxng     # only searxng is wired; tavily/perplexity need upstream API keys
+LOCAL_DEEP_RESEARCHER_WORKERS=3              # reserved; the entrypoint does not pass --n-workers to langgraph dev
+LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=disabled # disabled | builtin | crawl4ai (crawl4ai needs CRAWL4AI_SOURCE=container); sets FETCH_FULL_PAGE
 ```
 
 Adaptive env (auto-injected):
@@ -38,18 +39,26 @@ Adaptive env (auto-injected):
 ```bash
 LITELLM_BASE_URL=http://litellm:4000
 LITELLM_API_KEY=${LITELLM_MASTER_KEY}
-# STT_ENDPOINT / TTS_ENDPOINT / DOCLING_ENDPOINT are NOT injected — the LDR
-# research-agent path is text-only today (see service.yml note). Those
-# provider endpoints are owned by the stt/tts/docling manifests.
+LITELLM_DEFAULT_MODEL=ollama/qwen3.8:latest  # the one model every step uses
+# STT_ENDPOINT / TTS_ENDPOINT / DOCLING_ENDPOINT are not injected: the LDR
+# research path is text-only.
 ```
 
-**Required hard dependencies** (`depends_on.required`): `searxng`, `litellm`. Without SearXNG, LDR has no search backend; without LiteLLM, no LLM to summarize. LDR is **DB-free** — it does not connect to Supabase. Research sessions are persisted to `public.research_*` by the **backend** (`research_service.py`), which calls this LangGraph server over HTTP; that supabase dependency belongs to the backend, not LDR.
+**Required dependencies** (`depends_on.required`): `searxng` (search) and `litellm` (summaries). LDR connects to no database. The **backend** (`research_service.py`) calls this server over HTTP and stores research sessions in `public.research_*`; the Supabase dependency belongs to the backend.
 
-`LOCAL_DEEP_RESEARCHER_REF` must remain a full commit SHA. Its upstream `uv.lock` is verified against `LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256`, while Atlas' committed `build/config/runtime-requirements.lock` combines that graph with the exact serving CLI and build-tool versions. The lock records all three manifest pins as provenance metadata, and startup rejects mismatches before replacing the prior source tree, synchronizing a private virtual environment with mandatory hashes, and installing the checked-out project without dependency resolution.
+**Full-page mode.** `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE` sets `FETCH_FULL_PAGE`. `disabled` keeps search snippets only. `builtin` uses upstream's own page fetch. `crawl4ai` sends each URL to [Crawl4AI](../crawl4ai/README.md); startup fails if `CRAWL4AI_SOURCE` is not `container`.
 
-To upgrade, update the three manifest pins, then run `uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py`. The refresh command checks out the exact revision, verifies its upstream lock digest, adds the exact CLI, build-tool, and security-floor pins without installing them, and commits both combined resolver inputs under `services/local-deep-researcher/locks/` plus the exported runtime lock. The current security floors keep aiohttp, AnyIO, Click, langchain-classic, LangSmith, PyJWT, Soup Sieve, and urllib3 on patched releases; the exported graph passes `pip-audit`. Run the same command with `--check` for the network-free byte-equivalence gate, then validate the LDR patches and backend contract in the same change.
+**Pinned source.** `LOCAL_DEEP_RESEARCHER_REF` must be a full commit SHA. Startup checks the upstream `uv.lock` against `LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256`. It then installs from Atlas's hashed lock `build/config/runtime-requirements.lock`. A mismatch stops startup before the source tree is replaced.
 
-**Optional adaptive** (`runtime_deps.local-deep-researcher.optional`): `neo4j-graph-db`, `n8n`, `weaviate`, the media providers. Wiring exists in the manifest but nothing in the LDR code consumes them today — these are forward-looking hooks.
+To upgrade:
+
+1. Change the three pins in the manifest.
+2. Run `uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py`.
+3. Run the same command with `--check`.
+4. Commit the regenerated files under `locks/` and `build/config/`.
+5. Re-test the LDR patches and the backend research contract.
+
+**Optional adaptive** (`runtime_deps.local-deep-researcher.optional`): `neo4j-graph-db`, `n8n`, `weaviate` and the media providers. The manifest declares them, but no LDR code uses them yet.
 
 ## 4. Architecture & wiring
 
@@ -65,13 +74,13 @@ To upgrade, update the three manifest pins, then run `uv run --project bootstrap
    - `finalize_summary` — outputs the final Markdown report.
 4. State (running_summary, sources_gathered, loop_count) lives in the LangGraph dev-server's in-memory checkpointer.
 
-**Checkpointer caveat.** The dev-server's default in-memory checkpointer drops thread state on container restart, so resumable research isn't possible today. A Redis-backed checkpointer is a documented future pair (a fresh db index, e.g. `/4`; `/3` belongs to JupyterHub).
+**Checkpointer caveat.** The dev-server's in-memory checkpointer drops thread state on container restart, so research cannot resume. A Redis-backed checkpointer is a future pair (§5.4).
 
 **Search backend.** `LOCAL_DEEP_RESEARCHER_SEARCH_API=searxng` calls `http://searxng:8080/search?q=…&format=json`. SearXNG must have `formats: [json]` enabled (it does, in `services/searxng/config/settings.yml`).
 
-**LLM gateway.** Every LangGraph node that needs an LLM goes through LiteLLM at `http://litellm:4000/v1/chat/completions`. The model id used at each step is configured in the upstream repo's `init-config.py`; the stack pins it to whatever LiteLLM advertises by default.
+**LLM gateway.** Every LLM step calls LiteLLM at `http://litellm:4000/v1`. All steps use one model: `LITELLM_DEFAULT_MODEL`. Atlas's `build/scripts/init-config.py` reads it at startup and exits if it is empty.
 
-**Backend integration.** `services/backend/app/app/research_client.py` targets `http://local-deep-researcher:2024` with a `ResearchRequest`/`ResearchResult` schema, exposed through the backend's `/research/*` routes (sessions persist to `public.research_sessions`). The client checks `/ok`, creates a thread with `POST /threads`, and the backend background task executes `POST /threads/{thread_id}/runs/stream` with `assistant_id=ollama_deep_researcher`, `on_disconnect=cancel`, and `stream_mode=["values"]`.
+**Backend integration.** `services/backend/app/app/research_client.py` calls `http://local-deep-researcher:2024` with a `ResearchRequest`/`ResearchResult` schema behind the backend's `/research/*` routes. Sessions persist to `public.research_sessions`. The client checks `/ok` and creates a thread with `POST /threads`. A backend background task then calls `POST /threads/{thread_id}/runs/stream` with `assistant_id=ollama_deep_researcher`, `on_disconnect=cancel` and `stream_mode=["values"]`.
 
 ## 5. Dependencies & Integrations
 
@@ -101,33 +110,33 @@ To upgrade, update the three manifest pins, then run `uv run --project bootstrap
 
 - **local-deep-researcher ↔ redis** — *Why:* LDR runs `langgraph dev` with the in-memory checkpointer, so thread state is lost on restart; no Redis checkpointer is wired today. *Mechanism:* swap checkpointer to `langgraph.checkpoint.redis.RedisSaver` pointed at a fresh index (`redis://:${REDIS_PASSWORD}@redis:6379/4` — `/3` is JupyterHub's); add `REDIS_URL` to LDR env. *Effort:* small. *Confidence:* medium.
 - **local-deep-researcher ↔ neo4j** — *Why:* each research run yields `sources_gathered` + a `running_summary`. Writing these as `(Topic)-[CITES]->(Source)` triples lets later runs detect overlap and reuse evidence. *Mechanism:* post-`finalize_summary` callback writes Cypher `MERGE` via `bolt://neo4j-graph-db:7687`. *Effort:* medium. *Confidence:* medium.
-- **local-deep-researcher ↔ minio** — *Why:* the final markdown report lives only in `/app/data` inside the container; no other service can consume it. *Mechanism:* on `finalize_summary`, S3 `PutObject` to `${MINIO_ENDPOINT}` bucket `research-reports` keyed by `session_id`. *Effort:* small. *Confidence:* medium.
-- **local-deep-researcher ↔ hermes** — *Why:* Hermes has no path to invoke multi-step web research today. Exposing LDR as a Hermes tool turns "deep research" into a single tool call. *Mechanism:* Hermes custom tool POSTs to `http://local-deep-researcher:2024/threads/{id}/runs/stream` and returns the final summary; configured in `services/hermes/init/templates/config.yaml.tmpl`. *Effort:* medium. *Confidence:* medium.
+- **local-deep-researcher ↔ minio** — *Why:* the final markdown report lives only in LangGraph thread state and the Backend's `public.research_*` rows; no object store holds it. *Mechanism:* on `finalize_summary`, S3 `PutObject` to `${MINIO_ENDPOINT}` bucket `research-reports` keyed by `session_id`. *Effort:* small. *Confidence:* medium.
+- **local-deep-researcher ↔ hermes** — *Why:* Hermes has no path to invoke multi-step web research today. Exposing LDR as a Hermes tool turns "deep research" into a single tool call. *Mechanism:* a Hermes skill (`/opt/data/skills/<category>/<name>/SKILL.md`, installed by hermes-init) or an MCP server that POSTs to `http://local-deep-researcher:2024/threads/{id}/runs/stream` and returns the final summary. *Effort:* medium. *Confidence:* medium.
 
 ### 5.5. Future — Candidate new services
 
-- **open_deep_research (langchain-ai)** — *Headline:* multi-agent deep-research engine (supervisor + parallel sub-researchers) evaluated as a disabled-by-default **opt-in second research engine complementing LDR** (LDR stays the fast/local/key-free tier). GO-conditional per [`docs/strategy/langchain-stack-evaluation.md`](../../docs/strategy/langchain-stack-evaluation.md) (#532) — gated on a key-free LiteLLM+SearXNG boot at acceptable cost; its `messages`/`final_report` schema needs a per-engine branch in the backend research client.
-- **Firecrawl** ([details](../../docs/research/candidates/firecrawl.md)) — *Headline:* self-hosted JS-rendering scraper that returns clean markdown, replacing LDR's `FETCH_FULL_PAGE` DuckDuckGo path with structured extraction. *Wires into:* n8n, backend, hermes.
+- **open_deep_research (langchain-ai)** — *Headline:* multi-agent deep-research engine (supervisor + parallel sub-researchers) evaluated as a disabled-by-default **opt-in second research engine complementing LDR** (LDR stays the fast/local/key-free tier). GO-conditional per [`docs/strategy/langchain-stack-evaluation.md`](https://github.com/thekaveh/atlas/blob/main/docs/strategy/langchain-stack-evaluation.md), gated on a key-free LiteLLM+SearXNG boot at acceptable cost; its `messages`/`final_report` schema needs a per-engine branch in the backend research client.
+- **Firecrawl** ([details](https://github.com/thekaveh/atlas/blob/main/docs/research/candidates/firecrawl.md)) — *Headline:* self-hosted JS-rendering scraper that returns clean markdown, replacing LDR's `builtin` / `crawl4ai` full-page fetch with structured extraction. *Wires into:* n8n, backend, hermes.
 
 ### 5.6. Future — Unused features in this service
 
 - **Persistent LangGraph checkpointer** — *Why pursue:* dev-server inmem checkpointer drops thread history on restart, so resumable research is impossible. *Effort:* small.
-- **Tavily / Perplexity search backends** — *Why pursue:* upstream supports both via `SEARCH_API=tavily|perplexity` + API keys; manifest only exposes searxng/duckduckgo. *Effort:* small.
+- **Tavily / Perplexity search backends** — *Why pursue:* upstream supports both via `SEARCH_API=tavily|perplexity` plus API keys; Atlas injects no key for either. *Effort:* small.
 - **`USE_TOOL_CALLING` for gpt-oss models** — *Why pursue:* enables structured tool calls instead of JSON mode for gpt-oss family, improving reliability with LiteLLM-routed local models. *Effort:* small.
 - **`STRIP_THINKING_TOKENS` toggle** — *Why pursue:* Hermes-style reasoning models leak `<think>` blocks into the report; upstream env var hides them. *Effort:* small.
 - **LangSmith tracing** — *Why pursue:* `LANGSMITH_API_KEY` ships upstream; superseded if Langfuse lands but useful as a stopgap. *Effort:* small.
 
 ## 6. Troubleshooting
 
-**Container restarts every 30s.** Usually the upstream repo clone or `pip install -e .` failed on first run. `docker logs <project>-local-deep-researcher` shows the failing step. Network or PyPI mirror issues are the most common root cause.
+**Container keeps restarting.** The pinned checkout, lock verification or install failed. `docker logs <project>-local-deep-researcher` shows the failing step; network or PyPI access is the usual cause.
 
 **Research returns empty / "no sources gathered".** SearXNG returned no JSON results. Check `curl 'http://localhost:${SEARXNG_PORT}/search?q=test&format=json'`; if the JSON format is disabled, fix `services/searxng/config/settings.yml`.
 
-**Runs hang at `summarize_sources`.** LiteLLM is unreachable or the configured model is overloaded. `docker logs <project>-litellm -f` and confirm the model in use is registered.
+**Runs hang at `summarize_sources`.** LiteLLM is unreachable or the model is overloaded. Run `docker logs <project>-litellm -f` and confirm that LiteLLM serves `LITELLM_DEFAULT_MODEL`.
 
 **State lost on restart.** Expected — see the in-memory checkpointer note above. The fix is the Redis-checkpointer integration listed under Future.
 
-**Kong route 404 for `research.localhost`.** The route IS generated when `LOCAL_DEEP_RESEARCHER_SOURCE=container`; a 404 here usually means the `*.localhost` hosts entries are missing (`./start.sh --setup-hosts`) or the service is disabled.
+**Kong route 404 for `research.localhost`.** Kong has the route when `LOCAL_DEEP_RESEARCHER_SOURCE=container`. A 404 usually means the `*.localhost` hosts entries are missing (`./start.sh --setup-hosts`) or the service is disabled.
 
 ```bash
 docker compose ps local-deep-researcher
@@ -162,19 +171,19 @@ curl -s http://localhost:${LOCAL_DEEP_RESEARCHER_PORT}/threads/$THREAD/state | j
 
 Returns `running_summary`, `sources_gathered`, `loop_count`, current node — useful for debugging stalls.
 
-**Tune the research depth.** `LOCAL_DEEP_RESEARCHER_LOOPS=3` is a balance between report quality and cost. Bump to 5+ for thorough surveys; drop to 1 for fast lookups. These two variables are defaults: a run's own `max_web_research_loops` / `search_api` take precedence, because the startup patch makes `Configuration.from_runnable_config` read those two keys from the run config before the environment. The Backend `/research/start` fills omitted values from these same two variables (n8n workflows and the Open WebUI tools send their own explicit values). Higher loop counts can exceed the Backend's fixed 300-second run wait. Every other setting (provider, model, LiteLLM base URL and key) stays environment-first, so a caller cannot redirect the LiteLLM key.
+**Tune the research depth.** `LOCAL_DEEP_RESEARCHER_LOOPS` (default 3) and `LOCAL_DEEP_RESEARCHER_SEARCH_API` are defaults. A run's own `max_web_research_loops` and `search_api` override them. Backend `/research/start` fills omitted values from these variables. More loops can exceed the Backend's 300-second run wait. All other settings (provider, model, LiteLLM URL and key) come only from the environment, so a caller cannot redirect the LiteLLM key.
 
-**Configure the LLM used per step.** The upstream repo's `init-config.py` hard-pins models; to swap them, edit that file in the clone (inside the container) and restart, or override via `LANGCHAIN_*` env vars supported upstream.
+**Change the model.** Set `LITELLM_DEFAULT_MODEL` in `.env` to a model LiteLLM serves, then restart the stack.
 
 ## 8. Performance notes
 
-- **Cost per run.** ~5 LLM calls per loop × `LOOPS` loops = 15 calls for the default. Plus one SearXNG call per loop. Local Ollama → free + slow (~30-90s/loop); cloud APIs via LiteLLM → fast + metered.
-- **No streaming back to backend.** The `/runs/stream` SSE channel exists but the backend's `research_client.py` consumes it synchronously; fanning events out to Open WebUI via Supabase Realtime remains future work.
-- **Thread state size.** A 3-loop run produces ~30-60 KB of state (summary + sources). The in-memory checkpointer holds the last N threads in process; under load it can grow unbounded — restart cleans it.
+- **Cost per run.** About 2 LLM calls per loop plus 1 (about 7 for the default 3 loops), and one SearXNG call per loop. Local Ollama is free and slow (~30-90 s per loop); cloud APIs through LiteLLM are fast and metered.
+- **No streaming to clients.** The backend's `research_client.py` reads the `/runs/stream` SSE channel synchronously and does not forward events.
+- **Thread state size.** A 3-loop run produces ~30-60 KB of state (summary + sources). The in-memory checkpointer keeps threads in process without a bound; a restart clears it.
 
 ## 9. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|

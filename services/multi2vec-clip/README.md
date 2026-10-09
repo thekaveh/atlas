@@ -1,12 +1,18 @@
 # 5.2.34. Multi2Vec CLIP
 
-Multimodal CLIP vectorizer module for Weaviate. Runs the [`semitechnologies/multi2vec-clip`](https://github.com/weaviate/multi2vec-clip-inference) image (the Docker repo dropped the `-inference` suffix; the GitHub source repo kept it), exposing `POST /vectorize` and `GET /meta` on internal port `8080`. Today its only consumer is Weaviate (via the `multi2vec-clip` module — `CLIP_INFERENCE_API=http://multi2vec-clip:8080`); the data-flow graph shows no other service calling it directly, but the same `/vectorize` endpoint is reachable from every container on the `backend-network`.
+Multimodal CLIP vectorizer module for Weaviate. It runs the [`semitechnologies/multi2vec-clip`](https://github.com/weaviate/multi2vec-clip-inference) image and exposes `POST /vectorize` and `GET /meta` on internal port `8080`. The Docker repo has no `-inference` suffix; the GitHub source repo has it.
 
-The default model is `sentence-transformers-clip-ViT-B-32` (English-only ViT-B/32). The module exposes both text and image embedding paths through a single endpoint, so a single call can vectorize a `{texts, images}` batch for cross-modal similarity search.
+Weaviate is the only consumer, through its `multi2vec-clip` module (`CLIP_INFERENCE_API=http://multi2vec-clip:8080`). Every container on `backend-network` can also reach `/vectorize`.
+
+The default model is `sentence-transformers-clip-ViT-B-32` (English-only ViT-B/32). One endpoint embeds both text and images, so one call can vectorize a `{texts, images}` batch for cross-modal similarity search.
 
 ## 1. Overview
 
-Image: `semitechnologies/multi2vec-clip:sentence-transformers-clip-ViT-B-32-1.5.1` (the canonical `MULTI2VEC_CLIP_IMAGE` value in `.env.example`). Weaviate's CLIP module tags by model name; the `-1.5.1` suffix pins the inference-server build so rebuilds are reproducible (the un-suffixed `…-ViT-B-32` tag floats to the newest build). Container port: `8080` (internal-only — no host port published). The container runs CUDA-off by default (`ENABLE_CUDA=0`); a GPU variant exists in the manifest but is undocumented and untested.
+Image: `semitechnologies/multi2vec-clip:sentence-transformers-clip-ViT-B-32-1.5.1` (the `MULTI2VEC_CLIP_IMAGE` default in `.env.example`). Tags name the model. The `-1.5.1` suffix pins the inference-server build; the un-suffixed `…-ViT-B-32` tag moves to the newest build.
+
+Container port: `8080`, internal only (no host port). The default `container-cpu` source sets `ENABLE_CUDA=0`. `container-gpu` sets `ENABLE_CUDA=1` but does not request a GPU, so it does not work yet (§6).
+
+The bootstrapper runs CLIP only when `WEAVIATE_SOURCE=container`; with any other Weaviate source it scales CLIP to 0.
 
 ## 2. Access
 
@@ -27,33 +33,26 @@ CLIP_INFERENCE_API=http://multi2vec-clip:8080
 MULTI2VEC_CLIP_SIGLIP2_IMAGE=semitechnologies/multi2vec-clip:google-siglip2-so400m-patch16-512-1.5.1
 ```
 
-What Weaviate sees (compose interpolation of `WEAVIATE_ENABLE_MODULES`
-from `.env` — `services/weaviate/compose.yml`; no init step touches it):
+The bootstrapper keeps Weaviate's module list in step with the source. The default list is:
 
 ```bash
-WEAVIATE_ENABLE_MODULES=text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama
+WEAVIATE_ENABLE_MODULES=text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem
 CLIP_INFERENCE_API=http://multi2vec-clip:8080
 ```
 
-Disabling the CLIP module requires updating both the source variant **and** Weaviate's module list:
+To disable CLIP, set `MULTI2VEC_CLIP_SOURCE=disabled` (or pass `--multi2vec-clip-source disabled`). The bootstrapper then removes `multi2vec-clip` from `WEAVIATE_ENABLE_MODULES` and clears `CLIP_INFERENCE_API`. Do not edit those two values by hand; the bootstrapper overwrites them. Collections that use `multi2vec-clip` as their vectorizer fail on the next ingest.
 
-```bash
-MULTI2VEC_CLIP_SOURCE=disabled
-WEAVIATE_ENABLE_MODULES=text2vec-openai,text2vec-ollama,generative-openai,generative-ollama,backup-filesystem
-CLIP_INFERENCE_API=
-```
-
-The `weaviate` service's compose interpolation respects this; collections that previously used `multi2vec-clip` as their vectorizer will start failing on next ingest if the module disappears.
-
-**SigLIP 2 opt-in image.** Atlas keeps `MULTI2VEC_CLIP_IMAGE=semitechnologies/multi2vec-clip:sentence-transformers-clip-ViT-B-32-1.5.1` as the default so existing collections do not silently change vector spaces. To test Weaviate's current SigLIP 2 `so400m` image, copy the reference value into the live image variable:
+**SigLIP 2 opt-in image.** The ViT-B/32 image stays the default so existing collections keep their vector space. To test Weaviate's SigLIP 2 `so400m` image, copy the reference value into the live image variable:
 
 ```bash
 MULTI2VEC_CLIP_IMAGE=semitechnologies/multi2vec-clip:google-siglip2-so400m-patch16-512-1.5.1
-MULTI2VEC_CLIP_SOURCE=container-gpu
+MULTI2VEC_CLIP_SOURCE=container-cpu
 CLIP_INFERENCE_API=http://multi2vec-clip:8080
 ```
 
-Do not change `MULTI2VEC_CLIP_IMAGE` on a stack that already has `multi2vec-clip` collections without a migration plan. The default ViT-B/32 image emits 512-d vectors, while `MULTI2VEC_CLIP_SIGLIP2_IMAGE` emits 1152-d vectors. Existing collections must be recreated or revectorized/reindexed into a new collection before queries and inserts use the SigLIP 2 image. The service category, topology row, track placement, internal endpoint, and port model do not change; this is an image swap inside the existing internal `multi2vec-clip` container slot.
+Use `container-cpu`: `container-gpu` does not reserve a GPU yet, so the container exits and Weaviate never becomes ready (§6).
+
+Do not change `MULTI2VEC_CLIP_IMAGE` on a stack with `multi2vec-clip` collections without a migration plan. ViT-B/32 emits 512-d vectors; the SigLIP 2 image emits 1152-d vectors. Recreate the collections, or revectorize them into new ones, before you use SigLIP 2. Only the image changes: the endpoint, port, topology row and track stay the same.
 
 ## 4. Architecture & wiring
 
@@ -77,11 +76,11 @@ Content-Type: application/json
 
 Weaviate calls this endpoint internally on every `POST /v1/objects` against a collection whose `vectorizer: multi2vec-clip`. The CLIP module knows nothing about Weaviate — it's a pure embedding service.
 
-**Network.** Joined to `backend-network`. Any container on the same network can `POST /vectorize` directly without going through Weaviate. The data-flow graph deliberately doesn't list this because no service does it today.
+**Network.** Joined to `backend-network`. Any container on that network can `POST /vectorize` directly. The data-flow graph does not list this path because no service uses it.
 
 **Volumes / state.** None. The model is baked into the image; the container is stateless and trivially restartable.
 
-**Manifest layout.** `multi2vec-clip` is its own service family in `services/multi2vec-clip/` but is declared as a sub-row of the `weaviate` family in `services/weaviate/service.yml`. There is no standalone `services/multi2vec-clip/service.yml` today — its env vars and compose definition live alongside Weaviate's.
+**Manifest layout.** `services/multi2vec-clip/` holds only documentation. The container, image, env vars and wizard row belong to the `weaviate` family (`services/weaviate/service.yml`, `services/weaviate/compose.yml`).
 
 ## 5. Dependencies & Integrations
 
@@ -103,7 +102,7 @@ _No downstream consumers._
 
 - **multi2vec-clip ↔ backend** — *Why:* backend has no direct path to multimodal embeddings; today it can only reach CLIP indirectly by writing through Weaviate. Direct `/vectorize` calls unlock zero-shot image tagging, image-vs-text similarity scoring, and ad-hoc embedding without round-tripping through a collection. *Mechanism:* `POST http://multi2vec-clip:8080/vectorize` with `{texts, images}`. *Effort:* small. *Confidence:* high.
 - **multi2vec-clip ↔ minio** — *Why:* MinIO hosts artifact buckets (comfyui, backend, n8n, jupyter, docling) but none of those image artifacts are indexed for semantic retrieval. A small ingest worker streams new objects through CLIP into Weaviate. *Mechanism:* MinIO bucket-notification webhook → fetch object → base64 → `POST /vectorize` → upsert into a `MediaAssets` Weaviate collection. *Effort:* medium. *Confidence:* medium.
-- **multi2vec-clip ↔ comfyui** — *Why:* ComfyUI continuously generates images that vanish into volumes; auto-embedding each generation into Weaviate enables prompt-similarity search, dedup, and "find prior renders that look like X". *Mechanism:* ComfyUI custom SaveImage post-hook → call backend ingest endpoint → backend forwards bytes to `multi2vec-clip:8080/vectorize` and upserts. *Effort:* medium. *Confidence:* medium.
+- **multi2vec-clip ↔ comfyui** — *Why:* ComfyUI images stay unindexed in volumes. Embedding each one into Weaviate enables prompt-similarity search, dedup and "find prior renders that look like X". *Mechanism:* ComfyUI custom SaveImage post-hook → call backend ingest endpoint → backend forwards bytes to `multi2vec-clip:8080/vectorize` and upserts. *Effort:* medium. *Confidence:* medium.
 - **multi2vec-clip ↔ jupyterhub** — *Why:* notebook users today spin up their own CLIP model to experiment with multimodal embeddings; the stack already runs one. *Mechanism:* JupyterHub user pods reach `http://multi2vec-clip:8080/vectorize` over `backend-network`; document a one-cell helper in the notebook starter image. *Effort:* small. *Confidence:* high.
 - **multi2vec-clip ↔ n8n** — *Why:* n8n workflows handling inbound email/Slack attachments or webhook-uploaded images can vectorize on-the-fly for routing, classification, or RAG. *Mechanism:* n8n HTTP Request node → `POST http://multi2vec-clip:8080/vectorize` → branch on cosine-similarity to label-vectors. *Effort:* small. *Confidence:* high.
 - **multi2vec-clip ↔ doc-processor** — *Why:* docling extracts figures/diagrams from PDFs but discards the visual signal. CLIP-embedding extracted figures alongside text chunks enables true multimodal RAG over document corpora. *Mechanism:* docling post-extraction step → for each figure, base64 → `POST /vectorize` → store with parent-chunk metadata. *Effort:* medium. *Confidence:* medium.
@@ -114,7 +113,7 @@ _No high-confidence opportunities identified._
 
 ### 5.6. Future — Unused features in this service
 
-- **GPU mode (`MULTI2VEC_CLIP_SOURCE=container-gpu`)** — *Why pursue:* manifest declares the variant but no documentation or smoke-test covers it; GPU users default to CPU. *Effort:* small.
+- **GPU mode (`MULTI2VEC_CLIP_SOURCE=container-gpu`)** — *Why pursue:* the variant sets `ENABLE_CUDA=1` but gets no GPU; wire the NVIDIA device request ([#1373](https://github.com/thekaveh/atlas/issues/1373)). *Effort:* small.
 - **Model variant selection beyond ViT-B-32** — *Why pursue:* upstream ships SigLIP 2, multilingual XLM-R+ViT, LAION ViT-B-16; we hard-pin `sentence-transformers-clip-ViT-B-32`. Exposing `MULTI2VEC_CLIP_IMAGE` choices in the wizard unlocks multilingual + higher-recall regimes. *Effort:* small.
 - **Multi-field weighted vectors** — *Why pursue:* the CLIP module supports per-field weights (`image_fields` weight 0.9, `text_fields` weight 0.1); no collection in `weaviate-init` exercises this. *Effort:* small.
 - **`/meta` health surfacing** — *Why pursue:* container exposes `/meta` with model config; not scraped or shown in the wizard's service-table health column. *Effort:* small.
@@ -122,11 +121,11 @@ _No high-confidence opportunities identified._
 
 ## 6. Troubleshooting
 
-**`container-gpu` leaves Weaviate not-ready.** The compose fragment sets `ENABLE_CUDA=1` for `container-gpu` but does not request a GPU (no `runtime: nvidia` or device reservation), so the CLIP container exits at startup (`Torch not compiled with CUDA enabled` / no visible CUDA device) and Weaviate, with `multi2vec-clip` enabled, waits for it indefinitely. Use `container-cpu` (or `disabled`) until GPU wiring lands.
+**`container-gpu` leaves Weaviate not-ready.** `container-gpu` sets `ENABLE_CUDA=1`, but the compose fragment requests no GPU (no `runtime: nvidia`, no device reservation). The CLIP container exits at startup (`Torch not compiled with CUDA enabled` or no visible CUDA device). Weaviate, with `multi2vec-clip` enabled, then waits for it forever. Use `container-cpu` or `disabled`. GPU wiring is tracked in [#1373](https://github.com/thekaveh/atlas/issues/1373).
 
-**Container OOMs on CPU.** ViT-B-32 needs ~1.5 GB RSS at idle, more under load. Docker Desktop's default 2 GB host limit will kill it. Raise the Docker memory budget or switch to `container-gpu` if a GPU is available.
+**Container OOMs on CPU.** ViT-B-32 needs about 1.5 GB RSS at idle, and more under load. A 2 GB Docker memory limit can kill it. Raise the Docker memory budget. `container-gpu` is not usable until GPU device requests are wired.
 
-**Weaviate ingest fails with `connection refused to multi2vec-clip:8080`.** Either `MULTI2VEC_CLIP_SOURCE=disabled` or the container is unhealthy. `docker compose ps multi2vec-clip` and `curl http://localhost:<host-port-if-published>/meta` from the host (note: no host port by default — `docker exec` into Weaviate and curl from there).
+**Weaviate ingest fails with `connection refused to multi2vec-clip:8080`.** `MULTI2VEC_CLIP_SOURCE` is `disabled`, or the container is down. CLIP has no host port, so query `/meta` from a sibling container (commands below). The Weaviate image has `wget` but no `curl`.
 
 **Embeddings look random / clustering broken.** Confirm `/meta` returns the expected model name. A stale image cache after a model change can pin you to the old checkpoint. `docker compose pull multi2vec-clip && docker compose up -d --force-recreate multi2vec-clip`.
 
@@ -135,7 +134,7 @@ _No high-confidence opportunities identified._
 ```bash
 docker compose ps multi2vec-clip
 docker compose logs -f multi2vec-clip
-docker exec <project>-weaviate curl -s http://multi2vec-clip:8080/meta | jq .
+docker exec <project>-weaviate wget -qO- http://multi2vec-clip:8080/meta | jq .
 ```
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
@@ -164,7 +163,5 @@ Output vectors are 512-d for ViT-B/32. Cosine similarity between a text vector a
 
 ## 8. Performance notes
 
-- **Measure the deployed path.** Latency and throughput vary with CPU/GPU model, image size, batch shape, host contention, and cold versus warm model state. Benchmark the exact image, model, payload, and hardware used in production before setting capacity or timeout budgets.
-- **GPU and batching.** The GPU variant can reduce compute-bound vectorization time. Batch images (`images: [b64_1, b64_2, …]`) when the caller can tolerate it, then verify the end-to-end gain rather than assuming transport and encoding overhead are negligible.
-- **Concurrency.** Increase replicas or parallel callers only after a workload-specific benchmark confirms that the model runtime, host memory, and accelerator capacity can sustain them without latency or memory regressions.
-- **Vector dimensionality is fixed by the model.** ViT-B/32 → 512. Other models (SigLIP 2 → 1152, larger CLIPs → 768/1024) require updating Weaviate's collection schema to match.
+- **Vector dimension is fixed by the model.** ViT-B/32 gives 512; SigLIP 2 gives 1152. Changing the model needs a new or revectorized collection.
+- **Measure before sizing.** Latency depends on hardware, image size and batch shape. Benchmark the exact image and payload before you set capacity or timeout budgets.

@@ -190,6 +190,14 @@ def test_redpanda_source_cli_mapping_and_service_config() -> None:
     }
 
 
+def _call_targets(manifest: dict) -> list[str]:
+    """data_flow.calls entries are a plain name or a {target: ...} object."""
+    return [
+        call if isinstance(call, str) else call["target"]
+        for call in manifest["data_flow"]["calls"]
+    ]
+
+
 def test_redpanda_bootstrap_env_reaches_streaming_consumers() -> None:
     env_name = "SPARK_KAFKA_BOOTSTRAP_SERVERS"
     interpolation = "${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}"
@@ -219,7 +227,7 @@ def test_redpanda_bootstrap_env_reaches_streaming_consumers() -> None:
     for service in ("spark", "jupyterhub", "zeppelin", "airflow"):
         manifest = _service_manifest(service)
         assert "redpanda" in manifest["depends_on"]["optional"]
-        assert "redpanda" in manifest["data_flow"]["calls"]
+        assert "redpanda" in _call_targets(manifest)
 
 
 def test_redpanda_kong_route_and_docs_contract() -> None:

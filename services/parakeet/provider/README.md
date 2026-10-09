@@ -17,7 +17,7 @@ can use them interchangeably.
 
 The default for fresh installs is **`speaches-container-cpu`** — it starts on
 every platform with no host install. The pinned Speaches release does not
-download a missing model on the first transcription request, and Atlas keeps
+download a missing model on the first transcription request. Atlas keeps
 `PRELOAD_MODELS` empty until the source-aware preload work in #799 is complete.
 See the STT provider guide before expecting transcription from this default.
 
@@ -73,8 +73,8 @@ Parakeet on NVIDIA GPU:
 
 The GPU API starts a deadline-bounded background load for the configured
 Parakeet model. Its health endpoint and transcription routes return `503` until
-the model is loaded, allowing health-aware callers and orchestration to wait for
-inference readiness even though consumers may start independently.
+the model is loaded. Health-aware callers can therefore wait for inference
+readiness, even though consumers may start independently.
 
 Parakeet on macOS MLX:
 
@@ -97,11 +97,12 @@ The MLX health endpoint starts one shared background model load and returns
 and transcription requests share the same load; model initialization never
 runs on the API event loop. Both Parakeet providers default advanced segment
 timestamps to disabled unless `return_timestamps=true` is supplied.
+
 `PARAKEET_MAX_UPLOAD_BYTES` is parsed as a positive integer during provider
 startup; malformed, zero, and negative values fail fast before the API serves.
-The complete request body must also arrive within the positive total
-`PARAKEET_UPLOAD_TIMEOUT_SECONDS` deadline (1-3600 seconds; 120 by default), or the
-provider returns `408` and releases its admission slot.
+The whole request body must arrive within `PARAKEET_UPLOAD_TIMEOUT_SECONDS`
+(1-3600 seconds; default 120). Otherwise the provider returns `408` and releases
+its admission slot.
 
 whisper.cpp on macOS (Metal + Core ML):
 

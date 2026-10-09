@@ -6,13 +6,15 @@ Redis-backed backend worker tier for Atlas long-running jobs. It starts disabled
 CELERY_SOURCE=disabled
 ```
 
-Set `CELERY_SOURCE=container` from the setup wizard or CLI to run one backend Celery worker plus Flower. The worker reuses `services/backend/app`, talks to Supabase, LiteLLM, and Weaviate for the first memory-consolidation task, and stores broker/result state in existing Redis database 4.
+Set `CELERY_SOURCE=container` (wizard or `--celery-source container`) to run one Celery worker plus Flower. The worker reuses `services/backend/app`, runs memory consolidation and RAG ingestion, and keeps broker and result state in Redis database 4.
 
 ## 1. Overview
 
-The worker currently runs memory consolidation and RAG ingestion. `POST /memory/consolidate?async_job=true` returns a Celery job id immediately instead of holding the FastAPI request open while the LangMem consolidation loop performs database reads and LLM calls. RAG ingestion submissions dispatch the phase engine when this tier is enabled. Use `GET /jobs/{job_id}` to inspect pending, running, success, retry, failure, or revoked state. `pending` is ambiguous: Celery reports it for an id it has never seen and for a result past its expiry (Celery's default `result_expires`, one day), so a mistyped id or a job polled more than a day after it finished reads `pending` indefinitely.
+The worker runs memory consolidation and RAG ingestion. `POST /memory/consolidate?async_job=true` returns a Celery job id at once. The FastAPI request does not stay open while the LangMem loop reads the database and calls the LLM. When this tier is enabled, RAG ingestion submissions dispatch the phase engine.
 
-The old synchronous `POST /memory/consolidate` path remains available for compatibility. Research start is deferred because it already has a separate database-backed session lifecycle, and moving it first would mix two lifecycle models in one change.
+Use `GET /jobs/{job_id}` to read the state: pending, running, success, retry, failure or revoked. `pending` is ambiguous. Celery reports it for an unknown id and for a result past its expiry (`result_expires`, default one day). A mistyped id, or a job polled more than a day after it finished, reads `pending` indefinitely.
+
+The synchronous `POST /memory/consolidate` path remains. Research start is deferred: it is not a Celery task, because it has its own database-backed session lifecycle.
 
 ## 2. Access
 
@@ -38,13 +40,27 @@ LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS=30
 RAG_INGESTION_TTL_SECONDS=604800
 ```
 
-All Celery numeric controls must be positive integers. The soft limit must be less than the hard limit, and the Redis visibility timeout must be greater than the hard limit; malformed or contradictory values fail worker and Backend startup rather than falling back to defaults. The RAG execution lease must be an integer from 10 through 300 seconds. The soft limit bounds each whole task except `rag_ingestion`, which has its own `RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS` / `RAG_INGESTION_TASK_TIME_LIMIT_SECONDS` because one ingestion includes its LightRAG drain. Left empty, they are the larger of 3840 / 3900 and the global limits, so global limits you raised for large corpora still apply. The worker raises the visibility timeout to 300 seconds past the larger of that hard limit and the global hard limit plus 60 (so a delayed memory busy-retry is not re-delivered either) when it is lower, so a running ingestion is never re-delivered, and the Backend refuses a Celery ingestion whose graph targets' `timeout_seconds` add up to at least the soft limit, naming both values (#1352). Passing that check is not a guarantee: parsing, embedding and writing run before the drain inside the same limit.
+Startup validation (worker and Backend) requires:
 
-The Backend and worker receive identical semantic-chunking and RAG lifecycle
-controls. A blank Chonkie model uses `minishlab/potion-base-32M`; the LightRAG
-pipeline-status timeout accepts finite values greater than zero through 3,600
-seconds; and the ingestion-state TTL accepts 60 through 31,536,000 seconds.
-Invalid timeout or TTL values use the safe 30-second and seven-day defaults.
+- every Celery numeric control is a positive integer;
+- soft time limit < hard time limit < Redis visibility timeout;
+- `RAG_INGESTION_EXECUTION_LEASE_SECONDS` is 10–300.
+
+Invalid values stop startup; there is no fallback to defaults.
+
+The soft time limit bounds each whole task except `rag_ingestion`. One ingestion includes its LightRAG drain, so it has its own `RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS` / `RAG_INGESTION_TASK_TIME_LIMIT_SECONDS`. Empty means the larger of 3840 / 3900 s and the global limits.
+
+The worker keeps the visibility timeout at least 300 s above the longest hold. That hold is the RAG hard limit, or the global hard limit + 60 s for a delayed memory retry. A running ingestion is therefore not re-delivered.
+
+The Backend rejects a Celery ingestion whose graph targets' `timeout_seconds` sum to the soft limit or more, and names both values. Parsing, embedding and writing share that limit, so passing this check does not guarantee completion.
+
+The Backend and worker receive the same semantic-chunking and RAG lifecycle
+controls:
+
+- A blank Chonkie model uses `minishlab/potion-base-32M`.
+- The LightRAG pipeline-status timeout accepts finite values above zero, up to 3,600 seconds.
+- The ingestion-state TTL accepts 60 through 31,536,000 seconds.
+- An invalid timeout or TTL uses the 30-second or seven-day default.
 
 The bootstrapper computes these when enabled:
 
@@ -55,7 +71,7 @@ CELERY_WORKER_SCALE=1
 FLOWER_SCALE=1
 ```
 
-Redis database 4 is reserved for Celery broker/result state. It is operational state, not the durable memory store; memory facts remain in Supabase/pgvector.
+Redis database 4 is reserved for Celery broker and result state. It is operational state, not the durable memory store; memory facts stay in Supabase/pgvector.
 
 ## 4. Architecture & Wiring
 
@@ -71,13 +87,21 @@ Flower -> Redis db 4 -> worker/task inspection
 Kong   -> flower.localhost -> Flower
 ```
 
-`CELERY_SOURCE=container` belongs to the `gen-ai-rag`, `gen-ai-eng`, and `all` tracks. The service category is `agents` because it provides asynchronous workflow execution rather than a public infrastructure primitive. It is not included in ML/data-only tracks until those tracks have concrete backend async consumers.
+Celery belongs to the `gen-ai-rag`, `gen-ai-eng` and `all` tracks. Its category is `agents`, because it runs asynchronous workflows. The ML and data tracks do not include it, because they have no backend async consumers.
 
 ## 5. Retry, Timeout, And Failure Behavior
 
-The worker uses JSON task/result serialization and Redis as both broker and result backend. Memory consolidation tasks run with a soft time limit before the hard time limit so failures are captured instead of leaving a request open indefinitely. The public job endpoint surfaces Celery failure state with the generic `Background job failed` message; exception types are logged server-side, while detailed errors and raw tracebacks remain in worker logs and Flower for operators.
+The worker uses JSON task and result serialization, with Redis as broker and result backend. Memory consolidation tasks hit a soft time limit before the hard time limit, so the failure is recorded and no request stays open. The public job endpoint reports a Celery failure with the generic `Background job failed` message. Exception types are logged server-side; detailed errors and raw tracebacks remain in worker logs and Flower for operators.
 
-Redis visibility timeout is intentionally longer than the hard task time limit. If a worker is killed before acknowledging a task, Redis can redeliver it after the visibility timeout; tasks should therefore remain idempotent or tolerate a retry. RAG ingestion uses the Backend's Redis state database and receives the same compiled profiles, upstream endpoints, corpus limits, and scoped MinIO credential references. It acquires and renews an owner-fenced execution lease before phase side effects, and each state save verifies the owner. A duplicate delivery that finds an active lease waits for its expiry and retries; a worker that loses ownership cancels its active async phase, logs the renewal failure, and reschedules without overwriting replacement state. Transient upstream failures retain a separate three-retry exponential-backoff budget whose counter is independent of lease contention; exhaustion records a terminal ingestion failure. LightRAG replays are idempotent through deterministic document identities and duplicate-source handling. Memory consolidation deactivates/updates memory rows through existing service logic, so future tasks that mutate external systems must be reviewed before being added to the queue.
+The Redis visibility timeout is longer than the hard task time limit. RAG ingestion uses the Backend's Redis state database and the same compiled profiles, upstream endpoints, corpus limits and scoped MinIO credential references.
+
+- Redis can re-deliver a task if a worker dies before it acknowledges the task. Tasks must be idempotent or tolerate a retry.
+- RAG ingestion takes and renews an owner-fenced execution lease before phase side effects. Every state save checks the owner.
+- A duplicate delivery that finds an active lease waits for it to expire, then retries.
+- A worker that loses its lease cancels the running phase, logs the failure and reschedules without overwriting state.
+- Transient upstream failures get three retries with exponential backoff, counted separately from lease waits. After that, the ingestion fails.
+- LightRAG replays are idempotent (deterministic document ids, duplicate-source handling).
+- Memory consolidation changes memory rows through existing service logic. Review any new task that changes external systems before you add it.
 
 ## 6. Dependencies & Integrations
 
@@ -111,7 +135,7 @@ Redis visibility timeout is intentionally longer than the hard task time limit. 
 
 ### 6.4. Future — Missing pair integrations
 
-- **celery ↔ research start** — Move the Local Deep Researcher start/wait loop into a task once the existing research session model can persist the Celery job id without confusing remote and local session ids.
+- **celery ↔ research start** — Move the Local Deep Researcher start/wait loop into a task. First, the research session model must store the Celery job id without confusing remote and local session ids.
 - **celery ↔ ComfyUI generation** — Add async image-generation tasks for callers that currently use `wait_for_completion=true`.
 
 ### 6.5. Future — Candidate new services
@@ -124,12 +148,12 @@ Redis visibility timeout is intentionally longer than the hard task time limit. 
 
 ## 7. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Backend asynchronous task execution | partial | tested | The worker offloads memory consolidation and phased RAG ingestion, but research, media generation, and arbitrary Backend routes are not Celery tasks in this slice. |
-| Bounded worker scheduling | supported | tested | Atlas validates positive concurrency, prefetch, soft and hard time limits, and a Redis visibility timeout longer than the hard task limit before Backend or worker startup. |
+| Bounded worker scheduling | supported | tested | Before Backend or worker startup, Atlas validates positive concurrency, prefetch, and soft and hard time limits. It also checks that the Redis visibility timeout exceeds the hard task limit. |
 | Retry-safe RAG ingestion ownership | partial | tested | Owner-fenced renewable leases and deterministic LightRAG identities limit duplicate phase effects, but Redis delivery is at-least-once and future side-effecting tasks still require idempotency review. |
 | Flower task monitoring access | supported | tested | Flower requires its own Basic authentication on the direct port and is additionally protected by Kong dashboard Basic Auth and ACL on flower.localhost. |
-| Durable queue high availability | not-supported | documented | Atlas runs one worker replica and one Flower process on the shared single Redis service; result and broker state survive only according to that Redis instance's persistence. |
+| Durable queue high availability | not-supported | documented | Atlas runs one worker replica and one Flower process on the shared single Redis service. Result and broker state survive only as far as that Redis instance persists them. |

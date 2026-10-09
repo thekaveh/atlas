@@ -25,7 +25,16 @@ It reserves one of `DOCLING_ADAPTER_MAX_JOBS` slots before multipart parsing, re
 
 ## 4. Artifact lifecycle
 
-Job identifiers are random and do not disclose filenames or sequence. Request bodies are capped before multipart parsing at the upload limit plus 1 MiB of framing/form overhead and must finish within the total `DOCLING_UPLOAD_TIMEOUT_SECONDS` deadline (120 seconds by default), so oversized or slow uploads cannot retain temporary storage or admission capacity indefinitely. Docling ZIP responses stream directly to temporary storage with disk writes offloaded from the API event loop and fail if they exceed `DOCLING_ADAPTER_MAX_RESULT_BYTES` (100 MiB by default), avoiding an unbounded in-memory result. Downloads ignore Range headers, do not advertise byte-range support, and send the full one-shot archive without reading under the registry lock; the job slot remains leased until transmission finishes or `DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS` elapses (300 seconds by default). Temporary uploads and results are removed after successful download, interrupted or timed-out response transmission, failure, cancellation, or expiration. `DOCLING_ADAPTER_TMPFS_SIZE` defaults to 512 MiB, covering two default jobs at their 50 MiB upload and 100 MiB result limits plus 64 MiB of staging headroom. When changing the limits, configure at least `MAX_JOBS × max(2 × MAX_FILE_SIZE + 1 MiB, MAX_FILE_SIZE + MAX_RESULT_BYTES) + 64 MiB`; startup checks the actual free temporary-filesystem capacity and fails when it is too small. Completed results expire after `DOCLING_ADAPTER_RESULT_TTL_SECONDS` (900 seconds by default); clients must resubmit after expiry. Public failures are generic and do not expose provider details or document content, while server logs retain only the task identifier and exception type.
+- Job IDs are random and do not reveal filenames or order.
+- A request body may be at most the upload limit (`DOCLING_MAX_FILE_SIZE`) plus 1 MiB of form framing. It must arrive within `DOCLING_UPLOAD_TIMEOUT_SECONDS` (default 120 s). Oversized or slow uploads therefore cannot hold storage or a job slot.
+- Docling's ZIP result streams to temporary storage, with disk writes off the API event loop. It fails above `DOCLING_ADAPTER_MAX_RESULT_BYTES` (default 100 MiB), so no result is held in memory.
+- A download sends the whole archive once. It ignores Range headers and does not advertise byte-range support.
+- The job slot stays leased until the transfer ends or `DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS` (default 300 s) passes.
+- Uploads and results are deleted after a download, an interrupted or timed-out transfer, a failure, a cancellation or expiry.
+- The slot is released only after the files are deleted. A failed deletion is logged and retried while the slot stays occupied, so files cannot escape the admission bound.
+- Unclaimed results expire after `DOCLING_ADAPTER_RESULT_TTL_SECONDS` (default 900 s). Resubmit after that.
+- `DOCLING_ADAPTER_TMPFS_SIZE` defaults to 512 MiB: two default jobs at 50 MiB upload and 100 MiB result, plus 64 MiB of staging. When you change limits, set it to at least `MAX_JOBS × max(2 × MAX_FILE_SIZE + 1 MiB, MAX_FILE_SIZE + MAX_RESULT_BYTES) + 64 MiB`. Startup checks the free space and fails if it is too small.
+- Error responses are generic and expose no provider details or document content. Logs keep only the task ID and the exception type.
 
 ## 5. Dependencies & Integrations
 
@@ -61,17 +70,17 @@ None. Broader conversion behavior belongs in Docling, not this protocol adapter.
 
 ## 6. Troubleshooting
 
-- A submit returning `429` means all adapter job slots are occupied. Retrieve any completed result, wait for an active result transmission to finish or time out, or wait for an unclaimed result's TTL; failed and cancelled jobs release their slots automatically.
+- A submit returning `429` means all adapter job slots are occupied. To free a slot, retrieve a completed result, or wait for a transfer to end or an unclaimed result to expire. Failed and cancelled jobs release their slots automatically.
 - A result returning expired/not found means the TTL elapsed or the artifact was already downloaded; submit the original document again.
 - An empty adapter endpoint is expected for localhost LightRAG and whenever either LightRAG or Docling is disabled.
 
 ## 7. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | LightRAG asynchronous parser compatibility | supported | tested | The logical service exposes LightRAG v1.5.4 submit, poll, and one-shot result routes while delegating one authenticated synchronous conversion to Docling. |
-| Docling credential isolation | supported | tested | LightRAG receives only the internal adapter URL; on that isolated boundary, the adapter alone receives the Docling bearer token and authenticates the upstream call, with no host-published adapter port. |
+| Docling credential isolation | supported | tested | LightRAG receives only the internal adapter URL; on that isolated boundary, the adapter alone receives the Docling bearer token and authenticates the upstream call. There is no host-published adapter port. |
 | Bounded ephemeral adapter jobs | supported | tested | Admission, upload time, upstream retries, result size, download time, temporary capacity, cleanup, and completed-result TTL are explicitly bounded. |
 | Source-coupled adapter availability | partial | tested | The adapter runs only for container LightRAG with an enabled Docling source; localhost or disabled LightRAG and disabled Docling intentionally resolve no adapter endpoint. |

@@ -63,16 +63,17 @@ sources:
 
 env:
   - name: LLM_PROVIDER_SOURCE
+    description: "Where LiteLLM's Ollama upstream runs: ollama-container-cpu, ollama-container-gpu, ollama-localhost (host daemon) or none (cloud providers only). Also accepts auto in a consumer manifest."
     default: ollama-container-cpu
   - name: OLLAMA_USER_MODELS
     default: ""
     description: "Comma-separated Ollama model names to activate/pull. Pre-filled by env_assembler from the catalog's default-active Ollama set (see services/ollama/models.yaml); the wizard overwrites it with the user's selection."
   - name: OLLAMA_CUSTOM_MODELS
     default: ""
-    description: "Free-text extra Ollama models (consumer model_sidecars.ollama lands here). Pulled by the ollama-pull init container for container-* sources and by the bootstrapper onto the host daemon for ollama-localhost (#757)."
+    description: "Free-text extra Ollama models; a consumer's model_sidecars.ollama lands here. The ollama-pull init container pulls them for container-* sources, and ./start.sh pulls them onto the host daemon for ollama-localhost."
   - name: OLLAMA_PULL_STALL_TIMEOUT_SECONDS
     default: "120"
-    description: "Abort and retry an ollama-pull download only after transfer speed stays below 1 KiB/s for this many seconds; progressing large-model downloads have no artificial wall-clock cutoff."
+    description: "Seconds an ollama-pull download may stay below 1 KiB/s before it is aborted and retried. A download that keeps progressing has no wall-clock cutoff."
   - name: OLLAMA_AUTO_IMPORT_LOCAL_MODELS
     default: true
     description: "When LLM_PROVIDER_SOURCE=ollama-localhost, litellm-init queries the upstream's /api/tags and auto-imports every model found, unioning with OLLAMA_USER_MODELS. Set false to keep strict wizard-only control."
@@ -80,12 +81,16 @@ env:
     default: "~"
     description: "Reserved for future GPU deploy block. Currently '~' (null)."
   - name: OLLAMA_SCALE
+    description: "Set by ./start.sh from LLM_PROVIDER_SOURCE; do not edit. 1 runs the ollama container (container-* sources), 0 does not."
     auto_managed: true
   - name: OLLAMA_PULL_SCALE
+    description: "Set by ./start.sh from LLM_PROVIDER_SOURCE; do not edit. 1 runs the ollama-pull init container for container-* sources, else 0."
     auto_managed: true
   - name: OLLAMA_NVIDIA_VISIBLE_DEVICES
+    description: "Set by ./start.sh from LLM_PROVIDER_SOURCE; do not edit. all for ollama-container-gpu, else null. Passed to the ollama container as NVIDIA_VISIBLE_DEVICES."
     auto_managed: true
   - name: OLLAMA_ENDPOINT
+    description: "Auto-managed; do not set. The per-source Ollama URL (empty for none). ./start.sh writes it into LITELLM_OLLAMA_UPSTREAM; no container reads OLLAMA_ENDPOINT directly."
     auto_managed: true
   - name: LITELLM_OLLAMA_UPSTREAM
     auto_managed: true
@@ -95,25 +100,25 @@ env:
     description: "Host port for the ollama-localhost source variant. URL is derived at compose-render time as http://host.docker.internal:11434."
   - name: OLLAMA_NUM_PARALLEL
     default: "8"
-    description: "Ollama parallel request slots per model (OLLAMA_NUM_PARALLEL). Multi-agent consumers (8+ concurrent requests) need this >1; Ollama's default of 1 serializes them. Applied to the ollama container-* sources; for ollama-localhost the host daemon owns it (#849)."
+    description: "Ollama parallel request slots per model. Multi-agent consumers (8+ concurrent requests) need more than 1; Ollama's default of 1 serializes them. Applies to the container-* sources; for ollama-localhost the host daemon owns it."
   - name: OLLAMA_MAX_LOADED_MODELS
     default: "2"
-    description: "Max models Ollama keeps resident simultaneously (OLLAMA_MAX_LOADED_MODELS). Raise for workloads hot-swapping several models; lower to bound memory. Applied to ollama container-* sources; for ollama-localhost the host daemon owns it (#849)."
+    description: "Maximum models Ollama keeps resident at once. Raise it for workloads that swap between several models; lower it to bound memory. Applies to the container-* sources; for ollama-localhost the host daemon owns it."
   - name: OLLAMA_KV_CACHE_TYPE
     default: q8_0
-    description: "Quantization of Ollama's in-memory attention KV cache: f16 (Ollama's own default, full precision), q8_0 (~half the KV memory, negligible quality cost) or q4_0 (~quarter, measurable quality cost). Atlas defaults to q8_0 because KV memory is the dominant per-slot cost and unified-memory hosts run several resident models at once. Applies only to the ollama container-* sources; for ollama-localhost the host daemon owns it. NOTE: quantization takes effect only when flash attention is active — see OLLAMA_FLASH_ATTENTION."
+    description: "KV cache quantization: f16 (full precision, Ollama's default), q8_0 (about half the memory, negligible quality cost) or q4_0 (about a quarter, measurable cost). Needs OLLAMA_FLASH_ATTENTION active. Container-* sources only; ollama-localhost uses the host daemon's setting."
   - name: OLLAMA_FLASH_ATTENTION
     default: "1"
-    description: "Enables Ollama's flash-attention path. Current Ollama versions turn this on automatically wherever the backend and device support it; it is pinned here because OLLAMA_KV_CACHE_TYPE quantization is a NO-OP without it, and a silently-inactive memory setting is worse than an absent one. Set 0 to force it off."
+    description: "Enables Ollama's flash-attention path. Current Ollama enables it automatically where supported. Atlas pins it because OLLAMA_KV_CACHE_TYPE quantization has no effect without it. Set 0 to force it off."
   - name: OLLAMA_KEEP_ALIVE
     default: ""
-    description: "How long Ollama keeps a model resident after its last use (e.g. 5m, 1h, or -1 for forever). Empty uses Ollama's own default of 5m. Applies to the ollama container-* sources; for ollama-localhost the host daemon owns it. Raising this stops a multi-model ingest evicting its own working set between calls, but -1 pins EVERY loaded model in RAM until reverted and the daemon is restarted -- on a large model-set that is tens of GB (#798)."
+    description: "Time Ollama keeps a model loaded after its last use (5m, 1h, or -1 for forever); empty uses Ollama's 5m default. Container-* sources only. -1 keeps every loaded model in RAM until reverted and the daemon restarts."
   - name: OLLAMA_MODELS_RESIDENT_MIN
     default: ""
-    description: "How many models a workload needs resident at once. Advisory only, and only meaningful for ollama-localhost, where Atlas cannot own the host daemon: ./start.sh doctor compares it against the daemon's OLLAMA_MAX_LOADED_MODELS and warns when a run would evict and reload its own models between calls. Empty (default) means no expectation is declared. Set it to the number of distinct models one ingest touches -- a LightRAG run using separate extract/embed/keyword models needs 3 (#798)."
+    description: "Advisory, ollama-localhost only: how many models a workload needs resident at once. ./start.sh doctor warns when the daemon's OLLAMA_MAX_LOADED_MODELS is lower. Empty declares no expectation. A LightRAG run with separate extract, embed and keyword models needs 3."
   - name: OLLAMA_PARALLEL_MIN
     default: ""
-    description: "Concurrent-request floor a consumer needs from Ollama. Advisory only, and only meaningful for ollama-localhost, where Atlas cannot own the host daemon: ./start.sh doctor reads the daemon's OLLAMA_NUM_PARALLEL and warns when it is below this, with launchctl guidance. Empty (default) means no expectation is declared. Ollama's own default is 1 slot, which silently SERIALIZES a multi-agent consumer rather than failing, so an unnoticed default is what this exists to catch (#849)."
+    description: "Advisory, ollama-localhost only: the concurrent-request floor a consumer needs. ./start.sh doctor warns when the daemon's OLLAMA_NUM_PARALLEL is lower. Empty declares no expectation. Ollama's default of 1 slot silently serializes a multi-agent consumer."
 
 depends_on:
   # `litellm` is listed here NOT because the ollama container calls
@@ -217,6 +222,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

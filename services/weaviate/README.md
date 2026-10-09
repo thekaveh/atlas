@@ -15,24 +15,25 @@ Vector database used for semantic search, RAG, embeddings, n8n workflows, Backen
 | Direct | http://localhost:63030 (REST) / 63031 (gRPC) | Works when the service is enabled in container mode and the port is exposed. |
 | Kong | http://weaviate.localhost:63000 | Requires `./start.sh --setup-hosts`; only available for services with Kong routes. |
 
-Anonymous access is on, so browser access is limited to the Kong origin: `CORS_ALLOW_ORIGIN` is `http://weaviate.localhost:${KONG_HTTP_PORT}`. Weaviate's default (`*`) let any web page open in the operator's browser read or delete collections through the direct port. Server-side clients are unaffected.
+Anonymous access is on, so only the Kong origin may call Weaviate from a browser: `CORS_ALLOW_ORIGIN=http://weaviate.localhost:${KONG_HTTP_PORT}`. Server-side clients are unaffected.
 
 See the canonical port table at [Ports and Routes](../../docs/reference/ports-routes.md).
 
 ## 3. Configuration
 
-Configure this service through `.env`, the interactive wizard, or CLI flags where available. Prefer SOURCE variables and documented env vars over direct `docker-compose.yml` edits.
-
 ```bash
-WEAVIATE_SOURCE=<option>
-WEAVIATE_URL=http://weaviate:8080
+WEAVIATE_SOURCE=container          # container | localhost | disabled
+WEAVIATE_LOCALHOST_PORT=8080       # host port when WEAVIATE_SOURCE=localhost
+# WEAVIATE_URL is auto-managed: http://weaviate:8080, http://host.docker.internal:<port>, or empty
 ```
 
-Use `./start.sh` for the guided wizard, or pass a targeted flag for scripted changes when the CLI exposes one.
+Scripted changes: `./start.sh --weaviate-source <value>` and `--multi2vec-clip-source <value>`.
 
 ### 3.1. Vectorization through LiteLLM
 
-Weaviate's text vectorization talks to the always-on **LiteLLM gateway** via the `text2vec-openai` module. The Weaviate container receives only `OPENAI_APIKEY` (set to `LITELLM_MASTER_KEY`); the LiteLLM base URL is set per collection in `moduleConfig.text2vec-openai.baseURL` by whoever creates the collection (the backend or a consumer), since `text2vec-openai` would otherwise call api.openai.com. This means whatever embedding model LiteLLM has registered (Ollama-backed `nomic-embed-text` by default, or a cloud provider's embedding model) is what Weaviate will use — no separate `text2vec-ollama` wiring required. The default vectorizer is `none`: a collection must name its vectorizer (and LiteLLM `baseURL`) explicitly or supply its own vectors, because a `text2vec-openai` default would send the master key to api.openai.com for any collection created without one. See [LiteLLM Gateway](../litellm/README.md) for how to register additional embedding models.
+Text vectorization goes through the always-on **LiteLLM gateway** via the `text2vec-openai` module. Weaviate receives only `OPENAI_APIKEY`, set to `LITELLM_MASTER_KEY`. Whoever creates a collection (the Backend or a consumer) sets the LiteLLM base URL in `moduleConfig.text2vec-openai.baseURL`. Without it, `text2vec-openai` calls api.openai.com.
+
+Weaviate uses whatever embedding model LiteLLM serves: Ollama `nomic-embed-text` by default, or a cloud model. No separate `text2vec-ollama` wiring is needed. The default vectorizer is `none`. Each collection must name its vectorizer and `baseURL`, or supply its own vectors. Otherwise a `text2vec-openai` default would send the master key to api.openai.com. To add embedding models, see [LiteLLM Gateway](../litellm/README.md).
 
 ### 3.2. Multi2Vec CLIP module
 
@@ -53,13 +54,13 @@ WEAVIATE_ENABLE_MODULES=text2vec-openai,text2vec-ollama,generative-openai,genera
 CLIP_INFERENCE_API=
 ```
 
-SigLIP 2 is available as an opt-in image reference, not as the default. Do not change `MULTI2VEC_CLIP_IMAGE` for existing collections until you have recreated or revectorized them: the default ViT-B/32 CLIP image emits 512-d vectors, while `MULTI2VEC_CLIP_SIGLIP2_IMAGE` emits 1152-d vectors. The migration does not add a new service, category, port, wizard row, track, or dependency edge; keep `CLIP_INFERENCE_API=http://multi2vec-clip:8080` and use `MULTI2VEC_CLIP_SOURCE=container-gpu` for production SigLIP 2 evaluation because the image is much larger than the default CLIP image.
+SigLIP 2 is opt-in. The default ViT-B/32 image emits 512-d vectors; `MULTI2VEC_CLIP_SIGLIP2_IMAGE` emits 1152-d vectors. Do not change `MULTI2VEC_CLIP_IMAGE` for existing collections until you recreate or revectorize them. Keep `CLIP_INFERENCE_API=http://multi2vec-clip:8080`. The SigLIP 2 image is much larger than the default. `MULTI2VEC_CLIP_SOURCE=container-gpu` currently requests no GPU device (open issue #1373), so it runs on CPU.
 
 ## 4. Integration notes
 
-The service participates in the Docker Compose network and may be consumed by the Backend API, JupyterHub, n8n, or init containers depending on which SOURCE modes are enabled (Open WebUI is NOT wired to Weaviate today).
+Consumers are listed in §5.2. Open WebUI is not wired to Weaviate.
 
-Optional consumers should use `WEAVIATE_URL` and perform feature-level readiness checks instead of requiring the Weaviate container as a hard Compose startup dependency. This lets n8n, JupyterHub, and other adaptive services still start when Weaviate is disabled, localhost-backed, or externalized.
+Optional consumers should read `WEAVIATE_URL` and check readiness at the feature level instead of declaring a hard Compose dependency. JupyterHub and the Backend still start when Weaviate is disabled or host-run. n8n is the exception. It requires Weaviate, so `WEAVIATE_SOURCE=disabled` also disables n8n and n8n-worker.
 
 ## 5. Dependencies & Integrations
 
@@ -72,17 +73,17 @@ Optional consumers should use `WEAVIATE_URL` and perform feature-level readiness
 
 ### 5.2. Current — Downstream (services that call this)
 
-| Service | Category |
-|---|---|
-| backup | infra |
-| kong | infra |
-| prometheus | infra |
-| airflow | agents |
-| celery | agents |
-| n8n | agents |
-| backend | apps |
-| jupyterhub | apps |
-| verba | apps |
+| Service | Category | Status |
+|---|---|---|
+| backup | infra | current |
+| kong | infra | current |
+| prometheus | infra | current |
+| airflow | agents | optional: an operator-authored DAG; airflow-init only seeds the Connection |
+| celery | agents | current |
+| n8n | agents | current |
+| backend | apps | current |
+| jupyterhub | apps | current |
+| verba | apps | current |
 
 ### 5.3. Architecture diagram
 
@@ -93,7 +94,7 @@ Optional consumers should use `WEAVIATE_URL` and perform feature-level readiness
 ### 5.4. Future — Missing pair integrations
 
 - **weaviate ↔ doc-processor** — *Why:* closes the RAG loop. Docling already extracts structured text + tables from PDFs; today nothing routes that output into Weaviate, so n8n/backend re-implement chunking ad hoc. *Mechanism:* n8n flow or backend route reads docling JSON, chunks, then `POST /v1/batch/objects` into a `Document` collection vectorized via `text2vec-openai`. *Effort:* medium. *Confidence:* high.
-- **weaviate ↔ n8n** — *Why:* the env wiring already exists (n8n injects `WEAVIATE_URL` and declares weaviate a required dep), but no shipped example workflow uses n8n's first-class Weaviate node to ingest webhook payloads, search, and feed retrieval into the existing AI Agent nodes. *Mechanism:* seed an example workflow driving the n8n Weaviate node → `http://weaviate:8080` (REST) or gRPC on `:50051`. *Effort:* small. *Confidence:* high.
+- **weaviate ↔ n8n** — *Why:* n8n already receives `WEAVIATE_URL` and requires Weaviate. No shipped example workflow uses n8n's Weaviate node to ingest webhook payloads, search, and feed retrieval into the AI Agent nodes. *Mechanism:* seed an example workflow driving the n8n Weaviate node → `http://weaviate:8080` (REST) or gRPC on `:50051`. *Effort:* small. *Confidence:* high.
 - **weaviate ↔ hermes** — *Why:* Hermes has no long-term memory or retrieval tool. A Weaviate-backed memory skill lets Hermes recall past sessions, store tool outputs, and do semantic lookup over user docs. *Mechanism:* Hermes custom skill posts/queries via the Weaviate Python client to `http://weaviate:8080` with hybrid search; collection seeded by `weaviate-init`. *Effort:* medium. *Confidence:* medium.
 - **weaviate ↔ comfyui** — *Why:* ComfyUI generates images but they're write-only artifacts on disk. CLIP-vectorizing them into Weaviate enables similarity search over the user's own generation history ("more like this"). *Mechanism:* ComfyUI custom node or n8n post-execution hook → `POST /v1/objects` to a `Generation` collection vectorized by `multi2vec-clip` (already enabled). *Effort:* medium. *Confidence:* medium.
 
@@ -104,7 +105,7 @@ _No high-confidence opportunities identified._
 ### 5.6. Future — Unused features in this service
 
 - **`backup-s3` module** — *Why pursue:* the current single-node filesystem module is exported by the backup runner; direct S3 backup would support a future multi-node Weaviate deployment. *Effort:* small.
-- **Named vectors (`vectorConfig` array)** — *Why pursue:* lets one collection carry both a text2vec-openai vector and a multi2vec-clip vector for hybrid text+image search instead of two collections. *Effort:* medium.
+- **Named vectors (`vectorConfig` array)** — *Why pursue:* one collection could carry both a text2vec-openai vector and a multi2vec-clip vector, for hybrid text+image search without two collections. *Effort:* medium.
 - **Reranker modules (`reranker-transformers` or `reranker-cohere`)** — *Why pursue:* cheap quality lift on RAG queries; the transformers variant runs in-cluster with no extra API costs. *Effort:* medium.
 - **Multi-tenancy (per-collection tenant shards)** — *Why pursue:* backend/n8n/Hermes could share one Weaviate cluster with per-user isolation instead of single-tenant anonymous access. *Effort:* medium.
 - **Generative modules beyond OpenAI/Ollama** — *Why pursue:* LiteLLM already fronts Anthropic/Cohere; matching Weaviate's generative module list (`generative-anthropic`, `generative-cohere`) widens GraphQL-side RAG options. *Effort:* small.
@@ -123,11 +124,11 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 
 ## 7. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| Persistent semantic vector storage | supported | tested | Atlas configures persistent Weaviate REST and gRPC storage and wires backend consumers through container or operator-run localhost sources; Backend memory vectorizes through the in-network LiteLLM, so a localhost Weaviate leaves memory on pgvector. |
+| Persistent semantic vector storage | supported | tested | Atlas configures persistent Weaviate REST and gRPC storage. It wires backend consumers through container or operator-run localhost sources. Backend memory vectorizes through the in-network LiteLLM, so a localhost Weaviate leaves memory on pgvector. |
 | LiteLLM and CLIP vectorization | partial | tested | Text vectorization routes through LiteLLM and optional CLIP supports multimodal embeddings, but enabling SigLIP changes dimensions and requires collection revectorization. |
 | Authenticated multi-tenant isolation | not-supported | documented | The stock container enables anonymous access and Atlas does not provision tenant boundaries or per-consumer authorization policies. |
 | Automated vector database backups | supported | tested | Atlas enables Weaviate's native filesystem backup provider and the backup runner creates, polls, verifies, exports, and restores completed snapshots without archiving the live data volume. Scheduling and retention remain operator-owned. |

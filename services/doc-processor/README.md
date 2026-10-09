@@ -8,8 +8,8 @@ The Document Processor service converts and extracts content from documents. It 
 
 - **Multiple Backend Support**: Localhost (CPU/GPU) and Docker (NVIDIA GPU)
 - **Advanced Processing**: Tables (DocLayNet + TableFormer), formulas, images, code blocks
-- **GPU Acceleration**: 4.3x speedup for table extraction on NVIDIA GPUs
-- **Multiple Formats**: PDF, DOCX, PPTX, HTML, Images, and more
+- **GPU Acceleration**: NVIDIA GPU acceleration for layout and table models
+- **Multiple Formats**: PDF, DOCX, PPTX, HTML and images (§6)
 - **RAG-Ready**: Structure-aware chunking for retrieval-augmented generation
 - **Hardened Provider Boundary**: bearer authentication, bounded admission, and finite conversion deadlines
 
@@ -52,10 +52,12 @@ cd services/docling/provider/localhost
 uv run server.py
 ```
 
+For long-lived use, run the provider under a service manager with restart-on-failure (§4.5).
+
 **Note:**
 - Document processor is **disabled by default** - you must explicitly enable it
-- First run downloads models (~500MB) and may take 5-10 minutes
-- Subsequent runs are instant
+- First run downloads Docling's layout and table models; allow several minutes
+- Later runs reuse the downloaded models
 - Alternative: Edit `.env` and set `DOC_PROCESSOR_SOURCE=docling-localhost` for permanent enable
 
 ### 2.3. Disable Document Processor
@@ -123,7 +125,13 @@ curl -X POST http://localhost:18159/v1/document/convert \
 | `DOCLING_CHUNK_SIZE` | Default chunk size for RAG | `512` |
 | `DOCLING_CHUNK_OVERLAP` | Default chunk overlap | `50` |
 
-Request bodies are capped before multipart parsing at `DOCLING_MAX_FILE_SIZE` plus 1 MiB of framing/form overhead and must arrive within the total `DOCLING_UPLOAD_TIMEOUT_SECONDS` deadline (120 seconds by default). Uploads then stream to bounded temporary files and are rejected (`413`/`408`/`400`) if they exceed the file limit, time out, or are empty, so a failed conversion is never indexed as document content downstream. `DOCLING_CHUNK_OVERLAP` must stay non-negative and no more than half of `DOCLING_CHUNK_SIZE`; a single conversion is capped at 10,000 chunks. Container-GPU validation and status-code behavior lives in `provider/shared/api_server.py`; the localhost provider enforces the same conversion fields through its native `server.py` route.
+Upload limits:
+
+- A request body may be at most `DOCLING_MAX_FILE_SIZE` plus 1 MiB of form framing. It must arrive within `DOCLING_UPLOAD_TIMEOUT_SECONDS` (default 120 s).
+- Uploads stream to bounded temporary files. An oversized, late or empty upload is rejected with `413`, `408` or `400`, so a failed conversion is never indexed as content.
+- `DOCLING_CHUNK_OVERLAP` must be non-negative and at most half of `DOCLING_CHUNK_SIZE`. One conversion returns at most 10,000 chunks.
+
+Both providers enforce the same conversion fields: the container-GPU provider in `services/docling/provider/shared/api_server.py`, the localhost provider in its `server.py`.
 
 ### 4.4. Localhost-Specific
 
@@ -136,11 +144,13 @@ Container mode publishes Docling on loopback by default. Set `HOST_BIND_IP=0.0.0
 
 ### 4.5. Provider boundary and LightRAG adapter
 
-`GET /health` is public so Docker and service managers can probe readiness. Every other route exposed by the selected provider, including `/docs`, `POST /v1/document/convert`, and `POST /internal/lightrag/bundle`, requires `Authorization: Bearer ${DOCLING_API_TOKEN}` while `DOCLING_AUTH_MODE=required`. `GET /v1/models` is exposed by the container-GPU provider only; the localhost provider does not advertise that route. Atlas generates and preserves the token in `.env`; use a placeholder such as `<DOCLING_API_TOKEN>` in shared examples, never the generated value. Setting authentication to `disabled` is an explicit emergency/local rollback, not the normal operating mode. A wildcard CORS origin is rejected while authentication is required.
+**Authentication.** `GET /health` is public so Docker and service managers can probe readiness. While `DOCLING_AUTH_MODE=required`, every other route needs `Authorization: Bearer ${DOCLING_API_TOKEN}`. This includes `/docs`, `POST /v1/document/convert` and `POST /internal/lightrag/bundle`. `GET /v1/models` is exposed by the container-GPU provider only; the localhost provider does not advertise that route.
 
-Conversion capacity is reserved before multipart parsing, so overload is rejected with `429` before a large body is accepted. Conversion and lazy model loading have a finite 900-second default deadline. If the deadline expires, the provider returns a generic `504` response and then exits with status 70 so Docker can restart it. A native deployment must be run under a service manager such as systemd or launchd with restart-on-failure; a bare `uv run server.py` process will remain stopped after a fatal timeout.
+Atlas generates and preserves the token in `.env`. In shared examples, use a placeholder such as `<DOCLING_API_TOKEN>`, never the generated value. `DOCLING_AUTH_MODE=disabled` is an emergency or local rollback only. A wildcard CORS origin is rejected while authentication is required.
 
-In-stack LightRAG does not receive the Docling provider token. Instead, `docling-lightrag-adapter` is placed only on the dedicated `docling-lightrag-network` with LightRAG and `docling-gpu`; it has no host port and does not join the backend network. The adapter authenticates upstream and implements LightRAG v1.5.4's exact four-route protocol: `POST /v1/convert/file/async` with multipart field `files`, `GET /v1/status/poll/{task_id}`, `GET /v1/result/{task_id}`, and `GET /health`. It reserves one of `DOCLING_ADAPTER_MAX_JOBS` slots before reading the upload, makes at most `DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS` upstream attempts after `429` responses, and caps streamed ZIP results at `DOCLING_ADAPTER_MAX_RESULT_BYTES`. Download, failure, cancellation, and `DOCLING_ADAPTER_RESULT_TTL_SECONDS` expiry (900 seconds by default) all trigger artifact cleanup; deletion is verified before the slot is released, and filesystem failures are logged and retried while the slot remains occupied so sensitive files cannot escape the admission bound. The adapter is enabled only for in-stack LightRAG plus an enabled Docling source; localhost LightRAG receives no isolated adapter endpoint.
+**Admission and deadlines.** Conversion capacity is reserved before multipart parsing, so overload gets `429` before a large body is read. Conversion and lazy model loading share one deadline, `DOCLING_INFERENCE_TIMEOUT_SECONDS` (default 900 s). On timeout the provider returns a generic `504` and exits with status 70, so Docker restarts it. Run a native provider under a service manager (systemd or launchd) with restart-on-failure. A bare `uv run server.py` stays stopped after a fatal timeout.
+
+**LightRAG adapter.** In-stack LightRAG never receives the Docling token. It calls `docling-lightrag-adapter` on a private network, and the adapter authenticates to Docling. The adapter runs only when `LIGHTRAG_SOURCE=container` and a Docling source is enabled. See [Docling LightRAG Adapter](../docling-lightrag-adapter/README.md).
 
 ## 5. API Reference
 
@@ -148,11 +158,18 @@ Both providers expose `POST /v1/document/convert` and public `GET /health`; the 
 
 ## 6. Supported Formats
 
-Documents: PDF, Microsoft Word (`.docx`/`.doc`), PowerPoint (`.pptx`/`.ppt`), Excel (`.xlsx`), and HTML. Images: PNG, JPEG, and TIFF. See §1 for the high-level format summary.
+Documents: PDF, Word (`.docx`), PowerPoint (`.pptx`) and HTML. Images: PNG, JPEG and TIFF.
+
+Docling does not convert legacy Office (`.doc`, `.xls`, `.ppt`), `.epub`, mail, OpenDocument or archive files. Backend and Celery send them to [Tika](../tika/README.md) when `TIKA_SOURCE` is enabled.
 
 ## 7. Output Formats
 
-`output_format` selects the shape of the returned content: `markdown` (default) for clean, readable structure; `html` for semantic markup with styling preserved; `json` for structured output with detailed metadata; `doctags`, Docling's native format with full document structure. See §5's parameter list for the request field.
+`output_format` selects the shape of the returned content (request field: see §5):
+
+- `markdown` (default): readable structure.
+- `html`: semantic markup with styling preserved.
+- `json`: structured output with detailed metadata.
+- `doctags`: Docling's native format with full document structure.
 
 ## 8. Integration
 
@@ -169,7 +186,7 @@ Docling endpoint) manually.
 Use HTTP Request node:
 
 ```
-POST http://docling-gpu:8000/v1/document/convert
+POST {{$env.DOCLING_ENDPOINT}}/v1/document/convert
 Authorization: Bearer {{$env.DOCLING_API_TOKEN}}
 ```
 
@@ -179,11 +196,13 @@ JupyterHub notebooks call the same `/v1/document/convert` endpoint with `request
 
 ### 8.4. Backend API
 
-The backend service automatically exposes doc processor endpoints if available.
+The backend's authenticated `POST /documents/extract` sends uploads to Docling first and to Tika for long-tail formats. It does not proxy the Docling API.
 
 ## 9. RAG Integration
 
-Passing `enable_chunking=true` (with `chunk_size`/`chunk_overlap`) to `/v1/document/convert` returns pre-split `chunks`, each carrying `chunk_index`, `page_number`, `section_title`, and `chunk_type` metadata, ready to embed and store in a vector database such as Weaviate. A typical pipeline is: convert with chunking enabled → embed each chunk → store in Weaviate → retrieve top-k chunks for a query → pass them as context to an LLM. JupyterHub ships an example RAG notebook (`02_langchain_rag.ipynb`) demonstrating this end to end.
+With `enable_chunking=true` (plus `chunk_size` and `chunk_overlap`), `/v1/document/convert` returns pre-split `chunks`. Each chunk carries `chunk_index`, `page_number`, `section_title` and `chunk_type` metadata. A typical pipeline: convert with chunking → embed each chunk → store in Weaviate → retrieve top-k chunks → pass them to an LLM as context.
+
+JupyterHub notebooks receive `DOCLING_ENDPOINT` and `DOCLING_API_TOKEN`; no shipped notebook calls Docling yet.
 
 ## 10. Source Modes
 
@@ -191,12 +210,12 @@ Passing `enable_chunking=true` (with `chunk_size`/`chunk_overlap`) to `/v1/docum
 
 Runs Docling in Docker container with NVIDIA GPU acceleration.
 
-**Best for**: NVIDIA GPU users (RTX 3060+, A100, etc.)
+**Best for**: hosts with an NVIDIA GPU
 
-**Resources**: ~2GB VRAM, CUDA 12.4+
+**Resources**: NVIDIA driver that supports CUDA 12.6 (the base image is `pytorch/pytorch:2.13.0-cuda12.6-cudnn9-runtime`)
 
 **Advantages**:
-- 4.3x faster table extraction
+- GPU-accelerated layout and table models
 - Isolated environment
 - No local installation needed
 
@@ -223,15 +242,7 @@ No document processing service.
 
 ## 11. Required Services
 
-### 11.1. Required
-
-- None (Document processor is optional for all services)
-
-### 11.2. Optional (Can Use Doc Processor)
-
-- **n8n**: Document processing workflows
-- **backend**: Proxy document processing API endpoints
-- **jupyterhub**: Notebooks with document processing capabilities
+No service requires the Document Processor. For the services that call it, see §13.2.
 
 ## 12. References
 
@@ -273,7 +284,7 @@ _No upstream calls._
 
 ### 13.5. Future — Candidate new services
 
-- **Docling MCP Server** ([details](../../docs/research/candidates/docling-mcp.md)) — *Headline:* first-party MCP wrapper exposing Docling convert/extract tools to agent runtimes. *Wires into:* hermes, openclaw, backend.
+- **Docling MCP Server** ([details](https://github.com/thekaveh/atlas/blob/main/docs/research/candidates/docling-mcp.md)) — *Headline:* first-party MCP wrapper exposing Docling convert/extract tools to agent runtimes. *Wires into:* hermes, openclaw, backend.
 
 ### 13.6. Future — Unused features in this service
 
@@ -292,7 +303,7 @@ _No upstream calls._
 **Solution**:
 1. Check Hugging Face Hub access
 2. Set `HUGGING_FACE_HUB_TOKEN` if needed
-3. Verify disk space (~1GB required)
+3. Verify free disk space for the Hugging Face model cache
 
 ### 14.2. Slow Processing
 
@@ -333,7 +344,7 @@ _No upstream calls._
 
 ## 15. Capabilities & limitations
 
-`docling` — Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+`docling` — Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Service | Capability | Status | Verification | Notes |
 |---|---|---|---|---|

@@ -4,7 +4,16 @@ This file provides guidance to coding agents (e.g. Codex, Claude Code) when work
 
 ## Project Overview
 
-Atlas (formerly GenAI Vanilla Stack) is a self-hosted, source-configurable engineering platform orchestrating 30+ containerized services via Docker Compose. It spans generative AI, RAG, creative AI, ML engineering, and data engineering workloads via the tracks system (`gen-ai-eng` / `gen-ai-rag` / `gen-ai-creative` / `ml-eng` / `data-eng` / `trading` / `all`). Services include LLM inference (Ollama + cloud-provider passthroughs via LiteLLM), chat UI (Open WebUI), workflow + DAG automation (n8n + Airflow), vector + graph DBs (Weaviate + Neo4j), distributed compute (Ray + Spark), notebooks (JupyterHub + Zeppelin), object storage (MinIO), observability (Prometheus + Grafana) — all configurable for container, localhost, or disabled modes, with CPU/GPU variants where a service supports them.
+Atlas (formerly GenAI Vanilla Stack) is a self-hosted, source-configurable engineering platform that orchestrates 30+ containerized services with Docker Compose. Its tracks (`gen-ai-eng` / `gen-ai-rag` / `gen-ai-creative` / `ml-eng` / `data-eng` / `trading` / `all`) cover generative AI, RAG, creative AI, ML engineering and data engineering.
+
+Services include:
+
+- LLM inference: Ollama, plus cloud-provider passthroughs through LiteLLM.
+- Chat UI: Open WebUI. Workflow and DAG automation: n8n, Airflow.
+- Vector and graph databases: Weaviate, Neo4j. Distributed compute: Ray, Spark.
+- Notebooks: JupyterHub, Zeppelin. Object storage: MinIO. Observability: Prometheus, Grafana.
+
+Each service can run as a container, on localhost or be disabled, with CPU/GPU variants where the service supports them.
 
 ## Editing Rules
 
@@ -19,9 +28,9 @@ After generating a report or output to a file, always display a summary or the f
 Use the three-surface documentation skills for Atlas docs work:
 
 - `three-surface-docs` — use when creating, fixing, or extending the synchronized in-repo docs, generated MkDocs `.io` site, and GitHub wiki pipeline. Load its `reference.md` before implementation work that changes the pipeline shape, generated surfaces, wiki publishing, MkDocs config, manifest behavior, diagram propagation, or cross-surface link rewriting.
-- `three-surface-docs-audit` — use for read-only audits of documentation health, especially before releases, after docs changes, when docs CI is red, or when checking that README, repo docs, generated site, and wiki remain self-contained and in sync. Present findings before making fixes.
+- `three-surface-docs-audit` — use for read-only audits of documentation health. Use it before releases, after docs changes and when docs CI is red. It checks that README, repo docs, generated site and wiki stay self-contained and in sync. Present findings before making fixes.
 
-When docs architecture diagrams are created or materially changed, use the `architecture-diagram` skill for the diagram masters and keep generated diagram assets synchronized across all required surfaces.
+When you create or materially change a docs architecture diagram, use the `architecture-diagram` skill for the masters. Keep the generated diagram assets in sync on every required surface.
 
 ## Code Review
 
@@ -46,13 +55,23 @@ For TUI/CLI visual work: after each change, describe exactly what changed visual
 
 Build validation is enabled on every workflow run and is a required check in the live `gitflow` ruleset.
 
-`Manifest lint + unit tests` is an aggregate gate (job `required-lint`, `if: always()`): it succeeds only when four parallel jobs all do. They are `lint` (the bootstrapper suite with the container-backed integration tests, manifest lint, shell lint, title and changelog checks, and the Backend suite, with an always-run container cleanup), `unit-fast` (the whole bootstrapper suite without a Docker daemon, the early red signal), `python-floor` (the full suite on Python 3.10) and `component-tests` (MCP and asset API suites). A new push to a pull request cancels that pull request's superseded `services-lint` run; runs on `main` and `develop` are never cancelled (#1176).
+`Manifest lint + unit tests` is an aggregate gate (job `required-lint`, `if: always()`). It succeeds only when four parallel jobs all succeed:
 
-The ruleset also grants the repository admin role an always-on bypass (`bypass_mode: always`), so these rules are the required workflow rather than a mechanical guarantee for an admin. Inspect the live rule with `gh api repos/thekaveh/atlas/rulesets`.
+- `lint`: the bootstrapper suite with the container-backed integration tests, manifest lint, shell lint, title and changelog checks, and the Backend suite. Container cleanup always runs.
+- `unit-fast`: the whole bootstrapper suite without a Docker daemon (the early red signal).
+- `python-floor`: the full suite on Python 3.10.
+- `component-tests`: the MCP and asset API suites.
+
+A new push to a pull request cancels that pull request's superseded `services-lint` run. Runs on `main` and `develop` are never cancelled.
+
+The ruleset also gives the repository admin role an always-on bypass (`bypass_mode: always`). For an admin, these rules are the required workflow, not a mechanical guarantee. Inspect the live rule with `gh api repos/thekaveh/atlas/rulesets`.
 
 Strict mode is enabled, so each PR branch must be up to date with that PR's target branch before merge becomes available. Conversation-resolution is required.
 
-Gitflow integration uses two PRs: branch (typically a dedicated git worktree) → push → PR to `develop` → required checks → squash merge; then cut `release/<slug>-to-main` off `origin/main`, `git merge --no-ff origin/develop`, prove `git diff origin/develop HEAD` is empty, push, PR to `main` → required checks → merge with a **merge commit**, so `develop` stays an ancestor of `main` (a squash here makes the next develop→main PR conflict). Never attempt `git push origin main` or `develop`. Inspect the live rule with `gh api repos/thekaveh/atlas/rulesets`.
+Gitflow integration uses two PRs:
+
+1. Branch (typically a dedicated git worktree) → push → PR to `develop` → required checks → squash merge.
+2. Cut `release/<slug>-to-main` off `origin/main` and run `git merge --no-ff origin/develop`. Prove `git diff origin/develop HEAD` is empty. Push, open a PR to `main`, wait for the required checks, and merge with a **merge commit**. This keeps `develop` an ancestor of `main`; a squash here makes the next develop→main PR conflict. Never attempt `git push origin main` or `develop`. Inspect the live rule with `gh api repos/thekaveh/atlas/rulesets`.
 
 ## Key Commands
 
@@ -103,12 +122,13 @@ Legacy `external` and `api` source values are retired. Cloud providers are confi
 `bootstrapper/tracks.yml` defines named profiles (`gen-ai-rag`, `gen-ai-eng`,
 `gen-ai-creative`, `ml-eng`, `data-eng`, `trading`, `all`). Each track lists a subset of
 source-configurable services the wizard should prompt for; out-of-track services
-are force-disabled (`*_SOURCE=disabled`) at the end of the flow. A small set of
-services the wizard always *prompts* for (LLM Engine + Prometheus + Grafana +
-cloud-provider keys) is exempt from track-skip filtering and applies to every
-track — note that Prometheus and Grafana still ship **disabled by default**;
-being always-prompted does not mean always-running. The genuinely locked,
-always-running tier is Supabase + Kong + Redis + LiteLLM + Backend.
+are force-disabled (`*_SOURCE=disabled`) at the end of the flow.
+
+The wizard always *prompts* for a small set on every track: LLM Engine,
+Prometheus, Grafana and the cloud-provider keys. Track-skip filtering does not
+apply to them. Prometheus and Grafana still ship **disabled by default**:
+always-prompted does not mean always-running. The locked, always-running tier
+is Supabase + Kong + Redis + LiteLLM + Backend.
 
 - Pass `--track <key>` to pre-select on the CLI.
 - Pass `--list-tracks` to print the registry and exit.
@@ -143,57 +163,48 @@ Key modules:
   is the source of truth for the complete sequence, gates, and current purpose
   of each version. Add a new versioned module instead of editing a migration
   that existing `.env` files may already have stamped.
-- `ui/textual/integration.py` — public entry points `run_setup_flow` (interactive wizard + pipeline + log streaming, all in one Textual app) and `run_launch_flow` (CLI-flag mode: skip the wizard, jump to the launch screen with the user's overrides applied)
+- `ui/textual/integration.py` — public entry points. `run_setup_flow` runs the interactive wizard, pipeline and log streaming in one Textual app. `run_launch_flow` is CLI-flag mode: it skips the wizard and opens the launch screen with the user's overrides applied.
 - `ui/textual/screens/wizard_screen.py` — `WizardScreen` hosts the wizard prompts, then transitions in-place to the launch phase (service-table + log pane + filter chips)
 - `ui/textual/widgets/` — Textual widgets composed by `WizardScreen` (prompt panel, service table, info / brand panels, log pane + filter chips, command summary, footer bar)
 - `ui/textual/palette.py`, `ui/textual/theme.css` — colors and Textual CSS for the app
 - `ui/term_caps.py` — `is_tui_capable(no_tui_flag)` helper used by `start.py` to decide between the Textual app and the linear flow
-- `wizard/model/` — Wizard Model layer: `state.py`, `state_builder.py`,
-  `service_discovery.py`, plus the extracted domain rules (`cloud_rules.py`,
-  `llm_rules.py`). The track force-disable rule lives only in `tracks.py`
-  (`synthesize_track_source_args`), which the wizard calls from
-  `_selections_to_args`. No `vmx` or `textual` imports, at module scope or
-  deferred (`test_wizard_layer_boundaries.py`). Consumed by BOTH the Textual
-  wizard and the `--no-tui` linear flow. `state_builder.all_services()` is the
-  single source of truth for service definitions, consumed by both the
-  Textual `ServiceTable` and the `--no-tui` `build_pre_launch_summary_table`;
-  `service_discovery.py` supplies the metadata (display name, description,
-  options) `ui/textual/integration.py` uses to build the wizard prompt steps.
-- `wizard/viewmodel/` — VMx ViewModels (arrives in Pass 2 of #535). Will import
-  `vmx` and `wizard.model`; may never import `textual`. Doesn't exist yet.
-- `wizard/view/` — where `ui/textual/*` MOVES TO in Pass 3, not a second copy
-  of it (see `docs/superpowers/specs/2026-08-23-wizard-mvvm-vmx-design.md`).
-  Once it exists, it may never import `wizard.model` directly; it reads
-  ViewModel state instead. Doesn't exist yet — **today**, `ui/textual/` (the
-  real, current view) legitimately imports `wizard.model` directly at six
-  known sites, because no ViewModel layer exists yet for those imports to go
-  through. That is deliberate, tracked Pass-1 debt, not a lint gap. (The
-  #535 followups review kept the count at six while changing its makeup:
-  finding R1 removed `wizard.model.track_rules`; finding R6 added
-  `screens/wizard_screen.py` reading `SECRET_KEEP`/`SECRET_CLEAR` straight
-  from `wizard.model.cloud_rules` instead of through
-  `widgets/prompt_panel.py`'s re-export.)
+- `wizard/model/` — the Wizard Model layer: `state.py`, `state_builder.py`,
+  `service_discovery.py` and the domain rules `cloud_rules.py` and
+  `llm_rules.py`. It may not import `vmx` or `textual`, at module scope or
+  deferred. Both the Textual wizard and the `--no-tui` linear flow use it.
+  `state_builder.all_services()` is the single source of truth for service
+  definitions. Both the Textual `ServiceTable` and the `--no-tui`
+  `build_pre_launch_summary_table` read it.
+- `wizard/model/service_discovery.py` supplies the metadata (display name,
+  description, options) that `ui/textual/integration.py` uses to build the
+  wizard prompt steps. The track force-disable rule is not in the model layer:
+  it lives only in `tracks.py` (`synthesize_track_source_args`), which the
+  wizard calls from `_selections_to_args`.
+- `wizard/viewmodel/` and `wizard/view/` do not exist yet (#535). The
+  viewmodel layer will hold the VMx ViewModels and may never import `textual`.
+  `wizard/view/` is where `ui/textual/*` moves, not a second copy; it may never
+  import `wizard.model` directly (see
+  `docs/superpowers/specs/2026-08-23-wizard-mvvm-vmx-design.md`). Until then,
+  `ui/textual/` is the view, and it imports `wizard.model` directly at six
+  allowlisted sites. That is deliberate, tracked debt, not a lint gap.
 - `utils/kong_config_generator.py` — dynamic Kong route generation (the `kong-dynamic.yml` it emits is regenerated at every startup; do NOT edit by hand)
 - `generate_supabase_keys.py` (and `.sh` sibling) — runs at startup only when all three Supabase keys are blank, generating JWT keys into `.env` (no `.env` snapshot is taken)
 
-The layer direction (`view -> viewmodel -> model`) is enforced by
-`bootstrapper/tests/test_wizard_layer_boundaries.py`, to the extent each layer
-currently exists in a form worth linting: `wizard/model/**` is checked for
-real (`vmx`/`textual`-free) today; `wizard/viewmodel/` doesn't exist yet, so
-its check is an explicit skip (Pass 2) rather than a vacuous pass; and the
-`view -> model` direction is checked against `ui/textual/` — the view's real,
-current location — pinned against a closed six-site allowlist of the known
-Pass-1 debt described above, with a separate tripwire test that fails the
-moment `wizard/view/` is created so the check gets re-pointed there instead
-of silently going stale. The suite also asserts that `core/linear_startup.py`
-never imports `vmx` — that is what makes the `--no-tui` path structurally
-VMx-free rather than VMx-free by convention.
+`bootstrapper/tests/test_wizard_layer_boundaries.py` enforces the layer
+direction `view -> viewmodel -> model` as far as each layer exists:
+
+- `wizard/model/**` must not import `vmx` or `textual`.
+- The `wizard/viewmodel/` check is an explicit skip until the directory exists.
+- `ui/textual/` may import `wizard.model` only at the six allowlisted sites. A
+  tripwire test fails when `wizard/view/` is created, so the check moves there.
+- `core/linear_startup.py` must not import `vmx`, so the `--no-tui` path is
+  VMx-free by structure, not by convention.
 
 `start.sh` and `stop.sh` are thin wrappers that prefer `uv run` and fall back to system Python. The bootstrapper can also be invoked directly with its dependencies available, e.g. `uv run --project bootstrapper python bootstrapper/start.py [flags]` (a bare system `python` lacks `click` and the other dependencies). `--no-tui` bypasses the Textual TUI and runs the linear stdout flow (used by CI, non-TTY shells, and very narrow terminals).
 
 Dependencies are managed via `uv` (with a pip fallback) and declared in `bootstrapper/pyproject.toml`, including the Python-version markers needed at the supported Python `>=3.10` floor. Treat that file and `bootstrapper/uv.lock` as the dependency source of truth rather than duplicating the inventory here.
 
-**Brand customization.** The wizard's brand panel and info box (brand name, tagline, version, author, author email, license, repo URL) is configurable via `BRAND_*` env vars in `.env`. Defaults are Atlas; forks can rebrand by setting these. See the `BRAND_*` block in `.env.example`.
+**Brand customization.** `BRAND_*` env vars in `.env` configure the wizard's brand panel and info box. They set brand name, tagline, version, author, author email, license and repo URL. Defaults are Atlas; forks can rebrand by setting these. See the `BRAND_*` block in `.env.example`.
 
 ### Backend (`services/backend/app/app/`)
 
@@ -218,7 +229,7 @@ Thin ~90-line top-level shell that merges per-service compose fragments via the 
 
 ### Service Init Containers
 
-Many services have dedicated init containers (under `services/<name>/init/`, or a differently-named sibling such as `services/ollama/pull/`) that handle first-run setup: pulling Ollama models, seeding databases, importing n8n workflows, configuring Weaviate schemas.
+Many services have dedicated init containers for first-run setup, under `services/<name>/init/` or a sibling such as `services/ollama/pull/`. They pull Ollama models, seed databases, import n8n workflows and configure Weaviate schemas.
 
 ### Per-service manifest (`services/<name>/service.yml`)
 
@@ -246,9 +257,9 @@ See `bootstrapper/schemas/service.schema.json` for the full schema, `docs/CONTRI
 
 ### Per-service documentation (`services/<name>/README.md`)
 
-Each `services/<name>/` is the single source of truth for that service: manifest, compose fragment, init scaffolding, README, and the two regenerated diagrams (`architecture.svg`, `architecture.html`). The old `docs/services/<name>/` mirror was retired — there's now exactly one folder per service.
+Each `services/<name>/` is the single source of truth for that service: manifest, compose fragment, init scaffolding, README, and the two regenerated diagrams (`architecture.svg`, `architecture.html`). There is exactly one folder per service.
 
-Service READMEs use hierarchical numbered sections (`## 1. Overview`, `## 2. Access`, `## 3. Configuration`, `## 4. Architecture & wiring`, `## N. Dependencies & Integrations`, `## N+1. Troubleshooting`, …). The Dependencies & Integrations block sits at whatever position N the README's section order places it (typically 5, but 7/9/12/14 for READMEs with extra pre-Deps content) — the regen tool reads N from the existing heading and emits matching subsection numbering (`### N.1` through `### N.6`).
+Service READMEs use hierarchical numbered sections (`## 1. Overview`, `## 2. Access`, `## 3. Configuration`, `## 4. Architecture & wiring`, `## N. Dependencies & Integrations`, `## N+1. Troubleshooting`, …). The Dependencies & Integrations block sits at position N in the README's section order: typically 5, but 7/9/12/14 for READMEs with extra earlier sections. The regen tool reads N from the existing heading and emits matching subsections (`### N.1` through `### N.6`).
 
 The Dependencies & Integrations block is **auto-generated** by `bootstrapper/docs/regen.py`. It contains:
 - `### N.1 Current — Upstream` and `### N.2 Current — Downstream` tables (from `data_flow.calls` in the manifests)
@@ -270,7 +281,7 @@ All ports are calculated as offsets from `BASE_PORT` (default 63000). Service po
 
 ## Testing
 
-`bootstrapper/tests/` holds 6,000+ pytest tests covering manifest validation, env-example consistency, the docs-drift gate, the diagram renderer, the deps section writer, Kong config generation, and bootstrapper-internal data flow. Many of the backup, restore, and database-role suites drive real containers, so a full pass needs a working Docker daemon and dominates the runtime. Run from the repo root:
+`bootstrapper/tests/` holds 6,000+ pytest tests. They cover manifest validation, env-example consistency, the docs-drift gate, the diagram renderer, the deps section writer, Kong config generation and bootstrapper-internal data flow. Many of the backup, restore, and database-role suites drive real containers, so a full pass needs a working Docker daemon and dominates the runtime. Run from the repo root:
 
 ```bash
 uv run --project bootstrapper pytest bootstrapper/tests -q                          # full suite (~40 min)
@@ -314,7 +325,7 @@ uv run --project bootstrapper python scripts/check-kong-routes.py              #
 uv run --project bootstrapper python scripts/validate_research_schema.py --all # docs/research/ schema check
 uv run --project bootstrapper python scripts/check-track-membership.py         # track coverage audit
 uv run --project bootstrapper python -m scripts.docs.license_inventory --check  # supply-chain license inventory vs image/model pins
-uv run --project bootstrapper python scripts/lint_review_ticket.py < body.md     # review-ticket minimum bar (#1246); exits 1 on R1/R3
+uv run --project bootstrapper python scripts/lint_review_ticket.py < body.md     # review-ticket minimum bar; exits 1 on R1/R3
 (cd services/docling/provider/localhost && uv lock --locked)                   # docling localhost provider lock
 uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py --check  # Local Deep Researcher lock
 uv run --project bootstrapper python -m scripts.check_runtime_locks            # compiled service runtime locks

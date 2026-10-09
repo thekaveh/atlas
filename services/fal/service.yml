@@ -14,7 +14,7 @@ capabilities:
   - name: "LiteLLM text-to-image passthrough"
     status: partial
     verification: tested
-    note: "An enabled keyed provider registers fal-image through LiteLLM, but that route covers text-to-image only and returns LiteLLM's OpenAI-shaped b64/URL image result without Atlas storage or provenance normalization."
+    note: "An enabled keyed provider registers fal-image through LiteLLM, but that route covers text-to-image only. It returns LiteLLM's OpenAI-shaped b64/URL image result without Atlas storage or provenance normalization."
   - name: "Durable media-operation accounting"
     status: partial
     verification: tested
@@ -95,6 +95,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

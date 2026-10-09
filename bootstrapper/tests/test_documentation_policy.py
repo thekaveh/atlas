@@ -136,7 +136,7 @@ def test_plan_archive_range_matches_dated_plan_and_spec_filenames() -> None:
             match = re.match(r"(\d{4}-\d{2}-\d{2})-", path.name)
             if match:
                 dates.append(date.fromisoformat(match.group(1)))
-    index = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
+    index = (ROOT / "docs" / "superpowers" / "README.md").read_text(encoding="utf-8")
 
     expected_range = f"{min(dates).isoformat()} through {max(dates).isoformat()}"
     assert expected_range in index

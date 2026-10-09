@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  Chat, RAG, agents, distributed compute, and a full data platform — source-configurable services wired together out of the box and selectable among the deployment modes each supports.
+  Chat, RAG, agents, distributed compute, and a full data platform — source-configurable services wired together out of the box and selectable among the deployment modes each supports. <!-- lint-ok -->
 </p>
 
 <p align="center">
@@ -37,14 +37,18 @@
   <img alt="Langfuse" src="https://img.shields.io/badge/Langfuse-tracing-FF7E29">
 </p>
 
-Atlas is a self-hosted engineering platform that bundles 30+ services — LLM inference and a gateway, vector and graph databases, workflow and DAG automation, distributed compute, object storage, notebooks, and observability — behind a Kong gateway and an adaptive FastAPI backend.
+Atlas is a self-hosted engineering platform that bundles 58 service families behind a Kong gateway and an adaptive FastAPI backend. They cover LLM inference and a gateway, vector and graph databases, workflow and DAG automation, distributed compute, object storage, notebooks, and observability.
 
-It's not a catalog of independent containers: the services are integrated out of the box. Kong routes every `*.localhost` host, LiteLLM unifies local and cloud models behind one API, an adaptive FastAPI backend auto-wires to whichever vector, graph, workflow, and media services you enable, Supabase provides the shared database and storage plus the user identity the backend's APIs accept, and one observability pipeline plus declared dependency ordering tie it all together. Bundled dashboards keep their own logins — there is no single sign-on; [Access and Credentials](docs/operations/access-and-credentials.md) says what opens each one.
+The services are integrated, not just co-located. Kong routes every `*.localhost` host. LiteLLM puts local and cloud models behind one API. The adaptive FastAPI backend connects to whichever vector, graph, workflow and media services you enable. Supabase provides the shared database and storage, plus the user identity that the backend's APIs accept. One observability pipeline and declared start order tie it together.
 
-Source-configurable services expose the deployment variants each family supports — commonly `container`, `localhost`, or `disabled` — so the same stack scales from a CPU starter to a multi-GPU lab. Seven tracks — Generative AI · RAG, Generative AI · Engineering, Generative AI · Creative, ML Engineering, Data Engineering, Trading / Financial Research, and All / Custom — preselect a working subset per workflow, and a `--profile` switch (`dev`/`default` vs `prod`) applies the matching source and observability bundle. Both profiles keep published service ports loopback-bound by default; an explicit `HOST_BIND_IP` remains an operator choice. The always-on core is Kong, Supabase, Redis, LiteLLM, and the Backend API.
+Dashboards keep their own logins; there is no single sign-on. [Access and Credentials](docs/operations/access-and-credentials.md) says what opens each one.
 
-- **30+ services across 7 tracks**, all ports derived from one `BASE_PORT`
-- **Integrated, not just launched:** Kong routing, the LiteLLM model gateway, an adaptive backend, a shared Supabase database, storage and API identity (each dashboard keeps its own login), and one observability pipeline
+Each source-configurable service offers the deployment variants its family supports, commonly `container`, `localhost` or `disabled`. The same stack therefore runs as a CPU starter or as a multi-GPU lab.
+
+Seven tracks preselect a working subset per workload. They are Generative AI · RAG, Generative AI · Engineering, Generative AI · Creative, ML Engineering, Data Engineering, Trading / Financial Research, and All / Custom. `--profile dev` (alias `default`) or `--profile prod` applies a source and observability bundle. Both profiles bind published ports to loopback; an explicit `HOST_BIND_IP` is an operator choice. The always-on core is Kong, Supabase, Redis, LiteLLM and the Backend API.
+
+- **58 service families across 7 tracks**, all ports derived from one `BASE_PORT`
+- **Integrated, not just launched:** Kong routing, the LiteLLM gateway, an adaptive backend, shared Supabase database, storage and API identity, and one observability pipeline. Each dashboard keeps its own login.
 - **Always-on core:** Kong, Supabase, Redis, LiteLLM, Backend
 - **Per-service SOURCE:** family-specific variants, commonly `container` / `localhost` / `disabled`
 - **Profiles:** `--profile dev` (default, loopback-bound) or `--profile prod` (also loopback-bound, observability on)
@@ -56,12 +60,18 @@ Source-configurable services expose the deployment variants each family supports
 
 ## 1. Quick start
 
+Requirements: Docker with Compose v2.20.3+ (v2.26+ recommended), and `uv` or Python 3.10+.
+
 ```bash
 git clone https://github.com/thekaveh/atlas && cd atlas
 ./start.sh
 ```
 
-`./start.sh` with no arguments launches an interactive setup wizard covering track and profile selection, base port and project name, per-service SOURCE choices, host aliases, and a launch summary; the wizard preselects the `gen-ai-rag` track (chat UI, workflow automation, vector and graph databases, privacy search, deep research on a CPU Ollama engine), and the `all` track (the `.env.example` defaults) adds ComfyUI, JupyterHub, Hermes, MinIO, speech-to-text/text-to-speech and CLIP, so plan memory and disk for the track you pick. See [docs/quick-start/index.md](docs/quick-start/index.md) for the first-run walkthrough and [docs/quick-start/interactive-setup-wizard.md](docs/quick-start/interactive-setup-wizard.md) for what the wizard does step by step.
+`./start.sh` with no arguments opens the setup wizard. It asks for track and profile, base port and project name, per-service SOURCE choices and host aliases, then shows a launch summary.
+
+The wizard preselects the `gen-ai-rag` track: chat UI, workflow automation, vector and graph databases, private web search, and deep research on a CPU Ollama engine. The `all` track (the `.env.example` defaults) adds ComfyUI, JupyterHub, Hermes, MinIO, speech-to-text, text-to-speech and CLIP. Plan memory and disk for the track you pick.
+
+Next: the [first-run walkthrough](docs/quick-start/index.md) and the [wizard guide](docs/quick-start/interactive-setup-wizard.md).
 
 ## 2. Service topology
 
@@ -144,17 +154,17 @@ Full port + Kong-route detail: [docs/reference/ports-routes.md](docs/reference/p
 
 [docs/README.md](docs/README.md) is the full documentation index. Key entry points:
 
-- **Getting started** — [Quick Start](docs/quick-start/index.md), [Interactive Setup Wizard](docs/quick-start/interactive-setup-wizard.md), [Troubleshooting](docs/quick-start/troubleshooting.md), [Startup error recovery](docs/TROUBLESHOOTING.md)
+- **Getting started** — [Quick Start](docs/quick-start/index.md), [Interactive Setup Wizard](docs/quick-start/interactive-setup-wizard.md), [Quick Start Troubleshooting](docs/quick-start/troubleshooting.md), [Sudo recovery](docs/TROUBLESHOOTING.md)
 - **Core concepts** — [Core Concepts](docs/core-concepts.md) (SOURCE values, tracks, manifests, gateway access), [SOURCE reference](docs/reference/source-values.md), [Tracks](docs/tracks.md)
 - **Operating the stack** — [Service catalog](docs/services.md), [SOURCE configuration](docs/operations/source-configuration.md), [Ports and routes](docs/operations/ports-and-routes.md), [Architecture diagrams](docs/architecture/index.md)
 - **Running Atlas for another project** — [Reusing Atlas as Infrastructure](docs/operations/reusing-atlas.md), [Using as a submodule](docs/operations/submodule-usage.md)
-- **Contributing** — [Contributing guide](CONTRIBUTING.md) (first change: setup, one safe test per area, branch target, required checks), [Development](docs/development.md) (repository layout, parent-repo consumer layout, required docs checks), [Adding a service](docs/CONTRIBUTING-services.md), [Security policy](SECURITY.md)
+- **Contributing** — [Contributing guide](CONTRIBUTING.md) (setup, one safe test per area, branch target, required checks), [Development](docs/development.md) (repository and consumer layout, docs checks), [Adding a service](docs/CONTRIBUTING-services.md), [Security policy](SECURITY.md)
 - **Release history** — [ROADMAP](docs/ROADMAP.md), [CHANGELOG](docs/CHANGELOG.md), [Releasing & version tags](docs/operations/releasing.md)
 - **Project & internal docs** — research, strategy, and maintenance notes live under `docs/`: [docs/research/README.md](docs/research/README.md), [docs/strategy/README.md](docs/strategy/README.md), [docs/maintenance/README.md](docs/maintenance/README.md)
 
 ## 4. Contributing
 
-Contributions welcome. Start with the [contributing guide](CONTRIBUTING.md): it covers setup, one safe test for each code area, the Docker and live-test boundary, and opening a pull request against `develop` with the four required checks. For anything larger than a typo, open an issue first so the scope is agreed.
+Contributions are welcome. Start with the [contributing guide](CONTRIBUTING.md). It covers setup, one safe test for each code area, and the Docker and live-test boundary. It also covers the pull request against `develop` and its four required checks. For anything larger than a typo, open an issue first so the scope is agreed.
 
 ## 5. License
 

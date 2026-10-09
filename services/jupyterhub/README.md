@@ -1,8 +1,8 @@
 # 5.2.22. JupyterHub - Data Science IDE
 
-**Port:** 63094
-**Category:** Application Tier
-**Primary dependencies:** PostgreSQL, Redis, LiteLLM (gateway to Ollama / cloud LLMs), Weaviate, Neo4j, MinIO, Iceberg REST, Spark — see §15 (Dependencies & Integrations) for the full upstream set (Ray, Redpanda, ComfyUI, n8n, backend, SearXNG, Hermes, MLflow, Label Studio, …).
+- **Port:** 63094
+- **Category:** Application Tier
+- **Primary dependencies:** PostgreSQL, Redis, LiteLLM (gateway to Ollama and cloud LLMs), Weaviate, Neo4j, MinIO, Iceberg REST and Spark. §15 lists the full upstream set.
 
 ---
 
@@ -58,7 +58,7 @@ DOCLING_API_TOKEN=              # Auto-generated Docling bearer; server-side onl
 PARAKEET_API_TOKEN=             # Auto-generated Parakeet bearer; server-side only
 ```
 
-> **Performance Tip**: The pinned release digest keeps Docker layer caching stable (5-10 s rebuilds); a moving `:latest` tag would force a full 8-10 min rebuild on every start.
+The image is pinned by digest, so builds are reproducible and a base change happens only through a reviewed pin update.
 
 ### 4.2. Authentication
 
@@ -66,33 +66,26 @@ PARAKEET_API_TOKEN=             # Auto-generated Parakeet bearer; server-side on
 - **Custom token**: Set `JUPYTERHUB_TOKEN` in `.env`
 - **View token**: `docker logs ${PROJECT_NAME}-jupyterhub | grep token`
 
-`BACKEND_NOTEBOOK_API_TOKEN` is separate from Jupyter's login token. Atlas
-injects it into the server-side notebook environment so the bundled Chonkie
-and Ragas notebooks can call the Backend's stateless `/api/chunk` and
-`/api/rag/evaluate` endpoints; it does not grant access to memory, research,
-media, storage, workflow, job, or ingestion operations. Do not print it or
-persist it in notebook output. See `services/backend/README.md` for the full
-route-scoping contract. JupyterHub remains an operator-trusted engineering
-environment with direct database and service credentials; it is not a
-hostile multi-tenant sandbox. The unused Supabase service-role key is
-deliberately not injected.
+`BACKEND_NOTEBOOK_API_TOKEN` is not the Jupyter login token. It lets the Chonkie and Ragas notebooks call the Backend's stateless `/api/chunk` and `/api/rag/evaluate`. It grants no memory, research, media, storage, workflow, job or ingestion route (see `services/backend/README.md`). Do not print it or keep it in notebook output.
 
-Direct notebook calls to Docling and Atlas-managed Parakeet must attach the matching bearer token from the server-side environment, for example `headers={"Authorization": f"Bearer {os.environ['DOCLING_API_TOKEN']}"}`. The environment-check notebook may verify presence but must never print a credential-bearing value, and notebooks must not persist these tokens in cell output. Speaches and whisper.cpp do not consume `PARAKEET_API_TOKEN`.
+JupyterHub holds direct database and service credentials. Treat it as an operator-trusted workspace, not a multi-tenant sandbox. Atlas does not inject the Supabase service-role key.
+
+Direct notebook calls to Docling and Atlas-managed Parakeet must send the matching bearer token from the server-side environment, for example `headers={"Authorization": f"Bearer {os.environ['DOCLING_API_TOKEN']}"}`. The environment-check notebook only checks that the tokens are set. Notebooks must not print these tokens or keep them in cell output. Speaches and whisper.cpp do not consume `PARAKEET_API_TOKEN`.
 
 ## 5. Sample Notebooks
 
-The notebooks read MinIO bucket names from the `MINIO_BUCKET_*` variables (`MINIO_BUCKET_SPARK_HISTORY`, `MINIO_BUCKET_ICEBERG_LANDING`, …), falling back to the default names, so a renamed bucket needs no notebook edit (#1392).
+The notebooks read MinIO bucket names from the `MINIO_BUCKET_*` variables (`MINIO_BUCKET_SPARK_HISTORY`, `MINIO_BUCKET_ICEBERG_LANDING`, …) and fall back to the default names. A renamed bucket needs no notebook edit.
 
 | Notebook | Description |
 |----------|-------------|
 | `00_environment_check.ipynb` | Inspect configured core integrations and run bounded HTTP/database connectivity probes without printing credential-bearing URLs. |
-| `01_litellm_basics.ipynb` | LLM inference via the LiteLLM gateway (Ollama upstream) |
+| `01_litellm_basics.ipynb` | Chat, streaming and embeddings through the LiteLLM gateway, using `LITELLM_DEFAULT_MODEL` / `LITELLM_EMBEDDING_MODEL`. |
 | `02_langchain_rag.ipynb` | RAG pipeline with Weaviate. With Weaviate disabled it says so and skips the Weaviate cells. |
 | `03_neo4j_graphs.ipynb` | Knowledge graph queries |
 | `04_supabase_data.ipynb` | Database and storage operations |
 | `05_comfyui_images.ipynb` | AI image generation |
 | `06_n8n_workflows.ipynb` | Workflow automation |
-| `07_ray_cluster.ipynb` | Distributed compute on the Ray cluster |
+| `07_ray_cluster.ipynb` | Distributed compute on the Ray cluster. Currently fails at `ray.init()`: the kernel runs Python 3.13 and the Ray image 3.10 (see the Ray README, §6). |
 | `08_scala_basics.ipynb` | Scala 3 syntax, `import $ivy` dependency loading, calling LiteLLM from Scala, Scala-3 enums + extension methods. Opens on the `scala3` kernel. |
 | `09_spark_connect.ipynb` | Distributed Spark via the `spark-connect` sidecar (DataFrame/SQL + an s3a MinIO round-trip). Requires `SPARK_SOURCE != disabled`. |
 | `10_spark_scala.ipynb` | The Scala counterpart to 09 — Spark Connect from the **Scala 2.13** kernel, including the same DataFrame, SQL, and MinIO round-trip checks. |
@@ -102,22 +95,30 @@ The notebooks read MinIO bucket names from the `MINIO_BUCKET_*` variables (`MINI
 | `14_ragas_evaluation.ipynb` | Evaluate RAG answers with Ragas metrics and the Backend `/api/rag/evaluate` runtime endpoint. |
 | `15_mcp_clients.ipynb` | Discovers and invokes Curated MCP tools through FastMCP 3, exercises error handling, and prototypes an in-process tool. The bootstrapper injects `MCP_SERVERS_URL` only when `MCP_SERVERS_SOURCE=container` and leaves it empty when the curated package is disabled. |
 
-The repository gate keeps this inventory synchronized with the image welcome
-page and environment-check notebook, compiles every Python code cell, and
-requires each direct third-party import to be declared in the image
-requirements. Service-dependent execution remains an explicit live smoke test.
+The repository gate keeps this inventory in sync with the image welcome page and the environment-check notebook. It compiles every Python code cell and checks that each direct third-party import is declared in the image requirements. Service-dependent execution remains an explicit live smoke test.
 
 ## 6. Service Integration Examples
 
-Every notebook talks to LiteLLM via the OpenAI-compatible API — never to Ollama directly. `startup.sh` writes `OPENAI_API_BASE` / `OPENAI_API_KEY` into the work-dir `/home/jovyan/work/.env`; since they aren't in the container's process env, load them with `load_dotenv()` before reading via `os.getenv`. Weaviate, Neo4j, and the Postgres/Supabase clients connect directly using the equivalent auto-injected `WEAVIATE_URL` / `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` env vars. Spark Connect (`SPARK_REMOTE`, default `sc://spark-connect:15002`, requires `SPARK_SOURCE != disabled`) and the MinIO/Iceberg lakehouse clients (`boto3`, `pyiceberg`, `duckdb` against `AWS_ENDPOINT_URL_S3` / `ICEBERG_REST_URI` / `ICEBERG_WAREHOUSE`) work the same way — connection details are pre-wired, no credentials to hand-assemble. Two limits: DuckDB reads the key and region from the environment but not the endpoint, so run `CREATE SECRET (TYPE s3, ENDPOINT 'minio:9000', URL_STYLE 'path', USE_SSL false)` (key and secret from the environment) before `read_parquet('s3://…')`, or it targets AWS; and the JupyterHub MinIO account is read-only on the `lakehouse` bucket by design, so table writes go through Spark Connect, not direct PyIceberg/boto3 writes.
+Notebooks reach LLMs only through LiteLLM's OpenAI-compatible API, never Ollama directly. `startup.sh` writes `OPENAI_API_BASE` and `OPENAI_API_KEY` to `/home/jovyan/work/.env`. They are not in the process environment, so call `load_dotenv()` before `os.getenv`.
 
-Docling and Parakeet are the exception to anonymous direct HTTP: their endpoint and token pairs are injected together so trusted notebooks can authenticate without hard-coding secrets. Use placeholder names in shared notebook prose and keep token reads out of rendered output.
+Other clients read injected variables, so no credentials need hand-assembly:
+- Weaviate, Neo4j and Postgres/Supabase: `WEAVIATE_URL`, `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`.
+- Spark Connect: `SPARK_REMOTE` (default `sc://spark-connect:15002`; needs `SPARK_SOURCE != disabled`).
+- MinIO and Iceberg (`boto3`, `pyiceberg`, `duckdb`): `AWS_ENDPOINT_URL_S3`, `ICEBERG_REST_URI`, `ICEBERG_WAREHOUSE`.
 
-Working, runnable examples for each of these live in the sample notebooks (§5), copied into `work/examples/` on each start when missing (an existing copy is never overwritten, so delete one to pick up an updated version): `01_litellm_basics.ipynb`, `02_langchain_rag.ipynb`, `03_neo4j_graphs.ipynb`, and `09_spark_connect.ipynb`. For the advanced Iceberg/Spark lakehouse validation flow (`MERGE INTO`, `VERSION AS OF`, Structured Streaming, table maintenance), see `12_iceberg_advanced_sql.ipynb` or run it directly from the repository root with `scripts/smoke-iceberg-advanced-sql.sh spark-connect` — see [`docs/operations/iceberg-advanced-smoke.md`](../../docs/operations/iceberg-advanced-smoke.md) for the full smoke-test contract.
+Two limits apply:
+- DuckDB reads the key and region from the environment, but not the endpoint. Before `read_parquet('s3://…')`, run `CREATE SECRET (TYPE s3, ENDPOINT 'minio:9000', URL_STYLE 'path', USE_SSL false)`. Otherwise DuckDB targets AWS.
+- The JupyterHub MinIO account is read-only on the `lakehouse` bucket by design. Write tables through Spark Connect, not PyIceberg or boto3.
+
+Docling and Parakeet are the exception to anonymous direct HTTP. Their endpoint and token are injected together, so trusted notebooks authenticate without hard-coded secrets. Use placeholder names in shared notebook prose and keep token reads out of rendered output.
+
+Runnable examples are in the sample notebooks (§5): `01_litellm_basics.ipynb`, `02_langchain_rag.ipynb`, `03_neo4j_graphs.ipynb` and `09_spark_connect.ipynb`. Each start copies any missing notebook into `work/examples/` and never overwrites an existing copy. Delete a copy to get the updated version.
+
+For the advanced Iceberg/Spark validation flow (`MERGE INTO`, `VERSION AS OF`, Structured Streaming, table maintenance), see `12_iceberg_advanced_sql.ipynb`. You can also run `scripts/smoke-iceberg-advanced-sql.sh spark-connect` from the repository root. The [Iceberg advanced smoke](../../docs/operations/iceberg-advanced-smoke.md) page has the full contract.
 
 ### 6.1. Connecting to the lakehouse from Python
 
-The image ships the Python lakehouse clients used by Atlas data tracks — `boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow`, and `duckdb` — pre-wired against MinIO and the Iceberg REST catalog. Load the catalog with `pyiceberg.catalog.load_catalog` and call `list_namespaces()` to confirm connectivity:
+The image ships the lakehouse clients `boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow` and `duckdb`, pre-wired against MinIO and the Iceberg REST catalog. To confirm connectivity, load the catalog with `pyiceberg.catalog.load_catalog` and call `list_namespaces()`:
 
 ```python
 from pyiceberg.catalog import load_catalog
@@ -153,9 +154,8 @@ docker exec ${PROJECT_NAME}-jupyterhub python -c \
 
 ### 8.2. Permanent Installation
 
-1. Edit `services/jupyterhub/build/requirements.txt`
-2. Rebuild: `docker compose build jupyterhub`
-3. Restart: `./stop.sh && ./start.sh`
+1. Edit `services/jupyterhub/build/requirements.txt`.
+2. Run `./start.sh`. It rebuilds local images whose build inputs changed.
 
 ## 9. Advanced Configuration
 
@@ -167,7 +167,7 @@ Avoid direct `docker-compose.yml` edits for normal operation; local compose edit
 
 ### 9.2. Multi-user access
 
-Not supported. Despite the service name, the container runs a single `start-notebook.sh` JupyterLab server, not a JupyterHub spawner, so there is no authenticator to configure and no `jupyterhub_config.py` is read. The only access control is the `JUPYTERHUB_TOKEN` token (passed to the server as `JUPYTER_TOKEN`); everyone who has it shares one server and one home directory. See §17 (Capabilities & limitations) for the full limitation.
+Not supported. Despite the service name, the container runs one `start-notebook.sh` JupyterLab server, not a JupyterHub spawner. There is no authenticator to configure, and no `jupyterhub_config.py` is read. The only access control is the `JUPYTERHUB_TOKEN` token (passed to the server as `JUPYTER_TOKEN`); everyone who has it shares one server and one home directory. See §17 (Capabilities & limitations) for the full limitation.
 
 ## 10. Connecting from VS Code (run local notebooks on this container)
 
@@ -180,7 +180,7 @@ VS Code's Jupyter extension can use this container as the **remote kernel** for 
    ```bash
    ./start.sh
    ```
-3. **Grab the token.** `JUPYTERHUB_TOKEN` in `.env` is optional — `service.yml` defaults it to empty, in which case Jupyter Server auto-generates one and prints it to the container's stdout on every restart. Pick whichever applies:
+3. **Grab the token.** `JUPYTERHUB_TOKEN` in `.env` is optional and empty by default (`service.yml`). When it is empty, Jupyter Server generates a token and prints it to the container's stdout on every restart. Use whichever applies:
    ```bash
    # If you set JUPYTERHUB_TOKEN in .env manually:
    grep '^JUPYTERHUB_TOKEN=' .env
@@ -193,8 +193,8 @@ VS Code's Jupyter extension can use this container as the **remote kernel** for 
 ### 10.2. Connect
 
 1. Open any local `.ipynb` in VS Code.
-2. Click the **kernel selector** in the top-right of the notebook → **"Select Another Kernel"** → **"Existing Jupyter Server"** → **"Enter the URL of the running Jupyter server"**.
-3. Paste one of these URLs, substituting the actual token **and your actual ports**. The ports below are the defaults for `BASE_PORT=63000`; if you launched with `--base-port`, use your stack's real `JUPYTERHUB_PORT` (direct) and Kong HTTP port (aliased) from `.env` — e.g. on `--base-port 64000` the direct port is `64094`. `grep -E '^(JUPYTERHUB_PORT|KONG_HTTP_PORT)=' .env` prints both.
+2. Click the **kernel selector** in the top-right of the notebook. Then choose **"Select Another Kernel"** → **"Existing Jupyter Server"** → **"Enter the URL of the running Jupyter server"**.
+3. Paste one of these URLs, substituting the actual token **and your actual ports**. The ports below are the defaults for `BASE_PORT=63000`. If you launched with `--base-port`, use `JUPYTERHUB_PORT` (direct) and `KONG_HTTP_PORT` (Kong) from `.env`. For example, `--base-port 64000` gives direct port `64094`. `grep -E '^(JUPYTERHUB_PORT|KONG_HTTP_PORT)=' .env` prints both.
    - Direct port: `http://localhost:${JUPYTERHUB_PORT}/?token=<JUPYTERHUB_TOKEN>` (default `63094`)
    - Kong-aliased (after `./start.sh --setup-hosts`): `http://jupyter.localhost:${KONG_HTTP_PORT}/?token=<JUPYTERHUB_TOKEN>` (default `63000`)
 4. When VS Code prompts to **remember the server**, give it a name (e.g. `atlas`). The server now appears in every future kernel-picker.
@@ -202,14 +202,20 @@ VS Code's Jupyter extension can use this container as the **remote kernel** for 
 
 ### 10.3. What's pre-configured on the stack side
 
-The container's `ENTRYPOINT` (`services/jupyterhub/build/Dockerfile`) wraps the upstream `start-notebook.sh` boot script, and the compose `command:` override (`services/jupyterhub/compose.yml`) appends three `--ServerApp.*` flags so the upstream server accepts VS Code's remote-kernel workflow across the Docker network: `allow_origin` sets the CORS/WebSocket origin check (empty by default, which keeps Jupyter's same-origin check; token-authenticated clients such as VS Code skip that check), `allow_remote_access` lets the non-loopback, container-bridge connection through the pre-auth IP check, and `disable_check_xsrf=False` keeps CSRF protection on (already Jupyter's default; listed explicitly as a visible knob). The `JUPYTERHUB_TOKEN` remains the auth gate. Do not set `JUPYTER_ALLOW_ORIGIN` to `*`: a browser that holds the Jupyter login cookie would then let a page on any other localhost port open a terminal websocket. To admit one browser origin, set `JUPYTER_ALLOW_ORIGIN` to that exact origin in `.env` and restart; Jupyter Server compares it by string equality, so a comma-separated list matches nothing and rejects every browser or webview cross-origin request. See the `ENTRYPOINT` / `command:` directives in the Dockerfile and compose fragment for the exact dispatch chain.
+The image `ENTRYPOINT` (`build/scripts/startup.sh`, set in `services/jupyterhub/build/Dockerfile`) runs the upstream `start-notebook.sh`. The compose `command:` (`services/jupyterhub/compose.yml`) adds three Jupyter Server flags for remote kernels across the Docker network:
+
+- `--ServerApp.allow_origin=${JUPYTER_ALLOW_ORIGIN}`: empty by default, which keeps Jupyter's same-origin check. Token-authenticated clients such as VS Code skip this check.
+- `--ServerApp.allow_remote_access=True`: admits connections from the Docker bridge network.
+- `--ServerApp.disable_check_xsrf=False`: keeps CSRF protection on (the Jupyter default, listed explicitly).
+
+`JUPYTERHUB_TOKEN` is the access control. Do not set `JUPYTER_ALLOW_ORIGIN` to `*`. With `*`, a page on any other localhost port can use the browser's Jupyter cookie to open a terminal websocket. To admit one browser origin, set `JUPYTER_ALLOW_ORIGIN` to that exact origin in `.env` and restart. Jupyter compares the value as one string, so a comma-separated list matches no origin.
 
 ### 10.4. Notebook layout: where files live
 
 - The notebook file lives **on your laptop** (wherever you opened it in VS Code).
 - The kernel runs **in the container**. Anything `os.getcwd()` returns is the container's filesystem, not your laptop's.
 - The `/home/jovyan/work` directory is the persistent volume (`jupyterhub-data`). Use this if you need files (datasets, models) to survive container restarts.
-- To open a notebook that ALREADY lives in the container (e.g., a sample), use VS Code's "Open Folder over SSH" workflow or browse to `http://localhost:63094` for the native JupyterLab UI. The VS Code remote-kernel flow above is for the inverse case: local file, remote kernel.
+- To edit a notebook that lives in the container (for example, a sample), open JupyterLab at `http://localhost:${JUPYTERHUB_PORT}` (default `63094`). You can also attach VS Code with the Dev Containers command **Attach to Running Container**. The remote-kernel flow above is for the inverse case: local file, remote kernel.
 
 ### 10.5. Troubleshooting
 
@@ -217,7 +223,7 @@ The container's `ENTRYPOINT` (`services/jupyterhub/build/Dockerfile`) wraps the 
 - **Kernel starts but cells hang.** WebSocket upgrade failure — confirm the three `--ServerApp.*` flags are present in `docker inspect ${PROJECT_NAME}-jupyterhub --format='{{json .Config.Cmd}}'`. If the compose file was edited but the container wasn't rebuilt, run `./stop.sh && ./start.sh`.
 - **CORS error in VS Code's developer console.** Connect with the token URL: token-authenticated requests skip the origin check. If a browser page on another origin must connect, set `JUPYTER_ALLOW_ORIGIN` to that one origin, not `*`.
 - **"Address already in use" on 63094.** `./start.sh --base-port 64000` to relocate the whole stack.
-- **Scala 2.13 / Scala 3 missing from the kernel picker.** The running image predates the Almond layer in `services/jupyterhub/build/Dockerfile`. Rebuild with `docker compose up jupyterhub --build --no-deps -d` (no full-stack restart needed). Confirm via `docker exec ${PROJECT_NAME}-jupyterhub jupyter kernelspec list` — both `scala213` and `scala3` should appear alongside `python3`. See §11 for full kernel-install details.
+- **Scala 2.13 / Scala 3 missing from the kernel picker.** The running image predates the Almond layer in `services/jupyterhub/build/Dockerfile`. Run `./start.sh`, which rebuilds the stale image, or rebuild only this container with `docker compose -p "$PROJECT_NAME" up jupyterhub --build --no-deps -d`. Confirm via `docker exec ${PROJECT_NAME}-jupyterhub jupyter kernelspec list` — both `scala213` and `scala3` should appear alongside `python3`. See §11 for full kernel-install details.
 - **Server connects but no kernels listed.** Look at the URL VS Code stored — it must include `/?token=<value>`. If you pasted the URL without the token, VS Code thinks it's connected but every kernel request 403s. `Jupyter: Specify Jupyter Server for Connections` → re-enter the URL with the token suffix.
 - **Cell output appears in the wrong notebook.** VS Code occasionally caches a stale kernel binding when you switch between two notebooks on the same server. Right-click the notebook tab → `Restart Kernel` resets the binding.
 
@@ -247,10 +253,10 @@ docker exec ${PROJECT_NAME}-jupyterhub jupyter kernelspec list
 You should see `python3`, `ir`, `julia-1.12`, `scala213`, and `scala3`. If `julia-1.11` appears instead, or either Scala kernel is absent, rebuild with the args at the top of the Dockerfile baked in:
 
 ```bash
-docker compose up jupyterhub --build --no-deps -d
+docker compose -p "$PROJECT_NAME" up jupyterhub --build --no-deps -d
 ```
 
-`--no-deps` skips restarting the entire stack; only the jupyterhub container is replaced. The image gains ~600 MB of toolchain on this build, mostly cached after the first run.
+Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`); without `-p`, Compose uses the checkout directory name and creates a second project. `--no-deps` replaces only the jupyterhub container. The image gains ~600 MB of toolchain on this build, mostly cached after the first run.
 
 **Smoke-test a Scala cell** without opening JupyterLab — useful in CI / cold-start verification:
 
@@ -261,13 +267,13 @@ docker exec ${PROJECT_NAME}-jupyterhub bash -lc \
 
 The expected last line is `sum=30`. The first run for each Scala kernel resolves Almond's classpath and can take 30-60 s; subsequent runs are sub-second.
 
-Scala/Almond versions are pinned via build args near the top of `services/jupyterhub/build/Dockerfile`; edit and rebuild there to change them or to drop the Scala toolchain entirely.
+Scala/Almond versions are pinned by build args near the top of `services/jupyterhub/build/Dockerfile`. Edit them there and rebuild, or remove the Scala toolchain entirely.
 
 ## 12. Architecture
 
-JupyterHub runs inside the Docker Compose network and receives environment variables for the services that are enabled. It reaches LLMs through the always-on LiteLLM gateway (`LITELLM_BASE_URL` / `LITELLM_API_KEY`, also exported as `OPENAI_API_BASE` / `OPENAI_API_KEY`) and connects directly to Weaviate, Neo4j, PostgreSQL/Supabase, Redis, MinIO, Iceberg REST, Spark Connect, ComfyUI, n8n, STT/TTS, and document-processing services when those services are available.
+JupyterHub runs inside the Docker Compose network and receives environment variables for the enabled services. It reaches LLMs through the always-on LiteLLM gateway (`LITELLM_BASE_URL` / `LITELLM_API_KEY`). `startup.sh` also writes them as `OPENAI_API_BASE` / `OPENAI_API_KEY` to `work/.env`. It connects directly to Weaviate, Neo4j, PostgreSQL/Supabase, Redis, MinIO, Iceberg REST, Spark Connect, ComfyUI, n8n, STT/TTS and document processing when they are available.
 
-For the current high-level stack diagram, see [Architecture Diagram](../../docs/diagrams/architecture.svg).
+For the stack-wide diagram, see [Platform architecture](../../docs/architecture/index.md).
 
 ## 13. Resources
 
@@ -275,14 +281,14 @@ For the current high-level stack diagram, see [Architecture Diagram](../../docs/
 - [JupyterHub Documentation](https://jupyterhub.readthedocs.io/)
 - [Almond — Scala kernel for Jupyter](https://almond.sh/)
 - [VS Code Jupyter extension](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.jupyter)
-- [Sample Notebooks](./build/notebooks/)
-- [Atlas Docs](../../README.md)
+- Sample notebooks: `services/jupyterhub/build/notebooks/`
+- [Atlas Docs](../../docs/README.md)
 
 ## 14. Support
 
 - **Logs**: `docker logs ${PROJECT_NAME}-jupyterhub`
 - **Issues**: [GitHub Issues](https://github.com/thekaveh/atlas/issues)
-- **Docs**: [Full Documentation](../../README.md)
+- **Docs**: [Documentation map](../../docs/README.md)
 
 ## 15. Dependencies & Integrations
 
@@ -326,8 +332,6 @@ For the current high-level stack diagram, see [Architecture Diagram](../../docs/
 
 ### 15.4. Future — Missing pair integrations
 
-- **jupyterhub ↔ backend** — *Why:* the FastAPI backend already aggregates LiteLLM, Weaviate, Neo4j, ComfyUI, and Hermes so notebooks should reuse it instead of hand-rolling per-upstream clients. *Mechanism:* adaptive env `BACKEND_BASE_URL=http://backend:8000` consumed via `httpx` against `/v1/...` routes. *Effort:* small. *Confidence:* high.
-- **jupyterhub ↔ hermes** — *Why:* researchers want to drive the tool-using agent runtime from notebooks (chain prompts, inspect intermediate tool calls) without going through Open WebUI. *Mechanism:* `HERMES_AGENT_MODEL=hermes-agent` env hint plus a sample notebook calling the existing `OPENAI_API_BASE` LiteLLM alias. *Effort:* small. *Confidence:* high.
 - **jupyterhub ↔ local-deep-researcher** — *Why:* long LangGraph deep-research runs should be launchable from a notebook and streamable into a dataframe. *Mechanism:* `DEEP_RESEARCHER_BASE_URL=http://local-deep-researcher:2024` plus an SSE client snippet against LangGraph's `/runs/stream`. *Effort:* medium. *Confidence:* medium.
 - **jupyterhub ↔ openclaw** — *Why:* unattended notebook jobs (training, sweeps, embeddings) should ping Slack/Discord when they finish. *Mechanism:* inject `OPENCLAW_WEBHOOK_URL=http://openclaw-gateway:<port>/webhook/notify` and post JSON from a util helper. *Effort:* small. *Confidence:* medium.
 
@@ -337,10 +341,10 @@ _No high-confidence opportunities identified._
 
 ### 15.6. Future — Unused features in this service
 
-- **Real multi-user JupyterHub (DockerSpawner + Authenticator)** — *Why pursue:* today the container is single-user `jupyter/datascience-notebook` despite the service name, so a proper Hub with `DockerSpawner` and `NativeAuthenticator`/OAuth would let multiple humans share the stack. *Effort:* large.
-- **Jupyter AI extension wired to LiteLLM** — *Why pursue:* `jupyter-ai` accepts any OpenAI-compatible base URL, so pointing it at `LITELLM_BASE_URL` exposes every gateway model as a first-class `%ai` magic. *Effort:* small.
-- **GPU enablement for the notebook container** — *Why pursue:* the image already ships PyTorch + PyG but the manifest exposes no `container-gpu` source, so heavy training falls back to CPU even when the host has a GPU. *Effort:* medium.
-- **jupyter-server-proxy for ComfyUI/n8n** — *Why pursue:* the proxy is already in `requirements.txt` but unused; mounting ComfyUI and n8n behind `/proxy/<service>/` would embed those UIs in iframes without leaving the lab. *Effort:* small.
+- **Real multi-user JupyterHub (DockerSpawner + Authenticator)** — *Why pursue:* the container is single-user `jupyter/datascience-notebook` despite the service name. A Hub with `DockerSpawner` and `NativeAuthenticator`/OAuth would let several people share the stack. *Effort:* large.
+- **Jupyter AI extension wired to LiteLLM** — *Why pursue:* `jupyter-ai` accepts any OpenAI-compatible base URL. Pointed at `LITELLM_BASE_URL`, it exposes every gateway model through the `%ai` magic. *Effort:* small.
+- **GPU enablement for the notebook container** — *Why pursue:* the image ships PyTorch and PyG, but the manifest has no `container-gpu` source. Heavy training therefore runs on CPU even on a GPU host. *Effort:* medium.
+- **jupyter-server-proxy for ComfyUI/n8n** — *Why pursue:* `jupyter-server-proxy` is in `requirements.txt` but unused. Serving ComfyUI and n8n under `/proxy/<service>/` would embed their UIs in the lab. *Effort:* small.
 - **Persistent kernel state via ipyparallel** — *Why pursue:* long-running RAG/agent loops lose state on kernel restart; an `ipyparallel` cluster (workers as sidecars) would survive restarts. *Effort:* medium.
 
 ## 16. Troubleshooting
@@ -372,10 +376,7 @@ JUPYTERHUB_TOKEN=my-secret-token
 
 ### 16.3. Port Already in Use
 
-```bash
-# In .env
-JUPYTERHUB_PORT=64094  # Use different port (offset 94 from BASE_PORT)
-```
+Move the whole port block: `./start.sh --base-port 64000` (JupyterHub then uses 64094), or `--base-port auto`. Do not edit `JUPYTERHUB_PORT` in `.env`; each start recomputes it from `BASE_PORT`.
 
 ### 16.4. Out of Memory
 
@@ -385,14 +386,14 @@ Increase Docker memory:
 
 ## 17. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Integrated data and AI notebooks | supported | tested | Atlas ships a synchronized Python and Scala notebook inventory with clients and environment seams for LLM, RAG, lakehouse, ML, and media experimentation. |
 | Spark Connect and lakehouse clients | partial | tested | Bundled notebooks configure Spark Connect, MinIO, and Iceberg clients, but service-dependent cells are static contracts until an operator runs the corresponding live smoke. |
-| Token-authenticated notebook access | partial | tested | The direct and CORS-only jupyter.localhost paths require one Jupyter token, and browser origins are limited to Jupyter's same-origin check by default (JUPYTER_ALLOW_ORIGIN is empty); do not set it to '*'. |
-| Operator-trusted credential environment | partial | documented | The server receives high-privilege database and service credentials and runs arbitrary user code, so it is an engineering workspace rather than a hostile multi-tenant sandbox (GRANT_SUDO is set but inert: the container does not start as root). |
+| Token-authenticated notebook access | partial | tested | The direct and CORS-only jupyter.localhost paths require one Jupyter token. Browser origins are limited to Jupyter's same-origin check by default (JUPYTER_ALLOW_ORIGIN is empty); do not set it to '*'. |
+| Operator-trusted credential environment | partial | documented | The server receives high-privilege database and service credentials and runs arbitrary user code. It is an engineering workspace, not a hostile multi-tenant sandbox. GRANT_SUDO is set but inert, because the container does not start as root. |
 | Notebook workspace persistence | supported | tested | User work persists in jupyterhub-data and bundled notebooks mount read-only, but cold volume removal still deletes the writable workspace. |
 | Curated MCP notebook endpoint | supported | tested | The bootstrapper injects MCP_SERVERS_URL only when MCP_SERVERS_SOURCE=container and leaves it empty when disabled; the bundled notebook exercises discovery, invocation, and error handling against that endpoint. The direct backend-network URL bypasses Kong authentication and is appropriate only for this operator-trusted notebook environment. |
-| Multi-user JupyterHub isolation and HA | not-supported | documented | Despite the service name, Atlas runs one start-notebook JupyterLab process with one token, not a Hub spawner, per-user servers, replicated state, or an HA control plane. |
+| Multi-user JupyterHub isolation and HA | not-supported | documented | Despite the service name, Atlas runs one start-notebook JupyterLab process with one token. It has no Hub spawner, per-user servers, replicated state, or HA control plane. |

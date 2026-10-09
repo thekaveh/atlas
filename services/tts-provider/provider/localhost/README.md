@@ -3,9 +3,9 @@
 Run [Resemble AI Chatterbox](https://github.com/resemble-ai/chatterbox) natively
 on your host machine and have the stack reach it via `host.docker.internal`.
 
-This is the recommended TTS path when you want **zero-shot voice cloning**
-(5-second reference audio) without using a GPU container — Chatterbox runs on
-macOS MPS (Apple Silicon) and Linux CPU/MPS/CUDA.
+This is the recommended TTS path for **zero-shot voice cloning** (5-second
+reference audio) without a GPU container. Chatterbox runs on macOS MPS (Apple
+Silicon) and Linux CPU/MPS/CUDA.
 
 ## 1. Why localhost instead of container
 
@@ -17,9 +17,9 @@ macOS MPS (Apple Silicon) and Linux CPU/MPS/CUDA.
 - **Voice management**: keeping voice samples on the host makes them easier
   to manage than mounting volumes into the container.
 
-If you just want a TTS service that works out of the box on any platform with
-no setup, use `TTS_PROVIDER_SOURCE=speaches-container-cpu` instead — Speaches
-gives you Kokoro voices without any localhost setup, just zero voice cloning.
+For a TTS service that works on any platform with no setup, use
+`TTS_PROVIDER_SOURCE=speaches-container-cpu` instead. Speaches gives you
+Kokoro voices with no localhost setup, but no voice cloning.
 
 ## 2. Install
 
@@ -160,7 +160,7 @@ XTTS v2. That stack was retired in this release because the upstream image
 (`ghcr.io/matatonic/openedai-speech`) was archived on 2026-01-04 and XTTS-v2
 weights are CPML / non-commercial. The old setup lived at top-level
 `tts-provider/localhost/` before the configuration-modularization refactor
-moved it under `services/tts-provider/provider/localhost/` — to inspect the
-pre-retirement code, use
-`git log --follow -- services/tts-provider/provider/localhost/` or browse
-`git log -- tts-provider/localhost/` for the pre-move history.
+moved it under `services/tts-provider/provider/localhost/`. To inspect the
+pre-retirement code, use `git log --follow --
+services/tts-provider/provider/localhost/`. For the pre-move history, use `git
+log -- tts-provider/localhost/`.

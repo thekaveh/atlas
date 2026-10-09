@@ -557,8 +557,9 @@ def lightrag_model_entry() -> dict[str, Any] | None:
         "model_info": {
             "mode": "chat",
             "description": (
-                "LightRAG graph-augmented RAG. Encode query mode as "
-                "system prompt prefix /hybrid|/local|/global|/naive|/mix."
+                "LightRAG graph-augmented RAG. Encode query mode as a prefix "
+                "on the last user message: /local|/global|/hybrid|/naive|/mix|"
+                "/bypass (default mix)."
             ),
         },
     }

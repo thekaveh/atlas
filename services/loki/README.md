@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-Loki is Atlas' disabled by default, Grafana-native log store. The OpenTelemetry Collector sends redacted OTLP logs to Loki's native endpoint, and Grafana provisions a Loki datasource linked to Tempo. Atlas does not automatically scrape container stdout: an application must emit OTLP logs to the Collector to enter this path.
+Loki is Atlas' Grafana-native log store, disabled by default. The OpenTelemetry Collector sends redacted OTLP logs to Loki's native endpoint. Grafana provisions a Loki datasource linked to Tempo. Atlas does not automatically scrape container stdout; an application must send OTLP logs to the Collector.
 
 Loki is internal-only, has no Kong route, and should be queried through Grafana. The default retention is short for local development.
 
@@ -10,19 +10,19 @@ Loki is internal-only, has no Kong route, and should be queried through Grafana.
 
 - SOURCE: `LOKI_SOURCE=disabled` by default.
 - Internal endpoint: `http://loki:3100`.
-- Direct host URL: none in the first slice.
+- Direct host URL: none.
 - Kong URL: none; no Kong route is generated.
 - Grafana surface: the `Loki` datasource is provisioned when Grafana starts.
 
 ## 3. Configuration
 
-The service reads `./config/loki.yaml`, mounted to `/etc/loki/loki.yaml`. `LOKI_RETENTION_PERIOD` defaults to `24h`; compactor retention is enabled, runs every 10 minutes, and deletes expired chunks after the configured two-hour delay. TSDB schema v13 and structured metadata are enabled. Only `service.name` becomes the normalized `service_name` index label; remaining OTLP resource attributes and trace/span identifiers stay structured metadata to avoid high-cardinality indexes.
+The service reads `./config/loki.yaml`, mounted to `/etc/loki/loki.yaml`. `LOKI_RETENTION_PERIOD` defaults to `24h`. Compactor retention is enabled: it runs every 10 minutes and deletes expired chunks after the configured two-hour delay. TSDB schema v13 and structured metadata are enabled. Only `service.name` becomes an index label (`service_name`). Other OTLP resource attributes and trace/span IDs stay structured metadata, which avoids high-cardinality indexes.
 
-The pinned image is distroless (no shell, no `wget`) and the `loki` binary has no probe flag, so the container defines no health check; Docker observes main-process liveness only. The Collector therefore waits for Loki to start, not to be ready, and its retrying export queue absorbs Loki's startup window. Check readiness from another container on the network with `GET http://loki:3100/ready`.
+The image is distroless (no shell, no `wget`), and the `loki` binary has no probe flag. The container therefore has no health check; Docker watches only process liveness. The Collector waits for Loki to start, not to be ready, and its retry queue covers the startup window. To check readiness, call `GET http://loki:3100/ready` from another container on the network.
 
 ## 4. Architecture & Wiring
 
-OpenTelemetry Collector redacts and exports application-provided OTLP logs to Loki. Grafana queries Loki directly, and its provisioned datasource links trace identifiers to Tempo. The Collector is required when using this Atlas-managed ingestion path; direct internal Loki writes remain possible but bypass Collector redaction.
+The OpenTelemetry Collector redacts application OTLP logs and exports them to Loki. Grafana queries Loki directly, and its datasource links trace IDs to Tempo. The Atlas-managed ingestion path goes through the Collector. Direct internal writes to Loki are possible but skip the Collector's redaction.
 
 ## 5. Dependencies & Integrations
 
@@ -59,13 +59,13 @@ _No high-confidence opportunities identified._
 
 - If Grafana cannot query logs, confirm `LOKI_SOURCE=container` and `LOKI_ENDPOINT=http://loki:3100`.
 - Query a service with `{service_name="backend"}` and add `| trace_id = "<32-hex-trace-id>"` to filter on OTLP structured metadata.
-- If the Collector is enabled, Loki must also be in container mode. Collector startup validation rejects a disabled Loki source.
+- If the Collector is enabled, Loki must be in container mode too. Otherwise `./start.sh` stops before it starts any container.
 - If storage grows unexpectedly, check `LOKI_RETENTION_PERIOD` and compactor logs.
 - Roll back by setting `LOKI_SOURCE=disabled`.
 
 ## 7. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|

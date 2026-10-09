@@ -1,8 +1,8 @@
 # 5.3.5. TTS Provider Overview
 
 Pluggable text-to-speech layer. All backends expose an OpenAI-compatible
-`/v1/audio/speech` endpoint so Open WebUI, n8n, and the backend API can use
-them interchangeably.
+`/v1/audio/speech` endpoint, so Open WebUI, n8n, JupyterHub and Hermes can use
+them interchangeably. The backend receives `TTS_ENDPOINT` but does not use it.
 
 ## 1. Available backends
 
@@ -16,9 +16,9 @@ them interchangeably.
 
 The default for fresh installs is **`speaches-container-cpu`** — works on
 every platform with no localhost setup. **Important:** Speaches ships with no preloaded
-models and does NOT auto-download them (verified against speaches v0.9.0-rc.3:
-`/v1/audio/*` does a cache-only lookup and 404s on a missing model), so you must
-preload Kokoro before the first synthesis (see the quick start below).
+models and does NOT auto-download them. In speaches v0.9.0-rc.3, `/v1/audio/*`
+does a cache-only lookup and returns 404 for a missing model. Preload Kokoro
+before the first synthesis (see the quick start below).
 
 For voice cloning (5-second zero-shot), pick a Chatterbox variant. For pure
 container-only setups on NVIDIA, `chatterbox-container-gpu`. For Apple

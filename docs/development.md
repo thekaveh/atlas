@@ -4,45 +4,53 @@ For a first change (setup, one safe test per area, the branch target and the req
 
 ## 1. Service Admission
 
-Adding a service requires a manifest, compose fragment when applicable, topology row, docs regeneration, route checks, and CI validation.
+To add a service, follow [Adding a service](CONTRIBUTING-services.md): manifest, compose fragment when applicable, topology row, docs regeneration, route checks and CI validation.
 
 ## 2. Parent-Repo Consumer Layout
 
-Submodule consumers should keep project-owned overlays, branding, wrapper scripts, and secret references in the parent repository while `infra/` remains a pinned Atlas checkout. The recommended shape is:
+Submodule consumers keep project-owned overlays, branding, wrapper scripts and secret references in the parent repository. `infra/` stays a pinned Atlas checkout. The recommended shape is:
 
 - `atlas.consumer.yml` in the parent repository.
 - `compose/<name>-overlay.yml` in the parent repository and referenced from `compose_overlays`.
 - `backend/plugins/` (each package optionally declaring a typed `plugin.yml`) and model sidecars referenced from the manifest when needed.
 - `scripts/start-infra.sh` as the parent-owned launcher that force-sets `PROJECT_NAME`, `BRAND_*`, and required `*_SOURCE` values.
 
-Use `./infra/start.sh --consumer ./atlas.consumer.yml` so Atlas can validate
-paths, merge env values, include external Compose overlays without symlinks,
-and list registered consumers in the launch overview. Do not rely on "set only
-if absent" helpers for critical `*_SOURCE` keys. Atlas's `.env.example`
-intentionally contains defaults, so project wiring should force-set required
-values in the manifest/env overlay or pass explicit `--<service>-source` flags.
-Explicit source flags override `--track`, which is how consumers request an
-extra service outside a track or disable a service the track would normally
-prompt for.
+Use `./infra/start.sh --consumer ./atlas.consumer.yml`. Atlas then validates
+paths, merges env values, includes external Compose overlays without symlinks,
+and lists registered consumers in the launch overview.
 
-Existing integrations that still use the back-compatible `_user` discovery
-slot can keep `scripts/setup-overlay.sh` as the idempotent wrapper that creates
-`infra/services/_user/<name>/compose.yml` before start; new integrations should
-prefer the manifest.
+Do not rely on "set only if absent" helpers for critical `*_SOURCE` keys.
+Atlas's `.env.example` contains defaults on purpose. Force-set required values
+in the manifest or env overlay, or pass explicit `--<service>-source` flags.
+Explicit source flags override `--track`. Use them to add a service outside a
+track, or to disable a service the track would prompt for.
 
-Parent-owned object-storage consumers should declare a `storage:` block in `atlas.consumer.yml` (Atlas compiles it, generates scoped credentials once, writes the `minio-init` overlay, and exports stable per-store `ATLAS_STORE_<KEY>_*` fields — internal vs public-read endpoints, region, and credential references). Under the hood this compiles to `MINIO_EXTRA_CONSUMERS`, for example `daydreams:MINIO_BUCKET_DAYDREAMS:MINIO_DAYDREAMS_ACCESS_KEY:MINIO_DAYDREAMS_SECRET_KEY`, which `_user` overlays may still set directly; the hook creates the extra bucket and scoped MinIO service account without forking Atlas. Presign browser GETs against the **public** endpoint (never rewrite a signed URL) using boto3 `endpoint_url=<public>` or the reference presigner `bootstrapper/utils/s3_presign.py`.
+Existing integrations on the back-compatible `_user` discovery slot can keep
+`scripts/setup-overlay.sh`. That idempotent wrapper creates
+`infra/services/_user/<name>/compose.yml` before start. New integrations should
+use the manifest.
 
-Before committing a parent consumer update, verify the `infra/` submodule status is clean except for ignored `.env`, `.env.user`, `_user` slots, and runtime volumes; the parent pins a specific Atlas commit or tag; and overlays remain parent-owned.
+Parent-owned object-storage consumers declare a `storage:` block in `atlas.consumer.yml`. Atlas compiles it, generates scoped credentials once and writes the `minio-init` overlay. It exports stable per-store `ATLAS_STORE_<KEY>_*` fields: internal and public-read endpoints, region and credential references.
+
+The block compiles to `MINIO_EXTRA_CONSUMERS`, for example `daydreams:MINIO_BUCKET_DAYDREAMS:MINIO_DAYDREAMS_ACCESS_KEY:MINIO_DAYDREAMS_SECRET_KEY`. `_user` overlays can still set it directly. The hook creates the extra bucket and a scoped MinIO service account without forking Atlas. Presign browser GETs against the **public** endpoint, and never rewrite a signed URL. Use boto3 `endpoint_url=<public>` or the reference presigner `bootstrapper/utils/s3_presign.py`.
+
+Before you commit a parent consumer update, verify three things:
+
+- `infra/` is clean except for ignored `.env`, `.env.user`, `_user` slots and runtime volumes.
+- The parent pins a specific Atlas commit or tag.
+- Overlays stay parent-owned.
 
 ## 3. Required Docs Checks
 
-Pull-request titles must be Conventional Commits subjects (`type(scope)!: summary`) and the generated block at the top of the changelog's Unreleased section must match its recorded range; the `lint` job (*Bootstrapper and Backend suites*, required through the *Manifest lint + unit tests* gate) runs `scripts/release_notes.py --check-title` and `--check-changelog` (see [Releasing](operations/releasing.md) §6).
+Pull-request titles must be Conventional Commits subjects (`type(scope)!: summary`). The generated block at the top of the changelog's Unreleased section must match its recorded range. The `lint` job (*Bootstrapper and Backend suites (with containers)*, required through the *Manifest lint + unit tests* gate) runs `scripts/release_notes.py --check-title` and `--check-changelog`. See [Releasing](operations/releasing.md) §6.
 
-`make docs-check` also enforces the critical-page contract in `docs/critical-pages.yaml`: the security, prerequisites, support, release, and recovery pages it names must be declared in the manifest, reachable from the documentation map, and render each listed section with a body on the repo, site, and wiki surfaces. The contract names pages by manifest id and sections by stable title only; it never copies policy prose. Its `external_references` list records community destinations (such as the issue tracker) that a page may point to; they are permitted references, not substitutes for a self-contained page.
+`make docs-check` also enforces the critical-page contract in `docs/critical-pages.yaml`. It names the security, prerequisites, support, release and recovery pages. Each must be in the manifest and reachable from the documentation map. Each listed section must render with a body on the repo, site and wiki surfaces. The contract names pages by manifest id and sections by stable title; it never copies policy prose.
 
-`bootstrapper/tests/test_support_route.py` keeps every advertised first-party support destination live: reader-facing pages may not link GitHub Discussions while the feature is disabled on the repository, and the README, documentation map, and troubleshooting guide must route bugs, questions, and security reports separately. A maintainer who enables and moderates Discussions removes that guard in the same change that relinks it.
+The contract's `external_references` list records community destinations, such as the issue tracker, that a page may link. They do not replace a self-contained page.
 
-`scripts/check_doc_links.py` validates relative Markdown links (including links with an empty label and reference-style definitions) and raw HTML `<a href>` / `<img src>` targets against the repository tree, so canonical pages must link files GitHub can open (`quick-start/index.md`, never the site's `quick-start/`); the generated surfaces translate those targets themselves.
+`bootstrapper/tests/test_support_route.py` keeps every advertised first-party support destination live. Reader-facing pages may not link GitHub Discussions while the feature is disabled on the repository. The README, documentation map and troubleshooting guide must route bugs, questions and security reports separately. A maintainer who enables and moderates Discussions removes that guard in the same change that relinks it.
+
+`scripts/check_doc_links.py` checks targets against the repository tree. It covers relative Markdown links (including empty-label links and reference-style definitions) and raw HTML `<a href>` / `<img src>`. Canonical pages must therefore link files GitHub can open (`quick-start/index.md`, never the site's `quick-start/`). The generated surfaces translate those targets themselves.
 
 ```bash
 uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check
@@ -59,27 +67,38 @@ uv run --project bootstrapper python scripts/check-track-membership.py
 
 ### 3.1. Documentation build assets
 
-The site build downloads external assets. The Material `privacy` plugin, which `scripts/docs/build_docs.py` enables so rendered pages make no third-party requests (#841), self-hosts the theme fonts and the Mermaid bundle by fetching them during `mkdocs build` and caching them under `.cache/plugin/privacy` (gitignored). `docs/external-assets.yaml` records all 20 of them: the Google Fonts stylesheet, 18 versioned font files, and `mermaid@11` from unpkg, each with its URL and, where the URL pins the content, a sha256.
+The Material `privacy` plugin, enabled by `scripts/docs/build_docs.py`, self-hosts the theme fonts and the Mermaid bundle. It downloads them during `mkdocs build` and caches them in `.cache/plugin/privacy` (gitignored). The built pages make no third-party requests.
 
-**Policy: online-only on a cold cache, offline from a warm one.** A clean checkout needs network access to `fonts.googleapis.com`, `fonts.gstatic.com` and `unpkg.com` for its first build; every later build reuses the cache and fetches nothing, which is also how CI runs (its `actions/cache` step is keyed on the files that decide the asset set, including the inventory). The two alternatives were rejected:
+`docs/external-assets.yaml` lists all 20 assets: the Google Fonts stylesheet, 18 versioned font files and `mermaid@11` from unpkg. Each entry has its URL and, when the URL pins the content, a sha256.
 
-- **Vendoring** would commit about 3.8 MB of binaries (the Mermaid bundle alone is 3.6 MB), require replacing Material's font loading with hand-written `@font-face` rules, and still leave the Mermaid URL, which mkdocs-material's own JavaScript bundle chooses, to be tracked by hand on every theme upgrade.
-- **A seeded cache** would need a script that writes files where the plugin expects them, but those paths are plugin-internal (the stylesheet is stored as `css.<hash>.css` behind a symlink) and can change with any mkdocs-material release; the seed step would itself be online, so it would add a second fetcher without removing the network requirement.
+**Network policy.** The first build from a clean checkout needs `fonts.googleapis.com`, `fonts.gstatic.com` and `unpkg.com`. Later builds use the cache and fetch nothing. CI caches the same directory, keyed on `scripts/docs/build_docs.py`, the stylesheets and the inventory.
 
-What makes the online requirement acceptable is that it is now explicit and checked:
+- `make docs-build`, `make docs-check` and `make docs-serve` run `python -m scripts.docs.external_assets --preflight` before MkDocs. If a missing asset cannot be fetched, the build stops and names the asset and its URL.
+- `make docs-assets-verify` compares the cache with the inventory. It reports missing, unexpected and checksum-mismatched files.
+- After you change the theme fonts or upgrade mkdocs-material, delete `.cache/plugin/privacy` and rebuild. Then run `uv run --project bootstrapper python -m scripts.docs.external_assets --print-inventory`. Review the difference against `docs/external-assets.yaml` before you commit it.
 
-- `make docs-build`, `make docs-check` and `make docs-serve` run `python -m scripts.docs.external_assets --preflight` before MkDocs. A cached asset needs no network. A missing one is probed, and if it cannot be fetched the build stops there with the asset's name and URL, rather than a bare `Aborted with 1 warnings in strict mode` after the build.
-- `make docs-assets-verify` diffs the cache against the inventory: missing, unexpected and checksum-mismatched files. After deleting `.cache/plugin/privacy` and running `make docs-check`, it proves the inventory is still the complete list.
-- After changing the theme fonts or upgrading mkdocs-material, rebuild from a cold cache, run `uv run --project bootstrapper python -m scripts.docs.external_assets --print-inventory`, and review the difference against `docs/external-assets.yaml` before committing it.
+**Mermaid floats.** mkdocs-material's JavaScript requests `https://unpkg.com/mermaid@11/dist/mermaid.min.js`. unpkg serves the newest 11.x release for that URL, so its inventory entry has `sha256: null`. A test requires a sha256 for every URL that names an exact version, and for no other URL. If mkdocs-material pins an exact Mermaid version, pin the inventory entry too.
 
-The built pages themselves make no third-party requests: the plugin rewrites every reference to the self-hosted copy.
+The assets are not vendored, and the cache is not seeded. Vendoring adds about 3.8 MB of binaries. The cache paths are internal to the plugin and can change with any mkdocs-material release.
 
-**Mermaid is the one floating asset (#1282).** Its URL, `https://unpkg.com/mermaid@11/dist/mermaid.min.js`, is written into mkdocs-material's own JavaScript bundle, and unpkg answers `@11` with the newest published 11.x, so the bytes change with each Mermaid 11 release while the URL stays the same. Two checks cover its cold-cache build:
+### 3.2. Heading numbers and symbols
 
-- **CI fetched it from unpkg.** The first `develop` run after the cache step landed (#946: `services-lint` run 31923917610, job `Docs drift + audit scripts`, 2026-08-16) logged `Cache not found for input keys: mkdocs-privacy-…`. It then logged `Downloading external file:` for `https://unpkg.com/mermaid@11/dist/mermaid.min.js` and the other 19 inventory URLs, 20 in all, and the strict build passed. Later runs restore a cache by key or restore key and fetch nothing; the 2026-10-04 run hit `mkdocs-privacy-454e88b5…`.
-- **Today's bytes reproduce the inventory.** On 2026-10-04 `mermaid@11` resolves to 11.17.2. unpkg serves a package's files out of its npm tarball, so `package/dist/mermaid.min.js` in `mermaid-11.17.2.tgz`, checked against the registry's `dist.integrity`, is the file the build downloads: 3,572,661 bytes, sha256 `581ed7d74bd9048d0e3a91363927d72ef22942d7722546b27f7cc29e35390eb8`. In a sandbox that blocks unpkg, that file was served for the unpkg URL and the fonts were fetched live. From a deleted `.cache`, `--preflight` and `mkdocs build --strict` passed. `--verify-cache` matched all 20 assets with nothing unexpected, because the bundle names no further external file. `--print-inventory` reproduced the committed entries byte for byte.
+`scripts/check-docs-drift.py` checks every tracked Markdown file except `AGENTS.md`, `.agents/` and `bootstrapper/tests/fixtures/`. Two rules apply outside fenced code blocks:
 
-The entry stays unpinned, with `sha256: null`. Writing an exact version into the inventory would not change what the build requests. Making the build request one would need either the pinned bundle in `extra_javascript` or a seeded cache, which was rejected above. `extra_javascript` would load 3.6 MB of Mermaid on every page, and this site renders no Mermaid diagrams (`scripts/check-docs-drift.py` rejects Mermaid code blocks). A checksum on the floating URL would fail the first cold build after the next Mermaid 11 release. It would also fail the preflight on any warm cache whose copy predates the current release. A test requires a sha256 on every inventory URL that names an exact version, and on no other. If mkdocs-material moves to an exact Mermaid version, the inventory must then follow it and pin it.
+- **Numbered headings.** Every `##` to `######` heading carries its hierarchical number, for example `## 1.` and `### 1.1.`. This includes the CHANGELOG, the ROADMAP, provider notes under `services/*/provider/` and research one-pagers. A research one-pager keeps its schema field name after the number, for example `## 1. Headline`.
+- **No decorative symbols.** The gate rejects the status and tree glyphs listed in `_DECORATIVE_SYMBOLS` in `scripts/docs/heading_quality.py`. Write words such as `Warning:` instead. Put tree diagrams and literal terminal output in fenced code blocks.
+
+To fix the numbers in every tracked file, run `python scripts/number-markdown-headings.py`. It rewrites files in place.
+
+### 3.3. Prose length
+
+The `prose_length` probe of `scripts/check-docs-drift.py` applies STE length limits. It checks the README and every hand-written page in `docs/manifest.yaml` except the CHANGELOG and the ROADMAP:
+
+- A sentence has at most 25 words. A numbered step has at most 20 words.
+- A paragraph, list item or table cell has at most 75 words and 6 sentences.
+- In `services/*/service.yml`, an env `description` has at most 40 words and no `#NNN` issue number. Each sentence of a capability `note` has at most 25 words.
+
+`.docs-prose-baseline.json` records the current violation count of each file. A count must not go up. When your change lowers a count, run `python scripts/check-docs-drift.py --write-prose-baseline` and commit the new baseline. The command refuses to raise a count unless you add `--allow-prose-increase`. A paragraph that contains `<!-- lint-ok -->` is exempt.
 
 ## 4. Repository layout
 
@@ -105,7 +124,7 @@ atlas/
 │   │   ├── init/              # litellm-init Dockerfile + scripts (config.yaml renderer)
 │   │   └── models.yaml        # Curated cloud-provider model catalog (per-service SoT)
 │   ├── ollama/                # ollama + ollama-pull (pull/ scripts); models.yaml = Ollama catalog SoT
-│   ├── redis/                 # Redis cache/queue substrate (AOF persistence, shared by n8n/Kong/LiteLLM/owui/LightRAG)
+│   ├── redis/                 # Redis cache/queue substrate (AOF persistence; used by LiteLLM, n8n, Open WebUI, LightRAG, Backend and others; not Kong)
 │   ├── weaviate/              # weaviate + multi2vec-clip + weaviate-init
 │   ├── comfyui/               # comfyui + comfyui-init (init/ scripts); models.yaml + custom-models.yaml = ComfyUI catalog SoT
 │   ├── n8n/                   # n8n + n8n-worker + n8n-init (with init/ assets, workflows-stage/)
@@ -147,11 +166,13 @@ atlas/
 └── .github/workflows/         # CI: services-lint (manifest lint+tests, compose byte-equiv+source-permutation, docs-drift+audits, build-validation)
 ```
 
-Top-level is intentionally minimal: `bootstrapper/`, `docs/`, `scripts/`, `services/`. Every service lives entirely under its `services/<name>/` folder — init scripts, source code, build context, config files — so opening a service folder shows everything that defines it.
+Top-level is intentionally minimal: `bootstrapper/`, `docs/`, `scripts/`, `services/`. Each service lives entirely under `services/<name>/`: init scripts, source code, build context and config files.
 
 ## 5. Machine-generated review tickets
 
-A review run files tickets that carry an `<!-- atlas-review:DATE:ID -->` marker. Each one must meet a minimum bar (#1246), so the next person can check its claims without redoing the review. The canonical shape is **Summary**, **Context** (verified facts, each cited, at most 80 words), **Acceptance criteria** (each one checkable, and saying how it is checked), and **Evidence** (a `Location | What it shows` table). **Scope** and **Dependencies** appear only when they have something to say.
+A review run files tickets that carry an `<!-- atlas-review:DATE:ID -->` marker. Each one must meet a minimum bar, so the next person can check its claims without redoing the review.
+
+The canonical sections are **Summary**, **Context**, **Acceptance criteria** and **Evidence**. **Context** holds verified, cited facts in at most 80 words. Each acceptance criterion is checkable and states its check. **Evidence** is a `Location | What it shows` table. **Scope** and **Dependencies** appear only when they have something to say.
 
 `scripts/lint_review_ticket.py` checks a body read on stdin:
 

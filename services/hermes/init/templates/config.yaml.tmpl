@@ -39,10 +39,7 @@ tts:
 # ─── STT — engine-neutral OpenAI-compatible endpoint ─────────────────
 # Wires to whatever STT provider the stack has enabled: Speaches
 # (Faster-Whisper), Parakeet (NVIDIA NeMo), whisper.cpp, or any future
-# engine exposing /v1/audio/transcriptions. Hermes documents the
-# base_url override for the OpenAI TTS provider; the STT override is
-# not explicitly documented and may need a fallback to a command-type
-# provider. See services/hermes/README.md "Known caveats".
+# engine exposing /v1/audio/transcriptions.
 # BEGIN-STT
 # stt.openai.base_url is honored only with a non-empty stt.openai.api_key
 # (init defaults it to a placeholder); otherwise Hermes uses api.openai.com.

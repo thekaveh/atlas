@@ -2,11 +2,15 @@
 
 ## 1. Overview
 
-`cloud-providers` is an Atlas service family in the `llm` category. Its implementation and service-owned documentation live under `services/cloud-providers/`.
+A virtual service with no container. It holds the switches, API keys and model
+lists for OpenAI, Anthropic and OpenRouter. All requests to these providers go
+through LiteLLM.
 
 ## 2. Role In Atlas
 
-Atlas uses this service according to its manifest, topology row, SOURCE settings, dependencies, and runtime data-flow declarations.
+An enabled provider with a key adds model routes to LiteLLM. Applications call
+those models through LiteLLM like any other model. Routing is described in
+[the LiteLLM README](../litellm/README.md).
 
 ## 3. Tracks And Category
 
@@ -16,20 +20,27 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 4. Access
 
-- Kong aliases: `-`
-- Port variables: `-`
+No port and no Kong route. Call the models through LiteLLM.
 
 ## 5. Configuration
 
-- SOURCE variables: `CLOUD_OPENAI_SOURCE, CLOUD_ANTHROPIC_SOURCE, CLOUD_OPENROUTER_SOURCE`
-- Default SOURCE values: `disabled`
-- Available SOURCE values: `enabled, disabled`
+| Provider | Switch (default `disabled`) | API key | Model list |
+| --- | --- | --- | --- |
+| OpenAI | `CLOUD_OPENAI_SOURCE` | `OPENAI_API_KEY` | `OPENAI_USER_MODELS` |
+| Anthropic | `CLOUD_ANTHROPIC_SOURCE` | `ANTHROPIC_API_KEY` | `ANTHROPIC_USER_MODELS` |
+| OpenRouter | `CLOUD_OPENROUTER_SOURCE` | `OPENROUTER_API_KEY` | `OPENROUTER_USER_MODELS` |
+
+A provider adds LiteLLM routes only when its switch is `enabled` and its key is
+set. Each `*_USER_MODELS` value is a comma-separated list of the model names
+the wizard activated. The bootstrapper derives `LITELLM_OPENAI_ENABLED`,
+`LITELLM_ANTHROPIC_ENABLED`, `LITELLM_OPENROUTER_ENABLED` and
+`LITELLM_ENABLED_PROVIDERS` from the three switches.
 
 ## 6. Dependencies And Topology
 
-- Required dependencies: `litellm`
-- Optional dependencies: `-`
-- Runtime calls: `-`
+- Required dependency: `litellm`
+- Optional dependencies: none
+- Runtime calls: none (LiteLLM calls the provider APIs)
 
 ## 7. Source Values
 
@@ -41,16 +52,21 @@ Atlas uses this service according to its manifest, topology row, SOURCE settings
 
 ## 8. Runtime Integration
 
-The manifest data-flow list declares runtime calls to `-`. The topology row supplies aliases and port surfaces used by the generated gateway and service references.
+LiteLLM is the only consumer. Disabling a provider removes its routes when the
+LiteLLM configuration is next generated.
 
 ## 9. Operations
 
-Use `./start.sh` to configure this service through the wizard or pass the matching SOURCE flag when the service is source-configurable. Use `./stop.sh` to stop the active Atlas project.
+The wizard asks for each provider on every track. CLI flags:
+
+- `--cloud-openai-source enabled|disabled` (and `--cloud-anthropic-source`, `--cloud-openrouter-source`).
+- `--openai-api-key <key>` saves `OPENAI_API_KEY` to `.env` and enables the provider. `--anthropic-api-key` and `--openrouter-api-key` work the same way.
+- `--openai-models <names>` saves `OPENAI_USER_MODELS`. `--anthropic-models` and `--openrouter-models` work the same way.
 
 ## 10. Related Configuration
 
 - Service manifest: `services/cloud-providers/service.yml`
-- LiteLLM integration: `services/litellm/`
+- LiteLLM integration: [LiteLLM README](../litellm/README.md)
 
 ## 11. Dependencies & Integrations
 
@@ -84,12 +100,12 @@ _No high-confidence opportunities identified._
 
 ## 12. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Virtual cloud-provider selection | supported | tested | Atlas independently enables OpenAI, Anthropic, and OpenRouter and exposes their selected models through the always-on LiteLLM gateway without running a provider container. |
 | Key-gated model registration | supported | tested | A provider contributes LiteLLM rows only when its source is enabled and its server-side API key is non-empty; disabling it removes those routes on regeneration. |
 | Uncatalogued cloud model metadata | partial | tested | User-selected names outside the curated catalogs are routable, but Atlas synthesizes generic capability metadata and cannot infer provider-specific limits or modalities. |
-| Live cloud completion validation | not-supported | untested | Atlas statically tests selection, key isolation, and rendered routing but performs no live credential, entitlement, model-availability, or provider certification; successful requests still depend on external accounts and APIs. |
+| Live cloud completion validation | not-supported | untested | Atlas statically tests selection, key isolation, and rendered routing but performs no live credential, entitlement, model-availability, or provider certification. Successful requests still depend on external accounts and APIs. |
 | Direct cloud-provider service endpoint | not-supported | documented | This virtual manifest owns configuration only; applications must use LiteLLM because Atlas creates no cloud-provider container, port, or Kong route. |

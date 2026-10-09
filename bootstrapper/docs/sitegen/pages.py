@@ -1099,10 +1099,14 @@ _MANIFEST_FIELD_PURPOSES = {
     "depends_on": "Required and optional logical dependencies",
     "support": (
         "Support tier (`stable`, `experimental`, `community`, `unsupported`), "
-        "the evidence it rests on, the release tag or commit that evidence was "
-        "gathered at, the owner, and known limitations"
+        "its evidence and the tag or commit it was gathered at, the owner, "
+        "and known limitations"
     ),
-    "runtime_sc": "Per-source runtime scale/env/deploy slices",
+    "runtime_sc": "Per-source runtime scale/environment/deploy/extra_hosts slices",
+    "runtime_deps": (
+        "Launch-time dependency rules (requires / optional / conditional_requires); "
+        "a missing requirement auto-disables the service"
+    ),
     "data_flow": "Runtime call graph (`data_flow.calls`) used by docs and diagrams",
     "name": "Folder name under `services/`, in kebab-case",
     "extra_kong_aliases": "Extra `*.localhost` Kong hostnames beyond each row's alias",
@@ -1158,14 +1162,12 @@ def reference_pages(model: DocsModel) -> dict[Path, str]:
                     env_var.description or "-",
                 ]
             )
-    route_doc = "[Deployment route reference](../../operations/ports-and-routes.md#2-kong-hostnames)"
     ports_rows = [
         [
             service.name,
             service.category,
             _inline_code_csv(service.port_vars),
             _inline_code_csv(service.kong_aliases),
-            route_doc,
         ]
         for service in model.services
         if service.port_vars or service.kong_aliases
@@ -1175,11 +1177,12 @@ def reference_pages(model: DocsModel) -> dict[Path, str]:
         + table(["SOURCE", "Service", "Default", "Values"], source_rows),
         ref / "env-vars.md": "# Environment Variables\n\n## 1. Generated Environment Matrix\n\n"
         + table(["Variable", "Service", "Default", "Description"], env_rows),
-        ref / "ports-routes.md": "# Ports And Routes\n\n## 1. Generated Ports And Routes Matrix\n\n"
+        ref / "ports-routes.md": "# Ports and Routes Reference\n\n## 1. Generated Ports and Routes Matrix\n\n"
         "Generated summary of model-backed service port variables and Kong aliases. "
-        "Use the deployment route reference for browser-facing hostname details and route behavior.\n\n"
+        "For browser-facing hostnames and route behavior, see the "
+        "[Ports and Routes](../../operations/ports-and-routes.md#2-kong-hostnames).\n\n"
         + table(
-            ["Service", "Category", "Port Variables", "Kong Aliases", "Route Docs"],
+            ["Service", "Category", "Port Variables", "Kong Aliases"],
             ports_rows,
         ),
         ref / "service-dependencies.md": "# Service Dependencies\n\n## 1. Generated Dependency Matrix\n\n"
@@ -1187,6 +1190,11 @@ def reference_pages(model: DocsModel) -> dict[Path, str]:
         "startup and display (some entries only pin a port slot) and is not a list of "
         "runtime requirements. Runtime edges are in the Runtime Calls column.\n\n"
         + table(["Service", "Start order (depends_on.required)", "Optional", "Runtime Calls"], deps_rows),
-        ref / "manifest-fields.md": "# Manifest Fields\n\n## 1. Manifest Schema Quick Reference\n\nGenerated manifest schema quick reference.\n\n"
-        + table(["Field", "Required", "Purpose"], _manifest_field_rows(model.root)),
+        ref / "manifest-fields.md": "# Manifest Fields\n\n## 1. Manifest Schema Quick Reference\n\n"
+        "Generated from the top-level keys of `bootstrapper/schemas/service.schema.json`. See "
+        "[Contributing §18](../CONTRIBUTING-services.md#18-schema-cheatsheet) for nested fields.\n\n"
+        "Schema-required marks the keys the JSON schema requires. The validator and tests also "
+        "require `support`, `containers` on non-virtual manifests (matching `compose.yml`), and "
+        "`docs`, a sibling `README.md` or `docs_exception`.\n\n"
+        + table(["Field", "Schema-required", "Purpose"], _manifest_field_rows(model.root)),
     }

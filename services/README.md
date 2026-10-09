@@ -5,10 +5,9 @@ logical grouping of co-lifecycled containers. Examples: `supabase/` owns all
 eight `supabase-*` containers; `n8n/` owns `n8n` + `n8n-worker` + `n8n-init`;
 `open-webui/` owns `open-web-ui` + `open-webui-init`.
 
-The migration into this layout is complete: the root `docker-compose.yml` is
-a thin `include:` shell that merges every fragment under
-`services/<name>/compose.yml`, and `bootstrapper/service-configs.yml` has
-been retired in favour of the per-service manifests. See
+The root `docker-compose.yml` is a thin `include:` shell that merges every
+fragment under `services/<name>/compose.yml`. The per-service manifests
+replace the retired `bootstrapper/service-configs.yml`. See
 `docs/CONTRIBUTING-services.md` for the full architecture rationale.
 
 ## 1. Layout
@@ -47,9 +46,9 @@ duplicate those changing totals.
    ```
    Validates every manifest against `bootstrapper/schemas/service.schema.json`
    and the cross-manifest rules. Exits non-zero on any violation.
-4. If you changed any env-affecting field, also run the consistency tests
-   (catch orphan `.env.example` keys, manifest vars missing from
-   `.env.example`, and duplicate ownership):
+4. If you changed any env-affecting field, also run the consistency tests.
+   They catch orphan `.env.example` keys, manifest vars missing from
+   `.env.example`, and duplicate ownership:
    ```bash
    uv run --project bootstrapper pytest bootstrapper/tests/test_env_example_consistency.py
    ```
@@ -78,10 +77,12 @@ Every service family, including virtual manifests, ships documentation
 describing its contract. A sibling `README.md` normally describes the
 containers it owns, the role of any `init/`, `build/`, `provider/`,
 `extras/`, or `db/` subdirectories, and any non-obvious operational gotchas.
-The manifest's `docs:` value may point to another canonical Markdown page
-when an aggregate guide is authoritative. A service with no appropriate page
-must carry a schema-validated `docs_exception` with an explicit `because`
-clause, at least four substantive words, and at least three distinct terms.
+The manifest's `docs:` value may point to another canonical Markdown page when
+an aggregate guide is authoritative.
+
+A service with no appropriate page must carry a schema-validated
+`docs_exception` with an explicit `because` clause. The clause needs at least
+four substantive words and at least three distinct terms.
 Generic reasons and exceptions on already-documented services fail manifest
 validation.
 

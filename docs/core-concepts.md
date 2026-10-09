@@ -2,7 +2,7 @@
 
 ## 1. SOURCE Values
 
-Each configurable service has a SOURCE variable that controls whether Atlas runs it in Docker, connects to a localhost instance, disables it, or uses a service-specific mode.
+Each configurable service has a SOURCE variable. It selects one mode: run in Docker, connect to a localhost instance, disable, or a service-specific mode.
 
 ## 2. Tracks
 
@@ -24,11 +24,20 @@ Overlay precedence is `.env.example` baseline, generated or existing `.env`, sib
 
 ## 6. Hosted Media Gateway
 
-The backend exposes `POST /media/generate`, `GET /media/operations/{operation_id}`, and `POST /media/operations/{operation_id}/cancel` as the provider-neutral hosted media surface. Requests dispatch by `provider`, `modality`, and `model`; the registry supports `provider=fal` with `modality=image` and `modality=image_to_3d` (verified TRELLIS, Hunyuan3D, Tripo, and Rodin endpoints), and `provider=comfyui` with `modality=image` (the managed/local ComfyUI host, #519). Provider API keys stay in the backend environment, responses normalize status, artifacts, cost, license, and provenance, and cancellation retains reserved spend until provider polling proves a terminal outcome. A FAL timeout before receipt of the provider request id becomes a local `submission_unknown` record with its reservation held; an operator authenticated with `BACKEND_INTERNAL_API_TOKEN` later calls `POST /media/operations/{operation_id}/reconcile` with `outcome=commit|release` after checking provider billing. Reconciliation is safe to retry after a transient ledger failure. The configured `MEDIA_BUDGET_STORE` supplies fallback recovery if the operation-state record could not be written, even when budget enforcement is disabled; keep the default `postgres` choice for durability across process restarts because `memory` is ephemeral. The normalized `artifact_url` is **provider-dependent**: absolute (a hosted CDN URL) for `provider=fal`, but **gateway-relative** for `provider=comfyui` (`/media/operations/{operation_id}/artifacts/{index}`, an owner-checked backend path, #1379). Consumers MUST resolve a relative `artifact_url` (one beginning with `/`, with no `http(s)://` scheme) against their own gateway/backend base URL before fetching it (#678).
+The backend's provider-neutral media API is `POST /media/generate`, `GET /media/operations/{operation_id}` and `POST /media/operations/{operation_id}/cancel`. Requests choose `provider`, `modality` and `model`:
+
+- `provider=fal`: `modality=image` and `modality=image_to_3d` (verified TRELLIS, Hunyuan3D, Tripo and Rodin endpoints).
+- `provider=comfyui`: `modality=image`, on the managed or local ComfyUI host.
+
+Provider API keys stay in the backend. Responses normalize status, artifacts, cost, license and provenance. The `artifact_url` depends on the provider. For `fal` it is absolute (a hosted CDN URL). For `comfyui` it is gateway-relative: `/media/operations/{operation_id}/artifacts/{index}`, an owner-checked backend path. Consumers MUST resolve a relative `artifact_url` (one that starts with `/` and has no `http(s)://` scheme) against their gateway or backend base URL.
+
+Cancellation keeps reserved spend until provider polling proves a terminal outcome. If FAL times out before it returns a request id, the operation becomes `submission_unknown` with its reservation held. After checking provider billing, an operator with `BACKEND_INTERNAL_API_TOKEN` calls `POST /media/operations/{operation_id}/reconcile` with `outcome=commit|release`. This call is safe to retry after a transient ledger failure.
+
+`MEDIA_BUDGET_STORE` also backs recovery when the operation record could not be written, even with budget enforcement off. Keep the default `postgres`, because `memory` is lost when the process restarts.
 
 ## 7. RAG Chunking Gateway
 
-The backend exposes `POST /api/chunk` as the shared Chonkie-powered text-splitting surface for RAG ingestion clients. The endpoint supports token, recursive, and semantic strategies and returns stable character offsets plus strategy metadata so n8n workflows, notebooks, and future ingestion services can share one chunking contract.
+The backend exposes `POST /api/chunk` as the shared Chonkie-powered text-splitting surface for RAG ingestion clients. The endpoint supports token, recursive and semantic strategies. It returns stable character offsets and strategy metadata, so n8n workflows, notebooks and future ingestion services share one chunking contract.
 
 JupyterHub also installs Chonkie for exploratory notebook work, including `13_chonkie_chunking.ipynb`. Production workflows should still call the Backend endpoint instead of each service adding its own Chonkie dependency.
 
@@ -36,4 +45,4 @@ JupyterHub also installs Chonkie for exploratory notebook work, including `13_ch
 
 The backend exposes `POST /api/rag/evaluate` as the shared Ragas-powered quality-evaluation surface for supplied RAG question, answer, context, and optional reference records. The endpoint supports faithfulness, answer relevancy, context precision, and context recall metrics while routing evaluator calls through Atlas LiteLLM configuration.
 
-JupyterHub also installs Ragas for exploratory evaluation work, including `14_ragas_evaluation.ipynb`. Production workflows should call the Backend endpoint so n8n, notebooks, and future ingestion jobs share one metric contract without each service carrying its own evaluator package.
+JupyterHub also installs Ragas for exploratory evaluation work, including `14_ragas_evaluation.ipynb`. Production workflows should call the Backend endpoint. Then n8n, notebooks and future ingestion jobs share one metric contract, and no service carries its own evaluator package.

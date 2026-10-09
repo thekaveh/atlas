@@ -1,6 +1,8 @@
-# 7.2. Troubleshooting
+# 7.2. Sudo Recovery
 
-Common startup and shutdown problems and their fixes. If you hit something not covered here, open an issue. Attach a redacted support bundle from `./start.sh doctor --bundle ./atlas-support.tar.gz`, or re-run the failing start with `--support-bundle ./atlas-support.tar.gz`, after reading its preview ([Operations §4.1](operations/index.md#41-support-bundle)).
+This page fixes a launch or stop that ran under `sudo`. `start.sh` and `stop.sh` link here. For every other startup problem, see [Quick Start Troubleshooting](quick-start/troubleshooting.md).
+
+If a problem is not covered, open an issue. Attach a redacted support bundle from `./start.sh doctor --bundle ./atlas-support.tar.gz`. Alternatively, re-run the failing start with `--support-bundle ./atlas-support.tar.gz`. Read its preview first ([Operations §4.1](operations/index.md#41-support-bundle)).
 
 ## 1. "Refusing to run as root"
 
@@ -9,7 +11,7 @@ start.sh: refusing to run as root.
 # or: stop.sh: refusing to run as root.
 ```
 
-You ran the complete launcher or stopper under `sudo`. Atlas runs repository workflows as your user. Only `/etc/hosts` editing needs root: `--setup-hosts` and `--clean-hosts` invoke a bytecode-free privileged helper for that single atomic write, then return to the unprivileged process.
+You ran the launcher or the stopper under `sudo`. Atlas runs repository workflows as your user. Only `/etc/hosts` editing needs root. `--setup-hosts` and `--clean-hosts` call a bytecode-free privileged helper for that one atomic write, then return to the unprivileged process.
 
 **Fix:** drop the `sudo`:
 
@@ -21,7 +23,7 @@ You ran the complete launcher or stopper under `sudo`. Atlas runs repository wor
 
 ## 2. Recovering from a prior sudo launch or stop
 
-If you ran `start.sh` or `stop.sh` under `sudo` on a version before the guard landed, root may own files the next non-sudo run cannot overwrite. Symptoms:
+An Atlas version without the root guard could run `start.sh` or `stop.sh` under `sudo`. Root can then own files that the next non-sudo run cannot overwrite. Symptoms:
 
 ```
 error: Project virtual environment directory `.../bootstrapper/.venv` cannot be used because it is not a valid Python environment (no Python executable was found)
@@ -45,9 +47,9 @@ find . -uid 0 -not -path './.git/*'
 sudo chown -R "$(whoami):staff" volumes bootstrapper
 ```
 
-On Linux substitute `staff` with your primary group (e.g. `$(id -gn)`).
+On Linux, replace `staff` with your primary group (for example `$(id -gn)`).
 
-**Then nuke the broken venv** (uv will recreate it on the next run):
+**Then delete the broken venv** (uv creates it again on the next run):
 
 ```bash
 rm -rf bootstrapper/.venv
@@ -61,51 +63,14 @@ rm -rf bootstrapper/.venv
 
 ## 3. "Permission denied" writing `kong-dynamic.yml`
 
-Same root cause as above. `volumes/api/kong-dynamic.yml` is regenerated at every startup, so it can also be safely deleted:
+The root cause is the same as in §2. Atlas regenerates `volumes/api/kong-dynamic.yml` at every start, so you can safely delete it:
 
 ```bash
 sudo rm -f volumes/api/kong-dynamic.yml
 ```
 
-For other unwritable directories under `volumes/`, Atlas preserves all contents and reports a shell-quoted `chown` command. Repair ownership instead of deleting the directory.
+For other unwritable directories under `volumes/`, Atlas keeps all contents and prints a shell-quoted `chown` command. Repair the ownership; do not delete the directory.
 
-## 4. Apache Airflow build fails with `ResolutionImpossible`
+## 4. Cold start when things just won't reconcile
 
-```
-ERROR: Cannot install apache-airflow-providers-amazon>=9.30.0 because these package versions have conflicting dependencies.
-The user requested apache-airflow-providers-amazon>=9.30.0
-The user requested (constraint) apache-airflow-providers-amazon==9.29.0
-```
-
-The pin in `services/airflow/build/requirements.txt` was above the floor the upstream Airflow constraints file allows. The pin has been relaxed to `>=9.29.0` on main; pull the latest:
-
-```bash
-git checkout main && git pull
-```
-
-Then re-run:
-
-```bash
-./start.sh
-```
-
-## 5. n8n container restart-loops with `Command start not found`
-
-The n8n data volume is corrupted (usually after an interrupted upgrade). Wipe just that one volume rather than the whole stack:
-
-```bash
-./stop.sh   # docker refuses to remove a volume a (restart-looping) container still uses
-docker volume rm "$(sed -n 's/^PROJECT_NAME=["'\'']\{0,1\}\([A-Za-z0-9_-]*\).*/\1/p' .env | tail -n1)-n8n-data"
-./start.sh
-```
-
-## 6. Cold start when things just won't reconcile
-
-When in doubt:
-
-```bash
-./stop.sh --cold   # remove all containers + volumes
-./start.sh         # rebuild from scratch
-```
-
-This is destructive (drops all stack data — including any Supabase DB content, model selections, n8n workflows) so use it as a last resort.
+**Warning:** `./stop.sh --cold` deletes every Atlas volume of this project: databases, n8n workflows, downloaded models and, with the default `BACKUP_S3_MODE=local`, your backups. Take a backup off the host first. Follow §10 "Recovery Procedures" in [Quick Start Troubleshooting](quick-start/troubleshooting.md) for the full procedure. That page also covers a reset of one volume, such as `n8n-data`.

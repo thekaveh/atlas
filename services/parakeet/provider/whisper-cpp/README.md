@@ -2,13 +2,11 @@
 
 Run [whisper.cpp](https://github.com/ggml-org/whisper.cpp) natively on your
 host and have the stack reach it via `host.docker.internal`. This is the
-**recommended STT path for Apple Silicon** — whisper.cpp ships first-class
-Metal + Core ML / Apple Neural Engine support that easily beats any
-container-side STT on a Mac.
+**recommended STT path for Apple Silicon**. Its Metal and Core ML / Apple
+Neural Engine support beats any container-side STT on a Mac.
 
-It also works fine on Linux (CPU, CUDA, or Vulkan) and is the lightest STT
-option overall — no Python deps, no model server framework, just a single
-binary.
+It also works on Linux (CPU, CUDA, or Vulkan). It is the lightest STT option:
+a single binary, with no Python deps and no model server framework.
 
 ## 1. Why localhost instead of container
 
@@ -73,9 +71,9 @@ whisper-server \
   --convert
 ```
 
-`--convert` (it needs `ffmpeg` on the `PATH`, for example `brew install ffmpeg`)
-lets the server accept formats beyond WAV, MP3 and FLAC, such as OGG/Opus
-voice notes a client sends without transcoding. Open WebUI already transcodes
+`--convert` lets the server accept formats beyond WAV, MP3 and FLAC, such as
+OGG/Opus voice notes a client sends without transcoding. It needs `ffmpeg` on
+the `PATH`, for example `brew install ffmpeg`. Open WebUI already transcodes
 browser microphone recordings to MP3 before sending them.
 
 The `/v1/audio/transcriptions` path makes the server drop-in compatible with

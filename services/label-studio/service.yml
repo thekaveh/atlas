@@ -20,11 +20,11 @@ capabilities:
   - name: "Label Studio access control"
     status: partial
     verification: tested
-    note: "The direct port relies on Label Studio login and disabled open signup; Kong adds dashboard Basic Auth and ACL, but Atlas does not integrate Supabase SSO or enterprise roles."
+    note: "The direct port relies on Label Studio login and disabled open signup. Kong adds dashboard Basic Auth and ACL. Atlas does not integrate Supabase SSO or enterprise roles."
   - name: "Annotation service high availability"
     status: not-supported
     verification: documented
-    note: "Postgres and MinIO preserve metadata and assets, but Atlas runs one Label Studio replica and one local data volume without a tested backup or failover workflow."
+    note: "Postgres and MinIO preserve metadata and assets. Atlas runs one Label Studio replica and one local data volume, without a tested backup or failover workflow."
 
 containers:
   - label-studio-init
@@ -49,6 +49,7 @@ sources:
 
 env:
   - name: LABEL_STUDIO_SOURCE
+    description: "Deployment source for Label Studio: container or disabled. The container source requires MINIO_SOURCE to be enabled."
     default: disabled
   - name: LABEL_STUDIO_PORT
     description: "Host port for the Label Studio UI/API (in-container 8080)."
@@ -59,15 +60,19 @@ env:
     auto_managed: true
     description: "Notebook/backend API URL; empty when Label Studio is disabled."
   - name: LABEL_STUDIO_SCALE
+    description: "Set by ./start.sh from LABEL_STUDIO_SOURCE; do not edit. 1 runs label-studio, 0 does not."
     auto_managed: true
   - name: LABEL_STUDIO_INIT_SCALE
+    description: "Set by ./start.sh from LABEL_STUDIO_SOURCE; do not edit. 1 runs label-studio-init, 0 does not."
     auto_managed: true
   - name: LABEL_STUDIO_DB_NAME
+    description: "Postgres database for Label Studio. Supabase db-init (05-scoped-roles.sh) creates it."
     default: label_studio
   - name: LABEL_STUDIO_DB_NAME_URI
     default: label_studio
     description: "Bootstrapper-synchronized percent-encoded LABEL_STUDIO_DB_NAME for DSN path components."
   - name: LABEL_STUDIO_DB_USER
+    description: "Scoped Postgres login that owns LABEL_STUDIO_DB_NAME. Supabase db-init (05-scoped-roles.sh) creates it."
     default: label_studio
   - name: LABEL_STUDIO_DB_PASSWORD
     default: atlas-db-password
@@ -142,6 +147,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

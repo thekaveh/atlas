@@ -31,7 +31,7 @@ def test_canonical_reference_projection_covers_dynamic_public_pages() -> None:
 
     assert {path.relative_to(ROOT).as_posix() for path in rendered} == {
         "docs/CONTRIBUTING-services.md",
-        "docs/README.md",
+        "docs/superpowers/README.md",
         "docs/tracks.md",
         "docs/services.md",
         "docs/reference/index.md",

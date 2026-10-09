@@ -1,11 +1,11 @@
 # 9.9. Contributing
 
-This is the short path from a fresh clone to a merged first change: set up, run one safe test for the area you touch, and open a pull request against the right branch. Adding or changing a service has its own walkthrough in [Adding a service](docs/CONTRIBUTING-services.md). Report security findings through the [security policy](SECURITY.md), never as a public issue.
+This is the short path from a fresh clone to a merged first change. Set up, run one safe test for the area you touch, and open a pull request against the right branch. Adding or changing a service has its own walkthrough in [Adding a service](docs/CONTRIBUTING-services.md). Report security findings through the [security policy](SECURITY.md), never as a public issue.
 
 ## 1. Before you start
 
 - Pick or open an [issue](https://github.com/thekaveh/atlas/issues) on the project's GitHub issue tracker. For anything larger than a typo, say on the issue what you plan to change, so the scope is agreed before you write it.
-- You need `git`, [uv](https://docs.astral.sh/uv/), and Python 3.10 or newer for the bootstrapper. Backend tests run under Python 3.12, which `uv` can download for you. The documentation checks in §3.3 also need `make` and the native Cairo library that diagram rendering links (`libcairo2` on Debian and Ubuntu, `brew install cairo` on macOS). Docker is only needed to run the stack itself and the Docker-backed suites described in §4.
+- You need `git`, [uv](https://docs.astral.sh/uv/), and Python 3.10 or newer for the bootstrapper. Backend tests run under Python 3.12, which `uv` can download for you. The documentation checks in §3.3 also need `make` and the native Cairo library that diagram rendering links. Install `libcairo2` on Debian and Ubuntu, or run `brew install cairo` on macOS. Docker is only needed to run the stack itself and the Docker-backed suites described in §4.
 
 ## 2. Set up
 
@@ -20,7 +20,7 @@ uv sync --project bootstrapper
 
 ## 3. Run one safe test for your change
 
-Run the test closest to what you changed before you push. Each command below runs without Docker, without a running stack, and without any live service endpoint. The first run downloads what it needs (Python 3.12 and the Backend's packages for §3.2, fonts and diagram assets for the documentation build), so it needs network access once.
+Run the test closest to what you changed before you push. Each command below runs without Docker, without a running stack, and without any live service endpoint. The first run downloads what it needs, so it needs network access once. That is Python 3.12 and the Backend's packages for §3.2, and fonts and diagram assets for the documentation build.
 
 | You change | Run |
 |---|---|
@@ -39,7 +39,7 @@ Swap in the test file for the module you changed, or narrow with `-k <name>`. Th
 
 ### 3.2. Backend
 
-The Backend has its own dependencies. This block creates a throwaway Python 3.12 environment with the runtime and test requirements under the same tested constraint CI uses, runs one non-live test file, and removes the environment afterwards. Paste it as one block: the parentheses keep the `cd` and the cleanup inside a subshell, and `set -e` stops at the first failing step, so a failed download reports itself instead of a missing interpreter.
+The Backend has its own dependencies. This block creates a throwaway Python 3.12 environment with the runtime and test requirements. It uses the same tested constraint as CI, runs one non-live test file, and removes the environment afterwards. Paste it as one block. The parentheses keep the `cd` and the cleanup inside a subshell. `set -e` stops at the first failing step, so a failed download reports itself instead of a missing interpreter.
 
 ```bash
 (
@@ -81,25 +81,25 @@ Documentation is published to three surfaces (this repository, the documentation
 
 - **Branch from `develop`**, for example `git switch -c fix/1234-readiness-timeout origin/develop`.
 - **Open the pull request against `develop`.** Never target `main`: it only receives release pull requests that promote `develop` (see [Releasing](docs/operations/releasing.md)).
-- **Title it as a Conventional Commits subject**: `type: summary`, with an optional `(scope)` after the type and a `!` before the colon only for a breaking change. For example: `fix(backend): report Redis as unavailable when the readiness probe times out`, `docs(contributing): link the backend test path`, or `feat(wizard): jump to a previous decision from review`. The squash commit takes its subject from the title, and the changelog generator reads it; the accepted types are listed in [Releasing](docs/operations/releasing.md) §6.
+- **Title it as a Conventional Commits subject**: `type: summary`. Add an optional `(scope)` after the type, and a `!` before the colon only for a breaking change. Examples: `fix(backend): report Redis as unavailable when the readiness probe times out`, `docs(contributing): link the backend test path`. The squash commit takes its subject from the title, and the changelog generator reads it. [Releasing](docs/operations/releasing.md) §6 lists the accepted types.
 - **Four required checks must pass**, all run by `.github/workflows/services-lint.yml`:
   - `Manifest lint + unit tests`
   - `Compose merge + byte-equivalence + source-permutation matrix`
   - `Docs drift + audit scripts`
   - `Build-validation (Dockerfile + requirements.txt installability)`
 
-  [Adding a service](docs/CONTRIBUTING-services.md) §13.4 says what each one catches and lists a representative local subset. The first is a gate over four parallel jobs; a failing unit test shows up first as a red **Bootstrapper suite without Docker (fast)** check, and pushing a new commit cancels the pull request's previous run.
+  [Adding a service](docs/CONTRIBUTING-services.md) §13.4 says what each one catches and lists a representative local subset. The first is a gate over four parallel jobs. A failing unit test shows up first as a red **Bootstrapper suite without Docker (fast)** check. Pushing a new commit cancels the pull request's previous run.
 - **Before merge**, the branch must be up to date with `develop` (merge `develop` into it) and every review conversation must be resolved. A maintainer squash-merges it.
-- **Link the issue** in the pull request body. The pull request targets `develop` rather than the default branch, so GitHub does not close the issue on merge; a maintainer closes it once the change lands.
+- **Link the issue** in the pull request body. The pull request targets `develop`, not the default branch, so GitHub does not close the issue on merge. A maintainer closes it once the change lands.
 
 ## 6. What reviewers look for
 
 - One concern per pull request, with a body that says what changed, why, and which commands you ran with their result.
 - A test for every behaviour change, in the existing test file for that module where one exists.
 - Documentation updated wherever the changed behaviour is described.
-- A new or moved image pin or model source comes with its row in the [supply-chain license inventory](docs/reference/license-inventory.md): `make docs-check` fails until the row matches the pin.
-- Generated files regenerated, not edited: `.env.example` (`uv run --project bootstrapper python -m services.env_assembler`), the per-service Dependencies & Integrations blocks (`regen`), and never `kong-dynamic.yml`, which is rebuilt at every start.
-- Adding a tracked file moves the complexity ratchet: `bootstrapper/tests/test_maintenance_baseline.py` then asks for `tracked_files` to be raised in `.maintenance.json` and in its `EXPECTED_BASELINE_SNAPSHOT`, with a refresh note naming the new file.
+- A new or moved image pin or model source comes with its row in the [supply-chain license inventory](docs/reference/license-inventory.md). `make docs-check` fails until the row matches the pin.
+- Generated files regenerated, not edited: `.env.example` (`uv run --project bootstrapper python -m services.env_assembler`) and the per-service Dependencies & Integrations blocks (`regen`). Never edit `kong-dynamic.yml`; every start rebuilds it.
+- Adding a tracked file moves the complexity ratchet. `bootstrapper/tests/test_maintenance_baseline.py` then asks for a higher `tracked_files` in `.maintenance.json` and in its `EXPECTED_BASELINE_SNAPSHOT`. Add a refresh note that names the new file.
 - No secret, API key or token-shaped literal anywhere in the diff, tests included.
 - Docker images, base configurations and scanner exceptions stay as they are unless the issue is about them.
 

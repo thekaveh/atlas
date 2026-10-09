@@ -1,13 +1,8 @@
 # 5.2.14. Docling (Document Processor engine)
 
-Docling is the engine behind the **Document Processor** role selectable via
-`DOC_PROCESSOR_SOURCE`. It is documented under the **Document Processor**
-aggregator rather than as a standalone service, because the user-facing role is
-"pick a doc-processing engine" — not "pick Docling":
-
-→ See [services/doc-processor/README.md](../doc-processor/README.md) for the
-full user-facing description, source-variant table, configuration reference,
-and integration notes.
+Docling is the engine behind the **Document Processor** role, selected with
+`DOC_PROCESSOR_SOURCE`. See [Document Processor](../doc-processor/README.md) for
+setup, configuration and integration.
 
 ## 1. Engine quick reference
 
@@ -25,19 +20,12 @@ and integration notes.
   or device configuration returns `503 unavailable`; health reports the
   converter only and does not claim lazily loaded model artifacts.
 
-The manifest (`service.yml`) and compose fragment (`compose.yml`) in this folder
-are the bootstrapper's source of truth for those values; treat this README as a
-pointer, not a duplicate of the aggregator doc.
+**Timeouts and fallback.**
 
-Backend and Celery document extraction waits up to `DOCLING_INFERENCE_TIMEOUT_SECONDS`
-plus 30 s for Docling (not Tika's `TIKA_TIMEOUT_SECONDS`), and sends legacy Office
-(`.doc`, `.xls`, `.ppt`) and `.epub` files to Tika first, because Atlas's Docling
-providers answer an unsupported format with 500 rather than 415. Other limits
-still apply first: Kong's 300 s per-service timeout on `api.localhost` (an HTTP
-client gets a 504 while the conversion continues) and, inside a Celery RAG
-ingestion, that task's own limits (`RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS` /
-`RAG_INGESTION_TASK_TIME_LIMIT_SECONDS`, by default the larger of 3840 / 3900 s and
-the global Celery limits).
+- Backend and Celery extraction wait up to `DOCLING_INFERENCE_TIMEOUT_SECONDS` plus 30 s for Docling. `TIKA_TIMEOUT_SECONDS` does not apply.
+- Long-tail formats go straight to Tika: legacy Office (`.doc`, `.xls`, `.ppt`), `.epub`, mail, RTF, OpenDocument and archives. Atlas's Docling providers answer an unsupported format with 500, not 415.
+- Kong cuts `api.localhost` requests at 300 s. The HTTP client gets a 504 while the conversion continues.
+- A Celery RAG ingestion has its own limits, `RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS` and `RAG_INGESTION_TASK_TIME_LIMIT_SECONDS`. By default they are the larger of 3840 / 3900 s and the global Celery limits.
 
 ## 2. Dependencies & Integrations
 
@@ -76,7 +64,7 @@ _No high-confidence opportunities identified._
 
 ## 3. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|

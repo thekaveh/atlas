@@ -48,6 +48,7 @@ env:
     default: container
     description: "Locked. LiteLLM is mandatory; only one source value supported."
   - name: LITELLM_PORT
+    description: "Host port for the LiteLLM gateway API and UI (in-container 4000)."
     # default removed — computed by services/topology.py slot allocator
   - name: LITELLM_INIT_SCALE
     default: 1
@@ -61,19 +62,21 @@ env:
     description: "Admin-dashboard login username at http://litellm.localhost:${KONG_HTTP_PORT}/ui/. Password is LITELLM_MASTER_KEY."
   - name: LITELLM_CACHE_TTL
     default: "3600"
-    description: "Lifetime in seconds of a cached LiteLLM response. The gateway caches embeddings, reranks and transcriptions (and chat with LITELLM_CACHE_CHAT=true) in Redis; LiteLLM's own fallback is 60s, which is too short to pay off on anything but rapid-fire identical prompts. Raise for heavier reuse, lower if stale answers matter more than the saving. A non-numeric or non-positive value falls back to 3600 rather than failing the render."
+    description: "Lifetime in seconds of a cached LiteLLM response in Redis. Embeddings, reranks and transcriptions are cached, and chat with LITELLM_CACHE_CHAT=true. LiteLLM's own default is 60s. A non-numeric or non-positive value falls back to 3600."
   - name: LITELLM_CACHE_NAMESPACE
     default: litellm.cache
-    description: "Key prefix for LiteLLM's Redis response cache. Redis db 0 is shared with n8n's BullMQ queue, Langfuse's queue and the backend's media store, so a namespace keeps gateway cache keys scannable and separately droppable."
+    description: "Key prefix for LiteLLM's Redis response cache. Redis db 0 also holds the n8n and Langfuse queues and the backend media store. The prefix keeps gateway cache keys separately scannable and droppable."
   - name: LITELLM_CACHE_CHAT
     default: "false"
-    description: "Also cache chat, text completion and Responses API calls in the response cache. Off by default: only embeddings, reranks and transcriptions are cached, because a cached chat reply replaces a fresh run of the hermes-agent and lightrag passthroughs (an agent run, a query over newly ingested documents) without the caller knowing."
+    description: "Also cache chat, text completion and Responses API calls. Off by default, because a cached reply silently replaces a fresh hermes-agent or lightrag passthrough run, such as a query over newly ingested documents."
   - name: LITELLM_DB_NAME
+    description: "Postgres database for LiteLLM. Supabase db-init (05-scoped-roles.sh) creates it."
     default: litellm
   - name: LITELLM_DB_NAME_URI
     default: litellm
     description: "Bootstrapper-synchronized percent-encoded LITELLM_DB_NAME for DSN path components."
   - name: LITELLM_DB_USER
+    description: "Scoped Postgres login that owns LITELLM_DB_NAME. Supabase db-init (05-scoped-roles.sh) creates it."
     default: litellm
   - name: LITELLM_DB_PASSWORD
     default: atlas-db-password
@@ -153,6 +156,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

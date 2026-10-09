@@ -6,9 +6,9 @@
 
 ## 1. Overview
 
-Verba is Weaviate's archived Golden RAGtriever UI. Atlas includes it as an opt-in, single-user RAG demo surface over the existing Weaviate and LiteLLM services. It is useful for a sample ingest/query path that proves a user can upload content, create Verba-managed Weaviate classes such as `VERBA_Document`, and query those documents through a browser UI.
+Verba is Weaviate's archived Golden RAGtriever UI. Atlas includes it as an opt-in, single-user RAG demo over the existing Weaviate and LiteLLM services. It gives a sample ingest/query path: upload content, let Verba create its Weaviate classes (such as `VERBA_Document`), and query the documents in a browser UI.
 
-Upstream has discontinued and archived Verba. It is not a strategic maintained Atlas runtime, it does not receive upstream security fixes, and it should stay disabled unless the operator explicitly wants the reference UI.
+Upstream has discontinued and archived Verba, so it gets no upstream security fixes. Keep it disabled unless you want the reference UI.
 
 ## 2. Access
 
@@ -25,20 +25,20 @@ Upstream has discontinued and archived Verba. It is not a strategic maintained A
 | `VERBA_SOURCE` | `disabled` | `container` starts Verba; `disabled` scales it to zero and removes its Kong route. |
 | `VERBA_IMAGE` | `semitechnologies/verba@sha256:0947d289ebff2c9814941c8d4282ee994dc79598e76162ae82e6efda4682b0b7` | Digest-pinned Docker Hub image. Upstream publishes `latest` but no matching `v2.1.3` tag. |
 | `VERBA_PORT` | topology allocated | Host port for the direct UI. |
-| `VERBA_WEAVIATE_URL` | auto-managed | Passed as upstream `WEAVIATE_URL_VERBA`, which Verba 2.1.3 reads only for its `Weaviate` (cloud cluster) deployment. With the default `Docker` deployment Verba always dials `weaviate:8080`, so with `WEAVIATE_SOURCE=localhost` choose `Custom` on Verba's connect screen and enter the host Weaviate address (`host.docker.internal` and `WEAVIATE_LOCALHOST_PORT`; `host.docker.internal` resolves on Docker Desktop, not by default on Linux Engine). |
-| `VERBA_OPENAI_MODEL` | empty | Optional LiteLLM model name for Verba's OpenAI generator. |
-| `VERBA_OPENAI_EMBED_MODEL` | empty | Optional LiteLLM embedding model name. |
+| `VERBA_WEAVIATE_URL` | auto-managed | Passed as upstream `WEAVIATE_URL_VERBA`. Verba 2.1.3 reads it only for its `Weaviate` (cloud cluster) deployment. The default `Docker` deployment always dials `weaviate:8080`. With `WEAVIATE_SOURCE=localhost`, choose `Custom` on Verba's connect screen and enter `host.docker.internal` and `WEAVIATE_LOCALHOST_PORT`. `host.docker.internal` resolves on Docker Desktop, but not by default on Linux Engine. |
+| `VERBA_OPENAI_MODEL` | empty | LiteLLM chat model for Verba. Empty uses `LITELLM_DEFAULT_MODEL`. |
+| `VERBA_OPENAI_EMBED_MODEL` | empty | LiteLLM embedding model. Empty uses `LITELLM_EMBEDDING_MODEL`. |
 | `VERBA_DEFAULT_DEPLOYMENT` | `Docker` | Forces Verba toward external Weaviate instead of embedded local Weaviate. |
 
-Verba receives `OPENAI_API_KEY=${LITELLM_MASTER_KEY}` plus `OPENAI_BASE_URL=http://litellm:4000/v1`, so it talks to LiteLLM rather than directly to cloud providers. Atlas also sets `OPENAI_CUSTOM_EMBED=true` because LiteLLM model names are often not OpenAI-native names.
+Verba receives `OPENAI_API_KEY=${LITELLM_MASTER_KEY}` and `OPENAI_BASE_URL=http://litellm:4000/v1`, so it calls LiteLLM, not cloud providers. Atlas also sets `OPENAI_CUSTOM_EMBED=true`, because LiteLLM model names are often not OpenAI names.
 
 ## 4. Architecture & Wiring
 
-Verba depends on Weaviate and LiteLLM. It stores data in Verba-managed Weaviate classes/namespaces rather than reusing Atlas backend collections. This is intentional: the ticket requires isolation, and upstream Verba's FAQ says it expects its own data shape rather than arbitrary pre-existing Weaviate data.
+Verba depends on Weaviate and LiteLLM. It stores data in its own Weaviate classes and does not reuse Atlas backend collections. This keeps Verba's data separate; upstream expects its own data shape, not arbitrary Weaviate data.
 
-Docling is optional. The first Atlas slice documents Docling as the higher-quality pre-processing path for PDFs/office files, but it does not add a brittle automated bridge into Verba because Verba's public API is not advertised as a supported external ingestion API.
+Docling is optional: use it to pre-process PDFs and Office files. Atlas has no automated Docling-to-Verba bridge, because Verba does not support its API for external ingestion.
 
-Open WebUI remains the primary Atlas chat surface. Verba is a reference RAG UI for inspecting Weaviate/LiteLLM behavior with a sample ingest/query workflow.
+Open WebUI is the primary Atlas chat surface. Verba is a reference RAG UI for inspecting Weaviate and LiteLLM behaviour.
 
 ## 5. Dependencies & Integrations
 
@@ -82,7 +82,7 @@ _No high-confidence opportunities identified._
 5. Ask a question about the uploaded content in the Verba chat view.
 6. Optionally inspect Weaviate for Verba-owned classes such as `VERBA_Document`; do not mix those classes with backend/Open WebUI collections.
 
-For higher-quality document extraction, use Docling first and paste or upload the extracted text/markdown through Verba's UI. This keeps the optional Docling path explicit without relying on unsupported Verba API internals.
+For better document extraction, convert the file with Docling first, then paste or upload the extracted text or Markdown in Verba's UI.
 
 ## 7. Troubleshooting
 
@@ -90,16 +90,16 @@ For higher-quality document extraction, use Docling first and paste or upload th
 |---|---|---|
 | Verba does not appear in Kong | `VERBA_SOURCE=disabled` | Set `VERBA_SOURCE=container` or pass `--verba-source container`. |
 | Bootstrapper rejects the configuration | Weaviate is disabled | Enable Weaviate or keep Verba disabled. |
-| Model list is empty | LiteLLM has no usable model configured | Configure an Atlas LLM provider and optionally set `VERBA_OPENAI_MODEL`. |
+| Model list is empty | LiteLLM has no usable model configured | Check that `LITELLM_DEFAULT_MODEL` names a model LiteLLM serves, or set `VERBA_OPENAI_MODEL`. |
 | Imported data collides with other RAG demos | Reusing Verba classes manually | Treat Verba classes as namespaced/internal and keep other Atlas RAG collections separate. |
 
 ## 8. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| Reference Weaviate RAG workflow | partial | tested | Atlas wires the archived Verba UI to Weaviate and LiteLLM for isolated sample ingest and query, but does not treat it as the primary maintained chat or RAG runtime. |
+| Reference Weaviate RAG workflow | partial | tested | Atlas wires the archived Verba UI to Weaviate and LiteLLM for isolated sample ingest and query. Atlas does not treat it as the primary maintained chat or RAG runtime. |
 | Verba-managed data isolation | partial | documented | Operators are directed to Verba-owned Weaviate classes, but Atlas cannot enforce namespace separation if users manually target shared classes or cleanup operations. |
 | Verba ingress authentication | partial | tested | verba.localhost is protected by Kong dashboard Basic Auth and ACL, while the host-published direct UI/API is ungated and intended only for local development. |
 | Docling preprocessing integration | not-supported | documented | Docling is only a manual companion workflow because Atlas does not rely on an unsupported external Verba ingestion API. |

@@ -6,33 +6,30 @@
 
 ## 1. Overview
 
-Hermes is a programmable AI-agent runtime from Nous Research — the missing
-*agent loop* layer between raw LLM chat and channel-specific adapters like
-OpenClaw. It exposes an OpenAI-compatible API on port 8642 and a web
-dashboard on port 9119.
+Hermes is a programmable AI-agent runtime from Nous Research. It adds the
+agent loop between raw LLM chat and channel adapters such as OpenClaw. It
+exposes an OpenAI-compatible API on container port 8642 and a web dashboard on
+container port 9119.
 
 Key facts:
 
-- **File-based persistence** — everything lives under `/opt/data` (the
-  `hermes-data` named volume). No Postgres / Redis dependency.
-- **No GPU required** — Hermes is an orchestrator; inference is delegated to
-  whatever endpoint `model.base_url` points at. Stack default routes through
-  the LiteLLM gateway.
-- **MCP-native** — first-class client for any MCP server.
-- **64K-context floor** — Hermes preflight-checks the model's context
-  window. `HERMES_DEFAULT_MODEL` MUST be a ≥64K-context model. Stock Ollama
-  default contexts are VRAM-dependent (4k/32k/256k) and usually below 64K — set `OLLAMA_CONTEXT_LENGTH=65536` on the
-  Ollama server (or `/set parameter num_ctx 65536` + `/save <model>` inside
-  `ollama run`), or use a cloud model.
-- **Disk footprint** — verified at **~5.66 GB** on `linux/amd64` and
-  `linux/arm64` (the image is multi-arch — works on Apple Silicon and
-  standard Linux servers). Plan-time estimates put it at 2.6 GB; the
-  actual size is over 2x that. Plan disk space accordingly.
-- **Bundles 87 default skills** — synced into `/opt/data/skills/` on every
-  container start. `init-hermes.sh` removes the old
-  `creative-comfyui-host-override.md` (Hermes never loaded it) and installs
-  the companion skill `creative/atlas-comfyui-host/SKILL.md`, which tells the
-  agent the in-network ComfyUI host; it is guidance, not an override.
+- **File-based persistence** — all state lives under `/opt/data` (the
+  `hermes-data` named volume). Hermes needs no Postgres or Redis.
+- **No GPU** — Hermes orchestrates; the model endpoint in `model.base_url`
+  does the inference. The stack default is the LiteLLM gateway.
+- **MCP client** — Hermes can call any MCP server.
+- **64K context floor** — Hermes checks the model's context window at
+  preflight. `HERMES_DEFAULT_MODEL` must have a context window of at least
+  64K. Stock Ollama default contexts depend on VRAM (4K/32K/256K) and are
+  often lower. Set `OLLAMA_CONTEXT_LENGTH=65536` on the Ollama server, run
+  `/set parameter num_ctx 65536` + `/save <model>` inside `ollama run`, or use
+  a cloud model.
+- **Disk** — the image is multi-arch (`linux/amd64`, `linux/arm64`) and
+  large: about 3.7 GB unpacked on arm64.
+- **Bundled skills** — the image ships its skills under `/opt/hermes/skills`.
+  `hermes-init` adds the companion skill
+  `creative/atlas-comfyui-host/SKILL.md` under `/opt/data/skills/`. It gives
+  the agent the in-network ComfyUI host; it is guidance, not an override.
 
 ## 2. Access
 
@@ -41,7 +38,7 @@ Key facts:
 | OpenAI-compatible API (direct) | `http://localhost:${HERMES_API_PORT}` (default 63072) | Bearer token: `${HERMES_API_KEY}`. Same surface as OpenAI's `/v1/chat/completions`. |
 | Dashboard (direct) | `http://localhost:${HERMES_DASHBOARD_PORT}` (default 63073) | Web admin UI for skills, sessions, model config. |
 | Dashboard (Kong) | `http://hermes.localhost:63000` | Requires `./start.sh --setup-hosts`. Kong asks for the dashboard credential (`DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`); the dashboard itself has no login. |
-| Internal DNS (other containers) | `http://hermes:8642` | Reachable from LiteLLM, n8n, jupyterhub; backend + openclaw have the env pre-wired but do not yet call it (see §10.2). |
+| Internal DNS (other containers) | `http://hermes:8642` | Reachable from LiteLLM, n8n, jupyterhub; Backend and OpenClaw get the endpoint but do not call it yet (see §6). |
 
 See the canonical port table at [Ports and Routes](../../docs/reference/ports-routes.md).
 
@@ -56,8 +53,8 @@ Hermes is wired into the stack in two directions:
    a `hermes-agent` row to LiteLLM's `model_list` when `HERMES_SOURCE !=
    disabled`. Consequence: Open WebUI, n8n, backend and JupyterHub see
    `hermes-agent` in their model lists automatically — no per-consumer
-   wiring. OpenClaw sees it once its OpenAI provider `baseUrl` points at
-   LiteLLM (an onboarding step; see the OpenClaw README).
+   wiring. OpenClaw sees it through its `litellm` provider (see the
+   [OpenClaw README](../openclaw/README.md)).
 
 The loop is intentional. Hermes is the agent runtime above raw chat; LiteLLM
 is the single front door for LLM traffic.
@@ -70,14 +67,13 @@ environment. When the underlying service is enabled, Hermes gets:
 | Hermes feature | Stack service | Mechanism |
 |---|---|---|
 | LLM reasoning | LiteLLM | `model.provider: custom`, `base_url: http://litellm:4000/v1` |
-| TTS (text-to-speech) | Speaches (Kokoro/Piper, default) / Chatterbox (voice cloning) | `tts.provider: openai`, `tts.openai.base_url: ${TTS_ENDPOINT}/v1` — auto-set from the active TTS engine (e.g. `http://speaches:8000/v1` or `http://chatterbox:4123/v1`); the key is the placeholder `VOICE_TOOLS_OPENAI_KEY=not-required`, so audio never reaches api.openai.com even when `OPENAI_API_KEY` is set. With TTS disabled the block is omitted and Hermes falls back to its default `edge` provider, which installs `edge-tts` on demand and sends the text to Microsoft's Edge TTS cloud service (not OpenAI). |
-| STT (speech-to-text) | Speaches (Faster-Whisper, default) / Parakeet (NVIDIA NeMo) / whisper.cpp (Apple Silicon) | `stt.provider: openai`, `stt.openai.base_url: ${STT_ENDPOINT}/v1`, `stt.openai.api_key: ${STT_INTERNAL_API_KEY}` (placeholder `not-required` when blank; Hermes ignores the base URL without a key) — all derived from the active STT engine |
+| TTS (text-to-speech) | Speaches (Kokoro/Piper, default) / Chatterbox (voice cloning) | `tts.provider: openai`, `tts.openai.base_url: ${TTS_ENDPOINT}/v1`, set from the active TTS engine (for example `http://speaches:8000/v1` or `http://chatterbox:4123/v1`). The key is the placeholder `VOICE_TOOLS_OPENAI_KEY=not-required`, so audio never reaches api.openai.com, even when `OPENAI_API_KEY` is set. With TTS disabled, init omits the block. Hermes then uses its default `edge` provider, which sends the text to Microsoft's Edge TTS cloud service. |
+| STT (speech-to-text) | Speaches (Faster-Whisper, default) / Parakeet (NVIDIA NeMo) / whisper.cpp (Apple Silicon) | `stt.provider: openai`, `stt.openai.base_url: ${STT_ENDPOINT}/v1`, `stt.openai.api_key: ${STT_INTERNAL_API_KEY}`, all set from the active STT engine. Hermes ignores the base URL without a key, so init writes the placeholder `not-required` when the key is blank. |
 | Web search | SearXNG | `SEARXNG_URL=http://searxng:8080` on the hermes container plus `web.search_backend: searxng` |
-| Image generation | ComfyUI | Companion skill `/opt/data/skills/creative/atlas-comfyui-host/SKILL.md` telling the agent ComfyUI is at `http://comfyui:18188`; the bundled `comfyui` skill still hardcodes `127.0.0.1:8188`, so this is guidance, not a config override. |
+| Image generation | ComfyUI | Companion skill `/opt/data/skills/creative/atlas-comfyui-host/SKILL.md` tells the agent that ComfyUI is at `http://comfyui:18188`. The bundled `creative/comfyui` skill still uses `127.0.0.1:8188`, so this is guidance, not a config override. |
 
-When a dependency is `disabled`, the corresponding block is omitted from
-`config.yaml` and Hermes simply doesn't expose that capability. Graceful
-degradation; no failure.
+When a dependency is `disabled`, init omits its block from `config.yaml` and
+Hermes does not offer that capability. Startup does not fail.
 
 ## 4. Configuration
 
@@ -97,26 +93,28 @@ HERMES_CPU_LIMIT=2.0
 ```
 
 **Auto-default model.** When `HERMES_DEFAULT_MODEL` is blank, `hermes-init`
-queries `http://litellm:4000/v1/models` at startup and picks the first
-match from a priority list (`ollama/qwen3.8:latest` → `claude-sonnet-4-6`
-→ `claude-opus-4-7` → `gpt-5` → `gpt-5-codex` → `gpt-5-mini` → first
-available non-hermes-agent model). Cheapest-local-first, big-context-
-cloud-second. Operator-supplied values are never overridden.
+queries `http://litellm:4000/v1/models` at startup. It picks the first match
+from a priority list: `ollama/qwen3.8:latest` → `claude-sonnet-4-6` →
+`claude-opus-4-7` → `gpt-5` → `gpt-5-codex` → `gpt-5-mini`. If none matches,
+it picks the first remaining chat model, excluding `hermes-agent`, `lightrag`
+and embedding models. If no chat model is available, `hermes-init` fails and
+Hermes does not start; set `HERMES_DEFAULT_MODEL`. An operator value is never
+overridden.
 
-**Dashboard Chat tab.** The dashboard always embeds a PTY-backed
-`hermes --tui` session (`/api/pty`, `/api/ws`) as a Chat tab: Hermes
-v2026.6.19 hard-codes it on and ignores `HERMES_DASHBOARD_TUI`, so `0` does
-**not** produce a read-only dashboard. That tab is a full agent with a
-terminal tool, reachable without login on the direct port and from peers on
-the backend network while `HERMES_DASHBOARD_INSECURE=true`, and the agent's
-environment and `/opt/data/config.yaml` hold `LITELLM_MASTER_KEY`. To remove
-it, set `HERMES_DASHBOARD_ENABLED=false` (or require Nous Portal OAuth with
-`HERMES_DASHBOARD_INSECURE=false`). Reference: [upstream Web-Dashboard docs](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard).
+**Dashboard Chat tab.** Hermes v2026.6.19 always embeds a `hermes --tui`
+terminal as a Chat tab (`/api/pty`, `/api/ws`) and ignores
+`HERMES_DASHBOARD_TUI`. The tab is a full agent with a terminal tool. While
+`HERMES_DASHBOARD_INSECURE=true`, it needs no login on the direct port or from
+backend-network peers. The agent can read `LITELLM_MASTER_KEY` from its
+environment and from `/opt/data/config.yaml`. To remove the tab, set
+`HERMES_DASHBOARD_ENABLED=false`; to require Nous Portal OAuth, set
+`HERMES_DASHBOARD_INSECURE=false`. Reference: [upstream Web-Dashboard
+docs](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard).
 
 Use `./start.sh` for the guided wizard, or pass `--hermes-source <option>`
 for scripted changes.
 
-`STT_INTERNAL_API_KEY` resolves to `PARAKEET_API_TOKEN` only for a Parakeet source, to `sk-unused` for other enabled STT engines, and to empty when STT is disabled. `hermes-init` writes it into the server-side provider configuration; it is not a browser credential and must not be emitted in tool output.
+`STT_INTERNAL_API_KEY` resolves to `PARAKEET_API_TOKEN` for a Parakeet source, to `sk-unused` for other enabled STT engines, and to empty when STT is disabled. `hermes-init` writes it into the server-side provider configuration. It is not a browser credential; do not emit it in tool output.
 
 ### 4.1. Containerize vs. localhost
 
@@ -127,84 +125,48 @@ for scripted changes.
 | Microphone-driven live voice mode | `localhost` (container mic passthrough is non-trivial) |
 | Resource-constrained machine | `disabled` |
 
-With `localhost`, LiteLLM's `hermes-agent` route sends Atlas's `HERMES_API_KEY` as the bearer token, so set `HERMES_API_KEY` in `.env` to the host instance's own `API_SERVER_KEY`; otherwise every call through LiteLLM returns 401. The host instance also renders none of the config above (TTS, STT, SearXNG, ComfyUI); configure those on the host yourself.
+With `localhost`, LiteLLM's `hermes-agent` route sends Atlas's `HERMES_API_KEY` as the bearer token. Set `HERMES_API_KEY` in `.env` to the host instance's own `API_SERVER_KEY`, or every call through LiteLLM returns 401. Atlas renders none of the config above (TTS, STT, SearXNG, ComfyUI) for a host instance; configure it on the host.
 
 ## 5. Known caveats
 
 - **`HERMES_UID` cannot be `0`** — the upstream entrypoint runs
-  `usermod -u $HERMES_UID hermes` to remap the in-container user, which
-  fails with `usermod: UID '0' already exists` (root). Stack default is
-  `10000`; keep it non-zero.
+  `usermod -u $HERMES_UID hermes`, which fails with
+  `usermod: UID '0' already exists`. The stack default is `10000`; keep it
+  non-zero.
 - **Gateway warning on first boot** — the gateway logs
   `WARNING gateway.run: No user allowlists configured. All unauthorized
-  users will be denied.` This is about Hermes's *messaging-platform*
-  allowlists (Telegram, Discord, etc.), NOT the OpenAI-compatible API
-  surface. Set `GATEWAY_ALLOW_ALL_USERS=true` in `~/.hermes/.env`, or
-  configure per-platform allowlists (`TELEGRAM_ALLOWED_USERS=...`,
-  `DISCORD_ALLOWED_USERS=...`) when wiring messaging channels through
-  OpenClaw.
-- **Image tag scheme — moving `latest`, immutable `sha-...`, dated CalVer** —
-  upstream publishes the moving `latest` tag, immutable `sha-<commit>` tags,
-  and dated `vYYYY.M.D` release tags (no `v0.13.0`-style semver). The default
-  pins `nousresearch/hermes-agent:v2026.6.19` — a concrete dated release
-  rather than the moving `latest`, so rebuilds are reproducible; production
-  deployments can pin even tighter to a specific sha:
+  users will be denied.` This applies to the messaging-platform allowlists
+  (Telegram, Discord and others), not to the OpenAI-compatible API. When you
+  connect messaging channels, set `GATEWAY_ALLOW_ALL_USERS=true` in
+  `/opt/data/.env` (`HERMES_HOME` in the container). Or configure
+  per-platform allowlists (`TELEGRAM_ALLOWED_USERS=...`,
+  `DISCORD_ALLOWED_USERS=...`).
+- **Image pin** — Atlas pins the dated release
+  `nousresearch/hermes-agent:v2026.6.19`. Upstream also publishes immutable
+  `sha-<commit>` tags. To pin one build, set `HERMES_IMAGE` to a `sha-` tag:
 
   ```bash
-  # In .env — pin a specific build digest
+  # In .env — pin a specific build
   HERMES_IMAGE=nousresearch/hermes-agent:sha-e85592591e8028cceecb0ea2b4992a1643b52f93
   ```
 
-  Latest tags are listed at
-  <https://hub.docker.com/r/nousresearch/hermes-agent/tags>. If a fresh
-  `latest` introduces a regression, picking the previous sha tag is a
-  one-line rollback.
-- **ComfyUI hardcoded URL** — Hermes's bundled `creative-comfyui` skill
-  defaults to `127.0.0.1:8188`. The companion skill `creative/atlas-comfyui-host`
-  under `/opt/data/skills/` gives the in-network host. If a workflow ignores it, the fallback is
-  to add a `socat` sidecar mapping `127.0.0.1:8188 → comfyui:18188`.
-- **STT base_url override is undocumented** — Hermes documents `base_url`
-  override for the OpenAI TTS provider; STT may need a fallback to
-  `provider: command` with a `HERMES_LOCAL_STT_COMMAND`-style curl. See the
-  comment in `services/hermes/init/templates/config.yaml.tmpl`.
-- **64K context floor** — small Ollama models (small default contexts) will fail
-  Hermes's preflight check. Raise it via `OLLAMA_CONTEXT_LENGTH=65536`
-  on the Ollama server, or `/set parameter num_ctx 65536` + `/save <model>`
-  inside `ollama run <model>`
-  or pick a cloud model.
+  Tags are listed at <https://hub.docker.com/r/nousresearch/hermes-agent/tags>.
+- **ComfyUI hard-coded URL** — the bundled `creative/comfyui` skill uses
+  `127.0.0.1:8188`. The companion skill `creative/atlas-comfyui-host` under
+  `/opt/data/skills/` gives the in-network host. If a workflow ignores it,
+  add a `socat` sidecar that maps `127.0.0.1:8188 → comfyui:18188`.
 - **Open WebUI model-list cache** — Open WebUI caches the LiteLLM model list
   for 5 minutes (`MODELS_CACHE_TTL=300`). After first start, `hermes-agent`
-  may take up to 5 minutes to appear in the dropdown. Set
-  `OPEN_WEB_UI_MODEL_CACHE_TTL=0` to disable while developing.
+  can take up to 5 minutes to appear in the dropdown. Set
+  `OPEN_WEB_UI_MODEL_CACHE_TTL=0` to disable the cache while you develop.
 
 ## 6. Integration notes
 
-Depends on (must be alive for Hermes to be useful):
-
-- **LiteLLM gateway** — `http://litellm:4000` — Hermes refuses to operate
-  without a reachable LLM endpoint.
-
-Optionally consumes (wired automatically when the SOURCE != disabled):
-
-- **TTS provider** (`TTS_PROVIDER_SOURCE`) — Speaches / Chatterbox / disabled
-- **STT provider** (`STT_PROVIDER_SOURCE`) — Speaches / Parakeet / whisper.cpp / disabled
-- **ComfyUI** (`COMFYUI_SOURCE`)
-- **SearXNG** (`SEARXNG_SOURCE`)
-
-Consumed by (the `hermes-agent` model name appears in their dropdowns or
-their env exposes `HERMES_ENDPOINT`):
-
-- **Open WebUI** — `hermes-agent` model in the chat dropdown (via LiteLLM).
-- **n8n** — `hermes-agent` callable from any HTTP-Request or AI node; also
-  `HERMES_ENDPOINT` in the worker process env.
-- **Backend API** — `HERMES_ENDPOINT` + `HERMES_API_KEY` are injected into the
-  backend env, pre-wired for a future direct path to the agent loop; no backend
-  code references them today, so this consumption is not yet exercised.
-- **JupyterHub** — notebooks see `HERMES_ENDPOINT` for direct calls; also
-  the `hermes-agent` model via LiteLLM.
-- **OpenClaw** — `HERMES_ENDPOINT` + `HERMES_API_KEY` are pre-wired for a future
-  bridge from Hermes agents to messaging channels (WhatsApp / Telegram /
-  Discord); per OpenClaw's README this path is not yet called.
+Hermes needs LiteLLM. TTS, STT, ComfyUI and SearXNG are optional (§3.1).
+Open WebUI, n8n and JupyterHub reach Hermes as the `hermes-agent` LiteLLM
+model. n8n and JupyterHub also get `HERMES_ENDPOINT` for direct calls. Backend
+and OpenClaw receive `HERMES_ENDPOINT` and `HERMES_API_KEY` but do not call
+Hermes yet.
 
 ## 7. References
 
@@ -215,18 +177,21 @@ their env exposes `HERMES_ENDPOINT`):
 
 ## 8. RAG capability via LightRAG
 
-Hermes has no direct LightRAG tool: this release cannot declare an HTTP tool in `config.yaml` (its `tools:` section holds built-in tool settings), so the former `rag_query` entry was silently ignored and has been removed. LightRAG stays reachable as the `lightrag` model through LiteLLM. `LIGHTRAG_INTERNAL_URL` / `LIGHTRAG_API_KEY` are still passed to hermes-init for a future MCP or skill integration.
+Hermes has no direct LightRAG tool. This release cannot declare an HTTP tool in `config.yaml`; its `tools:` section holds only built-in tool settings. LightRAG is reachable as the `lightrag` model through LiteLLM. `LIGHTRAG_INTERNAL_URL` and `LIGHTRAG_API_KEY` reach hermes-init for a future MCP or skill integration.
 
 ## 9. Hermes → Airflow integration
 
-Hermes can trigger Airflow DAG runs via the Airflow REST API. Airflow 3.x's
-public `/api/v2/` uses JWT bearer tokens, not HTTP basic auth — exchange
-the admin password for a JWT first, then trigger:
+Hermes can trigger Airflow DAG runs through the Airflow REST API. Airflow
+3.x's public `/api/v2/` uses JWT bearer tokens, not HTTP basic auth.
+Exchange the admin password for a JWT, then trigger the run. Run from the
+repository root; the commands read the values from `.env`:
 
 ```bash
+env_get() { grep "^$1=" .env | cut -d= -f2-; }
+KONG_HTTP_PORT=$(env_get KONG_HTTP_PORT)
 TOKEN=$(curl -fsS -X POST \
   -H 'Content-Type: application/json' \
-  -d "{\"username\":\"admin\",\"password\":\"${AIRFLOW_ADMIN_PASSWORD}\"}" \
+  -d "{\"username\":\"admin\",\"password\":\"$(env_get AIRFLOW_ADMIN_PASSWORD)\"}" \
   http://airflow.localhost:${KONG_HTTP_PORT}/auth/token | jq -r .access_token)
 
 curl -fsS -X POST \
@@ -236,10 +201,9 @@ curl -fsS -X POST \
   http://airflow.localhost:${KONG_HTTP_PORT}/api/v2/dags/example_etl_with_llm/dagRuns
 ```
 
-This is the agent-runtime → orchestrated-workflow pattern — Hermes
-detects a request, decides a long-running pipeline is needed, and
-triggers an Airflow DAG. See `services/airflow/README.md` for the
-example DAG.
+In this pattern, Hermes decides that a request needs a long-running pipeline
+and triggers an Airflow DAG. See the [Airflow README](../airflow/README.md)
+for the example DAG.
 
 ## 10. Dependencies & Integrations
 
@@ -255,7 +219,7 @@ _Rows marked planned are documented or intended, not wired yet._
 | stt-provider | media | current |
 | tts-provider | media | current |
 | airflow | agents | planned |
-| lightrag | agents | current |
+| lightrag | agents | planned |
 
 ### 10.2. Current — Downstream (services that call this)
 
@@ -277,9 +241,9 @@ _Rows marked planned are documented or intended, not wired yet._
 - **hermes ↔ neo4j** — *Why:* Adds durable cross-session episodic memory (entities, relations) queryable from other services, replacing flat-file state under `/opt/data`. *Mechanism:* Custom skill over `bolt://neo4j-graph-db:7687` exposed as a `memory.graph` tool. *Effort:* medium. *Confidence:* medium.
 - **hermes ↔ weaviate** — *Why:* Semantic recall across sessions and ingested docs, reusing the in-stack `multi2vec-clip` vectorizer. *Mechanism:* Skill calling `http://weaviate:8080/v1/objects` against a `HermesMemory` class. *Effort:* medium. *Confidence:* medium.
 - **hermes ↔ minio** — *Why:* Skill outputs (ComfyUI images, STT transcripts) get shareable URLs other services can fetch instead of being trapped in a bind mount. *Mechanism:* New `hermes-artifacts` bucket via the existing `minio-init` IAM pattern; S3 SigV4 against `http://minio:9000`. *Effort:* small. *Confidence:* high.
-- **hermes ↔ n8n** — *Why:* Reverses the current one-way edge so Hermes can invoke n8n workflows as tools, turning 400+ n8n connectors into Hermes capabilities without per-platform skills. *Mechanism:* Generic "call-n8n" skill POSTing to `http://n8n:5678/webhook/<id>` with `N8N_WEBHOOK_TOKEN`. *Effort:* small. *Confidence:* high.
+- **hermes ↔ n8n** — *Why:* Reverses the one-way edge so Hermes can call n8n workflows as tools. The 400+ n8n connectors then become Hermes capabilities without per-platform skills. *Mechanism:* Generic "call-n8n" skill POSTing to `http://n8n:5678/webhook/<id>` with `N8N_WEBHOOK_TOKEN`. *Effort:* small. *Confidence:* high.
 - **hermes ↔ doc-processor** — *Why:* Lets Hermes answer questions about uploaded PDFs by routing them through the in-stack Docling parser before context or vector ingest. *Mechanism:* Skill POSTing multipart to `http://docling-gpu:8000/v1/document/convert`. *Effort:* small. *Confidence:* high.
-- **hermes ↔ supabase** — *Why:* A JWT-scoped shared session store lets one Hermes session follow a user across Open WebUI, JupyterHub, and OpenClaw instead of being pinned to single-tenant `/opt/data`. *Mechanism:* Skill writing to `hermes_sessions` via PostgREST at `http://supabase-api:3000`, keyed by Supabase JWT `sub`. *Effort:* medium. *Confidence:* medium.
+- **hermes ↔ supabase** — *Why:* A JWT-scoped shared session store lets one Hermes session follow a user across Open WebUI, JupyterHub and OpenClaw. Sessions are then not pinned to single-tenant `/opt/data`. *Mechanism:* Skill writing to `hermes_sessions` via PostgREST at `http://supabase-api:3000`, keyed by Supabase JWT `sub`. *Effort:* medium. *Confidence:* medium.
 
 ### 10.5. Future — Candidate new services
 
@@ -295,7 +259,11 @@ _No high-confidence opportunities identified._
 
 ## 11. Troubleshooting
 
+Run from the repository root; the commands read keys and ports from `.env`.
+
 ```bash
+env_get() { grep "^$1=" .env | cut -d= -f2-; }
+
 # Service status
 docker compose ps hermes hermes-init
 
@@ -304,13 +272,12 @@ docker compose logs -f hermes
 docker compose logs hermes-init   # one-shot config rendering
 
 # Verify the OpenAI-compatible API is up
-HERMES_KEY=$(grep ^HERMES_API_KEY .env | cut -d= -f2)
-curl -fsS http://localhost:${HERMES_API_PORT}/v1/models \
-  -H "Authorization: Bearer ${HERMES_KEY}" | jq .
+curl -fsS http://localhost:$(env_get HERMES_API_PORT)/v1/models \
+  -H "Authorization: Bearer $(env_get HERMES_API_KEY)" | jq .
 
 # Verify hermes-agent appears in LiteLLM's model_list
-curl -fsS http://localhost:63040/v1/models \
-  -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" | jq '.data[].id' | grep hermes
+curl -fsS http://localhost:$(env_get LITELLM_PORT)/v1/models \
+  -H "Authorization: Bearer $(env_get LITELLM_MASTER_KEY)" | jq '.data[].id' | grep hermes
 
 # Inspect the rendered config Hermes is using
 docker compose exec hermes cat /opt/data/config.yaml
@@ -320,14 +287,14 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 
 ## 12. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | LiteLLM-backed programmable agent | supported | tested | Atlas renders one usable default chat model from LiteLLM, filters recursive aliases, and exposes Hermes back through LiteLLM as hermes-agent. |
-| Source-aware agent tools | partial | tested | Init renders enabled speech and SearXNG settings in the shape Hermes reads plus a ComfyUI host companion skill, while unavailable services are omitted; LightRAG is reachable only through LiteLLM and Airflow triggering remains a user-authored skill or curl pattern. |
-| Container and operator-host lifecycle | partial | tested | Atlas manages the container and its generated config, but localhost mode only resolves an operator-run API and dashboard and cannot guarantee its setup, tools, or process supervision. |
-| Hermes API and dashboard authentication | partial | documented | The OpenAI-compatible API uses HERMES_API_KEY and hermes.localhost requires the Kong dashboard Basic credential, but the dashboard runs in upstream insecure mode, so the direct host port and backend-network peers reach it without authentication. |
+| Source-aware agent tools | partial | tested | Init renders enabled speech and SearXNG settings in the shape Hermes reads, plus a ComfyUI host companion skill. Unavailable services are omitted. LightRAG is reachable only through LiteLLM. Airflow triggering remains a user-authored skill or curl pattern. |
+| Container and operator-host lifecycle | partial | tested | Atlas manages the container and its generated config. Localhost mode only resolves an operator-run API and dashboard, and cannot guarantee their setup, tools, or process supervision. |
+| Hermes API and dashboard authentication | partial | documented | The OpenAI-compatible API uses HERMES_API_KEY, and hermes.localhost requires the Kong dashboard Basic credential. The dashboard runs in upstream insecure mode, so the direct host port and backend-network peers reach it without authentication. |
 | Agent workspace persistence | partial | documented | Sessions, memories, skills, auth, and logs persist in one hermes-data volume, with no shared database, tenant isolation, replication, or cross-service artifact store. |
-| Backend and OpenClaw direct bridges | stubbed | tested | Atlas injects Hermes endpoint credentials into Backend and OpenClaw, but neither currently calls the promised direct bridge; Open WebUI and n8n use LiteLLM or manual HTTP paths instead. |
-| Untrusted autonomous tool isolation | not-supported | documented | Hermes skills can execute tools and code with the runtime's mounted workspace and network access; Atlas provides no per-user sandbox or policy engine for untrusted agent execution. |
+| Backend and OpenClaw direct bridges | stubbed | tested | Atlas injects Hermes endpoint credentials into Backend and OpenClaw, but neither currently calls the promised direct bridge. Open WebUI and n8n use LiteLLM or manual HTTP paths instead. |
+| Untrusted autonomous tool isolation | not-supported | documented | Hermes skills can execute tools and code with the runtime's mounted workspace and network access. Atlas provides no per-user sandbox or policy engine for untrusted agent execution. |

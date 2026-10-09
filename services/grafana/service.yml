@@ -37,6 +37,7 @@ sources:
 
 env:
   - name: GRAFANA_SOURCE
+    description: "Deployment source for Grafana: container or disabled."
     default: disabled
   - name: GRAFANA_PORT
     # default removed — computed by services/topology.py slot allocator
@@ -46,10 +47,12 @@ env:
     description: "Grafana admin login. Override in .env if needed."
   - name: GRAFANA_ADMIN_PASSWORD
     default: ""
-    description: "Auto-generated on first bootstrap by generate_grafana_admin_password() (mirrors LiteLLM UI_PASSWORD pattern). Persisted to .env. Grafana applies it only when it creates its database (first start on an empty grafana-data volume); to rotate later, run `grafana cli admin reset-admin-password` in the container and update .env to match."
+    description: "Auto-generated on first bootstrap and saved to .env. Grafana applies it only when it creates its database on an empty grafana-data volume. To rotate, run `grafana cli admin reset-admin-password` in the container, then update .env."
   - name: GRAFANA_ENDPOINT
+    description: "Set by ./start.sh from GRAFANA_SOURCE; do not edit. http://grafana:3000 for the container source, empty when disabled."
     auto_managed: true
   - name: GRAFANA_SCALE
+    description: "Set by ./start.sh from GRAFANA_SOURCE; do not edit. 1 runs grafana, 0 does not."
     auto_managed: true
 
 depends_on:
@@ -108,6 +111,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

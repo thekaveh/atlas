@@ -183,6 +183,6 @@ echo ""
 # directly. Without `exec`, the shell would still own PID 1 and would have
 # to forward signals manually.
 #
-# See services/jupyterhub/README.md §10.3.1 for the full ENTRYPOINT → CMD
+# See services/jupyterhub/README.md §10.3 for the full ENTRYPOINT → CMD
 # → start-notebook.sh → jupyter lab chain.
 exec "$@"

@@ -29,7 +29,7 @@ class RootPage(NamedTuple):
     page_id: str
     title: str       # H1 after the manifest number
     site: str        # site path
-    wiki: str        # wiki slug after the number
+    wiki: str        # wiki page name (stable, unnumbered)
     link: str        # the documentation map's link text
 
 
@@ -61,7 +61,7 @@ def test_root_page_is_a_manifest_page_with_stable_routes(root: RootPage) -> None
 
     assert page.id == root.page_id
     assert page.site_path.as_posix() == root.site
-    assert page.wiki_path.as_posix() == f"{page.number}-{root.wiki}.md"
+    assert page.wiki_path.as_posix() == f"{root.wiki}.md"
 
 
 @pytest.mark.parametrize("root", ROOT_PAGES)

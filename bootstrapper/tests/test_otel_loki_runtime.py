@@ -383,7 +383,7 @@ def test_otlp_log_survives_loki_outage_with_correlation_and_redaction() -> None:
                                         f"client-secret:'{hyphen_key_secret}'; "
                                         f"[password:{bracket_secret}]; "
                                         f"xauthorization: Bearer {suffix_authorization_text}; "
-                                        f"not_token={suffix_token_text}; "
+                                        f"nottoken={suffix_token_text}; "
                                         f"secretive={nonsecret_text}; durable-smoke"
                                     )
                                 },

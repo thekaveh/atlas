@@ -20,7 +20,7 @@ capabilities:
   - name: "Authenticated Iceberg REST API access"
     status: not-supported
     verification: documented
-    note: "The Compose-network API and host-published ICEBERG_REST_PORT have no Atlas authentication; set HOST_BIND_IP=127.0.0.1: or remove the iceberg-rest ports: publish before use on shared hosts."
+    note: "The Compose-network API and host-published ICEBERG_REST_PORT have no Atlas authentication. Keep the default HOST_BIND_IP=127.0.0.1:, or remove the iceberg-rest ports: publish, before use on shared hosts."
 
 containers:
   - iceberg-rest
@@ -46,10 +46,12 @@ sources:
 
 env:
   - name: ICEBERG_REST_SOURCE
+    description: "Deployment source for the Iceberg REST catalog: container or disabled. The container source requires MINIO_SOURCE to be enabled."
     default: disabled
   - name: ICEBERG_REST_PORT
     description: "Host port for the Iceberg REST Catalog API (in-container 8181)."
   - name: ICEBERG_DB_USER
+    description: "Scoped Postgres login for the catalog JDBC store (database iceberg). Supabase db-init (05-scoped-roles.sh) creates it."
     default: iceberg
   - name: ICEBERG_DB_PASSWORD
     default: atlas-db-password
@@ -62,8 +64,10 @@ env:
     default: "3759e7160591863e5100361298943df94488a6e4ee03936d20723638142fe8038c9a6a47fa8ee7e424f4ef09bb351edc89dfe2ae4acdfc0f92699a8b00196c5c"
     description: "SHA-512 digest required for the PostgreSQL JDBC driver selected above. Update both values together."
   - name: ICEBERG_REST_SCALE
+    description: "Set by ./start.sh from ICEBERG_REST_SOURCE; do not edit. 1 runs iceberg-rest, 0 does not."
     auto_managed: true
   - name: ICEBERG_REST_INIT_SCALE
+    description: "Set by ./start.sh from ICEBERG_REST_SOURCE; do not edit. 1 runs iceberg-rest-init, 0 does not."
     auto_managed: true
 
 depends_on:
@@ -114,6 +118,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

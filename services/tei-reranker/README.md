@@ -6,28 +6,24 @@
 
 ## 1. Overview
 
-HuggingFace `text-embeddings-inference` running `mixedbread-ai/mxbai-rerank-base-v1` — a cross-encoder reranker that scores `(query, passage)` pairs. Use it as a quality lift on top of any first-stage retriever (vector search, BM25, hybrid). The image exposes a stable `/rerank` HTTP endpoint and a `/health` probe.
+Hugging Face `text-embeddings-inference` (TEI) running `mixedbread-ai/mxbai-rerank-base-v1`, a cross-encoder that scores `(query, passage)` pairs. Use it to reorder results from any first-stage retriever (vector, BM25 or hybrid). The image exposes `/rerank` and a `/health` probe.
 
-**Why this model:** mxbai-rerank-base-v1 ships ONNX out of the box (so the amd64 ORT backend in `cpu-1.9` loads it cleanly) AND is light enough (~184 M params) that the arm64 candle backend in `cpu-arm64-latest` completes warmup successfully on Apple Silicon. BGE-reranker-v2-m3 was the original spec'd model but its safetensors-only distribution + ~560 M params caused the arm64 candle backend to crash silently during warmup (RestartCount climbed in live smoke until the model was swapped 2026-06-07).
+**Why this model:** mxbai-rerank-base-v1 ships ONNX weights, which the amd64 ORT backend in `cpu-1.9` needs. It is also small enough (~184 M params) for the arm64 Candle backend in `cpu-arm64-latest` to finish warmup on Apple Silicon.
 
-The service is reusable by consumers that send TEI's request body shape (`query` plus `texts`). Atlas never wires stock LightRAG *directly* to TEI, because LightRAG's built-in Jina/Cohere rerank clients send `query` plus `documents`, which TEI rejects. LightRAG reaches this reranker through the backend rerank adapter (`POST /lightrag/rerank`, #415), which translates `{query, documents}` ↔ `{query, texts}`; enable it with `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` (see the [backend README §5.1](../backend/README.md#51-lightrag--tei-rerank-adapter-post-lightragrerank-415)).
+Any consumer that sends TEI's body shape (`query` plus `texts`) can call it. LightRAG's built-in Jina/Cohere clients send `query` plus `documents`, which TEI rejects, so Atlas never wires LightRAG directly to TEI. LightRAG uses the backend rerank adapter (`POST /lightrag/rerank`), which translates between the two shapes. Enable it with `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` (see the [backend README §5.1](../backend/README.md)).
 
 ## 2. Source variants
 
 | Source | Container scale | Endpoint | Notes |
 |---|---|---|---|
 | `container-cpu` | 1 | `http://tei-reranker:80` | Default CPU image; runs on any host |
-| `container-gpu` | 1 | `http://tei-reranker:80` | CUDA image; needs NVIDIA |
+| `container-gpu` | 1 | `http://tei-reranker:80` | CUDA image. Compose does not request a GPU yet ([#1373](https://github.com/thekaveh/atlas/issues/1373)), so this variant gets no GPU access. |
 | `localhost` | 0 | `http://host.docker.internal:${TEI_RERANKER_LOCALHOST_PORT}` | Host-installed TEI |
 | `disabled` | 0 | `""` | Reranker service off |
 
-For every enabled source, Kong generates the `rerank.localhost` gateway alias.
-The `container-cpu` and `container-gpu` variants route it to
-`http://tei-reranker:80/`; the `localhost` variant routes it through
-`host.docker.internal:${TEI_RERANKER_LOCALHOST_PORT}`. Container callers can
-also use `http://tei-reranker:80`, while host callers can use the published
-`http://localhost:${TEI_RERANKER_PORT}` endpoint for a container variant or the
-host-installed TEI port directly for `localhost`.
+For every enabled source, Kong generates the `rerank.localhost` alias. Container variants route it to `http://tei-reranker:80/`; `localhost` routes it to `host.docker.internal:${TEI_RERANKER_LOCALHOST_PORT}`.
+
+Container callers can use `http://tei-reranker:80`. Host callers use the published `http://localhost:${TEI_RERANKER_PORT}` for a container variant, or the host TEI port for `localhost`.
 
 ## 3. Configuration
 
@@ -45,8 +41,11 @@ TEI_RERANKER_HF_CACHE_DIR=/data
 
 ## 4. Usage
 
+Run the host commands from the repository root. `TEI_RERANKER_PORT` defaults to `63041`.
+
 ```bash
 # Rerank passages
+TEI_RERANKER_PORT="$(sed -n 's/^TEI_RERANKER_PORT=//p' .env)"
 curl -s http://localhost:${TEI_RERANKER_PORT}/rerank \
   -H 'Content-Type: application/json' \
   -d '{
@@ -60,11 +59,13 @@ curl -s http://localhost:${TEI_RERANKER_PORT}/rerank \
 # → [{"index": 0, "score": ...}, ...]
 ```
 
-### 4.1. Stack-standard rerank via LiteLLM (#516)
+### 4.1. Stack-standard rerank via LiteLLM
 
-When `TEI_RERANKER_SOURCE != disabled` with a resolved endpoint, `litellm-init` also registers a **`tei-rerank`** model on the LiteLLM gateway, so any consumer gets a standard **Cohere-shaped `POST /v1/rerank`** fronting TEI — with LiteLLM's unified auth, cost logging, and retries — instead of bespoke per-consumer TEI wiring:
+When `TEI_RERANKER_SOURCE` is not `disabled` and the endpoint resolves, `litellm-init` registers a **`tei-rerank`** model on LiteLLM. Consumers then get a Cohere-shaped `POST /v1/rerank` in front of TEI, with LiteLLM's auth, cost logging and retries:
 
 ```bash
+LITELLM_PORT="$(sed -n 's/^LITELLM_PORT=//p' .env)"
+LITELLM_MASTER_KEY="$(sed -n 's/^LITELLM_MASTER_KEY=//p' .env)"
 curl -s http://localhost:${LITELLM_PORT}/v1/rerank \
   -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" \
   -H 'Content-Type: application/json' \
@@ -72,8 +73,8 @@ curl -s http://localhost:${LITELLM_PORT}/v1/rerank \
 # → {"results": [{"index": 0, "relevance_score": ...}, ...]}
 ```
 
-- **Note:** `/rerank` is **not** an OpenAI modality — it is the Cohere-shaped API (`{query, documents}`). LiteLLM registers TEI via the **`huggingface/`** rerank provider, which translates the Cohere request into TEI's native `{query, texts}` shape. The `infinity`/`jina`/`cohere` prefixes would send `{query, documents}` and break against TEI (the mismatch documented in `services/lightrag/service.yml`) — so the `huggingface/` prefix is pinned.
-- **Relationship to #415.** The backend `/lightrag/rerank` adapter still serves LightRAG's specific client shape; the LiteLLM `/v1/rerank` route is the stack-standard path for general consumers. No api_key is needed — TEI is unauthenticated in-network and the endpoint is resolved into `config.yaml` at init time.
+- **Provider prefix.** `/rerank` is the Cohere-shaped API (`{query, documents}`), not an OpenAI modality. LiteLLM registers TEI through the **`huggingface/`** rerank provider, which translates the request into TEI's `{query, texts}`. The `infinity`, `jina` and `cohere` prefixes send `{query, documents}`, which TEI rejects, so `huggingface/` is pinned.
+- **Backend adapter vs LiteLLM.** The backend `/lightrag/rerank` adapter serves LightRAG's client shape. LiteLLM `/v1/rerank` is the standard path for other consumers. No TEI API key is needed: TEI is unauthenticated in-network, and init writes the endpoint into `config.yaml`.
 
 ## 5. Dependencies & Integrations
 
@@ -110,21 +111,22 @@ _No high-confidence opportunities identified._
 ## 6. Health checks
 
 ```bash
+TEI_RERANKER_PORT="$(sed -n 's/^TEI_RERANKER_PORT=//p' .env)"
 curl -fs http://localhost:${TEI_RERANKER_PORT}/health   # 200 OK when up
 ```
 
-Container `start_period` is 300 s (first run downloads the ~740 MB model before the server binds).
+Container `start_period` is 300 s, because the first run downloads the model before the server binds.
 
 ## 7. Troubleshooting
 
 - **First boot logs optional HuggingFace artifact 404s** — expected for some reranker models. TEI probes optional Sentence Transformers files, logs 404 warnings when they are absent, then continues with the model artifacts it needs.
-- **Out of memory on CPU variant** — bump `TEI_RERANKER_MEMORY_LIMIT`. mxbai-rerank-base-v1 needs ~1.5 GB on CPU; the originally spec'd BGE-reranker-v2-m3 needed ~3 GB.
-- **Slow inference** — switch to `container-gpu` if NVIDIA is available; CPU latency is ~150 ms per pair vs ~15 ms on GPU.
+- **Out of memory on CPU variant** — raise `TEI_RERANKER_MEMORY_LIMIT`. mxbai-rerank-base-v1 needs about 1.5 GB on CPU.
+- **Slow inference** — CPU is the only working container variant until GPU device requests are wired ([#1373](https://github.com/thekaveh/atlas/issues/1373)). Lower `TEI_RERANKER_MAX_CLIENT_BATCH_SIZE`, or use the `localhost` source with a host TEI that has a GPU.
 - **Model not found** — verify `TEI_RERANKER_MODEL_ID` matches a public HF repo. Private repos need an `HF_TOKEN` env var (not wired by default; hand-add to the compose env block).
 
 ## 8. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|

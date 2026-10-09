@@ -21,7 +21,7 @@ capabilities:
   - name: "Authenticated Prometheus and exporter access"
     status: not-supported
     verification: tested
-    note: "The direct PROMETHEUS_PORT, NODE_EXPORTER_PORT, and CADVISOR_PORT publishes have no authentication, the CORS-only Kong prometheus.localhost route has no authentication, --web.enable-lifecycle is enabled; Kong answers 403 to /-/quit and /-/reload on prometheus.localhost (#1386), but the direct PROMETHEUS_PORT still accepts them, so any web page the operator visits can send a cross-site POST to http://localhost:<PROMETHEUS_PORT>/-/quit and stop Prometheus (CORS blocks only reading the reply), and default HOST_BIND_IP=127.0.0.1: keeps direct ports loopback-bound; set another value only for deliberate remote access, firewall or remove the direct ports, and use an authentication proxy or remove the Prometheus Kong route before exposure beyond a trusted host."
+    note: "The direct PROMETHEUS_PORT, NODE_EXPORTER_PORT, and CADVISOR_PORT publishes have no authentication. The CORS-only Kong prometheus.localhost route has no authentication. --web.enable-lifecycle is enabled. Kong answers 403 to /-/quit and /-/reload, but the direct port accepts them, so any web page can POST /-/quit and stop Prometheus. The default HOST_BIND_IP=127.0.0.1: keeps direct ports loopback-bound. Before wider exposure, firewall or remove the direct ports, and add an authentication proxy or remove the Prometheus Kong route."
 
 containers:
   - prometheus
@@ -50,6 +50,7 @@ sources:
 
 env:
   - name: PROMETHEUS_SOURCE
+    description: "Prometheus deployment source: container or disabled. Also turns the node-exporter, cAdvisor, postgres-exporter and redis-exporter sidecars on or off."
     default: disabled
   - name: PROMETHEUS_PORT
     # default removed — computed by services/topology.py slot allocator
@@ -67,10 +68,13 @@ env:
     auto_managed: true
     description: "Resolved per PROMETHEUS_SOURCE — `http://prometheus:9090` for container, empty for disabled. Consumed by Grafana's datasource provisioning."
   - name: PROMETHEUS_SCALE
+    description: "Set by ./start.sh from PROMETHEUS_SOURCE; do not edit. 1 runs the prometheus container, 0 does not."
     auto_managed: true
   - name: NODE_EXPORTER_SCALE
+    description: "Set by ./start.sh from PROMETHEUS_SOURCE; do not edit. 1 runs the node-exporter container, 0 does not."
     auto_managed: true
   - name: CADVISOR_SCALE
+    description: "Set by ./start.sh from PROMETHEUS_SOURCE; do not edit. 1 runs the cadvisor container, 0 does not."
     auto_managed: true
 
 depends_on:
@@ -177,6 +181,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

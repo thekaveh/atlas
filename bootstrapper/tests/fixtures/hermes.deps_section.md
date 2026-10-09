@@ -12,7 +12,7 @@ _Rows marked planned are documented or intended, not wired yet._
 | stt-provider | media | current |
 | tts-provider | media | current |
 | airflow | agents | planned |
-| lightrag | agents | current |
+| lightrag | agents | planned |
 
 ### 5.2. Current — Downstream (services that call this)
 

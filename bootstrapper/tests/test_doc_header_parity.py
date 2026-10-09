@@ -16,11 +16,15 @@ CANONICAL_SUBTITLE = (
     "source-configurable services wired together out of the box and selectable "
     "among the deployment modes each supports."
 )
+# A service family is a services/*/service.yml owner, the unit docs/index.md
+# also counts (test_docs_landing_grounding). Deriving it keeps the hero true.
+SERVICE_FAMILIES = len(list((ROOT / "services").glob("*/service.yml")))
 CANONICAL_SUMMARY = (
-    "Atlas is a self-hosted engineering platform that bundles 30+ services — "
-    "LLM inference and a gateway, vector and graph databases, workflow and DAG "
-    "automation, distributed compute, object storage, notebooks, and observability "
-    "— behind a Kong gateway and an adaptive FastAPI backend."
+    "Atlas is a self-hosted engineering platform that bundles "
+    f"{SERVICE_FAMILIES} service families behind a Kong gateway and an adaptive "
+    "FastAPI backend. They cover LLM inference and a gateway, vector and graph "
+    "databases, workflow and DAG automation, distributed compute, object storage, "
+    "notebooks, and observability."
 )
 
 README = ROOT / "README.md"
@@ -30,7 +34,9 @@ INDEX = ROOT / "docs" / "index.md"
 def test_readme_header_matches_canonical() -> None:
     text = README.read_text(encoding="utf-8")
     tagline = re.search(r"<strong>([^<]+)</strong>", text)
-    subtitle = re.search(r"<p align=\"center\">\s*([^<]+?)\s*</p>", text)
+    subtitle = re.search(
+        r"<p align=\"center\">\s*([^<]+?)\s*(?:<!-- lint-ok -->)?\s*</p>", text
+    )
     summary = re.search(
         r"^(Atlas is a self-hosted engineering platform[^\n]+)$",
         text,
@@ -39,6 +45,12 @@ def test_readme_header_matches_canonical() -> None:
     assert tagline and tagline.group(1) == CANONICAL_TAGLINE
     assert subtitle and subtitle.group(1).strip() == CANONICAL_SUBTITLE
     assert summary and summary.group(1) == CANONICAL_SUMMARY
+
+
+def test_readme_feature_bullet_counts_service_families() -> None:
+    text = README.read_text(encoding="utf-8")
+    assert f"**{SERVICE_FAMILIES} service families across " in text
+    assert "30+ services" not in text
 
 
 def test_index_header_matches_canonical() -> None:

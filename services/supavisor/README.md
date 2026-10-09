@@ -4,13 +4,13 @@
 
 Supavisor is Atlas's optional Supabase Postgres transaction pooler. It protects `supabase-db` from connection growth as backend workers, workflows, notebooks, and data services expand.
 
-This first slice is deliberately conservative: Supavisor is disabled by default and only routes backend, the Celery worker, n8n, and n8n-worker through transaction mode when enabled.
+Supavisor is disabled by default. When enabled, it routes only the backend, the Celery worker, n8n and n8n-worker through transaction mode.
 
 ## 2. Access
 
-Supavisor speaks the Postgres wire protocol on transaction port `6543` inside the container. Atlas keeps that listener internal-only in this first slice, so it does not consume a host port and does not participate in the topology port-slot allocator.
+Supavisor speaks the Postgres wire protocol on transaction port `6543` inside the container. The listener is internal-only. It uses no host port and no topology port slot.
 
-There is no Kong alias for Supavisor. The management API stays internal-only in this slice because it is not a browser dashboard and should not be exposed as a public Atlas route.
+There is no Kong alias for Supavisor. The management API is also internal-only, because it is not a browser dashboard.
 
 ## 3. Configuration
 
@@ -40,7 +40,7 @@ Generated client variables:
 
 Supavisor depends on `supabase-db-init`, uses its dedicated management login for migrations and authentication lookup, evaluates `pooler/pooler.exs`, then starts the pooler server. Pooled clients retain their own PostgreSQL role and password.
 
-Pooled consumers in this slice:
+Pooled consumers:
 
 | Consumer | Pooled setting |
 | --- | --- |
@@ -53,7 +53,7 @@ Direct Supabase consumers intentionally remain direct until session/native behav
 
 | Direct consumer | Reason |
 | --- | --- |
-| PostgREST (`supabase-api`) | Session-sensitive API surface; not part of the first transaction-mode audit. |
+| PostgREST (`supabase-api`) | Session-sensitive API surface; not yet audited for transaction mode. |
 | Realtime | Replication/session behavior stays direct. |
 | GoTrue/Auth | Core Supabase service; direct until separately validated. |
 | Storage, Meta, Studio | Core Supabase internals stay on `supabase-db:5432`. |
@@ -95,19 +95,21 @@ _No high-confidence opportunities identified._
 
 ## 6. Rollback
 
-Set `SUPAVISOR_SOURCE=disabled` and rerun `./start.sh`. The bootstrapper regenerates `SUPAVISOR_DATABASE_URL`, `SUPAVISOR_DB_HOST`, `SUPAVISOR_DB_PORT_VALUE`, and `SUPAVISOR_DB_USER` back to direct `supabase-db:5432` values, so backend, Celery, and n8n return to the pre-Supavisor path without compose-file edits.
+Set `SUPAVISOR_SOURCE=disabled` and rerun `./start.sh`. The bootstrapper resets `SUPAVISOR_DATABASE_URL`, `SUPAVISOR_DB_HOST`, `SUPAVISOR_DB_PORT_VALUE` and `SUPAVISOR_DB_USER` to direct `supabase-db:5432` values. The backend, Celery and n8n then connect directly, with no compose-file edits.
 
 ## 7. Troubleshooting
 
 - `FATAL: Tenant or user not found`: confirm the client username includes the tenant suffix, for example `${BACKEND_DB_USER}.${SUPAVISOR_TENANT_ID}`.
 - `VAULT_ENC_KEY` errors: make sure `SUPAVISOR_VAULT_ENC_KEY` is exactly 32 bytes. The bootstrapper generates this when the value is blank.
 - Backend or n8n auth failures after enabling: set `SUPAVISOR_SOURCE=disabled` to roll back, then inspect Supavisor tenant bootstrap logs.
-- The tenant is created once and never updated (`pooler/pooler.exs`, matching upstream Supabase). After `.env` is regenerated with volumes kept, the scoped manager password changes but the stored tenant keeps the old one, and later edits to `SUPAVISOR_DEFAULT_POOL_SIZE` / `SUPAVISOR_MAX_CLIENT_CONN` have no effect. To re-create it, run `DELETE FROM _supavisor.tenants WHERE external_id = '<SUPAVISOR_TENANT_ID>';` in the `supavisor` database on `supabase-db` (its `_supavisor.users` rows cascade), then restart Supavisor. Supavisor has no volume of its own; do not touch the `supabase-db` volume.
-- No Kong alias or host port is expected. v1 consumers connect over the Compose network at `supavisor:6543`.
+- The tenant is created once and never updated (`pooler/pooler.exs`, matching upstream Supabase). If `.env` is regenerated while volumes are kept, the scoped manager password changes but the stored tenant keeps the old one. Later edits to `SUPAVISOR_DEFAULT_POOL_SIZE` / `SUPAVISOR_MAX_CLIENT_CONN` also have no effect.
+
+To re-create it, run `DELETE FROM _supavisor.tenants WHERE external_id = '<SUPAVISOR_TENANT_ID>';` in the `supavisor` database on `supabase-db` (its `_supavisor.users` rows cascade), then restart Supavisor. Supavisor has no volume of its own; do not touch the `supabase-db` volume.
+- No Kong alias or host port is expected. Consumers connect over the Compose network at `supavisor:6543`.
 
 ## 8. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|

@@ -10,8 +10,9 @@ runtime call direction. Its source artifacts are:
 
 The HTML/SVG masters are hand-authored rather than generated from manifests.
 Edit both with the `architecture-diagram` agent skill (it is not shipped in
-this repository) and keep their SVG elements byte-equivalent. Render the committed PNG before building and
-checking the generated surfaces:
+this repository) and keep their SVG elements byte-equivalent. Render the
+committed PNGs (`docs/diagrams/img/`) before you build and check the generated
+surfaces:
 
 ```bash
 uv run --project bootstrapper python -m scripts.docs.render_diagrams
@@ -35,6 +36,15 @@ PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.doc
 The drift gate (`bootstrapper/tests/test_docs_drift.py`) enforces that the
 committed per-service SVG / HTML / README-deps-section match what the
 generator would emit.
+
+A changed service diagram also needs its PNG,
+`docs/diagrams/img/service-<name>.png`, re-rendered. `render_diagrams`
+re-renders every missing or stale PNG. Run it (or `make docs-build`) before
+`make docs-check`, which fails on a stale PNG:
+
+```bash
+uv run --project bootstrapper python -m scripts.docs.render_diagrams
+```
 
 Per-service diagrams are rendered by `bootstrapper/docs/diagram_renderer.py`.
 Edit that file to change the rendered shape; manifest field changes alone

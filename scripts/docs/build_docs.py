@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import yaml
 
@@ -115,6 +115,59 @@ def _sidebar_lines(sections: tuple[Section, ...], page_lookup: dict[str, Page], 
     return lines
 
 
+# Published site URLs that moved, mapped to the canonical source that now owns
+# them. MkDocs copies the stub pages verbatim, so old links and bookmarks keep
+# working without a redirect plugin.
+SITE_REDIRECTS = {
+    "deployment/expected-startup-warnings": "docs/operations/expected-startup-warnings.md",
+    "deployment/iceberg-advanced-smoke": "docs/operations/iceberg-advanced-smoke.md",
+    "deployment/ports-and-routes": "docs/operations/ports-and-routes.md",
+    "deployment/releasing": "docs/operations/releasing.md",
+    "deployment/reusing-atlas": "docs/operations/reusing-atlas.md",
+    "deployment/source-configuration": "docs/operations/source-configuration.md",
+    "deployment/submodule-usage": "docs/operations/submodule-usage.md",
+    "reference/tracks": "docs/tracks.md",
+}
+
+_REDIRECT_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Redirecting</title>
+<link rel="canonical" href="{target}">
+<meta name="robots" content="noindex">
+<meta http-equiv="refresh" content="0; url={target}">
+</head>
+<body>
+<p>This page moved to <a href="{target}">{target}</a>.</p>
+</body>
+</html>
+"""
+
+
+def _write_site_redirects(manifest: Manifest, destination: Path) -> None:
+    pages = {page.source: page for page in manifest.pages}
+    published = {
+        page.site_path.with_suffix("").as_posix().removesuffix("/index")
+        for page in manifest.pages
+    }
+    for old_url, source in SITE_REDIRECTS.items():
+        page = pages.get(source)
+        if page is None:
+            # Fixture manifests omit these pages; a test pins the real manifest.
+            continue
+        new_path = page.site_path.with_suffix("")
+        if new_path.name == "index":
+            new_path = new_path.parent
+        depth = len(PurePosixPath(old_url).parts)
+        target = "../" * depth + (f"{new_path.as_posix()}/" if new_path.parts else "")
+        if old_url in published:
+            raise ValueError(f"site redirect {old_url} collides with a published page")
+        stub = destination / old_url / "index.html"
+        stub.parent.mkdir(parents=True, exist_ok=True)
+        stub.write_text(_REDIRECT_PAGE.format(target=target), encoding="utf-8")
+
+
 def render_site(manifest: Manifest, repo_root: Path, destination: Path) -> None:
     _reset_dir(destination)
     _render_pages(manifest, repo_root, destination, "site")
@@ -127,11 +180,7 @@ def render_site(manifest: Manifest, repo_root: Path, destination: Path) -> None:
         target = destination / "stylesheets" / "atlas.css"
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(stylesheet, target)
-    javascript = repo_root / "docs" / "javascripts" / "mathjax.js"
-    if javascript.exists():
-        target = destination / "javascripts" / "mathjax.js"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(javascript, target)
+    _write_site_redirects(manifest, destination)
 
 
 def render_wiki(manifest: Manifest, repo_root: Path, destination: Path) -> None:

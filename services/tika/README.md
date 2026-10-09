@@ -3,7 +3,7 @@
 ## 1. Overview
 Apache Tika is Atlas' disabled-by-default fallback extractor for long-tail document formats that Docling does not target well. It is a degraded plain-text path, not a replacement for Docling's structure-aware PDF, Office, image, table, OCR, and chunking pipeline.
 
-Atlas pins Apache Tika 3.3.1 through `apache/tika:3.3.1.0`. Tika 4.x is intentionally not the default in this slice because the server line has breaking endpoint and configuration changes.
+Atlas pins Apache Tika 3.3.1 through `apache/tika:3.3.1.0`. Tika 4.x is not used because its server has breaking endpoint and configuration changes.
 
 ## 2. Access
 - Direct URL: `http://localhost:${TIKA_PORT}`
@@ -23,20 +23,19 @@ Kong creates the `tika.localhost` route when `TIKA_SOURCE=container` or `TIKA_SO
 - `TIKA_TIMEOUT_SECONDS=30` bounds backend fallback calls; it must be finite, greater than 0, and no greater than 3,600 seconds or Backend startup fails.
 - `TIKA_JAVA_TOOL_OPTIONS=-Xmx768m` caps the container JVM heap.
 
-## 4. Docling-First Fallback Policy
-Backend extraction stays Docling-first for supported and unknown formats. Tika is used only when one of these explicit fallback conditions is met:
+## 4. Docling-first fallback policy
+Backend and Celery extraction call Docling first. They send a file straight to Tika when:
 
-- Docling returns HTTP 415.
-- Docling returns a response containing `unsupported-format` or `unsupported format`.
-- The file is a documented long-tail format that Atlas routes directly to Tika to avoid wasting Docling/GPU work.
+- its extension is `.doc`, `.xls`, `.ppt`, `.epub`, `.eml`, `.msg`, `.rtf`, `.odt`, `.ods`, `.odp`, `.zip`, `.tar`, `.gz`, `.gzip` or `.bz2`; or
+- its content type is a mail, RTF, OpenDocument or archive type.
 
-The initial long-tail list includes EML, MSG, RTF, ODT, ODS, ODP, ZIP, TAR, GZIP, and BZIP2. Tika output is plain text and should be marked degraded in downstream RAG metadata.
+Tika is also tried when Docling answers 415 or reports an unsupported format. Atlas's own Docling providers answer such files with 500, so in practice only the list above reaches Tika. If Docling is disabled, other formats fail: Tika does not replace Docling. Tika output is plain text and is marked `degraded`.
 
 ## 5. Guardrails
 - Keep Tika disabled unless long-tail extraction is needed.
 - Do not expose Tika directly to untrusted networks; it accepts document bytes and has no built-in Atlas auth.
 - Use `TIKA_MAX_FILE_SIZE` and `TIKA_TIMEOUT_SECONDS` to bound backend fallback calls.
-- Treat ZIP and other archive formats carefully. Tika can inspect embedded content, but Atlas v1 does not add malware scanning, recursive archive policy, or persistent quarantine storage.
+- Treat ZIP and other archive formats carefully. Tika can inspect embedded content. Atlas adds no malware scanning, recursive archive policy or persistent quarantine storage.
 - Preserve provenance in downstream indexing: filename, content type, byte size, selected extractor, and fallback reason.
 
 ## 6. Dependencies & Integrations
@@ -80,7 +79,7 @@ _No high-confidence opportunities identified._
 
 ## 8. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
