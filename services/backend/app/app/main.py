@@ -2071,6 +2071,17 @@ def _resolve_consumer_project(
     return authorize_media_scope(principal, claimed_consumer, claimed_project)
 
 
+def _require_provider_enabled(provider: str) -> None:
+    """The legacy /comfyui/* routes call providers directly; honour the
+    MEDIA_DISABLED_PROVIDERS kill-switch there too (2026-10-08 run, cycles 23
+    and 29)."""
+    if not MEDIA_BUDGET_ENGINE.provider_enabled(provider):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"provider '{provider}' is disabled (kill-switch)",
+        )
+
+
 def _estimate_media_cost(
     provider: str, modality: str, model: str
 ) -> tuple[Optional[float], Optional[Any], Optional[str]]:
@@ -4082,11 +4093,7 @@ async def generate_image(request: ComfyUIGenerateRequest):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="FAL does not support queue-only compatibility requests",
             )
-        if not MEDIA_BUDGET_ENGINE.provider_enabled("fal"):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="provider 'fal' is disabled (kill-switch)",
-            )
+        _require_provider_enabled("fal")
         if MEDIA_BUDGET_ENGINE.enabled:
             # This compatibility path calls FAL directly with no reservation
             # and no kill-switch check, so with budgets on it would spend
@@ -4152,6 +4159,7 @@ async def generate_image(request: ComfyUIGenerateRequest):
         except Exception as exc:
             raise _unexpected_error("Generate image with FAL", exc)
 
+    _require_provider_enabled("comfyui")
     try:
         async with ComfyUIClient() as client:
             # Generate the image
@@ -4229,6 +4237,7 @@ async def generate_image(request: ComfyUIGenerateRequest):
 )
 async def execute_comfyui_workflow(request: ComfyUIWorkflowRequest):
     """Execute a custom ComfyUI workflow"""
+    _require_provider_enabled("comfyui")
     deadline = time.monotonic() + request.timeout_seconds
     try:
         async with ComfyUIClient() as client:

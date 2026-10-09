@@ -2165,3 +2165,24 @@ def test_the_legacy_fal_route_honours_the_kill_switch(monkeypatch):
 
     response = TestClient(main.app).post("/comfyui/generate", json={"prompt": "x", "wait_for_completion": True})
     assert response.status_code == 403
+
+
+@pytest.mark.parametrize("path, body", [
+    ("/comfyui/generate", {"prompt": "x", "wait_for_completion": False}),
+    ("/comfyui/workflow", {"workflow": {"1": {"class_type": "KSampler", "inputs": {}}}}),
+])
+def test_the_legacy_comfyui_routes_honour_the_kill_switch(monkeypatch, path, body):
+    """MEDIA_DISABLED_PROVIDERS=comfyui stopped /media/generate but not the
+    legacy routes n8n and Open WebUI call (2026-10-08 run, cycle 29)."""
+    monkeypatch.setenv("MEDIA_DISABLED_PROVIDERS", "comfyui")
+    main = _fresh_fal_main(monkeypatch, fal_source="disabled")
+
+    class NoComfyUI:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("a disabled provider must not be called")
+
+    monkeypatch.setattr(main, "ComfyUIClient", NoComfyUI)
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(path, json=body)
+    assert response.status_code == 403, response.text
