@@ -8729,7 +8729,43 @@ def label_comfyui_files(files: list, root: Path) -> list[dict]:
             for path, size in files]
 
 
-def label_ollama_models(models: list, env: dict) -> list[dict]:
+_OLLAMA_PREFIXES = ("ollama/", "ollama_chat/")
+
+
+def _routed_ollama_names(env: dict, root: Optional[Path]) -> set:
+    """Ollama models the stack routes besides the selection: the LiteLLM
+    default/vision/embedding settings and the rendered LiteLLM config the
+    running stack uses. `.env` alone let `storage clean` delete the embedding
+    model a still-running stack routed (2026-10-08 run, cycle 9)."""
+    values = [env.get(key, "") for key in (
+        "LITELLM_DEFAULT_MODEL", "LITELLM_VISION_MODEL", "LITELLM_EMBEDDING_MODEL", "LANGMEM_EMBEDDING_MODEL",
+    )] + _rendered_litellm_models(root)
+    names = {_ollama_model_name(str(value or "").strip()) for value in values}
+    return {name for name in names if name}
+
+
+def _rendered_litellm_models(root: Optional[Path]) -> list:
+    """``litellm_params.model`` of every row in the rendered LiteLLM config;
+    empty when no stack has rendered one yet."""
+    import yaml  # noqa: PLC0415
+
+    rendered = (root or Path("/nonexistent")) / "volumes" / "litellm" / "config.yaml"
+    try:
+        model_list = (yaml.safe_load(rendered.read_text(encoding="utf-8")) or {}).get("model_list") or []
+        return [str((row.get("litellm_params") or {}).get("model") or "") for row in model_list]
+    except (OSError, yaml.YAMLError, AttributeError):
+        return []
+
+
+def _ollama_model_name(value: str) -> str:
+    """``ollama/x`` or ``ollama_chat/x`` → ``x``; anything else → ""."""
+    for prefix in _OLLAMA_PREFIXES:
+        if value.startswith(prefix):
+            return value[len(prefix):]
+    return ""
+
+
+def label_ollama_models(models: list, env: dict, root: Optional[Path] = None) -> list[dict]:
     """(name, bytes) pulled Ollama models as items: retained when the resolved
     active set names them, removable when the catalog does, else unknown."""
     from utils import llm_catalog  # noqa: PLC0415
@@ -8737,6 +8773,7 @@ def label_ollama_models(models: list, env: dict) -> list[dict]:
 
     tag = lambda name: name if ":" in name else f"{name}:latest"  # noqa: E731
     active = {tag(entry.name) for entry in _active_ollama(env, None)}
+    active |= {tag(name) for name in _routed_ollama_names(env, root)}
     known = {tag(entry.name) for entry in llm_catalog.ollama_entries()}
     label = lambda name: "retained" if tag(name) in active else ("removable" if tag(name) in known else "unknown")  # noqa: E731
     return [{"kind": "ollama", "volume": "llm-provider-data", "path": name, "bytes": size, "label": label(name)}
@@ -8776,7 +8813,7 @@ def _exec(project: str, service: str, *argv: str):
                           capture_output=True, text=True, check=False, timeout=120)
 
 
-def _ollama_volume_items(env: dict, project: str) -> list[dict]:
+def _ollama_volume_items(env: dict, project: str, root: Optional[Path] = None) -> list[dict]:
     """Models in the Atlas Ollama container's volume, via that container only:
     a host daemon (ollama-localhost, or anyone's on the default port) is
     never queried, so its models can never be listed or removed."""
@@ -8788,7 +8825,7 @@ def _ollama_volume_items(env: dict, project: str) -> list[dict]:
         print("  The Ollama container is not running: its models are not itemized.")
         return []
     rows = [line.split() for line in listing.stdout.splitlines()[1:] if line.strip()]
-    return label_ollama_models([(row[0], parse_docker_size("".join(row[2:4]))) for row in rows if len(row) >= 4], env)
+    return label_ollama_models([(row[0], parse_docker_size("".join(row[2:4]))) for row in rows if len(row) >= 4], env, root)
 
 
 def _comfyui_volume_items(env: dict, root: Path, project: str) -> list[dict]:
@@ -8813,7 +8850,7 @@ def _comfyui_volume_items(env: dict, root: Path, project: str) -> list[dict]:
 
 def _live_model_items(env: dict, root: Path, project: str) -> list[dict]:
     """Model items a running stack holds in its own model volumes."""
-    return _ollama_volume_items(env, project) + _comfyui_volume_items(env, root, project)
+    return _ollama_volume_items(env, project, root) + _comfyui_volume_items(env, root, project)
 
 
 def host_model_directories(env: dict) -> list[dict]:
@@ -9197,12 +9234,25 @@ def comfyui_mps_health_command() -> None:
         raise click.exceptions.Exit(1)
 
 
+def _refusal_exits(label: str, action, error_type):
+    """Run a manager action; its own refusal prints "<label> failed: <why>"
+    and exits 1, as the sibling install/start commands do, instead of a
+    traceback that reads as a crash (2026-10-08 run, cycle 9)."""
+    try:
+        return action()
+    except error_type as exc:
+        click.echo(f"{label} failed: {exc}", err=True)
+        raise click.exceptions.Exit(1) from exc
+
+
 @comfyui_mps_group.command("remove")
 @click.confirmation_option(prompt="Stop the process and delete the managed state directory?")
 def comfyui_mps_remove_command() -> None:
     """Stop the process and delete the Atlas-owned state directory."""
+    from services.comfyui_mps_manager import ComfyUiMpsError
+
     manager = _comfyui_mps_manager()
-    manager.remove()
+    _refusal_exits("Remove", manager.remove, ComfyUiMpsError)
     click.echo(f"Removed {manager.state_dir}.")
 
 @comfyui_mps_group.command("provision")
@@ -9411,8 +9461,10 @@ def blender_mcp_health() -> None:
 def blender_mcp_remove() -> None:
     """Stop the bridge and delete the state dir (add-on, launcher, logs),
     every pool instance's included."""
+    from services.blender_mcp_manager import BlenderMcpError
+
     for manager in reversed(_blender_mcp_pool(include_strays=True)):
-        manager.remove()
+        _refusal_exits("Remove", manager.remove, BlenderMcpError)
     print("removed")
 
 
@@ -9512,8 +9564,10 @@ def vllm_metal_health_command() -> None:
 @click.confirmation_option(prompt="Stop the process and delete the managed state directory?")
 def vllm_metal_remove_command() -> None:
     """Stop the process and delete the Atlas-owned state directory."""
+    from services.vllm_metal_manager import VllmMetalError
+
     manager = _vllm_metal_manager()
-    manager.remove()
+    _refusal_exits("Remove", manager.remove, VllmMetalError)
     click.echo(f"Removed {manager.state_dir}.")
 
 
@@ -9584,8 +9638,10 @@ def managed_host_preflight_command(name: str) -> None:
 @click.option("--update", is_flag=True, help="Recreate the venv and reinstall deps.")
 def managed_host_install_command(name: str, update: bool) -> None:
     """Create the declared venv (if any), install deps, run install steps."""
+    from services.managed_host import ManagedHostError
+
     manager = _managed_host_manager(name)
-    manager.install(update=update)
+    _refusal_exits("Install", lambda: manager.install(update=update), ManagedHostError)
     click.echo(f"Installed {name} into {manager.state_dir}.")
 
 
@@ -9593,8 +9649,10 @@ def managed_host_install_command(name: str, update: bool) -> None:
 @click.argument("name")
 def managed_host_start_command(name: str) -> None:
     """Start the declared process and wait for its port to open."""
+    from services.managed_host import ManagedHostError
+
     manager = _managed_host_manager(name)
-    status = manager.start()
+    status = _refusal_exits("Start", manager.start, ManagedHostError)
     click.echo(json.dumps(status.to_dict(), indent=2))
 
 
@@ -9627,8 +9685,10 @@ def managed_host_health_command(name: str) -> None:
 @click.confirmation_option(prompt="Stop the process and delete the managed state directory?")
 def managed_host_remove_command(name: str) -> None:
     """Stop the process and delete the Atlas-owned state directory."""
+    from services.managed_host import ManagedHostError
+
     manager = _managed_host_manager(name)
-    manager.remove()
+    _refusal_exits("Remove", manager.remove, ManagedHostError)
     click.echo(f"Removed {manager.state_dir}.")
 
 

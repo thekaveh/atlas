@@ -664,3 +664,42 @@ def test_execute_compose_command_pins_project_name_for_cold_stop(tmp_path, monke
     monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: seen.update(kw) or subprocess.CompletedProcess(cmd, 0))
     assert manager.execute_compose_command(["down", "--volumes"], project_name="foo") == 0
     assert seen["env"]["PROJECT_NAME"] == "foo"
+
+
+def test_an_ollama_model_the_stack_routes_is_retained(monkeypatch, tmp_path):
+    """Retention read OLLAMA_USER_MODELS alone, so after a .env edit (or a
+    start that failed before stopping the old stack) storage clean deleted
+    the embedding model the running LiteLLM still routed (2026-10-08 run,
+    cycle 9)."""
+    import start
+
+    rendered = tmp_path / "volumes" / "litellm" / "config.yaml"
+    rendered.parent.mkdir(parents=True)
+    rendered.write_text("model_list:\n- model_name: chat\n  litellm_params: {model: ollama_chat/routed-chat}\n")
+    env = {"OLLAMA_USER_MODELS": "qwen3.8:latest", "LITELLM_EMBEDDING_MODEL": "ollama/nomic-embed-text"}
+    items = start.label_ollama_models(
+        [("qwen3.8:latest", 1), ("nomic-embed-text:latest", 1), ("routed-chat:latest", 1)], env, tmp_path)
+    labels = {item["path"]: item["label"] for item in items}
+    assert labels["nomic-embed-text:latest"] == labels["routed-chat:latest"] == "retained"
+    assert start.deletion_set(items, named=[]) == []
+
+
+def test_a_manager_refusal_exits_cleanly_instead_of_a_traceback(monkeypatch):
+    """remove/managed-host commands let the manager's refusal escape as a
+    traceback; siblings print '<op> failed: <why>' and exit 1 (cycle 9)."""
+    from click.testing import CliRunner
+
+    import start
+    from services.comfyui_mps_manager import ComfyUiMpsError
+
+    class Manager:
+        state_dir = "/tmp/x"
+
+        def remove(self):
+            raise ComfyUiMpsError("models path is inside the state directory")
+
+    monkeypatch.setattr(start, "_comfyui_mps_manager", lambda: Manager())
+    result = CliRunner().invoke(start.main, ["comfyui-mps", "remove", "--yes"])
+    assert result.exit_code == 1
+    assert "Remove failed: models path is inside the state directory" in result.output
+    assert isinstance(result.exception, SystemExit)

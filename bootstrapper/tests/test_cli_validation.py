@@ -46,9 +46,11 @@ def test_remove_cli_exits_nonzero_when_state_deletion_fails(
 
     result = CliRunner().invoke(main, list(args))
 
+    # A refusal is a clean exit 1 with its reason, not a traceback (2026-10-08 run, cycle 9).
     assert result.exit_code == 1
-    assert isinstance(result.exception, exception_type)
-    assert "Removed" not in result.output and "removed" not in result.output
+    assert isinstance(result.exception, SystemExit)
+    assert "Remove failed: could not remove state" in result.output
+    assert "Removed" not in result.output and "\nremoved" not in result.output
 
 
 @pytest.mark.parametrize("manager_kind", ["generic", "blender"])
@@ -109,8 +111,9 @@ def test_remove_cli_rejects_descendant_not_found_with_existing_root(
     result = CliRunner().invoke(main, list(args))
 
     assert result.exit_code == 1
-    assert isinstance(result.exception, error_type)
-    assert "removed" not in result.output.lower()
+    assert isinstance(result.exception, SystemExit)
+    assert "Remove failed:" in result.output
+    assert "removed" not in result.output.lower().replace("remove failed", "")
 
 
 @pytest.mark.parametrize("value", ["0", "9", "-1", "99"])
