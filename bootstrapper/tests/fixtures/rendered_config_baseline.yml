@@ -1786,6 +1786,9 @@ services:
       read_only: true
       bind: {}
   langfuse-clickhouse:
+    configs:
+    - source: langfuse-clickhouse-retention
+      target: /etc/clickhouse-server/config.d/atlas-retention.xml
     container_name: atlas-langfuse-clickhouse
     deploy:
       replicas: 0
@@ -3701,6 +3704,7 @@ services:
       replicas: 0
     environment:
       REDIS_ADDR: redis://redis:6379
+      REDIS_EXPORTER_DISABLE_SCRAPE_ENDPOINT: 'true'
       REDIS_PASSWORD: redis_password
     image: oliver006/redis_exporter:v1.86.0
     logging:
@@ -5299,3 +5303,7 @@ volumes:
   zeppelin-logs:
     name: atlas-zeppelin-logs
     driver: local
+configs:
+  langfuse-clickhouse-retention:
+    content: "<clickhouse>\n  <logger>\n    <level>warning</level>\n    <size>100M</size>\n    <count>3</count>\n  </logger>\n  <query_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_log>\n  <metric_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></metric_log>\n  <asynchronous_metric_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></asynchronous_metric_log>\n  <trace_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></trace_log>\n  <part_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></part_log>\n  <error_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></error_log>\n  <query_metric_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_metric_log>\n  <processors_profile_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></processors_profile_log>\n  <text_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl><level>warning</level></text_log>\n</clickhouse>\n"
+    name: atlas_langfuse-clickhouse-retention

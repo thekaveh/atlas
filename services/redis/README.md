@@ -51,7 +51,7 @@ Database-index convention (consumer-built URLs):
 
 **Eviction policy.** `REDIS_MAXMEMORY_POLICY` defaults to `volatile-lru`, which evicts only TTL-bearing keys after `REDIS_MAXMEMORY` sets a nonzero cap. With the default `REDIS_MAXMEMORY=0`, Redis remains unbounded and no eviction occurs. Queue and session keys without TTL are not eviction candidates.
 
-**Observability sidecar (`redis-exporter`).** The Redis family also ships a `redis-exporter` container (`oliver006/redis_exporter:v1.86.0`) on host port `${REDIS_EXPORTER_PORT}` and in-container `9121`. It scales **1↔0 with `PROMETHEUS_SOURCE`** — the bootstrapper's `_generate_prometheus_config()` hook writes `REDIS_EXPORTER_SCALE` from this single switch, so the sidecar is dormant when Prometheus is off and self-starts when Prom is enabled. Prometheus scrapes it at `redis-exporter:9121/metrics`; the `Postgres + Redis` Grafana dashboard renders memory usage, ops/sec, and hit ratio.
+**Observability sidecar (`redis-exporter`).** The Redis family also ships a `redis-exporter` container (`oliver006/redis_exporter:v1.86.0`) on host port `${REDIS_EXPORTER_PORT}` and in-container `9121`. It scales **1↔0 with `PROMETHEUS_SOURCE`** — the bootstrapper's `_generate_prometheus_config()` hook writes `REDIS_EXPORTER_SCALE` from this single switch, so the sidecar is dormant when Prometheus is off and self-starts when Prom is enabled. Prometheus scrapes it at `redis-exporter:9121/metrics`; the `Postgres + Redis` Grafana dashboard renders memory usage, ops/sec, and hit ratio. Its `/scrape?target=` endpoint is disabled (`REDIS_EXPORTER_DISABLE_SCRAPE_ENDPOINT=true`): it would dial any target with `REDIS_PASSWORD`.
 
 ## 5. LightRAG KV store
 
