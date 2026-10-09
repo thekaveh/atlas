@@ -221,10 +221,13 @@ def decode_env_value(raw: str) -> str:
         if end != -1:
             return value[1:end]
         return value.strip('"').strip("'")  # unterminated quote — legacy cleanup
-    # Unquoted: a comment starts only at a hash preceded by whitespace
-    # (`ab#cd` is a value; `abc  # note` carries a comment).
+    # Unquoted: as Docker Compose reads it, a comment starts only at a hash
+    # preceded by a space (`ab#cd` and `ab<TAB>#cd` are values; `abc  # note`
+    # carries a comment). A leading `#` is data: `KEY=#secret` read as empty
+    # made the key generator rotate an operator's secret (2026-10-08 run,
+    # cycle 36).
     for index, char in enumerate(value):
-        if char == "#" and (index == 0 or value[index - 1] in " \t"):
+        if char == "#" and index > 0 and value[index - 1] == " ":
             value = value[:index]
             break
     return value.strip()

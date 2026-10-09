@@ -1233,3 +1233,20 @@ def test_legacy_world_readable_env_backups_are_restricted(tmp_path):
     legacy.chmod(0o644)
     create_private_backup(env)
     assert legacy.exists() and legacy.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("#x", "#x"),            # a leading hash is data, as Compose reads it
+    ("  #x", "#x"),
+    ("a\t#x", "a\t#x"),      # only a space starts an inline comment
+    ("a #x", "a"),
+    ("ab#cd", "ab#cd"),
+    ('"ab #cd"', "ab #cd"),
+])
+def test_decode_env_value_matches_compose(raw, expected):
+    """Atlas read KEY=#secret as empty while Compose passed #secret to the
+    container, and the key generator then rotated the operator's secret
+    (2026-10-08 run, cycle 36)."""
+    from utils.atomic_write import decode_env_value
+
+    assert decode_env_value(raw) == expected
