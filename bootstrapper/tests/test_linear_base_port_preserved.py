@@ -61,6 +61,12 @@ def test_update_env_ports_persists_base_port_itself(tmp_path, monkeypatch):
     starter.config_parser.env_file_path = env
     starter.port_manager.config_parser = starter.config_parser
     monkeypatch.setattr(starter.port_manager, "get_port_conflicts", lambda bp: {})
+    # The block moves 63000 -> 64000: never let it stop a real stack.
+    monkeypatch.setattr(starter.docker_manager, "are_project_containers_running", lambda: False)
+    monkeypatch.setattr(
+        starter.docker_manager, "stop_services",
+        lambda **_k: (_ for _ in ()).throw(AssertionError("test must not stop a real stack")),
+    )
     # Point the port manager's writer at the tmp env file.
     if hasattr(starter.port_manager, "env_file_path"):
         starter.port_manager.env_file_path = env

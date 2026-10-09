@@ -691,6 +691,9 @@ class AtlasStarter:
         # Set when the port check stopped this project's running stack, so a
         # later decline/failure can say it is down (the stop is not undone).
         self.stopped_previous_instance: bool = False
+        # True once this run's cold cleanup has taken the project down; its
+        # ports may still be held for a moment afterwards (#1438).
+        self.project_stopped_this_run: bool = False
 
 
     def show_banner(self):
@@ -2470,6 +2473,11 @@ class AtlasStarter:
                 # release the ports it just unpublished (#1438).
                 conflicts = self.port_manager.conflicts_after_release(base_port)
 
+            elif conflicts and getattr(self, "project_stopped_this_run", False):
+                # A cold start stopped the stack before this check; wait for
+                # Docker to release its ports as the warm path does.
+                conflicts = self.port_manager.conflicts_after_release(base_port)
+
             # If conflicts remain, show the original error
             if conflicts:
                 self.banner.show_status_message("Port conflicts detected:", "warning")
@@ -3770,6 +3778,7 @@ class AtlasStarter:
         # project still recorded in .env (the override is not persisted until
         # setup_env_file runs later).
         success = self.docker_manager.perform_cold_start_cleanup(project_name=project_name)
+        self.project_stopped_this_run = getattr(self, "project_stopped_this_run", False) or bool(success)
         
         if not success:
             self.banner.show_status_message("Cold cleanup failed; secrets were not rotated", "error")

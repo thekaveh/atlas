@@ -29,6 +29,19 @@ def _no_real_docker_in_redis_aof_doctor(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def _no_real_project_stop(monkeypatch):
+    """Never let a test stop the developer's real stack.
+
+    ``handle_port_configuration`` stops the project when its containers run
+    and the port block moves; a test driving it with a real DockerManager
+    ran ``docker compose ... down`` against the repo's .env (2026-10-08 run,
+    cycle 7). Tests that exercise that branch set the probe themselves."""
+    monkeypatch.setattr(
+        "core.docker_manager.DockerManager.are_project_containers_running", lambda self: False
+    )
+
+
 @pytest.fixture
 def services_root(tmp_path: Path) -> Path:
     """An empty services/ root inside tmp_path."""
