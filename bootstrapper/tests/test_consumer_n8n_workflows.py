@@ -602,12 +602,20 @@ def test_removing_the_last_workflow_reconciles_once_then_cleans_up(tmp_path):
     starter = start.AtlasStarter.__new__(start.AtlasStarter)
     starter.root_dir = tmp_path
     starter.banner = SimpleNamespace(show_status_message=lambda *_a, **_k: None)
-    starter.config_parser = SimpleNamespace(load_consumer_config=lambda: SimpleNamespace(n8n_workflows=[]))
+    warnings = []
+    starter.banner = SimpleNamespace(show_status_message=lambda msg, level="info": warnings.append((level, msg)))
+    starter.config_parser = SimpleNamespace(
+        load_consumer_config=lambda: SimpleNamespace(n8n_workflows=[]),
+        parse_env_file=lambda: {"N8N_API_KEY": ""},
+    )
 
     assert starter._finalize_consumer_n8n_workflows()
     plan = json.loads((seed_dir / "plan.json").read_text())
     assert plan["workflows"] == [] and plan["namespace"].startswith("atlas-consumer")
     assert overlay.exists() and not (seed_dir / "a.json").exists()
+    assert any(level == "warning" and "N8N_API_KEY" in msg for level, msg in warnings)
 
+    # Still kept on the next start: one run may not have reconciled (no key,
+    # n8n not healthy), cycle 34.
     assert starter._finalize_consumer_n8n_workflows()
-    assert not overlay.exists() and not (seed_dir / "plan.json").exists()
+    assert overlay.exists() and (seed_dir / "plan.json").exists()

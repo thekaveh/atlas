@@ -2905,7 +2905,7 @@ class AtlasStarter:
         # No consumer declares n8n_workflows → remove any stale generated
         # artifacts so a warm restart doesn't re-seed removed workflows.
         if not config.n8n_workflows:
-            if _n8n_plan_has_workflows(seed_dir / "plan.json"):
+            if (seed_dir / "plan.json").exists():
                 return self._reconcile_last_n8n_workflows(seed_dir, overlay_path)
             if seed_dir.exists():
                 for stale in seed_dir.glob("*.json"):
@@ -2941,11 +2941,13 @@ class AtlasStarter:
         return True
 
     def _reconcile_last_n8n_workflows(self, seed_dir: Path, overlay_path: Path) -> bool:
-        """The last declared workflow was removed: run the seed once more with
-        an empty plan, so its reconcile deactivates and deletes every
-        ``atlas-consumer-*`` workflow. Dropping the overlay at once skipped the
-        seed and left their webhooks live (2026-10-08 run, cycle 31). The next
-        start finds the empty plan and removes the artifacts."""
+        """Workflows were seeded before and none is declared now: run the seed
+        with an empty plan on every start, so its reconcile deactivates and
+        deletes every ``atlas-consumer-*`` workflow. Dropping the overlay
+        skipped the seed and left their webhooks live (cycle 31); dropping it
+        after one run lost the cleanup whenever that run could not reconcile
+        (no N8N_API_KEY, n8n not healthy) (2026-10-08 run, cycle 34). Delete
+        volumes/n8n/consumer-workflows/ to stop it."""
         from core.consumer_manifest import compile_n8n_plan, render_n8n_seed_overlay
 
         for stale in seed_dir.glob("*.json"):
@@ -2955,9 +2957,15 @@ class AtlasStarter:
         overlay_path.parent.mkdir(parents=True, exist_ok=True)
         overlay_path.write_text(render_n8n_seed_overlay([]), encoding="utf-8")
         self.banner.show_status_message(
-            "  • No consumer n8n workflows declared: removing the previously seeded ones",
+            "  • No consumer n8n workflows declared: the n8n seed removes any previously seeded ones",
             "info",
         )
+        if not (self.config_parser.parse_env_file().get("N8N_API_KEY") or "").strip():
+            self.banner.show_status_message(
+                "  • N8N_API_KEY is not set, so previously seeded consumer workflows stay active "
+                "until it is set",
+                "warning",
+            )
         return True
 
     def _finalize_consumer_rag_ingestion_profiles(self) -> bool:
@@ -8785,14 +8793,6 @@ def _ollama_model_name(value: str) -> str:
         if value.startswith(prefix):
             return value[len(prefix):]
     return ""
-
-
-def _n8n_plan_has_workflows(plan_path: Path) -> bool:
-    """Whether the last generated n8n seed plan still lists workflows."""
-    try:
-        return bool(json.loads(plan_path.read_text(encoding="utf-8")).get("workflows"))
-    except (OSError, ValueError, AttributeError):
-        return False
 
 
 def label_ollama_models(models: list, env: dict, root: Optional[Path] = None) -> list[dict]:
