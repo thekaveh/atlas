@@ -39,20 +39,16 @@
 
 Atlas is a self-hosted engineering platform that bundles 58 service families behind a Kong gateway and an adaptive FastAPI backend. They cover LLM inference and a gateway, vector and graph databases, workflow and DAG automation, distributed compute, object storage, notebooks, and observability.
 
-The services are integrated, not just co-located. Kong routes every `*.localhost` host. LiteLLM puts local and cloud models behind one API. The adaptive FastAPI backend connects to whichever vector, graph, workflow and media services you enable. Supabase provides the shared database and storage, plus the user identity that the backend's APIs accept. One observability pipeline and declared start order tie it together.
+The services are integrated, not only co-located. Kong routes every `*.localhost` host, and LiteLLM puts local and cloud models behind one API. The backend connects to whichever vector, graph, workflow and media services you enable. Supabase supplies the shared database, storage and API identity.
 
-Dashboards keep their own logins; there is no single sign-on. [Access and Credentials](docs/operations/access-and-credentials.md) says what opens each one.
+At a glance:
 
-Each source-configurable service offers the deployment variants its family supports, commonly `container`, `localhost` or `disabled`. The same stack therefore runs as a CPU starter or as a multi-GPU lab.
-
-Seven tracks preselect a working subset per workload. They are Generative AI · RAG, Generative AI · Engineering, Generative AI · Creative, ML Engineering, Data Engineering, Trading / Financial Research, and All / Custom. `--profile dev` (alias `default`) or `--profile prod` applies a source and observability bundle. Both profiles bind published ports to loopback; an explicit `HOST_BIND_IP` is an operator choice. The always-on core is Kong, Supabase, Redis, LiteLLM and the Backend API.
-
-- **58 service families across 7 tracks**, all ports derived from one `BASE_PORT`
-- **Integrated, not just launched:** Kong routing, the LiteLLM gateway, an adaptive backend, shared Supabase database, storage and API identity, and one observability pipeline. Each dashboard keeps its own login.
-- **Always-on core:** Kong, Supabase, Redis, LiteLLM, Backend
-- **Per-service SOURCE:** family-specific variants, commonly `container` / `localhost` / `disabled`
-- **Profiles:** `--profile dev` (default, loopback-bound) or `--profile prod` (also loopback-bound, observability on)
-- **One command:** `./start.sh` opens the interactive **Textual TUI wizard** — pick a track, choose per-service sources, set the base port, and watch the live launch
+- **58 service families across 7 tracks**. Only configurable services belong to tracks, and tracks can overlap. A track preselects the services for one workload. The tracks are Generative AI · RAG, Generative AI · Engineering, Generative AI · Creative, ML Engineering, Data Engineering, Trading / Financial Research, and All / Custom. See [Tracks](docs/tracks.md).
+- **Core services**. The always-on core is Kong, Supabase, Redis, LiteLLM and the Backend API.
+- **Per-service SOURCE**. Each configurable service runs in a container, uses an instance on your host, or is disabled. The variants differ by family; see the [SOURCE Configuration Guide](docs/operations/source-configuration.md).
+- **Ports**. Every host port derives from one `BASE_PORT` (default `63000`). Both profiles bind published ports to loopback unless you set `HOST_BIND_IP`. See [Ports and Routes](docs/operations/ports-and-routes.md) and [Access and Credentials](docs/operations/access-and-credentials.md).
+- **Profiles**. `--profile dev` (alias `default`) or `--profile prod`, which also enables Prometheus and Grafana. See [Configuration](docs/configuration.md).
+- **Logins**. Each dashboard keeps its own login; there is no single sign-on. See [Access and Credentials](docs/operations/access-and-credentials.md).
 
 [![Atlas — interactive setup wizard streaming the launch phase, with the ASCII brand banner pinned at the top of the terminal](./docs/screenshots/wizard-running.png)](./docs/screenshots/wizard-running.png)
 
@@ -60,7 +56,15 @@ Seven tracks preselect a working subset per workload. They are Generative AI · 
 
 ## 1. Quick start
 
-Requirements: Docker with Compose v2.20.3+ (v2.26+ recommended), and `uv` or Python 3.10+.
+Before you start, install:
+
+- Docker with Docker Compose v2.20.3 or newer (v2.26+ recommended).
+- `uv`, or Python 3.10 or newer.
+- Git.
+
+The wizard preselects the `gen-ai-rag` track: chat UI, workflow automation, vector and graph databases, private web search, and deep research on a CPU Ollama engine. The `all` track (the `.env.example` defaults) adds ComfyUI, JupyterHub, Hermes, MinIO, speech-to-text, text-to-speech and CLIP. Plan memory and disk for the track you pick.
+
+Clone the repository and run `./start.sh` from the repository root (`atlas/`):
 
 ```bash
 git clone https://github.com/thekaveh/atlas && cd atlas
@@ -69,7 +73,7 @@ git clone https://github.com/thekaveh/atlas && cd atlas
 
 `./start.sh` with no arguments opens the setup wizard. It asks for track and profile, base port and project name, per-service SOURCE choices and host aliases, then shows a launch summary.
 
-The wizard preselects the `gen-ai-rag` track: chat UI, workflow automation, vector and graph databases, private web search, and deep research on a CPU Ollama engine. The `all` track (the `.env.example` defaults) adds ComfyUI, JupyterHub, Hermes, MinIO, speech-to-text, text-to-speech and CLIP. Plan memory and disk for the track you pick.
+When the launch finishes, open the root dashboard at `http://localhost:<BASE_PORT>`. With the default base port this is `http://localhost:63000`. `KONG_HTTP_PORT` in `.env` holds the dashboard port, which is derived from `BASE_PORT`.
 
 Next: the [first-run walkthrough](docs/quick-start/index.md) and the [wizard guide](docs/quick-start/interactive-setup-wizard.md).
 

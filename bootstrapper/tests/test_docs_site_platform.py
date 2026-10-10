@@ -882,3 +882,37 @@ def test_structural_docs_audit_accepts_generated_surfaces() -> None:
         stderr=subprocess.PIPE,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+_ATTR_LIST = re.compile(r"\{:\s*[.#][^}\n]*\}")
+_FENCE = re.compile(r"^[ \t]*(```|~~~).*?^[ \t]*\1", re.MULTILINE | re.DOTALL)
+
+
+def test_canonical_docs_render_cleanly_on_github() -> None:
+    """GitHub prints a MkDocs attribute list (`{: .class}`) as literal text,
+    so the repository view of the homepage showed it beside every card link
+    (#1493). Canonical sources use raw `<a class>` links instead; the site
+    keeps the class and the wiki resolves the target."""
+    sources = [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md")),
+               *sorted((ROOT / "services").glob("*/README.md"))]
+    leaks = [
+        str(path.relative_to(ROOT))
+        for path in sources
+        if _ATTR_LIST.search(_FENCE.sub("", path.read_text(encoding="utf-8")))
+    ]
+    assert leaks == []
+
+    # The styled homepage links keep their targets on every surface.
+    home = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+    links = re.findall(r'<a class="(atlas-[\w-]+)" href="([^"]+)">', home)
+    assert links
+    for _cls, href in links:
+        assert (ROOT / "docs" / href).is_file(), href
+    site = (DOCS_SITE / "index.md").read_text(encoding="utf-8")
+    site_links = re.findall(r'<a class="(atlas-[\w-]+)" href="([^"]+)">', site)
+    assert [cls for cls, _ in site_links] == [cls for cls, _ in links]
+    assert not [href for _, href in site_links if href.endswith(".md")]
+    wiki = (WIKI_DIR / "Home.md").read_text(encoding="utf-8")
+    wiki_links = re.findall(r'<a class="atlas-[\w-]+" href="([^"]+)">', wiki)
+    assert len(wiki_links) == len(links)
+    assert not [href for href in wiki_links if href.endswith(".md")]
