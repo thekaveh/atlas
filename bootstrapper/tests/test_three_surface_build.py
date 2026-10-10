@@ -56,11 +56,11 @@ def test_build_projects_same_content_to_site_and_wiki(tmp_path: Path) -> None:
     assert "# 1. Overview" in wiki_home
     assert "A canonical sentence." in site_home and "A canonical sentence." in wiki_home
     assert "[Guide](guides/guide.md)" in site_home
-    assert "[Guide](2-Guide)" in wiki_home
+    assert "[Guide](Guide)" in wiki_home
     site_guide = (root / "generated" / "site" / "guides" / "guide.md").read_text(
         encoding="utf-8"
     )
-    wiki_guide = (root / "generated" / "wiki" / "2-Guide.md").read_text(
+    wiki_guide = (root / "generated" / "wiki" / "Guide.md").read_text(
         encoding="utf-8"
     )
     assert "![Wizard](../screenshots/wizard.png)" in site_guide

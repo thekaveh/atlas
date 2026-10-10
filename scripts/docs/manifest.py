@@ -69,10 +69,14 @@ class Page:
 
     @property
     def wiki_path(self) -> PurePosixPath:
+        # GitHub wikis have no redirects, so the page name comes from the
+        # stable manifest id. A number or title in the name changed the URL
+        # every time a page was inserted before it or retitled.
         if self.id == "overview":
             return PurePosixPath("Home.md")
-        slug = re.sub(r"[^A-Za-z0-9]+", "-", self.title).strip("-")
-        return PurePosixPath(f"{self.number}-{slug}.md")
+        parts = re.split(r"[^A-Za-z0-9]+", self.id)
+        slug = "-".join(part[:1].upper() + part[1:] for part in parts if part)
+        return PurePosixPath(f"{slug}.md")
 
 
 @dataclass(frozen=True)

@@ -37,8 +37,10 @@ sources:
 
 env:
   - name: LOKI_SOURCE
+    description: "Deployment source for Loki, the local log store: container or disabled."
     default: disabled
   - name: LOKI_SCALE
+    description: "Set by ./start.sh from LOKI_SOURCE; do not edit. 1 runs loki, 0 does not."
     auto_managed: true
   - name: LOKI_ENDPOINT
     auto_managed: true
@@ -81,6 +83,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

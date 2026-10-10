@@ -1,6 +1,6 @@
 # 2.2. Interactive Setup Wizard
 
-Atlas includes an interactive Textual TUI wizard that guides you through configuring all services step by step. It launches automatically when you run `./start.sh` with no arguments.
+The interactive Textual wizard configures every service step by step. It opens when you run `./start.sh` with no arguments.
 
 ## 1. Quick Start
 
@@ -8,52 +8,31 @@ Atlas includes an interactive Textual TUI wizard that guides you through configu
 ./start.sh
 ```
 
-That's it. The wizard handles everything from there.
+Sections 2–7 describe the questions: their order (§2), prompt kinds (§3), the LLM, ComfyUI and numeric steps (§4–§6) and the stack-level options (§7). Sections 8–11 cover the launch: the summary, the log screen, stop actions, every key (§10) and progress. Sections 12–18 are reference material.
 
 ### 1.1. Terminal size and compact layout
 
-The Textual wizard supports terminals down to **60 columns × 20 rows**. At
-that floor, Atlas folds the block logo into a one-line identity strip, hides
-the stack overview while a question is active, and gives the available rows
-to the focused prompt, its scrollable choices, the command summary, and the
-essential `move`, `mark`, `next`, and `back` actions. The overview returns on
-the Setup tab after launch. Growing the terminal back to 30 rows or more
-restores the full logo and overview without discarding entered text,
-selections, scroll position, or focus. The full shortcut inventory returns
-when the terminal is also at least 132 columns wide; narrower layouts keep the
-prompt-specific essentials and name `Ctrl+Q quit` in the footer title.
+The wizard needs a terminal of at least **60 columns × 20 rows**. Below 30 rows it uses a compact layout. The logo shrinks to a one-line strip, and the stack overview is hidden while a question is open. The prompt, its choices, the command summary and the `move`, `mark`, `next` and `back` actions get the rows. The overview returns on the Setup tab after launch.
 
-Terminals at **59×20**, **60×19**, or smaller use the linear stdout flow. You
-can choose that usable fallback explicitly at any size with `./start.sh
---no-tui`.
+Growing the terminal to 30 rows or more restores the full logo and overview. Typed text, selections, scroll position and focus are kept. The full shortcut list needs at least 132 columns as well. Narrower layouts keep the prompt's essential keys and name `Ctrl+Q quit` in the footer title.
+
+Smaller terminals (**59×20**, **60×19** or less) use the linear stdout flow. To choose that flow at any size, run `./start.sh --no-tui`.
 
 ![Atlas wizard compact layout at the supported 60 by 20 terminal floor](../screenshots/wizard-minimum-terminal.svg)
 
-*At 60×20, the selected row, prompt, command and next/back actions all remain
-visible. Subtitles are capped at two rows here; on a step carrying a
-destructive warning, **Ctrl+R** opens the full text in a scrollable overlay
-(§7.1).*
+*At 60×20 the selected row, prompt, command and next/back actions stay visible. Subtitles are capped at two rows. On a destructive step, **Ctrl+R** shows the full text (§7.1).*
 
 ![Atlas wizard normal layout at 120 by 44 terminal cells](../screenshots/wizard-normal-terminal.svg)
 
-*At 120×44, the existing block logo, stack overview, panel spacing and full
-work area remain.*
+*At 120×44 the full logo, stack overview and work area are shown.*
 
-The dark terminal palette targets the WCAG 2.2 AA normal-text ratio of
-**4.5:1**. Measured against the primary background, the compact identity
-accent is 10.76:1, primary text is 11.43:1, success is 9.16:1, warning is
-11.05:1, error is 6.18:1, and the faintest text is 4.54:1. Selected and status
-states also use cursor glyphs, checkbox text, icons and words, so color is not
-the only cue. Keyboard and compositor checks establish visible focus and
-operability in Textual 8.2.8; they are not a claim of screen-reader support.
+The dark palette meets the WCAG 2.2 AA normal-text ratio of **4.5:1**; the faintest text measures 4.54:1. Selection and status also use cursor glyphs, checkbox text, icons and words, not color alone. The wizard is keyboard-operable; screen-reader support is not tested.
 
-The screenshots use Atlas's dark theme and Textual's deterministic headless
-renderer at the stated terminal-cell dimensions. Font metrics, emoji width,
-and inline-image behavior can vary between terminal emulators.
+The screenshots use the dark theme and Textual's headless renderer at the stated cell sizes. Fonts, emoji width and inline images vary between terminal emulators.
 
 ## 2. Step Order
 
-Service-source steps follow the canonical topology order (`bootstrapper/services/topology.py`, the same order as the stack-overview panel beside them), with the LLM cluster spliced in immediately after the LLM Engine step. The shape is roughly:
+Service-source steps follow the topology order in `bootstrapper/services/topology.py`, the same order as the stack overview. The LLM cluster comes right after the LLM Engine step. The shape is roughly:
 
 ```
 first  Track (skipped when --track is passed)
@@ -71,25 +50,27 @@ first  Track (skipped when --track is passed)
          LLM defaults  ·  chat model      (single-select)
          LLM defaults  ·  embedding model (single-select, dimension-sensitive)
          LLM defaults  ·  vision model    (single-select, skippable)
-…      Remaining service-source steps
+…      Remaining service-source steps, including:
+         ComfyUI  ·  models               (multiselect, after the ComfyUI source step)
+         FAL Cloud Media  ·  API key      (secret, after ComfyUI; in tracks that include FAL)
 near-end  Cold start
 near-end  Hosts setup · /etc/hosts
 last   Confirm — Launch the stack with this configuration?
 ```
 
-Steps gated by `skip_if_prev` predicates simply vanish from the flow when their precondition isn't met (e.g. each cloud provider's models step only renders when its `CLOUD_*_SOURCE` is `enabled` after the API-key step, which is always shown; Ollama variant steps only render when `LLM_PROVIDER_SOURCE` is an `ollama-*` value).
+A step gated by a `skip_if_prev` predicate is left out when its precondition is not met. For example, a cloud provider's models step appears only when its `CLOUD_*_SOURCE` is `enabled` after the API-key step, which is always shown. Ollama steps appear only when `LLM_PROVIDER_SOURCE` is an `ollama-*` value.
 
 ## 3. Prompt Kinds
 
-Each wizard step renders one of five prompt widgets, picked based on the question type:
+Each wizard step uses one of five prompt widgets, chosen by the question type:
 
 | Kind | Used for | UX |
 |---|---|---|
-| `options` | Single-select with a small fixed option set — every `*_SOURCE`, the `Cold start` toggle, the `Hosts setup · /etc/hosts` choice, and the three **LLM defaults** pickers (chat / embedding / vision, see §4.6). | Up/Down arrows + Enter; the current `.env` value is pre-highlighted. |
-| `number` | Numeric prompts (`Base port`). | Single-line input. A value outside the step's range, or one that is not a number, is **refused**: the hint under the input becomes the reason and you stay on the step (see §7.2). A bare Enter keeps the displayed default. The overview's ports follow the base you confirm, also for sources you change afterwards (#1390). |
-| `secret` | API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`). | Masked password Input + a live char-count hint as you paste. When a key is already set, the hint shows the source-aware action: press Enter to keep the saved key, type a new key to replace, type `clear` + Enter to remove. No sentinel rows are rendered — the input field IS the prompt. |
-| `multiselect` | Cloud and Ollama model lists. | `[selected]` / `[ ]` rows in a scrollable viewport (capped height; the cursor follows the selection so a 230-row library scrape stays usable). Space toggles, Enter confirms. **Cloud** multiselect: default-active set (intersected with what your account actually returns) is pre-checked on first visit. **Ollama** multiselect: source-aware — container shows the library only, localhost shows a merged `[pulled]` + `[library]` view. Purely additive; the default-active baseline is baked into `services/ollama/models.yaml` with `default: true` and resolved by `model_resolver` on every `docker compose up`. |
-| `text` | Free-text entries — the **Project name** step (Docker Compose namespace, persisted to `PROJECT_NAME`; lower-cased + validated) and the Ollama "additional models to pull" step. | Single-line input; trimmed. The project-name step pre-fills with the current `PROJECT_NAME` and a bare Enter keeps it; an invalid name keeps you on the step with the reason shown, instead of silently keeping the old name (#1390). |
+| `options` | Single-select from a small fixed set: every `*_SOURCE`, `Cold start`, `Hosts setup · /etc/hosts`, and the **LLM defaults** pickers (chat / embedding / vision, §4.6). | Up/Down arrows + Enter; the current `.env` value is pre-highlighted. |
+| `number` | Numeric prompts (`Base port`). | Single-line input. Enter keeps the displayed default. A non-number or out-of-range value is refused, and the hint shows the reason (§7.2). Overview ports follow the confirmed base, also for sources you change later. |
+| `secret` | API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`). | Masked input with a live character count. With a saved key, the hint says what Enter does. Type a new key to replace it, or a word from §4.4.1 (`enable`, `disable`, `remove`/`clear`). |
+| `multiselect` | Cloud and Ollama model lists. | Scrollable `[selected]` / `[ ]` rows; Space toggles, Enter confirms. Cloud lists pre-check the default-active models your account returns. Ollama lists depend on the source, and your selection replaces the baseline (§4.2). |
+| `text` | Free-text entries — the **Project name** step (Docker Compose namespace, persisted to `PROJECT_NAME`) and the Ollama "additional models to pull" step. | Single-line input, trimmed. The project name is lower-cased and validated. Enter keeps the current name. An invalid name keeps you on the step and shows the reason. |
 
 Throughout: `Up/Down` to move, `Enter` to confirm, `Space` to toggle multiselect rows, `Esc` returns to the previous step, `Ctrl+C` (or `Ctrl+Q`) quits.
 
@@ -97,56 +78,30 @@ Throughout: `Up/Down` to move, `Enter` to confirm, `Space` to toggle multiselect
 
 ### 4.1. LLM Engine (single-select)
 
-`LLM_PROVIDER_SOURCE` choice — `ollama-container-cpu`, `ollama-container-gpu`, `ollama-localhost`, or `none` (no Ollama upstream). LiteLLM is locked / always-on and is **not** a separate prompt — it is the default front door for Atlas-managed LLM consumers. vLLM Metal is configured by its own later service prompt in the **Generative AI · Engineering** and **All / Custom** tracks; selections that do not include it force-disable it without prompting.
+`LLM_PROVIDER_SOURCE` choice — `ollama-container-cpu`, `ollama-container-gpu`, `ollama-localhost`, or `none` (no Ollama upstream). LiteLLM always runs and has **no** prompt of its own. It is the default front door for Atlas-managed LLM consumers. The **Generative AI · Engineering** and **All / Custom** tracks ask about vLLM Metal in a later step. Other tracks force-disable it without a prompt.
 
-The wizard refuses to launch when **LLM Engine = `none`**, vLLM Metal is disabled, **and** every cloud provider is disabled — that combination would leave LiteLLM with nothing to route to. A managed vLLM-Metal-only stack is valid.
+The wizard refuses to launch when **LLM Engine = `none`**, vLLM Metal is disabled **and** every cloud provider is disabled. LiteLLM would then have nothing to route to. A managed vLLM-Metal-only stack is valid.
 
 ### 4.2. Ollama  ·  models (multiselect)
 
-A single unified multi-select shown for every `ollama-*` source. The option list is **source-aware**:
+A multiselect shown for every `ollama-*` source. The [Ollama README](../../services/ollama/README.md) §5 describes the list: its sources, row badges, size estimates, sort order, fallbacks and default baseline. In short:
 
-- **`ollama-container-*`** — only the live scrape of `https://ollama.com/library` (~230 entries). Nothing is pulled yet (the in-stack container isn't running at wizard time), so the library is the primary discovery surface. The `ollama-pull` init container fetches checked entries at startup.
-- **`ollama-localhost`** — the upstream's `/api/tags` (already-pulled models) merged with the library scrape. Each row carries a status badge: `[pulled]` (on disk on the upstream — checking activates it immediately) or `[library]` (catalog-only — checking saves the name to `OLLAMA_USER_MODELS` in `.env`, and the bootstrapper pulls it onto the host daemon at start, #757, so it's available when LiteLLM routes to it).
+- **`ollama-container-*`** lists the live `https://ollama.com/library` catalog. The `ollama-pull` init container pulls the checked models at start.
+- **`ollama-localhost`** merges the host's pulled models (`[pulled]`, active at once) with the catalog (`[library]`). The bootstrapper pulls checked `[library]` models onto the host daemon at start.
 
-Each row is 2 cells tall and surfaces:
+Each row has two lines. Line 1 shows capability badges, status badges and the pull count. Line 2 shows size variants, the description and `updated X ago`.
 
-**Line 1** (cursor + expand-glyph + checkbox + label + capability columns + pull count):
-- **Capability badges** — `[embedding]`, `[thinking]`, `[vision]`, `[tools]`, `[audio]`, `[mlx]` show which capabilities a model supports; a row may carry zero, one, or several. Column layout and narrow-terminal fallback rendering are internal to the model-row renderer (`bootstrapper/ui/textual/widgets`).
-- **Status badges** — `[pulled]` / `[library]` / `[default]` plus the `[legacy]` marker for models updated > 365 days ago. Rendered after the capability block with variable width.
-- **Pull count** — far right, muted, in `K`/`M`/`B` format (e.g. `114.2M`). Right-aligned to the row width.
+**Search.** Press `Tab` or `/`, or click, to focus the search box, then type to filter by name. `Tab`, `Enter` or `Esc` returns to the list. The arrow keys still move through the list while you type. Other wizard keys are off while search has focus.
 
-**Line 2** (muted, indented):
-- **Size variants** — each tag in the form `<param-count> (<approx-GB>)`, joined with `·`. E.g. `llama3.1` → `8b (4.8GB) · 70b (42GB) · 405b (243GB)`. The parameter count is Ollama's canonical tag namespace (what `ollama pull qwen3:8b` matches); the GB figure is approximate Q4 disk footprint via `params × 0.6 bytes/param` (Q4_K_M rule of thumb), real downloads ±10–15%. Once you expand a parent (see below) the detail-page fetcher replaces the approximation with the real per-variant disk size and adds the context window.
-- **Hint** — curated description (if the catalog has one for this model) joined with `updated X ago`.
+**Filter.** Press `f` or click a chip to filter by capability (`ALL`, `embedding`, `thinking`, `vision`, `tools`, `audio`). A row must match both the chip and the search. Filters only hide rows; hidden checked rows stay checked.
 
-Line 2 wraps to multiple visual rows on narrow terminals when a model has many variants (e.g. `qwen3` has 8 sizes).
+**Variants.** Press `Space` on a multi-variant row to expand it in place. Press `Space` on a leaf to toggle that tag, and on the parent again to collapse. Single-variant rows toggle directly. Expanding fetches real sizes, context window and per-tag capabilities in the background; a failed fetch keeps the estimates.
 
-**Search box** above the chips: a single-line `Input` (placeholder `Tab or /  to filter models by name…`) that narrows the visible list by case-insensitive substring against the model name. Press **`Tab`**, click into it with the mouse, or press **`/`** to focus it; once focused, type to filter live. The input lights up bold cyan on a tinted background so you can tell at a glance that keystrokes are landing in search and not in the option list. **`Tab`** again, **`Enter`**, or **`Esc`** returns focus to the option list. Up/down still walk the visible rows while you're typing, so you can preview matches without losing your cursor. Every wizard keybinding except those four exits and the arrow keys is temporarily suppressed while the search box has focus, so letters and spaces land in the input as text.
+A model is saved either as its bare name (pulls `:latest`) or as tags (`qwen3:8b,qwen3:14b`), never both. The `latest` leaf selects the bare name. The parent checkbox is green when any leaf is checked.
 
-**Filter chips** appear directly below the search box: `Filter  [ALL]  embedding  thinking  vision  tools  audio`. Click a chip — or press **`f`** to cycle them from the keyboard — to narrow the list to that capability. Single-select; click `ALL` (or keep pressing `f` to wrap) to reset. The chip filter and the search box **stack**: a row must match both the active chip AND the search substring to render. Filtering is a view operation only — rows you've already checked stay checked when hidden and reappear when the filter is cleared.
+**Saved selection.** The selection is saved as `OLLAMA_USER_MODELS`. `.env.example` seeds it with the default baseline, so a fresh clone opens with the baseline checked. If the key is missing, the wizard pre-checks the baseline. Later visits restore the saved value. Saved models that are not in the list (for example `hf.co/...`) appear as `saved` rows and stay checked.
 
-**Ollama Cloud-exclusive entries excluded** — models that publish no pullable variant (cloud-only listings) can't be `ollama pull`-ed, so the wizard drops them from the list and logs the excluded count to the session log. Hybrid entries that publish both cloud and pullable local variants keep their local variants in the list.
-
-**Variant picker (in-place tree)** — multi-variant Ollama rows show an expansion indicator on the left. Press **`Space`** on the parent to expand the tree in place; the variants appear as indented leaves with connector lines directly below. Press `Space` again to collapse. Press `Space` on a leaf to toggle that specific tag. Single-variant rows (`nomic-embed-text`, custom local builds) toggle directly on `Space`. Selections persist to `OLLAMA_USER_MODELS` as `qwen3:8b,qwen3:14b` — `ollama-pull` will fetch each one. The parent's `[selected]` is the aggregate state — green when any leaf is checked. Arrows, Enter, and Esc all keep working naturally; cursor and focus stay in the prompt panel throughout (no popup).
-
-**Rich per-variant data** — expanding a parent row fetches the model's Ollama library detail page, which is richer than the listing: every published tag (not just the `8b`/`70b` param-count buckets), real per-variant disk sizes in place of the initial estimate, context window, and per-variant capability tags — so, e.g., `gemma3:4b` can show `[vision]` while `gemma3:270m` doesn't. The fetch runs in the background without blocking navigation and falls back to the listing-page estimates on failure.
-
-**Bare ↔ tagged invariant**: per row, `_checked_values` contains either the bare model name (`qwen3` → pulls `:latest`) OR one+ tagged forms (`qwen3:8b`), never both. The synthetic `latest` leaf at the top of every expansion lets you pick the model-maker default explicitly. Toggling a leaf auto-clears any pre-existing bare entry for that parent.
-
-**Sort order**: two buckets, recent first.
-1. Models updated within the last 365 days, sorted descending by total pull count.
-2. Models older than 365 days (the `[legacy]` bucket), same sort.
-
-This pushes year-old hits like `llama3.1` (114M pulls but updated a year ago) below newer-but-popular models like `deepseek-r1`, `gemma3`, and `qwen3`. The bucket boundary is signalled visually by the `[legacy]` badge and the `updated X ago` annotation in the hint line.
-
-Selections persist as `OLLAMA_USER_MODELS`.
-
-When the library scrape fails (rare), the wizard falls back to the curated default-active baseline in `bootstrapper/utils/llm_catalog.py` (qwen3.8:latest, qwen3-embedding:0.6b, nomic-embed-text). Capability tags and sizes aren't recoverable in fallback (the catalog only carries `embedding` / `vision` flags); the `[legacy]` badge is suppressed because age data is unavailable. When `/api/tags` fails for a localhost source, the merge degrades to library-only with a warning in the session log.
-
-The default-active baseline is baked into `services/ollama/models.yaml` with `default: true` and seeds `OLLAMA_USER_MODELS` in `.env.example`. Unchecking everything is a deliberate answer: the wizard writes `OLLAMA_USER_MODELS=`, the bootstrapper keeps the blank, nothing is pulled, and `model_resolver` registers no Ollama model (host models auto-imported for `ollama-localhost` are still registered). Only a missing `OLLAMA_USER_MODELS` key falls back to the baseline. Pre-checking behaviour:
-
-- **First visit** (`OLLAMA_USER_MODELS` not set): the wizard pre-checks the default-active baseline (`default_active_names("ollama")` → `qwen3.8:latest`, `qwen3-embedding:0.6b`, `nomic-embed-text`). The user sees the baseline already ticked.
-- **Subsequent visit** (`OLLAMA_USER_MODELS` set, even blank): the saved selection is restored; a blank value leaves everything unticked. A saved model whose family is not in the merged list (an `hf.co/...` pull, or anything beyond the curated fallback when the library scrape fails) is shown as a `saved` row and stays ticked, so Enter does not drop it.
+Unchecking everything writes `OLLAMA_USER_MODELS=`. Nothing is pulled and no Ollama model is registered. The exception is `ollama-localhost` with `OLLAMA_AUTO_IMPORT_LOCAL_MODELS=true` (the default): models already pulled on the host are still registered.
 
 ### 4.3. Ollama  ·  additional models to pull (text)
 
@@ -154,19 +109,19 @@ Shown only for `ollama-container-*` sources. Free-text comma-separated list, e.g
 
 ### 4.4. Cloud key + model pairs (secret + multiselect)
 
-Each cloud provider gets two consecutive steps (the API-key step is always shown; the models step only when the provider ends up enabled):
+Each cloud provider gets two consecutive steps. The API-key step is always shown; the models step only when the provider ends up enabled:
 
-1. **API key** (`secret` kind). The widget is a masked password Input — no sentinel rows are rendered. Turning a provider on or off and storing or deleting its key are **separate actions** (#1183, see §4.4.1). The hint line below the input always tells you which action Enter will take.
+1. **API key** (`secret` kind). A masked input; there are no option rows. Turning a provider on or off and storing or deleting its key are **separate actions** (§4.4.1). The hint under the input always says what Enter will do.
 2. **Models** (`multiselect`). Live fetch from the provider's models endpoint:
    - **OpenAI** — `GET /v1/models` (filtered to the chat / o-series / `text-embedding-3-*` set).
    - **Anthropic** — `GET /v1/models` (Anthropic's documented endpoint).
-   - **OpenRouter** — `GET /api/v1/models` (no auth required for the listing — anyone can browse the model catalog). **Enabling OpenRouter as a usable LiteLLM provider still requires `OPENROUTER_API_KEY`** for actual request routing; the listing is a convenience, not a green light to skip the key step.
+   - **OpenRouter** — `GET /api/v1/models`. The listing needs no key. **Routing requests through OpenRouter still needs `OPENROUTER_API_KEY`**, so do not skip the key step.
 
-   The default-active subset of `bootstrapper/utils/llm_catalog.py` is intersected with what your account actually returns; the result is pre-checked. Selections persist as `OPENAI_USER_MODELS`, `ANTHROPIC_USER_MODELS`, `OPENROUTER_USER_MODELS`.
+   The default-active subset of `bootstrapper/utils/llm_catalog.py` is intersected with what your account returns, and the result is pre-checked. Selections persist as `OPENAI_USER_MODELS`, `ANTHROPIC_USER_MODELS`, `OPENROUTER_USER_MODELS`.
 
 #### 4.4.1. Turning a provider off is not the same as deleting its key
 
-`CLOUD_<PROVIDER>_SOURCE` and `<PROVIDER>_API_KEY` are two separate facts, so the key step accepts one word per intent (#1183). With a key already saved:
+`CLOUD_<PROVIDER>_SOURCE` and `<PROVIDER>_API_KEY` are two separate facts, so the key step accepts one word per intent. With a key already saved:
 
 | You type | What happens |
 |---|---|
@@ -176,156 +131,88 @@ Each cloud provider gets two consecutive steps (the API-key step is always shown
 | a new key | Replaces the key and turns the provider on. |
 | `remove` | Deletes the key and turns the provider off. The only action that erases a credential. |
 
-`clear` still works as a synonym for `remove`, since that is the word the wizard documented before this split. Matching is case-insensitive and surrounding whitespace is ignored.
+`clear` is a synonym for `remove`. Matching ignores case and surrounding spaces.
 
-Before this change a bare **Enter** on a provider that was off but had a saved key turned it **on** — a state change nobody asked for — and the only way to turn a provider off also deleted its key. Unchecking every model in the model step did the same. Now unchecking everything turns the provider off and leaves the key in place; the step heading says so.
+Unchecking every model in the model step turns the provider off and keeps the key; the step heading says so.
 
-When no key is saved, the behaviour is unchanged: type a key + Enter to enable, or press Enter (empty) to leave the provider disabled.
+With no saved key, type a key and press Enter to enable the provider, or press Enter on an empty input to leave it disabled.
 
-The model step is skipped for a provider that will end up off, so you are never asked to choose models for something that will not run.
+The model step is skipped for a provider that will end up off.
 
-Your key never appears in the command preview. Each of these actions previews as `--cloud-<provider>-source enabled` or `disabled`; setting a new key previews `--<provider>-api-key <set>`, never the key itself, because that line is meant to be copied into a shell.
+Your key never appears in the command preview. Each action previews as `--cloud-<provider>-source enabled` or `disabled`. A new key previews as `--<provider>-api-key <set>`, because that line is meant to be copied into a shell.
 
-The **fal.ai** key step (the FAL Cloud Media step right after ComfyUI) follows the same table (#1255): `FAL_SOURCE` and `FAL_API_KEY` are decided independently, Enter changes neither, `enable` / `disable` flip `FAL_SOURCE` and keep the saved key, and only `remove` blanks it. It has no model step. Its actions preview as `--fal-source enabled` or `disabled`, and a new key as `--fal-api-key <set>`; the FAL Cloud Media row in the overview shows the resulting source as soon as you answer. Before this change a bare Enter on a keyed-but-disabled fal turned it on, and typing `disable` or `enable` was saved as the key itself.
+The **fal.ai** key step (FAL Cloud Media, after ComfyUI) uses the same words for `FAL_SOURCE` and `FAL_API_KEY`. It has no model step. Its actions preview as `--fal-source enabled` or `disabled`, and a new key as `--fal-api-key <set>`. The overview's FAL Cloud Media row updates as soon as you answer.
 
 #### 4.4.2. Where the listed models came from
 
-The caption above the list always says which of the two sources you are looking at, so a model appearing in the picker is never mistaken for proof that your key works (#1180):
+The caption above the list always names the source of the list. A listed model is therefore never mistaken for proof that your key works:
 
-- **Live from the provider; key accepted.** The provider answered and these are its own models. Each row is badged `live`.
-- **Curated catalog, credentials unverified: `<reason>`.** The provider did not answer usefully, so the list is the bundled catalog from `bootstrapper/utils/llm_catalog.py`. Each row is badged `catalog`. The reason is one of: no API key was supplied · the provider rejected the key · the provider rate-limited the request · the provider returned an error · the request timed out · the provider could not be reached · the provider's reply could not be read · the provider listed no usable models.
+- **`Live from the provider · key accepted · Space toggles, Enter confirms`.** The provider answered and these are its own models. Each row is badged `live`.
+- **`Curated catalog · credentials unverified · <reason> · Esc re-enters the key and retries · Space toggles, Enter confirms`**. The provider did not answer usefully, so the list is the bundled catalog from `bootstrapper/utils/llm_catalog.py`. Each row is badged `catalog`. The reason is one of:
+  - no API key was supplied
+  - the provider rejected the key
+  - the provider rate-limited the request
+  - the provider returned an error
+  - the request timed out
+  - the provider could not be reached
+  - the provider's reply could not be read
+  - the provider listed no usable models
 
-A rejected key, a timed-out request and a successful-but-empty listing are three different captions, not one. To recover, press **Esc** to return to the key step, correct the key, and press Enter — that invalidates the cached result and refetches (§4.5). The key itself is never written to the caption or to the launch log.
+A rejected key, a timed-out request and an empty listing get three different captions. To recover, press **Esc** to return to the key step, correct the key, and press Enter. That clears the cached result and fetches again (§4.5). The key is never written to the caption or to the launch log.
 
-Models already saved in `*_USER_MODELS` that neither source lists are carried into the picker badged `saved`, and stay checked. Without that, a single failed lookup would drop them from the saved list the next time you pressed Enter.
+Models saved in `*_USER_MODELS` that neither source lists appear badged `saved` and stay checked. One failed lookup therefore cannot drop them from the saved list.
 
 The failure reason also appears in the launch log (see [Troubleshooting](troubleshooting.md)).
 
 ### 4.5. Splash + cache + back-invalidation
 
-Live fetches run in the background so the wizard stays responsive; a `Fetching <provider> models…` placeholder shows until real options arrive, and the result is cached for the wizard session so navigating forward and back doesn't refetch. Returning to a prior step with **Esc** invalidates the cache for that provider and any later step, so re-entering triggers a fresh fetch — useful if you just changed the API key.
+Live fetches run in the background, so the wizard stays responsive. A `Fetching <provider> models…` placeholder shows until the options arrive. The result is cached for the session, so moving forward and back does not fetch again. Going back with **Esc** clears the cache for that provider and every later step, so the next visit fetches again. Use this after you change an API key.
 
 ### 4.6. LLM defaults · chat / embedding / vision (single-select)
 
-After the cloud key/model pairs, the wizard asks you to pick the **default model per role** from everything you just selected (Ollama + cloud). Three consecutive `options` steps, each pre-highlighting the current `.env` value:
+After the cloud key/model pairs, the wizard asks for the **default model per role** from everything you selected (Ollama and cloud). These are three consecutive `options` steps, each pre-highlighting the current `.env` value:
 
-1. **Chat / content** → `LITELLM_DEFAULT_MODEL`. The fallback the backend and Open WebUI use when no model is named. Pre-selected to your saved default when it is still offered, otherwise to the highest-priority content-capable model in your selection.
-2. **Embedding** → `LITELLM_EMBEDDING_MODEL` and its derived `LANGMEM_EMBEDDING_DIM`. The picker reads the curated model's declared `dim:` from `services/*/models.yaml` and persists the same dimension contract for Backend and the Supabase memory migration. Every start also re-derives the dimension of a curated model whose catalog value changed (`qwen3-embedding:0.6b` is 1024, not the 1536 once declared), without a wizard run. Existing 768-dimensional deployments remain compatible; selecting a 1024-, 1536- or 3072-dimensional model triggers a lossless expand/re-embed/validate rollout on the next start. Backend verifies the effective model output before accepting traffic. Custom embedding models must declare `LANGMEM_EMBEDDING_DIM` explicitly; the dimension step refuses an empty entry when no dimension is saved (with one saved, Enter keeps it), any `clear` or non-numeric entry, and anything outside 1–4,000 (pgvector's halfvec HNSW limit), before the launch starts.
-3. **Vision** → `LITELLM_VISION_MODEL`. The first option is **— none / skip —**; vision routing is optional, and the step is skipped entirely when no vision-capable model is selected.
+1. **Chat / content** → `LITELLM_DEFAULT_MODEL`. The backend and Open WebUI use it when no model is named. It is pre-selected to your saved default if still offered, else to the highest-priority content-capable model in your selection.
+2. **Embedding** → `LITELLM_EMBEDDING_MODEL` and its dimension `LANGMEM_EMBEDDING_DIM`. For a curated model the wizard reads `dim:` from `services/*/models.yaml`. Backend and the Supabase memory migration use the same value. Every start re-derives the dimension if the catalog value changed (for example, `qwen3-embedding:0.6b` is 1024).
 
-All three persist to `.env` and are consumed by `litellm-init` (via `model_resolver`) on the next `docker compose up`. The whole trio is skipped when no LLM provider is active.
+   Existing 768-dimension deployments keep working. A 1024-, 1536- or 3072-dimension model starts a lossless expand, re-embed and validate rollout at the next start. Backend checks the model's real output before it accepts traffic. A custom model needs an explicit `LANGMEM_EMBEDDING_DIM` from 1 to 4,000 (pgvector's halfvec HNSW limit). The dimension step refuses `clear`, non-numbers and out-of-range values before launch. It refuses empty input when no dimension is saved; with a saved value, Enter keeps it.
+3. **Vision** → `LITELLM_VISION_MODEL`. The first option is **— none / skip —** because vision routing is optional. The step is skipped when no vision-capable model is selected.
+
+All three persist to `.env`. `litellm-init` reads them (through `model_resolver`) on the next `docker compose up`. The three steps are skipped when no LLM provider is active.
 
 ## 5. ComfyUI Model Picker
 
-`ComfyUI  ·  models` — a multiselect step parallel to the Ollama
-models step, shown for every non-`disabled` `COMFYUI_SOURCE`
-(`container-cpu` / `container-gpu` / `localhost` / `managed-localhost-mps`).
-The wizard's catalog is sourced from `bootstrapper/utils/comfyui_library.py`,
-which merges a live Hugging Face scrape (per-category filters
-covering Image, Image-edit, Video, Audio, and 3D models) +
-anonymous civitai LoRAs + a curated allowlist + the optional
-`services/comfyui/custom-models.yaml` sidecar. The typical assembled
-catalog is ~150 entries.
+`ComfyUI  ·  models` is a multiselect shown for every `COMFYUI_SOURCE` except `disabled`: `container-cpu`, `container-gpu`, `localhost` and `managed-localhost-mps`. Its catalog (`bootstrapper/utils/comfyui_library.py`, typically about 150 entries) merges four inputs:
 
-Each row carries:
+- a live Hugging Face search (image, image-edit, video, audio and 3D models);
+- anonymous civitai LoRAs;
+- a curated allowlist;
+- the optional `services/comfyui/custom-models.yaml` file.
 
-- **Category chip** — `[image]` / `[image-edit]` / `[video]` /
-  `[audio]` / `[3d]` / `[Custom]` for sidecar-YAML entries.
-  This is the display-group chip used by the filter row above;
-  the actual family-grouping mechanism is the **variant tree**
-  described below.
-- **Descriptive badges** — `[family]`, category, size in GB, and (when the
-  catalog sets them) `[precision]`, `[variant]` and `[license]`.
-- **`[pulled]`** — every file of the entry is already in the
-  `<project>-comfyui-models` named volume. The wizard finds the volume with
-  `docker volume inspect`; when its mountpoint is not readable from the host
-  (Docker Desktop keeps it inside the VM) the badge is omitted, so its absence
-  does not mean "not downloaded".
-- **Warning badges** (shown with a warning-sign prefix; warn-only, nothing is
-  hidden) — `node: <nodes>` when the model needs ComfyUI custom nodes,
-  `requires GPU` (no GPU detected and the model is not CPU-capable),
-  `requires N GB VRAM` (detected GPU memory is below the model's minimum),
-  `requires N GB RAM`, and any license restriction. For container sources,
-  the bootstrapper maps those node names through
-  `services/comfyui/custom-nodes.yaml` and writes a pinned
-  `active-custom-nodes.tsv` install plan. Dependency-bearing nodes must carry
-  a compiled lock plus its SHA-256; Atlas verifies the copied lock and installs
-  with hash checking instead of using the cloned node's `requirements.txt`.
-  Unknown, unallowlisted, or unconstrained nodes are not cloned automatically.
-  This currently includes 3D-Pack: its secure `rembg` floor requires Python
-  3.11 while the configured AI-Dock runtime uses Python 3.10, and BasicSR has
-  no fixed release. Atlas leaves those catalog rows available for externally
-  managed nodes but refuses automatic provisioning.
+Each row shows:
 
-**Filter chips** below the search box: `Filter  [ALL]  image  image-edit  video  audio  3d`.
-Press **`f`** to cycle the chips from the keyboard (or click). The
-chip filter and the search box stack — a row must match both the
-active chip AND the search substring to render.
+- a category chip: `[image]`, `[image-edit]`, `[video]`, `[audio]`, `[3d]`, or `[Custom]` for `custom-models.yaml` entries;
+- `[family]`, category, size in GB, and `[precision]`, `[variant]` and `[license]` when the catalog sets them;
+- `[pulled]` when every file is already in the `<project>-comfyui-models` volume. Docker Desktop keeps that volume inside its VM, where the host cannot read it. There, a missing `[pulled]` does not mean the model is absent;
+- warning badges (nothing is hidden): `node: <nodes>`, `requires GPU`, `requires N GB VRAM`, `requires N GB RAM`, and license restrictions.
 
-**Search box** above the chips, behaving identically to the
-Ollama picker's search: **`Tab`** or **`/`** to focus, type to
-narrow, **`Tab`** / **`Enter`** / **`Esc`** to return focus to the
-option list.
+**Custom nodes.** For container sources, Atlas installs only allowlisted nodes from `services/comfyui/custom-nodes.yaml`, at pinned commits and from hash-verified locks. Unknown, unallowlisted or unconstrained nodes are not installed; this currently includes 3D-Pack. The [ComfyUI README](../../services/comfyui/README.md) §7 gives the rules and the 3D-Pack reasons.
 
-**Variant picker (in-place tree)** — Hugging Face entries sharing a
-leading-letters family root collapse into one expandable parent row
-mirroring Ollama's `qwen3 · 8b / 14b / 32b` UX. A row like
-`TRELLIS  ·  6 variants` represents all `microsoft--TRELLIS-*` and
-`gqk--TRELLIS-*` repositories and includes the expansion indicator in the
-interface. Press **`Space`** on the parent
-to expand the tree in place; variants appear as indented leaves
-with connector lines directly below, each toggleable independently
-via **`Space`** on the leaf. Press **`Space`** on the parent again
-to collapse. The parent's checkbox is an aggregate — green when any
-leaf is checked. Selections persist as full repository names in
-`COMFYUI_USER_MODELS`; the synthetic family-root token (e.g.
-`family:TRELLIS`) never leaves the wizard. Families of one HF
-entry stay flat, as do civitai numeric IDs, the curated allowlist,
-and sidecar entries.
+**Search, chips and variants** work as in the Ollama picker (§4.2). The chips are `ALL image image-edit video audio 3d`. Hugging Face repositories with a common family root share one parent row. For example, `TRELLIS  ·  6 variants` holds all `microsoft--TRELLIS-*` and `gqk--TRELLIS-*` repositories. Selections are saved as full repository names. Single-entry families, civitai IDs, allowlist entries and custom entries stay flat.
 
-**Catalog load latency** — the wizard makes follow-up calls to Hugging Face
-to populate real file sizes for each model, which adds ~10–15 s of extra load
-the first time the ComfyUI picker opens. A repo whose size lookup fails just
-shows `0.00 GB` without blocking the rest of the catalog from loading.
+The first open takes about 10–15 s longer while file sizes load from Hugging Face. A failed size lookup shows `0.00 GB` and does not block the catalog.
 
-**Source-aware behaviour** — the picker fires for all non-`disabled`
-ComfyUI sources, but the downstream init pipeline branches:
+**At start**, the result depends on the source:
 
-- **`container-cpu` / `container-gpu`** — at bootstrapper start, the
-  resolver computes the active model and required-custom-node set from
-  your selections and the init containers download/install them into the
-  ComfyUI containers automatically. Selections persist to
-  `COMFYUI_USER_MODELS` in `.env`.
-- **`localhost`** — `comfyui-init` is scaled to 0 (the download
-  container would write into a path the host ComfyUI doesn't read), but
-  the bootstrapper still writes the manifest so the backend
-  `/comfyui/db/models` endpoint that Open WebUI and n8n consume can
-  serve the active set. You populate your host ComfyUI install's
-  `models/<target_dir>/` directory yourself (unlike `ollama-localhost`,
-  which Atlas provisions automatically).
-- **`managed-localhost-mps`** — Atlas provisions the selected models into
-  `COMFYUI_MPS_MODELS_PATH` on the host at start (no `comfyui-init`
-  container), and installs the required allowlisted custom nodes into the
-  host ComfyUI. See the ComfyUI README §10.
+- **`container-cpu` / `container-gpu`**: the init containers download the selected models and install the required nodes.
+- **`localhost`**: `comfyui-init` does not run. The bootstrapper still writes the manifest, so the backend `/comfyui/db/models` endpoint (used by Open WebUI and n8n) lists the active set. You put the files in your host ComfyUI's `models/<target_dir>/`.
+- **`managed-localhost-mps`**: Atlas downloads the models into `COMFYUI_MPS_MODELS_PATH` and installs allowlisted nodes into the host ComfyUI (ComfyUI README §10).
 
-Selection persists as `COMFYUI_USER_MODELS` (comma-separated
-catalog names) in `.env`. CLI flag `--comfyui-models` accepts the
-same CSV. CLI flag `--comfyui-custom-models-file PATH` overrides
-the default sidecar YAML location.
+The selection is saved as `COMFYUI_USER_MODELS` (comma-separated catalog names). `--comfyui-models` takes the same list, and `--comfyui-custom-models-file PATH` replaces the default `custom-models.yaml` path.
 
-**Multi-file bundles** — a single catalog entry can represent a bundle of
-related files (e.g. diffusion weights, a text encoder, and a VAE for one
-model set), so selecting one row downloads every file the bundle needs into
-its correct target directory. The bundle schema is documented alongside
-`services/comfyui/models.yaml`.
+One entry can be a bundle, for example diffusion weights, a text encoder and a VAE. Selecting it downloads every file to its target directory. The bundle schema is documented with `services/comfyui/models.yaml`.
 
-When the upstream HF / civitai scrape fails (rare), the wizard
-falls back to the bundled allowlist via
-`bootstrapper/utils/comfyui_library.py::list_fallback()`. The
-fallback path emits a session-log warning but the wizard remains
-usable. Note: the fallback only triggers when BOTH scrapers raise
-network exceptions; an HF response of `200 OK` with zero parseable
-entries is not treated as a fallback trigger.
+If both the Hugging Face and civitai requests fail with network errors, the wizard uses the bundled allowlist (`bootstrapper/utils/comfyui_library.py::list_fallback()`) and logs a warning. An empty but successful (`200 OK`) Hugging Face reply does not trigger the fallback.
 
 ## 6. Inline secondary numeric inputs
 
@@ -340,49 +227,48 @@ Selections persist as a sibling env var:
 | Prometheus | `PROMETHEUS_RETENTION_DAYS` | `7` | 1..365 | `container` |
 | ComfyUI, Document Processor, Apache Tika, Hermes Agent, OpenClaw, LLM Engine, Neo4j, Weaviate, STT/TTS providers, LightRAG, TEI Reranker | that option's `*_LOCALHOST_PORT` (e.g. `OLLAMA_LOCALHOST_PORT`) | the current `.env` value | 1024..65535 | the service's localhost-type option (`localhost`, `ollama-localhost`, `docling-localhost`, `managed-localhost-mps`, …) |
 
-The input renders directly on the source step — no follow-up cascade — so
-the user picks both a source and a numeric refinement in one keystroke
-sequence. A value outside the listed range is refused rather than clamped
-(see §7.2). Adding a Prometheus-style manifest-driven inline input requires only
-a `secondary_number` block on the relevant `rows[]` entry in `service.yml` (the
-schema field is documented in `docs/CONTRIBUTING-services.md`); the Ray and
-Spark worker-count inputs are wired directly in the wizard code
-(`bootstrapper/ui/textual/integration.py`).
+The input appears on the source step itself, so you pick the source and the
+number in one step. A value outside the listed range is refused, not clamped
+(§7.2).
+
+Contributors declare a new inline input with a manifest `secondary_number` block; the [service runbook](../CONTRIBUTING-services.md) documents the field.
 
 ## 7. Stack Options
 
-The wizard also collects these stack-level (non-service-source) options. Track and profile come first, then **base port**, before any service-source prompt; the cold-start and hosts-file options come last:
+The wizard also asks these stack-level questions. Track and profile come first, then **base port** and **project name**, before any service source. Cold start and hosts come last.
 
-- **Base port** for all services (default: 63000) — collected before any service-source prompt so all subsequent port displays reflect the chosen base.
-- **Track** prompts are labelled "asked in every track", not "always-on". The LLM Engine, Prometheus, Grafana and cloud-provider keys are exempt from track filtering so every track asks about them — but Prometheus and Grafana ship **disabled**, and a blank cloud key leaves that provider off, so being asked is not the same as running (#1032). The genuinely always-running tier is Supabase + Kong + Redis + LiteLLM + Backend, which is never prompted.
-- **Profile** descriptions are checked against `bootstrapper/profiles.yml` by a test, so the copy cannot drift from the overlay. Both shipped profiles bind published ports to `127.0.0.1:`; `prod` adds log rotation, turns Prometheus and Grafana on, and hides localhost sources. With `prod` selected, the Prometheus and Grafana source steps default to `container` (the bundle's value), so pressing Enter keeps them on; choosing `disabled` there is an explicit answer and wins. A source your consumer manifest or `.env.user` sets keeps its value as the default instead, as on `--no-tui`. The launch overview shown when you pass CLI flags (no wizard) applies the same rule, so `--profile prod` shows Prometheus and Grafana as they will run. Per-service resource limits are `.env` defaults independent of the profile — the profile step no longer claims otherwise.
-- Picking a track **interactively** now re-dims the service rows that track excludes, matching what the launch resolver will produce. Previously the dimming was computed only for a `--track` passed on the CLI.
-- **Cold start** is an explicit destructive choice, defaulting to **No**. Press **Ctrl+R** to read every consequence in full before answering (§7.1). It removes this project's containers and Compose-managed volumes, including database records, object files, workflow/chat history, models and caches stored in those volumes. It also re-creates `.env` and regenerates keys/passwords. Back up needed data and configuration first. Bind-mounted files and external volumes remain. Although `.env` is re-created, an earlier "Enter keeps current" answer (a cloud API key and its enabled/disabled state and model list, the fal.ai key and its enabled state, the Ollama and ComfyUI model lists) is carried into the new `.env`; answer "remove" to drop a key instead.
-- **Hosts file configuration** to enable friendly URLs like `chat.localhost` and `n8n.localhost`.
+- **Track.** Every track asks about the LLM Engine, Prometheus, Grafana and the cloud-provider keys. Being asked is not the same as running: Prometheus and Grafana ship **disabled**, and a blank key leaves its provider off. The always-running core (Supabase, Kong, Redis, LiteLLM, Backend) is never asked. Picking a track dims the service rows it excludes.
+- **Profile.** Both shipped profiles bind published ports to `127.0.0.1:`. `prod` adds log rotation, turns Prometheus and Grafana on, and hides localhost sources. Under `prod`, the Prometheus and Grafana steps default to `container`; choosing `disabled` there wins. A source that your consumer manifest or `.env.user` sets keeps its value as the default, as under `--no-tui`. The CLI-flag launch overview applies the same rule. Per-service resource limits come from `.env`, not from the profile.
+- **Base port** for all services. Enter keeps the displayed default: the `BASE_PORT` in `.env` (63000 in `.env.example`), or `auto` when `BASE_PORT` is unset or `auto`. `auto` selects a free port block at launch. Every later port display uses the confirmed value.
+- **Project name** prefixes every container, volume and the network, and is saved as `PROJECT_NAME`. Enter keeps the current name. Give a submodule consumer its own name so that it does not collide with another Atlas stack.
+- **Cold start** defaults to **No**. Press **Ctrl+R** to read every consequence first (§7.1). **Yes** removes this project's containers and Compose-managed volumes, with the database records, object files, workflow and chat history, models and caches stored there. It re-creates `.env` and regenerates keys and passwords. Bind-mounted files and external volumes remain. Back up needed data and configuration first.
+
+  Answers you kept with Enter are carried into the new `.env`. These are each cloud API key with its state and model list, the fal.ai key and state, and the Ollama and ComfyUI model lists. Answer `remove` to drop a key.
+- **Hosts file** enables friendly URLs such as `chat.localhost` and `n8n.localhost` (§18).
 
 ### 7.1. Reading a destructive warning in full
 
-A step that carries a destructive warning is capped at two subtitle rows in the compact layout, and at the supported 60×20 floor the cold-start warning does not fit in two rows — so part of what you were agreeing to was off screen (#1168).
+On a destructive step, the compact layout shows only two subtitle rows. At the 60×20 floor that cuts off part of the cold-start warning.
 
-Press **Ctrl+R** on any such step to open a read-only overlay that uses the whole terminal and scrolls with `↑` `↓` `PgUp` `PgDn`. It shows the complete warning followed by what each choice does, so the project and volume scope stay visible. **Esc** (or `Ctrl+R` again, or `q`) returns to the prompt.
+Press **Ctrl+R** on such a step for a full-screen, read-only review. It shows the complete warning and what each choice does, including the project and volume scope. Scroll with `↑` `↓` `PgUp` `PgDn`. Close it with **Esc**, `Ctrl+R` or `q`.
 
-The overlay confirms nothing. Your selection is untouched while it is open and when it closes, and the safe choice stays selected — so opening the review can never be the thing that triggers a destructive action. The footer advertises `ctrl+r review` whenever the step offers it.
+The review confirms nothing. Your selection does not change, and the safe choice stays selected. The footer shows `ctrl+r review` whenever the step offers it.
 
 ### 7.2. Invalid numbers are refused, not adjusted
 
-Every numeric entry is either accepted as typed or refused. Nothing is clamped into range, and nothing falls back to the previous value (#1181) — a typo used to become a working but different setting, with no indication that the wizard had changed it.
+A numeric entry is accepted as typed or refused. It is never clamped into range, and never replaced by the previous value.
 
-On the base-port step, typing `70000` leaves you on the step and replaces the hint under the input with:
+On the base-port step, typing `70000` keeps you on the step and replaces the hint under the input with:
 
 ```
 70000 — choose 1024–65000, or enter auto
 ```
 
-Typing `six` gives `'six' is not a number — choose 1024–65000, or enter auto`. The message always names that step's own bounds, and mentions `auto` only on the steps that accept it. Editing the field restores the normal hint. Nothing is written to `.env` and no port is recomputed until the value is accepted.
+Typing `six` gives `'six' is not a number — choose 1024–65000, or enter auto`. The message names that step's own bounds, and mentions `auto` only where `auto` is valid. Editing the field restores the normal hint. Nothing is written to `.env` and no port is recomputed until the value is accepted.
 
-Two entries keep their meanings: **empty** means "keep the displayed default", and **`auto`** (any case) is a real base-port value on the base-port step. On a step that does not accept `auto`, typing it is refused rather than silently kept as the old number.
+**Empty** input keeps the displayed default. **`auto`** (any case) is a valid value on the base-port step only; on other steps it is refused.
 
-The inline per-row numeric inputs (§6) follow the same rule. A refused value there shows as a `Value out of range` panel below the option list, and that row's env var is left unwritten.
+The inline numeric inputs (§6) follow the same rule. A refused value there shows a `Value out of range` panel below the option list, and that row's env var stays unwritten.
 
 ## 8. Pre-Launch Summary
 
@@ -390,16 +276,14 @@ Before launching, a configuration summary inside the same anchored info-box show
 
 - Every service with its selected source, alias (when hosts are configured), and direct port.
 - Hosted endpoints (e.g., `chat.localhost:63000`) if hosts file entries are configured.
-- A separate **Cloud APIs** sub-section lists OpenAI / Anthropic / OpenRouter status (`enabled · key set` with a check mark, `disabled`, or `enabled · key MISSING` with a warning mark). Cloud providers don't run as containers, so they render below the services grid rather than alongside real services.
+- A separate **Cloud APIs** sub-section lists OpenAI / Anthropic / OpenRouter status. Each shows `enabled · key set` with a check mark, `disabled`, or `enabled · key MISSING` with a warning mark. Cloud providers don't run as containers, so they render below the services grid rather than alongside real services.
 - Color-coded source choices (container = green, localhost / cloud = cyan, off = slate).
 
 You confirm to launch (the **Launch the stack with this configuration?** step is the wizard's final question), or cancel to exit without changes.
 
 ### 8.1. What "started" means, and what it does not
 
-The `All services started` line means Compose converged — every container the plan asked for was created and reported up. It does not mean the stack has been checked, because the post-start probes run after that line (#1032).
-
-Those probes now report their own outcome, and each one is one of four things:
+`All services started` means Compose converged: every planned container was created and reported up. It does not mean the stack was checked, because the post-start probes run after that line. Each probe reports one outcome:
 
 | Outcome | Meaning |
 |---|---|
@@ -408,7 +292,7 @@ Those probes now report their own outcome, and each one is one of four things:
 | `unverified` | The probe raised. The launch is **not** a clean success, and the reason is in the Logs tab. |
 | `skipped` | The probe does not apply to this configuration. Labelled with its reason — a skip is not a pass. The ComfyUI host-models check, for instance, applies only to `COMFYUI_SOURCE=localhost`. |
 
-Once the probes finish, the launch ends with one result block naming each stage. The `--no-tui` flow prints the same block for the same probe outcomes, so both front ends state the same result; only the place named in the next action differs (the Logs tab here, the output above under `--no-tui`):
+The launch then ends with one result block that names each stage. `--no-tui` prints the same block for the same outcomes. Only its next action differs: it points at the output above instead of the Logs tab.
 
 ```text
 ⚠️  Launch result: unverified — started, but not verified: ports · containers are up
@@ -419,69 +303,49 @@ Once the probes finish, the launch ends with one result block naming each stage.
   Next: check the Logs tab for the reason before relying on these services; `docker compose ps` shows what is running.
 ```
 
-The result is `verified` only when every applicable probe passed; a probe that found a problem makes it `degraded`, and one that raised makes it `unverified`. A qualified result also raises a warning toast, so you see it from the Setup tab too. Service health is awaited only by `./start.sh --detach` (and `--json`), where the detached status summary decides it; a stack that is not running or healthy there is `failed`.
+The result is `verified` only when every applicable probe passed. A probe that found a problem makes it `degraded`, and one that raised makes it `unverified`. Either also raises a warning toast, visible from the Setup tab. Only `./start.sh --detach` (and `--json`) waits for service health, through the detached status summary. A stack that is not running or healthy there is `failed`.
 
-Severity: the readiness gates still decide the exit code, exactly as before — the setup steps, `docker compose up`, the required one-shot init containers, the n8n reactivation and, under `--detach`, the detached health summary. Post-start probes are advisory: they qualify the result but never fail a launch whose containers converged. Under `--no-tui` a probe that raised used to escape as `Unexpected error during startup` (exit 1) after the stack was already up; it is now reported as `unverified` like it is here.
-
-Before this, both probes were wrapped in a blanket exception suppressor, so a failed port check or model check was discarded with no log line and no change to the reported result.
+The readiness gates set the exit code. They are the setup steps, `docker compose up`, the required one-shot init containers, n8n reactivation and, under `--detach`, the detached health summary. Post-start probes are advisory. They qualify the result but never fail a launch whose containers converged. Under `--no-tui`, a probe that raised is also reported as `unverified`.
 
 ## 9. Streaming Logs
 
-After confirmation, the wizard transitions in-place from prompts to the launch phase:
+After you confirm, the same screen switches from prompts to the launch phase:
 
-- The brand panel stays **pinned** at the top — it never moves while logs flow.
-- The screen splits into two **tabs**, rendered on the brand panel's bottom border as `[▸ Setup ] [  Logs ]`. **Setup** holds the stack overview, the step prompts, and the command summary; **Logs** holds the filter chips and the log pane. The stack overview had grown tall enough that the log pane was down to a few visible lines — the tabs give each surface the full height instead of splitting it.
-- Switch with **`1`** / **`2`**, cycle with **`Shift+Tab`**, or click a tab directly (the labels are mouse targets and highlight on hover). The **Logs** tab only becomes reachable once the launch phase begins; before that it renders dimmed and its keys do nothing.
-- The bottom shortcuts bar re-renders per tab, so it advertises the keys that apply to what you're looking at rather than the union of both.
-- **Unseen-error marker:** if an error is logged while you're on the Setup tab, the Logs label picks up a red `!` — `[  Logs! ]`. The failure toast is transient; the marker is not. It clears the moment you visit the tab. Warnings never raise it (a normal launch emits enough of them that the marker would be permanently lit, which is the same as having no marker).
-- The **Logs** pane streams `docker compose` build / up / port-verify / `logs -f` output, line-by-line.
-- Per-service container names (e.g. `atlas-supabase-db`, `atlas-ollama-pull`) are **color-coded** based on `bootstrapper/ui/textual/palette.py::SOURCE_COLORS`. Unknown service names get a stable hue from a small md5-based palette so every service in the stack remains visually distinguishable.
-- The full launch-phase output is also tee'd to an owner-only `${TMPDIR:-/tmp}/atlas-launch-<timestamp>-<unique>.log` (Python's temporary directory; under `/var/folders` on macOS) for post-mortem inspection. See [Troubleshooting](troubleshooting.md#2-session-log).
-- Press `Ctrl+Q` to detach cleanly from the wizard UI once the stack is up; while startup is still running, `Ctrl+Q` only reminds you that `Ctrl+C` cancels. `Ctrl+C` sends SIGINT — fine after services are up (already-detached compose containers keep running) but during the launch pipeline it may interrupt a compose step mid-flight, leaving the stack in a partial state. Either way, services that have finished starting keep running; resume log streaming with `docker compose logs -f <service>`.
-- Each way out states its consequences (§9.2). Once the stack is up, the log pane lists `ctrl+q`, `ctrl+s` and `ctrl+x` with what each does to services, configuration and data. Cancelling with `Ctrl+C` prints, after the screen closes, that containers already started keep running, the configuration written so far is kept and no data was deleted, and, when this start had already stopped a previously running stack to free its ports, that it did. During the wait for one-shot init containers (up to 900 s), `Ctrl+C` returns within a few seconds instead of at the end of the wait (longer only if `docker compose ps` itself hangs). Exit codes in the wizard: `130` only when `Ctrl+C` interrupts a running launch; after the launch has finished, `Ctrl+C` keeps its result (`0` started, `1` failed) and prints no cancel notice (#1357). The wizard's own cold-start volume removal (`down --volumes`) has the same deadline as any other `down` and stops on `Ctrl+C`; the cancel notice then says that volumes may already be removed. A failed init container's error line ends with its last 40 log lines.
+- The brand panel stays **pinned** at the top while logs flow.
+- Two **tabs** appear on its bottom border, `[▸ Setup ] [  Logs ]`. **Setup** holds the stack overview, the step prompts and the command summary. **Logs** holds the filter chips and the log pane. Each tab gets the full height.
+- Switch with **`1`** / **`2`**, cycle with **`Shift+Tab`**, or click a tab. **Logs** stays dimmed and its keys do nothing until the launch phase begins. The bottom shortcut bar shows the keys for the current tab.
+- **Unseen-error marker:** an error logged while you are on Setup adds a red `!` to the Logs label (`[  Logs! ]`). Unlike the failure toast, the marker stays until you open the tab. Warnings do not set it.
+- The **Logs** pane streams `docker compose` build, up, port-verify and `logs -f` output, line by line.
+- Container names (for example `atlas-supabase-db`, `atlas-ollama-pull`) are **color-coded** from `bootstrapper/ui/textual/palette.py::SOURCE_COLORS`. Other names get a stable hue from a small md5-based palette.
+- The full output is also written to an owner-only `${TMPDIR:-/tmp}/atlas-launch-<timestamp>-<unique>.log` (Python's temporary directory; under `/var/folders` on macOS). See [Troubleshooting](troubleshooting.md#2-session-log).
+- Once the stack is up, `Ctrl+Q` detaches and services keep running. The log pane then lists `ctrl+q`, `ctrl+s` and `ctrl+x` with their effects (§9.2). During startup, `Ctrl+Q` only reminds you that `Ctrl+C` cancels.
+- `Ctrl+C` during startup sends SIGINT and can leave a Compose step half-done. Containers already started keep running, configuration written so far is kept, and no data is deleted. After the screen closes, a notice says so. It also says if this start stopped a previous stack to free its ports.
+- During the wait for one-shot init containers (up to 900 s), `Ctrl+C` returns within seconds. It takes longer only if `docker compose ps` hangs. The wizard's cold-start volume removal (`down --volumes`) also stops on `Ctrl+C`; the notice then says volumes may already be removed.
+- Exit codes: `130` only when `Ctrl+C` interrupts a running launch. After the launch ends, `Ctrl+C` keeps its result (`0` started, `1` failed) and prints no notice.
+- A failed init container's error line ends with its last 40 log lines.
+- To follow logs later, set `COMPOSE_PROJECT_NAME` as shown at the top of [Troubleshooting](troubleshooting.md), then run `docker compose logs -f <service>`.
 
 ### 9.1. Recovery without deleting data
 
-Permission failures do not establish an ownership mismatch. Identify the failing
-service, container path, effective UID/GID and host mount mapping, including
-whether the mount is read-only, before changing permissions. When that evidence
-is missing, the recovery hint explicitly says diagnosis is incomplete. It never
-recommends making the whole volumes tree world-writable.
+A permission failure does not prove an ownership mismatch. Before you change permissions, identify the failing service, the container path, the effective UID/GID and the host mount mapping. Also check whether the mount is read-only. When that evidence is missing, the recovery hint says the diagnosis is incomplete. It never recommends a world-writable volumes tree.
 
-For authentication failures, check service availability and health first, then
-compare the effective project/env configuration with the configuration used to
-initialize the installation. If stored credentials differ, retain the volume and
-recover the matching configuration or follow the service's credential-recovery
-procedure after a verified backup. A rejected password does not prove that a
-volume is stale; deletion is not an authentication repair. Connection and DNS
-failures require checking the host, port and network rather than resetting keys.
+For an authentication failure, check service availability and health first. Then compare the effective project and env configuration with the configuration that initialized the installation. If stored credentials differ, keep the volume. Recover the matching configuration, or follow the service's credential-recovery procedure after a verified backup.
 
-Keep the session log for diagnosis and inspect it for secrets before sharing.
-Detach with `Ctrl+Q`, correct the diagnosed cause, and retry the original launch
-command with the same project and consumer options. These hints do not perform
-permission repairs, credential resets or deletion.
+A rejected password does not prove that a volume is stale, and deletion does not repair authentication. For connection and DNS failures, check the host, port and network; do not reset keys.
+
+Keep the session log for diagnosis, and check it for secrets before you share it. Detach with `Ctrl+Q`, fix the diagnosed cause, and retry the original launch command with the same project and consumer options. These hints do not repair permissions, reset credentials or delete anything.
 
 ### 9.2. Separate stop and destructive cold stop
 
-After launch, `Ctrl+S` stops the project while retaining volumes. `Ctrl+X` is a
-separate destructive cold-stop action. Its warning names the project and explains
-that Compose-managed named volumes and attached anonymous volumes are removed:
-database records, object files, workflow/chat history, models and caches stored
-there are lost. Bind mounts, external volumes, `.env` and managed host processes
-remain; unlike cold start, cold stop does not regenerate configuration.
-While a stop runs, a second stop or cold stop is refused with a warning, and so
-are `Ctrl+Q` and `Ctrl+C`. Wait for the first stop to report its result. If the stop hangs (for example a stalled Docker daemon), press `Ctrl+Q` or `Ctrl+C` again within 5 seconds to leave; the stop's result is then unknown, so check with `./stop.sh` or `docker compose ls`. A stop's Compose command is stopped after 600 seconds. The stop
-acts on the project this screen started, even if `.env` changes meanwhile. Its
-Compose output goes to the log pane. If Docker cannot list the project's volumes
-afterwards, the cold stop reports a problem instead of success.
+After launch, `Ctrl+S` stops the project and keeps its volumes. `Ctrl+X` is a separate, destructive cold stop. Its warning names the project. It removes Compose-managed named volumes and attached anonymous volumes, with the database records, object files, workflow and chat history, models and caches stored there. Bind mounts, external volumes, `.env` and managed host processes remain. Unlike cold start, cold stop does not regenerate configuration.
 
-Both actions require pressing the **same key twice within eight seconds**. A
-different action re-arms its own confirmation; an expired confirmation requires
-another first press. The cold-stop warning remains in the session log for review.
-Read the data-loss warning and back up needed data before confirming. Detaching
-does not delete data.
+Both need the **same key pressed twice within eight seconds**. A different key arms its own confirmation, and an expired confirmation needs a new first press. The cold-stop warning stays in the session log. Back up needed data before you confirm. Detaching never deletes data.
 
-The four ways out are distinct, and each states all three consequences (#1032):
+While a stop runs, a second stop, a cold stop, `Ctrl+Q` and `Ctrl+C` are refused with a warning. Wait for the result. If the stop hangs (for example, the Docker daemon stalls), press `Ctrl+Q` or `Ctrl+C` again within 5 seconds to leave. The result is then unknown; check with `./stop.sh` or `docker compose ls`.
+
+The stop's Compose command is stopped after 600 seconds, and its output goes to the log pane. The stop acts on the project this screen started, even if `.env` changes meanwhile. If Docker cannot list the project's volumes afterwards, cold stop reports a problem, not success.
+
+The four ways out are distinct:
 
 | Action | Services | Configuration (`.env`) | Persistent data |
 |---|---|---|---|
@@ -490,59 +354,65 @@ The four ways out are distinct, and each states all three consequences (#1032):
 | Stop (`Ctrl+S` twice, or `./stop.sh`) | containers stop | kept | not deleted (volumes kept) |
 | Cold stop (`Ctrl+X` twice, or `./stop.sh --cold`) | containers stop | kept | **deleted** (Compose-managed volumes) |
 
-Only cold stop deletes data, and it needs an explicit confirmation: the second
-`Ctrl+X` press, or the `--cold` flag itself. Cancelling never deletes anything.
-Declining the `--no-tui` pre-launch summary starts nothing and keeps the
-configuration written up to that point. Under `--cold` the cold cleanup has
-already run by then (volumes removed, `.env` recreated), so declining does not
-bring that data back; the cancel message says so.
+Only cold stop deletes data, and only after the second `Ctrl+X` or with the `--cold` flag. Cancelling never deletes anything. Declining the `--no-tui` pre-launch summary starts nothing and keeps the configuration written so far. Under `--cold`, the cold cleanup has already run by then (volumes removed, `.env` recreated), and the cancel message says so.
 
 ## 10. Navigation
 
 | Key | Action |
 |-----|--------|
 | `Up/Down` | Navigate between options or rows |
+| `j` / `k` | Move down / up (same as Down/Up; off while search has focus) |
 | `Space` | Toggle a row in a multiselect |
 | `Enter` | Confirm the current selection |
 | `Esc` | Return to the previous step (and from the first visible step, exit, including when `--track`/`--profile` pre-answered the steps before it) |
+| `Tab` or `/` | Focus the model search box (model pickers) |
+| `f` | Cycle the capability filter chips (model pickers) |
 | `1` / `2` | Jump to the Setup / Logs tab (Logs only after launch begins) |
 | `Shift+Tab` | Cycle to the previous tab |
+| `a` `e` `w` `i` | After launch: show all log lines, errors, warnings or info |
+| `s` | Logs tab: open the filter-by-source picker |
+| `y` / `Y` | After launch: copy the visible log lines / the session log's first segment |
 | `Ctrl+R` | Review the full warning on a destructive step (§7.1) |
 | `Ctrl+O` | Review the whole command, every service's details and every answered decision (§10.1, §10.2) |
+| `Ctrl+S` / `Ctrl+X` (twice) | After launch: stop / cold stop (§9.2) |
 | `Ctrl+Q` | Quit the wizard |
 
 ### 10.1. Reviewing the command and service details by keyboard
 
-The command summary shows at most four rows, and the service table shows a row's source options, dependencies and URLs only in a mouse-hover tooltip. Neither takes keyboard focus (#1179).
+The command summary shows at most four rows. The service table shows a row's source options, dependencies and URLs only in a mouse tooltip. Neither takes keyboard focus.
 
-Press **Ctrl+O** to open a read-only overlay that uses the whole terminal, at any size down to the 60×20 floor. During setup it has three pages, and two once the launch has begun; **Tab** moves to the next page and **Shift+Tab** to the previous one.
+Press **Ctrl+O** for a full-screen, read-only view, available down to the 60×20 floor. It has three pages during setup and two after launch. **Tab** moves to the next page and **Shift+Tab** to the previous one:
 
-- **Command** lists the generated `./start.sh` command one flag per line, in copyable shell form. Scroll it with `↑` `↓` `PgUp` `PgDn`.
-- **Services** lists every service. Moving the selection with `↑` `↓` shows that service's card, which is the same text as its hover tooltip.
-- **Decisions** (setup only) lists every step you have answered, in wizard order, with its current answer. See §10.2.
+- **Command** lists the generated `./start.sh` command, one flag per line, in copyable shell form. Scroll with `↑` `↓` `PgUp` `PgDn`.
+- **Services** lists every service. Moving with `↑` `↓` shows that service's card, the same text as its tooltip.
+- **Decisions** (setup only) lists every answered step, in wizard order, with its current answer (§10.2).
 
-Press **y** to send the command to the terminal clipboard (OSC 52; a terminal without it leaves the clipboard unchanged). Any flag named like a secret (a password, secret, token or key) shows and copies as `'<set>'`, never with its value. **Esc** (or `Ctrl+O` again, or `q`) closes the overlay with the step, cursor and selections exactly as you left them. On the Decisions page the search box holds focus, so `q` and `y` are typed into it there; use Esc or `Ctrl+O` to close. The command summary's border title advertises `ctrl+o details`, on the panel the overlay expands, so the footer's actions are unchanged.
+Press **y** to copy the command through OSC 52; a terminal without OSC 52 leaves the clipboard unchanged. A flag named like a secret (password, secret, token or key) shows and copies as `'<set>'`. **Esc**, `Ctrl+O` or `q` closes the view with your step, cursor and selections unchanged. On Decisions the search box has focus, so `q` and `y` are typed there; use Esc or `Ctrl+O` to close. The command summary's border shows `ctrl+o details`.
 
 ### 10.2. Jumping to a previous decision
 
-To change an earlier answer, for example from the final confirm, you do not need to press Esc back through every step in between (#1198). Open the overlay with **Ctrl+O**, press **Tab** until the Decisions page shows, and type words from a step title or service name, such as `ollama models`, to narrow the list. Move with `↑` `↓` `PgUp` `PgDn`, then press **Enter** to jump to that step.
+To change an earlier answer, you do not need to press Esc back through every step. Press **Ctrl+O**, then **Tab** to the Decisions page. Type words from a step title or service name, such as `ollama models`, to narrow the list. Move with `↑` `↓` `PgUp` `PgDn`, then press **Enter** to jump to that step.
 
-The step opens with its current answer selected. Confirm a new answer with **Enter**, and the wizard:
+The step opens with its current answer selected. When you confirm a new answer with **Enter**, the wizard:
 
-1. keeps every answer that does not depend on the one you changed;
-2. clears the answers that did depend on it, including a single choice from a list the wizard builds from your earlier answers that no longer offers it (such as a default chat model you just deselected), and prompts for those again, in wizard order, before going back. Model lists fetched from a provider keep your saved picks, as they do on a straight run;
-3. drops the answers of steps the change hides, such as model picks for an engine you switched off;
-4. returns to the step you opened the overlay from, and reopens the Decisions page with the same search, the same decision highlighted and the same scroll position.
+1. keeps every answer that does not depend on it;
+2. clears dependent answers and asks them again, in wizard order. This includes a choice the wizard no longer offers, such as a default chat model you just deselected. Provider model lists keep your saved picks;
+3. drops the answers of steps the change hides, such as model picks for an engine you turned off;
+4. returns to the step where you opened the view, with the same search, highlight and scroll position on Decisions.
 
-Confirming the answer you already had changes nothing. The command summary updates as each answer is committed, so the command is the same one a straight run through the wizard with the same answers would produce. Besides the base port, track, profile, sources, cloud, Ollama, cold and hosts flags, it names `--project`, `--comfyui-models`, `--ray-worker-count`, `--spark-workers` and `--prometheus-retention-days` when you answer those steps (#1390); deselecting every Ollama model shows `--ollama-models ""`.
+Confirming the answer you already had changes nothing. The command summary updates with each answer, and matches what a straight run with the same answers produces. Besides the base-port, track, profile, source, cloud, Ollama, cold and hosts flags, it names `--project`, `--comfyui-models`, `--ray-worker-count`, `--spark-workers` and `--prometheus-retention-days` when you answer those steps. Deselecting every Ollama model shows `--ollama-models ""`.
 
-While an edit is in progress, **Esc** returns to the Decisions page instead of stepping back through the wizard. Press it on the step you jumped to without confirming, and nothing changes. If your edit cleared an answer, that step has to be answered first: Esc there says so and stays put, and a second Esc leaves the edit and steps back through the wizard as usual. Going forward again then visits every step, so no answer is skipped. To change a different step, open the overlay again and jump to it; you still return to where you first opened it.
+During an edit, **Esc** returns to the Decisions page. Esc on the step you jumped to, before you confirm, changes nothing. If your edit cleared an answer, you must answer that step first; Esc there says so and stays.
 
-Like Esc, a jump leaves the step you were on without confirming it, so a selection you made there but did not confirm is not kept. API keys and any step named like a secret show as `<set>` (or as keep current, clear, disable or enable), never with their value.
+A second Esc leaves the edit and steps back as usual. Going forward then visits every step, so no answer is skipped. To change another step, open the view again; you still return to where you first opened it.
+
+A jump leaves the current step without confirming it, so an unconfirmed selection there is lost. API keys and secret-named steps show as `<set>` (or keep current, clear, disable or enable), never their value.
 
 ## 11. Progress Tracking
 
-The prompt panel's top border shows the step title, a counter and a small progress bar, for example `Weaviate  ·  source  ·  4 / 12  ⣿⣿⣿⣀⣀⣀⣀⣀⣀⣀  ·  9 skipped`. The counter counts only the decisions this run will actually ask (#1182): `4 / 12` means three are done and eight follow the current one. Steps that a narrower track or an earlier answer hides (a provider you turned off, for instance) are not in the total and never count as remaining; they are reported on their own as `N skipped`, a segment that appears only when something is hidden and is the first part cut on a narrow terminal. The count is recomputed on every step, so it shrinks the moment an answer hides later steps, and going back or changing the track never puts the position past the total. An unanswered later step is counted until an answer hides it.
+The prompt panel's top border shows the step title, a counter and a progress bar, for example `Weaviate  ·  source  ·  4 / 12  ⣿⣿⣿⣀⣀⣀⣀⣀⣀⣀  ·  9 skipped`. The counter counts only the steps this run will ask: `4 / 12` means three are done and eight follow.
+
+Steps hidden by the track or by an earlier answer are not in the total. They appear only as `N skipped`, which is cut first on a narrow terminal. The count is recomputed on every step, so it shrinks when an answer hides later steps. Going back or changing the track never puts the position past the total. An unanswered later step counts until an answer hides it.
 
 ## 12. When to Use the Wizard vs CLI Flags
 
@@ -556,20 +426,26 @@ The prompt panel's top border shows the step title, a counter and a small progre
 
 ## 13. Relationship to .env and CLI Flags
 
-The wizard reads your current `.env` values as defaults (a source the selected profile declares defaults to the profile's value; a `.env` value the step does not offer falls back to the manifest's declared default) and produces the same `--*-source` overrides that CLI flags would. After confirmation, these overrides are applied to `.env` and the stack launches normally.
+The wizard uses your current `.env` values as defaults, with two exceptions. A source that the selected profile declares defaults to the profile's value. A `.env` value that the step does not offer falls back to the manifest's default. The wizard produces the same `--*-source` overrides as CLI flags. After you confirm, they are applied to `.env` and the stack launches.
 
 - **Wizard selections are persistent** in `.env` and carry over to future runs
-- **Configuration flags skip the whole wizard** and apply directly: any `--*-source`, model-list, or API-key flag, the scalar setting flags `--ray-worker-count`, `--spark-workers`, `--prometheus-retention-days` and `--comfyui-custom-models-file`, and the stack flags `--base-port`, `--cold`, `--setup-hosts`, `--skip-hosts`, `--detach`, and `--json`
-- **Selection flags keep the wizard**: `--track` and `--profile` pre-answer (and hide) their own steps (a consumer manifest's `profile:` hides the profile step the same way); `--project` and `--consumer` change no prompt
+- **Configuration flags skip the whole wizard** and apply directly. These are:
+  - any `--*-source`, model-list or API-key flag;
+  - `--ray-worker-count`, `--spark-workers`, `--prometheus-retention-days` and `--comfyui-custom-models-file`;
+  - `--base-port`, `--cold`, `--setup-hosts`, `--skip-hosts`, `--detach` and `--json`.
+- **Selection flags keep the wizard.** `--track` and `--profile` pre-answer and hide their own steps; a consumer manifest's `profile:` hides the profile step too. `--project` and `--consumer` change no prompt.
 
 ## 14. Requirements
 
-The TUI uses two Python libraries — both included in `bootstrapper/pyproject.toml`:
+The TUI needs three Python libraries, all declared in `bootstrapper/pyproject.toml`:
 
-- **textual** — owns the wizard prompts and the post-confirm launch phase (pinned summary + log pane + filter chips), all hosted in a single Textual app.
-- **rich** — used for styled spans inside Textual widgets and for the `--no-tui` linear pre-launch summary table.
+- **textual** — the wizard prompts and the launch phase (pinned summary, log pane, filter chips), in one Textual app.
+- **rich** — styled text inside Textual widgets, and the `--no-tui` pre-launch summary table.
+- **textual-image** — the splash poster, drawn with the terminal's image protocol where supported.
 
-Python ≥ 3.10 is required (see `bootstrapper/pyproject.toml`). The wizard automatically falls back to the linear stdout flow when `stdin` isn't a TTY, when the terminal is too small to host the Textual app, or when the user passes `--no-tui`. In that mode `./start.sh` prints a pre-launch summary table and streams docker compose output directly. Without `--track`, the linear flow first asks for a track on stdin and applies it like the wizard does: services outside the track are written to `.env` as `disabled`. When stdin is not a terminal (cron, systemd, CI, `ssh` without `-t`) it takes the default track (`gen-ai-rag`) without asking, so scripted runs against a configured stack should pass `--track all` (no filtering) or the intended `--track <key>`.
+Python ≥ 3.10 is required. The linear stdout flow runs instead when stdin is not a TTY, the terminal is smaller than 60×20, or you pass `--no-tui`. It prints a pre-launch summary table and streams `docker compose` output.
+
+If you pass no configuration flag (§13) and no `--track`, the linear flow asks for a track on stdin. It then writes out-of-track services to `.env` as `disabled`. Without a terminal (cron, systemd, CI, `ssh` without `-t`), it takes `gen-ai-rag` without asking. Scripted runs should therefore pass `--track all` (no filtering) or `--track <key>`.
 
 ## 15. Brand Customization
 
@@ -590,13 +466,15 @@ Empty values fall back to the canonical defaults (encoded in `bootstrapper/wizar
 
 ### 15.1. Block-art logo (`BRAND_LOGO_FILE`)
 
-The big ASCII block-art lockup — shown in the wizard's brand panel and the `--no-tui` startup banner — defaults to the built-in **ATLAS** art (an [ANSI-Shadow](https://patorjk.com/software/taag/#p=display&f=ANSI%20Shadow) figlet lockup). Point `BRAND_LOGO_FILE` at a text file to override it; leave it empty to keep ATLAS. Generate matching art with any figlet tool, e.g. `figlet -f "ANSI Shadow" "My Brand"` (or [patorjk.com/software/taag](https://patorjk.com/software/taag/)) — the expected file layout (wide lockup, optional `---`-separated narrow fallback for small terminals) is documented in `bootstrapper/utils/brand_logo.py`, which both render surfaces read so the override stays in parity across the TUI and the linear banner.
+The ASCII block-art logo in the brand panel and the `--no-tui` banner defaults to **ATLAS** (an [ANSI-Shadow](https://patorjk.com/software/taag/#p=display&f=ANSI%20Shadow) figlet). To replace it, point `BRAND_LOGO_FILE` at a text file; leave it empty to keep ATLAS. Generate art with any figlet tool, for example `figlet -f "ANSI Shadow" "My Brand"`.
 
-> The richer image-derived **splash** (the globe hero in `atlas_hero.py`, generated from a source image by `bootstrapper/scripts/generate_logo.py`) is a separate asset and is **not** covered by `BRAND_LOGO_FILE` — it stays the Atlas hero unless you regenerate those grids.
+`bootstrapper/utils/brand_logo.py` documents the file layout: a wide lockup, plus an optional narrow version after a `---` line for small terminals. Both the TUI and the banner read it.
+
+> The globe **splash** (`atlas_hero.py`, generated from a source image by `bootstrapper/scripts/generate_logo.py`) is a separate asset. `BRAND_LOGO_FILE` does not change it.
 
 ## 16. Configurable Services
 
-The wizard automatically discovers all configurable services from each `services/<name>/service.yml` manifest. The table below is a representative subset (it does not enumerate every track service — e.g. MLflow, Label Studio, Verba, Langfuse, LLM Graph Builder, Jenkins, Celery, MCP Servers, Iceberg REST, Trino, Redpanda, Tika are also wizard-prompted per `bootstrapper/tracks.yml`); run `./start.sh --list-tracks` or see [Source configuration](../operations/source-configuration.md) for the complete, current set. Representative entries:
+The wizard discovers every configurable service from its `services/<name>/service.yml` manifest. The table below is a representative subset. The wizard also prompts for other track services per `bootstrapper/tracks.yml`. Examples are MLflow, Label Studio, Verba, Langfuse, LLM Graph Builder, Jenkins, Celery, MCP Servers, Iceberg REST, Trino, Redpanda and Tika. For the complete set, run `./start.sh --list-tracks` or see [Source configuration](../operations/source-configuration.md).
 
 | Service | Options |
 |---------|---------|
@@ -629,7 +507,7 @@ The wizard automatically discovers all configurable services from each `services
 
 ### 16.1. Cloud LLM providers (not auto-discovered)
 
-OpenAI, Anthropic, and OpenRouter are **not** regular services — they don't run as containers (`scale: 0` in the `services/cloud-providers/service.yml` virtual manifest). Instead, the wizard injects them via `bootstrapper/wizard/llm_steps.py:build_cloud_steps` as bespoke (secret + multiselect) pairs spliced after the LLM Engine step:
+OpenAI, Anthropic and OpenRouter are **not** regular services: they run no container (`services/cloud-providers/service.yml` is a virtual manifest). The wizard asks for each as a key and model pair, right after the LLM Engine step:
 
 | API | Key var | Wizard step |
 |---|---|---|
@@ -639,11 +517,13 @@ OpenAI, Anthropic, and OpenRouter are **not** regular services — they don't ru
 
 Source toggles are persisted as `CLOUD_OPENAI_SOURCE` / `CLOUD_ANTHROPIC_SOURCE` / `CLOUD_OPENROUTER_SOURCE` (`enabled` / `disabled`). They render in the **Cloud APIs** sub-section of the stack overview, separate from the services grid.
 
-New services added under `services/<name>/` with a `service.yml` manifest (and included in `docker-compose.yml`'s `include:` list) are automatically picked up by the wizard.
+A new service appears in the wizard only after it completes the registration steps in the [service runbook](../CONTRIBUTING-services.md), including its CLI key in `source_mapping`.
 
 ## 17. Dependency Validation
 
-Dependencies are checked at launch, not while you answer the prompts. A service whose required dependency is disabled (for example n8n with Weaviate disabled) is reported and then disabled itself, so check the launch log if a service you picked does not start. The `gen-ai-eng` track includes n8n but not Weaviate, so n8n is disabled there unless you also pass `--weaviate-source container`. The "LiteLLM must have an upstream" rule (LLM Engine != `none`, at least one cloud provider `enabled`, or `VLLM_METAL_SOURCE=managed-localhost`) is enforced by source validation, which stops the launch before anything starts.
+Dependencies are checked at launch, not while you answer the prompts. If a service's required dependency is disabled, the service is reported and disabled too; an example is n8n with Weaviate disabled. If a service you picked does not start, check the launch log. The `gen-ai-eng` track includes n8n but not Weaviate, so n8n is disabled there unless you also pass `--weaviate-source container`.
+
+Source validation enforces the "LiteLLM must have an upstream" rule and stops the launch before anything starts. The rule needs LLM Engine != `none`, at least one cloud provider `enabled`, or `VLLM_METAL_SOURCE=managed-localhost`.
 
 ## 18. Hosts File Setup
 
@@ -652,7 +532,7 @@ The hosts file configuration step enables friendly URLs routed through Kong API 
 | Option | Behavior |
 |--------|----------|
 | **Default** | Checks `/etc/hosts` for required entries, warns if missing |
-| **Setup now** | Adds missing entries to `/etc/hosts`. The wizard cannot show a `sudo` password prompt, so this works only when `sudo` needs no password; otherwise the launch continues with a warning and you run `./start.sh --setup-hosts` from a terminal. |
+| **Setup now** | Adds missing entries to `/etc/hosts`. The wizard cannot show a `sudo` password prompt, so this works only when `sudo` needs no password. Otherwise the launch continues with a warning; then run `./start.sh --setup-hosts` from a terminal. |
 | **Skip** | No hosts check, use `localhost:PORT` URLs only |
 
 None of the three options stops the launch: missing entries affect only the friendly `*.localhost` URLs.

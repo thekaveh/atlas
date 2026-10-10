@@ -23,15 +23,15 @@ capabilities:
   - name: "Source-aware agent tools"
     status: partial
     verification: tested
-    note: "Init renders enabled speech and SearXNG settings in the shape Hermes reads plus a ComfyUI host companion skill, while unavailable services are omitted; LightRAG is reachable only through LiteLLM and Airflow triggering remains a user-authored skill or curl pattern."
+    note: "Init renders enabled speech and SearXNG settings in the shape Hermes reads, plus a ComfyUI host companion skill. Unavailable services are omitted. LightRAG is reachable only through LiteLLM. Airflow triggering remains a user-authored skill or curl pattern."
   - name: "Container and operator-host lifecycle"
     status: partial
     verification: tested
-    note: "Atlas manages the container and its generated config, but localhost mode only resolves an operator-run API and dashboard and cannot guarantee its setup, tools, or process supervision."
+    note: "Atlas manages the container and its generated config. Localhost mode only resolves an operator-run API and dashboard, and cannot guarantee their setup, tools, or process supervision."
   - name: "Hermes API and dashboard authentication"
     status: partial
     verification: documented
-    note: "The OpenAI-compatible API uses HERMES_API_KEY and hermes.localhost requires the Kong dashboard Basic credential, but the dashboard runs in upstream insecure mode, so the direct host port and backend-network peers reach it without authentication."
+    note: "The OpenAI-compatible API uses HERMES_API_KEY, and hermes.localhost requires the Kong dashboard Basic credential. The dashboard runs in upstream insecure mode, so the direct host port and backend-network peers reach it without authentication."
   - name: "Agent workspace persistence"
     status: partial
     verification: documented
@@ -39,11 +39,11 @@ capabilities:
   - name: "Backend and OpenClaw direct bridges"
     status: stubbed
     verification: tested
-    note: "Atlas injects Hermes endpoint credentials into Backend and OpenClaw, but neither currently calls the promised direct bridge; Open WebUI and n8n use LiteLLM or manual HTTP paths instead."
+    note: "Atlas injects Hermes endpoint credentials into Backend and OpenClaw, but neither currently calls the promised direct bridge. Open WebUI and n8n use LiteLLM or manual HTTP paths instead."
   - name: "Untrusted autonomous tool isolation"
     status: not-supported
     verification: documented
-    note: "Hermes skills can execute tools and code with the runtime's mounted workspace and network access; Atlas provides no per-user sandbox or policy engine for untrusted agent execution."
+    note: "Hermes skills can execute tools and code with the runtime's mounted workspace and network access. Atlas provides no per-user sandbox or policy engine for untrusted agent execution."
 
 containers:
   - hermes
@@ -71,6 +71,7 @@ sources:
 
 env:
   - name: HERMES_SOURCE
+    description: "Deployment source for Hermes: container, localhost (an existing host Hermes) or disabled."
     default: container
   - name: HERMES_API_PORT
     # default computed by services/topology.py slot allocator
@@ -79,8 +80,10 @@ env:
     # default computed by services/topology.py slot allocator
     description: "Host port for the Hermes Agent web dashboard (in-container listen port is 9119)."
   - name: HERMES_MEMORY_LIMIT
+    description: "Memory limit of the hermes container."
     default: 4g
   - name: HERMES_CPU_LIMIT
+    description: "CPU limit (cores) of the hermes container."
     default: "2.0"
   - name: HERMES_API_KEY
     default: ""
@@ -90,32 +93,37 @@ env:
     default: ""
     description: "Empty = hermes-init picks from LiteLLM /v1/models priority list."
   - name: HERMES_CONTEXT_LENGTH
+    description: "Context length hermes-init writes into config.yaml for the default model. Hermes requires a model context window of at least 64K."
     default: 65536
   - name: HERMES_DASHBOARD_ENABLED
+    description: "Runs the Hermes web dashboard (passed as HERMES_DASHBOARD). Set false to remove the dashboard, including its Chat tab."
     default: true
   - name: HERMES_DASHBOARD_TUI
     default: 1
     description: "Inert: Hermes v2026.6.19 always embeds the dashboard Chat tab (PTY terminal) and ignores this value; disable the dashboard (HERMES_DASHBOARD_ENABLED=false) to remove it."
   - name: HERMES_DASHBOARD_INSECURE
     default: true
-    description: "Allow the dashboard to bind to its non-loopback container address (0.0.0.0) without a Nous Portal OAuth provider. Required since the upstream image stopped implicitly inferring insecure mode from the bind host; without it the dashboard fails closed and s6 restart-loops it. The dashboard then has no login of its own: Kong's hermes.localhost route requires the dashboard Basic credential, but the direct host port (loopback unless HOST_BIND_IP is widened) and other backend-network containers reach it unauthenticated. Set to false (and provide HERMES_DASHBOARD_OAUTH_CLIENT_ID) to enforce the OAuth auth gate instead."
+    description: "Lets the dashboard bind 0.0.0.0 without a Nous Portal OAuth provider; without it the dashboard restart-loops. The dashboard then has no login: the direct port and backend-network peers reach it unauthenticated. Set false plus HERMES_DASHBOARD_OAUTH_CLIENT_ID to enforce OAuth."
   - name: HERMES_UID
     default: 10000
     description: "Container user — match a host UID to read hermes-data from outside."
   - name: HERMES_GID
+    description: "Container group ID; hermes-init chowns hermes-data to HERMES_UID:HERMES_GID."
     default: 10000
   - name: HERMES_LOCALHOST_PORT
     default: "8642"
     description: "Host port for the Hermes API in the localhost source variant. Consumed by HERMES_ENDPOINT (in-container clients call this). Defaults to Hermes' native API port."
   - name: HERMES_LOCALHOST_DASHBOARD_PORT
     default: "9119"
-    description: "Host port for the Hermes web dashboard in the localhost source variant. The Kong route fronting hermes.localhost targets this. Defaults to Hermes' native dashboard port. The wizard's inline textbox edits HERMES_LOCALHOST_PORT (the API); override this via .env hand-edit if your host dashboard runs on a non-default port."
+    description: "Host port of the Hermes dashboard for HERMES_SOURCE=localhost; the hermes.localhost Kong route targets it. Default: the native dashboard port. The wizard edits only HERMES_LOCALHOST_PORT, so set this one in .env."
   - name: HERMES_INIT_SOURCE
     default: container
     description: "Auto-managed by hermes. Container/disabled."
   - name: HERMES_INIT_SCALE
+    description: "Set by ./start.sh from HERMES_SOURCE; do not edit. 1 runs hermes-init only for the container source, else 0."
     auto_managed: true
   - name: HERMES_SCALE
+    description: "Set by ./start.sh from HERMES_SOURCE; do not edit. 1 runs the hermes container only for the container source, else 0."
     auto_managed: true
   - name: HERMES_ENDPOINT
     auto_managed: true
@@ -125,18 +133,23 @@ env:
   # graceful degradation (empty string = skip provider). Owned here
   # because hermes-init is the sole consumer.
   - name: TTS_INTERNAL_URL
+    description: "Set by ./start.sh from TTS_PROVIDER_SOURCE; do not edit. hermes-init renders the TTS block of config.yaml from it; empty omits the block."
     auto_managed: true
   - name: STT_INTERNAL_URL
+    description: "Set by ./start.sh from STT_PROVIDER_SOURCE; do not edit. hermes-init renders the STT block of config.yaml from it; empty omits the block."
     auto_managed: true
   - name: STT_INTERNAL_API_KEY
     auto_managed: true
     secret: true
     description: "Parakeet bearer token for the rendered server-side STT block; non-secret compatibility placeholder for other enabled STT engines."
   - name: COMFYUI_INTERNAL_URL
+    description: "Set by ./start.sh from COMFYUI_ENDPOINT; do not edit. hermes-init renders the ComfyUI host skill from it; empty skips the skill."
     auto_managed: true
   - name: SEARXNG_INTERNAL_URL
+    description: "Set by ./start.sh from SEARXNG_SOURCE; do not edit. hermes-init renders the web-search block of config.yaml from it; empty omits the block."
     auto_managed: true
   - name: LIGHTRAG_INTERNAL_URL
+    description: "Set by ./start.sh from LIGHTRAG_ENDPOINT; do not edit. hermes-init receives it, but config.yaml has no LightRAG block; Hermes reaches LightRAG through LiteLLM."
     auto_managed: true
 
 depends_on:
@@ -253,12 +266,16 @@ data_flow:
     - target: airflow
       status: planned
       evidence: services/hermes/README.md
-    - lightrag
+    # Hermes reaches LightRAG only through LiteLLM's `lightrag` model alias;
+    # config.yaml.tmpl renders no direct LightRAG block.
+    - target: lightrag
+      status: planned
+      evidence: services/hermes/init/templates/config.yaml.tmpl
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

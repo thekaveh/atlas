@@ -2,7 +2,10 @@
 
 ## 1. Overview
 
-Blender MCP is a disabled-by-default host integration for MCP-assisted 3D scene work. Two host sources exist: `localhost` (you run Blender's GUI, install the add-on, click Connect — Atlas only records the contract) and **`managed-localhost` (#759)** — Atlas provisions the pinned add-on and runs **headless** `blender --background` as a managed host process (preflight / install / start / status / stop, mirroring the ComfyUI MPS lifecycle). Neither runs as a container.
+Blender MCP is a disabled-by-default host integration for MCP-assisted 3D scene work. It never runs as a container. There are two host sources:
+
+- `localhost`: you run the Blender GUI, install the add-on and click Connect. Atlas only records the endpoint.
+- **`managed-localhost`**: Atlas installs the pinned add-on and runs **headless** `blender --background` as a managed host process. Its lifecycle commands follow the same pattern as ComfyUI MPS.
 
 This integration is intentionally conservative. Current Blender MCP workflows depend on a local Blender add-on, an MCP client/server process, and a socket opened by Blender. They can execute generated Python code inside Blender, so Atlas keeps the bridge disabled by default and does not publish it through Kong.
 
@@ -12,7 +15,7 @@ This integration is intentionally conservative. Current Blender MCP workflows de
 |---|---|---|
 | Atlas SOURCE | `BLENDER_MCP_SOURCE=disabled` | Default. No Blender MCP bridge is active. |
 | Host Blender MCP | `BLENDER_MCP_SOURCE=localhost` | Development-only source. Requires host-installed Blender, Blender MCP add-on, and MCP server/client configuration — all user-run (GUI + Connect click). |
-| Managed headless | `BLENDER_MCP_SOURCE=managed-localhost` | Atlas-managed (#759): pinned add-on provisioned (sha256-verified), headless `blender --background` launched + health-checked at start; a read-only check runs before a warm start stops the running stack, so a bridge that would refuse to start leaves the running containers as they are (#1342). Changing `BLENDER_MCP_LOCALHOST_PORT` or `BLENDER_MCP_BIND` restarts an Atlas-owned bridge at the next start, so it serves the new address (#1361). Requires a host Blender install (`BLENDER_MCP_BLENDER_PATH` to override detection). Lifecycle: `./start.sh blender-mcp preflight\|install\|start\|stop\|status\|health\|remove`. |
+| Managed headless | `BLENDER_MCP_SOURCE=managed-localhost` | Atlas installs the pinned add-on (sha256-verified), then starts and health-checks headless `blender --background`. A warm start runs a read-only check first: if the bridge would not start, the running containers stay up. A change to `BLENDER_MCP_LOCALHOST_PORT` or `BLENDER_MCP_BIND` restarts an Atlas-owned bridge at the next start. Requires a host Blender install (`BLENDER_MCP_BLENDER_PATH` overrides detection). Lifecycle: `./start.sh blender-mcp preflight\|install\|start\|stop\|status\|health\|remove`. |
 | Blender socket | `${BLENDER_MCP_HOST}:${BLENDER_MCP_LOCALHOST_PORT}` | Defaults to `localhost:9876`, matching common Blender MCP socket defaults. |
 | Kong | No Kong route | There is no `blender-mcp.localhost` route and no `blender.localhost` route by design. |
 
@@ -20,25 +23,30 @@ Select a Blender MCP host source with:
 
 ```bash
 ./start.sh --blender-mcp-source localhost           # user-run GUI add-on
-./start.sh --blender-mcp-source managed-localhost   # Atlas-managed headless (#759)
+./start.sh --blender-mcp-source managed-localhost   # Atlas-managed headless
 ```
 
-The profile is hidden/rejected under `--profile prod`.
+Both host sources are development-only: `--profile prod` hides and rejects them.
 
 ## 3. Configuration
 
 | Variable | Default | Purpose |
 |---|---:|---|
-| `BLENDER_MCP_SOURCE` | `disabled` | Enables the host-only Blender MCP profile when set to `localhost` (user-run GUI) or `managed-localhost` (Atlas-managed headless, #759). |
-| `BLENDER_MCP_HOST` | `localhost` | Hostname where the Blender MCP add-on socket listens. |
+| `BLENDER_MCP_SOURCE` | `disabled` | Enables the host-only Blender MCP profile when set to `localhost` (user-run GUI) or `managed-localhost` (Atlas-managed headless). |
+| `BLENDER_MCP_HOST` | `localhost` | Hostname written into the `BLENDER_MCP_ENDPOINT` hint for MCP clients. It does not change where the socket binds. |
 | `BLENDER_MCP_LOCALHOST_PORT` | `9876` | Host-tool socket port. This is not allocated from Atlas topology because Atlas does not own the Blender process. |
-| `BLENDER_MCP_ENDPOINT` | generated | Runtime endpoint hint for MCP-client integrations (`tcp://…`). Empty when disabled. Exported as `ATLAS_BLENDER_MCP_HOST_ENDPOINT` for both host sources (#758). |
+| `BLENDER_MCP_ENDPOINT` | generated | Runtime endpoint hint for MCP-client integrations (`tcp://…`). Empty when disabled. For both host sources, `./start.sh endpoints export` also emits `ATLAS_BLENDER_MCP_HOST_ENDPOINT=tcp://localhost:<BLENDER_MCP_LOCALHOST_PORT>`; that value always uses `localhost`. |
 | `BLENDER_MCP_STATE_DIR` | `~/.atlas/blender-mcp` | Managed-source state: pinned add-on, generated headless launcher, pid/log. |
-| `BLENDER_MCP_INSTANCES` | `1` | Managed pool size, 1 to 16 (#851; consumer manifest `blender_mcp.instances`). Instance 0 uses `BLENDER_MCP_STATE_DIR` and `BLENDER_MCP_LOCALHOST_PORT`; instance `i` uses `<state dir>/instances/i` and port `BLENDER_MCP_LOCALHOST_PORT + i`, and reuses instance 0's sha-verified add-on. Every instance is preflighted before a warm start stops the stack (a busy port or a port above 65535 on any instance stops the launch there, #1342), then started and health-checked; all instances share one launch lock. `status` and `health` print one entry per instance, `stop` and `remove` act on all of them, and the endpoint export adds `ATLAS_BLENDER_MCP_HOST_ENDPOINTS`. Changing the base port restarts the whole pool together. Instances above the pool size are stopped at the next start, and `doctor` warns about one still running, a pool pid file whose process is gone or cannot be verified, and an invalid `BLENDER_MCP_INSTANCES`. |
-| `BLENDER_MCP_BIND` | `127.0.0.1` | Managed bridge bind. Loopback-only by default — `execute_code` runs arbitrary Python inside Blender; any other value is refused unless `BLENDER_MCP_ALLOW_REMOTE=true` (a deliberate double opt-in). Loopback does **not** keep stack containers out on Docker Desktop: they reach host loopback through `host.docker.internal`, and the bridge has no authentication, so any container running user code (JupyterHub, n8n Code nodes, Open WebUI tools) can execute Python on the host while the bridge runs. |
+| `BLENDER_MCP_INSTANCES` | `1` | Managed pool size, 1 to 16 (consumer manifest `blender_mcp.instances`). See the pool note below this table. |
+| `BLENDER_MCP_BIND` | `127.0.0.1` | Managed bridge bind. Loopback-only by default — `execute_code` runs arbitrary Python inside Blender; any other value is refused unless `BLENDER_MCP_ALLOW_REMOTE=true` (a deliberate double opt-in). Loopback does **not** keep stack containers out on Docker Desktop: they reach host loopback through `host.docker.internal`. The bridge has no authentication. While it runs, any container that runs user code (JupyterHub, n8n Code nodes, Open WebUI tools) can execute Python on the host. |
+| `BLENDER_MCP_ALLOW_REMOTE` | `false` | Second opt-in required before `BLENDER_MCP_BIND` can be non-loopback. Leave `false` unless you own the network boundary. |
 | `BLENDER_MCP_BLENDER_PATH` | auto-detect | Explicit Blender binary. Atlas manages the MCP **bridge**, not the Blender application — install Blender yourself (preflight fails with guidance otherwise). |
 | `BLENDER_MCP_ADDON_REF` / `_SHA256` | pinned | The exact upstream `ahujasid/blender-mcp` `addon.py` the managed source provisions; a sha mismatch refuses installation. Move both together. |
 | `BLENDER_MCP_ADDON_FILE` | empty | Escape hatch: a local add-on file instead of the pinned download (no sha verification; preflight warns). |
+
+**Managed pool (`BLENDER_MCP_INSTANCES`).** Instance `i` uses port `BLENDER_MCP_LOCALHOST_PORT + i` and directory `<state dir>/instances/i`; instance 0 uses the state dir itself. All instances reuse instance 0's sha-verified add-on and share one launch lock. A warm start preflights every instance; a busy port or a port above 65535 stops the launch.
+
+`status`/`health` report each instance; `stop`/`remove` act on all. With more than one instance, `./start.sh endpoints export` adds `ATLAS_BLENDER_MCP_HOST_ENDPOINTS`. A port or bind change restarts the whole pool. Instances above the pool size stop at the next start. `./start.sh doctor` warns about an invalid `BLENDER_MCP_INSTANCES` and an instance running above the pool size. It also warns about a pool pid file whose process is gone or unverifiable.
 
 ## 4. Architecture & Wiring
 
@@ -51,9 +59,9 @@ Atlas models Blender MCP as a virtual media service:
 - Port strategy: `BLENDER_MCP_LOCALHOST_PORT` is a host-tool override and does not consume an Atlas topology slot.
 - Kong behavior: no alias, no route, no extra host entry, and no gateway proxy by default.
 - Direct access: configure the host MCP client/server according to the Blender MCP implementation you choose, then point it at `${BLENDER_MCP_HOST}:${BLENDER_MCP_LOCALHOST_PORT}`.
-- Downstream consumers: none are auto-wired in this ticket. Future Open WebUI, Hermes, or curated MCP integrations must add explicit consumer docs, env wiring, and `data_flow.calls` edges when they actually call the bridge.
+- Downstream consumers: none. No Atlas service calls the bridge.
 - Init companion: none for `localhost`. For `managed-localhost`, Atlas provisions the **add-on + launcher** (not Blender itself, not `uvx`, not client config) into `BLENDER_MCP_STATE_DIR`.
-- Headless mechanism (`managed-localhost`, verified live on Blender 4.3.2): the stock add-on executes commands on Blender's main thread via `bpy.app.timers.register`, which only fires when the GUI event loop pumps timers — upstream even guards against `--background` for exactly that reason. Atlas's generated launcher shims timer registration into a queue drained by its own main-thread loop: same main-thread execution contract, no GUI, no add-on patching. Caveat: `get_viewport_screenshot` has no viewport headless and will error; scene/object/code commands work fully.
+- Headless mechanism (`managed-localhost`, verified live on Blender 4.3.2): the stock add-on runs commands on Blender's main thread via `bpy.app.timers.register`. Those timers fire only when the GUI event loop pumps them, so upstream guards against `--background`. Atlas's generated launcher shims timer registration into a queue drained by its own main-thread loop: same main-thread execution contract, no GUI, no add-on patching. Caveat: `get_viewport_screenshot` has no viewport headless and will error; scene/object/code commands work fully.
 - Volumes and secrets: none by default. Asset-provider credentials such as Sketchfab, Poly Haven, Hyper3D, or Hunyuan-style keys remain host-side user configuration until Atlas adopts a dedicated integration.
 
 ## 5. Dependencies & Integrations
@@ -79,7 +87,7 @@ _No downstream consumers._
 
 ### 5.5. Future — Candidate new services
 
-- A drivable, in-network **`container` source** (headed-but-virtual Blender via Xvfb/EGL) for the agentic composition stage — under evaluation, gated behind a validation spike and go/no-go thresholds. See [`docs/strategy/blender-mcp-container-source-evaluation.md`](../../docs/strategy/blender-mcp-container-source-evaluation.md) (#410). Until that spike passes, this service stays `localhost | managed-localhost | disabled`.
+- A drivable, in-network **`container` source** (headed-but-virtual Blender via Xvfb/EGL) for the agentic composition stage — under evaluation, gated behind a validation spike and go/no-go thresholds. See the [container-source evaluation](https://github.com/thekaveh/atlas/blob/main/docs/strategy/blender-mcp-container-source-evaluation.md). Until that spike passes, this service stays `localhost | managed-localhost | disabled`.
 - Asset validation queue that runs glTF-Transform checks on generated GLB files before publication.
 
 ### 5.6. Future — Unused features in this service
@@ -92,7 +100,7 @@ _No downstream consumers._
 - Treat Blender MCP as a code-execution bridge. Current workflows can execute generated Python code inside Blender, which may read, modify, delete, or exfiltrate local data accessible to that Blender process.
 - Use a separate OS account, VM, or machine without sensitive files for experiments.
 - Keep `BLENDER_MCP_SOURCE=disabled` unless you are actively using a trusted local Blender session.
-- Do not expose the Blender MCP socket on public interfaces. Prefer `BLENDER_MCP_HOST=localhost`.
+- Do not expose the Blender MCP socket on public interfaces. For `managed-localhost`, keep `BLENDER_MCP_BIND=127.0.0.1` and `BLENDER_MCP_ALLOW_REMOTE=false`. For the user-run `localhost` source, the Blender add-on sets the bind; keep it on loopback. `BLENDER_MCP_HOST` sets only the endpoint hint, not the bind address.
 - Do not add a Kong route without a separate design review covering auth, network reachability, tool approval, and prompt-injection behavior.
 - Do not paste Atlas database, cloud-provider, Supabase, MinIO, or GitHub credentials into host MCP client configuration for this bridge.
 
@@ -104,7 +112,7 @@ Atlas includes a helper for inspecting and optimizing GLB assets without adding 
 scripts/gltf-transform-postprocess.sh input.glb output.glb
 ```
 
-The script runs the official `@gltf-transform/cli` in a temporary Node container. It performs:
+Run it from the repository root with paths relative to it; absolute paths are rejected. It requires Docker. The script runs `@gltf-transform/cli`, at the version locked in `services/asset-worker/app/package-lock.json`, in a temporary Node container. It performs:
 
 - `gltf-transform inspect`
 - `gltf-transform validate`
@@ -115,16 +123,16 @@ Use this as a postprocess step for exported Blender assets, ComfyUI-assisted 3D 
 ## 8. Troubleshooting
 
 - If the Blender MCP prompt is missing, confirm you selected the `gen-ai-creative` or `all` track, or pass `--blender-mcp-source localhost` explicitly.
-- If `--profile prod` rejects the source, that is expected: Blender MCP localhost mode is development-only.
+- If `--profile prod` rejects the source, that is expected: both Blender MCP host sources are development-only.
 - If a client cannot connect, confirm the Blender add-on is installed, enabled, and listening on `${BLENDER_MCP_HOST}:${BLENDER_MCP_LOCALHOST_PORT}`.
 - If `uvx` is not found by a GUI MCP client, configure the absolute path to `uvx` or the installed Blender MCP command in that client.
 - If `scripts/gltf-transform-postprocess.sh` fails before optimization, inspect the validation output first; invalid GLB input should be fixed at the source.
-- If the managed source warns that its pid file "has no start_utc identity stamp", the record predates the managed-host framework: Atlas will not signal a process it cannot prove it launched, so it leaves the old headless Blender running and continues the bring-up (#990). After confirming the pid is that Blender, run the `kill -TERM <pid>` and `rm -f <pid file>` commands the warning prints, then re-run `./start.sh`.
-- If `doctor` warns that the pid file names a pid that "now belongs to a different, younger process", the OS recycled the pid. The record is stale; the next start replaces it and never signals that process (#1341).
+- If the managed source warns that its pid file "has no start_utc identity stamp", an older Atlas version wrote it. Atlas does not signal a process it cannot prove it launched. It leaves that Blender running and starts the rest of the stack. Confirm the pid is that Blender. Then run the `kill -TERM <pid>` and `rm -f <pid file>` commands from the warning, and re-run `./start.sh`.
+- If `./start.sh doctor` warns that the pid file names a pid that "now belongs to a different, younger process", the OS recycled the pid. The record is stale; the next start replaces it and never signals that process.
 
 ## 9. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|

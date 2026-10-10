@@ -29,8 +29,9 @@ This installs:
 ### 2.2. Run Server
 
 ```bash
-# Configure the same random value in repo-root .env before Atlas starts.
-export PARAKEET_API_TOKEN='<same random value configured in repo-root .env>'
+# Use the PARAKEET_API_TOKEN value from the repo-root .env (./start.sh
+# generates it on first run).
+export PARAKEET_API_TOKEN='<PARAKEET_API_TOKEN value from repo-root .env>'
 export PARAKEET_LOCALHOST_BIND_HOST=0.0.0.0
 export PARAKEET_LOCALHOST_PORT=63042
 
@@ -65,6 +66,11 @@ curl -X POST http://localhost:63042/v1/audio/transcriptions \
 | `PARAKEET_LOCALHOST_PORT` | `63042` | Host port Atlas containers use for `parakeet-localhost`. |
 | `PARAKEET_LOCALHOST_BIND_HOST` | `127.0.0.1` | Listen address; use a non-loopback bind only when required for host-gateway access and keep bearer auth enabled. |
 | `PARAKEET_API_TOKEN` | (required) | Bearer token; must match the value in Atlas `.env`. |
+
+The upload, concurrency, timeout, authentication and CORS variables
+(`PARAKEET_MAX_UPLOAD_BYTES`, `PARAKEET_CONCURRENCY` and others) apply to this
+server too. The [STT Provider README](../../../stt-provider/README.md) lists
+them with their defaults.
 
 The `0.0.0.0` integration bind is reachable from the local network as well as
 Docker's host gateway. Keep bearer authentication enabled and use the host
@@ -127,17 +133,20 @@ does not publish a hardware-independent throughput guarantee.
 
 ## 6. Integration with Atlas
 
-The stack automatically uses this server when configured with:
+Select this server as the STT engine:
+
 ```bash
-STT_PROVIDER_SOURCE=parakeet-localhost
+./start.sh --stt-provider-source parakeet-localhost
 ```
 
-Services that use STT:
-- **n8n** - Audio transcription workflows
-- **open-web-ui** - Voice input in chat
-- **backend** - Proxy API endpoints
-- **jupyterhub** - Notebooks with STT
-- **local-deep-researcher** - Audio research sources
+Atlas then sets `STT_ENDPOINT` to
+`http://host.docker.internal:${PARAKEET_LOCALHOST_PORT:-63042}`. These services
+receive it:
+- **open-web-ui** - voice input in chat
+- **n8n** - audio transcription workflows
+- **backend** - receives `STT_ENDPOINT` but does not call it
+- **jupyterhub** - `STT_ENDPOINT` in notebooks
+- **hermes** - `STT_INTERNAL_URL` for its speech-to-text tool
 
 ## 7. Troubleshooting
 

@@ -83,7 +83,26 @@ def test_load_manifest_validates_sources_and_flattens_pages(tmp_path: Path) -> N
     assert manifest.pages[0].site_path.as_posix() == "index.md"
     assert manifest.pages[0].wiki_path.as_posix() == "Home.md"
     assert manifest.pages[1].site_path.as_posix() == "guides/setup.md"
-    assert manifest.pages[1].wiki_path.as_posix() == "2.1-Setup.md"
+    assert manifest.pages[1].wiki_path.as_posix() == "Setup.md"
+
+
+def test_wiki_page_names_survive_renumbering_and_retitling() -> None:
+    """GitHub wikis have no redirects: the page name must not carry the number."""
+    text = _manifest_text()
+    before = parse_manifest(text).pages[1].wiki_path
+    inserted = (
+        '      - id: intro\n        number: "2.1"\n        title: Intro\n'
+        "        source: docs/guides/intro.md\n"
+    )
+    moved = (
+        text.replace('number: "2.1"', 'number: "2.2"')
+        .replace("title: Setup", "title: Renamed Setup")
+        .replace("    children:\n", "    children:\n" + inserted)
+    )
+    page = parse_manifest(moved).pages[2]
+    assert (page.number, page.title) == ("2.2", "Renamed Setup")
+    assert page.wiki_path == before
+    assert before.as_posix() == "Setup.md"
 
 
 def test_load_manifest_rejects_missing_source(tmp_path: Path) -> None:

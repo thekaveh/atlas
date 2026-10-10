@@ -1,0 +1,6 @@
+{
+  "files": {},
+  "generated_by": "python scripts/check-docs-drift.py --write-prose-baseline",
+  "policy": "Per-file counts of STE length violations (sentence > 25 words, numbered step > 20, paragraph > 75 words or > 6 sentences; env description > 40 words or citing #NNN; capability-note sentence > 25). Counts may only go down. A file not listed must be clean.",
+  "schema_version": 1
+}

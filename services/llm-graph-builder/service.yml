@@ -17,7 +17,7 @@ capabilities:
   - name: "Graph Builder access control"
     status: partial
     verification: tested
-    note: "Kong protects both browser and backend aliases with Basic Auth and ACL, but the host-published frontend skips app auth and the internal backend sets authentication off."
+    note: "Kong protects both browser and backend aliases with Basic Auth and ACL. The host-published frontend skips app auth, and the internal backend sets authentication off."
   - name: "Optional Google Cloud features"
     status: partial
     verification: tested
@@ -29,7 +29,7 @@ capabilities:
   - name: "Turn-key MinIO and Docling ingestion"
     status: not-supported
     verification: documented
-    note: "MinIO endpoint-compatible S3 ingestion and a direct Docling handoff are integration points only; operators must use local, wiki, or web sources in the stock Atlas path."
+    note: "MinIO endpoint-compatible S3 ingestion and a direct Docling handoff are integration points only. In the stock Atlas path, operators must use local, wiki, or web sources."
 
 containers:
   - llm-graph-builder-backend
@@ -49,6 +49,7 @@ sources:
 
 env:
   - name: LLM_GRAPH_BUILDER_SOURCE
+    description: "Deployment source for Neo4j LLM Graph Builder: container (pinned source build) or disabled. The container source requires NEO4J_GRAPH_DB_SOURCE=container."
     default: disabled
   - name: LLM_GRAPH_BUILDER_REF
     default: "4a412f4688cf4096976045c019edc0a7f6ddcb6b"
@@ -93,38 +94,55 @@ env:
     default: vector,graph_vector,graph,fulltext,graph_vector_fulltext,entity_vector,global_vector
     description: "Comma-separated chat modes compiled into the frontend."
   - name: LLM_GRAPH_BUILDER_TIME_PER_PAGE
+    description: "Frontend build argument VITE_TIME_PER_PAGE (upstream setting). Changing it requires an image rebuild."
     default: 50
   - name: LLM_GRAPH_BUILDER_CHUNK_SIZE
+    description: "Frontend build argument VITE_CHUNK_SIZE (upstream setting). Changing it requires an image rebuild."
     default: 5242880
   - name: LLM_GRAPH_BUILDER_LARGE_FILE_SIZE
+    description: "Frontend build argument VITE_LARGE_FILE_SIZE (upstream setting). Changing it requires an image rebuild."
     default: 5242880
   - name: LLM_GRAPH_BUILDER_BATCH_SIZE
+    description: "Frontend build argument VITE_BATCH_SIZE (upstream setting). Changing it requires an image rebuild."
     default: 2
   - name: LLM_GRAPH_BUILDER_CHUNK_OVERLAP
+    description: "Frontend build argument VITE_CHUNK_OVERLAP (upstream setting). Changing it requires an image rebuild."
     default: 20
   - name: LLM_GRAPH_BUILDER_TOKENS_PER_CHUNK
+    description: "Frontend build argument VITE_TOKENS_PER_CHUNK (upstream setting). Changing it requires an image rebuild."
     default: 200
   - name: LLM_GRAPH_BUILDER_CHUNK_TO_COMBINE
+    description: "Frontend build argument VITE_CHUNK_TO_COMBINE (upstream setting). Changing it requires an image rebuild."
     default: 1
   - name: LLM_GRAPH_BUILDER_MAX_TOKEN_CHUNK_SIZE
+    description: "Passed to the Graph Builder backend as MAX_TOKEN_CHUNK_SIZE (upstream setting)."
     default: 10000
   - name: LLM_GRAPH_BUILDER_KNN_MIN_SCORE
+    description: "Passed to the Graph Builder backend as KNN_MIN_SCORE (upstream setting)."
     default: "0.94"
   - name: LLM_GRAPH_BUILDER_UPDATE_GRAPH_CHUNKS_PROCESSED
+    description: "Passed to the Graph Builder backend as UPDATE_GRAPH_CHUNKS_PROCESSED (upstream setting)."
     default: 20
   - name: LLM_GRAPH_BUILDER_ENTITY_EMBEDDING
+    description: "Passed to the Graph Builder backend as ENTITY_EMBEDDING (upstream setting)."
     default: "false"
   - name: LLM_GRAPH_BUILDER_ENABLE_USER_AGENT
+    description: "Passed to the Graph Builder backend as ENABLE_USER_AGENT (upstream setting)."
     default: "true"
   - name: LLM_GRAPH_BUILDER_USER_AGENT
+    description: "Passed to the Graph Builder backend as USER_AGENT (upstream setting)."
     default: Atlas-LLM-Graph-Builder
   - name: LLM_GRAPH_BUILDER_TRACK_USER_USAGE
+    description: "Passed to the Graph Builder backend as TRACK_USER_USAGE (upstream setting)."
     default: "false"
   - name: LLM_GRAPH_BUILDER_AUTHENTICATION_REQUIRED
+    description: "Passed to the Graph Builder backend as AUTHENTICATION_REQUIRED (upstream setting): upstream backend authentication; Atlas keeps it false and relies on Kong Basic Auth."
     default: "false"
   - name: LLM_GRAPH_BUILDER_BACKEND_SCALE
+    description: "Set by ./start.sh from LLM_GRAPH_BUILDER_SOURCE; do not edit. 1 runs llm-graph-builder-backend, 0 does not."
     auto_managed: true
   - name: LLM_GRAPH_BUILDER_FRONTEND_SCALE
+    description: "Set by ./start.sh from LLM_GRAPH_BUILDER_SOURCE; do not edit. 1 runs llm-graph-builder-frontend, 0 does not."
     auto_managed: true
   - name: LLM_GRAPH_BUILDER_ENDPOINT
     auto_managed: true
@@ -193,6 +211,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

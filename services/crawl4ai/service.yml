@@ -41,8 +41,10 @@ sources:
 
 env:
   - name: CRAWL4AI_SOURCE
+    description: "Deployment source for Crawl4AI: container or disabled (default)."
     default: disabled
   - name: CRAWL4AI_PORT
+    description: "Host port that publishes the crawl4ai container API (in-container port 11235)."
     # default removed — computed by services/topology.py slot allocator
   - name: CRAWL4AI_API_TOKEN
     default: ""
@@ -58,8 +60,10 @@ env:
     default: false
     description: "Keep false unless deliberately crawling private/internal URLs from inside the Atlas network."
   - name: CRAWL4AI_SCALE
+    description: "Set by ./start.sh from CRAWL4AI_SOURCE; do not edit. 1 runs crawl4ai, 0 does not."
     auto_managed: true
   - name: CRAWL4AI_ENDPOINT
+    description: "Set by ./start.sh; do not edit. http://crawl4ai:11235 when CRAWL4AI_SOURCE=container, else empty. Read by Local Deep Researcher and n8n."
     auto_managed: true
 
 depends_on:
@@ -112,6 +116,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

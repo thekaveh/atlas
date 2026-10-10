@@ -1,8 +1,23 @@
 # 7.1. Operations
 
+This page is for operators who run an Atlas stack. It lists the start, stop and
+diagnostic commands and explains automation, validation, support bundles and
+managed host processes.
+
+Related operator pages:
+
+- [SOURCE Configuration](source-configuration.md): the deployment mode of each service.
+- [Ports and Routes](ports-and-routes.md): the port block and the Kong hostnames.
+- [Access and Credentials](access-and-credentials.md): login details and secrets.
+- [Expected Startup Warnings](expected-startup-warnings.md): log lines you can ignore.
+- [Reusing Atlas](reusing-atlas.md) and [Submodule Usage](submodule-usage.md): Atlas inside a parent project.
+- [Troubleshooting](../TROUBLESHOOTING.md): recovery steps for failed starts.
+
 ## 1. Runtime Commands
 
-Every line below is a complete, safe-to-run command:
+Each line below is a complete command. None of them deletes data or edits the
+host; §1.1 lists the commands that do. The `--consumer` lines need an
+`atlas.consumer.yml` file in the current directory.
 
 ```bash
 ./start.sh
@@ -24,33 +39,11 @@ Every line below is a complete, safe-to-run command:
 ./stop.sh
 ```
 
-`./start.sh models probe` measures model capabilities through the running
-LiteLLM gateway instead of trusting the catalog (#1195). Each probe sends one
-request with a fixed expected answer: tool calling (the model must call an
-offered tool), JSON output (a JSON object answering 2+2), vision (naming the
-colour of a red square) and embedding dimension (the same probe
-`lightrag-init` uses). Each reports `supported`, `unsupported` or
-`unavailable` (the gateway is unreachable, fails, or answers with an
-authentication, unknown-model, timeout or rate-limit error, which say nothing
-about the model). By default it probes the
-configured default chat, vision and embedding models for the capabilities
-their catalog entry declares; `--model` and `--kind` narrow it. It prints the
-number of requests first and refuses a run over `--max-requests` (default 20,
-exit 3), because cloud probes are billed. Results go to the gitignored
-`volumes/litellm/capability-probes.json`, keyed by model, provider, gateway
-alias and catalog revision, and a `supported` or `unsupported` verdict is
-reused only for that exact identity (`unavailable` is measured again;
-`--refresh` re-measures everything). Every result, new or stored, is printed;
-a declared capability that measured `unsupported` is a failure and the command
-exits 1. The gateway is reached on `HOST_BIND_IP` (default `127.0.0.1`) and
-`LITELLM_PORT`. Probes never run during `./start.sh` and never change model
-selection.
-
-Before a subcommand (`doctor`, `endpoints`, `env`, `compose`, `managed-host`, …) only `--consumer` applies; it is exported for the subcommand. Output-mode flags (`--no-tui`, `--json`, `--no-splash`, `--detach`) are accepted there and ignored. Any other start option placed there, such as `-p` or `--base-port`, has no effect, and Atlas prints a warning naming it: subcommands read the project and ports from `.env`.
+Before a subcommand (`doctor`, `endpoints`, `env`, `compose`, `managed-host`, …) only `--consumer` applies; it is exported for the subcommand. Output-mode flags (`--no-tui`, `--json`, `--no-splash`, `--detach`) are accepted there and ignored. Any other start option there, such as `-p` or `--base-port`, has no effect, and Atlas prints a warning that names it. Subcommands read the project and ports from `.env`.
 
 The managed-host families share one lifecycle synopsis. This is **syntax, not
-shell** — the bars separate alternative actions, so pick exactly one per
-invocation (in a shell, a literal `|` would be parsed as a pipeline):
+shell**: the bars separate alternative actions, so pick exactly one per
+invocation. A shell would parse a literal `|` as a pipeline.
 
 ```text
 ./start.sh managed-host <action> <name>     actions: preflight|install|start|stop|status|health|remove
@@ -77,7 +70,16 @@ running containers:
 ./start.sh storage clean        # deletes removable Ollama/ComfyUI model files; selected or routed ones are retained (--yes skips the prompt)
 ```
 
-`--no-tui --detach` also accepts `--json` for machine-readable status (see §2).
+### 1.2. Model capability probe
+
+`./start.sh models probe` measures model capabilities through the running LiteLLM gateway. It does not trust the catalog.
+
+- **What it probes.** Each probe sends one request that has a fixed expected answer. Tool calling: the model must call an offered tool. JSON output: a JSON object that answers 2+2. Vision: name the colour of a red square. Embedding dimension: the same probe that `lightrag-init` uses.
+- **Scope.** By default it probes the configured default chat, vision and embedding models, for the capabilities their catalog entry declares. `--model` and `--kind` narrow it.
+- **Cost guard.** It prints the request count first. It refuses a run over `--max-requests` (default 20, exit 3), because cloud probes are billed.
+- **Verdicts.** Each result is `supported`, `unsupported` or `unavailable`. `unavailable` means the gateway is unreachable or failed, or it answered with an authentication, unknown-model, timeout or rate-limit error. These errors say nothing about the model. A declared capability that measures `unsupported` is a failure, and the command exits 1.
+- **Storage.** Results go to the gitignored `volumes/litellm/capability-probes.json`, keyed by model, provider, gateway alias and catalog revision. A stored `supported` or `unsupported` verdict is reused only for the same key. `unavailable` is measured again, and `--refresh` measures everything again. Every result, new or stored, is printed.
+- **Connection.** It reaches the gateway on `HOST_BIND_IP` (default `127.0.0.1`) and `LITELLM_PORT`. Probes never run during `./start.sh` and never change model selection.
 
 ## 2. Automation
 
@@ -87,13 +89,14 @@ Compose health gates, prints a per-service status summary, and exits instead of
 following logs. Add `--json` for machine-readable status in CI or parent-repo
 wrappers.
 
-**`./start.sh` exit codes and cancelling.** `0` means the stack started, `1`
-that it did not (a failed build, `up` or one-shot init container, whose error
-line ends with its last 40 log lines). `Ctrl+C` differs by front end (#1357):
+**`./start.sh` exit codes and cancelling.** `0` means the stack started. `1`
+means it did not: a build, `up` or one-shot init container failed. The error
+line ends with the failed container's last 40 log lines. `Ctrl+C` differs by
+front end:
 
-- In the wizard (TUI), `130` means `Ctrl+C` interrupted a launch still in
-  progress; it prints what was left running and whether this start had already
-  stopped a previously running stack. `Ctrl+C` after the launch finished keeps
+- In the wizard (TUI), `130` means `Ctrl+C` interrupted a launch in progress.
+  It prints what was left running, and whether this start had already stopped a
+  previously running stack. `Ctrl+C` after the launch finished keeps
   its result (`0` or `1`). The wait for one-shot init containers (up to 900 s)
   stops within a few seconds of `Ctrl+C`.
 - With `--no-tui`, `Ctrl+C` during startup exits `1` with the same notice;
@@ -104,23 +107,24 @@ line ends with its last 40 log lines). `Ctrl+C` differs by front end (#1357):
 
 ## 3. Headless Validation
 
-Use `./start.sh env backfill` after updating an Atlas submodule pin. It
-preserves existing values, appends newly introduced `.env.example` keys, fills
-blank values only when the new example carries a non-blank default, and reports
-the affected keys by source section. Then run `./start.sh --consumer
-./atlas.consumer.yml compose validate` to validate the assembled stack,
-including manifest-declared external overlays and back-compatible
-`services/_user/<name>/compose.yml` overlays. Exit code `0` means the env
-backfill or Compose validation succeeded; `compose validate` returns Compose's
-failing status code when validation fails.
+Use `./start.sh env backfill` after updating an Atlas submodule pin. It keeps
+existing values and appends new `.env.example` keys. It fills a blank value only
+when the new example has a non-blank default. It reports the affected keys by
+source section. Then run `./start.sh --consumer ./atlas.consumer.yml compose
+validate` to validate the assembled stack, including manifest-declared
+external overlays and back-compatible `services/_user/<name>/compose.yml`
+overlays.
+
+Exit code `0` means the env backfill or Compose validation succeeded.
+`compose validate` returns Compose's failing status code when validation fails.
 
 ## 4. Consumer Doctor
 
 Use `./start.sh --consumer ./atlas.consumer.yml doctor` for consumer CI
-preflight before starting containers. The doctor runs an extensible check
-registry for consumer manifest validation, Compose validation, `_user` overlay
-env references, plugin directories, plugin.yml manifest + declared-env
-validation, model sidecars, endpoint reporting, and tracked-file cleanliness.
+preflight before starting containers. Its checks cover the consumer manifest,
+Compose validation, `_user` overlay env references, plugin directories,
+`plugin.yml` and declared env, model sidecars, endpoint reporting and
+tracked-file cleanliness.
 Docker-dependent checks are marked skipped when Docker is unavailable;
 Docker-free checks still run. Use `--format json` for CI parsing. Any failed
 check exits non-zero.
@@ -138,9 +142,10 @@ a log excerpt into one local `.tar.gz` you can attach to an issue. A relative
   - Under `--no-tui`, that is the startup steps; the log excerpt is what the run
     printed. Docker Compose output that goes straight to the terminal is not
     captured.
-  - A failure before the pipeline starts (Docker unavailable, an unsupported
-    Compose version, a failed `--setup-hosts`, a legacy `external` source, an
-    invalid flag) leaves no bundle; run `./start.sh doctor --bundle PATH` then.
+  - A failure before the pipeline starts leaves no bundle. Examples: Docker
+    unavailable, an unsupported Compose version, a failed `--setup-hosts`, a
+    legacy `external` source, an invalid flag. Run
+    `./start.sh doctor --bundle PATH` instead.
   - Stopping the log stream after a successful start (Ctrl+C) is not a failure
     and writes nothing.
 
@@ -166,10 +171,10 @@ the bundle's generation time, so archive metadata carries no user or host names.
 
 `bundle.json` contains:
 
-- `checks`: every doctor check, `id` / `status` / `message` / `available`. A
-  check that is `skipped` (for example, its service is disabled) or
-  `unavailable` (it raised, ran past the time budget, or never started) is
-  recorded, not dropped.
+- `checks`: every doctor check, `id` / `status` / `message` / `available`.
+  `skipped` checks (for example, the service is disabled) are recorded, not
+  dropped. So are `unavailable` checks (it raised, ran past the time budget, or
+  never started).
 - `findings`: each failing or warning check, with the configuration keys it
   names. Each key has its `value`, `origin` and an `action` saying where to
   change it. The origin is the file that sets the key: a consumer manifest or
@@ -216,7 +221,7 @@ every string is scrubbed of:
 
 Values made only of lowercase letters, `-` and `_` are not matched by value.
 Those are enum toggles such as `disabled`, and the public `.env.example`
-placeholders; a pattern above still catches them as `KEY=value`, in a URL or
+placeholders. A pattern above still catches them as `KEY=value`, in a URL or
 in a header.
 
 A secret in an unusual shape can still get through, and so can one the
@@ -224,83 +229,63 @@ terminal wrapped across lines. Read the preview before you share the file.
 
 ## 5. Endpoint Contract Export
 
-Use `./start.sh endpoints export --format env|json` to emit a stable,
-machine-readable consumer endpoint contract: canonical, distinct
-container/host/Kong/public endpoints and active SOURCE modes per
-consumer-relevant service (Backend, LiteLLM, ComfyUI, Ollama, MinIO, Weaviate,
-Neo4j, n8n, Redis, Supabase, Asset Worker), plus every per-consumer `ATLAS_STORE_*` storage
-field. The field names are a compatibility contract. Output is secret-free by
-default (infra secrets are `${VAR}` references); `--with-secrets` resolves only
-consumer-scoped credentials and refuses stdout (requires `--output PATH`).
-Output is deterministic and byte-stable, so parent wrappers can diff it across
-runs.
+Use `./start.sh endpoints export --format env|json` to emit the consumer endpoint contract. It is stable and machine-readable. For each consumer-relevant service it gives the canonical, distinct container, host, Kong and public endpoints and the active SOURCE mode. The services are Backend, LiteLLM, ComfyUI, Ollama, MinIO, Weaviate, Neo4j, n8n, Redis, Supabase and Asset Worker. It also gives every per-consumer `ATLAS_STORE_*` storage field.
+
+- The field names are a compatibility contract.
+- Output is secret-free by default: infra secrets are `${VAR}` references. `--with-secrets` resolves only consumer-scoped credentials, and it refuses stdout (it requires `--output PATH`).
+- Output is deterministic and byte-stable, so parent wrappers can diff it across runs.
 
 When a consumer manifest sets `BASE_PORT: auto`, the port block is allocated at
-bring-up. Exporting before that would describe the default block rather than
-this stack's, and on a host running several Atlas projects that block plausibly
-belongs to another one — so the endpoints would answer from the wrong stack
-instead of refusing. The command therefore exits `3` until a block exists. Pass
-`--allow-unresolved` for the legitimate pre-allocation cases (CI templating,
-committing a sample) so the ambiguity is chosen rather than stumbled into. See
-[reusing-atlas.md §6.5](https://github.com/thekaveh/atlas/blob/main/docs/operations/reusing-atlas.md).
+bring-up. Before that, an export would describe the default block, which on a
+shared host can belong to another Atlas project. The command therefore exits
+`3` until a block exists. Pass `--allow-unresolved` only for deliberate
+pre-allocation uses, such as CI templating or a committed sample. See
+[Reusing Atlas §6.5](reusing-atlas.md#65-exporting-the-endpoint-contract-endpoints-export).
 
 ## 6. Backend Plugin Manifest
 
-A backend plugin package mounted under `BACKEND_PLUGINS_DIR` may ship an optional
-`plugin.yml` (`plugin_manifest_version: 1`) declaring a typed, validated
-contract: `name`, `route_prefix`, `health_path`/`docs_url`, `auth:
-inherit|open|key-auth`, optional per-plugin Kong upstream timeouts, and
-typed/`default`/`required`/`secret` `env`. Absent
-manifests inherit the Backend application identity boundary. A present-but-malformed
-manifest skips only that plugin with a structured error and leaves others
-healthy; duplicate names, overlapping prefixes, and prefixes shadowing a built-in
-backend route are rejected before mounting. Declared env is validated at startup
-and by the consumer doctor (required-missing / enum / type warnings, secrets
-masked as `***`). Internal-service-authenticated `GET /plugins` returns the
-resulting inventory. Per-plugin `auth` composes into Kong and application
-policies: `inherit` requires Backend identity, `key-auth` validates
-`BACKEND_KONG_API_KEY` at both layers, and only explicit `open` routes are
-public. Timeout-bearing plugins receive dedicated Kong services so their
-strict millisecond `connect_timeout`, `write_timeout`, and `read_timeout`
-overrides do not affect other backend routes; an omitted `read_timeout`/
-`write_timeout` gets the backend's own long timeout (at least 3,630,000 ms) and an omitted
-`connect_timeout` keeps Kong's 60,000 ms default. A plugin that sets
-`request_buffering` or `response_buffering` gets the same dedicated service;
-`false` streams its uploads or downloads through Kong, and `request_buffering:
-false` also lifts the backend's 16 MiB default body limit for that prefix (the
-plugin enforces its own cap). See
-[reusing-atlas.md §6.3.1](https://github.com/thekaveh/atlas/blob/main/docs/operations/reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml).
+A backend plugin package under `BACKEND_PLUGINS_DIR` can ship an optional `plugin.yml` (`plugin_manifest_version: 1`). It declares a typed, validated contract: `name`, `route_prefix`, `health_path`/`docs_url`, `auth: inherit|open|key-auth`, optional Kong timeouts and buffering, and a typed `env` with `default`, `required` and `secret`.
+
+- A plugin without a manifest inherits the Backend application identity boundary.
+- A malformed manifest stops only that plugin from loading (inventory status `error`); other plugins stay healthy. Duplicate names, overlapping prefixes and prefixes that shadow a built-in backend route are rejected before mounting.
+- Startup and the consumer doctor validate the declared env (required-missing, enum and type warnings). Secrets are masked as `***`. `GET /plugins` (internal-service auth) returns the inventory.
+- `auth` applies at Kong and in the application. `inherit` requires Backend identity. `key-auth` checks `BACKEND_KONG_API_KEY` at both layers. Only explicit `open` routes are public.
+- A plugin with timeouts gets its own Kong service, so its `connect_timeout`, `write_timeout` and `read_timeout` (milliseconds) do not affect other backend routes. An omitted `read_timeout`/`write_timeout` gets the backend's timeout (at least 3,630,000 ms). An omitted `connect_timeout` keeps Kong's 60,000 ms default.
+- A plugin that sets `request_buffering` or `response_buffering` also gets its own service. `false` streams uploads or downloads through Kong. `request_buffering: false` also lifts the backend's 16 MiB default body limit for that prefix; the plugin enforces its own limit.
+
+See [Reusing Atlas §6.3.1](reusing-atlas.md#631-declaring-a-typed-plugin-contract-with-pluginyml).
 
 ## 7. Health And Logs
 
-The launch phase streams Docker Compose output through the Textual UI. The same command path works without the TUI in non-interactive environments.
+For scripted status, use `./start.sh --no-tui --detach --json` (§2). To collect logs for an issue, write a support bundle (§4.1).
 
 ## 8. Managed Host Lifecycle
 
-ComfyUI MPS and vLLM Metal on Apple Silicon, plus headless Blender MCP, run as
-native host processes outside Docker Compose. Atlas starts selected managed hosts only after
-configuration, dependency, route, host, and localhost validation completes and
-the operator confirms launch. If image build, Compose startup, or a required
-init container fails, startup rolls back only the host processes created by
-that invocation; a host that was running beforehand remains untouched. A
-state-directory launch lock serializes concurrent launchers so exactly one can
-own a newly created process.
+ComfyUI MPS and vLLM Metal on Apple Silicon, and headless Blender MCP, run as
+native host processes outside Docker Compose.
 
-After the stack converges, the native processes remain part of the running
-Atlas deployment — and a plain `./stop.sh` deliberately leaves them running.
-These runtimes are host-global: another consumer on the same machine may be
-using the same ComfyUI-MPS, vLLM-Metal or Blender-MCP process, and SOURCE
-cannot prove ownership because `.env` is mutable and the state directory is
-shared. Stopping them is therefore an explicit opt-in, not a default.
+- Atlas starts selected managed hosts only after configuration, dependency,
+  route, host and localhost validation pass and the operator confirms launch.
+- If an image build, Compose startup or a required init container fails,
+  startup rolls back only the host processes this invocation created. A host
+  that was running before stays untouched.
+- A launch lock in the state directory serializes concurrent launchers, so
+  exactly one owns a newly created process.
 
-`./stop.sh` reports which managed runtimes it left running and exits on the
-container teardown result alone. `./stop.sh --stop-managed-hosts` additionally
-tears down the three built-in managed host runtimes — ComfyUI-MPS, vLLM-Metal
-and Blender-MCP — from their state directories, and a native process still live
-after that attempt makes the command exit nonzero. `--cold` does not change
-this behavior.
+After the stack converges, the native processes stay part of the running
+deployment, and a plain `./stop.sh` leaves them running on purpose. These
+runtimes are host-global: another consumer on the same machine may use the same
+ComfyUI-MPS, vLLM-Metal or Blender-MCP process. SOURCE cannot prove ownership,
+because `.env` is mutable and the state directory is shared. Stopping them is
+therefore an explicit opt-in.
+
+`./stop.sh` reports which managed runtimes it left running. Its exit code
+depends only on the container teardown. `./stop.sh --stop-managed-hosts` also
+stops the three built-in managed runtimes (ComfyUI-MPS, vLLM-Metal and
+Blender-MCP) from their state directories. If a native process is still live
+after that, the command exits nonzero. `--cold` does not change this.
 
 A consumer-declared managed host process (`managed_host_services` in
-`atlas.consumer.yml`) is outside `./stop.sh`'s scope entirely: it is neither
-stopped by `--stop-managed-hosts` nor listed in the left-running advisory. Stop
-one explicitly with `./start.sh managed-host stop <name>`.
+`atlas.consumer.yml`) is outside `./stop.sh`'s scope. `--stop-managed-hosts`
+does not stop it, and the left-running advisory does not list it. Stop one with
+`./start.sh managed-host stop <name>`.

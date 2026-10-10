@@ -15,7 +15,7 @@ capabilities:
   - name: "Jenkins UI authentication"
     status: supported
     verification: tested
-    note: "JCasC disables signup and creates the generated admin login; direct and Kong paths rely on that Jenkins login because the Kong route adds no separate auth layer."
+    note: "JCasC disables signup and creates the generated admin login. Direct and Kong paths rely on that Jenkins login, because the Kong route adds no separate auth layer."
   - name: "Controller state persistence"
     status: partial
     verification: tested
@@ -32,7 +32,7 @@ images:
   - var: JENKINS_IMAGE
     default: "jenkins/jenkins:lts-jdk21@sha256:c1e4c349365f6d16d88595b2c5f7e8ff39b8ae1d061f62420bac193b4b9616d0"
     container: jenkins
-    notes: "Jenkins LTS with JDK 21; Atlas builds a local derived image with Maven, MinIO mc, and plugins. The default is `lts-jdk21` pinned to a reviewed digest; refresh it deliberately (`docker pull jenkins/jenkins:lts-jdk21`, then set `jenkins/jenkins:lts-jdk21@sha256:<digest>`), since the bare tag is repointed on each new LTS line."
+    notes: "Jenkins LTS with JDK 21; Atlas builds a local derived image with Maven, MinIO mc, and plugins. The default pins `lts-jdk21` to a reviewed digest, because the bare tag moves on each new LTS line. To refresh, run `docker pull jenkins/jenkins:lts-jdk21` and set the new digest."
 
 sources:
   var: JENKINS_SOURCE
@@ -45,10 +45,12 @@ sources:
 
 env:
   - name: JENKINS_SOURCE
+    description: "Deployment source for Jenkins: container or disabled. The container source requires MINIO_SOURCE to be enabled."
     default: disabled
   - name: JENKINS_PORT
     description: "Host port for the Jenkins Web UI (in-container 8080)."
   - name: JENKINS_SCALE
+    description: "Set by ./start.sh from JENKINS_SOURCE; do not edit. 1 runs the Jenkins controller, 0 does not."
     auto_managed: true
   - name: JENKINS_ADMIN_USER
     default: admin
@@ -114,6 +116,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

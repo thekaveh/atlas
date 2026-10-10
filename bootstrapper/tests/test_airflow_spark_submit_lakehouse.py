@@ -252,6 +252,14 @@ def test_airflow_init_seeds_spark_default_for_cluster_spark_submit() -> None:
     assert '\\"spark-binary\\": \\"spark-submit\\"' in body
 
 
+def _call_targets(manifest: dict) -> set[str]:
+    """data_flow.calls entries are a plain name or a {target: ...} object."""
+    return {
+        call if isinstance(call, str) else call["target"]
+        for call in manifest["data_flow"]["calls"]
+    }
+
+
 def test_airflow_manifest_declares_lakehouse_spark_submit_topology() -> None:
     manifest = _yaml(AIRFLOW_DIR / "service.yml")
     tracks = _yaml(ROOT / "bootstrapper" / "tracks.yml")["tracks"]
@@ -264,7 +272,7 @@ def test_airflow_manifest_declares_lakehouse_spark_submit_topology() -> None:
     }
     assert "airflow" in data_eng["services"]
     assert {"spark", "minio", "iceberg-rest"} <= set(manifest["depends_on"]["optional"])
-    assert {"spark", "minio", "iceberg-rest"} <= set(manifest["data_flow"]["calls"])
+    assert {"spark", "minio", "iceberg-rest"} <= _call_targets(manifest)
     assert "SparkSubmit" in manifest["rows"][0]["description"]
 
 
@@ -361,24 +369,21 @@ def test_airflow_docs_describe_s3a_spark_submit_validation_path() -> None:
 
 
 def test_airflow_docs_describe_task_sdk_connection_context_boundary() -> None:
+    # The Airflow README owns this debugging tip; other pages link to it.
     readme = (AIRFLOW_DIR / "README.md").read_text(encoding="utf-8")
-    source_docs = (ROOT / "docs" / "operations" / "source-configuration.md").read_text(
-        encoding="utf-8"
-    )
 
-    for docs in (readme, source_docs):
-        for expected in (
-            "outside a task execution context",
-            "AirflowNotFoundException",
-            "BaseHook.get_connection",
-            'S3Hook(aws_conn_id="minio_default")',
-            "airflow.settings.Session",
-            "airflow.models.Connection",
-            "minio_default",
-            "spark_default",
-            "DAG tasks should keep using hooks/operators",
-        ):
-            assert expected in docs
+    for expected in (
+        "outside a task execution context",
+        "AirflowNotFoundException",
+        "BaseHook.get_connection",
+        'S3Hook(aws_conn_id="minio_default")',
+        "airflow.settings.Session",
+        "airflow.models.Connection",
+        "minio_default",
+        "spark_default",
+        "DAG tasks should keep using hooks/operators",
+    ):
+        assert expected in readme
 
 
 def test_required_ci_runs_a_real_spark_minio_s3a_round_trip() -> None:

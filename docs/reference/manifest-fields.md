@@ -2,9 +2,11 @@
 
 ## 1. Manifest Schema Quick Reference
 
-Generated manifest schema quick reference.
+Generated from the top-level keys of `bootstrapper/schemas/service.schema.json`. See [Contributing §18](../CONTRIBUTING-services.md#18-schema-cheatsheet) for nested fields.
 
-| Field | Required | Purpose |
+Schema-required marks the keys the JSON schema requires. The validator and tests also require `support`, `containers` on non-virtual manifests (matching `compose.yml`), and `docs`, a sibling `README.md` or `docs_exception`.
+
+| Field | Schema-required | Purpose |
 | --- | --- | --- |
 | virtual | no | If true, this manifest has no compose fragment |
 | name | yes | Folder name under `services/`, in kebab-case |
@@ -12,7 +14,7 @@ Generated manifest schema quick reference.
 | category | yes | Topology category and wizard grouping |
 | doc_extras | no | Optional doc-generation hints |
 | data_flow | no | Runtime call graph (`data_flow.calls`) used by docs and diagrams |
-| support | no | Support tier (`stable`, `experimental`, `community`, `unsupported`), the evidence it rests on, the release tag or commit that evidence was gathered at, the owner, and known limitations |
+| support | no | Support tier (`stable`, `experimental`, `community`, `unsupported`), its evidence and the tag or commit it was gathered at, the owner, and known limitations |
 | capabilities | yes | Required operator-facing capability and limitation contract |
 | docs | no | Repository-relative operator documentation path |
 | docs_exception | no | Printable reason with an explicit `because` clause, four substantive words, and three distinct terms |
@@ -23,8 +25,8 @@ Generated manifest schema quick reference.
 | env | yes | Environment variables owned by the manifest |
 | depends_on | no | Required and optional logical dependencies |
 | exports | no | Documents the cross-service env-var contract |
-| runtime_sc | no | Per-source runtime scale/env/deploy slices |
+| runtime_sc | no | Per-source runtime scale/environment/deploy/extra_hosts slices |
 | runtime_adaptive | no | Per-container adaptive-service descriptors |
-| runtime_deps | no | Slice of the legacy service-configs.yml `service_dependencies:` block |
+| runtime_deps | no | Launch-time dependency rules (requires / optional / conditional_requires); a missing requirement auto-disables the service |
 | runtime_dependency_tiers | no | Stack-wide startup tier order (the `globals` manifest only) |
 | rows | no | Box rows this manifest renders |

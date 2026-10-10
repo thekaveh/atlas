@@ -1,10 +1,21 @@
-# 2.1. Quick Start
+# 2.1. Launch Atlas
 
-## 1. Launch Atlas
+## 1. Requirements and launch
 
-You need Docker with Docker Compose **v2.20.3 or newer** — the top-level `docker-compose.yml` merges the per-service fragments through Compose's native `include:` directive, which older releases do not support. v2.26+ is recommended. `./start.sh` checks this and stops with the detected version if it is too old.
+Install these before the first launch:
 
-Run `./start.sh` from the repository root. The setup wizard walks through track and profile selection, base port and project name, service SOURCE choices, host aliases, and the launch summary. It needs `uv` or Python 3.10+ (`./start.sh` prefers `uv run` and falls back to the system `python3`).
+- Docker with Docker Compose **v2.20.3 or newer** (v2.26+ recommended). The top-level `docker-compose.yml` merges the per-service fragments with Compose's `include:` directive, which older releases do not support. `./start.sh` checks the version and stops if it is too old.
+- `uv`, or Python 3.10 or newer. `./start.sh` prefers `uv run` and falls back to the system `python3`.
+- Git.
+
+Clone the repository and run every command from its root (`atlas/`):
+
+```bash
+git clone https://github.com/thekaveh/atlas && cd atlas
+./start.sh
+```
+
+The setup wizard asks for track and profile, base port and project name, service SOURCE choices and host aliases. It then shows the launch summary.
 
 ## 2. Common Paths
 
@@ -17,11 +28,18 @@ Run `./start.sh` from the repository root. The setup wizard walks through track 
 ```
 
 Flags such as `--base-port`, `--setup-hosts`, `--detach` or any `--*-source`
-skip the wizard and launch what `.env` holds (the `.env.example` defaults on a
-fresh clone), not a track's subset; add `--track <key>` to apply one.
+skip the wizard. Atlas then launches what `.env` holds (the `.env.example`
+defaults on a fresh clone), not a track's subset. Add `--track <key>` to apply one.
 
 ## 3. First Services To Visit
 
-Use the Atlas root dashboard at `http://localhost:63000` after launch. Direct service URLs and Kong aliases are listed in the generated service catalog and ports reference.
+After the launch, open the Atlas root dashboard at `http://localhost:<BASE_PORT>`. The default is `http://localhost:63000`; after `./start.sh --base-port 64000` it is `http://localhost:64000`. `KONG_HTTP_PORT` in `.env` holds the dashboard port, which is derived from `BASE_PORT`. Direct URLs and Kong aliases are in the [service catalog](../services.md) and the [ports and routes reference](../reference/ports-routes.md).
 
-There is no single login. Most dashboards open with an administrator password Atlas generated into `.env` on first start (Open WebUI: `OPEN_WEB_UI_ADMIN_EMAIL` / `OPEN_WEB_UI_ADMIN_PASSWORD`; LiteLLM: `admin` / `LITELLM_MASTER_KEY`; Grafana: `admin` / `GRAFANA_ADMIN_PASSWORD`; Supabase Studio and several other dashboards: the Kong pair `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`). n8n asks you to create its owner account, and JupyterHub prints its token in the container log. [Access and Credentials](../operations/access-and-credentials.md) lists every surface and the credential that opens it.
+There is no single login. Most dashboards open with an administrator password that Atlas writes to `.env` on first start:
+
+- Open WebUI: `OPEN_WEB_UI_ADMIN_EMAIL` / `OPEN_WEB_UI_ADMIN_PASSWORD`.
+- LiteLLM: `admin` / `LITELLM_MASTER_KEY`.
+- Grafana: `admin` / `GRAFANA_ADMIN_PASSWORD`.
+- Supabase Studio and several other dashboards: the Kong pair `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`.
+
+n8n asks you to create its owner account. JupyterHub prints its token in the container log. [Access and Credentials](../operations/access-and-credentials.md) lists every surface and the credential that opens it.

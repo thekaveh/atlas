@@ -52,7 +52,7 @@ load_env_file() {
     env_url="$(env_value ZEPPELIN_URL)"
     env_port="$(env_value ZEPPELIN_PORT)"
     project="${env_project:-$project}"
-    # A ZEPPELIN_URL exported in the shell still wins over the .env port.
+    # Precedence: .env ZEPPELIN_URL, then a shell ZEPPELIN_URL, then the .env port.
     zeppelin_url="${env_url:-${ZEPPELIN_URL:-http://localhost:${env_port:-63099}}}"
   fi
 }

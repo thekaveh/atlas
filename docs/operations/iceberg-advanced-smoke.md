@@ -1,7 +1,7 @@
 # 7.4. Iceberg Advanced Smoke
 
-This opt-in smoke validates the advanced lakehouse contract requested by the
-data-eng track without adding infrastructure.
+This opt-in smoke test checks advanced Iceberg operations on the existing
+data-eng services. It adds no infrastructure.
 
 ## 1. Scope
 
@@ -26,16 +26,7 @@ data-eng track without adding infrastructure.
   --jupyterhub-source container
 ```
 
-For the Zeppelin surface, also enable:
-
-```bash
-./start.sh --track data-eng \
-  --spark-source container \
-  --iceberg-rest-source container \
-  --minio-source container \
-  --jupyterhub-source container \
-  --zeppelin-source container
-```
+For the Zeppelin surface, add `--zeppelin-source container` to the same command.
 
 ## 3. Run The Smoke
 
@@ -57,8 +48,9 @@ Both:
 scripts/smoke-iceberg-advanced-sql.sh all
 ```
 
-The Spark Connect surface executes inside `${PROJECT_NAME:-atlas}-jupyterhub`
-against `sc://spark-connect:15002`. The Zeppelin surface imports
+Run the script from the Atlas root. It reads `PROJECT_NAME` from `.env`; the
+shell value is a fallback, then `atlas`. The Spark Connect surface runs inside
+`<PROJECT_NAME>-jupyterhub` against `sc://spark-connect:15002`. The Zeppelin surface imports
 `services/zeppelin/notebooks/iceberg_advanced_sql.zpln` through the Zeppelin REST
 API and runs it with Zeppelin's seeded standalone Spark interpreter at
 `spark://spark-master:7077`.
@@ -85,14 +77,14 @@ API and runs it with Zeppelin's seeded standalone Spark interpreter at
 - Zeppelin: `services/zeppelin/notebooks/iceberg_advanced_sql.zpln` is the
   standalone Spark reference.
 
-Keeping both surfaces matters because Spark Connect and Zeppelin's Spark-submit
-interpreter have different runtime paths even though they share the same
-Iceberg REST catalog, MinIO warehouse, and Spark image.
+Both surfaces are kept because Spark Connect and Zeppelin's Spark-submit
+interpreter use different runtime paths. They share the Iceberg REST catalog,
+the MinIO warehouse and the Spark image.
 
 ## 6. CI Posture
 
-Normal CI stays static and hermetic. `bootstrapper/tests/test_iceberg_advanced_smoke_suite.py`
-guards that the script, notebooks, docs, advanced operations, S3A landing and
-checkpoint paths, and no-new-service topology contract remain present. Running
-the live smoke is an explicit operator choice because it requires the data-eng
-stack to be up.
+Normal CI stays static and hermetic.
+`bootstrapper/tests/test_iceberg_advanced_smoke_suite.py` checks that the
+script, notebooks, docs, advanced operations, S3A landing and checkpoint paths
+and the no-new-service topology contract are present. An operator runs the live
+smoke explicitly, because it needs the data-eng stack to be up.

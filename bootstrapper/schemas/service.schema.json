@@ -90,7 +90,7 @@
             ]
           },
           "uniqueItems": true,
-          "description": "Services this one calls at runtime in the request path (#1273). Init-time bootstrap calls do NOT count. An entry is either a plain name, which is a current edge, or an object with target plus optional status, condition and evidence. Targets must match either a doc-folder name under services/ or a manifest name under services/, and each target appears once."
+          "description": "Services this one calls at runtime in the request path. Init-time bootstrap calls do NOT count. An entry is either a plain name, which is a current edge, or an object with target plus optional status, condition and evidence. Targets must match either a doc-folder name under services/ or a manifest name under services/, and each target appears once."
         }
       }
     },
@@ -98,7 +98,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["tier", "evidence", "evidence_revision"],
-      "description": "Operator-facing support tier and the evidence it rests on (#1050). Selectable is not validated: a family is `stable` only with a cited qualification run.",
+      "description": "Operator-facing support tier and the evidence it rests on. Selectable is not validated: a family is `stable` only with a cited qualification run.",
       "properties": {
         "tier": {
           "type": "string",
@@ -243,7 +243,7 @@
         "auto_prefer": {
           "type": "array",
           "minItems": 1,
-          "description": "Ordered preference list driving `<SVC>_SOURCE: auto` resolution (#753). The first entry whose requires_capability holds on the host (and whose option is offered under the active deployment profile) wins. An entry without requires_capability is always eligible — put the terminal fallback (e.g. container-cpu) last. Omit for services that should not support `auto`.",
+          "description": "Ordered preference list driving `<SVC>_SOURCE: auto` resolution. The first entry whose requires_capability holds on the host (and whose option is offered under the active deployment profile) wins. An entry without requires_capability is always eligible — put the terminal fallback (e.g. container-cpu) last. Omit for services that should not support `auto`.",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -322,7 +322,7 @@
           "secret": {
             "type": "boolean",
             "default": false,
-            "description": "If true, treated as sensitive (.env.example default is empty; never logged in plain text)."
+            "description": "If true, the value is never logged in plain text. A non-empty default is still written to .env.example, so use default: \"\" for real secrets."
           },
           "bootstrapper_only": {
             "type": "boolean",
@@ -371,7 +371,7 @@
     },
     "runtime_sc": {
       "type": "object",
-      "description": "Slice of the bootstrapper's legacy service-configs.yml `source_configurable:` block, owned by this manifest. The sc_synthesizer concatenates these blocks across manifests to produce the runtime config dict the bootstrapper consumes.",
+      "description": "Per-manifest slice that sc_synthesizer.py merges into the runtime service-config dict (`source_configurable:`): per-source scale, environment, deploy and extra_hosts.",
       "additionalProperties": {
         "type": "object",
         "additionalProperties": {
@@ -410,7 +410,7 @@
     },
     "runtime_deps": {
       "type": "object",
-      "description": "Slice of the legacy service-configs.yml `service_dependencies:` block.",
+      "description": "Per-manifest slice that sc_synthesizer.py merges into the runtime service-config dict (`service_dependencies:`): launch-time requires, optional and conditional_requires rules.",
       "additionalProperties": {
         "type": "object",
         "properties": {

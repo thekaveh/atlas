@@ -1,8 +1,8 @@
 # 6.4. Access and Credentials
 
-Supabase is Atlas's shared infrastructure: the Postgres database about twenty services store their data in, object storage, and an authentication API. It is **not** a shared login. Supabase identity backs the Backend API's user-scoped routes and Supabase's own APIs, and nothing else; every bundled dashboard keeps its own login, and there is no single sign-on between them. Open WebUI lists OIDC / SSO via Supabase Auth as future work (see its [service guide](../../services/open-webui/README.md)).
+Supabase is Atlas's shared infrastructure: the Postgres database about twenty services store their data in, object storage, and an authentication API. It is **not** a shared login. Supabase identity opens only the Backend API's user-scoped routes and Supabase's own APIs. Every bundled dashboard keeps its own login, and there is no single sign-on. Open WebUI lists OIDC / SSO via Supabase Auth as future work (see its [service guide](../../services/open-webui/README.md)).
 
-The table below says which credential opens each surface. It was checked row by row against each service's README and the Kong routes Atlas generates (`bootstrapper/utils/kong_config_generator.py`); the generated dashboard at `http://localhost:${KONG_HTTP_PORT}` shows the same Kong gate on each card.
+The table below says which credential opens each surface. The Kong gates come from the generated routes (`bootstrapper/utils/kong_config_generator.py`). The dashboard at `http://localhost:${KONG_HTTP_PORT}` shows the same Kong gate on each card.
 
 ## 1. Credential kinds
 
@@ -18,9 +18,9 @@ A Kong gate applies only through the `*.localhost` alias. The service's direct p
 | Service | Entry point | Kind | What opens it | Checked against |
 |---|---|---|---|---|
 | Backend API | `api.localhost` | Supabase identity + Atlas-generated secret | User-scoped routes take a Supabase user JWT (§4). Operator and integration routes take the generated `BACKEND_INTERNAL_API_TOKEN`, `BACKEND_N8N_API_TOKEN`, `BACKEND_NOTEBOOK_API_TOKEN` or `BACKEND_OPEN_WEBUI_API_TOKEN`; `/api/ray/*` takes `RAY_JOB_API_TOKEN`. `/`, `/health`, `/ready`, `/metrics` and the API docs are public. Optional `BACKEND_KONG_AUTH=key-auth` adds an `apikey: ${BACKEND_KONG_API_KEY}` gate. | `services/backend/README.md`, `services/backend/app/app/backend_identity.py` |
-| Supabase APIs | paths `/auth/v1`, `/rest/v1`, `/graphql/v1`, `/realtime/v1`, `/storage/v1` on Hosts `localhost`, `127.0.0.1`, `kong-api-gateway`, `<PROJECT_NAME>-kong-api-gateway`, `host.docker.internal` and any in `KONG_SUPABASE_EXTRA_HOSTS` (add a LAN address or tunnel hostname there); other Hosts get 404 (#1382) | Supabase identity + Atlas-generated secret | Kong key-auth with `apikey: ${SUPABASE_ANON_KEY}` (or `SUPABASE_SERVICE_KEY`), then a Supabase user JWT where the API requires one. Only those two keys pass: an ACL refuses any other key-auth consumer, such as `BACKEND_KONG_API_KEY` (403). Public-bucket, signed and signed-upload object URLs (`/storage/v1/object/public/`, `/storage/v1/object/sign/`, `/storage/v1/object/upload/sign/`) need no `apikey`; Storage checks the bucket flag or token (creating a signed URL still needs a user JWT). The GoTrue browser-redirect endpoints `/auth/v1/verify`, `/auth/v1/callback` and `/auth/v1/authorize` are also routed without key-auth. Realtime is routed but not functional (see the Supabase README §4.5). | `services/supabase/README.md`, `services/kong/README.md` |
+| Supabase APIs | Paths `/auth/v1`, `/rest/v1`, `/storage/v1`, `/realtime/v1` and `/graphql/v1`. Hosts: `localhost`, `127.0.0.1`, `kong-api-gateway`, `<PROJECT_NAME>-kong-api-gateway`, `host.docker.internal` and any in `KONG_SUPABASE_EXTRA_HOSTS` (add a LAN address or tunnel hostname there). Other Hosts get 404. | Supabase identity + Atlas-generated secret | Kong key-auth with `apikey: ${SUPABASE_ANON_KEY}` (or `SUPABASE_SERVICE_KEY`), then a Supabase user JWT where the API requires one. An ACL refuses every other key-auth consumer, such as `BACKEND_KONG_API_KEY` (403). Exceptions without `apikey` are listed below the table. Realtime and `/graphql/v1` are routed but not functional. | `services/supabase/README.md`, `services/kong/README.md` |
 | Supabase Studio | `supabase-studio.localhost` | Atlas-generated secret | Kong dashboard basic-auth. Studio has no login of its own. | `services/supabase/README.md` |
-| Supabase pg-meta (SQL) | path `/pg/` on the same Hosts as the Supabase APIs | Atlas-generated secret | Kong dashboard basic-auth; pg-meta runs SQL as a dedicated non-superuser `dashboard_user` member (`SUPABASE_META_DB_USER`), which can read and change most application data, so treat the dashboard pair as an administrator credential. pg-meta is not published on the host. | `services/supabase/README.md` |
+| Supabase pg-meta (SQL) | path `/pg/` on the same Hosts as the Supabase APIs | Atlas-generated secret | Kong dashboard basic-auth. pg-meta runs SQL as `SUPABASE_META_DB_USER`, a non-superuser `dashboard_user` member that can read and change most application data. Treat the dashboard pair as an administrator credential. pg-meta is not published on the host. | `services/supabase/README.md` |
 | Open WebUI | `chat.localhost` | Atlas-generated secret (admin); service-native (other users) | The seeded admin: `OPEN_WEB_UI_ADMIN_EMAIL` (default `admin@localhost`) / `OPEN_WEB_UI_ADMIN_PASSWORD`. Other users are Open WebUI accounts; they are stored in the Supabase database but are not Supabase Auth users. | `services/open-webui/README.md`, `services/open-webui/service.yml` |
 | LiteLLM | `litellm.localhost` | Atlas-generated secret | `/ui`: `LITELLM_UI_USERNAME` (default `admin`) with `LITELLM_MASTER_KEY` as the password. `/v1/*` and `/spend/*`: `Authorization: Bearer ${LITELLM_MASTER_KEY}`. | `services/litellm/README.md` |
 | Grafana | `grafana.localhost` | Atlas-generated secret | `GRAFANA_ADMIN_USERNAME` (default `admin`) / `GRAFANA_ADMIN_PASSWORD`. Sign-up and anonymous access are off. | `services/grafana/README.md` |
@@ -63,6 +63,8 @@ A Kong gate applies only through the `*.localhost` alias. The service's direct p
 | TTS | `tts.localhost` | No login | Speaches and Chatterbox are open. | `services/tts-provider/README.md` |
 | Atlas dashboard | `localhost` | No login | Static page served by Kong. | `bootstrapper/utils/atlas_dashboard.py` |
 
+**Supabase routes without `apikey`.** Public-bucket, signed and signed-upload object URLs (`/storage/v1/object/public/`, `/storage/v1/object/sign/`, `/storage/v1/object/upload/sign/`) need no `apikey`. Storage checks the bucket flag or token; creating a signed URL still needs a user JWT. The GoTrue browser redirects `/auth/v1/verify`, `/auth/v1/callback` and `/auth/v1/authorize` are also routed without key-auth. Realtime is not functional (Supabase README §4.5). `/graphql/v1` returns 404 because `pg_graphql` is not installed.
+
 All entry points are `http://<alias>:${KONG_HTTP_PORT}` (default `63000`); see [Ports and Routes](ports-and-routes.md) for the routing details.
 
 ## 3. First login
@@ -74,7 +76,7 @@ The surfaces a new user usually opens first, and what each needs:
 3. **LiteLLM UI**, `litellm.localhost/ui` — an Atlas-generated secret: `admin` with `LITELLM_MASTER_KEY`.
 4. **Supabase Studio**, `supabase-studio.localhost` — an Atlas-generated secret: the Kong dashboard pair, `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`.
 5. **n8n**, `n8n.localhost` — a service-native account: create the owner on first visit.
-6. **JupyterHub**, `jupyter.localhost` — a service-native token: `docker logs <PROJECT_NAME>-jupyterhub 2>&1 | grep token` (Atlas runs Compose under `-p <PROJECT_NAME>`, so a bare `docker compose logs` from another directory or an `infra/` submodule targets the wrong project).
+6. **JupyterHub**, `jupyter.localhost` — a service-native token: `docker logs <PROJECT_NAME>-jupyterhub 2>&1 | grep token`. Atlas runs Compose under `-p <PROJECT_NAME>`, so a bare `docker compose logs` from another directory targets the wrong project.
 7. **Grafana**, `grafana.localhost` — an Atlas-generated secret: `admin` with `GRAFANA_ADMIN_PASSWORD`.
 8. **The Backend API**, `api.localhost` — Supabase identity for your own data (§4), or `BACKEND_INTERNAL_API_TOKEN` for operator routes.
 
@@ -82,7 +84,7 @@ The surfaces a new user usually opens first, and what each needs:
 
 A Supabase user JWT is accepted in exactly two places:
 
-- **Supabase's own APIs** through Kong (`/auth/v1`, `/rest/v1`, `/graphql/v1`, `/realtime/v1`, `/storage/v1`), which also require the `apikey` header. Sign-up and email auto-confirm are on; get a token with `POST /auth/v1/token?grant_type=password`. No bundled UI hosts a Supabase login page.
-- **The Backend's user-scoped routes**: research jobs, memory, media generation and its operations and spend, document extraction, `/api/chunk`, `/api/rag/evaluate`, the ComfyUI health and model listings, and plugin routes declared `auth: inherit`. The Backend accepts it only when it is signed with `SUPABASE_JWT_SECRET` and carries the `authenticated` role; every other Backend route takes one of the Atlas-generated tokens in §2 instead.
+- **Supabase's own APIs** through Kong (`/auth/v1`, `/rest/v1`, `/storage/v1`), which also require the `apikey` header. Realtime and `/graphql/v1` are routed but not functional. Sign-up and email auto-confirm are on; get a token with `POST /auth/v1/token?grant_type=password`. No bundled UI hosts a Supabase login page.
+- **The Backend's user-scoped routes**: research jobs, memory, media generation (operations and spend included), document extraction, `/api/chunk`, `/api/rag/evaluate`, ComfyUI health and models, and `auth: inherit` plugins. The JWT must be signed with `SUPABASE_JWT_SECRET` and carry the `authenticated` role. Every other Backend route takes one of the Atlas-generated tokens in §2.
 
 No bundled dashboard validates a Supabase JWT, and nothing here provides single sign-on. The authoritative identity rules are in `services/backend/app/app/backend_identity.py` and [Security, Auth, and Secrets Boundary](../architecture/security-auth-secrets-boundary.md).

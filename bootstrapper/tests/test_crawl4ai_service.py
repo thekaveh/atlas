@@ -372,7 +372,7 @@ def test_crawl4ai_docs_describe_security_mcp_n8n_and_deferrals() -> None:
         "/mcp/sse",
         "/mcp/ws",
         "Authorization: Bearer",
-        "not registered into the curated MCP package",
+        "does not register them in the curated MCP package",
     ):
         assert expected in docs
 

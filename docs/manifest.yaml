@@ -457,11 +457,11 @@ sections:
     source: docs/operations/source-configuration.md
   - id: ports-routes
     number: '6.3'
-    title: Ports And Routes
+    title: Ports and Routes
     source: docs/operations/ports-and-routes.md
   - id: access-credentials
     number: '6.4'
-    title: Access And Credentials
+    title: Access and Credentials
     source: docs/operations/access-and-credentials.md
 - id: operations
   number: '7'
@@ -473,7 +473,7 @@ sections:
     source: docs/operations/index.md
   - id: troubleshooting
     number: '7.2'
-    title: Troubleshooting
+    title: Sudo Recovery
     source: docs/TROUBLESHOOTING.md
   - id: startup-warnings
     number: '7.3'
@@ -633,7 +633,7 @@ sections:
     source: docs/reference/env-vars.md
   - id: reference-ports
     number: '10.4'
-    title: Ports And Routes Reference
+    title: Ports and Routes Reference
     source: docs/reference/ports-routes.md
   - id: service-dependencies
     number: '10.5'
@@ -647,6 +647,10 @@ sections:
     number: '10.7'
     title: Supply-Chain License Inventory
     source: docs/reference/license-inventory.md
+  - id: consumer-manifest
+    number: '10.8'
+    title: Consumer Manifest Reference
+    source: docs/reference/consumer-manifest.md
 diagrams:
 - id: atlas-platform
   master: docs/diagrams/architecture.html

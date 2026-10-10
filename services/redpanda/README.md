@@ -2,15 +2,17 @@
 
 ## 1. Overview
 
-Redpanda adds a disabled-by-default Kafka API broker for Atlas data-engineering streaming work. It is scoped to a single-node local broker, a topic bootstrap init container, and Redpanda Console. Spark gets the matching Kafka Structured Streaming jars baked into the Atlas Spark image, so Spark Connect jobs (the JupyterHub notebooks) and cluster-mode Airflow Spark submits can read and write Kafka streams without runtime `--packages` downloads. Zeppelin and client-mode Airflow submits run their Spark driver in their own images, which do not carry the Kafka jars; add them with `--packages org.apache.spark:spark-sql-kafka-0-10_2.13:<spark version>` there.
+Redpanda is an optional, disabled-by-default Kafka API broker for data-engineering streaming. Atlas runs one local broker, a topic-bootstrap init container and Redpanda Console.
+
+The Atlas Spark image includes the Kafka Structured Streaming jars. Spark Connect jobs (the JupyterHub notebooks) and cluster-mode Airflow submits therefore read and write Kafka without `--packages` downloads. Zeppelin and client-mode Airflow submits run their driver in images without these jars. There, add `--packages org.apache.spark:spark-sql-kafka-0-10_2.13:<spark version>`.
 
 ## 2. Access
 
 | Surface | URL / endpoint | Notes |
 | --- | --- | --- |
-| Kafka API, in-network | `redpanda:9092` | Use from Spark, Airflow workers, notebooks, and other containers. |
-| Kafka API, host | `localhost:${REDPANDA_KAFKA_PORT}` | Direct Kafka client access. |
-| Redpanda Console, direct | `http://localhost:${REDPANDA_CONSOLE_PORT}` | Direct host port, useful while developing locally. Ungated by Redpanda; use `HOST_BIND_IP=127.0.0.1:` on shared hosts. |
+| Kafka API, in-network | `redpanda:9092` | Use from Spark, Airflow tasks, notebooks, and other containers. |
+| Kafka API, host | `localhost:${REDPANDA_KAFKA_PORT}` | Direct Kafka client access, with no authentication. Loopback-only by default (`HOST_BIND_IP=127.0.0.1:`). |
+| Redpanda Console, direct | `http://localhost:${REDPANDA_CONSOLE_PORT}` | Direct host port for local development. Not gated by Redpanda. Loopback-only by default (`HOST_BIND_IP=127.0.0.1:`); keep that value on shared hosts. |
 | Redpanda Console, Kong | `http://redpanda.localhost:${KONG_HTTP_PORT}` | Routed through Kong with dashboard basic auth. |
 
 ## 3. Configuration
@@ -21,9 +23,11 @@ Redpanda adds a disabled-by-default Kafka API broker for Atlas data-engineering 
 ./start.sh --track data-eng --redpanda-source container
 ```
 
-The init container creates the comma-separated topics in `REDPANDA_DEMO_TOPICS`; the default is `REDPANDA_DEMO_TOPICS=atlas_stream_events`. Leave it blank or remove topics from the list when you want a broker with no Atlas-created demo topics.
+The init container creates the comma-separated topics in `REDPANDA_DEMO_TOPICS`; the default is `REDPANDA_DEMO_TOPICS=atlas_stream_events`. Leave it blank or remove topics from the list when you want a broker with no Atlas-created demo topics. The init container only creates topics. A topic that already exists in the volume stays until you delete it, for example with `rpk topic delete` or the Console.
 
-Downstream projects that need deterministic topics before a Spark subscription should set `REDPANDA_DEMO_TOPICS=<topic1,topic2>` in `.env`. For example, data-engineering scenario suites can use `REDPANDA_DEMO_TOPICS=events,online_retail_cdc` to pre-seed project-owned topics at bootstrap. Redpanda runs in `dev-container` mode, so producer-first flows can create topics on first write. The same mode turns on `--unsafe-bypass-fsync` and write caching: an acknowledged record is not yet on disk, and a host or Docker VM crash can lose the most recent writes. Treat the broker as a development stream, not a system of record, and replay from the source after a crash. Atlas consumers should prefer explicit `REDPANDA_DEMO_TOPICS` pre-seeding when a reader expects the topic to already exist.
+To create project topics before a Spark job subscribes, set them in `.env`, for example `REDPANDA_DEMO_TOPICS=events,online_retail_cdc`. Redpanda runs in `dev-container` mode, so producer-first flows can create a topic on first write. Readers that expect a topic to exist should pre-seed it.
+
+Broker data persists in the `${PROJECT_NAME}-redpanda-data` volume; `./stop.sh --cold` removes it. The `dev-container` mode also turns on `--unsafe-bypass-fsync` and write caching. An acknowledged record is not yet on disk, so a host or Docker VM crash can lose the most recent writes. Treat the broker as a development stream, not a system of record, and replay from the source after a crash.
 
 When Redpanda is enabled, Atlas sets in-network bootstrap values in `.env`:
 
@@ -77,13 +81,13 @@ _No upstream calls._
 
 ### 5.2. Current — Downstream (services that call this)
 
-| Service | Category |
-|---|---|
-| kong | infra |
-| spark | data |
-| airflow | agents |
-| jupyterhub | apps |
-| zeppelin | apps |
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | current |
+| spark | data | current |
+| airflow | agents | optional: an operator-authored DAG; Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
+| jupyterhub | apps | current |
+| zeppelin | apps | optional: Kafka jars not bundled (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
 
 ### 5.3. Architecture diagram
 
@@ -105,21 +109,21 @@ _No high-confidence opportunities identified._
 
 ## 6. Scope
 
-This first Atlas integration intentionally does not add Kafka Connect, Debezium, Redpanda Connect, Schema Registry, multi-broker clustering, SASL/TLS, or production retention tuning. Kafka Connect and Debezium belong in a follow-up CDC issue once the core broker and Spark connector contract is stable.
+Atlas does not include Kafka Connect, Debezium, Redpanda Connect, Schema Registry, multi-broker clustering, SASL/TLS or production retention tuning.
 
 ## 7. Troubleshooting
 
 - `redpanda.localhost` returns 404 or dashboard HTML: confirm `REDPANDA_SOURCE=container` and rerun `./start.sh --setup-hosts`.
-- Spark cannot find `kafka` format: rebuild/pull the Atlas Spark image so the Dockerfile's Kafka connector jars are present under `/opt/spark/jars`.
+- Spark cannot find the `kafka` format: run `./start.sh` so it rebuilds the local Spark image (`services/spark/build/Dockerfile` installs the Kafka jars under `/opt/spark/jars`). Zeppelin and client-mode Airflow drivers need `--packages` (see §1).
 - Host Kafka clients cannot connect: use `localhost:${REDPANDA_KAFKA_PORT}`, not the Kong port. Kafka is a binary protocol and is intentionally not routed through Kong.
 
 ## 8. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Single-node Kafka-compatible streaming | supported | tested | Atlas runs a Redpanda broker in single-node development mode and exposes its Kafka API to in-stack and host clients. |
 | Topic bootstrap and broker console | supported | tested | An idempotent init container creates the declared Atlas topics and the bundled Console provides browser-based broker inspection. |
 | Production broker security and clustering | not-supported | documented | The stock deployment has one broker and configures no SASL, TLS, Schema Registry, Kafka Connect, or multi-broker replication. |
-| Broker and Console access control | partial | documented | The Kong Console route uses Basic authentication and the dashboard_user ACL, but the direct Console and Kafka listener are ungated; set HOST_BIND_IP=127.0.0.1: on shared hosts. |
+| Broker and Console access control | partial | documented | The Kong Console route uses Basic authentication and the dashboard_user ACL. The direct Console and Kafka listener are ungated; keep the default HOST_BIND_IP=127.0.0.1: on shared hosts. |

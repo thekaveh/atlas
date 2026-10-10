@@ -35,7 +35,7 @@ capabilities:
   - name: "Cross-architecture Parakeet container"
     status: not-supported
     verification: tested
-    note: "The only Parakeet container is NVIDIA GPU; Apple Silicon uses the separately installed MLX localhost provider and no CPU container or GPU quantization knob is advertised."
+    note: "The only Parakeet container is NVIDIA GPU. Apple Silicon uses the separately installed MLX localhost provider; no CPU container or GPU quantization knob is advertised."
 
 containers:
   - parakeet-gpu
@@ -75,20 +75,23 @@ sources:
 
 env:
   - name: STT_PROVIDER_SOURCE
+    description: "Speech-to-text engine: speaches-container-cpu, speaches-container-gpu, parakeet-container-gpu, parakeet-localhost, whisper-cpp-localhost or disabled. Drives STT_ENDPOINT and the engine scales."
     default: speaches-container-cpu
   - name: STT_PROVIDER_PORT
     # default removed — computed by services/topology.py slot allocator
     description: "Wizard display slot. Real per-engine ports live on their own manifests (PARAKEET_*, SPEACHES_*, etc.)."
   - name: STT_PROVIDER_SCALE
     auto_managed: true
-    description: "Aggregate STT scale across all engines. Reserved for future use."
+    description: "Set by ./start.sh; do not edit. 1 when a container engine serves speech-to-text, else 0. The wizard uses it to colour the STT row."
   - name: PARAKEET_MODEL
+    description: "Model the Parakeet GPU container loads (NeMo model ID), passed as PARAKEET_MODEL."
     default: "nvidia/parakeet-tdt-0.6b-v3"
   - name: PARAKEET_GPU_DEVICE
+    description: "Torch device for the Parakeet GPU container, passed as PARAKEET_DEVICE."
     default: cuda
   - name: PARAKEET_MAX_UPLOAD_BYTES
     default: 104857600
-    description: "Positive maximum audio upload bytes for Parakeet GPU and localhost APIs. Request bodies are capped before multipart parsing with 1 MiB framing overhead; invalid values fail startup and oversized requests return 413."
+    description: "Maximum audio upload size in bytes for the Parakeet GPU and localhost APIs. The request body is capped before multipart parsing, with 1 MiB added for framing. Larger requests return 413. An invalid value stops startup."
   - name: PARAKEET_UPLOAD_TIMEOUT_SECONDS
     default: 120
     description: "Total seconds (1-3600) allowed to receive one Parakeet upload body before a 408 response releases admission capacity."
@@ -122,6 +125,7 @@ env:
     secret: true
     description: "Shared by parakeet, speaches, chatterbox, docling for model downloads. Consumed by ${HUGGING_FACE_HUB_TOKEN} interpolation in those services' compose blocks; owned here as its historic home."
   - name: PARAKEET_GPU_SCALE
+    description: "Set by ./start.sh from STT_PROVIDER_SOURCE; do not edit. 1 runs the parakeet-gpu container for parakeet-container-gpu, else 0."
     auto_managed: true
   - name: STT_ENDPOINT
     auto_managed: true
@@ -223,6 +227,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

@@ -9,16 +9,23 @@ Default scope excludes:
     main README.md hub instead
   * local virtualenvs + generated dependency directories
 
-Zero-arg checker. Invoke as ``python scripts/check-docs-drift.py``.
+Invoke as ``python scripts/check-docs-drift.py``. With no arguments it runs
+every probe. ``--write-prose-baseline`` instead rewrites the STE prose-length
+ratchet baseline (``.docs-prose-baseline.json``) from the current text; it
+refuses to raise any count unless ``--allow-prose-increase`` is also given.
 
 Exit codes:
     0  — every probe (links / architecture_refs / source_matrix /
-         required_files / placeholder_urls) reports PASS
+         required_files / placeholder_urls / ... / prose_length) reports PASS
     1  — at least one probe reported FAIL with details on stderr
 """
+import argparse
+import json
 from pathlib import Path
 import re
 import sys
+
+import yaml
 
 try:
     from scripts.docs.heading_quality import (
@@ -31,7 +38,13 @@ try:
         production_style_findings,
         marketing_adjective_findings,
         duplicate_block_findings,
+        long_prose_findings,
+        manifest_prose_findings,
+        prose_baseline_increases,
+        prose_counts,
+        prose_ratchet_findings,
     )
+    from scripts.docs.manifest import load_manifest
 except ModuleNotFoundError:  # Direct ``python scripts/...`` invocation.
     from docs.heading_quality import (
         decorative_symbol_findings,
@@ -43,7 +56,13 @@ except ModuleNotFoundError:  # Direct ``python scripts/...`` invocation.
         production_style_findings,
         marketing_adjective_findings,
         duplicate_block_findings,
+        long_prose_findings,
+        manifest_prose_findings,
+        prose_baseline_increases,
+        prose_counts,
+        prose_ratchet_findings,
     )
+    from docs.manifest import load_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
 EXCLUDED_PARTS = {
@@ -324,7 +343,124 @@ def check_content_quality():
     return hits
 
 
-def main():
+PROSE_BASELINE = ROOT / ".docs-prose-baseline.json"
+PROSE_BASELINE_COMMAND = "python scripts/check-docs-drift.py --write-prose-baseline"
+# Generated pages: their prose comes from manifests (checked at the source by
+# manifest_prose_findings) or from history that is never rewritten.
+_PROSE_EXEMPT_PREFIXES = ("docs/architecture/",)
+_PROSE_EXEMPT_FILES = {
+    "docs/CHANGELOG.md",
+    "docs/ROADMAP.md",
+    "docs/services.md",
+    "docs/tracks.md",
+    "docs/reference/index.md",
+    "docs/reference/source-values.md",
+    "docs/reference/env-vars.md",
+    "docs/reference/ports-routes.md",
+    "docs/reference/service-dependencies.md",
+    "docs/reference/manifest-fields.md",
+    "docs/reference/license-inventory.md",
+}
+
+
+def prose_scope():
+    """Published hand-written pages: every manifest page plus the README."""
+    manifest = load_manifest(ROOT / "docs" / "manifest.yaml", ROOT)
+    sources = {"README.md", *(page.source for page in manifest.pages)}
+    return sorted(
+        source for source in sources
+        if source not in _PROSE_EXEMPT_FILES
+        and not source.startswith(_PROSE_EXEMPT_PREFIXES)
+    )
+
+
+def _prose_findings():
+    """Map each scanned file to its findings: (location, rule, message)."""
+    findings = {}
+    for source in prose_scope():
+        text = (ROOT / source).read_text(encoding="utf-8", errors="ignore")
+        findings[source] = long_prose_findings(text)
+    for path in sorted((ROOT / "services").glob("*/service.yml")):
+        manifest = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        findings[path.relative_to(ROOT).as_posix()] = manifest_prose_findings(manifest)
+    return findings
+
+
+def _read_prose_baseline():
+    if not PROSE_BASELINE.is_file():
+        return {}
+    return json.loads(PROSE_BASELINE.read_text(encoding="utf-8")).get("files", {})
+
+
+def _current_prose_counts(findings):
+    return {path: counts for path, items in findings.items() if (counts := prose_counts(items))}
+
+
+def check_prose_length():
+    """STE length ratchet: no file may exceed or undercut its baseline."""
+    findings = _prose_findings()
+    messages = prose_ratchet_findings(_current_prose_counts(findings), _read_prose_baseline())
+    hits = []
+    for message in messages:
+        hits.append(message)
+        path, _, rest = message.partition(": ")
+        rule = rest.split(" ", 1)[0]
+        if " > baseline " in rest:
+            hits.extend(
+                f"    {path}:{where}: {text}"
+                for where, item_rule, text in findings.get(path, [])
+                if item_rule == rule
+            )
+    if hits:
+        hits.append(
+            "Shorten the reported text. After a reduction, run "
+            f"`{PROSE_BASELINE_COMMAND}` and commit the lower baseline."
+        )
+    return hits
+
+
+def write_prose_baseline(allow_increase):
+    """Rewrite the ratchet baseline; refuse increases unless allowed."""
+    current = _current_prose_counts(_prose_findings())
+    increases = prose_baseline_increases(current, _read_prose_baseline())
+    if increases and not allow_increase and PROSE_BASELINE.is_file():
+        print("Refusing to raise the prose baseline (pass --allow-prose-increase):")
+        for line in increases:
+            print(f"  {line}")
+        return 1
+    document = {
+        "schema_version": 1,
+        "generated_by": PROSE_BASELINE_COMMAND,
+        "policy": (
+            "Per-file counts of STE length violations (sentence > 25 words, "
+            "numbered step > 20, paragraph > 75 words or > 6 sentences; env "
+            "description > 40 words or citing #NNN; capability-note sentence "
+            "> 25). Counts may only go down. A file not listed must be clean."
+        ),
+        "files": current,
+    }
+    PROSE_BASELINE.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"Wrote {PROSE_BASELINE.relative_to(ROOT)} ({len(current)} files with violations)")
+    return 0
+
+
+def _parse_args(argv):
+    parser = argparse.ArgumentParser(description="Atlas documentation drift checks")
+    parser.add_argument(
+        "--write-prose-baseline", action="store_true",
+        help="rewrite .docs-prose-baseline.json from the current text and exit",
+    )
+    parser.add_argument(
+        "--allow-prose-increase", action="store_true",
+        help="with --write-prose-baseline, accept counts above the old baseline",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = _parse_args(argv)
+    if args.write_prose_baseline:
+        sys.exit(write_prose_baseline(args.allow_prose_increase))
     checks = {
         'links': check_links(),
         'architecture_refs': check_stale_architecture_refs(),
@@ -335,6 +471,7 @@ def main():
         'professional_symbols': check_professional_symbols(),
         'content_quality': check_content_quality(),
         'recovery_command_safety': check_recovery_command_safety(),
+        'prose_length': check_prose_length(),
     }
     failed = False
     for name, issues in checks.items():
