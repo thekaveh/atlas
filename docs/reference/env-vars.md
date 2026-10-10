@@ -43,7 +43,7 @@
 | ASSET_BAKER_MINIO_ACCESS_KEY | asset-baker |  | Optional MinIO access key override. Empty uses the generated asset-baker scoped MinIO account. |
 | ASSET_BAKER_MINIO_SECRET_KEY | asset-baker |  | Optional MinIO secret key override. Empty uses the generated asset-baker scoped MinIO account. |
 | ASSET_BAKER_TARGET_TRIS | asset-baker | 39000 | Default low-poly triangle budget the decimate stage targets (overridable per request). |
-| ASSET_BAKER_TEX_SIZE | asset-baker | 2048 | Default baked BaseColor/Normal texture resolution (square). 2k measured 30–200 s/asset on CPU; overridable per request. |
+| ASSET_BAKER_TEX_SIZE | asset-baker | 2048 | Default baked BaseColor/Normal texture resolution (square). Higher resolutions take longer on CPU; overridable per request. |
 | ASSET_BAKER_CANONICAL_SIZE | asset-baker | 4.0 | Canonical max-dimension (units) each mesh is scaled to before remesh so the relative voxel/ray heuristics are stable regardless of the raw GLB import scale. |
 | ASSET_BAKER_BRIGHTNESS_MIN | asset-baker | 0.05 | Mean-brightness QA gate: a baked BaseColor whose mean &lt; this is a silently-failed (black) bake and is refused with a non-zero result. |
 | ASSET_BAKER_TIMEOUT_SECONDS | asset-baker | 600 | Hard wall-clock ceiling for a single bake subprocess; exceeded bakes are killed and reported as timeout. |

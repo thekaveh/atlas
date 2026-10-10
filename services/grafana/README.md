@@ -41,6 +41,8 @@ GRAFANA_ENDPOINT=...                    # not consumed externally; written for s
 GRAFANA_SCALE
 ```
 
+Grafana starts when Prometheus is `disabled`. Its `depends_on` on a healthy `prometheus` does not block it. Compose skips that condition for a service scaled to 0 replicas (checked on Docker Compose 5.1.4).
+
 The provisioned datasource reads `${PROMETHEUS_ENDPOINT}`. When Prometheus is `disabled` the value in `.env` is empty, but `compose.yml` passes `${PROMETHEUS_ENDPOINT:-http://prometheus:9090}`, and `:-` also replaces an empty value. The datasource therefore still points at `http://prometheus:9090`, which does not resolve, and Grafana shows "datasource unreachable" until Prometheus is turned on. The Tempo and Loki datasources behave the same way: they fall back to `http://tempo:3200` and `http://loki:3100` and fail until `TEMPO_SOURCE` and `LOKI_SOURCE` are `container`.
 
 ## 4. Dashboards (7 shipped)
@@ -97,7 +99,7 @@ _No high-confidence opportunities identified._
 
 ## 6. Troubleshooting
 
-- **"Datasource unreachable" on every panel** — Prometheus is `disabled`. Set `PROMETHEUS_SOURCE=container` in `.env` and re-run `./start.sh`. The datasource URL is interpolated at provisioning time, so a Grafana restart is required after changing `PROMETHEUS_ENDPOINT`.
+- **"Datasource unreachable" on every panel** — Prometheus is `disabled`; Grafana runs, but its Prometheus datasource has no target. Set `PROMETHEUS_SOURCE=container` in `.env` and re-run `./start.sh`. The datasource URL is interpolated at provisioning time, so a Grafana restart is required after changing `PROMETHEUS_ENDPOINT`.
 - **Admin login rejected** — check `GRAFANA_ADMIN_PASSWORD` in `.env`. The bootstrapper generates it only when the value is empty (first run). Grafana reads the value only when it first creates its database in the `grafana-data` volume, so editing `.env` afterwards does not change the stored password. Apply a new one with `docker exec ${PROJECT_NAME}-grafana grafana cli admin reset-admin-password "$GRAFANA_ADMIN_PASSWORD"` after updating `.env`, or remove the `grafana-data` volume to start over.
 - **Stack Overview "Targets DOWN" is never 0** — the scrape list is static, so disabled services count as down. By default these are `asset-worker` and `asset-baker`; narrower tracks add n8n, Weaviate, MinIO and others. Check Prometheus' Targets page before you treat the number as an outage.
 - **Dashboards missing** — Grafana's provisioner watches the directory every 30s (`updateIntervalSeconds: 30`). If a dashboard JSON has a syntax error, Grafana logs it under "Provisioning errors" and skips the file.

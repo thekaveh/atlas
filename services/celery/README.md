@@ -24,6 +24,8 @@ The synchronous `POST /memory/consolidate` path remains. Research start is defer
 | Flower direct | `http://localhost:${FLOWER_PORT}` | Uses Flower basic-auth. |
 | Worker | none | No public port. The worker consumes Redis queue messages only. |
 
+Flower's API can also start and revoke tasks (`/api/task/apply`, `/api/task/revoke`). Keep it behind its authentication; do not use it as a public automation surface.
+
 ## 3. Configuration
 
 ```bash
@@ -144,7 +146,7 @@ The Redis visibility timeout is longer than the hard task time limit. RAG ingest
 
 ### 6.6. Future — Unused features in this service
 
-- Flower's task mutation APIs are exposed only behind auth and should not become a public automation surface.
+_No high-confidence opportunities identified._
 
 ## 7. Capabilities & limitations
 

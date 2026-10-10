@@ -185,7 +185,7 @@ ATLAS_STORE_DAYDREAMS_ARTIFACTS_ACCESS_KEY_VAR=MINIO_DAYDREAMS_ARTIFACTS_ACCESS_
 ATLAS_STORE_DAYDREAMS_ARTIFACTS_SECRET_KEY_VAR=MINIO_DAYDREAMS_ARTIFACTS_SECRET_KEY
 ```
 
-Sign presigned GET URLs against the public endpoint (`…_PUBLIC_ENDPOINT`). Never sign against `minio:9000` and then rewrite the host, because that breaks the signature. Use boto3 with `endpoint_url=<public>`, or the reference presigner `bootstrapper/utils/s3_presign.py::presign_get_url`. See [MinIO §6](../../services/minio/README.md#6-consumer-integration-recipe-for-follow-up-prs).
+Sign presigned GET URLs against the public endpoint (`…_PUBLIC_ENDPOINT`). Never sign against `minio:9000` and then rewrite the host, because that breaks the signature. Use boto3 with `endpoint_url=<public>`, or the reference presigner `bootstrapper/utils/s3_presign.py::presign_get_url`. See [MinIO §6](../../services/minio/README.md#6-consumer-integration-recipe).
 
 ---
 

@@ -42,7 +42,7 @@ export PARAKEET_LOCALHOST_PORT=63042
 python -m mlx.api_server
 ```
 
-**First run:** Downloads model (~1.2GB) from HuggingFace
+**First run:** Downloads the default model (~2.5 GB) from Hugging Face
 **Subsequent runs:** Reuse the cached download; model initialization still runs
 
 ### 2.3. Test

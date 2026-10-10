@@ -182,7 +182,7 @@ All three persist to `.env`. `litellm-init` reads them (through `model_resolver`
 
 ## 5. ComfyUI Model Picker
 
-`ComfyUI  ·  models` is a multiselect shown for every `COMFYUI_SOURCE` except `disabled`: `container-cpu`, `container-gpu`, `localhost` and `managed-localhost-mps`. Its catalog (`bootstrapper/utils/comfyui_library.py`, typically about 150 entries) merges four inputs:
+`ComfyUI  ·  models` is a multiselect shown for every `COMFYUI_SOURCE` except `disabled`: `container-cpu`, `container-gpu`, `localhost` and `managed-localhost-mps`. Its catalog (`bootstrapper/utils/comfyui_library.py`) merges four inputs, so its size changes with the live search results:
 
 - a live Hugging Face search (image, image-edit, video, audio and 3D models);
 - anonymous civitai LoRAs;
@@ -196,17 +196,17 @@ Each row shows:
 - `[pulled]` when every file is already in the `<project>-comfyui-models` volume. Docker Desktop keeps that volume inside its VM, where the host cannot read it. There, a missing `[pulled]` does not mean the model is absent;
 - warning badges (nothing is hidden): `node: <nodes>`, `requires GPU`, `requires N GB VRAM`, `requires N GB RAM`, and license restrictions.
 
-**Custom nodes.** For container sources, Atlas installs only allowlisted nodes from `services/comfyui/custom-nodes.yaml`, at pinned commits and from hash-verified locks. Unknown, unallowlisted or unconstrained nodes are not installed; this currently includes 3D-Pack. The [ComfyUI README](../../services/comfyui/README.md) §7 gives the rules and the 3D-Pack reasons.
+**Custom nodes.** For container sources, Atlas installs only allowlisted nodes from `services/comfyui/custom-nodes.yaml`, at pinned commits and from hash-verified locks. Unknown, unallowlisted or unconstrained nodes are not installed; this currently includes 3D-Pack. The [ComfyUI README](../../services/comfyui/README.md) §6 gives the rules and the 3D-Pack reasons.
 
 **Search, chips and variants** work as in the Ollama picker (§4.2). The chips are `ALL image image-edit video audio 3d`. Hugging Face repositories with a common family root share one parent row. For example, `TRELLIS  ·  6 variants` holds all `microsoft--TRELLIS-*` and `gqk--TRELLIS-*` repositories. Selections are saved as full repository names. Single-entry families, civitai IDs, allowlist entries and custom entries stay flat.
 
-The first open takes about 10–15 s longer while file sizes load from Hugging Face. A failed size lookup shows `0.00 GB` and does not block the catalog.
+The first open waits while file sizes load from Hugging Face: one request per repository, 10 at a time, each with a 15 s timeout. A failed size lookup shows `0.00 GB` and does not block the catalog.
 
 **At start**, the result depends on the source:
 
 - **`container-cpu` / `container-gpu`**: the init containers download the selected models and install the required nodes.
 - **`localhost`**: `comfyui-init` does not run. The bootstrapper still writes the manifest, so the backend `/comfyui/db/models` endpoint (used by Open WebUI and n8n) lists the active set. You put the files in your host ComfyUI's `models/<target_dir>/`.
-- **`managed-localhost-mps`**: Atlas downloads the models into `COMFYUI_MPS_MODELS_PATH` and installs allowlisted nodes into the host ComfyUI (ComfyUI README §10).
+- **`managed-localhost-mps`**: Atlas downloads the models into `COMFYUI_MPS_MODELS_PATH` and installs allowlisted nodes into the host ComfyUI (ComfyUI README §9).
 
 The selection is saved as `COMFYUI_USER_MODELS` (comma-separated catalog names). `--comfyui-models` takes the same list, and `--comfyui-custom-models-file PATH` replaces the default `custom-models.yaml` path.
 

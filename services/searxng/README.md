@@ -92,20 +92,20 @@ _No upstream calls._
 - **`open_metrics` Prometheus endpoint** — *Why pursue:* `/metrics` stays off because the inherited `general.open_metrics` is empty. It would give engine-latency and error-rate stats to a Prometheus scraper. *Effort:* small.
 - **`server.image_proxy: true`** — *Why pursue:* currently off. Turning it on lets ComfyUI and Open WebUI fetch image results without third-party-host 403s, at the cost of RAM. *Effort:* small.
 - **Crossref and OpenAlex scholarly engines** — *Why pursue:* they are off in the image default. Enabling them adds to the default arXiv, PubMed and Semantic Scholar search for LDR and Hermes. *Effort:* small.
-- **`limiter: true` with Redis/Valkey bot detection** — *Why pursue:* the stack ships a Redis the limiter could use. It is not wired: `valkey.url: false`, and no compose dependency. Enabling it means pointing `valkey.url` at `redis://redis:6379` and adding the compose dependency in one change. *Effort:* small.
+- **`limiter: true` with Redis/Valkey bot detection** — *Why pursue:* the stack ships a Redis the limiter could use. It is not wired: `valkey.url: false`, and no compose dependency. Enabling it means pointing `valkey.url` at `redis://:${REDIS_PASSWORD}@redis:6379/<unused db>` and adding the compose dependency in one change. *Effort:* small.
 - **`engines=` query parameter** — *Why pursue:* callers send `/search` with no engine pinning, so a slow or failing engine drags p99. Pass `engines=duckduckgo,brave` from callers. *Effort:* small.
 
 ## 6. Troubleshooting
 
 **`/search?format=json` returns HTML.** `json` was removed from `search.formats` in `settings.yml` (the shipped file has `[html, json]`). Restore it and restart SearXNG.
 
-**`429 Too Many Requests` from a single upstream engine.** Engine-side rate-limit, not SearXNG's. The aggregator silently drops that engine for the query; results shrink. Either wait or disable the offending engine in `settings.yml`.
+**`429 Too Many Requests` from a single upstream engine.** Engine-side rate-limit, not SearXNG's. SearXNG drops that engine for the query, lists it in `unresponsive_engines`, and suspends it for a while; results shrink. Either wait or disable the offending engine in `settings.yml`.
 
 **Image results 403 on click.** The third-party host blocks hotlinking. Set `server.image_proxy: true` in `settings.yml` so SearXNG proxies the image.
 
 **Open WebUI's web-search toggle does nothing.** Expected: the wiring is a future integration (§5.4). Use the `research_tool.py` extra instead.
 
-**LDR / Hermes get empty results.** Check that the engines they request via `engines=` (if any) are enabled in `settings.yml`. A request for a default-off engine, for example Crossref, returns 200 with an empty `results` list.
+**LDR / Hermes get empty results.** The reply is still 200. Read its `unresponsive_engines` list: it names each engine that failed and why (for example `HTTP connection error` or a rate limit). `engines=` also queries engines that are off by default, such as Crossref. If no named engine exists (a typo, or a removed engine such as `ahmia`), SearXNG queries its default general engines instead.
 
 ```bash
 docker compose ps searxng
@@ -137,7 +137,7 @@ SearXNG queries the selected engines in parallel.
 ## 9. Security & privacy
 
 - **No request logging.** SearXNG forgets a query once the response goes out. The stack does not change that: there are no access logs and no per-user query history.
-- **Engine selection sets your exposure.** Default-on engines include Google, Brave and DuckDuckGo. SearXNG hides *you* from them (no referrer, server IP), but they still see the query. If that matters, keep only privacy-aligned engines (DuckDuckGo, Mojeek, Brave's privacy-flag mode).
+- **Engine selection sets your exposure.** Default-on engines include Google, Brave and DuckDuckGo. SearXNG hides *you* from them (no referrer, server IP), but they still see the query. If that matters, keep only engines whose privacy policy you accept, for example DuckDuckGo, Brave, or Mojeek (off by default).
 - **No outbound proxy by default.** SearXNG calls each engine directly from its container. To route engine calls through Tor or another proxy, set `outgoing.proxies:` in `settings.yml`.
 - **Public-instance hardening.** Before you expose SearXNG to the internet, set `server.public_instance: true` and `server.limiter: true` in `config/settings.yml`. Point `valkey.url` at the stack Redis first. The `search.localhost` Kong route and the host port already exist and have no authentication. Without the limiter, the instance is an open relay for engine abuse.
 

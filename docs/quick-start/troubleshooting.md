@@ -10,9 +10,19 @@ export COMPOSE_PROJECT_NAME="$(sed -n 's/^PROJECT_NAME=["'\'']\{0,1\}\([A-Za-z0-
 
 The commands then use the checked-out `docker-compose.yml` and your `.env`. Authenticated examples read values from `.env` without printing them. Ports assume the default `BASE_PORT=63000`. For a custom base port, get your endpoints from `./start.sh endpoints export --format env`.
 
-## 1. Missing or renamed variables after an upgrade
+## 1. New or renamed variables after an upgrade
 
-Run `./start.sh env backfill`. It keeps every existing value, appends new keys from `.env.example` and reports what changed. It never touches data. `./start.sh --cold` is **not** a configuration repair. It is for an intentional full reset only (§10).
+Every `./start.sh` repairs `.env` before it starts services. To repair it without a start, run `./start.sh env backfill`. Both add each key that `.env.example` has and `.env` lacks, and report what changed. A blank value gets the non-blank `.env.example` default. Model-selection lists such as `OLLAMA_USER_MODELS` are the exception: they can stay blank. Backfill changes no non-blank value and no data.
+
+A renamed key is not carried over by backfill. It adds the new key with its default and leaves the old key in place, unused. `./start.sh` carries over only the renames its `.env` migrations know, after it writes a backup of `.env`:
+
+- `<SVC>_LOCALHOST_URL` becomes `<SVC>_LOCALHOST_PORT`.
+- `COMFYUI_MODEL_SET` becomes `COMFYUI_USER_MODELS`.
+- A retired curated Ollama model name becomes its current catalog name.
+
+For any other rename, copy the old value to the new key yourself. `--no-port-migrate` skips the migrations for one run.
+
+`./start.sh --cold` is **not** a configuration repair. It is for an intentional full reset only (§10).
 
 ## 2. Session Log
 
@@ -55,11 +65,15 @@ The start-up port check probes only ports that a container will publish. It skip
 # Error: Containers crashing with exit code 137 (OOM kill)
 # Solution: Increase Docker memory allocation
 
-# Docker Desktop: Settings → Resources → Memory (set to 10-12GB)
-# Colima users:
+# See what each container uses:
+docker stats --no-stream
+# Docker Desktop: Settings → Resources → Memory
+# Colima users (replace <GiB> and <CPUs>):
 colima stop
-colima start --memory 12 --cpu 6
+colima start --memory <GiB> --cpu <CPUs>
 ```
+
+Atlas does not publish a memory requirement. The need depends on the track, the enabled services and the selected models. Several containers have their own memory limit, for example `COMFYUI_MEMORY_LIMIT` (default `40g`) and `LIGHTRAG_MEMORY_LIMIT` (default `6g`). A container that reaches its own limit also exits with 137; raise that limit in `.env`.
 
 ### 3.3. Access Issues
 ```bash

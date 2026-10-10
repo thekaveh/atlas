@@ -117,20 +117,30 @@ def test_container_alias_names_resolve_via_manifest(tmp_path):
 
 # ── AC: auto-resolution consistent for every manifest-backed service ──────
 def test_auto_resolve_zeroes_all_family_scale_vars(tmp_path):
-    """Disabling n8n zeroes main + worker + init scales (the old hand-written
-    special case, now manifest-generalized)."""
+    """Disabling a family zeroes every container scale in it (web, worker,
+    ClickHouse and init for langfuse), manifest-generalized."""
     dm = _make_dm(
         tmp_path,
-        "N8N_SOURCE=container\nN8N_SCALE=1\nN8N_WORKER_SCALE=1\n"
-        "N8N_INIT_SCALE=1\nWEAVIATE_SOURCE=disabled\nWEAVIATE_SCALE=0\n",
+        "LANGFUSE_SOURCE=container\nLANGFUSE_WEB_SCALE=1\nLANGFUSE_WORKER_SCALE=1\n"
+        "LANGFUSE_CLICKHOUSE_SCALE=1\nLANGFUSE_INIT_SCALE=1\n"
+        "MINIO_SOURCE=disabled\nMINIO_SCALE=0\n",
     )
     assert dm.check_service_dependencies() is False
     disabled = dm.auto_resolve_dependency_violations()
-    assert "n8n" in disabled
+    assert "langfuse" in disabled
     env_text = (tmp_path / ".env").read_text()
-    assert "N8N_SCALE=0" in env_text
-    assert "N8N_WORKER_SCALE=0" in env_text
-    assert "N8N_INIT_SCALE=0" in env_text
+    for var in ("LANGFUSE_WEB_SCALE", "LANGFUSE_WORKER_SCALE",
+                "LANGFUSE_CLICKHOUSE_SCALE", "LANGFUSE_INIT_SCALE"):
+        assert f"{var}=0" in env_text, var
+
+
+def test_n8n_runs_without_weaviate(tmp_path):
+    """No bundled n8n workflow uses Weaviate and WEAVIATE_URL is blank when it
+    is off, so the gen-ai-eng track (n8n without Weaviate) keeps n8n."""
+    dm = _make_dm(tmp_path, "N8N_SOURCE=container\nN8N_SCALE=1\n"
+                            "WEAVIATE_SOURCE=disabled\nWEAVIATE_SCALE=0\n")
+    dm.check_service_dependencies()
+    assert [v for v in dm.get_dependency_violations() if v["service"].startswith("n8n")] == []
 
 
 def test_auto_resolve_handles_trino(tmp_path):
@@ -302,27 +312,27 @@ def test_disabled_langfuse_does_not_validate_its_own_requirements(tmp_path):
     assert [v for v in dm.get_dependency_violations() if v["service"] == "langfuse"] == []
 
 
-def _n8n_weaviate_violations(dm):
+def _langfuse_minio_violations(dm):
     dm.check_service_dependencies()
     return [
         v for v in dm.get_dependency_violations()
-        if v["service"].startswith("n8n") and v["required_service"] == "weaviate"
+        if v["service"].startswith("langfuse") and v["required_service"] == "minio"
     ]
 
 
 def test_a_host_run_dependency_satisfies_its_dependents(tmp_path):
-    """WEAVIATE_SOURCE=localhost renders weaviate at scale 0 (no container),
-    yet n8n's requirement is met; it must not be auto-disabled."""
-    dm = _make_dm(tmp_path, "WEAVIATE_SOURCE=localhost\nWEAVIATE_SCALE=0\n"
-                            "N8N_SOURCE=container\nN8N_SCALE=1\n")
-    assert _n8n_weaviate_violations(dm) == []
+    """MINIO_SOURCE=localhost renders minio at scale 0 (no container), yet
+    langfuse's requirement is met; it must not be auto-disabled."""
+    dm = _make_dm(tmp_path, "MINIO_SOURCE=localhost\nMINIO_SCALE=0\n"
+                            "LANGFUSE_SOURCE=container\nLANGFUSE_WEB_SCALE=1\n")
+    assert _langfuse_minio_violations(dm) == []
 
 
 def test_a_dependency_disabled_by_auto_resolve_still_counts_as_missing(tmp_path):
     """Auto-resolve writes *_SCALE=0 and keeps a container SOURCE."""
-    dm = _make_dm(tmp_path, "WEAVIATE_SOURCE=container\nWEAVIATE_SCALE=0\n"
-                            "N8N_SOURCE=container\nN8N_SCALE=1\n")
-    assert _n8n_weaviate_violations(dm)
+    dm = _make_dm(tmp_path, "MINIO_SOURCE=container\nMINIO_SCALE=0\n"
+                            "LANGFUSE_SOURCE=container\nLANGFUSE_WEB_SCALE=1\n")
+    assert _langfuse_minio_violations(dm)
 
 
 def test_a_disabled_supabase_subservice_does_not_disable_the_database(tmp_path):

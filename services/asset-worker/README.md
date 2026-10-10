@@ -175,7 +175,7 @@ _No high-confidence opportunities identified._
 
 ### 6.6. Future — Unused features in this service
 
-- Meshopt and Draco are mutually exclusive mesh-compression modes in a single glTF-Transform optimize pass. Requests may include both for policy compatibility; the worker prefers Draco for mesh compression and records both requested toggles in response metadata.
+- A request can set both `draco` and `meshopt`; §4.1 gives the precedence. The response `optimization` block records both requested values, not only the applied one (§4.3).
 
 ## 7. Troubleshooting
 
