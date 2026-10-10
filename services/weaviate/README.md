@@ -67,7 +67,7 @@ The backup service owns backup and restore. `services/backup/run-consistent-back
 
 Consumers are listed in §5.2. Open WebUI is not wired to Weaviate.
 
-Optional consumers should read `WEAVIATE_URL` and check readiness at the feature level instead of declaring a hard Compose dependency. JupyterHub and the Backend still start when Weaviate is disabled or host-run. n8n is the exception. It requires Weaviate, so `WEAVIATE_SOURCE=disabled` also disables n8n and n8n-worker.
+Optional consumers should read `WEAVIATE_URL` and check readiness at the feature level instead of declaring a hard Compose dependency. JupyterHub, the Backend and n8n still start when Weaviate is disabled or host-run.
 
 ## 5. Dependencies & Integrations
 
@@ -101,7 +101,7 @@ Optional consumers should read `WEAVIATE_URL` and check readiness at the feature
 ### 5.4. Future — Missing pair integrations
 
 - **weaviate ↔ doc-processor** — *Why:* closes the RAG loop. Docling already extracts structured text + tables from PDFs; today nothing routes that output into Weaviate, so n8n/backend re-implement chunking ad hoc. *Mechanism:* n8n flow or backend route reads docling JSON, chunks, then `POST /v1/batch/objects` into a `Document` collection vectorized via `text2vec-openai`. *Effort:* medium. *Confidence:* high.
-- **weaviate ↔ n8n** — *Why:* n8n already receives `WEAVIATE_URL` and requires Weaviate. No shipped example workflow uses n8n's Weaviate node to ingest webhook payloads, search, and feed retrieval into the AI Agent nodes. *Mechanism:* seed an example workflow driving the n8n Weaviate node → `http://weaviate:8080` (REST) or gRPC on `:50051`. *Effort:* small. *Confidence:* high.
+- **weaviate ↔ n8n** — *Why:* n8n already receives `WEAVIATE_URL`. No shipped example workflow uses n8n's Weaviate node to ingest webhook payloads, search, and feed retrieval into the AI Agent nodes. *Mechanism:* seed an example workflow driving the n8n Weaviate node → `http://weaviate:8080` (REST) or gRPC on `:50051`. *Effort:* small. *Confidence:* high.
 - **weaviate ↔ hermes** — *Why:* Hermes has no long-term memory or retrieval tool. A Weaviate-backed memory skill lets Hermes recall past sessions, store tool outputs, and do semantic lookup over user docs. *Mechanism:* Hermes custom skill posts/queries via the Weaviate Python client to `http://weaviate:8080` with hybrid search; collection seeded by `weaviate-init`. *Effort:* medium. *Confidence:* medium.
 - **weaviate ↔ comfyui** — *Why:* ComfyUI generates images but they're write-only artifacts on disk. CLIP-vectorizing them into Weaviate enables similarity search over the user's own generation history ("more like this"). *Mechanism:* ComfyUI custom node or n8n post-execution hook → `POST /v1/objects` to a `Generation` collection vectorized by `multi2vec-clip` (already enabled). *Effort:* medium. *Confidence:* medium.
 
@@ -131,7 +131,6 @@ curl -fsS http://localhost:${WEAVIATE_PORT}/v1/.well-known/ready
 ```
 
 - **Vectorization calls api.openai.com or fails with an OpenAI auth error** — the collection has no `moduleConfig.text2vec-openai.baseURL`. Recreate it with the LiteLLM base URL (§3.1).
-- **n8n is missing after you disable Weaviate** — expected; `WEAVIATE_SOURCE=disabled` also disables n8n and n8n-worker (§4).
 - **`multi2vec-clip` vectors have the wrong dimension** — the CLIP image changed under an existing collection. Recreate or revectorize the collection (§3.2).
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).

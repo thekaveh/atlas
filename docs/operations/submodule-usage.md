@@ -317,8 +317,9 @@ Host-published ports are not prefixed; a second stack also needs its own
 `./infra/stop.sh` therefore stops exactly the stack that `./infra/start.sh`
 launched, not a base Atlas stack.
 
-Set the name with the manifest's `project_name` (§2.2) or with `--project`. Both
-persist to `.env`, so a later bare start or stop uses the same name:
+Set the name with the manifest's `project_name` (§2.2) or with `--project`. If
+both are set, `--project` wins and Atlas prints no warning. Both persist to
+`.env`, so a later bare start or stop uses the same name:
 
 ```bash
 ./infra/start.sh --project myproject     # or -p myproject

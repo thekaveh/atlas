@@ -813,7 +813,7 @@ class ComfyUiMpsManager:
             )
 
     def _refuse_removing_host_models(self) -> None:
-        """The host models dir is never deleted (README §10), even when it was
+        """The host models dir is never deleted (README §9), even when it was
         pointed inside the managed state directory."""
         from services import refuse_removing_user_data
         refuse_removing_user_data(self.state_dir, self.models_path, "COMFYUI_MPS_MODELS_PATH", ComfyUiMpsError)

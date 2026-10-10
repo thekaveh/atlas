@@ -122,10 +122,10 @@ _Delivered — see "Completed" section below for the LiteLLM gateway entry._
 - Safety nets: `bootstrapper/services/manifest_validator.py` (cross-manifest checks), `tools/validate_fragments.py` CLI lint with `--check-env-example`, and `tests/test_fragment_equivalence.py` (golden `rendered_config_baseline.yml` diff — byte-equivalence proven across the 36-container stack).
 - Locality: every service's source code, init scripts, build context, and config files live under `services/<name>/<subdir>/`. Repo top-level is just `bootstrapper/`, `docs/`, `services/`, plus standard files.
 
-**Monitoring stack (Prometheus + Grafana)** — *Shipped 2026-05-31 (observability bundle); JupyterHub + Hermes scrape jobs subsequently removed as unreachable.*
+**Monitoring stack (Prometheus + Grafana)** — *Shipped 2026-05-31 (observability bundle).*
 - Prometheus scraper + TSDB with bundled node-exporter (host metrics) and cAdvisor (container metrics), bundled as `services/prometheus/`.
 - Grafana with 7 pre-provisioned dashboards (stack overview, LiteLLM, Kong, Postgres+Redis, Containers+Host, n8n, app-tier) — `services/grafana/`.
-- 15 scrape targets — Kong, LiteLLM, Weaviate, n8n + n8n-worker, MinIO, Backend, Asset Worker, Asset Baker, Prometheus + Grafana self, node-exporter, cAdvisor, plus postgres-exporter and redis-exporter sidecars. (JupyterHub + Hermes scrape jobs were removed as unreachable post-ship — JupyterHub ships single-user, no `/metrics`; the upstream Hermes image has no exporter. See `services/prometheus/README.md` §4 and the CHANGELOG entry.)
+- 15 scrape targets — Kong, LiteLLM, Weaviate, n8n + n8n-worker, MinIO, Backend, Asset Worker, Asset Baker, Prometheus + Grafana self, node-exporter, cAdvisor, plus postgres-exporter and redis-exporter sidecars. JupyterHub and Hermes are not scraped: neither exposes a `/metrics` endpoint Prometheus can reach.
 - Unified Grafana alerting enabled (no separate Alertmanager); contact points / rules to be added by users.
 - Loki (logs) + Tempo (traces) + OpenTelemetry collector — the full observability triangle, shipped as `services/{loki,tempo,otel-collector}/` with Tempo + Loki datasources provisioned in Grafana (`services/grafana/config/provisioning/datasources/tempo-loki.yml`).
 

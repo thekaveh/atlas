@@ -549,7 +549,7 @@ It also emits `ATLAS_KONG_GATEWAY` and every `ATLAS_STORE_*` field from the [sto
 - `COMFYUI_SOURCE=localhost` → `http://localhost:8000` (`COMFYUI_LOCALHOST_PORT`)
 - `LLM_PROVIDER_SOURCE=ollama-localhost` → `http://localhost:11434` (`OLLAMA_LOCALHOST_PORT`)
 
-**Source-specific fields.** Under a managed Metal ComfyUI source, the export adds `ATLAS_COMFYUI_OUTPUT_DIR` and `ATLAS_COMFYUI_INPUT_DIR` (absolute host paths). Directory layout: [ComfyUI §10](../../services/comfyui/README.md). Under a Blender host source, it adds `ATLAS_BLENDER_MCP_HOST_ENDPOINT` with a `tcp://` scheme (a raw socket, not HTTP). A managed pool of more than one instance also adds `ATLAS_BLENDER_MCP_HOST_ENDPOINTS`: every instance, comma-separated, instance 0 first. Client contract: [Blender MCP](../../services/blender-mcp/README.md).
+**Source-specific fields.** Under a managed Metal ComfyUI source, the export adds `ATLAS_COMFYUI_OUTPUT_DIR` and `ATLAS_COMFYUI_INPUT_DIR` (absolute host paths). Directory layout: [ComfyUI §9](../../services/comfyui/README.md). Under a Blender host source, it adds `ATLAS_BLENDER_MCP_HOST_ENDPOINT` with a `tcp://` scheme (a raw socket, not HTTP). A managed pool of more than one instance also adds `ATLAS_BLENDER_MCP_HOST_ENDPOINTS`: every instance, comma-separated, instance 0 first. Client contract: [Blender MCP](../../services/blender-mcp/README.md).
 
 **Resolved values.** The exporter expands Compose-style `${VAR}` and `${VAR:-default}` references stored in `.env`. For example, a host-source `COMFYUI_ENDPOINT` of `http://host.docker.internal:${COMFYUI_MPS_LOCALHOST_PORT:-8188}` is expanded. The output never holds a `${…}` literal, except for secrets.
 
@@ -653,7 +653,7 @@ Atlas saves every `--<svc>-source` flag to `.env`. When the flag changes a saved
 
 **Rule:** pass source flags on the first run only. After that, edit `.env` or the manifest, not the launch command. Better, commit `COMFYUI_SOURCE: auto` / `LLM_PROVIDER_SOURCE: auto`: every start resolves the right source for the host, and no flag is needed ([the `auto` sentinel](../reference/consumer-manifest.md#33-the-auto-source-sentinel)).
 
-`managed-localhost-mps` is a valid `--comfyui-source` value. Its lifecycle (preflight, install, provision, start, status, stop) and `COMFYUI_MPS_*` variables are in [ComfyUI §10](../../services/comfyui/README.md). Atlas downloads declared `COMFYUI_USER_MODELS` into `COMFYUI_MPS_MODELS_PATH` on start. The `unpullable-models` doctor lint passes when the host tree matches the declared catalog.
+`managed-localhost-mps` is a valid `--comfyui-source` value. Its lifecycle (preflight, install, provision, start, status, stop) and `COMFYUI_MPS_*` variables are in [ComfyUI §9](../../services/comfyui/README.md). Atlas downloads declared `COMFYUI_USER_MODELS` into `COMFYUI_MPS_MODELS_PATH` on start. The `unpullable-models` doctor lint passes when the host tree matches the declared catalog.
 
 `BLENDER_MCP_SOURCE=managed-localhost` works the same way: it provisions the pinned add-on and runs headless Blender, on loopback only. Lifecycle: `./start.sh blender-mcp …`; see [Blender MCP](../../services/blender-mcp/README.md).
 
@@ -689,7 +689,7 @@ When the host already runs Ollama, ComfyUI or Blender, point Atlas at it instead
 |---|---|---|
 | `--llm-provider-source ollama-localhost` | No `*-ollama` container; LiteLLM upstream → `host.docker.internal:11434`; catalog auto-imported from the host's `/api/tags` | Host Ollama on `:11434` ([SOURCE Configuration Guide §4.1.1](source-configuration.md)) |
 | `--comfyui-source localhost` | No `*-comfyui` container; endpoint → `host.docker.internal:${COMFYUI_LOCALHOST_PORT:-8000}` | Host ComfyUI on `COMFYUI_LOCALHOST_PORT` |
-| `--comfyui-source managed-localhost-mps` | Atlas-managed Metal-native ComfyUI process on `${COMFYUI_MPS_LOCALHOST_PORT:-8188}` | macOS / Apple Silicon; [ComfyUI §10](../../services/comfyui/README.md) |
+| `--comfyui-source managed-localhost-mps` | Atlas-managed Metal-native ComfyUI process on `${COMFYUI_MPS_LOCALHOST_PORT:-8188}` | macOS / Apple Silicon; [ComfyUI §9](../../services/comfyui/README.md) |
 
 **Warning:** the default `--llm-provider-source ollama-container-cpu` starts a containerized Ollama **next to** the host's Ollama. The two load models twice and compete for GPU and RAM. On a host that runs Ollama, use `ollama-localhost`.
 

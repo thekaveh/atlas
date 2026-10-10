@@ -3557,13 +3557,15 @@ class AtlasStarter:
                 "info",
             )
         else:
-            # Not fatal: vLLM loads weights lazily and litellm-init retries the
-            # upstream; the first completion request blocks until the model is
-            # resident.
+            # Not fatal: vLLM's OpenAI server answers HTTP only after it has
+            # loaded the weights (downloading them on a first run), which can
+            # outlast the 120 s wait. litellm-init registers the model without
+            # probing it, so calls through LiteLLM fail to connect until the
+            # server answers.
             self.banner.show_status_message(
                 f"  • Managed vLLM (Metal) launched (pid={status.pid}, port "
-                f"{status.port}); still loading weights — the first request "
-                f"blocks until ready. Logs: {status.log_file}",
+                f"{status.port}); still loading weights — calls through LiteLLM "
+                f"fail to connect until it answers. Logs: {status.log_file}",
                 "warning",
             )
         return True

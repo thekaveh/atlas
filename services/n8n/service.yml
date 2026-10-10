@@ -208,18 +208,15 @@ runtime_adaptive:
     extra_hosts_adaptation: inherit from stt_provider, tts_provider, doc_processor
 
 runtime_deps:
+  # Weaviate is optional: no bundled workflow uses it, and WEAVIATE_URL is
+  # blank when it is disabled, which workflows treat as not configured.
   n8n:
-    requires:
-    - weaviate
     optional:
-    - parakeet
-    error_message: 'n8n disabled: requires weaviate for vector operations and AI workflow
-      nodes. Enable weaviate (WEAVIATE_SOURCE=container) to use n8n workflows with
-      vector capabilities'
-  n8n-worker:
-    requires:
     - weaviate
-    error_message: 'n8n-worker disabled: requires weaviate for vector operations'
+    - parakeet
+  n8n-worker:
+    optional:
+    - weaviate
 
 data_flow:
   calls:

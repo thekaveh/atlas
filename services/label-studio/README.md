@@ -41,7 +41,7 @@ Storage connections are project-specific in Label Studio. Atlas provisions the b
 
 ### 4.1. Notebook Export Loop
 
-JupyterHub receives `LABEL_STUDIO_URL`, `LABEL_STUDIO_API_URL` and `LABEL_STUDIO_API_KEY` when the service is enabled. The optional `label-studio-sdk` is intentionally not bundled, because current releases pin a vulnerable code-generator dependency. Use `httpx` for the REST flow, then log exported artifacts to MLflow or upsert reviewed rows into Weaviate:
+JupyterHub receives `LABEL_STUDIO_URL`, `LABEL_STUDIO_API_URL` and `LABEL_STUDIO_API_KEY` when the service is enabled. The optional `label-studio-sdk` is intentionally not bundled. Releases up to 2.1.0 pin `datamodel-code-generator==0.26.1`, which has published advisories; 2.1.1 and later require `>=0.70.0`. If you install the SDK yourself, use 2.1.1 or later. Use `httpx` for the REST flow, then log exported artifacts to MLflow or upsert reviewed rows into Weaviate:
 
 ```python
 import os

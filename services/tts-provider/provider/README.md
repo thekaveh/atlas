@@ -10,7 +10,7 @@ them interchangeably. The backend receives `TTS_ENDPOINT` but does not use it.
 |---|---|---|---|
 | `speaches-container-cpu` | Speaches (Kokoro + Piper) | MIT | Linux + macOS Docker, CPU |
 | `speaches-container-gpu` | Speaches (CUDA build) | MIT | Not usable yet: no GPU device is attached (#1373) |
-| `chatterbox-container-gpu` | Resemble AI Chatterbox | AGPL-3.0 (API server); model MIT | NVIDIA (≥8 GB) |
+| `chatterbox-container-gpu` | Resemble AI Chatterbox | AGPL-3.0 (API server); model MIT | NVIDIA (upstream recommends 8 GB+ memory) |
 | `chatterbox-localhost` | Chatterbox natively | AGPL-3.0 (API server); model MIT | macOS MPS / Linux (any) |
 | `disabled` | none | — | — |
 

@@ -69,7 +69,7 @@ LIGHTRAG_KEYWORD_LLM_MODEL=mistral-small3.2:24b
 LIGHTRAG_QUERY_LLM_MODEL=qwen3.8:latest
 ```
 
-Atlas does not ship these model names as defaults. Without role variables, LightRAG uses one model for all roles.
+Atlas does not ship these model names as defaults. `mistral-small3.2:24b` is not in the Ollama catalog (`services/ollama/models.yaml`): add it to `OLLAMA_CUSTOM_MODELS` so Atlas pulls it and LiteLLM serves it. Without role variables, LightRAG uses one model for all roles.
 
 ### 3.3. Role API keys
 

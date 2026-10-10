@@ -11,8 +11,9 @@ The server runs on macOS (MPS) and on Linux (CPU or CUDA).
 ## 1. When to use it
 
 - **macOS:** Docker Desktop containers cannot use MPS. A host install can.
-- **No large GPU:** the `chatterbox-container-gpu` source needs an NVIDIA GPU
-  with at least 8 GB of VRAM. The host server can run on the CPU, but slowly.
+- **No large GPU:** the `chatterbox-container-gpu` source needs an NVIDIA GPU;
+  upstream recommends 8 GB+ memory. The host server can run on the CPU, but
+  slowly.
 - **Voice samples on the host:** the voice library is a host directory, not a
   container volume.
 

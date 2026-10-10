@@ -14,7 +14,7 @@ Parakeet is an STT engine selected with `STT_PROVIDER_SOURCE`. See
   bootstrapper)
 - **Readiness:** Uvicorn starts while a deadline-bounded background task loads
   the model. `GET /health` returns `503` until loading completes. A cold first
-  boot downloads the ~2.4 GB checkpoint. The healthcheck start period (810 s
+  boot downloads the ~2.5 GB checkpoint. The healthcheck start period (810 s
   plus retries) covers the 900 s load deadline.
 
 This manifest also owns the `STT_PROVIDER_SOURCE` list for all STT engines.

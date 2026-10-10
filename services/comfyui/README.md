@@ -6,12 +6,12 @@ Source variants:
 
 - `container-cpu` and `container-gpu`: run the `ai-dock/comfyui` image.
 - `localhost`: consumers use a ComfyUI that you run on the host.
-- `managed-localhost-mps`: Atlas installs and runs a native Metal ComfyUI on Apple Silicon (§10).
+- `managed-localhost-mps`: Atlas installs and runs a native Metal ComfyUI on Apple Silicon (§9).
 - `disabled`: removes ComfyUI from compose.
 
 A short-lived `comfyui-init` container stages the models in `COMFYUI_USER_MODELS` into the `comfyui-models` volume. The wizard's "ComfyUI · models" step sets that variable. An AI-Dock provisioning hook installs pinned custom-node repositories and their declared requirements in the ComfyUI runtime.
 
-Where to start: choose models in §7 and queue a workflow through the API (§7, §9.3). Apple Silicon setup is in §10. Known problems are in §6.
+Where to start: choose models in §6 and queue a workflow through the API (§6, §8.3). Apple Silicon setup is in §9. Known problems are in §11.
 
 ## 1. Overview
 
@@ -38,7 +38,7 @@ Canonical port table: [Ports and Routes](../../docs/reference/ports-routes.md).
 COMFYUI_SOURCE=container-cpu                # container-cpu | container-gpu | localhost | managed-localhost-mps | disabled
 COMFYUI_PORT=63054                          # computed by topology.py
 COMFYUI_BASE_URL=http://comfyui:18188       # in-container default
-COMFYUI_ARGS=--listen                       # static — passed verbatim; add --cpu (CPU) or --force-fp16 (GPU) yourself (compose default when unset: --listen --cpu)
+COMFYUI_ARGS=--listen                       # static — passed verbatim; the CPU image adds --cpu itself (compose default when unset: --listen --cpu)
 COMFYUI_PLATFORM=linux/amd64
 COMFYUI_USER_MODELS=                         # comma-separated catalog names; set by the wizard
 COMFYUI_UPLOAD_TO_SUPABASE=true
@@ -47,7 +47,7 @@ COMFYUI_AUTO_UPDATE=true                    # AI-Dock startup updates ComfyUI to
 COMFYUI_REF=v0.27.0                         # pinned upstream ComfyUI release tag or full commit SHA
 COMFYUI_MEMORY_LIMIT=40g                    # hard ceiling, not a reservation; supports large bundles such as Krea 2
 COMFYUI_CPU_LIMIT=2.0                       # container CPU ceiling; stops CPU-mode inference from taking every host core
-COMFYUI_CUSTOM_MODELS_FILE=/custom-models.yaml  # sidecar of models outside the catalog; set with --comfyui-custom-models-file (§7)
+COMFYUI_CUSTOM_MODELS_FILE=/custom-models.yaml  # sidecar of models outside the catalog; set with --comfyui-custom-models-file (§6)
 COMFYUI_CUSTOM_NODES_FILE=/custom-nodes.yaml # os.pathsep-joined path-list: Atlas allowlist always present + consumer custom_nodes.comfyui paths
 ```
 
@@ -58,11 +58,11 @@ COMFYUI_LOCALHOST_PORT=8000                 # URL is derived as http://host.dock
 COMFYUI_LOCAL_MODELS_PATH=~/Documents/ComfyUI/models   # SOURCE=localhost preflight path (managed MPS uses COMFYUI_MPS_MODELS_PATH); container sources mount it read-only at /host_models (unused)
 ```
 
-Managed Apple-Silicon / Metal (MPS) overrides (`SOURCE=managed-localhost-mps`; see §10):
+Managed Apple-Silicon / Metal (MPS) overrides (`SOURCE=managed-localhost-mps`; see §9):
 
 ```bash
 COMFYUI_MPS_LOCALHOST_PORT=8188             # fixed host port; URL is http://host.docker.internal:8188 (named _LOCALHOST_ so the slot allocator leaves it fixed)
-COMFYUI_MPS_LISTEN=127.0.0.1                # bind address; set 0.0.0.0 on Linux container engines (§10.1)
+COMFYUI_MPS_LISTEN=127.0.0.1                # bind address; set 0.0.0.0 on Linux container engines (§9.1)
 COMFYUI_MPS_REF=v0.27.0                     # pinned upstream ComfyUI git ref the managed host checks out (mirrors COMFYUI_REF)
 COMFYUI_MPS_TORCH_PIN="torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0"   # pinned Metal Torch; bump with COMFYUI_MPS_REF
 COMFYUI_MPS_STATE_DIR=~/.atlas/comfyui-mps  # Atlas-owned host state dir: pinned checkout + venv + pid/log/status files
@@ -132,37 +132,7 @@ _No high-confidence opportunities identified._
 - **Video model support (Mochi / LTX-Video)** — *Why pursue:* upstream ComfyUI supports video diffusion. The picker has a `video` category filter, but the curated list is thin. Production-ready video checkpoints (Mochi, LTX-Video, Wan) would give GPU users video generation. *Effort:* medium.
 - **Authentication on the ComfyUI endpoint** — *Why pursue:* `server.py` ships no auth and Kong fronts ComfyUI on `comfyui.localhost`. A Kong basic-auth or JWT plugin would stop any LAN peer from queueing GPU jobs. *Effort:* small.
 
-## 6. Troubleshooting
-
-**`AssertionError: Torch not compiled with CUDA enabled` on GPU mode.** You selected `container-gpu`, but the host has no NVIDIA Container Toolkit. Run `docker info | grep -i runtime`; `nvidia` must be listed. Otherwise switch to `container-cpu` or install the toolkit. Even with the toolkit, Atlas reserves no GPU for `container-gpu` (§1), so expect CPU speed.
-
-**First start takes a long time.** ComfyUI starts only after `comfyui-init` exits successfully, and `comfyui-init` waits for `ollama-pull`. A large `COMFYUI_USER_MODELS` selection can be tens of GB (Krea 2 alone is 35.4 GB). Follow progress with `docker logs -f <project>-comfyui-init`. If a required download fails, `comfyui-init` exits nonzero and ComfyUI does not start. Re-run `./start.sh` to retry.
-
-**Generated images don't appear in Supabase.** Expected: the Supabase upload path is inert (§1). Retrieve outputs from the `comfyui-output` volume or the `/view` endpoint.
-
-**Localhost mode (`COMFYUI_SOURCE=localhost`) — containers can't reach host.** Linux Docker needs `host.docker.internal` mapped to the host gateway. The bootstrapper injects `extra_hosts: ["host.docker.internal:host-gateway"]`; if you bypassed it, that mapping is missing. Kong's compose has the same wiring.
-
-**Managed MPS mode (`COMFYUI_SOURCE=managed-localhost-mps`) — `unsupported host` at start.** This source runs a native Metal process and works only on Apple Silicon (macOS/arm64). Elsewhere the preflight fails by design. Run `./start.sh comfyui-mps preflight` to see the failed check. On non-Apple hosts use `container-cpu`, `container-gpu` or unmanaged `localhost` (§10).
-
-**Managed MPS mode — health shows `device: cpu` or an fp8 model crashes.** MPS needs BF16 weights; `fp8`/`fp8-scaled` variants crash on Metal. `./start.sh comfyui-mps preflight` warns on fp8 catalog picks. If `health` reports `device: cpu`, Torch did not find Metal: run `./start.sh comfyui-mps install --update`. A new host process is *reachable but cold*; the first request loads the model (~9–13 s). That is not a hang.
-
-**ComfyUI shows `health: starting` for several minutes on first run.** First the container checks out `COMFYUI_REF` and installs custom nodes (amd64-emulated on Apple Silicon). The healthcheck allows a 600 s start period.
-
-**`/comfyui/workflow` or `/comfyui/generate` returns 400.** ComfyUI rejected the graph (a missing node, wrong input or unknown model file). Fix the workflow; do not retry. A 502 means ComfyUI returned an invalid response; a 503 means it is unreachable.
-
-**`/comfyui/workflow` or `/comfyui/generate` returns 504.** ComfyUI did not confirm the prompt in time, but it can still have queued it. Check `GET /comfyui/queue` before you retry; a blind retry can run the workflow twice.
-
-**`ws://comfyui:18188/ws` 502s through Kong.** Kong's WebSocket support is wired, but consumers that use `comfyui.localhost` can see timeout drops. From sibling containers, use the internal DNS name `comfyui:18188`.
-
-```bash
-docker compose ps comfyui comfyui-init
-docker compose logs -f comfyui
-curl -s http://localhost:${COMFYUI_PORT}/system_stats | jq .   # GPU/CPU info, queue depth
-```
-
-For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
-
-## 7. Operations
+## 6. Operations
 
 **Choosing models.** Run `./start.sh` with no arguments to open the wizard, and go to the "ComfyUI · models" step. The step shows for every non-`disabled` source, like the Ollama picker. Keys:
 
@@ -175,7 +145,7 @@ The selection is saved as `COMFYUI_USER_MODELS` in `.env`. On the next `./start.
 
 - **`container-cpu` / `container-gpu`:** `comfyui_resolver` writes `volumes/comfyui/selected-models.yaml`, `active-models.tsv` and `active-custom-nodes.tsv`. Both TSVs have a `required`/`optional` column; a plan without it fails safe as required. `comfyui-init` downloads each model row into `comfyui-models`. The AI-Dock hook clones each allowlisted node into `comfyui-custom-nodes`. Node dependencies come from the content-addressed lock copied beside the TSV, never from the clone's `requirements.txt`.
 - **`localhost`:** the bootstrapper still writes the manifest, so the backend `/comfyui/db/models` endpoint shows the active set to Open WebUI and n8n. `comfyui-init` does not run (scale=0). You populate your host ComfyUI models directory yourself.
-- **`managed-localhost-mps`:** the same set is provisioned into `COMFYUI_MPS_MODELS_PATH` at start, and allowlisted nodes are installed into the host ComfyUI. No `comfyui-init` container runs (§10).
+- **`managed-localhost-mps`:** the same set is provisioned into `COMFYUI_MPS_MODELS_PATH` at start, and allowlisted nodes are installed into the host ComfyUI. No `comfyui-init` container runs (§9).
 
 Each start re-scrapes Hugging Face and civitai. A selected model that the scrape no longer returns stays active with its last-resolved metadata, kept in `volumes/comfyui/selected-library-entries.json`. A name that nothing resolves is not staged; the start warns, and the wizard keeps it as a `saved` row. If that file cannot be read, the step shows the reason as a warning.
 
@@ -238,16 +208,15 @@ docker run --rm -v <project>-comfyui-models:/m alpine \
 
 **Queue and monitor a workflow programmatically.** POST a workflow graph to `/prompt` to get a `prompt_id`. Then poll `/history/{prompt_id}`, or open `ws://comfyui:18188/ws` and filter events by that ID (`status`, `executing`, `executed`, `progress`, `execution_error`). This is stock ComfyUI API behavior; upstream ComfyUI documents the full contract.
 
-## 8. Performance notes
+## 7. Performance notes
 
-- **CPU mode is slow.** A 512×512 SD 1.5 generation takes ~30-90 s on CPU and 2-5 s on a modest GPU. The container is also capped at `COMFYUI_CPU_LIMIT` (default 2.0 CPUs). Use CPU mode to test workflows, not for production.
-- **GPU FP16.** Add `--force-fp16` to `COMFYUI_ARGS` in `.env` for the GPU variant. It halves VRAM use with negligible quality loss for most SD/SDXL workloads.
-- **Model loading dominates first-run latency.** Each checkpoint is ~2-7 GB. The first workflow that uses a model pays a 5-30 s load while ComfyUI maps it into memory; later runs reuse it.
+- **Container sources run on CPU.** Both `container-cpu` and `container-gpu` run the CPU image (§1), capped at `COMFYUI_CPU_LIMIT` (default 2.0 CPUs). CPU generation is much slower than GPU or Metal generation. Atlas has not published measured generation times. Use the container sources to test workflows, not for production.
+- **Model loading adds first-run latency.** The curated SD 1.5 and SDXL checkpoints are 3.97 GB and 6.94 GB (`models.yaml`). The first workflow that uses a model waits while ComfyUI loads it into memory; later runs reuse it. Atlas has not measured this load time.
 - **No batching.** ComfyUI processes one workflow at a time; concurrent requests queue. For high throughput, add replicas (out of scope for the default stack).
 
-## 9. Krea 2 model bundles
+## 8. Krea 2 model bundles
 
-### 9.1. Bundle inventory
+### 8.1. Bundle inventory
 
 Atlas exposes Krea 2 as two independent BF16 catalog selections. Both use ComfyUI core loaders and share the same Qwen3-VL 4B text encoder and Qwen-Image VAE. If you select both, the manifest keeps six logical rows for bundle provenance, but `active-models.tsv` has four unique downloads.
 
@@ -260,11 +229,11 @@ Container sources use a `COMFYUI_MEMORY_LIMIT=40g` hard ceiling so the bundle ca
 
 Exact catalog IDs, per-file sizes, and pinned SHA-256 hashes are maintained in `services/comfyui/models.yaml`, the authoritative catalog source.
 
-### 9.2. Pinned artifacts
+### 8.2. Pinned artifacts
 
 All four unique files (Turbo diffusion model, RAW diffusion model, shared text encoder, shared VAE) come from immutable revision `8038ce89b91b042141541ad0fa51b985ca262c5f` of [`Comfy-Org/Krea-2`](https://huggingface.co/Comfy-Org/Krea-2/tree/8038ce89b91b042141541ad0fa51b985ca262c5f). Per-file target paths, byte sizes, and SHA-256 hashes are recorded in `services/comfyui/models.yaml`.
 
-### 9.3. Core-node workflow
+### 8.3. Core-node workflow
 
 [`workflows/krea2-turbo-api.json`](https://github.com/thekaveh/atlas/blob/main/services/comfyui/workflows/krea2-turbo-api.json) is an API-ready 1024-square example. It uses `CLIPLoader` type `krea2`, 8 steps, CFG 1.0, `euler` with the `simple` scheduler, and `ConditioningZeroOut` for negative conditioning. No custom nodes are required. Atlas pins ComfyUI `v0.27.0`; core Krea 2 support first appeared in `v0.26.0`.
 
@@ -276,13 +245,13 @@ curl -X POST http://localhost:${COMFYUI_PORT}/prompt \
   --data-binary @services/comfyui/workflows/krea2-turbo-api.json
 ```
 
-### 9.4. License and deployment obligations
+### 8.4. License and deployment obligations
 
-The weights use the pinned [Krea 2 Community License](https://huggingface.co/krea/Krea-2-Turbo/blob/1161245028ef398cd0a951101b2bbf486464f841/LICENSE.pdf). Commercial use at or above **$1,000,000 USD ($1M) in company-wide annual revenue** requires an enterprise license. Deployments must also implement reasonable and appropriate **content filtering**. The license states no seat-count threshold.
+The weights use the pinned [Krea 2 Community License](https://huggingface.co/krea/Krea-2-Turbo/blob/1161245028ef398cd0a951101b2bbf486464f841/LICENSE.pdf). The `krea/Krea-2-Turbo` repository is gated: Hugging Face shows the file only after you sign in and accept its terms. Commercial use at or above **$1,000,000 USD ($1M) in company-wide annual revenue** requires an enterprise license. Deployments must also implement reasonable and appropriate **content filtering**. The license states no seat-count threshold.
 
 The model picker and the generated manifest metadata show these obligations before the weights download.
 
-### 9.5. Verification
+### 8.5. Verification
 
 Offline tests validate the artifact metadata, bundle expansion, shared-download deduplication, wizard badges, workflow node graph and all three documentation surfaces. The real 1024-square generation is an opt-in live smoke test, because it needs the 35.413 GB bundle and suitable hardware:
 
@@ -291,21 +260,21 @@ ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:${COMFYUI_PORT} \
   uv run --project bootstrapper pytest bootstrapper/tests/test_krea2_catalog.py -m live -q
 ```
 
-### 9.6. Identity Edit LoRA for `comfyui-krea2edit`
+### 8.6. Identity Edit LoRA for `comfyui-krea2edit`
 
-The `comfyui-krea2edit` node pack is not in the Atlas allowlist; a consumer declares it with `custom_nodes.comfyui` (§7). The pack needs a Krea 2 model, the Qwen3-VL encoder and the `krea2_identity_edit_v1_2.safetensors` LoRA. Without the LoRA, the nodes register but do not edit. Under `managed-localhost-mps`, `provision-nodes` and `doctor` still report success.
+The `comfyui-krea2edit` node pack is not in the Atlas allowlist; a consumer declares it with `custom_nodes.comfyui` (§6). The pack needs a Krea 2 model, the Qwen3-VL encoder and the `krea2_identity_edit_v1_2.safetensors` LoRA. Without the LoRA, the nodes register but do not edit. Under `managed-localhost-mps`, `provision-nodes` and `doctor` still report success.
 
 Select the curated `krea2-identity-edit-v1-2` entry (1.83 GB, category `lora`) together with the node. The wizard badges it `requires GPU` and recommends 32 GB RAM and 32 GB VRAM. Like all Krea 2 artifacts, it carries the `other` license under the Krea 2 Community License.
 
 The LoRA is an unofficial community fine-tune, trained on Krea 2 **Raw**; identity fidelity on Turbo can be lower.
 
-## 10. Managed Apple-Silicon / Metal (MPS) source
+## 9. Managed Apple-Silicon / Metal (MPS) source
 
 `COMFYUI_SOURCE=managed-localhost-mps` is a **managed** host source for Apple Silicon (M-series) Macs. Docker Desktop on macOS cannot pass Metal into a Linux container. So Atlas installs and runs a **native ComfyUI process on the host** and points `COMFYUI_ENDPOINT` at it. In unmanaged `localhost` mode you install, update and launch ComfyUI yourself. Every consumer (backend, Open WebUI, JupyterHub, consumer manifests) uses the same `COMFYUI_ENDPOINT` contract, whatever the source.
 
 **One process per host.** One ComfyUI instance already saturates the Apple Silicon GPU; a second one on the same machine is slower overall. The managed source runs exactly one process, keyed by a PID file. For parallelism, add machines.
 
-### 10.1. What Atlas manages
+### 9.1. What Atlas manages
 
 - **Pinned checkout and venv** — `COMFYUI_MPS_REF` (default `v0.27.0`, mirroring `COMFYUI_REF`) is checked out into `COMFYUI_MPS_STATE_DIR` (default `~/.atlas/comfyui-mps`), with a venv that holds Metal-enabled Torch. Each install compares the ref and requirements fingerprint with recorded state. A changed pin or dependency file is reinstalled; an unchanged environment is reused.
 - **Host models reuse and provisioning** — the process reads `COMFYUI_MPS_MODELS_PATH` (default `~/Documents/ComfyUI/models`, shared with `COMFYUI_LOCAL_MODELS_PATH`) through a generated `extra_model_paths.yaml`. Existing weights, for example a Krea 2 or Flux install, are used in place with **no duplicate weights**. At start, Atlas downloads the selected catalog models (`COMFYUI_USER_MODELS`) that are missing from that tree, as the container init would.
@@ -315,9 +284,9 @@ The LoRA is an unofficial community fine-tune, trained on Krea 2 **Raw**; identi
 - **Port, bind address, PID/log/status files** — the process listens on `COMFYUI_MPS_LOCALHOST_PORT` (default `8188`) at `COMFYUI_MPS_LISTEN` (default `127.0.0.1`). Loopback works on Docker Desktop/macOS, where `host.docker.internal` forwards to host loopback. On **Linux container engines**, `host.docker.internal` maps to a bridge address that **cannot reach a loopback listener**; set `COMFYUI_MPS_LISTEN=0.0.0.0` there.
 - **Probes and state files** — when the process listens on all interfaces (`0.0.0.0` or `::`), Atlas's health and port probes use `127.0.0.1`. Otherwise they use the bind address, including an IPv6 literal such as `::1`. `comfyui-mps.pid`, `comfyui-mps.log` and `status.json` are in the state dir. A start aborts if an unrelated process holds the port.
 - **Custom nodes share the Metal venv** — unlike the disposable container image, this venv holds the pinned Metal Torch stack. Atlas never installs a node's own `requirements.txt`. It installs only the reviewed, hash-verified lock, which omits the base Torch triple, without dependency resolution. `provision-nodes` compares `pip freeze` before and after, and points to `./start.sh comfyui-mps install --update` if Torch drifts.
-- **CUDA-only nodes** — mark them `mps_unsafe: true` so they skip before pip runs. 3D-Pack is not provisioned on either runtime (§7).
+- **CUDA-only nodes** — mark them `mps_unsafe: true` so they skip before pip runs. 3D-Pack is not provisioned on either runtime (§6).
 
-### 10.2. Lifecycle
+### 9.2. Lifecycle
 
 A normal `./start.sh` with this source runs preflight → install → start immediately before `docker compose up`. The shared managed-host rules apply: rollback on a failed launch, host-global processes, and opt-in stop with `./stop.sh --stop-managed-hosts`. See [Operations §8](../../docs/operations/index.md#8-managed-host-lifecycle). ComfyUI-specific points:
 
@@ -343,7 +312,7 @@ Headless CLI:
 
 **Doctor.** `./start.sh doctor` runs the same preflight as a CI-safe check and reports a `comfyui-mps` line. It is `skipped` when the source is not selected, `fail` with a fix on an unsupported host, and `pass`/`warn` on Apple Silicon. Under `managed-localhost-mps`, doctor also lints declared custom nodes. A node whose repo is absent or not at its pinned ref points to `./start.sh comfyui-mps provision-nodes`; `mps_unsafe` nodes are ignored.
 
-### 10.3. Preflight (the narrow MPS probe)
+### 9.3. Preflight (the narrow MPS probe)
 
 `preflight` is read-only and never launches anything. It checks:
 
@@ -354,19 +323,19 @@ Headless CLI:
 - `torch.backends.mps.is_available()`, after the venv exists.
 - Per-model precision: `fp8`/`fp8-scaled` weights crash on MPS and get a `warn` with a "use a BF16 variant" hint.
 
-### 10.4. Cold vs warm, and health
+### 9.4. Cold vs warm, and health
 
-Weights load **lazily on the first request** (~9–13 s slower than a warm request on an M2 Ultra). `health` reports `reachable` and the compute `device` (`mps` when `/system_stats` shows a non-CPU device). A new process is *reachable but cold*; the first generation warms it. `./start.sh` waits up to 60 s for reachability and prints a warm/cold line. A warming host is **not** an error: downstream containers retry.
+Weights load **lazily on the first request**, so the first request is slower than a warm one. Atlas has not measured this delay. `health` reports `reachable` and the compute `device` (`mps` when `/system_stats` shows a non-CPU device). A new process is *reachable but cold*; the first generation warms it. `./start.sh` waits up to 60 s for reachability and prints a warm/cold line. A warming host is **not** an error: downstream containers retry.
 
 `status` reports `running` only when the pidfile's recorded start time matches the live process. A dead stale PID, whose process group is also gone, is cleared before relaunch. A PID that the OS recycled to a younger process is stale: `start` replaces the record, and `doctor` warns first.
 
 If identity is missing, cannot be probed or does not match without that proof, `start` and `stop` fail closed and keep the evidence. Atlas never signals a process it cannot prove it launched. `bootstrapper/tests/test_comfyui_mps_manager.py` holds the exact recovery logic.
 
-### 10.5. Unsupported hosts
+### 9.5. Unsupported hosts
 
 On any host that is not macOS/arm64 (Linux CI, Intel Macs, Windows), the preflight `fail`s with an explicit message, and `install`/`ensure_running` refuse to proceed. Atlas never claims a Linux container is Metal-capable. `./start.sh` shows the error instead of booting a half-configured stack.
 
-### 10.6. Upgrades, rollback, logs, removal
+### 9.6. Upgrades, rollback, logs, removal
 
 - **Upgrade / rollback** — set `COMFYUI_MPS_REF` in `.env` (a release tag or full commit SHA), then stop and start the service. Install detects the drift and reconciles the venv; `install --update` forces a rebuild. Stop acts on the full process group, so child workers do not survive the server.
 - **Reproducible Torch** — `COMFYUI_MPS_TORCH_PIN` pins the Torch versions and is reconciled automatically, so a fresh install of the same `COMFYUI_MPS_REF` is reproducible. Bump the pin with `COMFYUI_MPS_REF` when the new ComfyUI ref needs a newer Torch. The default is in `.env.example`.
@@ -378,11 +347,11 @@ On any host that is not macOS/arm64 (Linux CI, Intel Macs, Windows), the preflig
   - The state dir is, or is a parent of, the working directory, the repository, `$HOME` or the `~/.atlas` state root (`ATLAS_MANAGED_HOST_STATE_ROOT`). The check compares file identity, so another spelling is refused too.
 - **Host models are never deleted** — Atlas never deletes or prunes `COMFYUI_MPS_MODELS_PATH`. Provisioning only adds catalog files and a small `.atlas_provisioned.json` verification cache. A file with a wrong checksum is replaced only after a verified download that fits on disk beside it. If the download fails, the file stays. An empty response is refused. A zero-byte file without a declared checksum is fetched again.
 
-### 10.7. n8n is excluded
+### 9.7. n8n is excluded
 
 n8n does not receive `COMFYUI_ENDPOINT` for **any** ComfyUI source. `n8n-nodes-comfyui` is installed, but users enter `http://comfyui:18188` in workflow credentials by hand. The [n8n README](../n8n/README.md) lists this under "Dependencies & Integrations" as a missing pair integration. The managed-MPS source does not change that. The backend, Open WebUI and JupyterHub **do** receive the endpoint. Celery also receives it as `COMFYUI_BASE_URL`, but runs no ComfyUI task, so it is not a functional consumer.
 
-### 10.8. Verification
+### 9.8. Verification
 
 Fully mocked unit tests (`bootstrapper/tests/test_comfyui_mps_manager.py`) cover the host lifecycle, failure recovery and preflight on generic Linux CI. Two opt-in Darwin-arm64 `live` checks prove the real path without duplicate weight downloads:
 
@@ -398,21 +367,21 @@ ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:8188 \
   uv run --project bootstrapper pytest bootstrapper/tests/test_krea2_catalog.py -m live -q
 ```
 
-## 11. Hunyuan3D-2 native image→3D (MPS-runnable, shape-only)
+## 10. Hunyuan3D-2 native image→3D (MPS-runnable, shape-only)
 
-Atlas curates the ComfyUI-**core** native Hunyuan3D-2 single-image shape generator. TRELLIS and Pixal3D need CUDA sparse kernels; Hunyuan3D-2's DiT is pure Torch, so it runs on Apple-Silicon **MPS** through the managed source (§10). It is a large optional download and **never `essential`**. It stages only when selected (`COMFYUI_USER_MODELS=hunyuan3d-2`), never on an empty selection.
+Atlas curates the ComfyUI-**core** native Hunyuan3D-2 single-image shape generator. TRELLIS and Pixal3D need CUDA sparse kernels; Hunyuan3D-2's DiT is pure Torch, so it runs on Apple-Silicon **MPS** through the managed source (§9). It is a large optional download and **never `essential`**. It stages only when selected (`COMFYUI_USER_MODELS=hunyuan3d-2`), never on an empty selection.
 
 Native support is **shape-only**: geometry with **no texture / PBR / material** stage. That stage is CUDA-bound and excluded from this bundle.
 
-### 11.1. Inventory
+### 10.1. Inventory
 
 Single catalog entry `hunyuan3d-2` (`mesh_model`, fp16), roughly 4.9 GB on disk, recommending 16 GB RAM / 8 GB VRAM. Catalog ID, disk/RAM/VRAM figures, and the pinned SHA-256 are maintained in `services/comfyui/models.yaml`.
 
-### 11.2. Pinned artifact
+### 10.2. Pinned artifact
 
 The DiT checkpoint (`checkpoints/hunyuan3d-dit-v2.safetensors`) is pinned to revision [`9cd649ba6913f7a852e3286bad86bfa9a2d83dcf`](https://huggingface.co/tencent/Hunyuan3D-2/tree/9cd649ba6913f7a852e3286bad86bfa9a2d83dcf) of [`tencent/Hunyuan3D-2`](https://huggingface.co/tencent/Hunyuan3D-2). `services/comfyui/models.yaml` records its byte size and SHA-256. Its category is `mesh_model`, but `target_dir` is `checkpoints`, so ComfyUI's `ImageOnlyCheckpointLoader` finds it. Native Hunyuan3D-2 support predates Atlas's pinned ComfyUI ref (`COMFYUI_REF` / `COMFYUI_MPS_REF`, default `v0.27.0`).
 
-### 11.3. Core-node workflow
+### 10.3. Core-node workflow
 
 [`workflows/hunyuan3d-2-image-to-glb-api.json`](https://github.com/thekaveh/atlas/blob/main/services/comfyui/workflows/hunyuan3d-2-image-to-glb-api.json) is an API-ready single-image → shape example. It uses only ComfyUI-core nodes: `ImageOnlyCheckpointLoader` → `CLIPVisionEncode` → `Hunyuan3Dv2Conditioning` → `KSampler` → `VAEDecodeHunyuan3D` → `VoxelToMeshBasic` → `SaveGLB`. It needs **no custom node** and no CUDA sparse kernels. `SaveGLB` writes a shape-only `.glb`. Put an input image at ComfyUI's `input/example.png` (or edit node `2`), then:
 
@@ -421,7 +390,7 @@ curl -XPOST "$COMFYUI_ENDPOINT/prompt" -H 'content-type: application/json' \
   --data-binary @services/comfyui/workflows/hunyuan3d-2-image-to-glb-api.json
 ```
 
-### 11.4. License
+### 10.4. License
 
 The weights use the [Tencent Hunyuan Community License](https://huggingface.co/tencent/Hunyuan3D-2/blob/9cd649ba6913f7a852e3286bad86bfa9a2d83dcf/LICENSE). Material operator obligations:
 
@@ -429,15 +398,45 @@ The weights use the [Tencent Hunyuan Community License](https://huggingface.co/t
 - Products or services with over **100 million monthly active users** require a separate license from Tencent.
 - Use is subject to the Tencent Hunyuan Community License Agreement and its Acceptable Use Policy.
 
-### 11.5. Verification
+### 10.5. Verification
 
 Offline catalog, workflow and GLB-structure tests run on generic CI (`bootstrapper/tests/test_comfyui_hunyuan3d_workflow.py`). Rendering a real mesh is an opt-in `live` smoke, because official docs alone do not prove MPS support:
 
 ```bash
-# Bring up the managed MPS host (§10), select the model, then:
+# Bring up the managed MPS host (§9), select the model, then:
 ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:8188 \
   uv run --project bootstrapper pytest bootstrapper/tests/test_comfyui_hunyuan3d_workflow.py -m live -q
 ```
+
+## 11. Troubleshooting
+
+**`container-gpu` runs at CPU speed.** Expected. `container-gpu` uses the same CPU image as `container-cpu`, which starts ComfyUI with `--cpu`, and Atlas reserves no GPU for it (§1). An NVIDIA Container Toolkit on the host does not change this. For Metal acceleration on Apple Silicon, use `managed-localhost-mps` (§9). Otherwise run a GPU ComfyUI yourself and use `localhost`.
+
+**First start takes a long time.** ComfyUI starts only after `comfyui-init` exits successfully, and `comfyui-init` waits for `ollama-pull`. A large `COMFYUI_USER_MODELS` selection can be tens of GB (Krea 2 alone is 35.4 GB). Follow progress with `docker logs -f <project>-comfyui-init`. If a required download fails, `comfyui-init` exits nonzero and ComfyUI does not start. Re-run `./start.sh` to retry.
+
+**Generated images don't appear in Supabase.** Expected: the Supabase upload path is inert (§1). Retrieve outputs from the `comfyui-output` volume or the `/view` endpoint.
+
+**Localhost mode (`COMFYUI_SOURCE=localhost`) — containers can't reach host.** Linux Docker needs `host.docker.internal` mapped to the host gateway. The bootstrapper injects `extra_hosts: ["host.docker.internal:host-gateway"]`; if you bypassed it, that mapping is missing. Kong's compose has the same wiring.
+
+**Managed MPS mode (`COMFYUI_SOURCE=managed-localhost-mps`) — `unsupported host` at start.** This source runs a native Metal process and works only on Apple Silicon (macOS/arm64). Elsewhere the preflight fails by design. Run `./start.sh comfyui-mps preflight` to see the failed check. On non-Apple hosts use `container-cpu`, `container-gpu` or unmanaged `localhost` (§9).
+
+**Managed MPS mode — health shows `device: cpu` or an fp8 model crashes.** MPS needs BF16 weights; `fp8`/`fp8-scaled` variants crash on Metal. `./start.sh comfyui-mps preflight` warns on fp8 catalog picks. If `health` reports `device: cpu`, Torch did not find Metal: run `./start.sh comfyui-mps install --update`. A new host process is *reachable but cold*; the first request loads the model, so it is slower than later requests. That is not a hang.
+
+**ComfyUI shows `health: starting` for several minutes on first run.** First the container checks out `COMFYUI_REF` and installs custom nodes (amd64-emulated on Apple Silicon). The healthcheck allows a 600 s start period.
+
+**`/comfyui/workflow` or `/comfyui/generate` returns 400.** ComfyUI rejected the graph (a missing node, wrong input or unknown model file). Fix the workflow; do not retry. A 502 means ComfyUI returned an invalid response; a 503 means it is unreachable.
+
+**`/comfyui/workflow` or `/comfyui/generate` returns 504.** ComfyUI did not confirm the prompt in time, but it can still have queued it. Check `GET /comfyui/queue` before you retry; a blind retry can run the workflow twice.
+
+**`ws://comfyui:18188/ws` 502s through Kong.** Kong's WebSocket support is wired, but consumers that use `comfyui.localhost` can see timeout drops. From sibling containers, use the internal DNS name `comfyui:18188`.
+
+```bash
+docker compose ps comfyui comfyui-init
+docker compose logs -f comfyui
+curl -s http://localhost:${COMFYUI_PORT}/system_stats | jq .   # GPU/CPU info, queue depth
+```
+
+For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
 
 ## 12. Capabilities & limitations
 

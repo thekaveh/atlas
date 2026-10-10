@@ -274,7 +274,7 @@ You should see `python3`, `ir`, `julia-1.12`, `scala213`, and `scala3`. If `juli
 docker compose -p "$PROJECT_NAME" up jupyterhub --build --no-deps -d
 ```
 
-Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`); without `-p`, Compose uses the checkout directory name and creates a second project. `--no-deps` replaces only the jupyterhub container. The image gains ~600 MB of toolchain on this build, mostly cached after the first run.
+Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`); without `-p`, Compose uses the checkout directory name and creates a second project. `--no-deps` replaces only the jupyterhub container. The rebuild reuses cached layers after the first run.
 
 **Smoke-test a Scala cell** without opening JupyterLab — useful in CI / cold-start verification:
 
@@ -402,9 +402,7 @@ Move the whole port block: `./start.sh --base-port 64000` (JupyterHub then uses 
 
 ### 16.4. Out of Memory
 
-Increase Docker memory:
-- Docker Desktop → Settings → Resources → Memory
-- Recommended: 8GB+ for data science workloads
+The jupyterhub container has no memory limit, so it can use all memory Docker has. Atlas has not measured a minimum. Increase Docker's memory in Docker Desktop → Settings → Resources → Memory, and check `docker stats ${PROJECT_NAME}-jupyterhub` while your workload runs.
 
 ## 17. Capabilities & limitations
 

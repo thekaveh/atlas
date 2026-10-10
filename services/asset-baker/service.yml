@@ -93,7 +93,7 @@ env:
     description: "Default low-poly triangle budget the decimate stage targets (overridable per request)."
   - name: ASSET_BAKER_TEX_SIZE
     default: "2048"
-    description: "Default baked BaseColor/Normal texture resolution (square). 2k measured 30–200 s/asset on CPU; overridable per request."
+    description: "Default baked BaseColor/Normal texture resolution (square). Higher resolutions take longer on CPU; overridable per request."
   - name: ASSET_BAKER_CANONICAL_SIZE
     default: "4.0"
     description: "Canonical max-dimension (units) each mesh is scaled to before remesh so the relative voxel/ray heuristics are stable regardless of the raw GLB import scale."
