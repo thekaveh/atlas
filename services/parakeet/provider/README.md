@@ -9,19 +9,19 @@ can use them interchangeably.
 | `STT_PROVIDER_SOURCE` | Engine | License | Runs on |
 |---|---|---|---|
 | `speaches-container-cpu` | Speaches (Faster-Whisper inside) | MIT | Linux + macOS Docker, CPU |
-| `speaches-container-gpu` | Speaches CUDA build | MIT | NVIDIA |
-| `parakeet-container-gpu` | NVIDIA Parakeet-TDT (NeMo) | CC-BY-4.0 | NVIDIA |
-| `parakeet-localhost` | Parakeet-MLX or native Parakeet | NVIDIA Open Model | macOS MLX (best) / Linux |
-| `whisper-cpp-localhost` | whisper.cpp | MIT | macOS Metal+Core ML (best) / Linux |
+| `speaches-container-gpu` | Speaches CUDA build | MIT | Not usable yet: no GPU device is attached (#1373) |
+| `parakeet-container-gpu` | NVIDIA Parakeet-TDT (NeMo) | Model CC-BY-4.0 | NVIDIA |
+| `parakeet-localhost` | Parakeet-MLX or another operator-run Parakeet server | Model CC-BY-4.0 | macOS MLX / Linux |
+| `whisper-cpp-localhost` | whisper.cpp | MIT | macOS Metal / Linux |
 | `disabled` | none | — | — |
 
-The default for fresh installs is **`speaches-container-cpu`** — it starts on
-every platform with no host install. The pinned Speaches release does not
-download a missing model on the first transcription request, and Atlas keeps
-`PRELOAD_MODELS` empty until the source-aware preload work in #799 is complete.
-See the STT provider guide before expecting transcription from this default.
+The default for fresh installs is **`speaches-container-cpu`**. It starts on
+every platform with no host install, but it has no model. The pinned Speaches
+release does not download a missing model on request, and `PRELOAD_MODELS` is
+empty (#799). Install the model as described in the
+STT Provider quick start.
 
-For Mac users, both **`whisper-cpp-localhost`** (Metal + Core ML / ANE) and
+For Mac users, both **`whisper-cpp-localhost`** (Metal) and
 **`parakeet-localhost`** (MLX) provide native acceleration. Benchmark the
 chosen model and representative audio on the target host; Atlas does not make
 a hardware-independent speed or quality ranking.
@@ -61,9 +61,8 @@ curl http://localhost:63060/health
 ```
 
 This proves the default Speaches container is up. Transcription remains
-unavailable until the `whisper-1` alias target is explicitly installed or
-preloaded; see the warning in the full STT provider guide and tracked issue
-#799. The service does not lazily pull it on the first request.
+unavailable until the `whisper-1` alias target is installed or preloaded; see
+the STT Provider quick start (#799).
 
 Parakeet on NVIDIA GPU:
 
@@ -73,8 +72,8 @@ Parakeet on NVIDIA GPU:
 
 The GPU API starts a deadline-bounded background load for the configured
 Parakeet model. Its health endpoint and transcription routes return `503` until
-the model is loaded, allowing health-aware callers and orchestration to wait for
-inference readiness even though consumers may start independently.
+the model is loaded. Health-aware callers can therefore wait for inference
+readiness, even though consumers may start independently.
 
 Parakeet on macOS MLX:
 
@@ -97,28 +96,29 @@ The MLX health endpoint starts one shared background model load and returns
 and transcription requests share the same load; model initialization never
 runs on the API event loop. Both Parakeet providers default advanced segment
 timestamps to disabled unless `return_timestamps=true` is supplied.
+
 `PARAKEET_MAX_UPLOAD_BYTES` is parsed as a positive integer during provider
 startup; malformed, zero, and negative values fail fast before the API serves.
-The complete request body must also arrive within the positive total
-`PARAKEET_UPLOAD_TIMEOUT_SECONDS` deadline (1-3600 seconds; 120 by default), or the
-provider returns `408` and releases its admission slot.
+The whole request body must arrive within `PARAKEET_UPLOAD_TIMEOUT_SECONDS`
+(1-3600 seconds; default 120). Otherwise the provider returns `408` and releases
+its admission slot.
 
-whisper.cpp on macOS (Metal + Core ML):
+whisper.cpp on macOS (Metal):
 
 ```bash
-# Terminal 1
-brew install whisper-cpp
-bash $(brew --prefix)/share/whisper-cpp/models/download-ggml-model.sh large-v3
-whisper-server --host 0.0.0.0 --port 63042 \
-  --model "$(brew --prefix)/share/whisper-cpp/models/ggml-large-v3.bin" \
-  --inference-path /v1/audio/transcriptions
+# Terminal 1: in a whisper.cpp checkout with whisper-server built and
+# models/ggml-large-v3.bin downloaded (see whisper-cpp/README.md)
+./build/bin/whisper-server --host 0.0.0.0 --port 63042 \
+  --model models/ggml-large-v3.bin \
+  --inference-path /v1/audio/transcriptions \
+  --convert
 
-# Terminal 2
+# Terminal 2: from the Atlas repository root
 ./start.sh --stt-provider-source whisper-cpp-localhost
 ```
 
-See [whisper-cpp/README.md](whisper-cpp/README.md) for the full whisper.cpp
-walk-through and Linux build instructions.
+See [whisper-cpp/README.md](whisper-cpp/README.md) for the build (Homebrew
+does not ship `whisper-server`), model downloads and options.
 
 Disable STT entirely:
 

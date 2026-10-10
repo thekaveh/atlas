@@ -25,6 +25,7 @@ _VALIDATOR_BEGIN = "<!-- BEGIN GENERATED MANIFEST VALIDATOR CATALOG -->"
 _VALIDATOR_END = "<!-- END GENERATED MANIFEST VALIDATOR CATALOG -->"
 _ARCHIVE_BEGIN = "<!-- BEGIN GENERATED PLAN ARCHIVE RANGE -->"
 _ARCHIVE_END = "<!-- END GENERATED PLAN ARCHIVE RANGE -->"
+PLAN_ARCHIVE_INDEX = Path("docs/superpowers/README.md")
 _DATED_ARCHIVE_NAME = re.compile(r"^(\d{4}-\d{2}-\d{2})-.+\.md$")
 
 
@@ -99,11 +100,9 @@ def _dated_archive_range(repo_root: Path) -> tuple[date, date]:
 def render_plan_archive_line(repo_root: Path) -> str:
     first, last = _dated_archive_range(repo_root)
     return (
-        "- [superpowers/plans](superpowers/plans/) + "
-        "[superpowers/specs](superpowers/specs/) — point-in-time implementation "
-        f"plans and specs dated {first.isoformat()} through {last.isoformat()} "
-        "(consult them when archaeology on a past track is needed; CHANGELOG "
-        "entries link the relevant artifacts)"
+        "- [plans](plans/) and [specs](specs/): point-in-time implementation "
+        f"plans and specs dated {first.isoformat()} through {last.isoformat()}. "
+        "CHANGELOG entries link the relevant artifacts."
     )
 
 
@@ -150,10 +149,12 @@ def render_canonical_references(repo_root: Path) -> dict[Path, str]:
             render_validator_catalog(),
         )
     )
-    docs_index = repo_root / "docs" / "README.md"
-    rendered[docs_index] = _final_newline(
+    # The archive is repository-only: docs/superpowers/ is not published, so a
+    # link to it from a published page is dead on the site and the wiki.
+    archive_index = repo_root / PLAN_ARCHIVE_INDEX
+    rendered[archive_index] = _final_newline(
         _replace_generated_block(
-            docs_index.read_text(encoding="utf-8"),
+            archive_index.read_text(encoding="utf-8"),
             _ARCHIVE_BEGIN,
             _ARCHIVE_END,
             render_plan_archive_line(repo_root),

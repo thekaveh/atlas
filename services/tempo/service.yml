@@ -37,8 +37,10 @@ sources:
 
 env:
   - name: TEMPO_SOURCE
+    description: "Deployment source for Grafana Tempo trace storage: container or disabled (default)."
     default: disabled
   - name: TEMPO_SCALE
+    description: "Set by ./start.sh from TEMPO_SOURCE; do not edit. 1 runs tempo, 0 does not."
     auto_managed: true
   - name: TEMPO_ENDPOINT
     auto_managed: true
@@ -81,6 +83,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

@@ -33,7 +33,7 @@ capabilities:
   - name: "Live cloud completion validation"
     status: not-supported
     verification: untested
-    note: "Atlas statically tests selection, key isolation, and rendered routing but performs no live credential, entitlement, model-availability, or provider certification; successful requests still depend on external accounts and APIs."
+    note: "Atlas statically tests selection, key isolation, and rendered routing but performs no live credential, entitlement, model-availability, or provider certification. Successful requests still depend on external accounts and APIs."
   - name: "Direct cloud-provider service endpoint"
     status: not-supported
     verification: documented
@@ -154,6 +154,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

@@ -8,7 +8,7 @@ capabilities:
   - name: "Container and managed-MPS image generation"
     status: supported
     verification: tested
-    note: "Atlas configures a CPU container and an Apple-Silicon Metal host process behind the same endpoint contract; `container-gpu` currently runs the same CPU image with no GPU device reservation, so it gets no CUDA acceleration."
+    note: "Atlas configures a CPU container and an Apple-Silicon Metal host process behind the same endpoint contract. `container-gpu` currently runs the same CPU image with no GPU device reservation, so it gets no CUDA acceleration."
   - name: "Workflow and model provisioning"
     status: partial
     verification: tested
@@ -64,10 +64,13 @@ sources:
 
 env:
   - name: COMFYUI_SOURCE
+    description: "Deployment source for ComfyUI: container-cpu (default), container-gpu, localhost, managed-localhost-mps or disabled. A consumer manifest may set auto to pick by host capability."
     default: container-cpu
   - name: COMFYUI_INIT_SOURCE
+    description: "Init-container selector listed in the SOURCE matrix (container or disabled). No code reads it: COMFYUI_INIT_SCALE follows COMFYUI_SOURCE."
     default: container
   - name: COMFYUI_PORT
+    description: "Host port that publishes the comfyui container (in-container port 18188)."
     # default removed — computed by services/topology.py slot allocator
   - name: COMFYUI_LOCALHOST_PORT
     default: "8000"
@@ -83,22 +86,24 @@ env:
     description: "Atlas-owned host state directory for the managed MPS ComfyUI: the pinned checkout, its venv, and the pid/log/status files. Never a container volume."
   - name: COMFYUI_MPS_MODELS_PATH
     default: "~/Documents/ComfyUI/models"
-    description: "Existing host models directory the managed MPS process reuses (via extra_model_paths) so no weights are duplicated. Shared with COMFYUI_LOCAL_MODELS_PATH by default. Also the provisioning destination under managed-localhost-mps: the host provisioner (#754) downloads declared COMFYUI_USER_MODELS here at start — not just a reuse path."
+    description: "Host models directory the managed MPS process reuses via extra_model_paths, so weights are not duplicated. Shared with COMFYUI_LOCAL_MODELS_PATH by default. Under managed-localhost-mps, the host provisioner also downloads COMFYUI_USER_MODELS here at start."
   - name: COMFYUI_MPS_MIN_MEMORY_GB
     default: "16"
     description: "Minimum unified-memory headroom (GiB) the managed MPS preflight requires before launching ComfyUI; below this the preflight warns."
   - name: COMFYUI_MPS_TORCH_PIN
     default: "torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0"
-    description: "Pinned Torch/vision/audio pip spec the managed MPS install applies, so fresh installs are reproducible against the same COMFYUI_MPS_REF instead of pulling whatever Torch is newest that day. Space-separated pip requirement specifiers; bump alongside COMFYUI_MPS_REF. macOS/arm64 torch wheels carry Metal/MPS."
+    description: "Space-separated pip specifiers for Torch, torchvision and torchaudio that the managed MPS install applies. The pin keeps fresh installs reproducible against COMFYUI_MPS_REF; bump both together. macOS/arm64 Torch wheels include Metal/MPS."
   - name: COMFYUI_MPS_LISTEN
     default: "127.0.0.1"
-    description: "Bind address the managed MPS ComfyUI host process listens on. Default 127.0.0.1 (loopback) works on Docker Desktop/macOS where host.docker.internal forwards to host loopback. On Linux container engines, host.docker.internal maps via host-gateway to a bridge address that cannot reach a loopback listener — set 0.0.0.0 there so containers can reach the host process. Local health/port probes use 127.0.0.1 for 0.0.0.0 or ::, and the bind address itself otherwise."
+    description: "Bind address of the managed MPS ComfyUI process. Keep 127.0.0.1 on Docker Desktop/macOS. On Linux engines, host.docker.internal resolves to a bridge address that cannot reach loopback, so set 0.0.0.0. Health probes use 127.0.0.1 for 0.0.0.0 or ::."
   - name: COMFYUI_BASE_URL
     default: "http://comfyui:18188"
     description: "In-container default. Runtime value is COMFYUI_ENDPOINT computed by hook."
   - name: COMFYUI_KONG_URL
+    description: "Passed to the comfyui container as SUPABASE_URL for the inert Supabase output upload. Default http://kong-api-gateway:8000/comfyui."
     default: "http://kong-api-gateway:8000/comfyui"
   - name: COMFYUI_ARGS
+    description: "ComfyUI launch arguments passed to the AI-Dock image verbatim. The manifest default is --listen; compose falls back to --listen --cpu when the value is unset."
     default: "--listen"
   - name: COMFYUI_AUTO_UPDATE
     default: true
@@ -107,41 +112,47 @@ env:
     default: "v0.27.0"
     description: "Pinned upstream ComfyUI git ref passed to AI-Dock. Use a release tag or full commit SHA when deliberately changing the ComfyUI core."
   - name: COMFYUI_PLATFORM
+    description: "Compose platform for the comfyui image (default linux/amd64)."
     default: "linux/amd64"
   - name: COMFYUI_UPLOAD_TO_SUPABASE
     default: true
-    description: "Reserved/inert flag. No consumer exists in the stock ai-dock image, Atlas provisioning, or the backend, so ComfyUI does NOT currently upload its outputs to Supabase; kept as a placeholder for a future output-upload custom node."
+    description: "Inert placeholder. Nothing in the ai-dock image, Atlas provisioning or the backend reads it, so ComfyUI does not upload outputs to Supabase. Kept for a future output-upload custom node."
   - name: COMFYUI_STORAGE_BUCKET
     default: "comfyui-images"
     description: "Reserved bucket name for the (currently inert) COMFYUI_UPLOAD_TO_SUPABASE placeholder; unused until an output-upload node is wired."
   - name: COMFYUI_MODELS_PATH
+    description: "Not interpolated by any compose file: comfyui-init sets its own COMFYUI_MODELS_PATH=/models, and the comfyui container mounts models at /opt/ComfyUI/models."
     default: "/opt/ComfyUI/models"
   - name: COMFYUI_LOCAL_MODELS_PATH
+    description: "Host models directory of an existing ComfyUI install. With COMFYUI_SOURCE=localhost, ./start.sh warns when it is missing. The comfyui container mounts it read-only at /host_models, which nothing reads."
     default: "~/Documents/ComfyUI/models"
   - name: COMFYUI_USER_MODELS
     default: ""
-    description: "Comma-separated catalog model names the user picked in the wizard (or via --comfyui-models). Read by services/comfyui/init/scripts/download_models.sh; and by the managed-MPS host provisioner (#754), which downloads the same resolved set into COMFYUI_MPS_MODELS_PATH."
+    description: "Comma-separated catalog model names picked in the wizard or with --comfyui-models. Read by services/comfyui/init/scripts/download_models.sh, and by the managed-MPS host provisioner, which downloads the same set into COMFYUI_MPS_MODELS_PATH."
   - name: COMFYUI_CUSTOM_MODELS_FILE
     default: "/custom-models.yaml"
     description: "Path to the ComfyUI custom-models sidecar YAML (user-authored models not in the curated catalog). Read by comfyui_resolver when generating the download manifest, and by the wizard's model picker."
   - name: COMFYUI_CUSTOM_NODES_FILE
     default: "/custom-nodes.yaml"
-    description: "Path (os.pathsep-joined list) to pinned ComfyUI custom-node allowlist files. The Atlas-shipped services/comfyui/custom-nodes.yaml is always present; consumer manifests (custom_nodes.comfyui in atlas.consumer.yml) append. Consumer-declared nodes are active unconditionally (not model-gated). The bootstrapper maps selected models' requires_custom_node values through this list before writing active-custom-nodes.tsv."
+    description: "Path list (os.pathsep-joined) of pinned custom-node allowlist files. The shipped services/comfyui/custom-nodes.yaml is always included; consumer manifests append custom_nodes.comfyui entries, which are always active. The bootstrapper maps selected models' requires_custom_node values through it into active-custom-nodes.tsv."
   - name: COMFYUI_INIT_SCALE
+    description: "Set by ./start.sh; do not edit. 1 runs the comfyui-init model download for container-* sources, 0 for localhost, managed-localhost-mps and disabled."
     auto_managed: true
   - name: COMFYUI_SCALE
+    description: "Set by ./start.sh from COMFYUI_SOURCE; do not edit. 1 runs the comfyui container for container-cpu and container-gpu, 0 otherwise."
     auto_managed: true
   - name: COMFYUI_ENDPOINT
     auto_managed: true
-    description: "Resolved per COMFYUI_SOURCE. Consumed by backend, open-webui, n8n, jupyterhub, and downstream overlays. Consumer pattern: MY_URL: ${MY_URL:-${COMFYUI_ENDPOINT:-http://comfyui:18188}}"
+    description: "Resolved per COMFYUI_SOURCE. Read by backend, celery, open-webui, jupyterhub and downstream overlays; hermes receives it as COMFYUI_INTERNAL_URL. Consumer pattern: MY_URL: ${MY_URL:-${COMFYUI_ENDPOINT:-http://comfyui:18188}}"
   - name: COMFYUI_DEPLOY_RESOURCES
+    description: "Derived by ./start.sh from the source's runtime deploy block ('~' when empty); do not set. No compose file reads it."
     default: "~"
   - name: COMFYUI_MEMORY_LIMIT
     default: 40g
     description: "Hard container-memory ceiling for ComfyUI (deploy.resources.limits.memory). The limit does not reserve memory; 40 g permits large multi-file bundles such as Krea 2 while smaller workloads consume only what they need."
   - name: COMFYUI_CPU_LIMIT
     default: "2.0"
-    description: "Container CPU limit for the comfyui container (deploy.resources.limits.cpus). 2.0 cores keeps CPU-mode inference from monopolising the host; GPU mode is GPU-bound so the CPU cap is irrelevant in practice."
+    description: "CPU limit for the comfyui container (deploy.resources.limits.cpus). The 2.0 default stops CPU-mode inference from monopolising the host. GPU mode is GPU-bound, so the cap rarely matters."
 
 
 depends_on:
@@ -270,6 +281,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

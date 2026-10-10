@@ -6,7 +6,7 @@ The start-order column is each manifest's `depends_on.required`: it orders start
 
 | Service | Start order (depends_on.required) | Optional | Runtime Calls |
 | --- | --- | --- | --- |
-| airflow | supabase, litellm, redis | spark, minio, iceberg-rest, redpanda, weaviate, neo4j | supabase, spark, redpanda, minio, iceberg-rest, litellm, weaviate, neo4j, redis |
+| airflow | supabase, litellm, redis | spark, minio, iceberg-rest, redpanda, weaviate, neo4j | supabase, spark, redpanda (optional: an operator-authored DAG; Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS), minio, iceberg-rest, litellm, weaviate (optional: an operator-authored DAG; airflow-init only seeds the Connection), neo4j (optional: an operator-authored DAG; airflow-init only seeds the Connection), redis (optional: an operator-authored DAG; airflow-init only seeds the Connection) |
 | asset-baker | minio | backend, comfyui, fal, blender-mcp, asset-worker | minio |
 | asset-worker | minio | backend, comfyui, fal, blender-mcp | minio |
 | backend | supabase, redis, litellm | weaviate, kong, celery, supavisor | supabase, weaviate, litellm, comfyui, fal, n8n, ray, local-deep-researcher, celery, supavisor, tika, docling, lightrag, tei-reranker, minio, redis, otel-collector, kong, neo4j (planned) |
@@ -24,7 +24,7 @@ The start-order column is each manifest's `depends_on.required`: it orders start
 | fal | - | - | - |
 | globals | - | - | - |
 | grafana | prometheus, supabase, kong, ray | - | prometheus, tempo, loki |
-| hermes | litellm | - | litellm, stt-provider, tts-provider, comfyui, searxng, airflow (planned), lightrag |
+| hermes | litellm | - | litellm, stt-provider, tts-provider, comfyui, searxng, airflow (planned), lightrag (planned) |
 | iceberg-rest | minio, supabase | - | minio, supabase |
 | jenkins | minio | airflow, spark | minio (optional: an operator-authored Jenkins job; none ships with Atlas) |
 | jupyterhub | supabase, redis, litellm | minio, iceberg-rest, spark, mcp-servers, redpanda | litellm, hermes, weaviate, neo4j, supabase, ray, spark, redpanda, redis, comfyui, n8n, backend, searxng, minio, iceberg-rest, mlflow, label-studio, docling, stt-provider, tts-provider, mcp-servers (optional: MCP_SERVERS_SOURCE=container) |
@@ -66,4 +66,4 @@ The start-order column is each manifest's `depends_on.required`: it orders start
 | verba | weaviate, litellm, kong | docling, open-webui, jupyterhub | weaviate, litellm |
 | vllm-metal | litellm | - | - |
 | weaviate | supabase, litellm | - | litellm (optional: only collections whose text2vec-openai baseURL is LiteLLM, as the backend's are), multi2vec-clip |
-| zeppelin | spark, minio | supabase, iceberg-rest, redpanda, trino | spark, supabase, minio, iceberg-rest, redpanda, trino |
+| zeppelin | spark, minio | supabase, iceberg-rest, redpanda, trino | spark, supabase, minio, iceberg-rest, redpanda (optional: Kafka jars not bundled (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS), trino |

@@ -1,31 +1,28 @@
 # 5.2.23. Kong API Gateway
 
-Kong is Atlas's API gateway. It routes `*.localhost` requests to services using configuration generated at startup, and handles authentication and service management for those routes.
+Kong is Atlas's API gateway. It routes `*.localhost` requests to services, using a configuration that `./start.sh` generates from the current SOURCE settings. It also applies authentication, CORS and timeouts per route.
 
 ## 1. Overview
 
-Kong acts as the central entry point for most services, routing requests to appropriate backend services based on dynamic configuration generated at startup.
+Kong runs DB-less (`KONG_DATABASE: "off"`) and loads one declarative file. It is the entry point for most browser and API traffic to the stack.
 
 ## 2. Dynamic Configuration
 
-Kong's configuration is generated dynamically at startup and adapts to the current SOURCE settings, rather than being maintained as static config files:
+`bootstrapper/utils/kong_config_generator.py` builds the Kong configuration on every `./start.sh`:
 
-- **Automatic Route Generation**: Kong routes are created based on enabled services
-- **Health Checking**: Localhost services are checked for availability before routing
-- **Adaptive Configuration**: Disabled services automatically have their routes removed
-- **No Manual Configuration**: Replaces the old dual kong.yml/kong-local.yml approach
+- **Route generation**: each enabled service gets its routes.
+- **Disabled services**: a service with `*_SOURCE=disabled` gets no route.
+- **Health check (advisory)**: the generator probes localhost-sourced services and warns if they are down. It creates the route either way.
 
-The configuration is generated at startup by `bootstrapper/utils/kong_config_generator.py`.
+`volumes/api/kong-dynamic.yml` is a generated runtime file, not a checked-in file. It is in `.gitignore` and reflects the resolved SOURCE state at the last `./start.sh`. A direct `docker compose up` from a clean checkout fails because the bind-mount source does not exist. Always start through `./start.sh`, which writes the file before it runs compose.
 
-`volumes/api/kong-dynamic.yml` is **a generated runtime artifact, not a checked-in file**. It is `.gitignore`d, regenerated on every `./start.sh`, and reflects the resolved SOURCE state (container / localhost / disabled) at that moment. Direct `docker compose up` from a clean checkout will fail because the bind mount target won't exist — always launch through `./start.sh`, which writes the file before invoking compose.
-
-Validate the default-route **generator contract** (no `./start.sh` needed; the checker materialises a tmp dir with a copy of `.env.example`, runs `kong_config_generator` against it, and verifies the output. Your local `volumes/api/kong-dynamic.yml` is *not* read — its contents depend on your current `.env`, which makes it useless as a regression check):
+Validate the generator contract without `./start.sh`. The checker copies `.env.example` to a temporary directory, runs `kong_config_generator` against it, and checks the output. It does not read your local `volumes/api/kong-dynamic.yml`, which depends on your `.env`.
 
 ```bash
 uv run --project bootstrapper python scripts/check-kong-routes.py
 ```
 
-Plain `python3 scripts/check-kong-routes.py` works too if `PyYAML` is on your system Python — the checker prints `FAIL import: PyYAML is required to parse Kong config` and exits with status 2 otherwise. The `uv` form is preferred because it uses the project's pinned dependencies.
+`python3 scripts/check-kong-routes.py` also works if `PyYAML` is installed in your system Python. Otherwise it prints `FAIL import: PyYAML is required to parse Kong config` and exits with status 2. The `uv` form uses the project's pinned dependencies.
 
 ## 3. Service Routing
 
@@ -35,60 +32,29 @@ Plain `python3 scripts/check-kong-routes.py` works too if `PyYAML` is on your sy
 - `/rest/v1/` → Supabase API (PostgREST)
 - `/graphql/v1` → Supabase GraphQL
 - `/realtime/v1/` → Supabase Realtime
-- `/storage/v1/` → Supabase Storage (key-auth). `/storage/v1/object/public/`, `/storage/v1/object/sign/` and `/storage/v1/object/upload/sign/` carry CORS only, so browsers and outside services can fetch public-bucket and signed URLs without an `apikey`; Storage itself enforces the bucket's public flag or the signed token
+- `/storage/v1/` → Supabase Storage (key-auth). `/storage/v1/object/public/`, `/storage/v1/object/sign/` and `/storage/v1/object/upload/sign/` carry CORS only. Browsers and outside services fetch public-bucket and signed URLs without an `apikey`; Storage enforces the bucket's public flag or the signed token.
 - `/pg/` → Supabase Meta service
 - `supabase-studio.localhost` → Supabase Studio dashboard
 
-The path routes above answer only on `localhost`, `127.0.0.1`, `kong-api-gateway` (the in-network name Atlas containers use), `<PROJECT_NAME>-kong-api-gateway` (its container name) and `host.docker.internal`, plus any bare hostname or IPv4 address in `KONG_SUPABASE_EXTRA_HOSTS`: a tunnel hostname, the LAN address when `HOST_BIND_IP` exposes Kong on the network, or the host of a custom `API_EXTERNAL_URL`/`SITE_URL` whose auth links point through Kong. Any other Host gets 404, so a public hostname does not reach Supabase by accident. A Host header with a port still matches; matching is case-sensitive, and IPv6 literals cannot be listed. The key-auth services also carry an `acl` admitting only the `anon` (`SUPABASE_ANON_KEY`) and `admin` (`SUPABASE_SERVICE_KEY`) groups, as upstream Supabase does, so another Kong key such as `BACKEND_KONG_API_KEY` gets 403 there (#1382).
+**Allowed Host names.** The path routes answer only on these Hosts:
+
+- `localhost`, `127.0.0.1`, `kong-api-gateway` (the in-network name), `<PROJECT_NAME>-kong-api-gateway` (the container name) and `host.docker.internal`.
+- Each bare hostname or IPv4 address in `KONG_SUPABASE_EXTRA_HOSTS`. Use it for a tunnel hostname, the LAN address when `HOST_BIND_IP` exposes Kong, or the host of a custom `API_EXTERNAL_URL`/`SITE_URL`.
+
+Any other Host gets 404, so a public hostname does not reach Supabase by accident. A Host header with a port still matches. Matching is case-sensitive, so list hosts in lowercase. IPv6 literals cannot be listed.
+
+**Consumers.** The key-auth services also carry an `acl` that admits only the `anon` (`SUPABASE_ANON_KEY`) and `admin` (`SUPABASE_SERVICE_KEY`) groups, as upstream Supabase does. Another Kong key, such as `BACKEND_KONG_API_KEY`, gets 403 there.
 
 ### 3.2. Dynamic Routes (Based on SOURCE)
-- `comfyui.localhost` → ComfyUI service (if enabled)
-- `n8n.localhost` → n8n service (if enabled)
-- `search.localhost` → SearxNG service (if enabled)
-- `api.localhost` → Backend API (always-on adaptive core service)
-- `chat.localhost` → Open WebUI (if enabled)
-- `jupyter.localhost` → JupyterHub (if enabled)
-- `openclaw.localhost` → OpenClaw gateway (if enabled)
-- `hermes.localhost` → Hermes Agent web dashboard (if `HERMES_SOURCE != disabled` and `HERMES_DASHBOARD_ENABLED=true`)
-- `litellm.localhost` → LiteLLM gateway + admin dashboard (always-on; same alias exposes `/ui/`, `/v1/*`, and `/spend/*`)
-- `minio.localhost` → MinIO admin console (if `MINIO_SOURCE != disabled`)
-- `s3.minio.localhost` → MinIO S3 API (if `MINIO_SOURCE != disabled`; clients can also use the direct `MINIO_PORT`). `/minio/v2/metrics`, `/minio/metrics/v3` and `/minio/prometheus/metrics` answer 403 (`request-termination`, #1386)
-- `supabase-studio.localhost` → Supabase Studio dashboard
-- `graph.localhost` → Neo4j Browser (`NEO4J_GRAPH_DB_SOURCE != disabled`)
-- `weaviate.localhost` → Weaviate REST API (`WEAVIATE_SOURCE != disabled`)
-- `ollama.localhost` → Ollama upstream (`LLM_PROVIDER_SOURCE ∈ {ollama-container-*, ollama-localhost}`)
-- `docling.localhost` → Docling document processor (`DOC_PROCESSOR_SOURCE != disabled`)
-- `research.localhost` → Local Deep Researcher (`LOCAL_DEEP_RESEARCHER_SOURCE != disabled`)
-- `stt.localhost` → STT engine (`STT_PROVIDER_SOURCE != disabled`; container resolves to `parakeet-gpu` or `speaches`, localhost to `host.docker.internal` on the per-engine port)
-- `tts.localhost` → TTS engine (`TTS_PROVIDER_SOURCE != disabled`; container resolves to `speaches:8000` or `chatterbox:4123`, localhost to `host.docker.internal` on the per-engine port)
-- `spark.localhost` → Spark Master Web UI (`SPARK_SOURCE != disabled`; routes to in-container `spark-master:8080`)
-- `spark-history.localhost` → Spark History Server UI (`SPARK_SOURCE != disabled`; routes to in-container `spark-history:18080`)
-- `trino.localhost` → Trino coordinator UI/API (`TRINO_SOURCE=container`; routes to in-container `trino:8080`)
-- `redpanda.localhost` → Redpanda Console (`REDPANDA_SOURCE=container`; routes to in-container `redpanda-console:8080`; Kafka API is direct/in-network, not Kong)
-- `airflow.localhost` → Airflow Web UI + REST API (`AIRFLOW_SOURCE != disabled`; routes to in-container `airflow-webserver:8080`; same alias serves UI at `/` and REST API under `/api/v2/`)
-- `lightrag.localhost` → http://lightrag:9621/ (LightRAG WebUI + API; `preserve_host` enabled)
-- `rerank.localhost` → http://tei-reranker:80/ (TEI rerank API)
-- `grafana.localhost` → http://grafana:3000/ (Grafana dashboards; `GRAFANA_SOURCE != disabled`)
-- `prometheus.localhost` → http://prometheus:9090/ (Prometheus UI; `PROMETHEUS_SOURCE != disabled`). `/-/quit` and `/-/reload` answer 403 (`request-termination`, #1386)
-- `ray.localhost` → http://ray-head:8265/ (Ray dashboard; `RAY_SOURCE != disabled`)
-- `langfuse.localhost` → http://langfuse-web:3000/ (Langfuse observability UI; `LANGFUSE_SOURCE=container`)
-- `mlflow.localhost` → http://mlflow:5000/ (MLflow tracking UI; `MLFLOW_SOURCE=container`)
-- `label-studio.localhost` → http://label-studio:8080/ (Label Studio; `LABEL_STUDIO_SOURCE=container`)
-- `jenkins.localhost` → http://jenkins:8080/ (Jenkins CI; `JENKINS_SOURCE=container`)
-- `graphbuilder.localhost` → http://llm-graph-builder-frontend:8080/ and `graphbuilder-api.localhost` → http://llm-graph-builder-backend:8000/ (Neo4j LLM Graph Builder UI + API; `LLM_GRAPH_BUILDER_SOURCE=container`)
-- `mcp.localhost` → http://mcp-servers:8000/ (MCP servers; `MCP_SERVERS_SOURCE != disabled`)
-- `flower.localhost` → http://flower:5555/ (Celery Flower dashboard; `CELERY_SOURCE=container`)
-- `asset-baker.localhost` → http://asset-baker:8096/ (Asset Baker API; `ASSET_BAKER_SOURCE != disabled`)
-- `asset-worker.localhost` → http://asset-worker:8095/ (Asset Worker API; `ASSET_WORKER_SOURCE != disabled`)
-- `crawl4ai.localhost` → http://crawl4ai:11235/ (Crawl4AI; `CRAWL4AI_SOURCE=container`)
-- `tika.localhost` → http://tika:9998/ (Apache Tika; `TIKA_SOURCE != disabled`)
-- `verba.localhost` → http://verba:8000/ (Verba RAG UI; `VERBA_SOURCE != disabled`)
 
-> The authoritative, always-current route set is the generated **§13.1 Current — Upstream** table (derived from `data_flow.calls`); the list above names the primary aliases and their upstreams.
+Kong publishes one `<alias>.localhost` host per enabled service. [Ports and Routes §2](../../docs/operations/ports-and-routes.md#2-kong-hostnames) lists every host, its SOURCE condition and its auth gate. The generated §13.1 table lists every service Kong proxies; `volumes/api/kong-dynamic.yml` is the exact route set for your `.env`.
 
 Example: `curl http://lightrag.localhost:${KONG_HTTP_PORT}/health`
 
-Each `*-localhost` source still gets a Kong route — Kong proxies through `host.docker.internal` to the user's host machine. Kong's compose entry includes `extra_hosts: ["host.docker.internal:${HOST_GATEWAY_IP}"]` so this works on Linux Docker too (Docker Desktop on macOS/Windows resolves it automatically). Users with non-default localhost ports override via `<SVC>_LOCALHOST_PORT` env vars; both the in-container consumers (`runtime_sc.<svc>.localhost.environment`) and the Kong route generator (`bootstrapper/utils/kong_config_generator.py`) read the same PORT var and derive the URL as `http://host.docker.internal:${<SVC>_LOCALHOST_PORT}`, keeping both paths in sync.
+**Localhost sources.** Each `*-localhost` source still gets a Kong route that proxies through `host.docker.internal` to the host.
+
+- Kong's compose entry sets `extra_hosts: ["host.docker.internal:${HOST_GATEWAY_IP}"]`, so this works on Linux Docker. Docker Desktop resolves the name itself.
+- For a non-default host port, set `<SVC>_LOCALHOST_PORT`. The in-container consumers (`runtime_sc.<svc>.localhost.environment`) and the Kong generator both read it and use `http://host.docker.internal:${<SVC>_LOCALHOST_PORT}`.
 
 ## 4. SOURCE-Based Configuration
 
@@ -106,53 +72,56 @@ else:  # container-cpu / container-gpu
 
 ### 4.2. Proxy timeouts
 
-Every generated service gets a 300-second `read_timeout` / `write_timeout`
-unless it declares its own (backend plugins may set theirs; n8n uses the default so long-running webhooks are not cut off).
-Services whose single synchronous request can run longer get more: `docling-api`
-follows `DOCLING_INFERENCE_TIMEOUT_SECONDS` + 30 s (930 s by default), the backend
-`api.localhost` routes 3630 s, including per-plugin backend services for any field the plugin does not set (they wait on Docling or on a ComfyUI job's own
-timeout of up to 3600 s), and `litellm-gateway` / `ollama-api` 630 s for slow
-non-streaming completions. A shorter Kong limit answered 504 while the upstream
-kept working.
-Kong 3.x has no global proxy-timeout setting, so these live per service in
-`kong-dynamic.yml`; Kong's own 60-second default otherwise cuts off slow
-non-streaming LLM calls and idle streams or WebSockets. Retries happen only on
-connection errors (`KONG_NGINX_PROXY_PROXY_NEXT_UPSTREAM=error`), so a request
-that times out (connect, send or read) fails after one wait instead of being
-re-sent.
+Kong 3.x has no global proxy-timeout setting, and its per-service default is 60 s. The generator therefore writes `read_timeout` and `write_timeout` on every service in `kong-dynamic.yml`:
+
+| Service | Timeout |
+|---|---|
+| Default (including n8n, so long webhooks are not cut off) | 300 s |
+| `docling-api` | `DOCLING_INFERENCE_TIMEOUT_SECONDS` + 30 s (930 s by default) |
+| `asset-baker` | `ASSET_BAKER_TIMEOUT_SECONDS` + 30 s (630 s by default) |
+| Backend `api.localhost` | 3,630 s, or the Docling value + 30 s if larger. Backend requests wait on Docling or on a ComfyUI job of up to 3,600 s. |
+| Backend plugin services | the plugin's own values; the Backend value for any field the plugin does not set |
+| `litellm-gateway`, `ollama-api` | 630 s, for slow non-streaming completions |
+
+Kong retries only on connection errors (`KONG_NGINX_PROXY_PROXY_NEXT_UPSTREAM=error`). A request that times out on connect, send or read fails after one wait and is not re-sent.
 
 ### 4.3. Localhost Service Health Checks
-When routing to localhost services, Kong generator performs health checks:
 
-```python
-def check_localhost_service(self, host: str, port: int, service_name: str) -> bool:
-    try:
-        with socket.create_connection((host, port), timeout=2):
-            return True
-    except (socket.error, socket.timeout):
-        print(f"WARN: {service_name} localhost service not reachable on {host}:{port}")
-        return False
-```
+`check_localhost_service()` opens a TCP connection to each localhost-sourced service with a 2-second timeout. If it fails, the generator prints a warning and still creates the route. The route returns errors until the host service starts.
 
 ## 5. Authentication
 
-Kong handles multiple authentication schemes:
+Kong applies one of three schemes per route:
 
-- **API Key Authentication**: Used for Supabase API services
-- **Basic Authentication**: Used for protected admin interfaces
-- **Pass-through Authentication**: For services that handle their own auth
+- **API key** (`key-auth`): Supabase API services.
+- **Basic** (`basic-auth`): protected dashboards.
+- **Pass-through**: services that handle their own auth.
 
-On a Basic-auth route Kong reads the dashboard credential from `Authorization` or `Proxy-Authorization`. Clients that need `Authorization` for the service's own token (Crawl4AI's `Bearer`, Label Studio's `Token`, Langfuse's public-API `Basic pk:sk`) send the dashboard credential as `Proxy-Authorization: Basic …` alongside it. Trino's route strips the credential before forwarding (`hide_credentials`), because Trino rejects any password over plain HTTP.
+On a Basic-auth route Kong reads the dashboard credential from `Authorization` or `Proxy-Authorization`. Some clients need `Authorization` for the service's own token: Crawl4AI's `Bearer`, Label Studio's `Token`, and Langfuse's public-API `Basic pk:sk`. They send the dashboard credential as `Proxy-Authorization: Basic …` alongside it. Trino's route strips the credential before forwarding (`hide_credentials`), because Trino rejects any password over plain HTTP.
+
+**Blocked paths.** Two routes answer `403` at the gateway and never reach the upstream. Use the internal network for these paths:
+
+- `s3.minio.localhost`: the MinIO metrics paths (`/minio/v2/metrics`, `/minio/metrics/v3`, `/minio/prometheus/metrics`).
+- `prometheus.localhost`: `/-/quit` and `/-/reload`.
 
 ### 5.1. Forwarded headers
 
-Kong runs with `KONG_PORT_MAPS=${KONG_HTTP_PORT}:8000,${KONG_HTTPS_PORT}:8443`, so `X-Forwarded-Port` carries the published port and upstreams that build absolute URLs from it (Trino redirects and `nextUri`) point back at Kong. Kong sets `X-Forwarded-Host` itself, without a port, and overwrites any value a plugin adds; the n8n route therefore also adds an RFC 7239 `Forwarded: host=n8n.localhost:<port>;proto=http` header, which n8n's editor origin check reads first. That header names the HTTP port, so n8n's editor live connection works through Kong over HTTP only.
+Kong runs with `KONG_PORT_MAPS=${KONG_HTTP_PORT}:8000,${KONG_HTTPS_PORT}:8443`. `X-Forwarded-Port` therefore carries the published port, so upstreams that build absolute URLs from it (Trino redirects and `nextUri`) point back at Kong.
 
-Inside the Docker network, a client that calls `kong-api-gateway:8000` directly now sees the published port in `X-Forwarded-Port`. Supabase Storage builds S3 signatures and resumable-upload (TUS) URLs from it, so S3 or TUS calls made through Kong from another container would need `STORAGE_PUBLIC_URL`; Atlas's own containers use only the REST API there.
+Kong sets `X-Forwarded-Host` itself, without a port, and overwrites any value a plugin adds. The n8n route therefore also adds an RFC 7239 `Forwarded: host=n8n.localhost:<port>;proto=http` header, which n8n's editor origin check reads first. That header names the HTTP port, so n8n's editor live connection works through Kong over HTTP only.
+
+A client inside the Docker network that calls `kong-api-gateway:8000` directly also sees the published port in `X-Forwarded-Port`. Supabase Storage builds S3 signatures and resumable-upload (TUS) URLs from it. S3 or TUS calls through Kong from another container therefore need `STORAGE_PUBLIC_URL`. Atlas's own containers use only the Storage REST API.
 
 ## 6. CORS Handling
 
-All services get a CORS plugin. A bare `{'name': 'cors'}` would answer `Access-Control-Allow-Origin: *`, so any website the operator visits could read responses from, and send preflighted requests to, the no-login services. The generator scopes every one to local browser origins (`_with_local_cors`): any `*.localhost`, `localhost` or `127.0.0.1` page on any port, plus the exact origins listed in `KONG_CORS_EXTRA_ORIGINS` (a LAN or tunnel front-end; entries are normalised to the browser's form, lowercase without a trailing slash or default port, and a wildcard or path is ignored with a warning). Other origins get no `Access-Control-Allow-Origin`; simple cross-site requests (plain POSTs) still reach the upstream, so CORS is not an authentication boundary. Kong never adds `Access-Control-Allow-Credentials`, but an upstream's own header passes through for allowed origins. `[::1]` origins cannot be matched (Kong drops the brackets), so use `localhost` or `127.0.0.1`. Upstream CORS settings such as `BACKEND_CORS_ORIGINS` only apply within what Kong allows.
+Every service gets a CORS plugin. A bare `{'name': 'cors'}` answers `Access-Control-Allow-Origin: *`, which would let any website the operator visits read responses from the no-login services. The generator (`_with_local_cors`) scopes each plugin:
+
+- **Allowed origins**: any `*.localhost`, `localhost` or `127.0.0.1` page on any port, plus the exact origins in `KONG_CORS_EXTRA_ORIGINS` (for a LAN or tunnel front-end). Other origins get no `Access-Control-Allow-Origin`.
+- **`KONG_CORS_EXTRA_ORIGINS` format**: entries are normalised to the browser's form: lowercase, no trailing slash, no default port. A wildcard or path is ignored with a warning.
+- **Not an authentication boundary**: simple cross-site requests, such as plain POSTs, still reach the upstream.
+- Kong never adds `Access-Control-Allow-Credentials`, but an upstream's own header passes through for allowed origins.
+- `[::1]` origins cannot match, because Kong drops the brackets. Use `localhost` or `127.0.0.1`.
+- Upstream CORS settings, such as `BACKEND_CORS_ORIGINS`, apply only inside what Kong allows.
 
 ## 7. Rate Limiting
 
@@ -185,14 +154,14 @@ Kong supports WebSocket connections for real-time services:
 
 ## 9. Configuration Generation Process
 
-1. **Startup**: `start.py` calls Kong configuration generator at step 4.5
-2. **Environment Parsing**: Current .env file is parsed for SOURCE values
-3. **Health Checks**: Localhost services are checked for availability  
-4. **Route Generation**: Only enabled services get routes created
-5. **File Writing**: Configuration written to volumes/api/kong-dynamic.yml
-6. **Kong Startup**: Kong loads the generated configuration
+1. **Startup**: `./start.sh` runs `generate_kong_configuration` after service configuration and dependency checks, and before LiteLLM configuration.
+2. **Environment parsing**: the generator reads SOURCE values from the parsed `.env`.
+3. **Health checks**: the generator probes localhost-sourced services and warns if they are down (§4.3).
+4. **Route generation**: only enabled services get routes.
+5. **File writing**: the configuration is written to `volumes/api/kong-dynamic.yml`.
+6. **Kong startup**: Kong loads the generated file from `/home/kong/kong.yml`.
 
-Kong loads only the plugins named in `KONG_PLUGINS` (`services/kong/compose.yml`), and DB-less Kong rejects the whole declarative file when it names any other plugin, which takes down every route. A generator change that emits a new plugin must add it there; `tests/test_kong_route_and_auth_invariants.py` checks every emitted plugin against the list.
+Kong loads only the plugins named in `KONG_PLUGINS` (`services/kong/compose.yml`). DB-less Kong rejects the whole declarative file if it names any other plugin, which takes down every route. A generator change that emits a new plugin must add it to `KONG_PLUGINS`. `tests/test_kong_route_and_auth_invariants.py` checks every emitted plugin against the list.
 
 ## 10. Debugging Kong Configuration
 
@@ -206,38 +175,40 @@ docker logs ${PROJECT_NAME}-kong-api-gateway -f
 
 # Test Kong routing end-to-end (proxies SearXNG's /healthz through Kong;
 # the bare-localhost root serves the generated Atlas dashboard)
-curl -H 'Host: search.localhost' http://localhost:63000/healthz
+curl -H 'Host: search.localhost' http://localhost:${KONG_HTTP_PORT}/healthz
 ```
 
 ### 10.2. Verify Routes
 ```bash
-# List all configured routes
-docker exec ${PROJECT_NAME}-kong-api-gateway kong config -c /home/kong/kong.yml dump
+# Validate the generated declarative config inside the running gateway
+docker exec ${PROJECT_NAME}-kong-api-gateway kong config parse /home/kong/kong.yml
+# List hosts and paths Kong will route
+grep -nE '^\s+(hosts|paths):' -A2 volumes/api/kong-dynamic.yml
 
 # Test specific routes
-curl -H "Host: comfyui.localhost" http://localhost:63000/
-curl -H "Host: n8n.localhost" http://localhost:63000/
-curl -H "Host: jupyter.localhost" http://localhost:63000/
-curl -H "Host: openclaw.localhost" http://localhost:63000/
-curl -H "Host: hermes.localhost" http://localhost:63000/
-curl -H "Host: api.localhost" http://localhost:63000/health
+curl -H "Host: comfyui.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -H "Host: n8n.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -H "Host: jupyter.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -H "Host: openclaw.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -H "Host: hermes.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -H "Host: api.localhost" http://localhost:${KONG_HTTP_PORT}/health
 # If BACKEND_KONG_AUTH=key-auth:
-curl -H "Host: api.localhost" -H "apikey: ${BACKEND_KONG_API_KEY}" http://localhost:63000/health
-curl -H "Host: litellm.localhost" http://localhost:63000/ui/
-curl -H "Host: minio.localhost" http://localhost:63000/
-curl -H "Host: spark.localhost" http://localhost:63000/
-curl -H "Host: spark-history.localhost" http://localhost:63000/
-curl -u "${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}" -H "Host: trino.localhost" http://localhost:63000/
-curl -u "${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}" -H "Host: redpanda.localhost" http://localhost:63000/
-curl -H "Host: airflow.localhost" http://localhost:63000/
+curl -H "Host: api.localhost" -H "apikey: ${BACKEND_KONG_API_KEY}" http://localhost:${KONG_HTTP_PORT}/health
+curl -H "Host: litellm.localhost" http://localhost:${KONG_HTTP_PORT}/ui/
+curl -H "Host: minio.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -H "Host: spark.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -H "Host: spark-history.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -u "${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}" -H "Host: trino.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -u "${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}" -H "Host: redpanda.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -H "Host: airflow.localhost" http://localhost:${KONG_HTTP_PORT}/
 # Airflow REST API (same alias). 3.x is JWT-only — exchange password
 # for a token via /auth/token, then call /api/v2/ with Bearer auth:
 TOKEN=$(curl -fsS -X POST -H "Host: airflow.localhost" \
   -H 'Content-Type: application/json' \
   -d "{\"username\":\"admin\",\"password\":\"${AIRFLOW_ADMIN_PASSWORD}\"}" \
-  http://localhost:63000/auth/token | jq -r .access_token)
+  http://localhost:${KONG_HTTP_PORT}/auth/token | jq -r .access_token)
 curl -H "Host: airflow.localhost" -H "Authorization: Bearer $TOKEN" \
-  http://localhost:63000/api/v2/dags
+  http://localhost:${KONG_HTTP_PORT}/api/v2/dags
 ```
 
 ## 11. Advanced Configuration
@@ -251,13 +222,7 @@ Key methods:
 
 ## 12. Integration with Other Services
 
-Kong integrates with:
-- **Service Configuration**: Uses SOURCE values from service_config.py
-- **Environment Management**: Reads from parsed .env files
-- **Health Monitoring**: Checks localhost service availability
-- **Dynamic Scaling**: Adapts to enabled/disabled services
-
-For more information on Kong's role in the overall architecture, see the system overview in the project [README](../../README.md) and the architecture diagram at `docs/diagrams/architecture.svg`.
+§13 lists the services Kong proxies and the services that call Kong.
 
 ## 13. Dependencies & Integrations
 
@@ -322,23 +287,23 @@ For more information on Kong's role in the overall architecture, see the system 
 
 ### 13.4. Future — Missing pair integrations
 
-- **kong ↔ multi2vec-clip** — *Why:* exposing CLIP's raw `/vectors` endpoint via Kong lets backend, n8n, and jupyterhub compute embeddings directly instead of round-tripping a Weaviate query, unlocking re-ranking and offline batch jobs. *Mechanism:* alias `clip.localhost` → `http://multi2vec-clip:8080/vectors`, gated by `MULTI2VEC_CLIP_SOURCE != disabled`, CORS plugin only. *Effort:* small. *Confidence:* low.
+- **kong ↔ multi2vec-clip** — *Why:* with CLIP's raw `/vectors` endpoint behind Kong, backend, n8n and jupyterhub could compute embeddings without a Weaviate query. This enables re-ranking and offline batch jobs. *Mechanism:* alias `clip.localhost` → `http://multi2vec-clip:8080/vectors`, gated by `MULTI2VEC_CLIP_SOURCE != disabled`, CORS plugin only. *Effort:* small. *Confidence:* low.
 
 ### 13.5. Future — Candidate new services
 
-- **Keycloak** ([details](../../docs/research/candidates/keycloak.md)) — *Headline:* self-hosted OIDC/OAuth2 provider replacing the stack's ad-hoc per-service basic-auth with a single SSO layer fronted by Kong. *Wires into:* kong, jupyterhub, open-webui, n8n, minio, neo4j, openclaw, backend.
+- **[Keycloak](../../docs/research/candidates/keycloak.md)** — *Headline:* self-hosted OIDC/OAuth2 provider. It would replace per-service basic-auth with one SSO layer behind Kong. *Wires into:* kong, jupyterhub, open-webui, n8n, minio, neo4j, openclaw, backend.
 
 ### 13.6. Future — Unused features in this service
 
-- **`prometheus` plugin** — *Why pursue:* Kong 3.9 OSS bundles it; enabling it per-route gives free p50/p95/error-rate per upstream with zero code changes. *Effort:* small.
+- **Per-consumer metrics** — *Why pursue:* the global `prometheus` plugin runs with `per_consumer: false`, so metrics cannot be split by API consumer. *Effort:* small.
 - **`opentelemetry` plugin** — *Why pursue:* emit OTLP spans for every gateway hop so requests through Kong → LiteLLM → Ollama can be stitched into a single trace. *Effort:* small.
-- **`jwt` plugin (replacing per-route basic-auth)** — *Why pursue:* validate JWTs against Supabase GoTrue keys already in `.env` to secure jupyter/n8n/openclaw/hermes without standing up a new identity service. *Effort:* medium.
+- **`jwt` plugin (replacing per-route basic-auth)** — *Why pursue:* validate JWTs against the Supabase GoTrue keys in `.env`. This would secure jupyter, n8n, openclaw and hermes without a new identity service. *Effort:* medium.
 - **`request-size-limiting` plugin** — *Why pursue:* ComfyUI and Docling routes accept arbitrarily large multipart uploads; a 100 MB cap at the gateway prevents accidental host OOM. *Effort:* small.
 - **`correlation-id` plugin** — *Why pursue:* inject `X-Request-ID` on ingress so backend/litellm/hermes logs become joinable across the request path. *Effort:* small.
 - **`ai-proxy` plugin** — *Why pursue:* Kong's AI Gateway normalizes OpenAI/Anthropic/Ollama request shapes at the edge, worth evaluating as a comparison (not replacement) for LiteLLM's role. *Effort:* large.
 - **`ai-prompt-guard` plugin** — *Why pursue:* regex allow/deny on prompt content at the gateway gives a defense-in-depth layer before LiteLLM. *Effort:* medium.
 - **Health-check active probing** — *Why pursue:* swap the one-shot TCP probe at startup for Kong's `healthchecks.active` block so localhost services auto-recover when they bounce. *Effort:* small.
-- **Admin API on a private host port** — *Why pursue:* Kong's admin API (8001) is bound to container loopback (`127.0.0.1:8001`) — reachable via `docker exec` (see §14.2) but not exposed to the host or network. Selectively publishing read-only `/status` on an internal host port would unblock external health dashboards. *Effort:* small.
+- **Admin API on a private host port** — *Why pursue:* Kong's admin API binds to container loopback (`127.0.0.1:8001`). The image has no `curl` to query it. Publishing read-only `/status` on an internal host port would serve external health dashboards. *Effort:* small.
 
 ## 14. Troubleshooting
 
@@ -367,13 +332,13 @@ docker compose ps | grep kong
 # View detailed Kong configuration
 docker exec ${PROJECT_NAME}-kong-api-gateway cat /home/kong/kong.yml
 
-# Test internal Kong admin API
-docker exec ${PROJECT_NAME}-kong-api-gateway curl http://localhost:8001/status
+# Check that the gateway is up (the image has no curl or wget)
+docker exec ${PROJECT_NAME}-kong-api-gateway kong health
 ```
 
 ## 15. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|

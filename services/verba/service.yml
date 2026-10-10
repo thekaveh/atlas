@@ -8,7 +8,7 @@ capabilities:
   - name: "Reference Weaviate RAG workflow"
     status: partial
     verification: tested
-    note: "Atlas wires the archived Verba UI to Weaviate and LiteLLM for isolated sample ingest and query, but does not treat it as the primary maintained chat or RAG runtime."
+    note: "Atlas wires the archived Verba UI to Weaviate and LiteLLM for isolated sample ingest and query. Atlas does not treat it as the primary maintained chat or RAG runtime."
   - name: "Verba-managed data isolation"
     status: partial
     verification: documented
@@ -50,6 +50,7 @@ sources:
 
 env:
   - name: VERBA_SOURCE
+    description: "Deployment source for the Verba RAG UI: container or disabled (default)."
     default: disabled
   - name: VERBA_PORT
     description: "Host port for the Verba UI/API (in-container 8000)."
@@ -57,6 +58,7 @@ env:
     auto_managed: true
     description: "In-network URL for Atlas services and notebooks."
   - name: VERBA_SCALE
+    description: "Set by ./start.sh from VERBA_SOURCE; do not edit. 1 runs verba, 0 does not."
     auto_managed: true
   - name: VERBA_WEAVIATE_URL
     auto_managed: true
@@ -116,6 +118,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

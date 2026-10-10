@@ -8,7 +8,7 @@ capabilities:
   - name: "Mechanical glTF conditioning"
     status: supported
     verification: tested
-    note: "Atlas normalizes scale and grounding, validates GLB input, and applies opt-in glTF-Transform simplification, Draco or Meshopt compression, and WebP texture compression (KTX2 needs KTX-Software, which the image does not ship)."
+    note: "Atlas normalizes scale and grounding and validates GLB input. It applies opt-in glTF-Transform simplification, Meshopt compression by default (opt-in Draco takes precedence), and WebP texture compression. KTX2 needs KTX-Software, which the image does not ship."
   - name: "Bounded authenticated post-processing API"
     status: supported
     verification: tested
@@ -46,6 +46,7 @@ env:
   - name: ASSET_WORKER_PORT
     description: "Host port for the asset-worker API (in-container listen port is 8095)."
   - name: ASSET_WORKER_SCALE
+    description: "Set by ./start.sh from ASSET_WORKER_SOURCE; do not edit. 1 runs asset-worker (container), 0 does not."
     auto_managed: true
   - name: ASSET_WORKER_ENDPOINT
     auto_managed: true
@@ -150,6 +151,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

@@ -1076,7 +1076,7 @@ def test_airflow_manifest_loads():
                     "Container and managed-MPS image generation",
                     "supported",
                     "tested",
-                    "Atlas configures a CPU container and an Apple-Silicon Metal host process behind the same endpoint contract; `container-gpu` currently runs the same CPU image with no GPU device reservation, so it gets no CUDA acceleration.",
+                    "Atlas configures a CPU container and an Apple-Silicon Metal host process behind the same endpoint contract. `container-gpu` currently runs the same CPU image with no GPU device reservation, so it gets no CUDA acceleration.",
                 ),
                 (
                     "Workflow and model provisioning",

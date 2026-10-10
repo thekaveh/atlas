@@ -1,19 +1,19 @@
-# 9.3. Atlas Documentation
+# 9.3. Documentation Map
 
-Documentation index for Atlas. Start from the journey that matches you:
+This page indexes the Atlas documentation. Start from the path that matches your role:
 
-- **New to Atlas (run it locally):** [Documentation home](index.md) → [Quick Start](quick-start/index.md) → [Core Concepts](core-concepts.md) → [Tracks](tracks.md) → [Troubleshooting](TROUBLESHOOTING.md).
+- **New to Atlas (run it locally):** [Documentation home](index.md) → [Quick Start](quick-start/index.md) → [Interactive Setup Wizard](quick-start/interactive-setup-wizard.md) → [Core Concepts](core-concepts.md) → [Tracks](tracks.md) → [Quick Start Troubleshooting](quick-start/troubleshooting.md).
 - **Building on Atlas (application developer):** [Service catalog](services.md) → [Configuration](configuration.md) → [Reusing Atlas as Infrastructure](operations/reusing-atlas.md) → [Endpoint contract export](operations/index.md#5-endpoint-contract-export) → [Backend plugin manifest](operations/index.md#6-backend-plugin-manifest).
 - **Operating or contributing:** [Operations](operations/index.md) → [Architecture](architecture/index.md) → [Development](development.md) → [Contributing guide](../CONTRIBUTING.md) → [Reference](reference/index.md) → [Releasing](operations/releasing.md) → [Security policy](../SECURITY.md).
 
 ## 1. Documentation structure
 
-### 1.1. Quick Start guides
+### 1.1. Getting started
 - [Atlas documentation home](index.md) — overview and entry point for the complete documentation set
 - [Quick Start](quick-start/index.md) — launch commands, common paths, and the first services to visit
 - [Interactive Setup Wizard](quick-start/interactive-setup-wizard.md) — step-by-step guided configuration
-- [Troubleshooting](quick-start/troubleshooting.md) — common issues and solutions across the full stack
-- [Startup Troubleshooting](TROUBLESHOOTING.md) — quick fixes for first-launch errors (sudo recovery, Airflow ResolutionImpossible, n8n restart-loops); linked from `start.sh`'s own error output
+- [Quick Start Troubleshooting](quick-start/troubleshooting.md) — common problems and fixes across the full stack, including recovery and reset
+- [Sudo Recovery](TROUBLESHOOTING.md) — recovery after a launch or stop under `sudo`; linked from the `start.sh` and `stop.sh` error output
 - [Core concepts](core-concepts.md) — SOURCE values, tracks, adaptive services, and routing
 - [Tracks](tracks.md) — generated track-to-service matrix and selection behavior
 
@@ -34,7 +34,6 @@ Documentation index for Atlas. Start from the journey that matches you:
 - [Platform architecture](architecture/index.md) — the top-level platform diagram
 - [Diagram catalog](architecture/README.md) — generated index of the platform, lifecycle, data-flow, routing, observability, and security perspectives
 - [Diagram authoring](diagrams/README.md) — top-level diagram update workflow and per-service auto-generation chain
-- The top-level diagram itself lives at [diagrams/architecture.svg](diagrams/architecture.svg) (embedded in the project README) and [diagrams/architecture.html](diagrams/architecture.html) (standalone view)
 
 ### 1.5. Configuration and operations
 - [Configuration overview](configuration.md) — environment files, SOURCE overrides, and base-port behavior
@@ -43,7 +42,7 @@ Documentation index for Atlas. Start from the journey that matches you:
 - [Ports and Routes](operations/ports-and-routes.md) — canonical port offsets, direct URLs, and Kong routes
 - [Access and Credentials](operations/access-and-credentials.md) — which credential opens each surface, and what Supabase identity does and does not cover
 - [Iceberg advanced smoke test](operations/iceberg-advanced-smoke.md) — opt-in validation for write, schema, snapshot, time-travel, and maintenance behavior
-- [Reusing Atlas as Infrastructure](operations/reusing-atlas.md) — overview + decision guide: use Atlas as the backing infra for another project (which method, is it ready, how to wire + customize)
+- [Reusing Atlas as Infrastructure](operations/reusing-atlas.md) — decision guide for using Atlas as another project's infrastructure: which method, readiness, wiring and customization
 - [Using as a Submodule](operations/submodule-usage.md) — deep-dive for the Git-submodule reuse method
 - [Releasing & version tags](operations/releasing.md) — semver tag convention for pinning a vendored Atlas
 - [Expected Startup Warnings](operations/expected-startup-warnings.md) — known-benign log lines on `./start.sh`
@@ -53,30 +52,13 @@ Documentation index for Atlas. Start from the journey that matches you:
 - [Development overview](development.md) — service admission, consumer layout, required checks, and repository structure
 - [Adding a service runbook](CONTRIBUTING-services.md) — six-decision walkthrough + the regen + lint chain
 - [Security policy](../SECURITY.md) — project posture, operational tiers, reachability triage, public-edge requirements, automated scanning gates, and the private-advisory reporting route
-- [External dependency contract ledger](maintenance/external-contract-ledger.md) — durable record of consumed external API/CLI/config contract checks from maintenance passes
-
-### 1.7. Cross-service research (Phase B corpus)
-- [Research corpus guide](research/README.md) — layout, authoring rules, and the schema the validator enforces
-- [Integration matrix](research/integration-matrix.md) — auto-generated index linking every service to its candidate integrations
-- [Per-service rows](research/rows/) — missing-pair integrations, candidate new services, per-service feature gaps
-- [Candidate one-pagers](research/candidates/) — design notes per candidate service
-
-### 1.8. Feature-track plans and specs
-<!-- BEGIN GENERATED PLAN ARCHIVE RANGE -->
-- [superpowers/plans](superpowers/plans/) + [superpowers/specs](superpowers/specs/) — point-in-time implementation plans and specs dated 2026-05-31 through 2026-09-14 (consult them when archaeology on a past track is needed; CHANGELOG entries link the relevant artifacts)
-<!-- END GENERATED PLAN ARCHIVE RANGE -->
-
-### 1.9. Numbering-policy notes
-- Generated research files keep schema-fixed headings such as `## Headline`; see [research/README.md](research/README.md) for the explicit exemption.
-- Provider implementation notes under `services/*/provider/` are operational backend-specific runbooks. They may keep compact unnumbered headings when numbering would make command-oriented maintenance notes harder to scan.
-- Conventional history/planning artifacts such as [CHANGELOG](CHANGELOG.md), [ROADMAP](ROADMAP.md), and `docs/plans/` may keep their established release-note or planning heading style when renumbering would obscure chronology.
-- Literal UI/output glyphs may appear only when the documentation is naming an actual terminal control, status marker, tree connector, or generated output. Do not use glyphs as decorative prose. Prefer words such as `Warning:` in explanatory text, and keep flow arrows or tree characters inside technical notation or literal examples.
+- `docs/superpowers/` (repository only, not published) — point-in-time feature-track plans and specs
+- `docs/research/`, `docs/strategy/` and `docs/maintenance/` (repository only, not published) — integration research, strategy notes and the external dependency contract ledger
 
 ## 2. Related documentation
 
-- [Main README](../README.md) — project overview and quick start
 - [Reference index](reference/index.md) — generated SOURCE, environment, port, dependency, and manifest-field references
-- [Supply-chain license inventory](reference/license-inventory.md) — every pinned image and downloaded model weight with its license, required notices, hosted-use, source-integration and redistribution terms, and the open review items a release must settle
+- [Supply-chain license inventory](reference/license-inventory.md) — the license of every pinned image and downloaded model weight: notices, hosted-use, source-integration and redistribution terms, and open release review items
 - [ROADMAP](ROADMAP.md) — future development plans
 - [CHANGELOG](CHANGELOG.md) — release history and completed features
 
@@ -84,7 +66,7 @@ Documentation index for Atlas. Start from the journey that matches you:
 
 If you can't find what you're looking for:
 
-1. Check the [Troubleshooting Guide](quick-start/troubleshooting.md)
+1. Check [Quick Start Troubleshooting](quick-start/troubleshooting.md)
 2. Search through the service-specific documentation
 3. Open a GitHub issue if you need additional help (use the `question` label for questions)
 4. For security-sensitive findings, follow the [security policy](../SECURITY.md) instead of opening a public issue
@@ -93,4 +75,4 @@ If you can't find what you're looking for:
 
 - Found a typo or error? Open a PR against `develop`; the [contributing guide](../CONTRIBUTING.md) has the steps.
 - Missing information? Open an issue.
-- Before submitting documentation changes, run the single root-safe gate: `make docs-check`.
+- Before you submit documentation changes, run `make docs-check` from the repository root. It validates all documentation surfaces.

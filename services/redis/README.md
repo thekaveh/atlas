@@ -1,12 +1,12 @@
 # 5.2.44. Redis
 
-Shared cache, queue, and pub/sub broker for the stack. The manifest comment is blunt: Redis is "consumed by half the stack." It has one container, one source variant (`container`), no GPU paths, and no init container. Despite being infrastructure rather than a feature, Redis is the single most cross-cutting service in the project — n8n's queue mode, LiteLLM's cache, Open WebUI's WebSocket store, LightRAG's KV layer, and JupyterHub notebooks all share this one instance.
+Shared cache, queue and pub/sub broker. Redis is the most cross-cutting service in the stack: one instance serves every consumer in §6.2. It has one container, one source variant (`container`), no GPU path and no init container.
 
-The stack convention partitions Redis by **database index**, not by service. As wired today: `/0` carries the n8n queue (`QUEUE_BULL_REDIS_DB: 0`); `/2` is shared by Open WebUI's WebSocket store (`OPEN_WEB_UI_REDIS_DB`) and LightRAG's KV/doc-status store (`LIGHTRAG_REDIS_URI`) — different key shapes, no collision in practice, but isolate one of them if you repurpose the db; `/3` is JupyterHub's `REDIS_URL`; `/4` is Celery's broker + result backend (`CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND`). Consumers that need an isolated namespace build their own connection string off `${REDIS_PASSWORD}` and `redis:6379/<db>`.
+Consumers are separated by **database index**, not by service. The §3 table lists which consumer uses which index.
 
 ## 1. Overview
 
-Image: `redis:7.2.14-alpine`. Persistence: AOF (`--appendonly yes`). Auth: a single shared password (`REDIS_PASSWORD`) — there are no ACL users today. The container exposes the standard `6379` port internally; the host port (default `63025`) is published only for debugging. Inside the stack, every consumer talks to `redis:6379` via the Docker DNS name on `backend-network`.
+Image: `redis:7.2.14-alpine`. Persistence: AOF (`--appendonly yes`). Auth: one shared password (`REDIS_PASSWORD`), with no ACL users. Every consumer connects to `redis:6379` by Docker DNS on `backend-network`. The host port (default `63025`) is for debugging.
 
 Volume: `${PROJECT_NAME}-redis-data` (AOF append log). `./stop.sh --cold` removes it.
 
@@ -25,33 +25,46 @@ Canonical port table: [Ports and Routes](../../docs/reference/ports-routes.md).
 ```bash
 REDIS_SOURCE=container                                 # only value
 REDIS_PORT=63025                                       # host port; container port is always 6379
-REDIS_PASSWORD=redis_password                          # rotate before any deployment
+REDIS_PASSWORD=redis_password                          # placeholder; ./start.sh replaces it with a random value on first run
 REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0      # default; consumers override db index
+REDIS_MAXMEMORY=0                                      # no cap; see §9
+REDIS_MAXMEMORY_POLICY=volatile-lru
 ```
 
-The default `REDIS_PASSWORD` is for fresh-install convenience only — rotate it via `.env` and `docker compose up --force-recreate redis` (cascades to dependent services, which read `REDIS_PASSWORD` at startup).
+To change `REDIS_PASSWORD`, edit `.env` and rerun `./start.sh`. Redis and every consumer read the password only when their containers start, so all of them must be recreated.
 
 Database-index convention (consumer-built URLs):
 
 | DB | Consumer | Notes |
 |---|---|---|
-| 0 | n8n, litellm, langfuse, backend | n8n queue (`QUEUE_BULL_REDIS_DB: 0`); LiteLLM cache and Langfuse BullMQ (no db index → library default 0); backend media-operation store + readiness probe via `REDIS_URL` |
-| 2 | open-webui, lightrag | WebSocket store (`OPEN_WEB_UI_REDIS_DB`) + LightRAG KV/doc-status — disjoint key shapes |
+| 0 | n8n, litellm, langfuse, backend | n8n queue (`QUEUE_BULL_REDIS_DB: 0`). LiteLLM cache and Langfuse BullMQ set no index, so they use 0. Backend state through `REDIS_URL` (§4). |
+| 2 | open-webui, lightrag | WebSocket store (`OPEN_WEB_UI_REDIS_DB`) and LightRAG KV/doc-status. The key shapes do not overlap; isolate one of them if you reuse db 2. |
 | 3 | jupyterhub | notebook `REDIS_URL` |
 | 4 | celery | broker + result backend (`CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND`) |
 | 5 | trueforge | `REDIS_URL` |
 
+A consumer that needs its own namespace builds a URL from `${REDIS_PASSWORD}` and `redis:6379/<db>`.
+
 ## 4. Architecture & wiring
 
-**Startup ordering.** The manifest's `depends_on.required: supabase` is **ordering / slot-pinning only** — the topology port allocator derives slot positions from `depends_on`, so removing it would renumber later services' ports. Redis has no functional Postgres dependency, and `compose.yml` no longer gates redis startup on supabase-db-init (PR #11 dropped that); the only compose-level `depends_on` is `redis-exporter` waiting on `redis` being healthy.
+**Startup ordering.** The manifest lists `depends_on.required: supabase` only to pin topology port slots; removing it would renumber later services' ports. Redis has no functional Postgres dependency. The only compose-level `depends_on` in this fragment is `redis-exporter` waiting for a healthy `redis`.
 
-**Consumers.** From the data-flow graph (§6.2): `litellm` (cache + budget tracking), `lightrag` (KV/doc-status), `open-webui` (WebSocket store), `n8n` (BullMQ queue, `QUEUE_BULL_REDIS_*`), `jupyterhub` (notebook `REDIS_URL` on db `/3`), `airflow`, and `prometheus` (redis-exporter scrape) reach Redis at runtime. Kong does not use Redis: its only rate limiter runs with `policy: local`, and Kong's compose `depends_on: redis` is start ordering only. The backend reads `REDIS_URL` for its media-operation store (`media_operation_store.py`) and readiness probe (`readiness.py`), on db 0; Local Deep Researcher is unwired (future pair, §6.4).
+**Consumers.** §6.2 lists every service that reaches Redis at runtime. Notes:
 
-**Failure mode.** Every consumer treats Redis as fatal: a Redis outage kills n8n queue execution, drops Open WebUI live updates, breaks LiteLLM caching, and stalls LightRAG's KV layer. There is no fallback in the stack.
+- The Backend and Celery use db 0 through `REDIS_URL` for hosted-media operations, RAG ingestion state and memory consolidation leases. The Backend readiness probe checks it too.
+- Kong does not use Redis. Its only rate limiter runs with `policy: local`, and its `depends_on: redis` is start ordering only.
+- Airflow receives `REDIS_PASSWORD` for DAGs that use `RedisHook`.
+- Local Deep Researcher is not wired (§6.4).
 
-**Eviction policy.** `REDIS_MAXMEMORY_POLICY` defaults to `volatile-lru`, which evicts only TTL-bearing keys after `REDIS_MAXMEMORY` sets a nonzero cap. With the default `REDIS_MAXMEMORY=0`, Redis remains unbounded and no eviction occurs. Queue and session keys without TTL are not eviction candidates.
+**Failure mode.** No consumer has a fallback. A Redis outage stops n8n queue execution and Open WebUI live updates. It also breaks LiteLLM caching and stalls LightRAG's KV layer.
 
-**Observability sidecar (`redis-exporter`).** The Redis family also ships a `redis-exporter` container (`oliver006/redis_exporter:v1.86.0`) on host port `${REDIS_EXPORTER_PORT}` and in-container `9121`. It scales **1↔0 with `PROMETHEUS_SOURCE`** — the bootstrapper's `_generate_prometheus_config()` hook writes `REDIS_EXPORTER_SCALE` from this single switch, so the sidecar is dormant when Prometheus is off and self-starts when Prom is enabled. Prometheus scrapes it at `redis-exporter:9121/metrics`; the `Postgres + Redis` Grafana dashboard renders memory usage, ops/sec, and hit ratio. Its `/scrape?target=` endpoint is disabled (`REDIS_EXPORTER_DISABLE_SCRAPE_ENDPOINT=true`): it would dial any target with `REDIS_PASSWORD`.
+**Eviction policy.** See §9.
+
+**Observability sidecar (`redis-exporter`).** The family also ships `redis-exporter` (`oliver006/redis_exporter:v1.86.0`) on host port `${REDIS_EXPORTER_PORT}` and container port `9121`.
+
+- It scales 1↔0 with `PROMETHEUS_SOURCE`: the bootstrapper's `_generate_prometheus_config()` hook writes `REDIS_EXPORTER_SCALE`.
+- Prometheus scrapes `redis-exporter:9121/metrics`. The `Postgres + Redis` Grafana dashboard shows memory usage, ops/sec and hit ratio.
+- Its `/scrape?target=` endpoint is disabled (`REDIS_EXPORTER_DISABLE_SCRAPE_ENDPOINT=true`), because it would dial any target with `REDIS_PASSWORD`.
 
 ## 5. LightRAG KV store
 
@@ -65,19 +78,19 @@ _No upstream calls._
 
 ### 6.2. Current — Downstream (services that call this)
 
-| Service | Category |
-|---|---|
-| langfuse | infra |
-| prometheus | infra |
-| litellm | llm |
-| airflow | agents |
-| celery | agents |
-| lightrag | agents |
-| n8n | agents |
-| trueforge | agents |
-| backend | apps |
-| jupyterhub | apps |
-| open-webui | apps |
+| Service | Category | Status |
+|---|---|---|
+| langfuse | infra | current |
+| prometheus | infra | current |
+| litellm | llm | current |
+| airflow | agents | optional: an operator-authored DAG; airflow-init only seeds the Connection |
+| celery | agents | current |
+| lightrag | agents | current |
+| n8n | agents | current |
+| trueforge | agents | current |
+| backend | apps | current |
+| jupyterhub | apps | current |
+| open-webui | apps | current |
 
 ### 6.3. Architecture diagram
 
@@ -87,34 +100,38 @@ _No upstream calls._
 
 ### 6.4. Future — Missing pair integrations
 
-- **redis ↔ comfyui** — *Why:* ComfyUI's compose declares `depends_on: redis` (startup ordering only) but the container receives no `REDIS_URL`. A real link would let n8n/backend enqueue generation jobs to a Redis list/stream and read `progress`/`executed` events back via a sidecar publisher, replacing the per-caller websocket pattern. *Mechanism:* ComfyUI custom node + `redis-py` writing `XADD comfyui:events` on progress; producers `BLPOP comfyui:jobs` from a tiny worker that calls `/prompt`. *Effort:* medium. *Confidence:* medium.
-- **redis ↔ local-deep-researcher** — *Why:* LDR's compose has no `REDIS_URL` today (db `/3` is currently JupyterHub's and `/4` is Celery's; an LDR checkpointer would take a fresh index, e.g. `/6`; `/5` is TrueForge's). LangGraph's Redis checkpointer would let long-running research runs survive container restarts and let backend stream node-by-node progress. *Mechanism:* `redis://:${REDIS_PASSWORD}@redis:6379/6` consumed by `langgraph.checkpoint.redis.RedisSaver`; `PUBSUB` channel `ldr:run:<id>` for progress. *Effort:* small. *Confidence:* high.
+- **redis ↔ comfyui** — *Why:* ComfyUI's compose declares `depends_on: redis` (startup ordering only) but the container receives no `REDIS_URL`. A real link would let n8n or the Backend queue generation jobs in a Redis list or stream. A sidecar publisher would return `progress`/`executed` events and replace the per-caller websocket pattern. *Mechanism:* ComfyUI custom node + `redis-py` writing `XADD comfyui:events` on progress; producers `BLPOP comfyui:jobs` from a tiny worker that calls `/prompt`. *Effort:* medium. *Confidence:* medium.
+- **redis ↔ local-deep-researcher** — *Why:* LDR's compose has no `REDIS_URL`. Dbs `/3`, `/4` and `/5` belong to JupyterHub, Celery and TrueForge, so an LDR checkpointer would take a new index such as `/6`. LangGraph's Redis checkpointer would let long-running research runs survive container restarts and let backend stream node-by-node progress. *Mechanism:* `redis://:${REDIS_PASSWORD}@redis:6379/6` consumed by `langgraph.checkpoint.redis.RedisSaver`; `PUBSUB` channel `ldr:run:<id>` for progress. *Effort:* small. *Confidence:* high.
 - **redis ↔ hermes** — *Why:* Hermes has no shared state between requests; conversation memory, tool-call rate-limits, and per-user budget counters live in process. *Mechanism:* Hermes custom skill reads/writes `hermes:session:<id>` hashes and `hermes:ratelimit:<user>` counters via `redis-py`. *Effort:* small. *Confidence:* medium.
 - **redis ↔ doc-processor** — *Why:* document parsing is expensive and idempotent on file SHA. A Redis cache keyed on `sha256(file)` lets repeat ingests (common during n8n flow iteration) short-circuit; a Redis stream broadcasts `doc:parsed` events to backend + weaviate ingest. *Mechanism:* cache: `SETEX doc:parsed:<sha> 86400 <json>`; event bus: `XADD doc:events`. *Effort:* small. *Confidence:* medium.
 - **redis ↔ weaviate** — *Why:* embedding generation dominates ingest latency; a content-hash → vector cache cuts repeat-ingest cost dramatically and de-duplicates concurrent embeddings across n8n/backend. *Mechanism:* `GET emb:<model>:<sha>` before calling Weaviate's vectorizer; `SETEX` on miss. Lives behind a tiny helper in backend. *Effort:* medium. *Confidence:* medium.
 
 ### 6.5. Future — Candidate new services
 
-- **RedisInsight** ([details](../../docs/research/candidates/redisinsight.md)) — *Headline:* official Redis GUI for browsing keys, profiling commands, and inspecting streams across all stack consumers. *Wires into:* backend, n8n, kong, litellm, open-webui, jupyterhub.
-- **Redis Stack (`redis-stack-server`)** ([details](../../docs/research/candidates/redis-stack.md)) — *Headline:* drop-in Redis image bundling RediSearch, RedisJSON, RedisBloom, and RedisTimeSeries — unlocks vector + JSON queries without a second datastore. *Wires into:* backend, weaviate (overlap), n8n, hermes.
+- **[RedisInsight](../../docs/research/candidates/redisinsight.md)** — *Headline:* official Redis GUI for browsing keys, profiling commands, and inspecting streams across all stack consumers. *Wires into:* backend, n8n, kong, litellm, open-webui, jupyterhub.
+- **[Redis Stack (`redis-stack-server`)](../../docs/research/candidates/redis-stack.md)** — *Headline:* drop-in Redis image bundling RediSearch, RedisJSON, RedisBloom, and RedisTimeSeries — unlocks vector + JSON queries without a second datastore. *Wires into:* backend, weaviate (overlap), n8n, hermes.
 
 ### 6.6. Future — Unused features in this service
 
-- **Redis Streams (`XADD`/`XREAD`/consumer groups)** — *Why pursue:* replace ad-hoc HTTP fan-out between backend, n8n, ComfyUI, and doc-processor with a single durable event bus already present in the image. *Effort:* medium.
+- **Redis Streams (`XADD`/`XREAD`/consumer groups)** — *Why pursue:* one durable event bus, already in the image, could replace ad-hoc HTTP fan-out between backend, n8n, ComfyUI and doc-processor. *Effort:* medium.
 - **Pub/Sub channels** — *Why pursue:* live progress streaming for ComfyUI and LDR to the Open WebUI chat surface without polling. *Effort:* small.
 - **Redis ACL users** — *Why pursue:* replace the single shared `REDIS_PASSWORD` with per-service users so a compromised n8n container cannot read LiteLLM's budget counters. *Effort:* small.
-- **Workload-specific memory classes** — *Why pursue:* the shared instance defaults to `volatile-lru`, but dedicated cache and durable-queue instances could use different caps and policies without competing for one memory budget. *Effort:* medium.
+- **Workload-specific memory classes** — *Why pursue:* separate cache and queue instances could each have their own cap and policy, not one shared budget and `volatile-lru`. *Effort:* medium.
 - **RDB snapshots alongside AOF** — *Why pursue:* faster cold-start restore; current `--appendonly yes` is durable but slow to replay on large datasets. *Effort:* small.
 
 ## 7. Troubleshooting
 
 **`NOAUTH Authentication required`.** Consumer's `REDIS_URL` is missing the password segment. Inspect with `docker exec <project>-backend env | grep REDIS_URL`. Expected shape: `redis://:${REDIS_PASSWORD}@redis:6379/<db>` — note the leading colon before the password (no username).
 
-**n8n `EXECUTIONS_MODE=queue` workflows hang.** Check `docker logs <project>-redis` for connection errors from n8n. n8n's queue mode uses Redis db `/0` (`QUEUE_BULL_REDIS_DB: 0`); if the password rotated without restarting n8n, its workers retry forever.
+**n8n `EXECUTIONS_MODE=queue` workflows hang.** Check `docker logs <project>-redis` for connection errors from n8n. n8n's queue mode uses Redis db `/0` (`QUEUE_BULL_REDIS_DB: 0`). If the password changed and n8n was not recreated, its workers retry forever (§3).
 
-**Memory pressure.** With `REDIS_MAXMEMORY=0`, Redis grows until the container's memory limit kills it. Monitor with `docker exec <project>-redis redis-cli -a "$REDIS_PASSWORD" INFO memory`. Set `REDIS_MAXMEMORY` to a deliberate cap; keep `volatile-lru` when only TTL-bearing cache keys may be evicted, or choose another policy only after reviewing queue and session durability.
+**Memory pressure.** Monitor with `docker exec <project>-redis redis-cli INFO memory` (the container sets `REDISCLI_AUTH`). Set a cap as §9 describes.
 
-**Redis crash-loops with `Bad file format reading the append only file`.** An unclean write (for example, the host losing power) left bytes in the append-only file (AOF) that Redis cannot parse. Redis refuses to load it, Compose `--wait` fails, and every service that waits on it stays at `Created`. `./start.sh doctor` reports this as a failed `redis-aof` check, naming the volume and printing the checker lines that give the offset where the valid data ends. The check reads a copy of the volume and never changes it. A last command that was merely cut off is not a failure: Redis drops it and starts (`aof-load-truncated` is on by default), so the check passes. Repair backup-first: `--fix` truncates the file at the first bad byte and drops every write after it, so keep the backup until the stack is verified.
+**Redis crash-loops with `Bad file format reading the append only file`**. An unclean write, such as a host power loss, left bytes in the append-only file (AOF) that Redis cannot parse. Redis refuses to load it, Compose `--wait` fails, and every service that waits on it stays at `Created`.
+
+- `./start.sh doctor` reports a failed `redis-aof` check. It names the volume and prints the checker lines with the offset where valid data ends. The check reads a copy of the volume and never changes it.
+- A last command that was only cut off is not a failure. Redis drops it and starts (`aof-load-truncated` is on by default), so the check passes.
+- Back up first. `--fix` truncates the file at the first bad byte and drops every write after it, so keep the backup until the stack is verified.
 
 ```bash
 ./stop.sh
@@ -127,7 +144,7 @@ docker run --rm -it -v "$VOLUME":/data -w /data/appendonlydir "$REDIS_IMAGE" \
 ./start.sh
 ```
 
-When the doctor reports that the base snapshot is not sane, `--fix` cannot repair it: restore an earlier backup, or remove the volume (`docker volume rm "$VOLUME"`) to start Redis empty, losing its queue, sessions and cache. To restore a backup (the archive is root-owned on Linux, so extract it through the same container):
+If the doctor reports that the base snapshot is not sane, `--fix` cannot repair it. Restore an earlier backup, or remove the volume (`docker volume rm "$VOLUME"`) to start Redis empty and lose its queue, sessions and cache. To restore a backup, extract it through the same container, because the archive is root-owned on Linux:
 
 ```bash
 docker run --rm -v "$VOLUME":/data -v "$PWD":/backup "$REDIS_IMAGE" \
@@ -139,26 +156,30 @@ docker run --rm -v "$VOLUME":/data -v "$PWD":/backup "$REDIS_IMAGE" \
 ```bash
 docker compose ps redis
 docker compose logs -f redis
-docker exec <project>-redis redis-cli -a "$REDIS_PASSWORD" INFO server
+docker exec <project>-redis redis-cli INFO server
 ```
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
 
 ## 8. Operations
 
-**Inspect keys by namespace.** Consumers use unstructured key names today; useful prefixes to scan are `bull:` (n8n queue), `litellm.cache:` (LiteLLM response cache), and LightRAG's `{workspace}_{namespace}:` keys on db `/2`. Scan with `redis-cli --scan --pattern 'bull:*'` — never `KEYS` on a busy instance.
+**Inspect keys by namespace.** Useful prefixes are `bull:` (n8n queue), `litellm.cache:` (LiteLLM response cache), and LightRAG's `{workspace}_{namespace}:` keys on db `/2`. Scan with `redis-cli --scan --pattern 'bull:*'`. Never use `KEYS` on a busy instance.
 
-**Watch traffic live.** `redis-cli MONITOR` dumps every command server-side. Useful when verifying a new consumer is connecting to the right db index. Verbose — turn off as soon as you're done.
+**Watch traffic live.** `redis-cli MONITOR` prints every command the server receives. Use it to check that a new consumer connects to the right db index, then stop it.
 
-**Force AOF rewrite.** `BGREWRITEAOF`. After heavy churn the AOF grows non-linearly; a rewrite compacts it. Safe to run any time.
+**Force AOF rewrite.** `BGREWRITEAOF` compacts the AOF after heavy churn. It is safe to run at any time.
 
-**Cold-start vs warm-start.** `./stop.sh` (no flags) preserves the AOF and Redis replays it on next boot — n8n queue + sessions survive. `./stop.sh --cold` deletes the volume entirely.
-
-**Capacity rule of thumb.** `REDIS_MAXMEMORY` defaults to `0` (unlimited), so with AOF and no cap the container still OOMs at the Docker memory limit — which loses in-flight queue state rather than shedding anything. Set it (e.g. `REDIS_MAXMEMORY=512mb`) to ~75% of the container's memory budget and Redis will evict instead.
-
-**What gets evicted, and why it is safe.** `REDIS_MAXMEMORY_POLICY` defaults to `volatile-lru`, which evicts **only keys carrying a TTL**. On this stack that means LiteLLM's response cache (`litellm.cache:*`, TTL from `LITELLM_CACHE_TTL`). The things that must not vanish — n8n's BullMQ queue, Langfuse's queue, the backend's media store — are written without a TTL and are therefore never eviction candidates. The previous `noeviction` did the opposite: a full instance rejected *writes*, so an oversized cache would take the queue down with it. If nothing volatile remains, `volatile-lru` returns the same OOM error `noeviction` would, so the worst case is unchanged. The stack default is whatever Docker Desktop allocates (~2 GB). For production deployments, set `maxmemory` explicitly to ~75% of the container's memory budget and pick an eviction policy per workload.
+**Cold-start vs warm-start.** `./stop.sh` (no flags) keeps the AOF, and Redis replays it on the next start, so the n8n queue and sessions survive. `./stop.sh --cold` deletes the volume.
 
 ## 9. Tuning
+
+**Memory cap and eviction.**
+
+- `REDIS_MAXMEMORY` defaults to `0` (no cap). Redis then grows until Docker's memory limit kills it, which loses in-flight queue state.
+- Set a cap of about 75% of the container's memory budget, for example `REDIS_MAXMEMORY=512mb`.
+- `REDIS_MAXMEMORY_POLICY` defaults to `volatile-lru`, which evicts only keys with a TTL. On this stack that is LiteLLM's response cache (`litellm.cache:*`, TTL from `LITELLM_CACHE_TTL`).
+- The n8n and Langfuse queues and the Backend's state have no TTL, so Redis never evicts them.
+- If no TTL key is left, writes fail with an OOM error.
 
 Stack-relevant knobs (the first two are `.env` settings; the rest need a Compose change):
 
@@ -174,8 +195,8 @@ Set `REDIS_MAXMEMORY` and `REDIS_MAXMEMORY_POLICY` in `.env`. The remaining low-
 ## 10. Security
 
 - **Shared password.** Every consumer uses the same `REDIS_PASSWORD`. A compromised n8n container can read LiteLLM's budget counters and backend sessions. Redis 7 ACLs would fix this — see Future — Unused features.
-- **No TLS in-cluster.** Traffic on `backend-network` is unencrypted. Acceptable for the single-host stack; not for multi-host deployments. Wrap with `stunnel` or upgrade to a Redis variant with native TLS if you cross trust boundaries.
-- **Host port exposed.** `REDIS_PORT` (default 63025) is published on the host. With the default password this is a soft target if anyone has LAN access. Either rotate `REDIS_PASSWORD` aggressively or remove the host-port publish from `services/redis/compose.yml` and use `docker exec` for debugging.
+- **No TLS in-cluster.** Traffic on `backend-network` is unencrypted. This is acceptable on one host, not across hosts. Use `stunnel` or a Redis build with native TLS if traffic crosses a trust boundary.
+- **Host port.** `REDIS_PORT` (default 63025) binds to `127.0.0.1` unless you widen `HOST_BIND_IP`. Every consumer shares one password, so do not widen the bind without a firewall.
 - **AOF includes commands, not just data.** `appendonly.aof` is a literal command log; anyone with read access to the volume can reconstruct every key. Treat the volume as confidential.
 
 ## 11. Further reading
@@ -187,7 +208,7 @@ Set `REDIS_MAXMEMORY` and `REDIS_MAXMEMORY_POLICY` in `.env`. The remaining low-
 
 ## 12. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|

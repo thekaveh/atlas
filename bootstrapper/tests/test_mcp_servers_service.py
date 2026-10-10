@@ -309,8 +309,10 @@ def test_mcp_database_guardrails_disclose_accepted_privileged_side_effects() -> 
         "no dedicated write or administration tool",
         "SELECT functions",
         "CALL db.* procedures",
-        "administrator credentials",
-        "administration, filesystem, or write side effects",
+        "Neo4j admin credentials",
+        "administration or write side effects",
+        "argument-free apoc.meta.* calls",
+        "restricted atlas_mcp Postgres login",
     ))
 
 

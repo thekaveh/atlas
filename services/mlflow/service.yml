@@ -20,7 +20,7 @@ capabilities:
   - name: "MLflow AI Gateway SSRF containment"
     status: supported
     verification: tested
-    note: "Atlas accepts exactly reviewed MLflow 3.16.1, which closes CVE-2026-64849 and CVE-2026-71211, keeps every prefixed and unprefixed AI Gateway route family disabled at its ASGI boundary because Atlas configures no gateway endpoints, and runs the built image through a required multi-architecture smoke."
+    note: "Atlas accepts exactly reviewed MLflow 3.16.1, which closes CVE-2026-64849 and CVE-2026-71211. Every prefixed and unprefixed AI Gateway route family stays disabled at its ASGI boundary, because Atlas configures no gateway endpoints. The built image runs a required multi-architecture smoke."
   - name: "Model registry deployment automation"
     status: not-supported
     verification: documented
@@ -53,6 +53,7 @@ sources:
 
 env:
   - name: MLFLOW_SOURCE
+    description: "MLflow deployment source: container or disabled. container requires MINIO_SOURCE=container for artifact storage."
     default: disabled
   - name: MLFLOW_PORT
     description: "Host port for the MLflow UI/API (in-container 5000)."
@@ -63,15 +64,19 @@ env:
     auto_managed: true
     description: "Tracking URI injected into JupyterHub when MLflow is enabled."
   - name: MLFLOW_SCALE
+    description: "Set by ./start.sh from MLFLOW_SOURCE; do not edit. 1 runs the mlflow container, 0 does not."
     auto_managed: true
   - name: MLFLOW_INIT_SCALE
+    description: "Set by ./start.sh from MLFLOW_SOURCE; do not edit. 1 runs the mlflow-init container, 0 does not."
     auto_managed: true
   - name: MLFLOW_DB_NAME
+    description: "Postgres database in supabase-db that holds the MLflow tracking and model-registry stores."
     default: mlflow
   - name: MLFLOW_DB_NAME_URI
     default: mlflow
     description: "Bootstrapper-synchronized percent-encoded MLFLOW_DB_NAME for DSN path components."
   - name: MLFLOW_DB_USER
+    description: "Restricted Postgres login that owns the MLflow database; created by 05-scoped-roles.sh."
     default: mlflow
   - name: MLFLOW_DB_PASSWORD
     default: atlas-db-password
@@ -136,6 +141,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

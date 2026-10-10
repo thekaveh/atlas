@@ -37,7 +37,7 @@ def test_source_map_uses_local_site_and_wiki_paths(tmp_path: Path) -> None:
     }
     assert build_source_map(manifest, "wiki") == {
         "docs/index.md": "Home",
-        "docs/guides/setup.md": "2.1-Setup",
+        "docs/guides/setup.md": "Setup",
     }
 
 
@@ -228,7 +228,7 @@ def test_rewrite_maps_markdown_links_to_extensionless_wiki_pages(
         source_map=build_source_map(manifest, "wiki"),
     )
 
-    assert rendered == "[setup](2.1-Setup#configuration)\n"
+    assert rendered == "[setup](Setup#configuration)\n"
 
 
 def test_rewrite_strips_mkdocs_attribute_lists_from_wiki() -> None:

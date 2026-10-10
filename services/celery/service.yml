@@ -12,7 +12,7 @@ capabilities:
   - name: "Bounded worker scheduling"
     status: supported
     verification: tested
-    note: "Atlas validates positive concurrency, prefetch, soft and hard time limits, and a Redis visibility timeout longer than the hard task limit before Backend or worker startup."
+    note: "Before Backend or worker startup, Atlas validates positive concurrency, prefetch, and soft and hard time limits. It also checks that the Redis visibility timeout exceeds the hard task limit."
   - name: "Retry-safe RAG ingestion ownership"
     status: partial
     verification: tested
@@ -24,7 +24,7 @@ capabilities:
   - name: "Durable queue high availability"
     status: not-supported
     verification: documented
-    note: "Atlas runs one worker replica and one Flower process on the shared single Redis service; result and broker state survive only according to that Redis instance's persistence."
+    note: "Atlas runs one worker replica and one Flower process on the shared single Redis service. Result and broker state survive only as far as that Redis instance persists them."
 
 containers:
   - celery-worker
@@ -49,8 +49,10 @@ env:
     default: disabled
     description: "Deployment mode: container (backend worker + Flower) or disabled."
   - name: CELERY_WORKER_SCALE
+    description: "Set by ./start.sh from CELERY_SOURCE; do not edit. 1 runs celery-worker, 0 does not."
     auto_managed: true
   - name: FLOWER_SCALE
+    description: "Set by ./start.sh from CELERY_SOURCE; do not edit. 1 runs the Flower monitoring UI, 0 does not."
     auto_managed: true
   - name: FLOWER_PORT
     description: "Host port for Flower (in-container 5555)."
@@ -77,13 +79,13 @@ env:
     description: "Positive soft per-task limit. Must be strictly less than the hard limit."
   - name: CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS
     default: 3600
-    description: "Positive Redis broker visibility timeout. Must be strictly greater than the task hard limit. The worker raises it to 300 seconds past the larger of the rag_ingestion hard limit and the global hard limit plus 60 (a memory busy-retry countdown) when that is larger, so a running ingestion or a delayed retry is never re-delivered (#1352)."
+    description: "Positive Redis broker visibility timeout, strictly greater than the task hard limit. The worker raises it to 300 s past max(rag_ingestion hard limit, global hard limit + 60) when larger, so running or delayed tasks are not re-delivered."
   - name: RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS
     default: ""
-    description: "Positive soft limit for the rag_ingestion task alone; other tasks keep CELERY_TASK_SOFT_TIME_LIMIT_SECONDS. Empty (default) means the larger of 3840 and CELERY_TASK_SOFT_TIME_LIMIT_SECONDS. A Celery ingestion whose graph targets' timeout_seconds add up to at least this is refused at submission (#1352)."
+    description: "Positive soft limit for the rag_ingestion task alone; other tasks keep CELERY_TASK_SOFT_TIME_LIMIT_SECONDS. Empty means the larger of 3840 and that value. An ingestion whose graph targets' timeout_seconds sum to at least this is refused at submission."
   - name: RAG_INGESTION_TASK_TIME_LIMIT_SECONDS
     default: ""
-    description: "Positive hard limit for the rag_ingestion task alone; must exceed the soft limit. Empty (default) means the larger of 3900 and CELERY_TASK_TIME_LIMIT_SECONDS (#1352)."
+    description: "Positive hard limit for the rag_ingestion task alone; must exceed the soft limit. Empty (default) means the larger of 3900 and CELERY_TASK_TIME_LIMIT_SECONDS."
 
 depends_on:
   required:
@@ -157,6 +159,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

@@ -36,7 +36,7 @@ capabilities:
   - name: "Single-model host lifecycle"
     status: partial
     verification: tested
-    note: "One host-global process serves the model it was started with; changing VLLM_METAL_MODEL does not restart or reconcile an already-running process, so stop it before restarting Atlas or LiteLLM may advertise the new alias against the old model. Multi-model serving, LoRA adapters, project-scoped teardown, and automatic quantized-weight support are unavailable."
+    note: "One host-global process serves the model it was started with. Changing VLLM_METAL_MODEL does not restart or reconcile an already-running process, so stop it before restarting Atlas. Otherwise LiteLLM may advertise the new alias against the old model. Multi-model serving, LoRA adapters, project-scoped teardown and automatic quantized-weight support are unavailable."
   - name: "Direct upstream authentication"
     status: not-supported
     verification: tested
@@ -130,6 +130,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

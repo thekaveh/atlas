@@ -17,7 +17,7 @@ capabilities:
   - name: "Iceberg and Kafka data paths"
     status: partial
     verification: tested
-    note: "Atlas bakes and configures the Iceberg, S3A, and Kafka connectors, but lakehouse and streaming operations require optional Iceberg REST and Redpanda services and live smoke remains opt-in."
+    note: "Atlas bakes and configures the Iceberg, S3A and Kafka connectors. Lakehouse and streaming operations require the optional Iceberg REST and Redpanda services. Live smoke remains opt-in."
   - name: "Highly available Spark control plane"
     status: not-supported
     verification: documented
@@ -25,7 +25,7 @@ capabilities:
   - name: "Authenticated Spark web access"
     status: not-supported
     verification: tested
-    note: "The direct SPARK_MASTER_UI_PORT and SPARK_HISTORY_PORT publishes are unauthenticated, the CORS-only Kong Spark routes are unauthenticated, and default HOST_BIND_IP=127.0.0.1: keeps direct ports loopback-bound; set another value only for deliberate remote access, firewall or remove the direct ports, and use an authentication proxy or remove both Spark Kong routes before exposure beyond a trusted host."
+    note: "The direct SPARK_MASTER_UI_PORT and SPARK_HISTORY_PORT publishes are unauthenticated. The CORS-only Kong Spark routes are unauthenticated. The default HOST_BIND_IP=127.0.0.1: keeps direct ports loopback-bound. Set another value only for deliberate remote access. Before exposure beyond a trusted host, firewall or remove the direct ports, and use an authentication proxy or remove both Spark Kong routes."
 
 containers:
   - spark-master
@@ -50,6 +50,7 @@ sources:
 
 env:
   - name: SPARK_SOURCE
+    description: "Deployment source for the Spark standalone cluster (master, workers, history, Spark Connect, spark-init): container or disabled (default)."
     default: disabled
   - name: SPARK_MASTER_UI_PORT
     # default removed — computed by services/topology.py slot allocator
@@ -61,13 +62,16 @@ env:
     default: "2"
     description: "Number of spark-worker replicas alongside the master. 1-8."
   - name: SPARK_MASTER_SCALE
+    description: "Set by ./start.sh from SPARK_SOURCE; do not edit. 1 runs spark-master, 0 does not."
     auto_managed: true
   - name: SPARK_WORKER_SCALE
     auto_managed: true
     description: "Resolved by the bootstrapper from SPARK_WORKER_COUNT when source=container; 0 otherwise."
   - name: SPARK_HISTORY_SCALE
+    description: "Set by ./start.sh from SPARK_SOURCE; do not edit. 1 runs the Spark History Server, 0 does not."
     auto_managed: true
   - name: SPARK_INIT_SCALE
+    description: "Set by ./start.sh from SPARK_SOURCE; do not edit. 1 runs spark-init, which creates the spark-history bucket; 0 does not."
     auto_managed: true
   - name: SPARK_CONNECT_SCALE
     auto_managed: true
@@ -208,6 +212,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

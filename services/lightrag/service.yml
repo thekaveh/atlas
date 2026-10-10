@@ -63,6 +63,7 @@ env:
     secret: true
     description: "Bootstrapper-synchronized percent-encoded LIGHTRAG_DB_PASSWORD for DSN userinfo."
   - name: LIGHTRAG_SOURCE
+    description: "Deployment source for LightRAG: container, localhost (an existing host LightRAG) or disabled."
     default: disabled
   - name: LIGHTRAG_API_PORT
     # default computed by services/topology.py slot allocator
@@ -82,13 +83,16 @@ env:
     default: 2
     description: "Passed as WORKERS but inert: the image starts lightrag.api.lightrag_server under a single uvicorn process (WORKERS is read only by lightrag-gunicorn)."
   - name: LIGHTRAG_MEMORY_LIMIT
+    description: "Memory limit of the lightrag container."
     default: 6g
   - name: LIGHTRAG_CPU_LIMIT
+    description: "CPU limit (cores) of the lightrag container."
     default: "2.0"
   - name: LIGHTRAG_LLM_BINDING
     default: openai
-    description: "Base LightRAG LLM binding, through LiteLLM at LIGHTRAG_LLM_BINDING_HOST by default. A role that sets no binding, host or key of its own inherits it, except that while the base points at a provider directly, a role whose model declares catalog request_defaults stays on LiteLLM, because a native LightRAG 1.5.4 binding does not send them (#658)."
+    description: "Base LightRAG LLM binding, through LiteLLM at LIGHTRAG_LLM_BINDING_HOST by default. A role without its own binding, host or key inherits it. Exception: with a direct-provider base, a role whose model declares catalog request_defaults stays on LiteLLM."
   - name: LIGHTRAG_LLM_BINDING_HOST
+    description: "Base LightRAG LLM endpoint (LLM_BINDING_HOST). Default: the in-network LiteLLM."
     default: "http://litellm:4000/v1"
   - name: LIGHTRAG_LLM_MODEL
     default: ""
@@ -123,21 +127,21 @@ env:
   - name: LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY
     default: ""
     secret: true
-    description: "Optional EXTRACT role provider API key. Empty = the LiteLLM master key, but only when the role's effective host is the in-network LiteLLM (#1271); a LiteLLM-routed EXTRACT needs no key wiring (#796). Required when EXTRACT has its own binding or host pointed anywhere else, or the container stops naming this variable; native Ollama ignores the value, but LightRAG requires one."
+    description: "Optional EXTRACT role API key. Unset means the LiteLLM master key, but only if the role's effective host is the in-network LiteLLM. A role with its own binding or host elsewhere must set it, or the container exits."
   - name: LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY
     default: ""
     secret: true
-    description: "Optional KEYWORD role provider API key. Empty = the LiteLLM master key, but only when the role's effective host is the in-network LiteLLM (#1271); a LiteLLM-routed KEYWORD needs no key wiring (#721). Required when KEYWORD has its own binding or host pointed anywhere else, or the container stops naming this variable."
+    description: "Optional KEYWORD role API key. Unset means the LiteLLM master key, but only if the role's effective host is the in-network LiteLLM. A role with its own binding or host elsewhere must set it, or the container exits."
   - name: LIGHTRAG_QUERY_LLM_BINDING_API_KEY
     default: ""
     secret: true
-    description: "Optional QUERY role provider API key. Empty = the LiteLLM master key, but only when the role's effective host is the in-network LiteLLM (#1271); a LiteLLM-routed QUERY needs no key wiring (#721). Required when QUERY has its own binding or host pointed anywhere else, or the container stops naming this variable."
+    description: "Optional QUERY role API key. Unset means the LiteLLM master key, but only if the role's effective host is the in-network LiteLLM. A role with its own binding or host elsewhere must set it, or the container exits."
   - name: LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT
     default: "4096"
-    description: "EXTRACT role output cap in tokens when EXTRACT is bound to native Ollama (LightRAG EXTRACT_OLLAMA_LLM_NUM_PREDICT, #796). A role on a different binding than the base sends no Ollama options otherwise, and Ollama's own default is unbounded. A dense chunk can legitimately need several thousand tokens; cached extractions keep any truncation, so clear the LightRAG LLM cache after raising it. Must be an integer; ignored by other bindings."
+    description: "EXTRACT output cap in tokens when EXTRACT is bound to native Ollama; other bindings ignore it. Without it Ollama output is unbounded. Must be an integer. Cached extractions keep any truncation, so clear the LightRAG LLM cache after raising it."
   - name: LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX
     default: "16384"
-    description: "EXTRACT role context window in tokens when EXTRACT is bound to native Ollama (LightRAG EXTRACT_OLLAMA_LLM_NUM_CTX, #796). Sized for the extraction prompt with a 2000-token paragraph chunk, the gleaning pass that resends the first answer, and merge summaries of up to 12000 input tokens, plus the output cap. Overrides Ollama's VRAM-based default and any OLLAMA_CONTEXT_LENGTH for these calls. Must be an integer; ignored by other bindings."
+    description: "EXTRACT context window in tokens when EXTRACT is bound to native Ollama; other bindings ignore it. The default fits the extraction prompt, gleaning pass, merge summaries and output cap. Overrides Ollama's VRAM-based default and OLLAMA_CONTEXT_LENGTH. Must be an integer."
   - name: LIGHTRAG_EXTRACT_MAX_ASYNC_LLM
     default: ""
     description: "Optional EXTRACT role LLM concurrency. Empty = inherit MAX_ASYNC_LLM."
@@ -169,8 +173,10 @@ env:
     default: "12000"
     description: "LightRAG query MAX_TOTAL_TOKENS. Atlas defaults this to a concrete integer because LightRAG v1.5.4 crashes when this env var is present but empty."
   - name: LIGHTRAG_EMBEDDING_BINDING
+    description: "LightRAG embedding binding (EMBEDDING_BINDING). Default openai, through LiteLLM."
     default: openai
   - name: LIGHTRAG_EMBEDDING_BINDING_HOST
+    description: "LightRAG embedding endpoint (EMBEDDING_BINDING_HOST). Default: the in-network LiteLLM."
     default: "http://litellm:4000/v1"
   - name: LIGHTRAG_EMBEDDING_MODEL
     default: ""
@@ -179,38 +185,52 @@ env:
     default: ""
     description: "Empty = auto (lightrag-init probes the embedding model's true dimension). Set ONLY to force a value — a wrong dim writes a mismatched PGVector index and every insert fails."
   - name: LIGHTRAG_VLM_PROCESS_ENABLE
+    description: "Passed as VLM_PROCESS_ENABLE: process images and figures with a vision LLM during document parsing."
     default: "true"
   - name: LIGHTRAG_KV_STORAGE
+    description: "LightRAG KV storage class. Default RedisKVStorage needs Redis; set a local class such as JsonKVStorage to run without it."
     default: RedisKVStorage
   - name: LIGHTRAG_VECTOR_STORAGE
+    description: "LightRAG vector storage class. Default PGVectorStorage needs Supabase; set a local class such as NanoVectorDBStorage to run without it."
     default: PGVectorStorage
   - name: LIGHTRAG_GRAPH_STORAGE
+    description: "LightRAG graph storage class. Default Neo4JStorage needs Neo4j; set a local class such as NetworkXStorage to run without it."
     default: Neo4JStorage
   - name: LIGHTRAG_DOC_STATUS_STORAGE
+    description: "LightRAG document-status storage class. Default RedisDocStatusStorage needs Redis; set a local class such as JsonDocStatusStorage to run without it."
     default: RedisDocStatusStorage
   - name: LIGHTRAG_SCALE
+    description: "Set by ./start.sh from LIGHTRAG_SOURCE; do not edit. 1 runs the lightrag container only for the container source, else 0."
     auto_managed: true
   - name: LIGHTRAG_INIT_SCALE
+    description: "Set by ./start.sh from LIGHTRAG_SOURCE; do not edit. 1 runs lightrag-init only for the container source, else 0."
     auto_managed: true
   - name: LIGHTRAG_ENDPOINT
     auto_managed: true
     description: "Consumed by hermes/n8n/backend runtime_adaptive and LiteLLM model_list."
   - name: LIGHTRAG_RERANK_BINDING_HOST
+    description: "Set by ./start.sh; do not edit. The backend rerank adapter URL when LIGHTRAG_RERANK_ADAPTER_ENABLED=true and TEI is enabled; empty otherwise."
     auto_managed: true
   - name: LIGHTRAG_RERANK_BINDING
     auto_managed: true
     description: "Always null by default. Direct LightRAG→TEI rerank payloads are incompatible without an adapter, and LightRAG crashes on an empty value."
   - name: LIGHTRAG_DOCLING_ENDPOINT
+    description: "Set by ./start.sh; do not edit. The docling-lightrag-adapter URL when LightRAG runs as a container and the adapter runs; empty otherwise."
     auto_managed: true
   - name: LIGHTRAG_PG_URI
+    description: "Set by ./start.sh; do not edit. PostgreSQL DSN for LightRAG's scoped role on supabase-db; empty when Supabase is disabled."
     auto_managed: true
   - name: LIGHTRAG_NEO4J_URI
+    description: "Set by ./start.sh; do not edit. Source-aware Neo4j Bolt URI; empty when Neo4j is disabled."
     auto_managed: true
   - name: LIGHTRAG_NEO4J_USERNAME
+    description: "Set by ./start.sh; do not edit. Neo4j user for LightRAG graph storage; empty when Neo4j is disabled."
     auto_managed: true
   - name: LIGHTRAG_NEO4J_PASSWORD
+    description: "Set by ./start.sh from GRAPH_DB_PASSWORD; do not edit. Empty when Neo4j is disabled."
     auto_managed: true
   - name: LIGHTRAG_REDIS_URI
+    description: "Set by ./start.sh; do not edit. Redis URI (db 2) for LightRAG KV and document-status storage; empty when Redis is disabled."
     auto_managed: true
 
 depends_on:
@@ -324,6 +344,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

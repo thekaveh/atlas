@@ -8,11 +8,11 @@ capabilities:
   - name: "Authenticated adaptive orchestration API"
     status: supported
     verification: tested
-    note: "Protected routes enforce Supabase user identity or scoped internal caller tokens on both direct and Kong paths; public health, readiness, metrics, schema, and docs remain intentionally unauthenticated."
+    note: "Protected routes enforce Supabase user identity or scoped internal caller tokens on both direct and Kong paths. Public health, readiness, metrics, schema, and docs remain intentionally unauthenticated."
   - name: "Memory research and RAG workflows"
     status: partial
     verification: tested
-    note: "Atlas provides bounded memory, Local Deep Researcher, evaluation, and ingestion APIs, but availability and quality depend on the enabled databases, models, extractors, and optional Celery tier."
+    note: "Atlas provides bounded memory, Local Deep Researcher, evaluation, and ingestion APIs. Availability and quality depend on the enabled databases, models, extractors, and optional Celery tier."
   - name: "Media generation gateway"
     status: partial
     verification: tested
@@ -24,11 +24,11 @@ capabilities:
   - name: "Trusted backend plugin seam"
     status: partial
     verification: tested
-    note: "Atlas validates plugin manifests and route auth modes, then installs and imports operator-supplied Python code at Backend startup without sandboxing; recreate the container to apply changes."
+    note: "Atlas validates plugin manifests and route auth modes. It then installs and imports operator-supplied Python code at Backend startup without sandboxing. Recreate the container to apply changes."
   - name: "Adaptive proxy environment placeholders"
     status: stubbed
     verification: documented
-    note: "STT, TTS, document-provider, Neo4j, and Hermes variables are injected for planned paths, but no general Backend proxy or Hermes/Neo4j consumer uses all of those settings today."
+    note: "STT, TTS, document-provider, Neo4j, and Hermes variables are injected for planned paths. No general Backend proxy or Hermes/Neo4j consumer uses all of those settings today."
   - name: "Backend horizontal availability"
     status: not-supported
     verification: documented
@@ -61,6 +61,7 @@ env:
     default: container
     description: "Adaptive core service; always container. Single-option."
   - name: BACKEND_PORT
+    description: "Host port that publishes the Backend API (in-container port 8000)."
     # default removed — computed by services/topology.py slot allocator
   - name: BACKEND_SCALE
     auto_managed: true
@@ -112,16 +113,16 @@ env:
     description: "Maximum research sessions admitted concurrently per Backend process. Excess start requests fail before database work with HTTP 429."
   - name: BACKEND_HEAVY_WORK_CONCURRENCY
     default: 4
-    description: "Maximum /api/chunk and /api/rag/evaluate jobs the Backend runs at once, on a pool of its own so they cannot starve other routes. Further calls get HTTP 503 with Retry-After until a slot frees (#1354)."
+    description: "Maximum /api/chunk and /api/rag/evaluate jobs the Backend runs at once, on a pool of its own so they cannot starve other routes. Further calls get HTTP 503 with Retry-After until a slot frees."
   - name: BACKEND_HEAVY_WORK_TIMEOUT_SECONDS
     default: 600
-    description: "Seconds a /api/chunk or /api/rag/evaluate call waits for its result before answering HTTP 504. The job keeps its concurrency slot until its thread actually finishes (#1354)."
+    description: "Seconds a /api/chunk or /api/rag/evaluate call waits for its result before answering HTTP 504. The job keeps its concurrency slot until its thread actually finishes."
   - name: BACKEND_PG_POOL_MIN
     default: 1
-    description: "Minimum connections kept warm in the Backend's shared asyncpg pool (#804). Short-lived DB ops draw from this pool instead of paying a fresh connect handshake each time; long-hold paths (memory vector-reconcile) keep dedicated connections."
+    description: "Minimum connections kept warm in the Backend's shared asyncpg pool. Short-lived DB operations draw from it instead of opening a new connection; long-hold paths (memory vector reconcile) keep dedicated connections."
   - name: BACKEND_PG_POOL_MAX
     default: 10
-    description: "Maximum connections the Backend's shared asyncpg pool (#804) opens per database URL. Concurrent short-lived DB ops beyond this queue for a free slot rather than over-subscribing Postgres."
+    description: "Maximum connections the Backend's shared asyncpg pool opens per database URL. Concurrent short-lived DB operations beyond this queue for a free slot rather than over-subscribing Postgres."
   - name: BACKEND_STORAGE_ALLOWED_BUCKETS
     default: default
     description: "Comma-separated Supabase Storage bucket allowlist accepted by /storage/upload."
@@ -130,7 +131,7 @@ env:
     description: "Atlas storage bucket the media gateway hosts image_to_3d inputs in when a provider (e.g. Tripo) rejects data-URI inputs. Objects are written under the media-inputs/ prefix."
   - name: BACKEND_MEDIA_INPUT_PUBLIC_BASE_URL
     default: ""
-    description: "Optional public base URL for hosted media inputs. When set, hosted image_to_3d input URLs are formed as <base>/<bucket>/<key> so the provider's cloud can fetch them through a reachable ingress; empty falls back to the storage client's public URL."
+    description: "Optional public base URL for hosted media inputs. When set, hosted image_to_3d input URLs are <base>/<bucket>/<key>, so the provider's cloud can fetch them through a reachable ingress. Empty uses the storage client's public URL."
   - name: MEDIA_REQUEST_MAX_BYTES
     default: 41943040
     description: "Maximum POST /media/generate request body size in bytes. Oversized declared and streamed bodies are rejected with HTTP 413 before route parsing."
@@ -142,7 +143,7 @@ env:
     description: "Maximum decoded or conditioned image pixel count. Dimensions are checked before full Pillow conversion to bound decompression and canvas memory."
   - name: MEDIA_BUDGET_ENABLED
     default: false
-    description: "Enables media spend accounting + budget enforcement (#342). When off, ordinary operations record no spend rows and enforce no caps; ambiguous FAL submissions still create a recovery row."
+    description: "Enables media spend accounting and budget enforcement. When off, ordinary operations record no spend rows and enforce no caps; ambiguous FAL submissions still create a recovery row."
   - name: MEDIA_BUDGET_STORE
     default: postgres
     description: "Ledger/recovery store: 'postgres' (durable, media_spend_ledger table) or 'memory' (process-local, non-durable — testing/ephemeral). Ambiguous FAL submissions use it for recovery even when budget enforcement is disabled."
@@ -181,10 +182,10 @@ env:
     description: "Optional regex accepted by the backend CORS middleware for wildcard subdomain policies."
   - name: BACKEND_DEV_RELOAD
     default: false
-    description: "Opt-in uvicorn --reload for live development (#679). Disabled by default so the production/consumer image runs a stable process: with backend_plugins bind-mounted, host-side git churn in the plugin tree would otherwise restart or crash-loop the backend. The plugin seam installs at boot, so recreate the backend to apply plugin changes."
+    description: "Opt-in uvicorn --reload for live development. Off by default: with backend_plugins bind-mounted, host-side git churn in the plugin tree would restart or crash-loop the backend. Plugins install at boot, so recreate the backend to apply plugin changes."
   - name: BACKEND_KONG_AUTH
     default: disabled
-    description: "Default gateway authentication mode for the api.localhost backend route: disabled (default local-dev behavior) or key-auth (requires apikey header). A backend plugin's plugin.yml `auth:` setting (`open` or `key-auth`) overrides this per route prefix (#402)."
+    description: "Default gateway authentication for the api.localhost backend route: disabled (default, local development) or key-auth (requires an apikey header). A backend plugin's plugin.yml auth: setting (open or key-auth) overrides it per route prefix."
   - name: BACKEND_KONG_API_KEY
     default: ""
     secret: true
@@ -213,10 +214,12 @@ env:
     description: "Timeout in seconds for `pip install` of backend plugin requirements (plugin_seam) at startup. The install runs at backend import time, so an unbounded hang would block startup; raise for slow networks."
   - name: BACKEND_PLUGINS_SITE_DIR
     default: /tmp/atlas-plugins-site
-    description: "Writable directory the plugin seam pip-installs plugin requirements into (`pip --target`) and prepends to sys.path before plugin imports (#559). The image runs as appuser with root-owned site-packages, so untargeted installs fail with EACCES even though appuser has a writable home/cache for runtime dependencies. Must be creatable by the backend user; falls back to untargeted pip install when it cannot be created. Emptied at each start before installing (#1340); a custom directory only once it carries the seam's .atlas-plugin-site marker."
+    description: "Writable directory for plugin requirements (`pip --target`), prepended to sys.path before plugins load; site-packages is root-owned. If it cannot be created, pip installs untargeted. Emptied at each start; a custom directory only once it has the .atlas-plugin-site marker."
   - name: LANGMEM_ENABLED
+    description: "Enables the Backend memory service in backend and celery-worker. false makes memory operations fail with \"LangMem memory service is disabled\"."
     default: true
   - name: LANGMEM_MEMORY_NAMESPACE
+    description: "Default memory namespace (passed as LANGMEM_NAMESPACE to backend and celery-worker). A request that names its own namespace overrides it."
     default: default
   - name: LANGMEM_AUTO_CONSOLIDATE
     default: true
@@ -230,6 +233,7 @@ env:
       Reserved — not yet honored (see LANGMEM_AUTO_CONSOLIDATE). Interval in
       seconds a future auto-consolidation scheduler would use.
   - name: LANGMEM_MAX_FACTS_PER_USER
+    description: "Maximum active memory facts per user in backend and celery-worker. Extraction stops storing new facts at the limit, consolidation deactivates the oldest excess facts, and a restore beyond it fails with 409."
     default: 1000
   - name: LANGMEM_EXTRACTION_MODEL
     default: ""
@@ -270,7 +274,7 @@ env:
     description: "Auto-generated bearer token required by every /api/ray/* route. Send as Authorization: Bearer <value>."
   - name: LIGHTRAG_RERANK_ADAPTER_ENABLED
     default: "false"
-    description: "Opt-in for the backend LightRAG rerank adapter route (POST /lightrag/rerank, #415). When true AND TEI_RERANKER_SOURCE is enabled, the bootstrapper wires LightRAG's rerank binding to the adapter and consumer query profiles may set enable_rerank=true. Default false keeps direct LightRAG->TEI rerank disabled (payload shapes are incompatible)."
+    description: "Opt-in for the backend rerank adapter route POST /lightrag/rerank. When true and TEI_RERANKER_SOURCE is enabled, LightRAG reranks through the adapter and consumer profiles may set enable_rerank=true. Direct LightRAG-to-TEI rerank is unsupported (payload shapes differ)."
   - name: LIGHTRAG_RERANK_ADAPTER_TOKEN
     default: ""
     secret: true
@@ -388,6 +392,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

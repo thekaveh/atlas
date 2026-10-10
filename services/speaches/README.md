@@ -1,16 +1,14 @@
 # 5.2.48. Speaches (unified TTS + STT engine)
 
-Speaches is a dual-role engine — one container exposes both
-`/v1/audio/transcriptions` (STT, Faster-Whisper) and `/v1/audio/speech`
-(TTS, Kokoro + Piper voices). It is selectable via either
-`STT_PROVIDER_SOURCE=speaches-*` or `TTS_PROVIDER_SOURCE=speaches-*`. When both
-roles pick a Speaches variant, the bootstrapper dedupes to one running
-container.
+Speaches is an STT and TTS engine. One container serves
+`/v1/audio/transcriptions` (Faster-Whisper) and `/v1/audio/speech` (Kokoro
+and Piper voices). Select it with `STT_PROVIDER_SOURCE=speaches-*` or
+`TTS_PROVIDER_SOURCE=speaches-*`. When both select it, one container serves both.
 
-It is documented under both aggregators:
-
-- → See [services/stt-provider/README.md](../stt-provider/README.md) for STT.
-- → See [services/tts-provider/README.md](../tts-provider/README.md) for TTS.
+Atlas preloads no model, and Speaches does not download a model on request.
+Requests return `404` until you download the model (issue #799). See
+[the STT Provider README](../stt-provider/README.md) for STT and
+[the TTS Provider README](../tts-provider/README.md) for TTS.
 
 ## 1. Engine quick reference
 
@@ -23,13 +21,9 @@ It is documented under both aggregators:
   - `STT_PROVIDER_SOURCE=speaches-container-gpu`
   - `TTS_PROVIDER_SOURCE=speaches-container-cpu`
   - `TTS_PROVIDER_SOURCE=speaches-container-gpu`
-- **GPU mode caveat:** `speaches-container-gpu` switches to the CUDA image and the `speaches-gpu` profile, but the `speaches` service requests no NVIDIA runtime or device reservation (unlike Parakeet and Chatterbox), so the container gets no GPU and runs on CPU or fails CUDA init. GPU wiring is not done yet.
+- **GPU caveat:** `speaches-container-gpu` selects the CUDA image, but the service gets no NVIDIA device (issue #1373, open). It runs on CPU or fails CUDA initialisation. Use `speaches-container-cpu`.
 - **In-container port:** 8000
 - **Host port:** `${SPEACHES_PORT}` (computed from `BASE_PORT`)
-
-The manifest (`service.yml`) and compose fragment (`compose.yml`) in this folder
-are the bootstrapper's source of truth for those values; treat this README as a
-pointer, not a duplicate of the aggregator docs.
 
 ## 2. Dependencies & Integrations
 
@@ -67,7 +61,7 @@ _No high-confidence opportunities identified._
 
 ## 3. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|

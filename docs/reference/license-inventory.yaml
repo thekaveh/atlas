@@ -950,7 +950,7 @@ models:
   - R-KREA
 - catalogue: comfyui
   id: hunyuan3d-2
-  license_url: https://huggingface.co/tencent/Hunyuan3D-2/blob/9cd649ba6913f7a852e3286bad86bfa9a2d83dcf/LICENSE.txt
+  license_url: https://huggingface.co/tencent/Hunyuan3D-2/blob/9cd649ba6913f7a852e3286bad86bfa9a2d83dcf/LICENSE
   sources:
   - https://huggingface.co/tencent/Hunyuan3D-2/resolve/9cd649ba6913f7a852e3286bad86bfa9a2d83dcf/hunyuan3d-dit-v2-0/model.fp16.safetensors
   hosted: conditional

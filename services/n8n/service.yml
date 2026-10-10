@@ -20,11 +20,11 @@ capabilities:
   - name: "Workflow credential propagation"
     status: partial
     verification: tested
-    note: "Both web and worker expose a scoped Backend token plus the stack-wide LiteLLM master key and provider service credentials to workflow expressions; trusted authors must avoid returning them in outputs or webhooks."
+    note: "Both web and worker expose a scoped Backend token plus the stack-wide LiteLLM master key and provider service credentials to workflow expressions. Trusted authors must avoid returning them in outputs or webhooks."
   - name: "Editor and webhook access control"
     status: partial
     verification: tested
-    note: "n8n supplies its own login while direct and CORS-only Kong routes add no Atlas auth; staged privileged examples require operator-bound Header Auth, but the legacy bundled /research fixture declares no authentication and must be secured before activation."
+    note: "n8n supplies its own login, while direct and CORS-only Kong routes add no Atlas auth; staged privileged examples require operator-bound Header Auth. The legacy bundled /research fixture declares no authentication and must be secured before activation."
   - name: "Idempotent external side effects"
     status: not-supported
     verification: documented
@@ -58,6 +58,7 @@ sources:
 
 env:
   - name: N8N_SOURCE
+    description: "n8n deployment source: container or disabled. Drives the n8n, n8n-worker and n8n-init scales."
     default: container
   - name: N8N_DB_USER
     default: atlas_n8n
@@ -67,6 +68,7 @@ env:
     secret: true
     description: "Auto-generated password for the scoped n8n database role."
   - name: N8N_PORT
+    description: "Host port for the n8n editor and webhooks (container port 5678)."
     # default removed — computed by services/topology.py slot allocator
   - name: N8N_ENCRYPTION_KEY
     default: "your-random-encryption-key"
@@ -77,12 +79,16 @@ env:
     secret: true
     description: "n8n public-API key (n8n CE issues these only via the UI: Settings → n8n API). Consumed by the backend's /workflows endpoints; while empty those endpoints currently return backend errors from failed upstream n8n calls."
   - name: N8N_HOST
+    description: "Not interpolated: the n8n compose fragment sets N8N_HOST=n8n.localhost directly."
     default: "n8n.localhost"
   - name: N8N_PROTOCOL
+    description: "Protocol n8n uses in the URLs it generates (N8N_PROTOCOL in the n8n and n8n-worker containers)."
     default: http
   - name: N8N_EXECUTIONS_MODE
+    description: "n8n EXECUTIONS_MODE. The default queue runs workflow executions on n8n-worker through Redis."
     default: queue
   - name: N8N_INIT_SOURCE
+    description: "Init-container selector listed in the SOURCE values reference. N8N_INIT_SCALE follows N8N_SOURCE, so n8n-init runs whenever n8n runs."
     default: container
   - name: N8N_INIT_NODES
     default: "n8n-nodes-comfyui@0.0.9,@ksc1234/n8n-nodes-comfyui-image-to-image@1.0.2"
@@ -102,10 +108,13 @@ env:
   # into .env.example that doesn't match main's UX (which treats it as an
   # OS-environment passthrough only).
   - name: N8N_SCALE
+    description: "Set by ./start.sh from N8N_SOURCE; do not edit. 1 runs the n8n container, 0 does not."
     auto_managed: true
   - name: N8N_WORKER_SCALE
+    description: "Set by ./start.sh from N8N_SOURCE; do not edit. 1 runs the n8n-worker container, 0 does not."
     auto_managed: true
   - name: N8N_INIT_SCALE
+    description: "Set by ./start.sh from N8N_SOURCE; do not edit. 1 runs the n8n-init container, 0 does not."
     auto_managed: true
 
 depends_on:
@@ -240,6 +249,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

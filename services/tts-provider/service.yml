@@ -31,7 +31,7 @@ capabilities:
   - name: "Authenticated TTS provider ingress"
     status: not-supported
     verification: documented
-    note: "Speaches and Chatterbox host ports plus the CORS-only tts.localhost alias have no Atlas authentication; use loopback or firewall controls, remove direct publishes, or add an authentication proxy."
+    note: "Speaches and Chatterbox host ports and the CORS-only tts.localhost alias have no Atlas authentication. Use loopback or firewall controls, remove direct publishes, or add an authentication proxy."
 
 sources:
   var: TTS_PROVIDER_SOURCE
@@ -51,16 +51,17 @@ sources:
 
 env:
   - name: TTS_PROVIDER_SOURCE
+    description: "Text-to-speech engine: speaches-container-cpu (default), speaches-container-gpu, chatterbox-container-gpu, chatterbox-localhost or disabled."
     default: speaches-container-cpu
   - name: TTS_PROVIDER_PORT
     # default removed — computed by services/topology.py slot allocator
     description: "Wizard display slot. Real engine port lives on its own container manifest."
   - name: TTS_PROVIDER_SCALE
     auto_managed: true
-    description: "Aggregate scale across all TTS engines. Reserved for future use."
+    description: "Set by ./start.sh; do not edit. 1 when a container engine serves text-to-speech, else 0. The wizard uses it to colour the TTS row."
   - name: TTS_ENDPOINT
     auto_managed: true
-    description: "Resolved per TTS_PROVIDER_SOURCE. Consumed by n8n, backend, jupyterhub, open-webui, hermes-init (as TTS_INTERNAL_URL — owned by services/hermes/)."
+    description: "Resolved per TTS_PROVIDER_SOURCE. Read by n8n and jupyterhub; hermes-init receives it as TTS_INTERNAL_URL, and Open WebUI gets derived OPEN_WEB_UI_TTS_* values. The backend receives it but does not use it."
   # OPEN_WEB_UI_TTS_MODEL / OPEN_WEB_UI_TTS_VOICE — moved to services/open-webui/ (Tier 2.G4).
   # Only Open WebUI reads them; they belong in its manifest, not here.
 
@@ -142,6 +143,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

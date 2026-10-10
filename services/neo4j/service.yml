@@ -12,7 +12,7 @@ capabilities:
   - name: "Snapshot backup and restore"
     status: supported
     verification: tested
-    note: "The backup orchestrator records whether Neo4j Community 5.26.31 is running, stops it for bounded system and neo4j database dumps, restores the prior running state on success or failure, and provides an authenticated offline load path."
+    note: "The backup orchestrator records whether Neo4j Community 5.26.31 is running and stops it for bounded system and neo4j database dumps. It restores the prior running state on success or failure, and provides an authenticated offline load path."
   - name: "Production access isolation"
     status: partial
     verification: documented
@@ -50,6 +50,7 @@ env:
     # default removed — computed by services/topology.py slot allocator
     description: "Host port for Neo4j browser dashboard (container port 7474)."
   - name: GRAPH_DB_USER
+    description: "Neo4j username. Backend and jupyterhub receive it as NEO4J_USER, and airflow-init seeds it into neo4j_default. Keep it equal to the user in GRAPH_DB_AUTH."
     default: neo4j
   - name: GRAPH_DB_PASSWORD
     default: neo4j_password
@@ -73,7 +74,7 @@ env:
     description: "Host Bolt port for the neo4j-localhost source variant (driver protocol). NEO4J_URI is derived as bolt://host.docker.internal:7687. The wizard's inline-textbox edits THIS port (HTTP is overridable via .env hand-edit)."
   - name: NEO4J_MEMORY_LIMIT
     default: 2g
-    description: "Container memory limit for neo4j-graph-db (deploy.resources.limits.memory). 2 g is conservative for a 32 GB host; Neo4j keeps hot nodes in a heap-based page cache that typically stays well under 2 g for single-node dev/staging workloads."
+    description: "Memory limit for neo4j-graph-db (deploy.resources.limits.memory). 2g is conservative for a 32 GB host. Single-node dev and staging workloads typically stay well under it."
   - name: NEO4J_CPU_LIMIT
     default: "1.5"
     description: "Container CPU limit for neo4j-graph-db (deploy.resources.limits.cpus). 1.5 cores is sufficient for single-node Bolt + HTTP query serving."
@@ -133,6 +134,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

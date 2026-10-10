@@ -8,7 +8,7 @@ capabilities:
   - name: "Persistent semantic vector storage"
     status: supported
     verification: tested
-    note: "Atlas configures persistent Weaviate REST and gRPC storage and wires backend consumers through container or operator-run localhost sources; Backend memory vectorizes through the in-network LiteLLM, so a localhost Weaviate leaves memory on pgvector."
+    note: "Atlas configures persistent Weaviate REST and gRPC storage. It wires backend consumers through container or operator-run localhost sources. Backend memory vectorizes through the in-network LiteLLM, so a localhost Weaviate leaves memory on pgvector."
   - name: "LiteLLM and CLIP vectorization"
     status: partial
     verification: tested
@@ -52,20 +52,25 @@ sources:
 
 env:
   - name: WEAVIATE_SOURCE
+    description: "Deployment source for Weaviate: container (default), localhost or disabled."
     default: container
   - name: WEAVIATE_PORT
+    description: "Host port for the Weaviate REST API (in-container 8080), bound to HOST_BIND_IP (loopback by default)."
     # default removed — computed by services/topology.py slot allocator
   - name: WEAVIATE_GRPC_PORT
+    description: "Host port for the Weaviate gRPC API (in-container 50051), bound to HOST_BIND_IP (loopback by default)."
     # default removed — computed by services/topology.py slot allocator
   - name: WEAVIATE_INIT_SOURCE
     default: container
     description: "Auto-managed by weaviate. Container/disabled."
   - name: MULTI2VEC_CLIP_SOURCE
     default: container-cpu
-    description: "Options: container-cpu, container-gpu, disabled. (Effects driven by hook.)"
+    description: "Options: container-cpu, container-gpu, disabled. container-gpu sets ENABLE_CUDA=1, but Compose reserves no GPU device yet. The CLIP container then fails to start; use container-cpu."
   - name: WEAVIATE_ENABLE_MODULES
+    description: "Weaviate module list (ENABLE_MODULES). ./start.sh adds or removes multi2vec-clip to match MULTI2VEC_CLIP_SOURCE and keeps any other modules you list."
     default: "text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem"
   - name: CLIP_INFERENCE_API
+    description: "URL Weaviate uses for the multi2vec-clip module. ./start.sh empties it when MULTI2VEC_CLIP_SOURCE=disabled."
     default: "http://multi2vec-clip:8080"
   - name: MULTI2VEC_CLIP_SIGLIP2_IMAGE
     default: "semitechnologies/multi2vec-clip:google-siglip2-so400m-patch16-512-1.5.1"
@@ -78,22 +83,26 @@ env:
     secret: true
     description: "Mirror of LITELLM_MASTER_KEY for Weaviate's vectorizer auth."
   - name: WEAVIATE_SCALE
+    description: "Set by ./start.sh from WEAVIATE_SOURCE; do not edit. 1 runs weaviate for container, 0 otherwise."
     auto_managed: true
   - name: WEAVIATE_INIT_SCALE
+    description: "Set by ./start.sh from WEAVIATE_SOURCE; do not edit. 1 runs weaviate-init with a container Weaviate, 0 otherwise."
     auto_managed: true
   - name: CLIP_SCALE
     auto_managed: true
     description: "Computed from MULTI2VEC_CLIP_SOURCE."
   - name: CLIP_ENABLE_CUDA
+    description: "Set by ./start.sh from MULTI2VEC_CLIP_SOURCE; do not edit. Passed to multi2vec-clip as ENABLE_CUDA. container-gpu sets 1, but compose requests no GPU device."
     auto_managed: true
   - name: CLIP_DEPLOY_RESOURCES
+    description: "Set by ./start.sh from the multi2vec-clip deploy slice; `~` means none. No compose file reads it."
     default: "~"
   - name: WEAVIATE_LOCALHOST_PORT
     default: "8080"
     description: "Host port for the weaviate-localhost source variant. URL is derived at compose-render time as http://host.docker.internal:8080."
   - name: WEAVIATE_MEMORY_LIMIT
     default: 2g
-    description: "Container memory limit for the weaviate container (deploy.resources.limits.memory). 2 g is conservative for a 32 GB host; the Go-based Weaviate data plane plus in-memory HNSW index fits comfortably for small-to-medium collections."
+    description: "Container memory limit for the weaviate container (deploy.resources.limits.memory). The 2g default is conservative for a 32 GB host. It fits the Go data plane and in-memory HNSW index for small-to-medium collections."
   - name: WEAVIATE_CPU_LIMIT
     default: "1.5"
     description: "Container CPU limit for the weaviate container (deploy.resources.limits.cpus). 1.5 cores covers routine indexing and query serving on a shared host."
@@ -219,6 +228,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

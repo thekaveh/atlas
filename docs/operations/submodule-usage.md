@@ -1,10 +1,10 @@
-# 7.7. Using atlas as a Git Submodule
+# 7.7. Using Atlas as a Git Submodule
 
-This guide explains how to use Atlas as a git submodule in your project, allowing you to build on top of it as an infrastructure foundation while maintaining the ability to contribute back to the project.
+This guide covers Atlas as a git submodule of your project: submodule mechanics, the legacy `services/_user/` layout, environment files, integration patterns and troubleshooting.
 
-> **New here?** Start with [Reusing Atlas as Infrastructure](reusing-atlas.md) — it compares all the reuse methods (standalone shared-network vs submodule vs fork), states what's ready, and walks a concrete consumer example. This page is the deep-dive for the **submodule** method specifically.
+> **New here?** Start with [Reusing Atlas as Infrastructure](reusing-atlas.md). It compares the reuse methods (standalone shared network, submodule, fork), states what is ready, and walks a complete consumer from scratch ([§4.1](reusing-atlas.md#41-stand-up-a-consumer-from-scratch-the-ordered-walkthrough)). That page owns instance identity, endpoints and CI gates. The [Consumer Manifest Reference](../reference/consumer-manifest.md) owns the per-key manifest contract.
 
-> **Which integration style? Prefer the manifest.** The **recommended** path for a new submodule consumer is a committed **`atlas.consumer.yml`** passed via `./infra/start.sh --consumer <path>` — one validated file for branding, env, compose overlays, backend plugins, storage buckets, and model/route registration (see [Reusing Atlas §6](reusing-atlas.md)). The parent-owned **`services/_user/` symlink + `.env.user` + wrapper-flags** layout in [§4.2](#42-parent-repo-consumer-reference-layout) below **remains fully supported for existing integrations**, but it is the **legacy tier**: new consumers should prefer the manifest, and existing ones can move over with the migration guide at the end of §4.2.
+> **Which integration style? Prefer the manifest.** A new submodule consumer commits an **`atlas.consumer.yml`** and passes it with `./infra/start.sh --consumer <path>`. One validated file holds branding, env, compose overlays, backend plugins, storage buckets and model and route registration ([Reusing Atlas §6.1](reusing-atlas.md#61-registering-a-parent-project-with-atlasconsumeryml)). The **`services/_user/` symlink + `.env.user` + wrapper-flags** layout in [§4.2](#42-parent-repo-consumer-reference-layout) is the **legacy tier**. It stays fully supported for existing integrations; [§4.2.1](#421-migrating-to-atlasconsumeryml) shows how to migrate.
 
 ## 1. Table of Contents
 
@@ -18,62 +18,54 @@ This guide explains how to use Atlas as a git submodule in your project, allowin
 - [Advanced Topics](#9-advanced-topics)
 - [Best Practices](#10-best-practices)
 - [Additional Resources](#11-additional-resources)
-- [Getting Help](#12-getting-help)
 
 ## 2. Quick Start
 
-### 2.1. Add atlas as a Submodule
+### 2.1. Add Atlas as a Submodule
 
-In your project root, add atlas as a submodule in an `infra/` directory:
+In your project root, add Atlas as a submodule in `infra/` and pin it:
 
 ```bash
 # Add Atlas as the submodule (use your fork's URL if you maintain one)
 git submodule add https://github.com/thekaveh/atlas.git infra
 
-# Initialize and update the submodule
-git submodule init
-git submodule update
+# Pin a fixed point, not the moving main branch
+git -C infra checkout <tag-or-reviewed-main-sha>
+git add .gitmodules infra && git commit -m "infra: vendor Atlas at <tag-or-sha>"
 ```
 
-### 2.2. Configure the Environment
+`git submodule add` clones and initializes the submodule. The only release tag, `v0.1.0`, predates the consumer manifest, so pin a reviewed `main` commit until a newer tag exists ([Releasing §2](releasing.md#2-pinning-from-a-submodule-consumer)).
 
-```bash
-cd infra
+### 2.2. Configure the Project
 
-# Copy the example configuration
-cp .env.example .env
+Commit the instance identity in a consumer manifest at the parent repository root:
 
-# Edit .env and customize PROJECT_NAME
-# IMPORTANT: Set PROJECT_NAME to match your project name
-vim .env
+```yaml
+# atlas.consumer.yml
+project_name: myproject
+env:
+  values:
+    BASE_PORT: auto      # or a fixed non-default block, e.g. "64000"
 ```
 
-**Critical Configuration:**
-```bash
-# In infra/.env
-PROJECT_NAME=myproject  # Change from 'atlas' to your project name
-```
+Do not set identity by editing `infra/.env`. `./start.sh` creates `.env` from `.env.example`, and a cold start regenerates it and resets a non-default `BASE_PORT` to `63000`. The manifest is re-applied on every start ([Reusing Atlas §7.2](reusing-atlas.md#72-pin-instance-identity-in-the-manifest-not-just-env)).
 
 ### 2.3. Start the Infrastructure
 
 ```bash
-# From the infra directory
-./start.sh
-
-# Or from your project root
-(cd infra && ./start.sh)
+# From your project root
+./infra/start.sh --consumer ./atlas.consumer.yml
 ```
 
 ### 2.4. Access Services
 
-Services are accessible on ports starting from 63000 (base port):
-- **Supabase PostgreSQL**: `psql -h localhost -p 63012 -U supabase_admin -d postgres` (wire-protocol port; base + 12; the default loopback-only direct port requires the password, `SUPABASE_DB_PASSWORD`, over scram-sha-256)
-- **Supabase Studio**: http://supabase-studio.localhost:63000 (Kong route; Studio's own port is not published)
-- **Kong API Gateway**: http://localhost:63000 (base + 0)
-- **N8N**: http://localhost:63075 (base + 75)
-- **LiteLLM Gateway** (LLM front door): http://localhost:63040 (base + 40)
+Each host port is `BASE_PORT` plus a fixed offset. The startup output prints the full mapping. With `BASE_PORT: auto`, Atlas allocates a block other than `63000`:
 
-See the startup output for the complete port mapping of all services.
+- **Kong API Gateway**: `http://localhost:<BASE_PORT>` (base + 0)
+- **Supabase PostgreSQL**: `psql -h localhost -p <BASE_PORT+12> -U supabase_admin -d postgres`. The direct port is loopback-only and requires `SUPABASE_DB_PASSWORD` over scram-sha-256.
+- **Supabase Studio**: `http://supabase-studio.localhost:<BASE_PORT>` (Kong route; Studio's own port is not published)
+- **LiteLLM Gateway** (LLM front door): `http://localhost:<BASE_PORT+40>`
+- **N8N**: `http://localhost:<BASE_PORT+75>`
 
 ## 3. Why Use as a Submodule?
 
@@ -94,13 +86,14 @@ Using atlas as a git submodule provides these capabilities:
 myproject/
 ├── .git/
 ├── .gitmodules              # Git submodule configuration
+├── atlas.consumer.yml       # Consumer manifest (identity, env, overlays)
 ├── src/                     # Your application code
 │   ├── backend/
 │   ├── frontend/
 │   └── ...
 ├── infra/                   # atlas submodule
-│   ├── .git -> ../.git/modules/infra
-│   ├── .env                 # Your custom configuration (gitignored)
+│   ├── .git                 # file: gitdir: ../.git/modules/infra
+│   ├── .env                 # Generated configuration (gitignored)
 │   ├── .env.example
 │   ├── docker-compose.yml
 │   ├── start.sh
@@ -121,20 +114,14 @@ myproject/
 
 ### 4.2. Parent-repo consumer reference layout
 
-> **Legacy-supported tier.** This parent-owned `services/_user/`-symlink +
-> `.env.user` + wrapper-flags layout is the **older** integration style. It
-> **remains fully supported** for existing consumers, but the **canonical path
-> for a new consumer is a committed `atlas.consumer.yml`** manifest
-> (`--consumer`), which folds branding, env, overlays, plugins, storage, and
-> registration into one validated file — no symlink into the submodule, no
-> hand-kept `.env.user`, no wrapper duplicating flags. If you are on this layout,
-> see **"Migrating this layout to the manifest"** at the end of this section.
+> **Legacy tier.** The `services/_user/` symlink + `.env.user` + wrapper-flag
+> layout stays fully supported for existing consumers. New consumers use a
+> committed `atlas.consumer.yml` (`--consumer`). To migrate, see
+> [§4.2.1](#421-migrating-to-atlasconsumeryml).
 
-Real Atlas consumers have converged on a parent-owned layout where the parent
-repository owns application code, overlay fragments, branding, wrapper scripts,
-and secret references, while the `infra/` submodule remains a pinned Atlas
-checkout. This keeps Atlas upgradeable and keeps project-specific wiring visible
-in the parent repository.
+The parent repository owns application code, overlay fragments, branding,
+wrapper scripts and secret references. `infra/` stays a pinned Atlas checkout,
+so Atlas stays upgradeable and project wiring stays visible in the parent.
 
 ```
 myproject/
@@ -143,7 +130,7 @@ myproject/
 ├── compose/
 │   └── myproject-overlay.yml
 ├── infra/                         # Atlas submodule
-│   ├── .env                       # generated or local, gitignored by parent
+│   ├── .env                       # generated or local, gitignored by Atlas
 │   ├── .env.user                  # optional local overlay, gitignored
 │   ├── services/
 │   │   ├── _user/
@@ -161,18 +148,16 @@ myproject/
 
 Two worked patterns use this shape:
 
-- **RAG-showcase-style consumers** keep RAG application code in the parent
-  repository, add parent-owned n8n/backend/plugin or app-service overlays, and
-  start Atlas with a RAG-oriented track plus explicit services needed outside
-  that track.
-- **DayDreams-style consumers** keep creative/media application code in the
-  parent repository, add parent-owned app/media overlays, brand the wizard and
-  dashboard from the parent wrapper, and explicitly enable or disable services
-  that differ from the selected creative track.
+- **RAG-showcase-style** consumers add parent-owned n8n, backend, plugin or
+  app-service overlays to a RAG-oriented track, plus explicit services needed
+  outside that track.
+- **DayDreams-style** consumers add parent-owned app or media overlays and
+  brand the wizard and dashboard from the parent wrapper. They enable or disable
+  the services that differ from the creative track.
 
-The important design choice is that `infra/services/_user/<name>/compose.yml`
-is only the discovery slot. Keep the real overlay file in the parent repository
-and symlink it into the slot:
+`infra/services/_user/<name>/compose.yml` is only the discovery slot. Keep the
+real overlay file, `compose/<name>-overlay.yml`, in the parent repository and
+symlink it into the slot:
 
 ```bash
 #!/usr/bin/env bash
@@ -188,11 +173,11 @@ ln -sfn "../../../../compose/myproject-overlay.yml" "$SLOT/compose.yml"
 test -f "$OVERLAY"
 ```
 
-The wrapper should be idempotent so a fresh clone, CI checkout, or updated
-submodule can run it safely before every start.
+Keep the wrapper idempotent, so a fresh clone, a CI checkout or an updated
+submodule can run it before every start.
 
-Parent-owned start scripts should force project wiring decisions instead of
-setting them only when absent:
+Parent-owned start scripts force-set project wiring instead of setting it only
+when absent:
 
 ```bash
 #!/usr/bin/env bash
@@ -214,7 +199,7 @@ set_env() {
   fi
 }
 
-cp -n "$ROOT/infra/.env.example" "$ROOT/infra/.env"
+[ -f "$ROOT/infra/.env" ] || cp "$ROOT/infra/.env.example" "$ROOT/infra/.env"
 set_env PROJECT_NAME myproject
 set_env BRAND_NAME "My Project"
 set_env BRAND_TAGLINE "Project-owned Atlas infrastructure"
@@ -228,14 +213,13 @@ set_env MINIO_SOURCE container
 ```
 
 Do not use a `set_env_default` helper for project-critical source choices.
-Atlas's `.env.example` intentionally ships defaults for many `*_SOURCE` keys,
-so "set only if absent" often does nothing. If the parent project requires a
-service mode, force-set it in the wrapper or pass the matching CLI flag.
+`.env.example` ships defaults for many `*_SOURCE` keys, so "set only if absent"
+often does nothing. Force-set the value in the wrapper or pass the matching CLI
+flag.
 
-Explicit `--<service>-source` flags override the selected `--track`. This is
-the supported way for a consumer to start from a broad track and then request
-one extra service outside the track, or disable a service that the track would
-normally prompt for.
+Explicit `--<service>-source` flags override the selected `--track`. A consumer
+can start from a broad track and add one service outside it, or disable a
+service that the track would prompt for.
 
 | Area | Parent repository owns | `infra/` submodule owns |
 |------|------------------------|-------------------------|
@@ -249,65 +233,40 @@ normally prompt for.
 
 Validation checklist before committing a parent consumer update:
 
-- `git -C infra status --short` is clean after `scripts/start-infra.sh` has run,
-  except for intentionally ignored `.env`, `.env.user`, `_user` slots, and
-  runtime volumes.
-- The parent commit pins `infra/` to a specific Atlas commit or release tag; it
-  does not track a moving branch implicitly.
-- Parent-owned overlays live under the parent repository, and
-  `infra/services/_user/<name>/compose.yml` is a symlink or generated discovery
-  pointer to that parent-owned file.
-- Parent-owned object buckets use `MINIO_EXTRA_CONSUMERS` in the overlay; the
-  referenced bucket/access/secret variables live in `.env.user` or
-  `ATLAS_ENV_USER_FILE`.
-- `.env`, `.env.user`, `infra/volumes/`, and runtime data directories remain
-  untracked.
-- Project-critical `*_SOURCE`, `PROJECT_NAME`, and `BRAND_*` values are
-  force-set by the wrapper or passed as explicit CLI flags.
-- The wrapper documents the chosen `--track` and every explicit source override
-  that intentionally differs from that track.
+- `git -C infra status --short` is clean after `scripts/start-infra.sh` runs.
+  Ignored `.env`, `.env.user`, `_user` slots and runtime volumes do not count.
+- The parent commit pins `infra/` to a specific Atlas commit or release tag. It
+  does not track a moving branch.
+- `infra/services/_user/<name>/compose.yml` is a symlink or generated pointer to
+  a parent-owned overlay.
+- Parent-owned buckets use `MINIO_EXTRA_CONSUMERS` in the overlay. The bucket,
+  access and secret variables live in `.env.user` or `ATLAS_ENV_USER_FILE`.
+- The wrapper force-sets project-critical `*_SOURCE`, `PROJECT_NAME` and
+  `BRAND_*` values, or passes them as explicit CLI flags.
+- The wrapper documents the chosen `--track` and every source override that
+  differs from it.
 
-**The launcher never silently advances the submodule pin (#797).** On every
-`./infra/start.sh` and `./infra/stop.sh`, Atlas makes a read-only check that
-`infra/`'s working HEAD still matches the gitlink the parent has committed. If
-it doesn't — or the parent has staged a pointer change — the launcher prints a
-loud warning naming the recorded vs working commits and how to re-pin, then
-continues. It never runs `git checkout`, `pull`, or `git add` on the submodule
-itself, and there is no auto-update path: bumping the pin is always an explicit
-parent-side action (`cd infra && git checkout <tag>` then commit the parent).
+#### 4.2.1. Migrating to atlas.consumer.yml
 
-**Migrating this layout to the `atlas.consumer.yml` manifest.** Everything the
-legacy layout expresses through a symlink + `.env.user` + wrapper flags — the
-force-set `PROJECT_NAME`/`BRAND_*` values, `*_SOURCE` overrides, the
-`services/_user/<name>/compose.yml` symlink, backend plugin mounts, and
-`MINIO_EXTRA_CONSUMERS` buckets — maps onto a single committed
-`atlas.consumer.yml` consumed via `./infra/start.sh --consumer <path>`. After
-migrating, drop the symlink and the `setup-overlay.sh`/`.env.user` wrapper
-steps; keep only a thin launcher that calls `./infra/start.sh --consumer
-./atlas.consumer.yml --project <name>`. See
-[Reusing Atlas §6.1](reusing-atlas.md) for the full manifest key reference.
+The manifest covers everything this layout does: the force-set
+`PROJECT_NAME`/`BRAND_*` values, the `*_SOURCE` overrides, the
+`services/_user/<name>/compose.yml` overlay, backend plugin mounts and
+`MINIO_EXTRA_CONSUMERS` buckets. After you migrate, delete the symlink,
+`setup-overlay.sh` and `.env.user`. The launcher becomes
+`./infra/start.sh --consumer ./atlas.consumer.yml`; the manifest's
+`project_name` sets `PROJECT_NAME`. For every manifest key, see the
+[Consumer Manifest Reference](../reference/consumer-manifest.md).
 
 ### 4.3. Parent .gitignore Configuration
 
 A parent repository's `.gitignore` has no effect on paths inside the
-submodule. Atlas's own `.gitignore` already ignores `.env`, `.env.user`,
-the generated files under `volumes/`, `data/` and the files in `services/supabase/db/_user/`, so local
-state does not make the submodule look dirty. The entries below are optional;
-they only matter if your parent tooling scans `infra/` as plain files:
+submodule, so you do not need entries for `infra/`. Atlas's own `.gitignore`
+ignores `.env`, `.env.user`, the generated files under `volumes/`, `data/` and
+the files in `services/supabase/db/_user/`.
 
-```
-# Infrastructure environment and data
-infra/.env
-infra/.env.user
-infra/services/supabase/db/_user/*.sql
-infra/volumes/
-infra/data/
-
-# Keep .env.example for documentation
-!infra/.env.example
-```
-
-Use either `infra/.env.user` or a parent-owned external overlay for downstream-only environment keys that should survive Atlas `.env` regeneration without being added to upstream `.env.example`. The external overlay is usually better for submodule consumers because it lives in the parent repository and can be committed or templated there:
+For downstream-only environment keys that must survive `.env` regeneration, use
+`infra/.env.user` or a parent-owned external overlay. Prefer the external
+overlay: it lives in the parent repository, where you can commit or template it.
 
 ```bash
 # myproject/atlas.env.user
@@ -320,43 +279,46 @@ WEAVIATE_MEMORY_LIMIT=2g
 ATLAS_ENV_USER_FILE="$PWD/atlas.env.user" ./infra/start.sh
 ```
 
-During setup, Atlas copies `.env.example` when needed, merges sibling `infra/.env.user`, then merges `ATLAS_ENV_USER_FILE`, and then applies explicit CLI flags such as `--project` last. Both overlays are applied on every start, including `--cold`, before Atlas backfills missing keys from `.env.example`. If `ATLAS_ENV_USER_FILE` is relative, `start.sh` resolves it against the parent directory that invoked the wrapper; direct Python invocations resolve it against their current working directory. Missing or unreadable external overlay files produce a warning rather than aborting startup.
+On every start, including `--cold`, Atlas applies overlays in this order:
+`infra/.env.user`, then `ATLAS_ENV_USER_FILE`, then the consumer manifest's
+`env.values`, then CLI flags such as `--project`. It then backfills missing keys
+from `.env.example`. A missing or unreadable `ATLAS_ENV_USER_FILE` gives a
+warning and is skipped.
 
-Use `infra/services/supabase/db/_user/` for downstream-owned Supabase SQL that should run after Atlas-owned database initialization. Files are executed by `supabase-db-init` in lexical order after `infra/services/supabase/db/scripts/*.sql`; write them idempotently because the same database volume may be reused across starts. Atlas's own `services/supabase/db/_user/.gitignore` keeps that local SQL from making the submodule look dirty; version the migrations in the parent repository if your project needs them tracked.
+`start.sh` resolves a relative `ATLAS_ENV_USER_FILE` against the directory that
+called the wrapper. A direct Python invocation resolves it against its current
+working directory.
+
+For downstream-owned Supabase SQL, use `infra/services/supabase/db/_user/`.
+`supabase-db-init` runs these files in lexical order after
+`infra/services/supabase/db/scripts/*.sql`. Write them idempotently, because a
+database volume can be reused across starts. Atlas's
+`services/supabase/db/_user/.gitignore` keeps the SQL from dirtying the
+submodule; version the migrations in the parent repository.
 
 ## 5. Configuration
 
 ### 5.1. PROJECT_NAME: The Key to Isolation
 
-The `PROJECT_NAME` environment variable is critical for submodule usage. It prefixes all Docker resources to prevent conflicts:
+`PROJECT_NAME` prefixes every Docker resource, so several stacks do not
+conflict:
 
-**Docker Resources Prefixed with PROJECT_NAME:**
 - **Networks**: `${PROJECT_NAME}-network`
 - **Containers**: `${PROJECT_NAME}-supabase-db`, `${PROJECT_NAME}-ollama`, etc.
 - **Volumes**: `${PROJECT_NAME}-supabase-db-data`, `${PROJECT_NAME}-redis-data`, etc.
 
-**Example:**
+For `PROJECT_NAME=myproject`, the network is `myproject-network`, a container is
+`myproject-supabase-db`, and a volume is `myproject-supabase-db-data`.
+Host-published ports are not prefixed; a second stack also needs its own
+`BASE_PORT` ([Reusing Atlas §7.4](reusing-atlas.md#74-run-multiple-atlas-instances-on-one-host)).
 
-```bash
-# In infra/.env
-PROJECT_NAME=myproject
-```
+**start and stop both honor it.** `./start.sh` and `./stop.sh` read
+`PROJECT_NAME` from `.env` and pass it as `docker compose -p <name>`. A bare
+`./infra/stop.sh` therefore stops exactly the stack that `./infra/start.sh`
+launched, not a base Atlas stack.
 
-Results in:
-- Network: `myproject-network`
-- Container: `myproject-supabase-db`
-- Volume: `myproject-supabase-db-data`
-
-This allows multiple projects to use atlas simultaneously without conflicts.
-
-**start and stop both honor it.** `./start.sh` and `./stop.sh` both read
-`PROJECT_NAME` from `.env` and pass it as `docker compose -p <name>`, so a bare
-`./infra/stop.sh` tears down **exactly** the family `./infra/start.sh` launched —
-not a base Atlas stack. As a submodule consumer you only need to set
-`PROJECT_NAME` once in `infra/.env`.
-
-You can also pass it explicitly (it persists back to `.env`, so the next bare
-start/stop keeps agreeing):
+Set the name with the manifest's `project_name` (§2.2) or with `--project`. Both
+persist to `.env`, so a later bare start or stop uses the same name:
 
 ```bash
 ./infra/start.sh --project myproject     # or -p myproject
@@ -365,13 +327,15 @@ start/stop keeps agreeing):
 ```
 
 The name is lower-cased and must match Docker Compose's project-name rules
-(`[a-z0-9][a-z0-9_-]*`); an invalid name is rejected up front. The interactive
-wizard also has a **Project name** step (defaults to the current value) that
-writes it to `.env`.
+(`[a-z0-9][a-z0-9_-]*`). Atlas rejects an invalid name before it starts. The
+interactive wizard's **Project name** step also writes it to `.env`; its default
+is the current value.
 
 ### 5.2. Custom Environment File Location (Advanced)
 
-If you prefer to manage your infrastructure configuration from the parent project, you can use the `ATLAS_ENV_FILE` environment variable (the legacy name `GENAI_ENV_FILE` is still honored as a deprecated alias with a one-shot stderr warning):
+To keep the infrastructure configuration in the parent project, set
+`ATLAS_ENV_FILE`. The legacy name `GENAI_ENV_FILE` still works as a deprecated
+alias and prints a one-time warning on stderr.
 
 ```bash
 # Parent project structure
@@ -386,22 +350,21 @@ myproject/
 ATLAS_ENV_FILE=../config/prod.env ./infra/start.sh
 ```
 
-This is useful for:
+A relative `ATLAS_ENV_FILE` resolves against the Atlas checkout (`infra/`), not
+against the caller's directory. `./stop.sh` reads the same variable, so export
+it for `./infra/stop.sh` too.
+
+Uses:
 - Centralized configuration management
 - CI/CD pipelines with secret injection
 - Running multiple instances with different configurations
 
 ### 5.3. Port Configuration
 
-By default, services start at port 63000. If these ports conflict with your application:
-
-```bash
-# Use custom base port
-./start.sh --base-port 64000
-
-# Or set in .env
-BASE_PORT=64000
-```
+By default, services use the block that starts at port 63000. To move it,
+set `BASE_PORT` in the manifest's `env.values` (§2.2). A `--base-port` flag
+writes only to `.env`, and a cold start resets it
+([Reusing Atlas §7.2](reusing-atlas.md#72-pin-instance-identity-in-the-manifest-not-just-env)).
 
 ## 6. Integration Patterns
 
@@ -416,7 +379,7 @@ networks:
   # Connect to atlas network
   infra-network:
     external: true
-    name: myproject-network  # Must match PROJECT_NAME in infra/.env
+    name: myproject-network  # Must match PROJECT_NAME
 
 services:
   my-app:
@@ -424,26 +387,32 @@ services:
     networks:
       - infra-network
     environment:
-      # Access infrastructure services by container name
-      DATABASE_URL: postgresql://postgres:password@myproject-supabase-db:5432/postgres
-      REDIS_URL: redis://:password@myproject-redis:6379
-      LITELLM_BASE_URL: http://myproject-litellm:4000
+      # Reach Atlas services by their compose service name
+      DATABASE_URL: postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/postgres
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      LITELLM_BASE_URL: http://litellm:4000
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
-      KONG_URL: http://myproject-kong-api-gateway:8000
+      KONG_URL: http://kong-api-gateway:8000
     ports:
       - "8080:8080"
 ```
 
+The parent Compose project does not read `infra/.env`. Export
+`SUPABASE_DB_USER`, `SUPABASE_DB_PASSWORD`, `REDIS_PASSWORD` and
+`LITELLM_MASTER_KEY` to it from your secret store. Service names are stable and
+do not depend on `PROJECT_NAME`
+([Reusing Atlas §3.3](reusing-atlas.md#33-service-addresses-inside-the-shared-network)).
+
 The Atlas services belong to a separate Compose project, so they cannot appear
-in this file's `depends_on`. Start Atlas first as shown below; if the application
-needs a stronger startup guarantee, make its own entrypoint wait on the specific
-Atlas health endpoint it consumes.
+in this file's `depends_on`. Start Atlas first, as shown below. If the
+application needs a stronger guarantee, make its entrypoint wait on the Atlas
+health endpoint it consumes.
 
 **Start both stacks:**
 
 ```bash
-# Start infrastructure first
-cd infra && ./start.sh --no-tui --detach && cd ..
+# Start infrastructure first; --detach returns after the health gates pass
+./infra/start.sh --consumer ./atlas.consumer.yml --no-tui --detach
 
 # Start your application
 docker compose up -d
@@ -451,13 +420,14 @@ docker compose up -d
 
 ### 6.2. Pattern 2: Kong Gateway for Routed Services
 
-Use Kong (port 63000) for services whose manifests declare Kong routes. Database,
-queue, and other TCP integrations remain direct; use `./start.sh endpoints export`
-for their canonical endpoint contracts. See [Ports and Routes](./ports-and-routes.md)
-for the routed/direct inventory.
+Use Kong (`BASE_PORT` + 0) for services whose manifests declare Kong routes.
+Database, queue and other TCP integrations stay direct; use
+`./start.sh endpoints export` for their canonical endpoint contracts. See
+[Ports and Routes](./ports-and-routes.md) for the routed and direct inventory.
 
 ```python
 # Python example
+import os
 import requests
 
 KONG_BASE = "http://localhost:63000"  # default BASE_PORT + 0
@@ -484,15 +454,18 @@ const jupyterUrl = "http://jupyter.localhost:63000";
 
 ### 6.3. Pattern 3: Direct Port Access
 
-Access services directly via their exposed ports:
+Access services directly via their published host ports. Read the host
+endpoints from `./infra/start.sh endpoints export --format env`. Do not use
+`LITELLM_BASE_URL` from `infra/.env` on the host: it is the in-network URL
+`http://litellm:4000`.
 
 ```python
 import os
 
-# Development configuration
-LITELLM_BASE_URL = os.getenv("LITELLM_BASE_URL", "http://localhost:63040")
-LITELLM_API_KEY = os.getenv("LITELLM_API_KEY")  # equals LITELLM_MASTER_KEY
-SUPABASE_URL = os.getenv("SUPABASE_URL", "http://localhost:63000")  # Kong gateway; clients add /rest/v1
+# Host-side endpoints from `endpoints export`; the defaults are for BASE_PORT=63000
+LITELLM_BASE_URL = os.getenv("ATLAS_LITELLM_HOST_ENDPOINT", "http://localhost:63040")
+LITELLM_API_KEY = os.getenv("LITELLM_MASTER_KEY")  # from infra/.env
+SUPABASE_URL = os.getenv("ATLAS_KONG_GATEWAY", "http://localhost:63000")  # Kong gateway; clients add /rest/v1
 # Redis always requires a password. Atlas's own REDIS_URL uses the in-network
 # host `redis`, so build the host URL from REDIS_PASSWORD and REDIS_PORT.
 REDIS_URL = f"redis://:{os.getenv('REDIS_PASSWORD')}@localhost:{os.getenv('REDIS_PORT', '63025')}/0"
@@ -500,7 +473,7 @@ REDIS_URL = f"redis://:{os.getenv('REDIS_PASSWORD')}@localhost:{os.getenv('REDIS
 
 ### 6.4. Pattern 4: Service Extension
 
-> For a service that should **co-launch inside the Atlas stack** (start/stop with `./start.sh` / `./stop.sh`, share the network automatically), prefer the manifest-declared external overlay for new integrations or the back-compatible `services/_user/` slot for existing ones. See [reusing-atlas.md §6.1.1](reusing-atlas.md#611-back-compatible-services_user-overlay-slot). The parent-compose pattern below is the alternative when you want your service managed by your *own* Compose project rather than Atlas's.
+> To **co-launch a service inside the Atlas stack**, use a manifest-declared overlay. Such a service starts and stops with `./start.sh` / `./stop.sh` and joins the network. For existing integrations, the back-compatible `services/_user/` slot also works ([Reusing Atlas §6.1.1](reusing-atlas.md#611-back-compatible-services_user-overlay-slot)). Use the parent-compose pattern below when your own Compose project manages the service.
 
 Extend infrastructure services with custom functionality:
 
@@ -513,9 +486,9 @@ services:
       - infra-network
     environment:
       # Process data from Weaviate
-      WEAVIATE_URL: http://myproject-weaviate:8080
+      WEAVIATE_URL: http://weaviate:8080
       # Store results in Supabase (REST is path-routed on Kong's root)
-      SUPABASE_URL: http://myproject-kong-api-gateway:8000
+      SUPABASE_URL: http://kong-api-gateway:8000
     volumes:
       - ./data:/data
 ```
@@ -529,16 +502,14 @@ services:
 set -e
 
 echo "Starting infrastructure..."
-cd infra && ./start.sh --no-tui --detach && cd ..
-
-echo "Waiting for services to be ready..."
-sleep 10
+# --detach exits 0 only after Atlas's health gates pass
+./infra/start.sh --consumer ./atlas.consumer.yml --no-tui --detach
 
 echo "Starting application services..."
 docker compose up -d
 
 echo "All services started!"
-echo "Infrastructure: http://localhost:63000"
+echo "Infrastructure: Kong on BASE_PORT (see the startup output)"
 echo "Application: http://localhost:8080"
 ```
 
@@ -551,24 +522,25 @@ echo "Stopping application services..."
 docker compose down
 
 echo "Stopping infrastructure..."
-cd infra && ./stop.sh && cd ..
+./infra/stop.sh
 
 echo "All services stopped!"
 ```
 
+For `--detach`, `--json` and the CI preflight, see
+[Reusing Atlas §6.1.3](reusing-atlas.md#613-scripted-bring-up-for-automation).
+
 ## 7. Contributing Back
 
-Because `infra/` is a normal git checkout, improvements you make there follow
-the standard GitHub fork/branch/PR workflow — fork the repository, branch and
-commit inside `infra/`, push to your fork, and open a PR against `main`; once
-merged, update the submodule pointer and commit that pointer bump in the
-parent repository. Keep `.env` and other project-specific configuration as
-local-only changes; contribute bug fixes, new integrations, and other
-generally useful changes back upstream. If you need to carry local
-customizations across upstream updates, keep them on a dedicated branch and
-rebase it onto `main` as updates land. See GitHub's own documentation on
-[forking and pull requests](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests-and-forks)
-for the mechanics.
+`infra/` is a normal git checkout. To contribute, fork Atlas, commit on a branch
+inside `infra/`, push to your fork, and open a pull request against `develop`
+([Contributing guide](../../CONTRIBUTING.md)).
+After the change reaches `main` in a release, bump the submodule pointer in the
+parent repository. Keep `.env` and other project settings local.
+
+To carry private changes, keep them on a branch and rebase it onto `main` after
+each upgrade. GitHub documents the
+[fork and pull-request mechanics](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests-and-forks).
 
 ## 8. Troubleshooting
 
@@ -576,10 +548,8 @@ for the mechanics.
 
 **Symptom**: Services fail to start due to port already in use.
 
-**Solution 1**: Use custom base port
-```bash
-./infra/start.sh --base-port 64000
-```
+**Solution 1**: Move the port block. Set `BASE_PORT: auto` (or a fixed
+non-default block) in the manifest's `env.values` (§2.2).
 
 **Solution 2**: Stop conflicting services
 ```bash
@@ -593,25 +563,18 @@ lsof -i :63000
 
 **Symptom**: Error creating network `${PROJECT_NAME}-network`.
 
-**Solution**: Ensure PROJECT_NAME is unique across your system
-```bash
-# In infra/.env
-PROJECT_NAME=myproject-dev  # Make it unique
-```
+**Solution**: Give each stack a unique `project_name` in its manifest, for
+example `myproject-dev`.
 
 ### 8.3. Issue: Submodule Not Updating
 
 **Symptom**: Changes from upstream don't appear in your submodule.
 
-**Solution**: Update the submodule explicitly
+**Solution**: Move the pin explicitly to a new tag or reviewed `main` commit:
 ```bash
-cd infra
-git checkout main
-git pull origin main
-
-cd ..
-git add infra
-git commit -m "Update submodule"
+git -C infra fetch --tags origin
+git -C infra checkout <tag-or-reviewed-main-sha>
+git add infra && git commit -m "infra: bump Atlas to <tag-or-sha>"
 ```
 
 ### 8.4. Issue: Can't Access Services from Application
@@ -628,11 +591,11 @@ docker network inspect myproject-network
 
 **Solution 2**: Use correct hostnames
 ```bash
-# From within Docker: use container names
-DATABASE_URL=postgresql://user:pass@myproject-supabase-db:5432/db
+# From within Docker: use the compose service name and container port
+DATABASE_URL=postgresql://user:pass@supabase-db:5432/postgres
 
-# From host machine: use localhost
-DATABASE_URL=postgresql://user:pass@localhost:63012/db
+# From host machine: use localhost and the published port (BASE_PORT + 12)
+DATABASE_URL=postgresql://user:pass@localhost:63012/postgres
 ```
 
 ### 8.5. Issue: .env Changes Not Taking Effect
@@ -640,8 +603,9 @@ DATABASE_URL=postgresql://user:pass@localhost:63012/db
 **Symptom**: Updated `.env` values don't apply to running services.
 
 **Solution**: Run a normal start. Every `./start.sh` recreates the containers
-(`--force-recreate`) with the current `.env`; a cold start would instead rebuild
-`.env` from `.env.example` (losing the edit) and delete the project volumes.
+(`--force-recreate`) with the current `.env`. A cold start would instead rebuild
+`.env` from `.env.example`, which loses the edit, and delete the project
+volumes.
 ```bash
 ./infra/start.sh
 ```
@@ -650,24 +614,23 @@ DATABASE_URL=postgresql://user:pass@localhost:63012/db
 
 **Symptom**: Permission errors when services try to write to volumes.
 
-**Solution**: Check volume ownership
+**Solution**: Check the ownership of the directory named in the error. If your
+user created it, give it back to your user and group:
 ```bash
-# Fix permissions
-sudo chown -R $USER:$USER ./infra/volumes/
+sudo chown -R "$(id -u):$(id -g)" ./infra/volumes/<service-dir>
 ```
 
 ### 8.7. Issue: Submodule Shows Modifications
 
 **Symptom**: `git status` shows infra/ as modified even though you didn't change it.
 
-**Solution**: This is normal - the submodule tracks a specific commit
+**Solution**: The parent records one submodule commit, and `infra/` is checked
+out at a different one.
 ```bash
 # See what changed
-cd infra
-git status
+git -C infra status
 
 # If you want to keep current version
-cd ..
 git add infra
 git commit -m "Update submodule reference"
 
@@ -675,45 +638,44 @@ git commit -m "Update submodule reference"
 git submodule update --init
 ```
 
-**Guarantee: a legitimate `./start.sh` never dirties the Atlas checkout.**
-Every file the bootstrapper writes at runtime inside the repo tree — the
-Kong route file (`volumes/api/kong-dynamic.yml`), the LiteLLM configs
-(under `volumes/litellm/`), consumer-manifest overlays (under
-`volumes/minio/`, `volumes/n8n/`, `volumes/backend/`), the ComfyUI
-manifests (`volumes/comfyui/selected-models.yaml`, `active-models.tsv`,
-`active-custom-nodes.tsv`), plus `.env` and its `.env.backup.*` siblings
-at the repo root — is gitignored, so submodule-cleanliness checks in
-consumer CI stay green across starts. If `git -C infra status` reports
-tracked-file modifications after a start, that's an Atlas bug — please
-file it. If an update fails because the incoming commit deletes a file
-your local checkout shows as modified, discard the local copy first
-(`git -C infra checkout -- <path>`) and retry.
+**The launcher never moves the pin.** After each start and stop, Atlas makes a
+read-only check. `infra/` HEAD must match the parent's gitlink, and no pointer
+change may be staged. On a mismatch it prints both commits and the re-pin command,
+then continues. It never checks out, pulls or stages anything. The `--no-tui`
+flow runs the check after a successful start only.
+
+**A normal `./start.sh` never dirties the Atlas checkout.** Every file it writes
+inside the tree is gitignored. These are `.env`, `.env.backup.*` and the
+generated files under `volumes/`: Kong routes, LiteLLM configs, consumer
+overlays and ComfyUI manifests. If `git -C infra status` shows tracked-file changes after a start,
+file an Atlas bug. If an update fails on a locally modified file, run
+`git -C infra checkout -- <path>` and retry.
 
 ## 9. Advanced Topics
 
 ### 9.1. Running Multiple Infrastructure Stacks
 
-You can run multiple instances of atlas for different projects:
+Run several Atlas stacks on one host by giving each its own manifest identity:
 
-```bash
-# Project 1 — set PROJECT_NAME in the infra/.env (a shell-env prefix is NOT
-# read by the bootstrapper: compose would keep project name `atlas` while
-# fragment interpolation used the shell value, colliding the two stacks)
-cd ~/project1/infra
-echo "PROJECT_NAME=project1" >> .env
-./start.sh --base-port 65000  # not the default 63000; see reusing-atlas §7
+```yaml
+# ~/project1/atlas.consumer.yml
+project_name: project1
+env:
+  values:
+    BASE_PORT: auto
 
-# Project 2
-cd ~/project2/infra
-echo "PROJECT_NAME=project2" >> .env
-./start.sh --base-port 64000
+# ~/project2/atlas.consumer.yml
+project_name: project2
+env:
+  values:
+    BASE_PORT: auto
 ```
 
-Each will have isolated:
-- Docker networks
-- Docker volumes
-- Container names
-- Exposed ports
+Each stack gets its own networks, volumes, container names and port block.
+`BASE_PORT: auto` reserves a free block per consumer and keeps it across
+restarts. Do not set `PROJECT_NAME` as a shell-env prefix; the bootstrapper
+does not read it, and the two stacks collide. See
+[Reusing Atlas §7.4](reusing-atlas.md#74-run-multiple-atlas-instances-on-one-host).
 
 ### 9.2. CI/CD Integration
 
@@ -728,19 +690,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
           submodules: recursive  # Important!
 
       - name: Start Infrastructure
-        run: |
-          cd infra
-          cp .env.example .env
-          echo "PROJECT_NAME=ci-test-${{ github.run_id }}" >> .env
-          ./start.sh --no-tui --detach
-
-      - name: Wait for Services
-        run: sleep 30
+        # --detach exits non-zero unless the health gates pass
+        run: ./infra/start.sh --consumer ./atlas.consumer.yml --project "ci-test-${{ github.run_id }}" --no-tui --detach
 
       - name: Run Tests
         run: |
@@ -748,71 +704,61 @@ jobs:
 
       - name: Stop Infrastructure
         if: always()
-        run: cd infra && ./stop.sh
+        run: ./infra/stop.sh
 ```
 
-### 9.3. Using with Docker Compose Profiles
+For the consumer doctor and endpoint checks in CI, see
+[Reusing Atlas §6.1.4](reusing-atlas.md#614-preflight-and-ci-gates).
 
-Optimize which services start based on your needs:
+### 9.3. Selecting services with `*_SOURCE`
 
-```bash
-# In infra/.env, choose your LLM upstreams. LiteLLM is always-on; you only
-# pick what it forwards to.
-LLM_PROVIDER_SOURCE=ollama-container-cpu  # or 'none' for no Ollama upstream
-CLOUD_OPENAI_SOURCE=disabled
-CLOUD_ANTHROPIC_SOURCE=disabled
-CLOUD_OPENROUTER_SOURCE=disabled
+Each service's `*_SOURCE` value selects how it runs or disables it. Set the
+values in the manifest's `env.values`:
 
-# Disable unused services
-COMFYUI_SOURCE=disabled
-DOC_PROCESSOR_SOURCE=disabled
+```yaml
+# atlas.consumer.yml
+env:
+  values:
+    # LiteLLM is always on; choose what it forwards to.
+    LLM_PROVIDER_SOURCE: ollama-container-cpu  # or 'none' for no Ollama upstream
+    CLOUD_OPENAI_SOURCE: disabled
+    CLOUD_ANTHROPIC_SOURCE: disabled
+    CLOUD_OPENROUTER_SOURCE: disabled
+    # Disable unused services
+    COMFYUI_SOURCE: disabled
+    DOC_PROCESSOR_SOURCE: disabled
 ```
+
+For every service and value, see [Source Configuration](source-configuration.md).
 
 ## 10. Best Practices
 
-1. **Pin Submodule Versions**: In production, lock to specific tested commits or tags
-   ```bash
-   cd infra
-   git checkout <commit-hash-or-tag>
-   cd ..
-   git add infra
-   git commit -m "Lock infrastructure to tested version"
-   ```
+1. **Pin Submodule Versions**: Pin to a tested tag or reviewed `main` commit (§2.1, §8.3).
 
-2. **Document Your Configuration**: Add README in parent project explaining infra setup
+2. **Document Your Configuration**: Add a README in the parent project that explains the infra setup.
 
-3. **Backup Your .env**: Keep template with comments for new team members
-   Commit the non-secret settings in the parent repo, not a copy of
-   `infra/.env`: the parent cannot add files inside the submodule, and
-   `infra/.env` carries generated secrets. The recommended place is the
-   `env.values` block of your `atlas.consumer.yml` ([Reusing Atlas §6](reusing-atlas.md)),
+3. **Commit Settings, Not .env**: Commit the non-secret settings in the parent
+   repository, not a copy of `infra/.env`. The parent cannot add files inside
+   the submodule, and `infra/.env` holds generated secrets. Put them in the
+   `env.values` block of `atlas.consumer.yml`
+   ([Consumer Manifest Reference §3](../reference/consumer-manifest.md#3-env)),
    which Atlas re-applies on every start.
 
-4. **Use PROJECT_NAME Consistently**: Match your project name across all configurations
+4. **Use PROJECT_NAME Consistently**: Use the same project name in the manifest, the parent Compose network name and your scripts.
 
-5. **Test Updates in Branches**: Before updating submodule, test in a branch
+5. **Test Updates in Branches**: Move the pin on a branch and test before merging:
    ```bash
    git checkout -b update-infra
-   cd infra && git pull origin main && cd ..
+   git -C infra fetch --tags origin
+   git -C infra checkout <tag-or-reviewed-main-sha>
    # Test everything
    git add infra
-   git commit -m "Update infrastructure"
+   git commit -m "infra: bump Atlas to <tag-or-sha>"
    ```
 
 ## 11. Additional Resources
 
-- [Main atlas README](https://github.com/thekaveh/atlas/blob/main/README.md)
+- [Reusing Atlas as Infrastructure](reusing-atlas.md)
 - [Source Configuration](source-configuration.md)
 - [Git Submodules Documentation](https://git-scm.com/book/en/v2/Git-Tools-Submodules)
-
-## 12. Getting Help
-
-If you encounter issues:
-
-1. Check the [troubleshooting section](#8-troubleshooting) above
-2. Review container logs: `docker compose -p <PROJECT_NAME> logs` from `infra/`, or `docker logs <PROJECT_NAME>-<service>` (a bare `docker compose logs` in `infra/` uses the folder name, `infra`, as the project)
-3. Check the main README and other documentation in `docs/`
-
----
-
-*This guide is part of the Atlas documentation. For updates and improvements, please contribute back to the project!*
+- Container logs: run `docker compose -p <PROJECT_NAME> logs` from `infra/`, or `docker logs <PROJECT_NAME>-<service>`. A bare `docker compose logs` in `infra/` uses the folder name, `infra`, as the project.

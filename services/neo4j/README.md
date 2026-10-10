@@ -20,6 +20,8 @@ The Neo4j service provides:
 
 After running `./start.sh --setup-hosts`, the Kong browser alias is `http://graph.localhost:${KONG_HTTP_PORT}` whenever the selected Neo4j source is enabled.
 
+In container mode, the Browser pre-fills the in-network address `neo4j://neo4j-graph-db:7687`. From the host, change it to `bolt://localhost:${GRAPH_DB_PORT}`.
+
 ## 3. Default Credentials
 
 - **Username**: `${GRAPH_DB_USER}` (default: `neo4j`)
@@ -27,7 +29,9 @@ After running `./start.sh --setup-hosts`, the Kong browser alias is `http://grap
 
 ## 4. Container-mode backup and restore
 
-These commands and paths apply only to `NEO4J_GRAPH_DB_SOURCE=container`. In `localhost` mode, use the backup and restore procedures of the host-managed Neo4j installation. Neo4j Community has no online dump, and inside the container the server is the main process, so every dump or load runs against the stopped database volume. Restore from the latest legacy snapshot is automatic at container startup; backup creation is never scheduled automatically.
+These commands and paths apply only to `NEO4J_GRAPH_DB_SOURCE=container`. In `localhost` mode, use the backup and restore procedures of the host-managed Neo4j installation. Neo4j Community has no online dump, and the server is the container's main process. Every dump or load therefore runs against the stopped database volume. At startup, an empty `neo4j` database is restored automatically from the newest legacy snapshot. Atlas never schedules backups.
+
+Run the `docker compose` commands from the repository root. If the checkout directory name is not `PROJECT_NAME` (default `atlas`), add `-p "$PROJECT_NAME"` to each command.
 
 ### 4.1. Manual Backup
 
@@ -42,7 +46,9 @@ docker compose start neo4j-graph-db
 
 `backup.sh` refuses to run (exit 75) inside the running container: stopping the server there stops the container before the dump starts.
 
-The legacy backup is stored in the `${PROJECT_NAME}-neo4j-backups` named volume mounted at `/snapshot`. Images created before the coordinated workflow may also contain the legacy repository bind path `build/snapshot`; Atlas leaves that path and its files operator-accessible rather than deleting or silently migrating them. Import a legacy dump manually after verifying its origin and exact Neo4j compatibility. For coordinated Atlas backups, use `services/backup/run-consistent-backup.sh`; it preserves the initial running state, dumps both `system` and `neo4j` with the exact 5.26.31 image, and publishes signed metadata with the other database artifacts.
+Legacy dumps go to the `${PROJECT_NAME}-neo4j-backups` volume at `/snapshot`. Checkouts that ran Neo4j before this volume existed may still hold dumps in `services/neo4j/build/snapshot/`. Atlas does not move or delete them. Check a dump's origin and Neo4j version before you load it by hand.
+
+For coordinated backups, use `services/backup/run-consistent-backup.sh`. It dumps `system` and `neo4j` with the exact 5.26.31 image and writes signed metadata with the other database artifacts. It leaves Neo4j running or stopped, as it found it.
 
 ### 4.2. Manual Restore
 
@@ -61,20 +67,14 @@ For coordinated restores of the signed `system` + `neo4j` artifacts, use `servic
 
 - **Automatic restoration at startup** is enabled by default
 - When the container starts with an empty `neo4j` database (a fresh data volume), it restores the latest `/snapshot/backup_*.dump` if one exists. `./stop.sh --cold` also removes the snapshot volume, so nothing is left to restore after it; copy dumps you want to keep out first
-- A load that fails (automatic or `restore.sh`) leaves a `/data/.atlas-restore-incomplete` marker, so the next start retries the load (with `--overwrite-destination`) instead of booting the partially loaded store. If no `backup_*.dump` is left to retry with, the container refuses to start until you put one back or delete the marker
+- A failed load (automatic or `restore.sh`) leaves `/data/.atlas-restore-incomplete`. The next start then retries the load with `--overwrite-destination`. If no `backup_*.dump` is left, the container does not start: add a dump or delete the marker
 - A populated database is never overwritten at startup; to roll a live database back to a snapshot, use the offline `restore.sh` (§4.2)
-- To disable automatic restore, remove the `auto_restore.sh` `COPY` and the `RUN chmod` after it from `build/Dockerfile` and rebuild; the entrypoint then logs that automatic restore is disabled and starts normally
+- To turn off automatic restore, delete the `auto_restore.sh` `COPY` and its `RUN chmod` from `build/Dockerfile`, then rebuild. The entrypoint then logs that automatic restore is disabled and starts normally
 
 ### 4.4. Important Backup Notes
 
-- Data persists in the Docker volume between restarts. The automatic restore
-  (§4.3) runs only when the `neo4j` database is empty, so an existing
-  `/snapshot/backup_*.dump` does not roll back a live volume on reboot
-- Backups are FULL dumps (`neo4j-admin database dump`) taken while the
-  service is stopped; restart it yourself with `docker compose start`.
-  Coordinated backups (`services/backup/run-consistent-backup.sh`) write
-  `/snapshot/<timestamp>/neo4j.dump`, which the automatic restore ignores
-- Backup files are timestamped for easy identification
+- Backups are full offline dumps (`neo4j-admin database dump`). Restart the service yourself with `docker compose start`.
+- Coordinated backups write `/snapshot/<timestamp>/neo4j.dump`. Automatic restore ignores them.
 
 ## 5. Container-mode data persistence
 
@@ -100,24 +100,26 @@ GRAPH_DB_DASHBOARD_PORT=63024  # Browser interface and HTTP API (mapped to 7474)
 
 # Container resources
 NEO4J_MEMORY_LIMIT=2g          # Compose memory limit for the container
+NEO4J_CPU_LIMIT=1.5            # Compose CPU limit for the container
 ```
 
-The compose fragment also loads the APOC core plugin (`NEO4J_PLUGINS=["apoc"]`,
-installed at start from the jar the image ships in `labs/`, no download) and
-allows `apoc.*`; LLM Graph Builder depends on it. In container mode the image
-accepts only the `neo4j` admin user, so `GRAPH_DB_USER` matters only for a
-host-run Neo4j (`NEO4J_GRAPH_DB_SOURCE=localhost`). The Browser on the
-published port pre-fills `neo4j://neo4j-graph-db:7687` (the in-network
-advertised address); change it to `bolt://localhost:${GRAPH_DB_PORT}`.
+The compose fragment loads APOC core (`NEO4J_PLUGINS=["apoc"]`, from the image's `labs/` jar, no download) and allows `apoc.*`. LLM Graph Builder needs it. The container accepts only the `neo4j` admin user, so `GRAPH_DB_USER` matters only in `localhost` mode.
 
 ## 7. Usage Examples
 
 ### 7.1. Connect via Cypher Shell (container mode)
-```bash
-# Connect using Docker
-docker exec -it ${PROJECT_NAME}-neo4j-graph-db cypher-shell -u neo4j -p ${GRAPH_DB_PASSWORD}
 
-# Sample queries
+Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`). The command reads the credentials from the container's `NEO4J_AUTH`, so the password does not appear in a process argument list.
+
+```bash
+export PROJECT_NAME=atlas
+docker exec -it ${PROJECT_NAME}-neo4j-graph-db sh -c \
+  'NEO4J_USERNAME="${NEO4J_AUTH%%/*}" NEO4J_PASSWORD="${NEO4J_AUTH#*/}" cypher-shell'
+```
+
+Sample queries:
+
+```cypher
 MATCH (n) RETURN count(n);  // Count all nodes
 MATCH (n) DETACH DELETE n;  // Clear all data (use with caution)
 ```
@@ -135,7 +137,7 @@ bolt_port = (
 )
 driver = GraphDatabase.driver(
     f"bolt://localhost:{bolt_port}",
-    auth=("neo4j", "your_password")
+    auth=("neo4j", os.environ["GRAPH_DB_PASSWORD"])
 )
 
 with driver.session() as session:
@@ -148,16 +150,15 @@ driver.close()
 ### 7.3. Basic Graph Operations
 ```cypher
 // Create nodes
-CREATE (p:Person {name: 'Alice', age: 30})
-CREATE (p:Person {name: 'Bob', age: 25})
+CREATE (:Person {name: 'Alice', age: 30}), (:Person {name: 'Bob', age: 25});
 
-// Create relationships
+// Create a relationship
 MATCH (a:Person {name: 'Alice'}), (b:Person {name: 'Bob'})
-CREATE (a)-[:KNOWS]->(b)
+CREATE (a)-[:KNOWS]->(b);
 
 // Query relationships
 MATCH (p:Person)-[:KNOWS]->(friend:Person)
-RETURN p.name, friend.name
+RETURN p.name, friend.name;
 ```
 
 ## 8. LightRAG graph store
@@ -166,23 +167,11 @@ When `LIGHTRAG_SOURCE != disabled` AND `NEO4J_GRAPH_DB_SOURCE != disabled`, `lig
 
 ### 8.1. Graphiti backend-only experiment
 
-The backend declares a disabled Graphiti temporal graph memory experiment with `GRAPHITI_ENABLED=false`. No `graphiti` service, init companion, port, Kong alias, SOURCE value, or setup-wizard step exists yet; Neo4j remains the shared graph database container. If the backend later writes Graphiti episodes, it must use the strict `group_id` shape `atlas:<project>:backend:<namespace>:user:<uuid>` so Graphiti data stays isolated from LightRAG, Neo4j LLM Graph Builder, Hermes, OpenClaw, and ad-hoc Cypher users.
+The backend declares a disabled Graphiti temporal graph memory experiment with `GRAPHITI_ENABLED=false`. No `graphiti` service, init companion, port, Kong alias, SOURCE value, or setup-wizard step exists yet; Neo4j remains the shared graph database container. Graphiti episodes written by the backend must use the `group_id` shape `atlas:<project>:backend:<namespace>:user:<uuid>`. This keeps Graphiti data apart from LightRAG, LLM Graph Builder, Hermes, OpenClaw and ad-hoc Cypher users.
 
 ## 9. Integration with Other Services
 
-### 9.1. Backend API
-The FastAPI backend does not connect to Neo4j today. `NEO4J_*` is injected for planned graph endpoints, but no Backend code opens a Bolt connection (see the [integration claims ledger](../../docs/maintenance/integration-claims-ledger.md), #1054). Planned uses:
-- Storing user relationships
-- Knowledge graph operations
-- Recommendation systems
-- Complex relationship queries
-
-### 9.2. n8n Workflows
-Neo4j can be integrated into workflows for:
-- Graph-based data processing
-- Relationship analysis
-- Network analysis workflows
-- Data enrichment with graph context
+Current Bolt clients are LightRAG (§8), LLM Graph Builder, JupyterHub, mcp-servers and the backup orchestrator (§13.2). Airflow seeds a `neo4j_default` Connection, and only operator-authored DAGs use it. The Backend receives `NEO4J_*` for planned graph endpoints but opens no Bolt connection (see `docs/maintenance/integration-claims-ledger.md`). n8n has no Neo4j wiring yet (§13.4).
 
 ## 10. Performance Tuning
 
@@ -211,10 +200,11 @@ services:
 docker logs ${PROJECT_NAME}-neo4j-graph-db -f
 
 # Test HTTP endpoint
-curl http://localhost:63024/
+curl http://localhost:${GRAPH_DB_DASHBOARD_PORT}/
 
-# Check Bolt connection
-docker exec ${PROJECT_NAME}-neo4j-graph-db cypher-shell -u neo4j -p "$GRAPH_DB_PASSWORD" "RETURN 'Connection OK'"
+# Check Bolt connection (credentials from the container's NEO4J_AUTH)
+docker exec ${PROJECT_NAME}-neo4j-graph-db sh -c \
+  'NEO4J_USERNAME="${NEO4J_AUTH%%/*}" NEO4J_PASSWORD="${NEO4J_AUTH#*/}" cypher-shell "RETURN 1 AS ok"'
 ```
 
 ### 11.2. Database Statistics
@@ -237,8 +227,6 @@ MATCH (n) DETACH DELETE n
 // Remove specific node types
 MATCH (p:Person) DETACH DELETE p
 
-// Remove orphaned relationships
-MATCH ()-[r]-() WHERE startNode(r) IS NULL OR endNode(r) IS NULL DELETE r
 ```
 
 ## 12. Further Reading
@@ -262,7 +250,7 @@ _Rows marked planned are documented or intended, not wired yet._
 |---|---|---|
 | backup | infra | current |
 | kong | infra | current |
-| airflow | agents | current |
+| airflow | agents | optional: an operator-authored DAG; airflow-init only seeds the Connection |
 | lightrag | agents | current |
 | mcp-servers | agents | current |
 | backend | apps | planned |
@@ -285,12 +273,12 @@ _Rows marked planned are documented or intended, not wired yet._
 
 ### 13.5. Future — Candidate new services
 
-- **Graphiti (Zep)** ([details](../../docs/research/candidates/graphiti.md)) — *Headline:* temporal knowledge-graph framework for agent memory, built on Neo4j. *Wires into:* hermes, backend, n8n, local-deep-researcher.
-- **NeoDash** ([details](../../docs/research/candidates/neodash.md)) — *Headline:* low-code Cypher dashboards over the existing Neo4j instance, no extra database. *Wires into:* kong (route at `dash.localhost`), backend.
+- **Graphiti (Zep)** (`docs/research/candidates/graphiti.md`) — *Headline:* temporal knowledge-graph framework for agent memory, built on Neo4j. *Wires into:* hermes, backend, n8n, local-deep-researcher.
+- **NeoDash** (`docs/research/candidates/neodash.md`) — *Headline:* low-code Cypher dashboards over the existing Neo4j instance, no extra database. *Wires into:* kong (route at `dash.localhost`), backend.
 
 ### 13.6. Future — Unused features in this service
 
-- **Native vector index (HNSW)** — *Why pursue:* Neo4j 5 ships an HNSW vector index, letting us store embeddings on graph nodes and combine ANN search with graph traversal in one DB. *Effort:* small.
+- **Native vector index (HNSW)** — *Why pursue:* Neo4j 5 ships an HNSW vector index. Embeddings could live on graph nodes, and one query could combine ANN search with graph traversal. *Effort:* small.
 - **GenAI plugin (`genai.vector.encode*`)** — *Why pursue:* embed text directly inside Cypher via OpenAI/Vertex/Bedrock — wire it to LiteLLM and ingestion becomes one query. *Effort:* small.
 - **APOC extended** — *Why pursue:* APOC core is loaded (`NEO4J_PLUGINS=["apoc"]` from the image's `labs/` jar); the extended library would add more JSON/HTTP, import and LLM procedures. *Effort:* small.
 - **Neosemantics (n10s)** — *Why pursue:* RDF/ontology import/export bridges Neo4j with external semantic-web sources (Wikidata, schema.org). *Effort:* medium.
@@ -300,10 +288,10 @@ _Rows marked planned are documented or intended, not wired yet._
 
 ### 14.1. Common Issues
 
-**Container won't start**: Check memory allocation and port conflicts
-**Authentication failures**: Verify `GRAPH_DB_PASSWORD` (and `GRAPH_DB_AUTH`) in `.env`. Each start sets `GRAPH_DB_AUTH` to `GRAPH_DB_USER/GRAPH_DB_PASSWORD` while no Neo4j data volume exists. Once one exists, Neo4j has already applied its first-boot password, so a mismatch only prints a warning: change the password in `cypher-shell` (`ALTER CURRENT USER SET PASSWORD ...`), then set both values to match (#1368)
-**Connection refused**: Ensure ports are not blocked by firewall
-**Out of memory errors**: Increase heap size or reduce dataset size
+- **Container won't start:** check memory allocation and port conflicts.
+- **Authentication failures:** check `GRAPH_DB_PASSWORD` and `GRAPH_DB_AUTH` in `.env`. Before the Neo4j data volume exists, each start sets `GRAPH_DB_AUTH` to `GRAPH_DB_USER/GRAPH_DB_PASSWORD`. After that, Neo4j keeps its first-boot password, and a mismatch only prints a warning. To fix it, run `ALTER CURRENT USER SET PASSWORD ...` in `cypher-shell`, then set both values to match.
+- **Connection refused:** check that a firewall does not block the ports.
+- **Out of memory errors:** raise `NEO4J_MEMORY_LIMIT`, or pin heap and page cache with a Compose override (§10.1).
 
 ### 14.2. Debug Commands
 ```bash
@@ -318,26 +306,32 @@ docker exec ${PROJECT_NAME}-neo4j-graph-db cat /var/lib/neo4j/conf/neo4j.conf
 ```
 
 ### 14.3. Recovery Procedures
-```bash
-# If database is corrupted, restore the newest legacy snapshot (offline, §4.2)
-docker compose stop neo4j-graph-db
-docker compose run --rm --no-deps --entrypoint /usr/local/bin/restore.sh neo4j-graph-db
-docker compose start neo4j-graph-db
-# Coordinated signed backups restore with services/backup/run-database-restore.sh
 
-# If backup is corrupted, reinitialize (data loss)
+If the database is corrupted, restore the newest legacy snapshot offline with the §4.2 commands. Coordinated signed backups restore with `services/backup/run-database-restore.sh`.
+
+If the newest backup is corrupted, reinitialize the database. This deletes all graph data. Automatic restore loads the newest `/snapshot/backup_*.dump` into any empty database, so rename the corrupted dump first. If an older `backup_*.dump` remains, the new database loads that one; rename every dump to start empty.
+
+```bash
+# 1. List the dumps.
+docker compose run --rm --no-deps --entrypoint ls neo4j-graph-db -l /snapshot
+# 2. Rename the corrupted dump so automatic restore skips it.
+docker compose run --rm --no-deps --entrypoint mv neo4j-graph-db \
+  /snapshot/backup_<timestamp>.dump /snapshot/corrupt_<timestamp>.dump
+# 3. Remove the container, then the data volume (Docker refuses while a container uses it).
+docker compose rm -sf neo4j-graph-db
 docker volume rm ${PROJECT_NAME}-graph-db-data
-docker compose up neo4j-graph-db
+# 4. Start Neo4j on a new, empty volume.
+docker compose up -d neo4j-graph-db
 ```
 
-For more troubleshooting help, see [../quick-start/troubleshooting.md](../../docs/quick-start/troubleshooting.md).
+For more troubleshooting help, see the [troubleshooting guide](../../docs/quick-start/troubleshooting.md).
 
 ## 15. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Container and host graph storage | supported | tested | Atlas supports a persistent Neo4j container or an operator-run localhost endpoint and wires Bolt consumers through the selected source. |
-| Snapshot backup and restore | supported | tested | The backup orchestrator records whether Neo4j Community 5.26.31 is running, stops it for bounded system and neo4j database dumps, restores the prior running state on success or failure, and provides an authenticated offline load path. |
+| Snapshot backup and restore | supported | tested | The backup orchestrator records whether Neo4j Community 5.26.31 is running and stops it for bounded system and neo4j database dumps. It restores the prior running state on success or failure, and provides an authenticated offline load path. |
 | Production access isolation | partial | documented | Password authentication is configured, but direct Bolt and Browser ports are plaintext and Atlas does not provision separate least-privilege service roles. |

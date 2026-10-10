@@ -132,13 +132,13 @@ def test_every_manifest_declares_a_support_tier_and_promotions_cite_release_evid
 def test_readme_capability_section_states_the_support_tier() -> None:
     rows = (CapabilityRow("speaches", "TTS", "partial", "tested", "needs model download"),)
     support = (
-        SupportLine("speaches", "experimental", "Contract declared (#967); no cold-cache run", "v0.1.0", ("Preload list empty",)),
+        SupportLine("speaches", "experimental", "Contract declared; no cold-cache run", "v0.1.0", ("Preload list empty",)),
     )
 
     singleton = render_capabilities_section(rows, position=7, aggregate=False, support=support)
     aggregate = render_capabilities_section(rows, position=7, aggregate=True, support=support)
 
-    assert "Support tier: **experimental** — Contract declared (#967); no cold-cache run (evidence at `v0.1.0`)." in singleton
+    assert "Support tier: **experimental** — Contract declared; no cold-cache run (evidence at `v0.1.0`)." in singleton
     assert "  - Limitation: Preload list empty" in singleton
     assert singleton.index("Support tier") < singleton.index("| Capability |")
     assert "`speaches` — Support tier: **experimental**" in aggregate
