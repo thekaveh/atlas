@@ -568,7 +568,7 @@ def static_pages(model: DocsModel) -> dict[Path, str]:
       </div>
     </div>
     <figure class="atlas-home__media">
-      <img src="{_asset_href(home, docs, model.poster_image)}" alt="Atlas platform poster">
+      <img src="{_asset_href(home, docs, model.poster_image)}" alt="Atlas poster: a blue wireframe Titan holds a glowing gold globe above the ATLAS-PLATFORM wordmark, on a dark starfield">
     </figure>
   </section>
 </div>
@@ -860,7 +860,11 @@ uv run --project bootstrapper python scripts/check-track-membership.py
 - [Manifest fields](manifest-fields.md)
 - [Supply-chain license inventory](license-inventory.md)
 
-## 2. Category Summary
+## 2. Hand-written References
+
+- [Consumer manifest](consumer-manifest.md)
+
+## 3. Category Summary
 
 """
         + table(["Category", "Count", "Services"], category_rows),

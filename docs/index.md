@@ -6,7 +6,7 @@
   <section class="atlas-home__hero">
     <div class="atlas-home__copy">
       <p class="atlas-kicker">A self-hosted, pre-integrated gen-AI, ML, and data platform — one Docker Compose stack</p>
-      <p>Chat, RAG, agents, distributed compute, and a full data platform — source-configurable services wired together out of the box and selectable among the deployment modes each supports.</p>
+      <p>Chat, RAG, agents, distributed compute, and a full data platform — integrated services, each selectable among the deployment modes it supports.</p>
       <p>Atlas is a self-hosted engineering platform that bundles 58 service families behind a Kong gateway and an adaptive FastAPI backend. They cover LLM inference and a gateway, vector and graph databases, workflow and DAG automation, distributed compute, object storage, notebooks, and observability.</p>
       <p>Seven tracks preselect coherent service families, while SOURCE modes choose container, localhost, or disabled operation where supported. Kong, Supabase, Redis, LiteLLM, and the Backend API form the always-on core, so every selected workload starts from the same integrated foundation.</p>
       <p>The launch wizard also offers the dev or prod profiles, then shows the launch summary.</p>
@@ -17,7 +17,7 @@
       </div>
     </div>
     <figure class="atlas-home__media">
-      <img src="assets/atlas-poster-blue.png" alt="Atlas platform poster">
+      <img src="assets/atlas-poster-blue.png" alt="Atlas poster: a blue wireframe Titan holds a glowing gold globe above the ATLAS-PLATFORM wordmark, on a dark starfield">
     </figure>
   </section>
 </div>
@@ -149,5 +149,7 @@ Per-flow diagrams (data/RAG, LLM provider routing, observability, security bound
 ## 5. Setup Surface
 
 <div class="atlas-screenshot">
-  <img src="screenshots/wizard-running.png" alt="Atlas setup wizard running the launch phase">
+  <img src="screenshots/wizard-running.png" alt="Terminal screenshot of the setup wizard during a launch: a 36-service overview above a live Docker log pane">
 </div>
+
+<p class="atlas-home__caption">The setup wizard during a live <code>./start.sh</code> launch of Atlas v0.1.0 on 2026-06-19. Its overview lists 36 services, 34 of them enabled, on base port 64075. Ollama and ComfyUI use host (<code>localhost</code>) sources, and the cloud APIs are off. The capture does not record the host hardware.</p>

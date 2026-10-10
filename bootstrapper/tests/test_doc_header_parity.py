@@ -13,8 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CANONICAL_TAGLINE = "A self-hosted, pre-integrated gen-AI, ML, and data platform — one Docker Compose stack"
 CANONICAL_SUBTITLE = (
     "Chat, RAG, agents, distributed compute, and a full data platform — "
-    "source-configurable services wired together out of the box and selectable "
-    "among the deployment modes each supports."
+    "integrated services, each selectable among the deployment modes it supports."
 )
 # A service family is a services/*/service.yml owner, the unit docs/index.md
 # also counts (test_docs_landing_grounding). Deriving it keeps the hero true.
